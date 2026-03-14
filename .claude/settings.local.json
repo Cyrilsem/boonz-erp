@@ -9,7 +9,9 @@
       "Bash(npm install @supabase/supabase-js @supabase/ssr)",
       "Bash(npm install -D @types/node)",
       "Bash(npx tsc --noEmit)",
-      "Bash(npx next build)"
+      "Bash(npx next build)",
+      "Bash(mkdir -p \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/trips\")",
+      "Bash(mkdir -p \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/trips/[machineId]\")"
     ]
   }
 }

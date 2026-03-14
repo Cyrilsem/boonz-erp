@@ -115,7 +115,7 @@ Full activity lists and acceptance criteria are in `docs/boonz_erp_phases.docx`.
 
 | Phase | Name | Status | Est. duration |
 |-------|------|--------|--------------|
-| **1** | Foundation — Auth, roles, DB shell, CI/CD | 🔄 In progress (P1-S1–S4 ✅, P1-S5–S8 🔲) | 2–3 weeks |
+| **1** | Foundation — Auth, roles, DB shell, CI/CD | ✅ Complete | 2–3 weeks |
 | **2** | Field Staff PWA — Driver + Warehouse (AppSheet replacement) | 🔲 Not started | 4–6 weeks |
 | **3** | Management ERP — 9-module internal platform | 🔲 Not started | 6–8 weeks |
 | **4** | Agent Core — Telegram bot + tool definitions | 🔲 Not started | 3–4 weeks |
@@ -160,19 +160,42 @@ Full activity lists and acceptance criteria are in `docs/boonz_erp_phases.docx`.
 - `npx next build` ✅ exit 0 · `npx tsc --noEmit` ✅ exit 0
 - Known: deprecation warning `"middleware" file convention is deprecated` emitted by Next.js 15 — does not affect functionality, safe to ignore
 
+#### P1-S5 — Login page ✅
+- `src/app/(auth)/login/page.tsx` — server wrapper with Suspense boundary
+- `src/app/(auth)/login/login-form.tsx` — `'use client'` form
+- Email + password sign-in via `supabase.auth.signInWithPassword()`
+- Inline error display below form (not toast)
+- Forgot password via `resetPasswordForEmail()`
+- On success: `router.push('/app')` — middleware handles role redirect
+- `npx next build` ✅ · `npx tsc --noEmit` ✅
+
+#### P1-S6 — Management sidebar ✅
+- `src/app/(app)/layout.tsx` — server component, fetches role from `user_profiles`
+- `src/app/(app)/sidebar-nav.tsx` — `'use client'` collapsible sidebar
+- 9 nav items: Dashboard, Pods, Refill & Dispatch, Products, Inventory, Financials, Suppliers, Consumers, Settings
+- Role filtering: finance hides Pods/Refill/Consumers · manager hides Settings
+- Active route highlighted via `usePathname()`
+- Collapses to icon-only below 768px
+- `npx next build` ✅ · `npx tsc --noEmit` ✅
+
+#### P1-S7 — Field bottom nav ✅
+- `src/app/(field)/layout.tsx` — renders children above tab bar
+- `src/app/(field)/bottom-tabs.tsx` — `'use client'` fixed bottom tab bar
+- 4 tabs: Trips, Pods, Inventory, Profile
+- Minimum 44px height, active tab highlighted via `usePathname()`
+- Client-side navigation via Next.js `Link` (works offline)
+- `npx next build` ✅ · `npx tsc --noEmit` ✅
+
 ### Pending
 
-#### P1-S5 — Login page 🔲
-`src/app/(auth)/login/page.tsx` — email + password, inline errors, forgot password
+#### P1-S8 — CI/CD ✅
+- GitHub repo: `boonz-erp` private, `main` + `dev` branches
+- Vercel: live at `boonz-yk7fo2632-cyril-semaans-projects.vercel.app`
+- Env vars: `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Production + Preview), `SUPABASE_SERVICE_ROLE_KEY` (Production only)
+- Branch ruleset `main` created (enforcement: disabled until team grows)
+- End-to-end login verified: `cyrilsem@gmail.com` → `operator_admin` → `/app` ✅
 
-#### P1-S6 — Management sidebar 🔲
-`src/app/(app)/layout.tsx` — collapsible sidebar, role-filtered nav items
-
-#### P1-S7 — Field bottom nav 🔲
-`src/app/(field)/layout.tsx` — fixed bottom tab bar, 4 tabs, 44px touch targets
-
-#### P1-S8 — CI/CD 🔲
-GitHub repo (private) + Vercel auto-deploy + branch protection
+### Phase 1 — Complete ✅
 
 ---
 
