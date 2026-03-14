@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation'
+
 export default function FieldPage() {
-  return <div>Boonz — Field</div>
+  redirect('/field/field/trips')
 }
