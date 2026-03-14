@@ -1,3 +1,3 @@
-export default function Page() {
-  return <div>Boonz — Field placeholder</div>
+export default function FieldPage() {
+  return <div>Boonz — Field</div>
 }

@@ -1,3 +1,3 @@
-export default function Page() {
-  return <div>Boonz — App placeholder</div>
+export default function AppPage() {
+  return <div>Boonz — App</div>
 }

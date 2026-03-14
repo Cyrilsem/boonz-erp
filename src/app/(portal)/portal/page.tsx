@@ -1,3 +1,3 @@
-export default function Page() {
-  return <div>Boonz — Portal placeholder</div>
+export default function PortalPage() {
+  return <div>Boonz — Portal</div>
 }

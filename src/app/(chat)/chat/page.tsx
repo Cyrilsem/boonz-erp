@@ -1,3 +1,3 @@
-export default function Page() {
-  return <div>Boonz — Chat placeholder</div>
+export default function ChatPage() {
+  return <div>Boonz — Chat</div>
 }
