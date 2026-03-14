@@ -16,7 +16,8 @@
       "Bash(mkdir -p \"src/app/\\(field\\)/field\")",
       "Bash(mv \"src/app/\\(field\\)/packing\" \"src/app/\\(field\\)/field/packing\")",
       "Bash(mv \"src/app/\\(field\\)/pickup\" \"src/app/\\(field\\)/field/pickup\")",
-      "Bash(mv \"src/app/\\(field\\)/trips\" \"src/app/\\(field\\)/field/trips\")"
+      "Bash(mv \"src/app/\\(field\\)/trips\" \"src/app/\\(field\\)/field/trips\")",
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field/profile\")"
     ]
   }
 }

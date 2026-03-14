@@ -14,7 +14,7 @@ interface Tab {
 const fieldStaffTabs: Tab[] = [
   { label: 'Trips', href: '/field/trips', icon: '⊞' },
   { label: 'Pickup', href: '/field/pickup', icon: '◫' },
-  { label: 'Inventory', href: '/field/inventory', icon: '▤' },
+  { label: 'Dispatching', href: '/field/dispatching', icon: '▤' },
   { label: 'Profile', href: '/field/profile', icon: '⊙' },
 ]
 
