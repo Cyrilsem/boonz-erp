@@ -11,7 +11,12 @@
       "Bash(npx tsc --noEmit)",
       "Bash(npx next build)",
       "Bash(mkdir -p \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/trips\")",
-      "Bash(mkdir -p \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/trips/[machineId]\")"
+      "Bash(mkdir -p \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/trips/[machineId]\")",
+      "Bash(find \"src/app/\\(field\\)\" -type f)",
+      "Bash(mkdir -p \"src/app/\\(field\\)/field\")",
+      "Bash(mv \"src/app/\\(field\\)/packing\" \"src/app/\\(field\\)/field/packing\")",
+      "Bash(mv \"src/app/\\(field\\)/pickup\" \"src/app/\\(field\\)/field/pickup\")",
+      "Bash(mv \"src/app/\\(field\\)/trips\" \"src/app/\\(field\\)/field/trips\")"
     ]
   }
 }
