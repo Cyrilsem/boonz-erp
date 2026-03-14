@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
@@ -15,50 +15,66 @@ export default function PackingPage() {
   const [machines, setMachines] = useState<PackingMachine[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function fetchMachines() {
-      const supabase = createClient()
-      const today = new Date().toISOString().split('T')[0]
+  const fetchMachines = useCallback(async () => {
+    const supabase = createClient()
+    const today = new Date().toISOString().split('T')[0]
 
-      const { data: lines } = await supabase
-        .from('refill_dispatching')
-        .select('dispatch_id, machine_id, packed, machines!inner(official_name)')
-        .eq('dispatch_date', today)
-        .eq('include', true)
+    const { data: lines } = await supabase
+      .from('refill_dispatching')
+      .select('dispatch_id, machine_id, packed, machines!inner(official_name)')
+      .eq('dispatch_date', today)
+      .eq('include', true)
 
-      if (!lines || lines.length === 0) {
-        setMachines([])
-        setLoading(false)
-        return
-      }
-
-      const grouped = new Map<string, PackingMachine>()
-
-      for (const line of lines) {
-        const m = line.machines as unknown as { official_name: string }
-        const existing = grouped.get(line.machine_id)
-        if (existing) {
-          existing.sku_count += 1
-          if (line.packed) existing.packed_count += 1
-        } else {
-          grouped.set(line.machine_id, {
-            machine_id: line.machine_id,
-            official_name: m.official_name,
-            sku_count: 1,
-            packed_count: line.packed ? 1 : 0,
-          })
-        }
-      }
-
-      const sorted = Array.from(grouped.values()).sort((a, b) =>
-        a.official_name.localeCompare(b.official_name)
-      )
-      setMachines(sorted)
+    if (!lines || lines.length === 0) {
+      setMachines([])
       setLoading(false)
+      return
     }
 
-    fetchMachines()
+    const grouped = new Map<string, PackingMachine>()
+
+    for (const line of lines) {
+      const m = line.machines as unknown as { official_name: string }
+      const existing = grouped.get(line.machine_id)
+      if (existing) {
+        existing.sku_count += 1
+        if (line.packed) existing.packed_count += 1
+      } else {
+        grouped.set(line.machine_id, {
+          machine_id: line.machine_id,
+          official_name: m.official_name,
+          sku_count: 1,
+          packed_count: line.packed ? 1 : 0,
+        })
+      }
+    }
+
+    const sorted = Array.from(grouped.values()).sort((a, b) =>
+      a.official_name.localeCompare(b.official_name)
+    )
+    setMachines(sorted)
+    setLoading(false)
   }, [])
+
+  useEffect(() => {
+    fetchMachines()
+  }, [fetchMachines])
+
+  // Re-fetch when returning from detail page (visibility change)
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        fetchMachines()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    // Also re-fetch on window focus (covers back navigation)
+    window.addEventListener('focus', fetchMachines)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', fetchMachines)
+    }
+  }, [fetchMachines])
 
   if (loading) {
     return (

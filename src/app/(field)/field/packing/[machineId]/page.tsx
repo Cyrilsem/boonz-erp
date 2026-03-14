@@ -11,6 +11,7 @@ interface PackingLine {
   quantity: number
   packed: boolean
   warehouse_stock: number
+  comment: string
 }
 
 interface MachineInfo {
@@ -49,6 +50,7 @@ export default function PackingDetailPage() {
         machine_id,
         quantity,
         packed,
+        comment,
         boonz_product_id,
         shelf_id,
         shelf_configurations!inner(shelf_code),
@@ -94,6 +96,7 @@ export default function PackingDetailPage() {
         quantity: line.quantity ?? 0,
         packed: !!line.packed,
         warehouse_stock: stockMap.get(line.boonz_product_id ?? '') ?? 0,
+        comment: (line.comment as string) ?? '',
       }
     })
 
@@ -133,6 +136,22 @@ export default function PackingDetailPage() {
 
     setLines((prev) => prev.map((l) => ({ ...l, packed: true })))
     setMarkingAll(false)
+  }
+
+  function updateComment(dispatchId: string, value: string) {
+    setLines((prev) =>
+      prev.map((l) =>
+        l.dispatch_id === dispatchId ? { ...l, comment: value } : l
+      )
+    )
+  }
+
+  async function saveComment(dispatchId: string, value: string) {
+    const supabase = createClient()
+    await supabase
+      .from('refill_dispatching')
+      .update({ comment: value.trim() || null })
+      .eq('dispatch_id', dispatchId)
   }
 
   function stockColor(stock: number, planned: number): string {
@@ -212,6 +231,14 @@ export default function PackingDetailPage() {
                       {line.warehouse_stock} in stock
                     </span>
                   </p>
+                  <input
+                    type="text"
+                    value={line.comment}
+                    onChange={(e) => updateComment(line.dispatch_id, e.target.value)}
+                    onBlur={(e) => saveComment(line.dispatch_id, e.target.value)}
+                    placeholder="Add note…"
+                    className="mt-1 w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 placeholder:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
+                  />
                 </div>
               </li>
             ))}
