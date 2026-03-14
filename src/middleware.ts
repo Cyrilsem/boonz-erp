@@ -78,7 +78,7 @@ export async function middleware(request: NextRequest) {
 
   // Wrong surface → redirect to correct one
   if (fieldRoles.includes(role) && (onApp || onPortal || onChat)) {
-    const dest = role === 'warehouse' ? '/field/field/packing' : '/field/field/trips'
+    const dest = role === 'warehouse' ? '/field/packing' : '/field/trips'
     return NextResponse.redirect(new URL(dest, request.url))
   }
   if (portalRoles.includes(role) && (onApp || onField || onChat)) {
