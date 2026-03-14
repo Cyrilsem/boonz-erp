@@ -26,21 +26,28 @@ const warehouseTabs: Tab[] = [
 
 export default function BottomTabs() {
   const pathname = usePathname()
-  const [tabs, setTabs] = useState<Tab[]>(fieldStaffTabs)
+  const [tabs, setTabs] = useState<Tab[] | null>(null)
 
   useEffect(() => {
     async function fetchRole() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!user) {
+        console.log('[BottomTabs] No authenticated user, defaulting to field_staff nav')
+        setTabs(fieldStaffTabs)
+        return
+      }
 
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from('user_profiles')
         .select('role')
         .eq('id', user.id)
         .single()
 
-      if (profile?.role === 'warehouse') {
+      const role = profile?.role ?? 'field_staff'
+      console.log('[BottomTabs] Fetched role:', role, error ? `(error: ${error.message})` : '')
+
+      if (role === 'warehouse') {
         setTabs(warehouseTabs)
       } else {
         setTabs(fieldStaffTabs)
@@ -49,6 +56,12 @@ export default function BottomTabs() {
 
     fetchRole()
   }, [])
+
+  if (!tabs) {
+    return (
+      <nav className="fixed bottom-0 left-0 right-0 z-10 flex h-[44px] border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950" />
+    )
+  }
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-10 flex border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
