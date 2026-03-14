@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(test -f \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/.env\")",
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --yes)",
+      "Read(//private/tmp/**)",
+      "Bash(npx create-next-app@latest boonz-scaffold --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --no-turbopack --yes)",
+      "Bash(npm install)",
+      "Bash(npm install @supabase/supabase-js @supabase/ssr)",
+      "Bash(npm install -D @types/node)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx next build)"
+    ]
+  }
+}

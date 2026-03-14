@@ -1,0 +1,955 @@
+{
+  "project": {
+    "name": "Boonz ERP",
+    "description": "Smart vending operations platform for UAE — management ERP, field staff PWA, client portal, and agentic command layer",
+    "supabase_project_id": "eizcexopcuoycuosittm",
+    "supabase_url": "https://eizcexopcuoycuosittm.supabase.co",
+    "region": "ap-south-1",
+    "stack": {
+      "frontend": "Next.js 14 (App Router), TypeScript strict, Tailwind CSS",
+      "backend": "Supabase — Postgres + Auth + RLS + Realtime + Storage",
+      "automation": "n8n self-hosted VPS",
+      "engines": "Python 3.11 + FastAPI (same VPS as n8n)",
+      "intelligence": "Claude API claude-sonnet-4-20250514 with tool_use",
+      "mobile": "Capacitor Phase 2+"
+    },
+    "repo_structure": {
+      "app": "src/app/(app)/ — management ERP",
+      "field": "src/app/(field)/ — field staff PWA",
+      "portal": "src/app/(portal)/ — client portal",
+      "chat": "src/app/(chat)/ — agent GUI",
+      "engines": "engines/refill/, engines/sales/, engines/finance/",
+      "agent": "agent/tools/, agent/telegram_bot.py, agent/system_prompt.md",
+      "n8n": "n8n/flows/"
+    },
+    "currency": "AED",
+    "open_questions": [
+      { "id": "OQ-01", "question": "Actual company name for supplier SUP_012 — currently contact person name used as fallback" },
+      { "id": "OQ-02", "question": "How to populate machine_product_pricing initially — manual entry or script from sales_history price variance?" },
+      { "id": "OQ-03", "question": "Enrichment strategy for sales_history.boonz_product_id NULLs (10,332 rows)" },
+      { "id": "OQ-04", "question": "Backfill strategy for sales_history.machine_id NULLs (3,445 rows) — machine_name_aliases coverage unknown" },
+      { "id": "OQ-05", "question": "VPS hosting — n8n + FastAPI on same instance or separate?" },
+      { "id": "OQ-06", "question": "Which Telegram user IDs go in TELEGRAM_ALLOWED_USER_IDS whitelist?" },
+      { "id": "OQ-07", "question": "Default client alert thresholds — stock % and revenue floor — can differ per client" },
+      { "id": "OQ-08", "question": "22 Feb 2026 Adyen/POS reconciliation discrepancy — root cause investigation needed before Phase 3 sign-off" }
+    ]
+  },
+
+  "roles": {
+    "superadmin":     { "surface": "all",     "scope": "all operators" },
+    "operator_admin": { "surface": "app",      "scope": "their operator only" },
+    "manager":        { "surface": "app",      "scope": "all modules except billing + user config" },
+    "finance":        { "surface": "app",      "scope": "financials + procurement, read-only ops" },
+    "field_staff":    { "surface": "field",    "scope": "their trips, pod check-ins, refill confirmation" },
+    "warehouse":      { "surface": "field",    "scope": "receiving, dispatch, inventory, stock counts" },
+    "client":         { "surface": "portal",   "scope": "their machines only, read-only" }
+  },
+
+  "db_conventions": {
+    "note": "All table and column names below are exact Supabase Postgres names. Use these verbatim in queries.",
+    "price_lookup": "Always query machine_product_pricing first (filter is_active=true, machine_id, boonz_product_id). Fall back to product_pricing.default_price_aed if no row found. Use view v_current_price for UI queries.",
+    "sales_history": "Append-only table — never UPDATE or DELETE rows.",
+    "adyen_join": "Reconcile adyen_transactions to sales_history on: store (adyen) = machine mapping key + date + captured_amount_value = total_amount. Exclude rows where creation_date < 2026-02-06 (test transactions).",
+    "machine_id_nulls": "sales_history.machine_id is NULL for 3,445 rows due to renaming history. Resolve via machine_name_aliases (original_name → official_name → machines.machine_id). Do not write resolution logic into UI — it belongs in a data enrichment job.",
+    "product_id_nulls": "sales_history.boonz_product_id is NULL for 10,332 rows. Do not block UI features on this — show 'Unknown product' in UI where product_id is NULL.",
+    "idempotency": "All field staff writes must be idempotent. Use ON CONFLICT DO NOTHING or upsert with composite unique keys."
+  },
+
+  "phases": [
+    {
+      "id": "P1",
+      "name": "Foundation",
+      "summary": "Next.js scaffold, Supabase auth, 7-role system, route groups, CI/CD",
+      "duration_estimate": "2-3 weeks",
+      "status": "not_started",
+      "blocks": ["P2", "P3", "P4", "P5", "P6"],
+      "stories": [
+        {
+          "id": "P1-S1",
+          "title": "Scaffold Next.js 14 monorepo with 4 route groups",
+          "role": "developer",
+          "story": "As a developer, I want the Next.js app scaffolded with 4 route groups so that each surface (ERP, field, portal, chat) has isolated layouts and middleware.",
+          "tasks": [
+            "Run: npx create-next-app@latest boonz-erp --typescript --tailwind --eslint --app --src-dir --import-alias '@/*'",
+            "Create route group folders: src/app/(app)/, src/app/(field)/, src/app/(portal)/, src/app/(chat)/",
+            "Each group gets layout.tsx (empty shell) and page.tsx returning a placeholder <div>",
+            "Create src/app/(auth)/login/page.tsx as a placeholder",
+            "Add .gitignore entries: .env.local, .env*.local, node_modules/"
+          ],
+          "acceptance_criteria": [
+            "npx next build completes with 0 errors",
+            "Visiting / in browser renders without errors",
+            "4 route groups exist in src/app/"
+          ],
+          "files_to_create": [
+            "src/app/(app)/layout.tsx",
+            "src/app/(app)/page.tsx",
+            "src/app/(field)/layout.tsx",
+            "src/app/(field)/page.tsx",
+            "src/app/(portal)/layout.tsx",
+            "src/app/(portal)/page.tsx",
+            "src/app/(chat)/layout.tsx",
+            "src/app/(chat)/page.tsx",
+            "src/app/(auth)/login/page.tsx"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": "P1-S2",
+          "title": "Install Supabase client libraries and set up env vars",
+          "role": "developer",
+          "story": "As a developer, I want Supabase clients configured for browser and server so that components can query the DB without boilerplate.",
+          "tasks": [
+            "Run: npm install @supabase/supabase-js @supabase/ssr",
+            "Create .env.local with: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY",
+            "Create src/lib/supabase/client.ts — browser client using createBrowserClient from @supabase/ssr",
+            "Create src/lib/supabase/server.ts — server client using createServerClient with cookie handling",
+            "Create src/lib/supabase/middleware.ts — session refresh helper that calls supabase.auth.getUser()"
+          ],
+          "acceptance_criteria": [
+            "Import { createClient } from '@/lib/supabase/client' works in a client component",
+            "Import { createClient } from '@/lib/supabase/server' works in a server component",
+            "SUPABASE_SERVICE_ROLE_KEY is never imported in any file under src/app/ directly — only via server.ts or Edge Functions"
+          ],
+          "files_to_create": [
+            "src/lib/supabase/client.ts",
+            "src/lib/supabase/server.ts",
+            "src/lib/supabase/middleware.ts"
+          ],
+          "env_vars": [
+            "NEXT_PUBLIC_SUPABASE_URL=https://eizcexopcuoycuosittm.supabase.co",
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY=<from Supabase dashboard → Settings → API>",
+            "SUPABASE_SERVICE_ROLE_KEY=<from Supabase dashboard → Settings → API — never expose to client>"
+          ],
+          "dependencies": ["P1-S1"]
+        },
+        {
+          "id": "P1-S3",
+          "title": "Create user_profiles table with RLS",
+          "role": "developer",
+          "story": "As a developer, I want a user_profiles table linked to auth.users so that roles and operator/client scoping are stored and enforced at DB level.",
+          "tasks": [
+            "Apply migration: create user_profiles table (see sql below)",
+            "Enable RLS on user_profiles",
+            "Create policy 'users_own_profile': SELECT where auth.uid() = id",
+            "Create policy 'admins_manage_profiles': ALL where role IN ('superadmin','operator_admin') for the calling user",
+            "Create trigger: on INSERT to auth.users → insert a row into user_profiles with default role='field_staff'"
+          ],
+          "sql": "CREATE TABLE IF NOT EXISTS public.user_profiles (\n  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,\n  role text NOT NULL DEFAULT 'field_staff' CHECK (role IN ('superadmin','operator_admin','manager','finance','field_staff','warehouse','client')),\n  operator_id uuid,\n  client_id uuid,\n  full_name text,\n  telegram_user_id text,\n  created_at timestamptz DEFAULT now(),\n  updated_at timestamptz DEFAULT now()\n);\nALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;\nCREATE POLICY \"users_own_profile\" ON public.user_profiles FOR SELECT USING (auth.uid() = id);\nCREATE POLICY \"admins_manage_profiles\" ON public.user_profiles FOR ALL USING (\n  EXISTS (SELECT 1 FROM public.user_profiles WHERE id = auth.uid() AND role IN ('superadmin','operator_admin'))\n);",
+          "acceptance_criteria": [
+            "user_profiles table exists with RLS enabled",
+            "A user with role='client' cannot SELECT rows where id != their own auth.uid()",
+            "A user with role='superadmin' can SELECT all rows",
+            "Migration committed to supabase/migrations/"
+          ],
+          "db_tables_touched": ["user_profiles"],
+          "dependencies": ["P1-S2"]
+        },
+        {
+          "id": "P1-S4",
+          "title": "Auth middleware — session refresh and role-based routing",
+          "role": "developer",
+          "story": "As a user, I want to be automatically redirected to my correct surface after login so I never land on a screen that isn't mine.",
+          "tasks": [
+            "Create src/middleware.ts at project root",
+            "On every request: call supabase.auth.getUser() to refresh session",
+            "If no session: redirect to /login (except /login itself)",
+            "After session confirmed: read user_profiles.role for the authenticated user",
+            "Redirect rules: field_staff → /field, warehouse → /field, client → /portal, all others → /app",
+            "Exclude from middleware: /login, /_next/, /favicon.ico, /api/ routes"
+          ],
+          "acceptance_criteria": [
+            "Unauthenticated request to /app redirects to /login",
+            "Authenticated field_staff user visiting /app is redirected to /field",
+            "Authenticated client user visiting /app is redirected to /portal",
+            "Authenticated manager visiting /field is redirected to /app"
+          ],
+          "files_to_create": ["src/middleware.ts"],
+          "dependencies": ["P1-S3"]
+        },
+        {
+          "id": "P1-S5",
+          "title": "Login page — email + password",
+          "role": "operator_admin",
+          "story": "As an operator admin, I want a login page so I can authenticate and access the ERP.",
+          "tasks": [
+            "Build src/app/(auth)/login/page.tsx as a client component",
+            "Email input + password input + submit button",
+            "On submit: call supabase.auth.signInWithPassword({ email, password })",
+            "On success: router.push('/app') — middleware then re-routes per role",
+            "On error: show inline error message below the form (not toast)",
+            "Add 'Forgot password?' link that calls supabase.auth.resetPasswordForEmail(email)",
+            "No OAuth / social login in Phase 1"
+          ],
+          "acceptance_criteria": [
+            "Valid credentials → user is redirected to their role-appropriate surface",
+            "Invalid credentials → inline error appears: 'Invalid email or password'",
+            "Forgot password link triggers Supabase reset email (verify in Supabase Auth logs)",
+            "Page renders correctly at 375px viewport width (no horizontal scroll)"
+          ],
+          "files_to_create": ["src/app/(auth)/login/page.tsx"],
+          "dependencies": ["P1-S4"]
+        },
+        {
+          "id": "P1-S6",
+          "title": "Management sidebar layout shell",
+          "role": "operator_admin",
+          "story": "As a manager, I want a sidebar navigation so I can move between ERP modules.",
+          "tasks": [
+            "Build src/app/(app)/layout.tsx with a collapsible sidebar",
+            "Nav items (all placeholders in P1): Dashboard, Pods, Refill & Dispatch, Products, Inventory, Financials, Suppliers, Consumers, Settings",
+            "Show/hide nav items based on role from user_profiles — finance role hides Pods, Refill, Consumers; manager hides Settings and Financials billing",
+            "Active route highlighted using usePathname()",
+            "Sidebar collapses to icon-only on mobile (< 768px)"
+          ],
+          "acceptance_criteria": [
+            "Sidebar renders with all 9 nav items for operator_admin",
+            "Finance role user does not see Pods, Refill & Dispatch, or Consumers nav items",
+            "Active route item is visually highlighted",
+            "Sidebar collapses to icons below 768px"
+          ],
+          "files_to_create": ["src/app/(app)/layout.tsx"],
+          "dependencies": ["P1-S4"]
+        },
+        {
+          "id": "P1-S7",
+          "title": "Field PWA bottom nav layout shell",
+          "role": "field_staff",
+          "story": "As a driver, I want a bottom navigation bar so I can switch between my trips, pods, and inventory views.",
+          "tasks": [
+            "Build src/app/(field)/layout.tsx with a fixed bottom tab bar",
+            "4 tabs: Trips, Pods, Inventory, Profile",
+            "Each tab is a link — active tab highlighted",
+            "All tab targets minimum 44px height (accessibility)",
+            "Navigation works without network (client-side routing only)"
+          ],
+          "acceptance_criteria": [
+            "Bottom nav renders with 4 tabs",
+            "Each tab target is at least 44px tall",
+            "Active tab is visually distinct",
+            "Switching tabs does not trigger a network request"
+          ],
+          "files_to_create": ["src/app/(field)/layout.tsx"],
+          "dependencies": ["P1-S4"]
+        },
+        {
+          "id": "P1-S8",
+          "title": "CI/CD — GitHub repo + Vercel auto-deploy",
+          "role": "developer",
+          "story": "As a developer, I want every push to main auto-deployed to Vercel so I never ship manually.",
+          "tasks": [
+            "Create GitHub repo: boonz-erp (private)",
+            "Connect repo to Vercel — auto-deploy main branch to production",
+            "Create dev branch — Vercel creates preview URL automatically",
+            "Add branch protection on main: require PR + at least 1 passing check",
+            "Create supabase/migrations/ folder — commit initial migration files",
+            "Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY as Vercel environment variables (Production + Preview)",
+            "Add SUPABASE_SERVICE_ROLE_KEY as Vercel environment variable (Production only — never Preview)"
+          ],
+          "acceptance_criteria": [
+            "Push to main triggers Vercel production deploy automatically",
+            "Push to dev creates a Vercel preview URL",
+            "Direct push to main is blocked — PR required",
+            "supabase/migrations/ folder exists with at least user_profiles migration file"
+          ],
+          "dependencies": ["P1-S1"]
+        }
+      ]
+    },
+
+    {
+      "id": "P2",
+      "name": "Field Staff PWA",
+      "summary": "Driver trip flow + warehouse receiving/dispatch — replaces AppSheet",
+      "duration_estimate": "4-6 weeks",
+      "status": "not_started",
+      "blocks": [],
+      "stories": [
+        {
+          "id": "P2-S1",
+          "title": "Driver — today's trip stop list",
+          "role": "field_staff",
+          "story": "As a driver, I want to see my ordered stop list for today so I know exactly where to go.",
+          "tasks": [
+            "Query refill_dispatching WHERE dispatch_date = today AND dispatched = false, join machines on machine_id",
+            "Group by machine_id — each machine is one stop",
+            "Order stops by machines.pod_location (alphabetical in Phase 2 — routing optimisation is Phase 7+)",
+            "Display: stop number, machine official_name, pod_location, pod_address, number of SKU lines for that stop",
+            "Cache result in IndexedDB (key: trip_date) for offline access",
+            "Pull-to-refresh to sync latest from Supabase"
+          ],
+          "acceptance_criteria": [
+            "Driver sees list of today's machines with stop numbers",
+            "List loads from IndexedDB when offline",
+            "Pull-to-refresh fetches latest from Supabase when online",
+            "Tapping a stop navigates to stop detail screen (P2-S2)"
+          ],
+          "db_tables_read": [
+            { "table": "refill_dispatching", "key_columns": ["dispatch_id", "machine_id", "dispatch_date", "dispatched", "pod_product_id", "quantity"] },
+            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "pod_address"] }
+          ],
+          "dependencies": ["P1-S7"]
+        },
+        {
+          "id": "P2-S2",
+          "title": "Driver — stop detail and check-in",
+          "role": "field_staff",
+          "story": "As a driver, I want to check in at a machine with one tap and have my GPS location logged so there's no paperwork.",
+          "tasks": [
+            "Stop detail screen: machine name, address, list of refill lines (product name, planned quantity)",
+            "CHECK IN button: call navigator.geolocation.getCurrentPosition(), capture lat/lng + timestamp",
+            "Write check-in to a new table trip_events: { machine_id, driver_user_id, event_type='check_in', latitude, longitude, timestamp }",
+            "If GPS differs from expected location by > 200m: show warning 'You appear to be at a different location' — driver can proceed (not blocked)",
+            "After check-in: show refill confirmation form (P2-S3)",
+            "Check-in write must be idempotent: ON CONFLICT (machine_id, driver_user_id, dispatch_date, event_type='check_in') DO NOTHING"
+          ],
+          "acceptance_criteria": [
+            "Check-in button writes a trip_events row within 2 seconds when online",
+            "Check-in is queued in IndexedDB when offline and syncs on reconnect",
+            "GPS warning appears when distance > 200m — driver is not blocked",
+            "Duplicate check-in tap does not create duplicate rows"
+          ],
+          "db_tables_read": [
+            { "table": "refill_dispatching", "key_columns": ["dispatch_id", "machine_id", "pod_product_id", "quantity", "shelf_id"] },
+            { "table": "pod_products", "key_columns": ["pod_product_id", "pod_product_name"] }
+          ],
+          "db_tables_written": [
+            { "table": "trip_events", "note": "New table — create migration. Columns: id uuid PK, machine_id uuid FK machines, driver_user_id uuid FK auth.users, event_type text CHECK IN ('check_in','check_out','issue_reported'), dispatch_date date, latitude numeric, longitude numeric, gps_variance_m numeric, created_at timestamptz" }
+          ],
+          "dependencies": ["P2-S1"]
+        },
+        {
+          "id": "P2-S3",
+          "title": "Driver — refill confirmation (actual vs planned)",
+          "role": "field_staff",
+          "story": "As a driver, I want to confirm actual quantities placed per SKU — pre-filled with planned — and only edit what differs.",
+          "tasks": [
+            "Show each refill_dispatching line for this machine: product name, planned quantity pre-filled in input",
+            "Driver edits only lines that differ from plan",
+            "On submit: for each line, UPDATE refill_dispatching SET filled_quantity = <actual>, item_added = true, dispatched = true WHERE dispatch_id = <id>",
+            "Write must be queued in IndexedDB if offline — sync on reconnect",
+            "After submit: show expired/damaged logging screen (P2-S4)"
+          ],
+          "acceptance_criteria": [
+            "Each line shows planned quantity pre-filled",
+            "Driver can change quantity for any line",
+            "Submit updates all refill_dispatching rows for that machine with filled_quantity and dispatched=true",
+            "Offline: confirmation queued, 'Pending sync' indicator visible",
+            "Reconnect: queued confirmations sync automatically, user notified of success"
+          ],
+          "db_tables_written": [
+            { "table": "refill_dispatching", "key_columns": ["dispatch_id"], "columns_written": ["filled_quantity", "item_added", "dispatched"] }
+          ],
+          "dependencies": ["P2-S2"]
+        },
+        {
+          "id": "P2-S4",
+          "title": "Driver — expired and damaged product logging",
+          "role": "field_staff",
+          "story": "As a driver, I want to log expired or damaged products I remove from a machine so inventory stays accurate.",
+          "tasks": [
+            "After refill confirmation: show 'Log removals' screen",
+            "Driver can add lines: product (select from pod_products for this machine), quantity, reason (dropdown: 'Expired', 'Damaged', 'Other')",
+            "On submit: INSERT into pod_inventory a row with status='Removed' (or 'Removed / Expired') for each logged item",
+            "Also UPDATE pod_inventory.current_stock by subtracting removed quantity WHERE machine_id = <id> AND boonz_product_id matches",
+            "Screen is skippable — 'Nothing to remove' button"
+          ],
+          "acceptance_criteria": [
+            "Driver can add one or more removal lines",
+            "Each removal creates a pod_inventory row with appropriate status",
+            "Skipping logs nothing and proceeds to trip close",
+            "Writes queued offline, sync on reconnect"
+          ],
+          "db_tables_written": [
+            { "table": "pod_inventory", "key_columns": ["pod_inventory_id"], "columns_written": ["machine_id", "shelf_id", "boonz_product_id", "snapshot_date", "current_stock", "status", "expiration_date", "batch_id"] }
+          ],
+          "dependencies": ["P2-S3"]
+        },
+        {
+          "id": "P2-S5",
+          "title": "Driver — machine issue reporting with photo",
+          "role": "field_staff",
+          "story": "As a driver, I want to report a machine issue with a photo so the manager is notified immediately.",
+          "tasks": [
+            "Issue report button available from stop detail screen at any time (before or after refill)",
+            "Form: issue type (dropdown: 'Hardware', 'Payment terminal', 'Display', 'Other'), description text, photo (optional)",
+            "Photo: use <input type='file' accept='image/*' capture='environment'> — compress to < 1MB client-side before upload",
+            "Upload photo to Supabase Storage at path: machine-issues/{machine_id}/{timestamp}.jpg",
+            "INSERT into machine_issues: { id, machine_id, reporter_user_id, issue_type, description, photo_storage_path, status='open', created_at }",
+            "Note: machine_issues is a new table — create migration",
+            "Supabase Realtime on machine_issues INSERT → n8n flow notify_manager fires Telegram alert to manager"
+          ],
+          "acceptance_criteria": [
+            "Driver can submit issue with or without photo",
+            "Photo is compressed to < 1MB before upload",
+            "Photo URL stored in machine_issues.photo_storage_path",
+            "Manager receives Telegram alert within 30 seconds of submission",
+            "Issue report works offline: queued and synced on reconnect"
+          ],
+          "db_tables_written": [
+            { "table": "machine_issues", "note": "New table — migration required. Columns: id uuid PK, machine_id uuid FK machines, reporter_user_id uuid FK auth.users, issue_type text, description text, photo_storage_path text, status text DEFAULT 'open' CHECK('open','in_progress','resolved'), created_at timestamptz, resolved_at timestamptz" }
+          ],
+          "storage_paths": ["machine-issues/{machine_id}/{timestamp}.jpg"],
+          "dependencies": ["P2-S2"]
+        },
+        {
+          "id": "P2-S6",
+          "title": "Warehouse — goods receiving against PO",
+          "role": "warehouse",
+          "story": "As a warehouse user, I want to receive a delivery by checking it against the PO and entering actual quantities and expiry dates so every batch is traceable.",
+          "tasks": [
+            "Warehouse home: list of purchase_orders with status != 'Received', ordered by purchase_date desc",
+            "Receiving screen per PO: show po_id, supplier_name (join suppliers), list of PO lines (boonz_products.boonz_product_name, ordered_qty)",
+            "For each line: enter received_qty and expiry_date (date picker)",
+            "If received_qty > ordered_qty: show warning 'Quantity exceeds PO — confirm?' with 'Proceed anyway' button — write received_qty to a received_variance field",
+            "On submit: UPDATE purchase_orders SET received_date = today WHERE po_line_id = <id>",
+            "INSERT into warehouse_inventory: { boonz_product_id, snapshot_date = today, warehouse_stock = received_qty, expiration_date, batch_id = po_id + '-' + timestamp, wh_location, status = 'Active' }",
+            "batch_id format: '{po_id}-{unix_timestamp}'"
+          ],
+          "acceptance_criteria": [
+            "Warehouse user can see open POs",
+            "Receiving a PO line creates a warehouse_inventory row with correct batch_id and expiry_date",
+            "Overage warning shown when received_qty > ordered_qty",
+            "purchase_orders.received_date updated on submit",
+            "Manager notified (Telegram) if received_qty differs from ordered_qty by > 10%"
+          ],
+          "db_tables_read": [
+            { "table": "purchase_orders", "key_columns": ["po_line_id", "po_id", "supplier_id", "boonz_product_id", "ordered_qty", "purchase_date"] },
+            { "table": "suppliers", "key_columns": ["supplier_id", "supplier_name"] },
+            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name"] }
+          ],
+          "db_tables_written": [
+            { "table": "purchase_orders", "columns_written": ["received_date"] },
+            { "table": "warehouse_inventory", "columns_written": ["boonz_product_id", "snapshot_date", "warehouse_stock", "expiration_date", "batch_id", "wh_location", "status"] }
+          ],
+          "dependencies": ["P1-S7"]
+        },
+        {
+          "id": "P2-S7",
+          "title": "Warehouse — expiry sweep",
+          "role": "warehouse",
+          "story": "As a warehouse user, I want to run an expiry sweep filtered by days-to-expiry so nothing expired leaves the warehouse.",
+          "tasks": [
+            "Expiry sweep tab: filter buttons for 0, 3, 15, 30 days-to-expiry",
+            "Query warehouse_inventory WHERE status = 'Active' AND expiration_date <= today + N days, join boonz_products for name",
+            "Show list: product name, batch_id, wh_location, expiration_date, warehouse_stock quantity",
+            "Action per row: 'Remove' button → UPDATE warehouse_inventory SET status = 'Expired', updated_at = now()"
+          ],
+          "acceptance_criteria": [
+            "Filter buttons correctly scope to items expiring within the selected window",
+            "Removing an item updates its status to 'Expired'",
+            "Expired items disappear from the 'Active' list after status update",
+            "Page refreshes list after each removal action"
+          ],
+          "db_tables_read": [
+            { "table": "warehouse_inventory", "key_columns": ["wh_inventory_id", "boonz_product_id", "expiration_date", "warehouse_stock", "batch_id", "wh_location", "status"] },
+            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name"] }
+          ],
+          "db_tables_written": [
+            { "table": "warehouse_inventory", "columns_written": ["status"] }
+          ],
+          "dependencies": ["P2-S6"]
+        },
+        {
+          "id": "P2-S8",
+          "title": "Offline sync engine",
+          "role": "developer",
+          "story": "As a field staff user, I want the app to work offline and sync automatically when I reconnect so I never lose data.",
+          "tasks": [
+            "Implement an offline queue using IndexedDB (library: idb or Dexie.js)",
+            "All write operations from P2-S2, P2-S3, P2-S4, P2-S5, P2-S6 must go through the queue",
+            "Queue entry schema: { id, table, operation ('insert'|'update'), payload, created_at, synced: false }",
+            "On reconnect (navigator.onLine event): flush queue — attempt each write in created_at order",
+            "On success: mark queue entry synced=true",
+            "On failure: retry 3× with exponential backoff — if all fail, mark status='failed', show user alert",
+            "Visual indicator: persistent banner at top showing 'Offline — X actions pending sync' when offline",
+            "All writes must be idempotent (see db_conventions.idempotency above)"
+          ],
+          "acceptance_criteria": [
+            "App functions fully for navigation and read operations while offline",
+            "Write actions queued offline appear in Supabase within 10 seconds of reconnecting",
+            "No duplicate rows created from offline queue replay",
+            "Offline banner visible whenever navigator.onLine === false",
+            "Failed syncs shown to user with specific error context"
+          ],
+          "dependencies": ["P2-S3", "P2-S4", "P2-S5", "P2-S6"]
+        }
+      ]
+    },
+
+    {
+      "id": "P3",
+      "name": "Management ERP",
+      "summary": "9-module internal platform — operations, pods, refill, products, inventory, financials, suppliers, consumers, settings",
+      "duration_estimate": "6-8 weeks",
+      "status": "not_started",
+      "stories": [
+        {
+          "id": "P3-S1",
+          "title": "Operations dashboard — real-time fleet overview",
+          "role": "manager",
+          "story": "As a manager, I want a real-time operations dashboard showing active trips, stock alerts, and machine issues so I stay informed without asking drivers.",
+          "tasks": [
+            "KPI cards row: total active machines, machines with shortage_pct > 30, open issues count, today's dispatched stops",
+            "Machine status table: join machines + machine_summary (latest snapshot_date per machine) + open issues count from machine_issues WHERE status='open'",
+            "Columns: machine name, location, occupancy %, shortage score, last refill date, open issues",
+            "Red highlight rows where shortage_pct > 50",
+            "Supabase Realtime subscription on machine_issues — new issue appears in table immediately without page reload",
+            "Trip status section: query trip_events grouped by driver_user_id for today — show driver name, stops done / total stops"
+          ],
+          "acceptance_criteria": [
+            "Dashboard loads in < 2.5 seconds (LCP)",
+            "New machine issue appears in table within 3 seconds of driver submission (Realtime)",
+            "Machines with shortage_pct > 50 are highlighted red",
+            "KPI cards show accurate counts from DB"
+          ],
+          "db_tables_read": [
+            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "status"] },
+            { "table": "machine_summary", "key_columns": ["machine_id", "snapshot_date", "shortage_pct", "shortage_score", "total_capacity", "current_skus"] },
+            { "table": "machine_issues", "key_columns": ["id", "machine_id", "status", "issue_type", "created_at"] },
+            { "table": "trip_events", "key_columns": ["machine_id", "driver_user_id", "event_type", "dispatch_date"] }
+          ],
+          "dependencies": ["P1-S6"]
+        },
+        {
+          "id": "P3-S2",
+          "title": "Refill & dispatch — Stage 3 owner review web UI",
+          "role": "operator_admin",
+          "story": "As an operator, I want to review today's refill plan in a web UI — see Claude's reasoning, override quantities, and approve the plan — so I don't have to use the CLI.",
+          "tasks": [
+            "Fetch refill_instructions for today: join machines, shelf_configurations, pod_products",
+            "Display as cards grouped by machine. Each card: shelf_code, pod_product_name, current_stock, target_stock, refill_qty (editable input), refill_reason, classification_name",
+            "Show change_log.md content as parsed markdown above the cards (read from Supabase Storage: refill-outputs/{date}/change_log.md)",
+            "If operator changes refill_qty below a floor (current_stock): show inline warning 'Quantity below current stock — confirm?'",
+            "APPROVE button: for each line, UPDATE refill_dispatching SET quantity = <approved_qty>, dispatched = false WHERE machine_id + shelf_id + dispatch_date match",
+            "After approve: trigger n8n webhook POST /webhook/refill-trigger with { target_date, approved_by: user_id }",
+            "Write approval event to a new table dispatch_approvals: { id, dispatch_date, approved_by, approved_at, override_count, note }"
+          ],
+          "acceptance_criteria": [
+            "All refill_instructions for today shown, grouped by machine",
+            "change_log.md rendered as readable markdown",
+            "Operator can edit any refill_qty before approving",
+            "Floor violation warning appears when qty < current_stock",
+            "Approval updates refill_dispatching quantities and triggers n8n",
+            "dispatch_approvals row written on approval"
+          ],
+          "db_tables_read": [
+            { "table": "refill_instructions", "key_columns": ["instruction_id", "machine_id", "shelf_id", "pod_product_name", "current_stock", "target_stock", "refill_qty", "refill_reason", "classification_name", "cs_input"] },
+            { "table": "shelf_configurations", "key_columns": ["shelf_id", "shelf_code", "max_capacity"] },
+            { "table": "machines", "key_columns": ["machine_id", "official_name"] }
+          ],
+          "db_tables_written": [
+            { "table": "refill_dispatching", "columns_written": ["quantity", "dispatched"] },
+            { "table": "dispatch_approvals", "note": "New table — migration required. Columns: id uuid PK, dispatch_date date, approved_by uuid FK auth.users, approved_at timestamptz, override_count int, note text" }
+          ],
+          "dependencies": ["P3-S1"]
+        },
+        {
+          "id": "P3-S3",
+          "title": "Financials — Adyen + POS reconciliation view",
+          "role": "finance",
+          "story": "As a finance user, I want to see reconciled Adyen and POS transactions with discrepancies clearly flagged so I can produce accurate accounts.",
+          "tasks": [
+            "Reconciliation query: LEFT JOIN adyen_transactions (AT) to sales_history (SH) on AT.store = SH.machine_mapping AND DATE(AT.creation_date) = DATE(SH.transaction_date) AND AT.captured_amount_value = SH.total_amount",
+            "Exclude rows where AT.creation_date < '2026-02-06' (test transactions)",
+            "Display table columns: date, machine name, Adyen amount (AED), POS amount (AED), payment method, match status",
+            "Match status logic: if AT row has matching SH row → 'Matched'; if AT exists but no SH match → 'Adyen only'; if SH exists but no AT match → 'POS only'",
+            "Highlight 'Adyen only' and 'POS only' rows in amber; highlight the 22 Feb 2026 discrepancy row in red with a fixed note: 'Known discrepancy — under investigation'",
+            "Date range filter (default: last 30 days) and machine filter",
+            "Export button: download filtered table as CSV"
+          ],
+          "acceptance_criteria": [
+            "Matched transactions show on one row with both amounts",
+            "Unmatched transactions visible with clear status label",
+            "22 Feb 2026 row highlighted red with investigation note",
+            "Pre-06 Feb 2026 rows excluded from view",
+            "CSV export downloads correctly filtered data",
+            "Page loads < 3 seconds for 30-day default range"
+          ],
+          "db_tables_read": [
+            { "table": "adyen_transactions", "key_columns": ["adyen_txn_id", "machine_id", "store", "creation_date", "captured_amount_value", "value_aed", "payment_method", "status"] },
+            { "table": "sales_history", "key_columns": ["transaction_id", "machine_id", "transaction_date", "total_amount", "machine_mapping"] },
+            { "table": "machines", "key_columns": ["machine_id", "official_name"] }
+          ],
+          "known_issues": ["OQ-08"],
+          "dependencies": ["P3-S1"]
+        },
+        {
+          "id": "P3-S4",
+          "title": "Inventory module — warehouse stock view",
+          "role": "manager",
+          "story": "As a manager, I want to see current warehouse stock levels grouped by product so I know what we have on hand.",
+          "tasks": [
+            "Query warehouse_inventory WHERE status = 'Active', group by boonz_product_id, SUM(warehouse_stock)",
+            "Join boonz_products for product name, category",
+            "Display: product name, category, total active stock, earliest expiry_date in stock, batch count",
+            "Filter by product category (dropdown from distinct values in boonz_products.product_category)",
+            "Filter by expiry window: all, expiring in 7 days, expiring in 30 days",
+            "Row action: 'View batches' expands to show individual warehouse_inventory rows for that product"
+          ],
+          "acceptance_criteria": [
+            "Stock totals are accurate SUM of active warehouse_inventory rows",
+            "Category filter works correctly",
+            "Expiry filter works correctly",
+            "Batch expansion shows individual rows with batch_id, wh_location, expiry_date",
+            "Products with zero active stock shown with '0' (not hidden)"
+          ],
+          "db_tables_read": [
+            { "table": "warehouse_inventory", "key_columns": ["wh_inventory_id", "boonz_product_id", "warehouse_stock", "expiration_date", "batch_id", "wh_location", "status"] },
+            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name", "product_category"] }
+          ],
+          "dependencies": ["P3-S1"]
+        },
+        {
+          "id": "P3-S5",
+          "title": "Suppliers module",
+          "role": "operator_admin",
+          "story": "As an operator admin, I want to view and edit supplier records so I can keep contact and contract information current.",
+          "tasks": [
+            "Supplier list: query suppliers ORDER BY supplier_name, show name, category, status, contact_person, contact_email, contract_end_date",
+            "Status badge: Active (green), Inactive (grey), Suspended (red)",
+            "Supplier detail page: all columns from suppliers table as editable fields",
+            "Edit form: UPDATE suppliers WHERE supplier_id = <id>",
+            "Note for SUP_012: show a banner 'Company name unknown — please update' if supplier_name matches contact_person (proxy check until OQ-01 resolved)",
+            "Read-only section: products supplied (query supplier_product_mapping → pod_products for this supplier)"
+          ],
+          "acceptance_criteria": [
+            "All 13 suppliers visible in list",
+            "Editing a supplier name persists correctly",
+            "SUP_012 warning banner visible until supplier_name is updated",
+            "Products section shows linked pod_products",
+            "Finance role cannot access this module (middleware blocks)"
+          ],
+          "db_tables_read": [
+            { "table": "suppliers", "key_columns": ["supplier_id", "supplier_name", "supplier_code", "category", "status", "contact_person", "contact_email", "contact_phone", "payment_terms", "contract_start_date", "contract_end_date", "rating"] },
+            { "table": "supplier_product_mapping", "key_columns": ["id", "supplier_id", "pod_product_id"] },
+            { "table": "pod_products", "key_columns": ["pod_product_id", "pod_product_name"] }
+          ],
+          "db_tables_written": [
+            { "table": "suppliers", "columns_written": ["supplier_name", "contact_person", "contact_email", "contact_phone", "payment_terms", "status", "notes"] }
+          ],
+          "known_issues": ["OQ-01"],
+          "dependencies": ["P3-S1"]
+        }
+      ]
+    },
+
+    {
+      "id": "P4",
+      "name": "Agent Core — Telegram Bot",
+      "summary": "Telegram bot with Claude tool_use — query, action, and trigger tool classes",
+      "duration_estimate": "3-4 weeks",
+      "status": "not_started",
+      "stories": [
+        {
+          "id": "P4-S1",
+          "title": "Telegram webhook handler",
+          "role": "developer",
+          "story": "As a developer, I want a Telegram webhook endpoint that receives messages and routes them to Claude so the bot responds to operator commands.",
+          "tasks": [
+            "Create Supabase Edge Function: supabase/functions/telegram-bot/index.ts",
+            "Set webhook with Telegram: POST https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={SUPABASE_EDGE_FN_URL}",
+            "Verify incoming request using TELEGRAM_BOT_TOKEN secret (validate X-Telegram-Bot-Api-Secret-Token header)",
+            "Check telegram_user_id against TELEGRAM_ALLOWED_USER_IDS env var — if not in list, respond: 'Not authorised.' and return 200",
+            "Load conversation history from agent_sessions table (keyed by chat_id)",
+            "Call Claude API with: model='claude-sonnet-4-20250514', system=<agent system prompt>, tools=<all tool definitions>, messages=<history + new message>",
+            "Send Claude's text response back to Telegram via sendMessage API",
+            "Log tool calls to agent_tool_calls table",
+            "Save updated conversation to agent_sessions"
+          ],
+          "acceptance_criteria": [
+            "Whitelisted Telegram user sends a message → receives Claude's response within 5 seconds",
+            "Non-whitelisted user receives 'Not authorised.' only",
+            "Conversation history persists across messages in the same chat_id",
+            "All tool calls logged to agent_tool_calls with timestamp, tool_name, input, output"
+          ],
+          "db_tables_written": [
+            { "table": "agent_sessions", "note": "New table. Columns: id uuid PK, chat_id text UNIQUE, messages jsonb (array of {role,content}), updated_at timestamptz" },
+            { "table": "agent_tool_calls", "note": "New table. Columns: id uuid PK, session_id uuid FK agent_sessions, tool_name text, input jsonb, output jsonb, called_at timestamptz, duration_ms int" }
+          ],
+          "env_vars": [
+            "ANTHROPIC_API_KEY",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_ALLOWED_USER_IDS"
+          ],
+          "dependencies": ["P1-S8"]
+        },
+        {
+          "id": "P4-S2",
+          "title": "Agent tool — get_machine_status",
+          "role": "operator_admin",
+          "story": "As an operator, I want to ask 'what's the status of Mercato machines?' and get a plain-language answer from the bot.",
+          "tasks": [
+            "Define Claude tool: name='get_machine_status', input_schema: { machine_id?: string, location?: string }",
+            "Implement as Edge Function handler: query machines + machine_summary (latest snapshot per machine) + open issues count",
+            "If machine_id provided: return single machine. If location provided: filter by pod_location ILIKE '%{location}%'. If neither: return all",
+            "Return: [{ id, official_name, pod_location, status, shortage_pct, last_refill_date (from max dispatch_date in refill_dispatching where dispatched=true), open_issues_count }]",
+            "Claude must format this as plain-language response — never expose raw JSON to Telegram user"
+          ],
+          "acceptance_criteria": [
+            "Tool returns correct machine data from DB",
+            "Claude responds in plain language, not JSON",
+            "Query 'what's the status of DIFC machines' returns only DIFC machines",
+            "Tool call logged to agent_tool_calls"
+          ],
+          "db_tables_read": [
+            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "status"] },
+            { "table": "machine_summary", "key_columns": ["machine_id", "snapshot_date", "shortage_pct"] },
+            { "table": "machine_issues", "key_columns": ["machine_id", "status"] },
+            { "table": "refill_dispatching", "key_columns": ["machine_id", "dispatch_date", "dispatched"] }
+          ],
+          "dependencies": ["P4-S1"]
+        },
+        {
+          "id": "P4-S3",
+          "title": "Agent tool — get_sales_summary",
+          "role": "operator_admin",
+          "story": "As an operator, I want to ask 'what were sales at Mercato this week?' and get a revenue figure with a breakdown.",
+          "tasks": [
+            "Define Claude tool: name='get_sales_summary', input_schema: { date_from: string (ISO), date_to: string (ISO), machine_ids?: string[], group_by?: 'machine'|'product'|'day' }",
+            "Query sales_history WHERE transaction_date BETWEEN date_from AND date_to AND delivery_status = 'Successful'",
+            "Join machines for name. Join boonz_products for product name where boonz_product_id is not null",
+            "GROUP BY per group_by value, SUM(total_amount) as revenue_aed, COUNT(*) as tx_count",
+            "Return: { total_aed, tx_count, rows: [{ group_key, revenue_aed, tx_count }] }",
+            "Currency always AED"
+          ],
+          "acceptance_criteria": [
+            "Tool returns correct totals matching manual DB query",
+            "Rows with NULL boonz_product_id counted in total but shown as 'Unknown product' when group_by='product'",
+            "date_from and date_to are inclusive",
+            "Claude responds with formatted summary: total, top performers, comparison if asked"
+          ],
+          "db_tables_read": [
+            { "table": "sales_history", "key_columns": ["transaction_id", "machine_id", "boonz_product_id", "transaction_date", "total_amount", "delivery_status"] },
+            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location"] },
+            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name"] }
+          ],
+          "dependencies": ["P4-S1"]
+        },
+        {
+          "id": "P4-S4",
+          "title": "Agent tool — approve_dispatch_plan (action with confirmation)",
+          "role": "operator_admin",
+          "story": "As an operator, I want to approve today's dispatch plan from Telegram without opening a browser.",
+          "tasks": [
+            "Define Claude tool: name='approve_dispatch_plan', input_schema: { date: string, override_notes?: string }",
+            "CONFIRMATION REQUIRED before execution: Claude must send a summary message first — 'I am about to approve the dispatch plan for {date} with {N} stops and {M} SKU lines. Reply yes to confirm.' Then wait for user confirmation.",
+            "Confirmation expires after 60 seconds — Claude tracks this via conversation context",
+            "On confirmed execution: UPDATE refill_dispatching SET dispatched=false WHERE dispatch_date = date (reset to ready-for-dispatch state)",
+            "INSERT into dispatch_approvals: { dispatch_date, approved_by, approved_at, note: override_notes }",
+            "POST to n8n webhook: N8N_WEBHOOK_BASE_URL + '/webhook/refill-trigger' with { target_date: date, job_id: uuid }",
+            "Return: { success: true, approved_at, n8n_trigger_id }"
+          ],
+          "acceptance_criteria": [
+            "Tool never executes without explicit user confirmation ('yes', 'confirm', 'do it')",
+            "Confirmation message shows stop count and SKU line count before execution",
+            "60-second expiry: sending 'yes' 70 seconds later gets 'That confirmation has expired' response",
+            "Successful approval writes to dispatch_approvals and triggers n8n webhook",
+            "n8n webhook call logged to agent_tool_calls with HTTP response code"
+          ],
+          "db_tables_written": [
+            { "table": "dispatch_approvals", "columns_written": ["dispatch_date", "approved_by", "approved_at", "note"] },
+            { "table": "refill_dispatching", "columns_written": ["dispatched"] }
+          ],
+          "dependencies": ["P4-S1", "P3-S2"]
+        }
+      ]
+    },
+
+    {
+      "id": "P5",
+      "name": "Own GUI Chat",
+      "summary": "Embedded /chat route in Next.js ERP with streaming, conversation history, context injection",
+      "duration_estimate": "2-3 weeks",
+      "status": "not_started",
+      "stories": [
+        {
+          "id": "P5-S1",
+          "title": "Chat UI — streaming response rendering",
+          "role": "operator_admin",
+          "story": "As an operator, I want to chat with the agent inside the ERP and see responses appear word by word so it feels fast.",
+          "tasks": [
+            "Create src/app/(chat)/page.tsx as main chat interface",
+            "Message input at bottom, conversation history scrollable above",
+            "On send: POST to /api/chat (Next.js API route) which calls Claude API with stream=true",
+            "Stream tokens back to client using Server-Sent Events or ReadableStream",
+            "Render tokens as they arrive — no waiting for full response",
+            "Show typing indicator (3 dots) while waiting for first token",
+            "Tool call indicator: when Claude calls a tool, show 'Checking database…' inline"
+          ],
+          "acceptance_criteria": [
+            "First token appears within 2 seconds of sending message",
+            "Tokens render progressively — not all at once",
+            "Tool call indicator visible during DB lookups",
+            "Conversation history visible and scrollable",
+            "Cmd/Ctrl+K from anywhere in /app opens /chat"
+          ],
+          "files_to_create": [
+            "src/app/(chat)/page.tsx",
+            "src/app/api/chat/route.ts"
+          ],
+          "dependencies": ["P4-S1", "P4-S2", "P4-S3", "P4-S4"]
+        },
+        {
+          "id": "P5-S2",
+          "title": "Chat — conversation persistence",
+          "role": "operator_admin",
+          "story": "As an operator, I want my chat history to persist so I can continue a conversation after refreshing the page.",
+          "tasks": [
+            "On page load: query agent_sessions WHERE chat_id = user_id — restore conversation",
+            "After each exchange: UPDATE agent_sessions.messages with full conversation array",
+            "Show last 50 messages in UI (truncate older for display only — full history sent to Claude for context up to 20 turns)",
+            "Clear conversation button: DELETE agent_sessions row for this user_id + clear UI"
+          ],
+          "acceptance_criteria": [
+            "Refresh page → conversation history restored from DB",
+            "Clear button wipes conversation in UI and DB",
+            "Max 20 turns sent to Claude API per request (older truncated in API call, kept in DB)"
+          ],
+          "db_tables_read": [
+            { "table": "agent_sessions", "key_columns": ["id", "chat_id", "messages"] }
+          ],
+          "db_tables_written": [
+            { "table": "agent_sessions", "columns_written": ["messages", "updated_at"] }
+          ],
+          "dependencies": ["P5-S1"]
+        }
+      ]
+    },
+
+    {
+      "id": "P6",
+      "name": "Client Portal",
+      "summary": "Magic link auth, RLS-isolated dashboard, daily PDF reports, alert preferences",
+      "duration_estimate": "3-4 weeks",
+      "status": "not_started",
+      "stories": [
+        {
+          "id": "P6-S1",
+          "title": "Client portal — magic link authentication",
+          "role": "client",
+          "story": "As a client, I want to log in with a magic link so I have no password to remember.",
+          "tasks": [
+            "Create src/app/(portal)/login/page.tsx — email input only, 'Send magic link' button",
+            "On submit: supabase.auth.signInWithOtp({ email }) — Supabase sends magic link email",
+            "On click (magic link): Supabase redirects to /portal/auth/callback — exchange token, create session",
+            "After session: middleware reads user_profiles.role — if not 'client', redirect to /login with error",
+            "RLS isolation: all portal queries must include user_profiles.client_id in WHERE clause — enforced at RLS policy level, not just UI",
+            "Confirm: a client user cannot access /app or /field (middleware blocks)"
+          ],
+          "acceptance_criteria": [
+            "Client receives magic link email within 60 seconds",
+            "Clicking magic link creates authenticated session and redirects to portal dashboard",
+            "Client user cannot access /app — gets redirected to /login",
+            "RLS test: client A cannot query machines belonging to client B (Supabase row-level test)"
+          ],
+          "dependencies": ["P1-S4"]
+        },
+        {
+          "id": "P6-S2",
+          "title": "Client portal — machine dashboard",
+          "role": "client",
+          "story": "As a client, I want to see my machines' current stock, recent revenue, and any active issues so I have full visibility.",
+          "tasks": [
+            "Query machines WHERE client_id = user_profiles.client_id (RLS enforces this automatically)",
+            "For each machine: show official_name, pod_location, shortage_pct (from latest machine_summary), open_issues count",
+            "Revenue card: SUM(total_amount) from sales_history for last 7 days for this client's machines",
+            "Top products table: GROUP BY pod_product_name, SUM(total_amount) DESC LIMIT 5, for last 30 days",
+            "Supabase Realtime on machine_issues for client's machine_ids — new issues appear without reload",
+            "Note: machines table needs client_id column added — migration required"
+          ],
+          "acceptance_criteria": [
+            "Client sees only their machines — no others visible in any query",
+            "Revenue and top products are accurate",
+            "New issue appears within 3 seconds via Realtime",
+            "Dashboard loads < 2.5 seconds"
+          ],
+          "db_tables_read": [
+            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "client_id"] },
+            { "table": "machine_summary", "key_columns": ["machine_id", "snapshot_date", "shortage_pct"] },
+            { "table": "sales_history", "key_columns": ["machine_id", "transaction_date", "total_amount", "pod_product_name", "delivery_status"] },
+            { "table": "machine_issues", "key_columns": ["machine_id", "status", "issue_type", "created_at"] }
+          ],
+          "migrations_needed": [
+            "ALTER TABLE machines ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES auth.users(id)"
+          ],
+          "dependencies": ["P6-S1"]
+        },
+        {
+          "id": "P6-S3",
+          "title": "Daily PDF report — auto-generated and emailed",
+          "role": "client",
+          "story": "As a client, I want a daily PDF report emailed to me every morning with my machines' revenue and alerts from the previous day.",
+          "tasks": [
+            "n8n flow: daily_client_report cron trigger at 08:00 GST (UTC+4)",
+            "For each active client: query previous day's sales_history + machine_issues for their machines",
+            "Generate PDF: header (Boonz logo, client name, date), revenue total, transaction count, top 5 products table, issues list",
+            "Upload PDF to Supabase Storage at: reports/{client_id}/{YYYY-MM-DD}.pdf",
+            "Send email via Resend/Postmark with PDF attached",
+            "Store report metadata in client_reports table: { id, client_id, report_date, storage_path, emailed_at }",
+            "Retention: Storage lifecycle rule to delete reports older than 90 days",
+            "Note: client_reports is a new table — migration required"
+          ],
+          "acceptance_criteria": [
+            "Report emails arrive by 08:15 GST each day",
+            "PDF contains correct data for previous calendar day only",
+            "PDF saved to Storage at correct path",
+            "client_reports row inserted for each sent report",
+            "Reports older than 90 days are deleted automatically"
+          ],
+          "db_tables_read": [
+            { "table": "sales_history", "key_columns": ["machine_id", "transaction_date", "total_amount", "pod_product_name", "delivery_status"] },
+            { "table": "machine_issues", "key_columns": ["machine_id", "issue_type", "status", "created_at"] },
+            { "table": "machines", "key_columns": ["machine_id", "official_name", "client_id"] }
+          ],
+          "db_tables_written": [
+            { "table": "client_reports", "note": "New table. Columns: id uuid PK, client_id uuid FK auth.users, report_date date, storage_path text, emailed_at timestamptz, created_at timestamptz" }
+          ],
+          "storage_paths": ["reports/{client_id}/{YYYY-MM-DD}.pdf"],
+          "dependencies": ["P6-S2"]
+        }
+      ]
+    }
+  ],
+
+  "agent_config": {
+    "model": "claude-sonnet-4-20250514",
+    "max_tokens": 1000,
+    "confirmation_required_tools": ["approve_dispatch_plan", "flag_transaction_discrepancy", "update_stock_level", "trigger_refill_engine", "send_client_report", "send_supplier_notification", "reschedule_cron"],
+    "confirmation_expiry_seconds": 60,
+    "read_only_tools": ["get_machine_status", "get_sales_summary", "get_inventory_levels", "get_dispatch_plan", "get_trip_status"],
+    "system_prompt_path": "agent/system_prompt.md",
+    "tool_definitions_path": "agent/tools/",
+    "session_table": "agent_sessions",
+    "tool_log_table": "agent_tool_calls"
+  },
+
+  "n8n_flows": [
+    { "id": "ingest_adyen",        "trigger": "Adyen webhook",              "webhook_path": "/webhook/adyen-ingest",    "writes_to": "adyen_transactions" },
+    { "id": "ingest_vox_export",   "trigger": "Manual or scheduled cron",   "webhook_path": "/webhook/vox-ingest",     "writes_to": "sales_history" },
+    { "id": "trigger_refill_engine","trigger": "Cron or agent webhook",     "webhook_path": "/webhook/refill-trigger", "calls": "FastAPI POST /run" },
+    { "id": "notify_manager",      "trigger": "Supabase Realtime machine_issues INSERT", "webhook_path": null,         "sends": "Telegram message to manager" },
+    { "id": "daily_client_report", "trigger": "Cron 08:00 GST daily",       "webhook_path": null,                      "writes_to": "client_reports, Storage" },
+    { "id": "send_supplier_alert", "trigger": "Agent webhook",              "webhook_path": "/webhook/supplier-alert", "sends": "Email/WhatsApp to supplier" }
+  ],
+
+  "migrations_tracker": {
+    "completed": [
+      "suppliers", "boonz_products", "machines", "pod_products", "shelf_configurations",
+      "machine_name_aliases", "product_name_conventions", "product_mapping", "supplier_product_mapping",
+      "product_pricing", "machine_product_pricing", "guardrail_products", "warehouse_inventory",
+      "pod_inventory", "purchase_orders", "weekly_procurement_plan", "machine_summary",
+      "refill_dispatching", "refill_instructions", "sales_history", "adyen_transactions"
+    ],
+    "pending": [
+      { "table": "user_profiles",      "phase": "P1", "story": "P1-S3" },
+      { "table": "trip_events",         "phase": "P2", "story": "P2-S2" },
+      { "table": "machine_issues",      "phase": "P2", "story": "P2-S5" },
+      { "table": "dispatch_approvals",  "phase": "P3", "story": "P3-S2" },
+      { "table": "agent_sessions",      "phase": "P4", "story": "P4-S1" },
+      { "table": "agent_tool_calls",    "phase": "P4", "story": "P4-S1" },
+      { "table": "client_reports",      "phase": "P6", "story": "P6-S3" },
+      { "column": "machines.client_id", "phase": "P6", "story": "P6-S2" }
+    ]
+  }
+}
