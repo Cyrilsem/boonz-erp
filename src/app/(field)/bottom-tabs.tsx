@@ -20,8 +20,9 @@ const fieldStaffTabs: Tab[] = [
 
 const warehouseTabs: Tab[] = [
   { label: 'Packing', href: '/field/packing', icon: '◰' },
+  { label: 'Inventory', href: '/field/inventory', icon: '▤' },
   { label: 'Receiving', href: '/field/receiving', icon: '◫' },
-  { label: 'Expiry', href: '/field/expiry', icon: '⏱' },
+  { label: 'Orders', href: '/field/orders', icon: '⊞' },
   { label: 'Profile', href: '/field/profile', icon: '⊙' },
 ]
 

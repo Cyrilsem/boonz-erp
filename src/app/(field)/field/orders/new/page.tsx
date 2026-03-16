@@ -1,0 +1,718 @@
+'use client'
+
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
+import * as XLSX from 'xlsx'
+
+interface Supplier {
+  supplier_id: string
+  supplier_name: string
+  supplier_code: string | null
+}
+
+interface Product {
+  product_id: string
+  boonz_product_name: string
+  product_category: string | null
+}
+
+interface POLine {
+  key: string
+  product_id: string
+  product_name: string
+  qty: number
+  price: number | null
+  expiry_date: string
+}
+
+interface ImportedRow {
+  key: string
+  raw_name: string
+  matched_product: Product | null
+  qty: number
+  price: number | null
+  expiry_date: string
+  error: boolean
+}
+
+type EntryMode = 'manual' | 'import'
+
+function generateKey(): string {
+  return Math.random().toString(36).slice(2, 10)
+}
+
+// Simple fuzzy match: lowercase includes or starts-with
+function fuzzyMatch(query: string, products: Product[]): Product | null {
+  const q = query.toLowerCase().trim()
+  if (!q) return null
+  // Exact match first
+  const exact = products.find(
+    (p) => p.boonz_product_name.toLowerCase() === q
+  )
+  if (exact) return exact
+  // Starts with
+  const starts = products.find(
+    (p) => p.boonz_product_name.toLowerCase().startsWith(q)
+  )
+  if (starts) return starts
+  // Contains
+  const contains = products.find(
+    (p) => p.boonz_product_name.toLowerCase().includes(q)
+  )
+  if (contains) return contains
+  return null
+}
+
+function SearchableDropdown<T extends { id: string; label: string; secondary?: string }>({
+  items,
+  value,
+  onChange,
+  placeholder,
+}: {
+  items: T[]
+  value: string
+  onChange: (id: string) => void
+  placeholder: string
+}) {
+  const [search, setSearch] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const selected = items.find((i) => i.id === value)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const filtered = search.trim()
+    ? items.filter(
+        (i) =>
+          i.label.toLowerCase().includes(search.toLowerCase()) ||
+          (i.secondary && i.secondary.toLowerCase().includes(search.toLowerCase()))
+      )
+    : items
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => { setOpen(!open); setSearch('') }}
+        className="w-full rounded border border-neutral-300 px-3 py-2 text-left text-sm dark:border-neutral-600 dark:bg-neutral-900"
+      >
+        {selected ? (
+          <span>
+            {selected.label}
+            {selected.secondary && (
+              <span className="ml-1 text-neutral-400">{selected.secondary}</span>
+            )}
+          </span>
+        ) : (
+          <span className="text-neutral-400">{placeholder}</span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-auto rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Type to search…"
+            autoFocus
+            className="w-full border-b border-neutral-200 px-3 py-2 text-sm outline-none dark:border-neutral-700 dark:bg-neutral-900"
+          />
+          {filtered.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-neutral-400">No results</p>
+          ) : (
+            filtered.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  onChange(item.id)
+                  setOpen(false)
+                  setSearch('')
+                }}
+                className="flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              >
+                <span className="truncate">{item.label}</span>
+                {item.secondary && (
+                  <span className="shrink-0 text-xs text-neutral-400">{item.secondary}</span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function NewOrderPage() {
+  const router = useRouter()
+
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Header
+  const [supplierId, setSupplierId] = useState('')
+  const [poDate, setPoDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [poId, setPoId] = useState('')
+
+  // Mode
+  const [mode, setMode] = useState<EntryMode>('manual')
+
+  // Manual lines
+  const [lines, setLines] = useState<POLine[]>([
+    { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null, expiry_date: '' },
+  ])
+
+  // Import
+  const [importedRows, setImportedRows] = useState<ImportedRow[]>([])
+  const [importReady, setImportReady] = useState(false)
+
+  // Submit
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchData = useCallback(async () => {
+    const supabase = createClient()
+
+    const [{ data: suppData }, { data: prodData }, { data: poData }] = await Promise.all([
+      supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code').order('supplier_name'),
+      supabase.from('boonz_products').select('product_id, boonz_product_name, product_category').order('boonz_product_name'),
+      supabase.from('purchase_orders').select('po_number').order('po_number', { ascending: false }).limit(1),
+    ])
+
+    if (suppData) setSuppliers(suppData)
+    if (prodData) setProducts(prodData)
+
+    // Generate next PO ID
+    const year = new Date().getFullYear()
+    const lastNum = poData?.[0]?.po_number ?? 0
+    const nextNum = lastNum + 1
+    setPoId(`PO-${year}-${String(nextNum).padStart(3, '0')}`)
+
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // -- Manual entry helpers --
+
+  function updateLine(key: string, field: keyof POLine, value: string | number | null) {
+    setLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, [field]: value } : l))
+    )
+  }
+
+  function addLine() {
+    setLines((prev) => [
+      ...prev,
+      { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null, expiry_date: '' },
+    ])
+  }
+
+  function duplicateLastLine() {
+    const last = lines[lines.length - 1]
+    if (!last) return addLine()
+    setLines((prev) => [
+      ...prev,
+      { ...last, key: generateKey() },
+    ])
+  }
+
+  function removeLine(key: string) {
+    setLines((prev) => {
+      if (prev.length <= 1) return prev
+      return prev.filter((l) => l.key !== key)
+    })
+  }
+
+  // -- Excel import --
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const data = evt.target?.result
+      if (!data) return
+
+      const workbook = XLSX.read(data, { type: 'array' })
+      const sheet = workbook.Sheets[workbook.SheetNames[0]]
+      const jsonRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 })
+
+      // Skip header row
+      const dataRows = jsonRows.slice(1)
+
+      const parsed: ImportedRow[] = dataRows
+        .filter((row) => row && row.length > 0 && row[0])
+        .map((row) => {
+          const rawName = String(row[0] ?? '').trim()
+          const qty = Number(row[1]) || 1
+          const rawPrice = row[2] !== undefined && row[2] !== '' ? Number(row[2]) : null
+          let expiryDate = ''
+          if (row[3]) {
+            // Handle Excel serial date or string
+            const val = row[3]
+            if (typeof val === 'number') {
+              // Excel serial date
+              const d = XLSX.SSF.parse_date_code(val)
+              expiryDate = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
+            } else {
+              const parsed = new Date(String(val))
+              if (!isNaN(parsed.getTime())) {
+                expiryDate = parsed.toISOString().split('T')[0]
+              }
+            }
+          }
+
+          const matched = fuzzyMatch(rawName, products)
+
+          return {
+            key: generateKey(),
+            raw_name: rawName,
+            matched_product: matched,
+            qty,
+            price: rawPrice,
+            expiry_date: expiryDate,
+            error: !matched,
+          }
+        })
+
+      setImportedRows(parsed)
+      setImportReady(true)
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  function updateImportRow(key: string, productId: string) {
+    const product = products.find((p) => p.product_id === productId)
+    setImportedRows((prev) =>
+      prev.map((r) =>
+        r.key === key
+          ? { ...r, matched_product: product ?? null, error: !product }
+          : r
+      )
+    )
+  }
+
+  function updateImportQty(key: string, qty: number) {
+    setImportedRows((prev) =>
+      prev.map((r) => (r.key === key ? { ...r, qty } : r))
+    )
+  }
+
+  function updateImportPrice(key: string, price: number | null) {
+    setImportedRows((prev) =>
+      prev.map((r) => (r.key === key ? { ...r, price } : r))
+    )
+  }
+
+  // -- Submit --
+
+  async function handleSubmit() {
+    setError(null)
+
+    if (!supplierId) {
+      setError('Please select a supplier')
+      return
+    }
+
+    const finalLines = mode === 'manual'
+      ? lines
+          .filter((l) => l.product_id)
+          .map((l) => ({
+            product_id: l.product_id,
+            qty: l.qty,
+            price: l.price,
+            expiry_date: l.expiry_date,
+          }))
+      : importedRows
+          .filter((r) => r.matched_product)
+          .map((r) => ({
+            product_id: r.matched_product!.product_id,
+            qty: r.qty,
+            price: r.price,
+            expiry_date: r.expiry_date,
+          }))
+
+    if (finalLines.length === 0) {
+      setError('Add at least one product line')
+      return
+    }
+
+    setSubmitting(true)
+
+    const supabase = createClient()
+
+    // Get next po_number
+    const { data: lastPo } = await supabase
+      .from('purchase_orders')
+      .select('po_number')
+      .order('po_number', { ascending: false })
+      .limit(1)
+
+    const nextNumber = (lastPo?.[0]?.po_number ?? 0) + 1
+
+    const inserts = finalLines.map((line) => ({
+      po_id: poId,
+      po_number: nextNumber,
+      supplier_id: supplierId,
+      boonz_product_id: line.product_id,
+      purchase_date: poDate,
+      ordered_qty: line.qty,
+      price_per_unit_aed: line.price,
+      total_price_aed: line.price ? line.qty * line.price : null,
+      expiry_date: line.expiry_date || null,
+      received_date: null,
+    }))
+
+    const { error: insertError } = await supabase
+      .from('purchase_orders')
+      .insert(inserts)
+
+    if (insertError) {
+      setError(`Failed to create PO: ${insertError.message}`)
+      setSubmitting(false)
+      return
+    }
+
+    router.push('/field/orders')
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <p className="text-neutral-500">Loading…</p>
+      </div>
+    )
+  }
+
+  const supplierItems = suppliers.map((s) => ({
+    id: s.supplier_id,
+    label: s.supplier_name,
+    secondary: s.supplier_code ?? undefined,
+  }))
+
+  const productItems = products.map((p) => ({
+    id: p.product_id,
+    label: p.boonz_product_name,
+    secondary: p.product_category ?? undefined,
+  }))
+
+  return (
+    <div className="px-4 py-4 pb-24">
+      <button
+        onClick={() => router.push('/field/orders')}
+        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+      >
+        ← Back to orders
+      </button>
+
+      <h1 className="mb-4 text-xl font-semibold">New Purchase Order</h1>
+
+      {/* Header fields */}
+      <div className="mb-4 space-y-3 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+        <div>
+          <label className="block text-xs text-neutral-500 mb-0.5">
+            Supplier <span className="text-red-500">*</span>
+          </label>
+          <SearchableDropdown
+            items={supplierItems}
+            value={supplierId}
+            onChange={setSupplierId}
+            placeholder="Select supplier…"
+          />
+        </div>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="block text-xs text-neutral-500 mb-0.5">PO Date</label>
+            <input
+              type="date"
+              value={poDate}
+              onChange={(e) => setPoDate(e.target.value)}
+              className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs text-neutral-500 mb-0.5">PO ID</label>
+            <input
+              type="text"
+              value={poId}
+              onChange={(e) => setPoId(e.target.value)}
+              className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Mode tabs */}
+      <div className="mb-4 flex border-b border-neutral-200 dark:border-neutral-800">
+        {([
+          { label: 'Manual entry', value: 'manual' as EntryMode },
+          { label: 'Import from Excel', value: 'import' as EntryMode },
+        ]).map((t) => (
+          <button
+            key={t.value}
+            onClick={() => setMode(t.value)}
+            className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+              mode === t.value
+                ? 'border-b-2 border-neutral-900 text-neutral-900 dark:border-neutral-100 dark:text-neutral-100'
+                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Manual entry */}
+      {mode === 'manual' && (
+        <div className="space-y-3">
+          {lines.map((line, idx) => (
+            <div
+              key={line.key}
+              className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-neutral-400">Line {idx + 1}</span>
+                {lines.length > 1 && (
+                  <button
+                    onClick={() => removeLine(line.key)}
+                    className="text-xs text-red-500 hover:text-red-700"
+                  >
+                    ×  Remove
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-0.5">
+                    Product <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableDropdown
+                    items={productItems}
+                    value={line.product_id}
+                    onChange={(id) => updateLine(line.key, 'product_id', id)}
+                    placeholder="Select product…"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="block text-xs text-neutral-500 mb-0.5">
+                      Qty <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={line.qty}
+                      onChange={(e) => updateLine(line.key, 'qty', parseInt(e.target.value) || 1)}
+                      className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-neutral-500 mb-0.5">Unit price (AED)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={line.price ?? ''}
+                      onChange={(e) =>
+                        updateLine(line.key, 'price', e.target.value ? parseFloat(e.target.value) : null)
+                      }
+                      placeholder="Optional"
+                      className="w-full rounded border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-0.5">Expiry date</label>
+                  <input
+                    type="date"
+                    value={line.expiry_date}
+                    onChange={(e) => updateLine(line.key, 'expiry_date', e.target.value)}
+                    className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div className="flex gap-2">
+            <button
+              onClick={addLine}
+              className="flex-1 rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-900"
+            >
+              + Add product
+            </button>
+            <button
+              onClick={duplicateLastLine}
+              className="flex-1 rounded-lg border border-dashed border-neutral-300 py-2.5 text-sm text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-900"
+            >
+              Duplicate last
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Import from Excel */}
+      {mode === 'import' && (
+        <div>
+          {!importReady ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border-2 border-dashed border-neutral-300 p-8 text-center dark:border-neutral-600">
+                <p className="mb-2 text-sm text-neutral-600 dark:text-neutral-400">
+                  Upload Excel file (.xlsx or .csv)
+                </p>
+                <input
+                  type="file"
+                  accept=".xlsx,.csv"
+                  onChange={handleFileUpload}
+                  className="mx-auto block text-sm text-neutral-500"
+                />
+              </div>
+              <div className="rounded-lg bg-neutral-50 p-3 dark:bg-neutral-900">
+                <p className="text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
+                  Expected column format:
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="text-xs text-neutral-500">
+                    <thead>
+                      <tr>
+                        <th className="pr-4 text-left font-medium">Product Name</th>
+                        <th className="pr-4 text-left font-medium">Qty</th>
+                        <th className="pr-4 text-left font-medium">Unit Price (AED)</th>
+                        <th className="text-left font-medium">Expiry Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="pr-4 text-neutral-400">Mars Bar 50g</td>
+                        <td className="pr-4 text-neutral-400">24</td>
+                        <td className="pr-4 text-neutral-400">2.50</td>
+                        <td className="text-neutral-400">2026-06-15</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  {importedRows.length} rows parsed
+                </p>
+                <button
+                  onClick={() => {
+                    setImportedRows([])
+                    setImportReady(false)
+                  }}
+                  className="text-xs text-neutral-500 hover:text-neutral-700"
+                >
+                  Clear &amp; re-upload
+                </button>
+              </div>
+
+              {importedRows.map((row) => (
+                <div
+                  key={row.key}
+                  className={`rounded-lg border p-3 ${
+                    row.error
+                      ? 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950'
+                      : 'border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`text-xs ${row.error ? 'text-red-600' : 'text-green-600'}`}>
+                      {row.error ? '✗' : '✓'}
+                    </span>
+                    <span className="text-xs text-neutral-400 truncate">
+                      &quot;{row.raw_name}&quot;
+                    </span>
+                  </div>
+
+                  {row.error ? (
+                    <div>
+                      <p className="text-xs text-red-600 mb-1 dark:text-red-400">
+                        Product not found — select manually
+                      </p>
+                      <SearchableDropdown
+                        items={productItems}
+                        value={row.matched_product?.product_id ?? ''}
+                        onChange={(id) => updateImportRow(row.key, id)}
+                        placeholder="Select product…"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-sm font-medium truncate">
+                      {row.matched_product?.boonz_product_name}
+                    </p>
+                  )}
+
+                  <div className="mt-2 flex gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-neutral-500 mb-0.5">Qty</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={row.qty}
+                        onChange={(e) => updateImportQty(row.key, parseInt(e.target.value) || 1)}
+                        className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-neutral-500 mb-0.5">Price (AED)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        value={row.price ?? ''}
+                        onChange={(e) =>
+                          updateImportPrice(row.key, e.target.value ? parseFloat(e.target.value) : null)
+                        }
+                        className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>
+      )}
+
+      {/* Submit */}
+      <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+        <button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+        >
+          {submitting ? 'Creating…' : 'Create PO'}
+        </button>
+      </div>
+    </div>
+  )
+}
