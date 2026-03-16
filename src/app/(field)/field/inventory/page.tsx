@@ -71,6 +71,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('')
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('7days')
   const [sortBy, setSortBy] = useState<SortOption>('expiry')
+  const [hideEmpty, setHideEmpty] = useState(true)
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
@@ -132,6 +133,11 @@ export default function InventoryPage() {
   const processed = useMemo(() => {
     let filtered = rows
 
+    // Hide empty
+    if (hideEmpty) {
+      filtered = filtered.filter((r) => r.warehouse_stock > 0)
+    }
+
     // Search filter
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -183,7 +189,7 @@ export default function InventoryPage() {
     return Array.from(groups.entries()).sort((a, b) =>
       a[0].localeCompare(b[0])
     )
-  }, [rows, search, expiryFilter, sortBy])
+  }, [rows, search, expiryFilter, sortBy, hideEmpty])
 
   if (loading) {
     return (
@@ -221,6 +227,30 @@ export default function InventoryPage() {
             {f.label}
           </button>
         ))}
+      </div>
+
+      {/* Hide empty toggle */}
+      <div className="mb-3 flex gap-2">
+        <button
+          onClick={() => setHideEmpty(true)}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            hideEmpty
+              ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+          }`}
+        >
+          Hide empty
+        </button>
+        <button
+          onClick={() => setHideEmpty(false)}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            !hideEmpty
+              ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+              : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+          }`}
+        >
+          Show all
+        </button>
       </div>
 
       {/* Sort */}

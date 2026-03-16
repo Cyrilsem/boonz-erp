@@ -1,14 +1,22 @@
 'use client'
 
+// Note: RESEND_API_KEY must be set in Supabase Edge Function secrets
+// Supabase dashboard → Edge Functions → send-po-notification → Secrets
+
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import * as XLSX from 'xlsx'
 
+const WALK_IN_SUPPLIER_CODES = ['SUP_005', 'SUP_011'] as const
+const EDGE_FN_URL =
+  'https://eizcexopcuoycuosittm.supabase.co/functions/v1/send-po-notification'
+
 interface Supplier {
   supplier_id: string
   supplier_name: string
   supplier_code: string | null
+  supplier_email: string | null
 }
 
 interface Product {
@@ -42,21 +50,17 @@ function generateKey(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-// Simple fuzzy match: lowercase includes or starts-with
 function fuzzyMatch(query: string, products: Product[]): Product | null {
   const q = query.toLowerCase().trim()
   if (!q) return null
-  // Exact match first
   const exact = products.find(
     (p) => p.boonz_product_name.toLowerCase() === q
   )
   if (exact) return exact
-  // Starts with
   const starts = products.find(
     (p) => p.boonz_product_name.toLowerCase().startsWith(q)
   )
   if (starts) return starts
-  // Contains
   const contains = products.find(
     (p) => p.boonz_product_name.toLowerCase().includes(q)
   )
@@ -178,15 +182,17 @@ export default function NewOrderPage() {
   const [importedRows, setImportedRows] = useState<ImportedRow[]>([])
   const [importReady, setImportReady] = useState(false)
 
-  // Submit
+  // Submit + confirm dialog
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
 
     const [{ data: suppData }, { data: prodData }, { data: poData }] = await Promise.all([
-      supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code').order('supplier_name'),
+      supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code, supplier_email').order('supplier_name'),
       supabase.from('boonz_products').select('product_id, boonz_product_name, product_category').order('boonz_product_name'),
       supabase.from('purchase_orders').select('po_number').order('po_number', { ascending: false }).limit(1),
     ])
@@ -194,7 +200,6 @@ export default function NewOrderPage() {
     if (suppData) setSuppliers(suppData)
     if (prodData) setProducts(prodData)
 
-    // Generate next PO ID
     const year = new Date().getFullYear()
     const lastNum = poData?.[0]?.po_number ?? 0
     const nextNum = lastNum + 1
@@ -264,10 +269,8 @@ export default function NewOrderPage() {
           const rawPrice = row[2] !== undefined && row[2] !== '' ? Number(row[2]) : null
           let expiryDate = ''
           if (row[3]) {
-            // Handle Excel serial date or string
             const val = row[3]
             if (typeof val === 'number') {
-              // Excel serial date
               const d = XLSX.SSF.parse_date_code(val)
               expiryDate = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
             } else {
@@ -320,21 +323,15 @@ export default function NewOrderPage() {
     )
   }
 
-  // -- Submit --
+  // -- Resolve final lines from either mode --
 
-  async function handleSubmit() {
-    setError(null)
-
-    if (!supplierId) {
-      setError('Please select a supplier')
-      return
-    }
-
-    const finalLines = mode === 'manual'
+  function resolveFinalLines() {
+    return mode === 'manual'
       ? lines
           .filter((l) => l.product_id)
           .map((l) => ({
             product_id: l.product_id,
+            product_name: products.find((p) => p.product_id === l.product_id)?.boonz_product_name ?? '',
             qty: l.qty,
             price: l.price,
             expiry_date: l.expiry_date,
@@ -343,19 +340,50 @@ export default function NewOrderPage() {
           .filter((r) => r.matched_product)
           .map((r) => ({
             product_id: r.matched_product!.product_id,
+            product_name: r.matched_product!.boonz_product_name,
             qty: r.qty,
             price: r.price,
             expiry_date: r.expiry_date,
           }))
+  }
 
+  // -- Step 1: Validate and show confirm dialog --
+
+  function handleSubmit() {
+    setError(null)
+
+    if (!supplierId) {
+      setError('Please select a supplier')
+      return
+    }
+
+    const finalLines = resolveFinalLines()
     if (finalLines.length === 0) {
       setError('Add at least one product line')
       return
     }
 
+    setShowConfirm(true)
+  }
+
+  // -- Step 2: Confirm & send --
+
+  async function handleConfirmSend() {
+    setShowConfirm(false)
     setSubmitting(true)
+    setSubmitStatus('Saving and sending…')
+    setError(null)
 
     const supabase = createClient()
+    const supplier = suppliers.find((s) => s.supplier_id === supplierId)
+    if (!supplier) {
+      setError('Supplier not found')
+      setSubmitting(false)
+      setSubmitStatus(null)
+      return
+    }
+
+    const finalLines = resolveFinalLines()
 
     // Get next po_number
     const { data: lastPo } = await supabase
@@ -379,18 +407,86 @@ export default function NewOrderPage() {
       received_date: null,
     }))
 
+    // a. Insert PO lines
     const { error: insertError } = await supabase
       .from('purchase_orders')
       .insert(inserts)
 
     if (insertError) {
-      setError(`Failed to create PO: ${insertError.message}`)
+      setError(`Failed to save order — try again`)
       setSubmitting(false)
+      setSubmitStatus(null)
       return
     }
 
-    router.push('/field/orders')
+    // b. Call Edge Function for notification
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+
+    if (token) {
+      try {
+        const res = await fetch(EDGE_FN_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            po_id: poId,
+            po_number: nextNumber,
+            supplier_id: supplierId,
+            supplier_name: supplier.supplier_name,
+            supplier_code: supplier.supplier_code ?? '',
+            supplier_email: supplier.supplier_email,
+            purchase_date: poDate,
+            lines: finalLines.map((l) => ({
+              boonz_product_name: l.product_name,
+              ordered_qty: l.qty,
+              price_per_unit_aed: l.price,
+              total_price_aed: l.price ? l.qty * l.price : null,
+              expiry_date: l.expiry_date || null,
+            })),
+            created_by: session.user.id,
+          }),
+        })
+
+        const result = await res.json()
+
+        if (!res.ok || result.error) {
+          // PO saved but notification failed
+          setSubmitStatus(null)
+          setError('Order saved but notification failed. You can retry from the order details.')
+          setTimeout(() => router.push('/field/orders'), 2000)
+          return
+        }
+
+        // Success
+        const isWalkIn = WALK_IN_SUPPLIER_CODES.includes(
+          (supplier.supplier_code ?? '') as typeof WALK_IN_SUPPLIER_CODES[number]
+        )
+        setSubmitStatus(
+          isWalkIn
+            ? `Order saved — driver task created`
+            : `Order saved and email sent to ${supplier.supplier_name}`
+        )
+      } catch {
+        setSubmitStatus(null)
+        setError('Order saved but notification failed. You can retry from the order details.')
+        setTimeout(() => router.push('/field/orders'), 2000)
+        return
+      }
+    }
+
+    setTimeout(() => router.push('/field/orders'), 1500)
   }
+
+  // Derived: selected supplier info for confirm dialog
+  const selectedSupplier = suppliers.find((s) => s.supplier_id === supplierId)
+  const isWalkIn = selectedSupplier
+    ? WALK_IN_SUPPLIER_CODES.includes(
+        (selectedSupplier.supplier_code ?? '') as typeof WALK_IN_SUPPLIER_CODES[number]
+      )
+    : false
 
   if (loading) {
     return (
@@ -698,9 +794,12 @@ export default function NewOrderPage() {
         </div>
       )}
 
-      {/* Error */}
+      {/* Error / status */}
       {error && (
         <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>
+      )}
+      {submitStatus && (
+        <p className="mt-4 text-sm font-medium text-green-600 dark:text-green-400">{submitStatus}</p>
       )}
 
       {/* Submit */}
@@ -710,9 +809,66 @@ export default function NewOrderPage() {
           disabled={submitting}
           className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          {submitting ? 'Creating…' : 'Create PO'}
+          {submitting ? (submitStatus ?? 'Creating…') : 'Create PO'}
         </button>
       </div>
+
+      {/* Confirm dialog */}
+      {showConfirm && selectedSupplier && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-neutral-900">
+            <h2 className="text-lg font-semibold mb-2">
+              Send order to {selectedSupplier.supplier_name}?
+            </h2>
+
+            {isWalkIn ? (
+              <>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-xl">🚗</span>
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                    Driver task
+                  </span>
+                </div>
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  This will create a task for the driver to collect this order
+                  from {selectedSupplier.supplier_name}.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-xl">📧</span>
+                  <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                    Email
+                  </span>
+                </div>
+                <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                  This will send a purchase order email to {selectedSupplier.supplier_name}{' '}
+                  and CC info@boonz.me.
+                </p>
+                <p className="mt-1 text-xs text-neutral-400">
+                  To: {selectedSupplier.supplier_email || 'info@boonz.me'}
+                </p>
+              </>
+            )}
+
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="flex-1 rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSend}
+                className="flex-1 rounded-lg bg-neutral-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+              >
+                Confirm &amp; send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

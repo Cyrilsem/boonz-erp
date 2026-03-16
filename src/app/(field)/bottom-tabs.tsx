@@ -15,6 +15,7 @@ const fieldStaffTabs: Tab[] = [
   { label: 'Trips', href: '/field/trips', icon: '⊞' },
   { label: 'Pickup', href: '/field/pickup', icon: '◫' },
   { label: 'Dispatching', href: '/field/dispatching', icon: '▤' },
+  { label: 'Tasks', href: '/field/tasks', icon: '◉' },
   { label: 'Profile', href: '/field/profile', icon: '⊙' },
 ]
 
