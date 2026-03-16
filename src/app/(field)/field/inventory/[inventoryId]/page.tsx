@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
+type InventoryStatus = 'Active' | 'Inactive' | 'Expired' | 'Removed' | 'Reserved'
+
 interface InventoryDetail {
   wh_inventory_id: string
   boonz_product_id: string
@@ -12,6 +14,7 @@ interface InventoryDetail {
   wh_location: string | null
   warehouse_stock: number
   expiration_date: string | null
+  status: InventoryStatus
 }
 
 interface AuditEntry {
@@ -55,6 +58,10 @@ export default function InventoryDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
+  // Status toggle
+  const [showStatusConfirm, setShowStatusConfirm] = useState(false)
+  const [statusUpdating, setStatusUpdating] = useState(false)
+
   const fetchData = useCallback(async () => {
     const supabase = createClient()
 
@@ -68,6 +75,7 @@ export default function InventoryDetailPage() {
         wh_location,
         warehouse_stock,
         expiration_date,
+        status,
         boonz_products!inner(boonz_product_name)
       `)
       .eq('wh_inventory_id', inventoryId)
@@ -83,6 +91,7 @@ export default function InventoryDetailPage() {
         wh_location: invData.wh_location,
         warehouse_stock: invData.warehouse_stock ?? 0,
         expiration_date: invData.expiration_date,
+        status: (invData.status as InventoryStatus) ?? 'Active',
       }
       setItem(detail)
       setEditQty(detail.warehouse_stock)
@@ -201,6 +210,38 @@ export default function InventoryDetailPage() {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  async function handleStatusToggle(newStatus: 'Active' | 'Inactive') {
+    if (!item) return
+    setStatusUpdating(true)
+    setShowStatusConfirm(false)
+
+    const supabase = createClient()
+    const reason =
+      newStatus === 'Inactive'
+        ? 'Marked inactive — excluded from refill'
+        : 'Reactivated — included in refill'
+
+    const { error: updateError } = await supabase
+      .from('warehouse_inventory')
+      .update({ status: newStatus })
+      .eq('wh_inventory_id', inventoryId)
+
+    if (!updateError) {
+      await supabase.from('inventory_audit_log').insert({
+        wh_inventory_id: inventoryId,
+        boonz_product_id: item.boonz_product_id,
+        old_qty: item.warehouse_stock,
+        new_qty: item.warehouse_stock,
+        reason,
+      })
+
+      setItem({ ...item, status: newStatus })
+      fetchData()
+    }
+
+    setStatusUpdating(false)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -251,6 +292,86 @@ export default function InventoryDetailPage() {
           <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">Saved ✓</p>
         )}
       </div>
+
+      {/* Refill status */}
+      <div className="mb-4 flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Refill status</p>
+          {item.status === 'Active' && (
+            <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+              Active — included in refill
+            </span>
+          )}
+          {item.status === 'Inactive' && (
+            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+              Inactive — excluded from refill
+            </span>
+          )}
+          {item.status === 'Expired' && (
+            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900 dark:text-red-200">
+              Expired
+            </span>
+          )}
+          {item.status === 'Removed' && (
+            <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+              Removed
+            </span>
+          )}
+          {item.status === 'Reserved' && (
+            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+              Reserved
+            </span>
+          )}
+        </div>
+        {item.status === 'Active' && (
+          <button
+            onClick={() => setShowStatusConfirm(true)}
+            disabled={statusUpdating}
+            className="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
+          >
+            Mark as inactive
+          </button>
+        )}
+        {item.status === 'Inactive' && (
+          <button
+            onClick={() => handleStatusToggle('Active')}
+            disabled={statusUpdating}
+            className="shrink-0 rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-50 disabled:opacity-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950"
+          >
+            {statusUpdating ? 'Updating…' : 'Reactivate'}
+          </button>
+        )}
+      </div>
+
+      {/* Inactive confirm dialog */}
+      {showStatusConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-neutral-900">
+            <h2 className="text-lg font-semibold mb-2">
+              Mark {item.boonz_product_name} as inactive?
+            </h2>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              This will exclude it from future refill plans.
+              Stock will remain tracked in the warehouse.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => setShowStatusConfirm(false)}
+                className="flex-1 rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleStatusToggle('Inactive')}
+                disabled={statusUpdating}
+                className="flex-1 rounded-lg bg-amber-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+              >
+                {statusUpdating ? 'Updating…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit section */}
       {!editing ? (

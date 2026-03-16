@@ -12,10 +12,12 @@ interface InventoryRow {
   wh_location: string | null
   warehouse_stock: number
   expiration_date: string | null
+  status: string
 }
 
 type ExpiryFilter = 'all' | 'expired' | '3days' | '7days' | '30days'
 type SortOption = 'expiry' | 'name' | 'qty'
+type StatusFilter = 'Active' | 'Inactive' | 'all'
 
 const expiryFilters: { label: string; value: ExpiryFilter }[] = [
   { label: 'All', value: 'all' },
@@ -72,11 +74,12 @@ export default function InventoryPage() {
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('7days')
   const [sortBy, setSortBy] = useState<SortOption>('expiry')
   const [hideEmpty, setHideEmpty] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('Active')
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
 
-    const { data } = await supabase
+    const query = supabase
       .from('warehouse_inventory')
       .select(`
         wh_inventory_id,
@@ -84,9 +87,18 @@ export default function InventoryPage() {
         wh_location,
         warehouse_stock,
         expiration_date,
+        status,
         boonz_products!inner(boonz_product_name, product_category)
       `)
-      .eq('status', 'Active')
+
+    // Only filter at DB level for specific status, fetch both for 'all'
+    if (statusFilter !== 'all') {
+      query.eq('status', statusFilter)
+    } else {
+      query.in('status', ['Active', 'Inactive'])
+    }
+
+    const { data } = await query
 
     if (!data || data.length === 0) {
       setRows([])
@@ -107,12 +119,13 @@ export default function InventoryPage() {
         wh_location: row.wh_location,
         warehouse_stock: row.warehouse_stock ?? 0,
         expiration_date: row.expiration_date,
+        status: row.status ?? 'Active',
       }
     })
 
     setRows(mapped)
     setLoading(false)
-  }, [])
+  }, [statusFilter])
 
   useEffect(() => {
     fetchData()
@@ -211,6 +224,27 @@ export default function InventoryPage() {
         placeholder="Search products…"
         className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
       />
+
+      {/* Status filter pills */}
+      <div className="mb-3 flex gap-2">
+        {([
+          { label: 'Active', value: 'Active' as StatusFilter },
+          { label: 'Inactive', value: 'Inactive' as StatusFilter },
+          { label: 'All', value: 'all' as StatusFilter },
+        ]).map((s) => (
+          <button
+            key={s.value}
+            onClick={() => setStatusFilter(s.value)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              statusFilter === s.value
+                ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
       {/* Expiry filter pills */}
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
@@ -319,6 +353,11 @@ export default function InventoryPage() {
                             {row.warehouse_stock} units
                           </p>
                           <ExpiryBadge days={days} />
+                          {row.status === 'Inactive' && (
+                            <span className="mt-0.5 block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                              Inactive
+                            </span>
+                          )}
                         </div>
                       </div>
                       <p className="mt-1 text-xs text-neutral-500">
