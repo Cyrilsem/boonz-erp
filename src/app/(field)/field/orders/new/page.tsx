@@ -192,8 +192,8 @@ export default function NewOrderPage() {
     const supabase = createClient()
 
     const [{ data: suppData }, { data: prodData }, { data: poData }] = await Promise.all([
-      supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code, supplier_email').order('supplier_name'),
-      supabase.from('boonz_products').select('product_id, boonz_product_name, product_category').order('boonz_product_name'),
+      supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code, supplier_email').eq('status', 'Active').order('supplier_name'),
+      supabase.from('boonz_products').select('product_id, boonz_product_name, product_category').eq('status', 'Active').order('boonz_product_name'),
       supabase.from('purchase_orders').select('po_number').order('po_number', { ascending: false }).limit(1),
     ])
 

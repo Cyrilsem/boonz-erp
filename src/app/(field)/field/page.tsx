@@ -1,5 +1,473 @@
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
+
+type Role = 'warehouse' | 'field_staff'
+
+interface UserInfo {
+  full_name: string | null
+  role: Role
+}
+
+interface WarehouseKpis {
+  machinesToday: number
+  packedLines: number
+  totalLines: number
+  expiringCritical: number
+  openPOs: number
+  activeItems: number
+  expiringWeek: number
+  pendingReceiving: number
+}
+
+interface DriverKpis {
+  stopsToday: number
+  pickupReady: number
+  toDispatch: number
+  openTasks: number
+}
+
+function getGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
+function formatToday(): string {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function todayISO(): string {
+  return new Date().toISOString().split('T')[0]
+}
+
+function KpiCard({
+  value,
+  label,
+  colour,
+  href,
+}: {
+  value: string | number
+  label: string
+  colour: 'blue' | 'green' | 'amber' | 'orange' | 'red' | 'grey'
+  href: string
+}) {
+  const colourMap = {
+    blue: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+    green: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
+    amber: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    orange: 'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
+    red: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
+    grey: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400',
+  }
+
+  return (
+    <Link
+      href={href}
+      className={`flex min-w-[130px] shrink-0 flex-col items-center rounded-xl p-4 transition-opacity hover:opacity-80 ${colourMap[colour]}`}
+    >
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-center">{label}</p>
+    </Link>
+  )
+}
+
+function CategoryCard({
+  icon,
+  title,
+  sub,
+  bgClass,
+  sections,
+  alert,
+}: {
+  icon: string
+  title: string
+  sub: string
+  bgClass: string
+  sections: { label: string; count: string; href: string }[]
+  alert?: string
+}) {
+  return (
+    <div className={`rounded-xl p-4 ${bgClass}`}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xl">{icon}</span>
+        <h2 className="text-base font-semibold">{title}</h2>
+      </div>
+      <p className="text-xs text-neutral-500 mb-3">{sub}</p>
+      {alert && (
+        <div className="mb-3 rounded-lg bg-red-100 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+          ⚠ {alert}
+        </div>
+      )}
+      <div className="space-y-2">
+        {sections.map((s) => (
+          <Link
+            key={s.href}
+            href={s.href}
+            className="flex items-center justify-between rounded-lg bg-white/60 px-3 py-2.5 text-sm transition-colors hover:bg-white/80 dark:bg-neutral-900/60 dark:hover:bg-neutral-900/80"
+          >
+            <span className="font-medium">{s.label}</span>
+            <span className="text-xs text-neutral-500">{s.count} →</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function Skeleton() {
+  return (
+    <div className="px-4 py-4 pb-24 space-y-4 animate-pulse">
+      <div className="h-7 w-48 rounded bg-neutral-200 dark:bg-neutral-800" />
+      <div className="h-4 w-36 rounded bg-neutral-200 dark:bg-neutral-800" />
+      <div className="flex gap-3 overflow-hidden">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-20 w-32 shrink-0 rounded-xl bg-neutral-200 dark:bg-neutral-800" />
+        ))}
+      </div>
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="h-36 rounded-xl bg-neutral-200 dark:bg-neutral-800" />
+      ))}
+    </div>
+  )
+}
+
+// ─── Warehouse Home ───────────────────────────────────────────────
+
+function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) {
+  const packColour = kpis.totalLines === 0
+    ? 'grey' as const
+    : kpis.packedLines === kpis.totalLines
+      ? 'green' as const
+      : 'amber' as const
+
+  return (
+    <div className="px-4 py-4 pb-24">
+      <h1 className="text-xl font-semibold">
+        {getGreeting()}, {user.full_name ?? 'Warehouse'}
+      </h1>
+      <p className="text-sm text-neutral-500 mb-4">{formatToday()}</p>
+
+      {/* KPI row */}
+      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
+        <KpiCard value={kpis.machinesToday} label="Machines today" colour="blue" href="/field/packing" />
+        <KpiCard
+          value={`${kpis.packedLines}/${kpis.totalLines}`}
+          label="Packed today"
+          colour={packColour}
+          href="/field/packing"
+        />
+        <KpiCard
+          value={kpis.expiringCritical}
+          label="Expiring ≤3 days"
+          colour={kpis.expiringCritical > 0 ? 'red' : 'green'}
+          href="/field/inventory"
+        />
+        <KpiCard
+          value={kpis.openPOs}
+          label="Pending orders"
+          colour={kpis.openPOs > 0 ? 'amber' : 'green'}
+          href="/field/orders"
+        />
+      </div>
+
+      {/* Category cards */}
+      <div className="space-y-3">
+        <CategoryCard
+          icon="📦"
+          title="Daily Refills"
+          sub="Pack and dispatch today's machines"
+          bgClass="bg-blue-50/50 dark:bg-blue-950/30"
+          sections={[
+            { label: 'Packing', count: `${kpis.machinesToday} machines to pack`, href: '/field/packing' },
+            { label: 'Receiving', count: `${kpis.pendingReceiving} deliveries pending`, href: '/field/receiving' },
+          ]}
+        />
+        <CategoryCard
+          icon="🗄️"
+          title="Inventory Management"
+          sub="Stock levels, locations, expiry tracking"
+          bgClass="bg-teal-50/50 dark:bg-teal-950/30"
+          sections={[
+            { label: 'Warehouse Stock', count: `${kpis.activeItems} active items`, href: '/field/inventory' },
+            { label: 'Expiry Sweep', count: `${kpis.expiringWeek} expiring this week`, href: '/field/inventory' },
+          ]}
+          alert={kpis.expiringCritical > 0 ? `${kpis.expiringCritical} items expire within 3 days` : undefined}
+        />
+        <CategoryCard
+          icon="🛒"
+          title="Procurement"
+          sub="Purchase orders and supplier management"
+          bgClass="bg-orange-50/50 dark:bg-orange-950/30"
+          sections={[
+            { label: 'Orders', count: `${kpis.openPOs} open POs`, href: '/field/orders' },
+            { label: 'New Order', count: 'Create purchase order', href: '/field/orders/new' },
+          ]}
+        />
+        <Link
+          href="/field/profile"
+          className="flex items-center gap-3 rounded-xl bg-neutral-100/50 p-4 transition-colors hover:bg-neutral-100 dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
+        >
+          <span className="text-xl">👤</span>
+          <div>
+            <p className="text-base font-semibold">Profile</p>
+            <p className="text-xs text-neutral-500">
+              {user.full_name ?? 'User'} ·{' '}
+              <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs dark:bg-neutral-800">
+                Warehouse
+              </span>
+            </p>
+          </div>
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ─── Driver Home ──────────────────────────────────────────────────
+
+function DriverHome({ user, kpis }: { user: UserInfo; kpis: DriverKpis }) {
+  return (
+    <div className="px-4 py-4 pb-24">
+      <h1 className="text-xl font-semibold">
+        {getGreeting()}, {user.full_name ?? 'Driver'}
+      </h1>
+      <p className="text-sm text-neutral-500 mb-4">{formatToday()}</p>
+
+      {/* KPI row */}
+      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
+        <KpiCard value={kpis.stopsToday} label="Stops today" colour="blue" href="/field/trips" />
+        <KpiCard
+          value={kpis.pickupReady}
+          label="Ready to collect"
+          colour={kpis.pickupReady > 0 ? 'amber' : 'green'}
+          href="/field/pickup"
+        />
+        <KpiCard
+          value={kpis.toDispatch}
+          label="To dispatch"
+          colour={kpis.toDispatch > 0 ? 'orange' : 'green'}
+          href="/field/dispatching"
+        />
+        <KpiCard
+          value={kpis.openTasks}
+          label="Open tasks"
+          colour={kpis.openTasks > 0 ? 'red' : 'green'}
+          href="/field/tasks"
+        />
+      </div>
+
+      {/* Activity cards */}
+      <div className="space-y-3">
+        <CategoryCard
+          icon="🗺️"
+          title="Today's Route"
+          sub="Your machine stops for today"
+          bgClass="bg-blue-50/50 dark:bg-blue-950/30"
+          sections={[
+            { label: 'All stops', count: `${kpis.stopsToday} machines`, href: '/field/trips' },
+            { label: 'Pickup', count: `${kpis.pickupReady} ready to collect`, href: '/field/pickup' },
+            { label: 'Dispatch', count: `${kpis.toDispatch} to dispatch`, href: '/field/dispatching' },
+          ]}
+        />
+        <CategoryCard
+          icon="🛒"
+          title="Tasks"
+          sub="Supplier collections and ad-hoc tasks"
+          bgClass="bg-amber-50/50 dark:bg-amber-950/30"
+          sections={[
+            { label: 'Open tasks', count: `${kpis.openTasks} pending`, href: '/field/tasks' },
+          ]}
+          alert={kpis.openTasks > 0 ? `You have ${kpis.openTasks} pending task(s)` : undefined}
+        />
+        <Link
+          href="/field/profile"
+          className="flex items-center gap-3 rounded-xl bg-neutral-100/50 p-4 transition-colors hover:bg-neutral-100 dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
+        >
+          <span className="text-xl">👤</span>
+          <div>
+            <p className="text-base font-semibold">Profile</p>
+            <p className="text-xs text-neutral-500">
+              {user.full_name ?? 'User'} · Driver
+            </p>
+          </div>
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────
 
 export default function FieldPage() {
-  redirect('/field/trips')
+  const [user, setUser] = useState<UserInfo | null>(null)
+  const [whKpis, setWhKpis] = useState<WarehouseKpis | null>(null)
+  const [driverKpis, setDriverKpis] = useState<DriverKpis | null>(null)
+
+  const fetchData = useCallback(async () => {
+    const supabase = createClient()
+    const today = todayISO()
+
+    // Get current user + role
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) return
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('full_name, role')
+      .eq('id', authUser.id)
+      .single()
+
+    const role = (profile?.role ?? 'field_staff') as Role
+    const fullName = profile?.full_name ?? null
+    setUser({ full_name: fullName, role })
+
+    if (role === 'warehouse') {
+      // Warehouse KPIs
+      const [
+        { data: dispatchLines },
+        { data: expiryItems },
+        { data: openPOLines },
+        { data: activeInv },
+        { data: expiryWeekItems },
+        { data: pendingPOLines },
+      ] = await Promise.all([
+        // Dispatch lines today
+        supabase
+          .from('refill_dispatching')
+          .select('machine_id, packed')
+          .eq('dispatch_date', today)
+          .eq('include', true),
+        // Expiring ≤3 days
+        supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id', { count: 'exact', head: true })
+          .eq('status', 'Active')
+          .lte('expiration_date', new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0]),
+        // Open POs
+        supabase
+          .from('purchase_orders')
+          .select('po_id', { count: 'exact', head: true })
+          .is('received_date', null),
+        // Active inventory items
+        supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id', { count: 'exact', head: true })
+          .eq('status', 'Active'),
+        // Expiring ≤7 days
+        supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id', { count: 'exact', head: true })
+          .eq('status', 'Active')
+          .lte('expiration_date', new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]),
+        // Pending receiving
+        supabase
+          .from('purchase_orders')
+          .select('po_id')
+          .is('received_date', null),
+      ])
+
+      // Count distinct machines
+      const machineSet = new Set<string>()
+      let packedCount = 0
+      const totalCount = dispatchLines?.length ?? 0
+      dispatchLines?.forEach((l) => {
+        machineSet.add(l.machine_id)
+        if (l.packed) packedCount++
+      })
+
+      // Count distinct POs for receiving
+      const pendingPOSet = new Set<string>()
+      pendingPOLines?.forEach((l) => pendingPOSet.add(l.po_id))
+
+      setWhKpis({
+        machinesToday: machineSet.size,
+        packedLines: packedCount,
+        totalLines: totalCount,
+        expiringCritical: expiryItems?.length ?? 0,
+        openPOs: openPOLines?.length ?? 0,
+        activeItems: activeInv?.length ?? 0,
+        expiringWeek: expiryWeekItems?.length ?? 0,
+        pendingReceiving: pendingPOSet.size,
+      })
+    } else {
+      // Driver KPIs
+      const [
+        { data: dispatchLines },
+        { data: openTasksData },
+      ] = await Promise.all([
+        supabase
+          .from('refill_dispatching')
+          .select('machine_id, packed, picked_up, dispatched')
+          .eq('dispatch_date', today)
+          .eq('include', true),
+        supabase
+          .from('driver_tasks')
+          .select('task_id', { count: 'exact', head: true })
+          .in('status', ['pending', 'acknowledged']),
+      ])
+
+      // Group by machine
+      const machines = new Map<string, { packed: boolean[]; pickedUp: boolean[]; dispatched: boolean[] }>()
+      dispatchLines?.forEach((l) => {
+        const m = machines.get(l.machine_id) ?? { packed: [], pickedUp: [], dispatched: [] }
+        m.packed.push(!!l.packed)
+        m.pickedUp.push(!!l.picked_up)
+        m.dispatched.push(!!l.dispatched)
+        machines.set(l.machine_id, m)
+      })
+
+      let pickupReady = 0
+      let toDispatch = 0
+      machines.forEach((m) => {
+        const allPacked = m.packed.length > 0 && m.packed.every(Boolean)
+        const allPickedUp = m.pickedUp.length > 0 && m.pickedUp.every(Boolean)
+        const allDispatched = m.dispatched.length > 0 && m.dispatched.every(Boolean)
+
+        if (allPacked && !allPickedUp) pickupReady++
+        if (allPickedUp && !allDispatched) toDispatch++
+      })
+
+      setDriverKpis({
+        stopsToday: machines.size,
+        pickupReady,
+        toDispatch,
+        openTasks: openTasksData?.length ?? 0,
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') fetchData()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', fetchData)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', fetchData)
+    }
+  }, [fetchData])
+
+  if (!user) return <Skeleton />
+
+  if (user.role === 'warehouse') {
+    if (!whKpis) return <Skeleton />
+    return <WarehouseHome user={user} kpis={whKpis} />
+  }
+
+  if (!driverKpis) return <Skeleton />
+  return <DriverHome user={user} kpis={driverKpis} />
 }
