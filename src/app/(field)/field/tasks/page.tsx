@@ -17,6 +17,7 @@ interface DriverTask {
 }
 
 interface POLineDetail {
+  po_line_id: string
   boonz_product_name: string
   ordered_qty: number
   price_per_unit_aed: number | null
@@ -172,21 +173,28 @@ export default function TasksPage() {
     resetLineState()
 
     const supabase = createClient()
-    const { data } = await supabase
+    console.log('[Tasks] fetching PO lines for po_id:', task.po_id)
+    const { data, error } = await supabase
       .from('purchase_orders')
       .select(`
+        po_line_id,
+        po_id,
         ordered_qty,
         price_per_unit_aed,
         total_price_aed,
-        boonz_products!inner(boonz_product_name)
+        boonz_product_id,
+        boonz_products ( boonz_product_name )
       `)
       .eq('po_id', task.po_id)
 
+    console.log('[Tasks] PO lines result:', data, error)
+
     if (data) {
       const mapped: POLineDetail[] = data.map((row) => {
-        const p = row.boonz_products as unknown as { boonz_product_name: string }
+        const p = row.boonz_products as unknown as { boonz_product_name: string } | null
         return {
-          boonz_product_name: p.boonz_product_name,
+          po_line_id: row.po_line_id,
+          boonz_product_name: p?.boonz_product_name ?? row.boonz_product_id,
           ordered_qty: row.ordered_qty ?? 0,
           price_per_unit_aed: row.price_per_unit_aed,
           total_price_aed: row.total_price_aed,
@@ -211,7 +219,7 @@ export default function TasksPage() {
 
   function allLinesHaveOutcome(): boolean {
     if (expandedLines.length === 0) return false
-    return expandedLines.every((l) => !!lineOutcomes[l.boonz_product_name])
+    return expandedLines.every((l) => !!lineOutcomes[l.po_line_id])
   }
 
   async function markCollected(taskId: string) {
@@ -221,16 +229,17 @@ export default function TasksPage() {
 
     // Build per-line detail for outcome_comment
     const lineDetail = expandedLines.map((l) => ({
-      product: l.boonz_product_name,
-      outcome: lineOutcomes[l.boonz_product_name],
+      po_line_id: l.po_line_id,
+      product_name: l.boonz_product_name,
+      outcome: lineOutcomes[l.po_line_id],
       qty_purchased:
-        lineOutcomes[l.boonz_product_name] === 'purchased_partial'
-          ? (lineQtys[l.boonz_product_name] ?? null)
+        lineOutcomes[l.po_line_id] === 'purchased_partial'
+          ? (lineQtys[l.po_line_id] ?? null)
           : null,
-      comment: lineComments[l.boonz_product_name] || null,
+      comment: lineComments[l.po_line_id] || null,
     }))
 
-    // Summary outcome: 'purchased_full' unless any line is not full
+    // Summary outcome: 'purchased_full' only if every line was full
     const summaryOutcome: Outcome = lineDetail.every(
       (l) => l.outcome === 'purchased_full'
     )
@@ -391,7 +400,7 @@ export default function TasksPage() {
 
                         <div className="space-y-4">
                           {expandedLines.map((line) => {
-                            const key = line.boonz_product_name
+                            const key = line.po_line_id
                             const lineOutcome = lineOutcomes[key]
 
                             return (
