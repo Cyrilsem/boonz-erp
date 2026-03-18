@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 
 type Role = 'warehouse' | 'field_staff'
@@ -13,16 +14,18 @@ interface UserInfo {
 
 interface WarehouseKpis {
   machinesToday: number
-  packedLines: number
   totalLines: number
+  packedLines: number
+  pickedUpLines: number
+  dispatchedLines: number
   expired: number
   expiring3: number
   expiring7: number
   expiring30: number
   openPOs: number
+  receivedToday: number
   activeItems: number
   expiringWeek: number
-  pendingReceiving: number
   lastControlDays: number | null // null = never
 }
 
@@ -39,6 +42,8 @@ interface PodExpiryKpis {
   expiring7: number
   expiring30: number
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getGreeting(): string {
   const h = new Date().getHours()
@@ -66,6 +71,8 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split('T')[0]
 }
 
+// ─── KPI card style ───────────────────────────────────────────────────────────
+
 interface KpiCardStyle {
   bg: string
   border: string
@@ -84,326 +91,305 @@ function kpiCardStyle(count: number, urgency: 'critical' | 'high' | 'medium' | '
   return map[urgency]
 }
 
-function KpiCard({
+// ─── Section card ─────────────────────────────────────────────────────────────
+
+function SectionCard({
+  title,
+  linkTo,
+  rightContent,
+  children,
+}: {
+  title: string
+  linkTo?: string
+  rightContent?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="mb-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">{title}</h2>
+        <div className="flex items-center gap-2">
+          {rightContent}
+          {linkTo && (
+            <Link href={linkTo} className="text-xs font-medium text-blue-500">
+              View →
+            </Link>
+          )}
+        </div>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+// ─── Stat card ────────────────────────────────────────────────────────────────
+
+function StatCard({
   value,
   label,
   subLabel,
-  colour,
   cardStyle,
   href,
 }: {
   value: string | number
   label: string
   subLabel?: string
-  colour?: 'blue' | 'green' | 'amber' | 'orange' | 'red' | 'grey'
-  cardStyle?: KpiCardStyle
+  cardStyle: KpiCardStyle
   href: string
 }) {
-  const colourMap = {
-    blue:   'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-    green:  'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
-    amber:  'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
-    orange: 'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
-    red:    'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
-    grey:   'bg-neutral-100 text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400',
-  }
-
-  const containerClass = cardStyle
-    ? `flex min-w-[130px] shrink-0 flex-col items-center rounded-xl border p-4 transition-opacity hover:opacity-80 ${cardStyle.bg} ${cardStyle.border} ${cardStyle.text}`
-    : `flex min-w-[130px] shrink-0 flex-col items-center rounded-xl p-4 transition-opacity hover:opacity-80 ${colour ? colourMap[colour] : ''}`
-
   return (
-    <Link href={href} className={containerClass}>
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="mt-0.5 text-center text-xs font-medium">{label}</p>
-      {subLabel && (
-        <p className="mt-0.5 text-center text-[10px] opacity-70">{subLabel}</p>
-      )}
+    <Link
+      href={href}
+      className={`rounded-xl border p-3 transition-opacity hover:opacity-80 ${cardStyle.bg} ${cardStyle.border}`}
+    >
+      <p className={`text-2xl font-bold ${cardStyle.text}`}>{value}</p>
+      <p className={`mt-0.5 text-xs font-medium ${cardStyle.text}`}>{label}</p>
+      {subLabel && <p className={`mt-0.5 text-xs ${cardStyle.sub}`}>{subLabel}</p>}
     </Link>
   )
 }
 
-function CategoryCard({
-  icon,
-  title,
-  sub,
-  bgClass,
-  sections,
-  alert,
-}: {
-  icon: string
-  title: string
-  sub: string
-  bgClass: string
-  sections: { label: string; count: string; href: string }[]
-  alert?: string
-}) {
-  return (
-    <div className={`rounded-xl p-4 ${bgClass}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-xl">{icon}</span>
-        <h2 className="text-base font-semibold">{title}</h2>
-      </div>
-      <p className="text-xs text-neutral-500 mb-3">{sub}</p>
-      {alert && (
-        <div className="mb-3 rounded-lg bg-red-100 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
-          ⚠ {alert}
-        </div>
-      )}
-      <div className="space-y-2">
-        {sections.map((s) => (
-          <Link
-            key={s.href}
-            href={s.href}
-            className="flex items-center justify-between rounded-lg bg-white/60 px-3 py-2.5 text-sm transition-colors hover:bg-white/80 dark:bg-neutral-900/60 dark:hover:bg-neutral-900/80"
-          >
-            <span className="font-medium">{s.label}</span>
-            <span className="text-xs text-neutral-500">{s.count} →</span>
-          </Link>
-        ))}
-      </div>
-    </div>
-  )
+// ─── Pct card style helper ────────────────────────────────────────────────────
+
+function pctCardStyle(pct: number, hasLines: boolean): KpiCardStyle {
+  if (!hasLines) return kpiCardStyle(0, 'low')
+  if (pct === 100) return kpiCardStyle(0, 'low')
+  if (pct > 0) return kpiCardStyle(1, 'medium')
+  return kpiCardStyle(1, 'high')
 }
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton() {
   return (
     <div className="px-4 py-4 pb-24 space-y-4 animate-pulse">
       <div className="h-7 w-48 rounded bg-neutral-200 dark:bg-neutral-800" />
       <div className="h-4 w-36 rounded bg-neutral-200 dark:bg-neutral-800" />
-      <div className="flex gap-3 overflow-hidden">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-20 w-32 shrink-0 rounded-xl bg-neutral-200 dark:bg-neutral-800" />
-        ))}
-      </div>
       {[1, 2, 3].map((i) => (
-        <div key={i} className="h-36 rounded-xl bg-neutral-200 dark:bg-neutral-800" />
+        <div key={i} className="h-40 rounded-2xl bg-neutral-200 dark:bg-neutral-800" />
       ))}
     </div>
   )
 }
 
-// ─── Warehouse Home ───────────────────────────────────────────────
+// ─── Warehouse Home ───────────────────────────────────────────────────────────
 
-function WarehouseHome({ user, kpis, podKpis }: { user: UserInfo; kpis: WarehouseKpis; podKpis: PodExpiryKpis }) {
-  const packPct = kpis.totalLines === 0
-    ? 0
-    : Math.round((kpis.packedLines / kpis.totalLines) * 100)
+function WarehouseHome({
+  user,
+  kpis,
+  podKpis,
+}: {
+  user: UserInfo
+  kpis: WarehouseKpis
+  podKpis: PodExpiryKpis
+}) {
+  const packedPct    = kpis.totalLines > 0 ? Math.round((kpis.packedLines    / kpis.totalLines) * 100) : 0
+  const pickedUpPct  = kpis.totalLines > 0 ? Math.round((kpis.pickedUpLines  / kpis.totalLines) * 100) : 0
+  const dispatchedPct = kpis.totalLines > 0 ? Math.round((kpis.dispatchedLines / kpis.totalLines) * 100) : 0
+  const hasLines = kpis.totalLines > 0
 
-  const packColour = kpis.totalLines === 0
-    ? 'grey' as const
-    : packPct === 100
-      ? 'green' as const
-      : 'amber' as const
-
-  const controlColour = kpis.lastControlDays === null
-    ? 'red' as const
-    : kpis.lastControlDays <= 7
-      ? 'green' as const
-      : kpis.lastControlDays <= 14
-        ? 'amber' as const
-        : 'red' as const
-
-  const controlValue = kpis.lastControlDays === null
-    ? 'Never'
+  const lastControlLabel = kpis.lastControlDays === null
+    ? 'Last control: Never'
     : kpis.lastControlDays === 0
-      ? 'Today'
-      : `${kpis.lastControlDays}d ago`
+    ? 'Last control: Today'
+    : `Last control: ${kpis.lastControlDays}d ago`
+
+  const lastControlColor = kpis.lastControlDays === null || kpis.lastControlDays > 30
+    ? 'text-red-500'
+    : kpis.lastControlDays > 7
+    ? 'text-yellow-500'
+    : 'text-green-500'
 
   return (
     <div className="px-4 py-4 pb-24">
       <h1 className="text-xl font-semibold">
         {getGreeting()}, {user.full_name ?? 'Warehouse'}
       </h1>
-      <p className="text-sm text-neutral-500 mb-4">{formatToday()}</p>
+      <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
-      {/* KPI row 1 */}
-      <div className="mb-3 flex gap-3 overflow-x-auto pb-1">
-        <KpiCard
-          value={kpis.machinesToday}
-          label="To refill today"
-          subLabel="machines scheduled"
-          colour="blue"
-          href="/field/packing"
-        />
-        <KpiCard
-          value={`${packPct}%`}
-          label="Packing complete"
-          subLabel={`${kpis.packedLines}/${kpis.totalLines} lines`}
-          colour={packColour}
-          href="/field/packing"
-        />
-        <KpiCard
-          value={kpis.openPOs}
-          label="Open POs"
-          colour={kpis.openPOs > 0 ? 'amber' : 'green'}
-          href="/field/orders"
-        />
-        <KpiCard
-          value={controlValue}
-          label="Last control"
-          colour={controlColour}
-          href="/field/inventory"
-        />
-      </div>
+      {/* ── Section 1: Daily Refills ── */}
+      <SectionCard title="Daily Refills" linkTo="/field/packing">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={kpis.machinesToday}
+            label="To refill today"
+            cardStyle={kpiCardStyle(kpis.machinesToday > 0 ? 1 : 0, 'low')}
+            href="/field/packing"
+          />
+          <StatCard
+            value={`${packedPct}%`}
+            label="Packing complete"
+            subLabel={`${kpis.packedLines} of ${kpis.totalLines} lines`}
+            cardStyle={pctCardStyle(packedPct, hasLines)}
+            href="/field/packing"
+          />
+          <StatCard
+            value={`${pickedUpPct}%`}
+            label="Picked up"
+            subLabel={`${kpis.pickedUpLines} of ${kpis.totalLines} lines`}
+            cardStyle={pctCardStyle(pickedUpPct, hasLines)}
+            href="/field/pickup"
+          />
+          <StatCard
+            value={`${dispatchedPct}%`}
+            label="Dispatched"
+            subLabel={`${kpis.dispatchedLines} of ${kpis.totalLines} lines`}
+            cardStyle={pctCardStyle(dispatchedPct, hasLines)}
+            href="/field/dispatching"
+          />
+        </div>
+      </SectionCard>
 
-      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Expiry Alerts</p>
+      {/* ── Section 2: Procurement ── */}
+      <SectionCard title="Procurement" linkTo="/field/orders">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={kpis.openPOs}
+            label="Open orders"
+            subLabel="Pending delivery"
+            cardStyle={kpiCardStyle(kpis.openPOs, 'medium')}
+            href="/field/orders"
+          />
+          <StatCard
+            value={kpis.receivedToday}
+            label="Received today"
+            cardStyle={kpiCardStyle(0, 'low')}
+            href="/field/receiving"
+          />
+          <Link
+            href="/field/orders/new"
+            className="col-span-2 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
+          >
+            + New Purchase Order
+          </Link>
+        </div>
+      </SectionCard>
 
-      {/* KPI row 2 — expiry grid */}
-      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard value={kpis.expired}   label="Expired"    cardStyle={kpiCardStyle(kpis.expired,   'critical')} href="/field/inventory" />
-        <KpiCard value={kpis.expiring3} label="< 3 days"   cardStyle={kpiCardStyle(kpis.expiring3, 'high')}     href="/field/inventory" />
-        <KpiCard value={kpis.expiring7} label="< 7 days"   cardStyle={kpiCardStyle(kpis.expiring7, 'medium')}   href="/field/inventory" />
-        <KpiCard value={kpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(kpis.expiring30,'low')}      href="/field/inventory" />
-      </div>
+      {/* ── Section 3: Inventory ── */}
+      <SectionCard
+        title="Inventory"
+        linkTo="/field/inventory"
+        rightContent={
+          <span className={`text-xs font-medium ${lastControlColor}`}>{lastControlLabel}</span>
+        }
+      >
+        <p className="mb-2 mt-1 text-xs text-gray-400">Warehouse stock</p>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard value={kpis.expired}   label="Expired"   cardStyle={kpiCardStyle(kpis.expired,   'critical')} href="/field/inventory" />
+          <StatCard value={kpis.expiring3} label="< 3 days"  cardStyle={kpiCardStyle(kpis.expiring3, 'high')}     href="/field/inventory" />
+          <StatCard value={kpis.expiring7} label="< 7 days"  cardStyle={kpiCardStyle(kpis.expiring7, 'medium')}   href="/field/inventory" />
+          <StatCard value={kpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(kpis.expiring30,'low')}     href="/field/inventory" />
+        </div>
 
-      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Machine Stock Expiry</p>
-
-      {/* KPI row 3 — pod expiry grid */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard value={podKpis.expired}   label="Expired in machines" cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
-        <KpiCard value={podKpis.expiring3} label="< 3 days"            cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
-        <KpiCard value={podKpis.expiring7} label="< 7 days"            cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
-        <KpiCard value={podKpis.expiring30} label="< 30 days"          cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
-      </div>
-
-      {/* Category cards */}
-      <div className="space-y-3">
-        <CategoryCard
-          icon="📦"
-          title="Daily Refills"
-          sub="Pack and dispatch today's machines"
-          bgClass="bg-blue-50/50 dark:bg-blue-950/30"
-          sections={[
-            { label: 'Packing', count: `${kpis.machinesToday} machines to pack`, href: '/field/packing' },
-            { label: 'Receiving', count: `${kpis.pendingReceiving} deliveries pending`, href: '/field/receiving' },
-          ]}
-        />
-        <CategoryCard
-          icon="🗄️"
-          title="Inventory Management"
-          sub="Stock levels, locations, expiry tracking"
-          bgClass="bg-teal-50/50 dark:bg-teal-950/30"
-          sections={[
-            { label: 'Warehouse Stock', count: `${kpis.activeItems} active items`, href: '/field/inventory' },
-            { label: 'Expiry Sweep', count: `${kpis.expiringWeek} expiring this week`, href: '/field/inventory' },
-          ]}
-          alert={kpis.expired > 0 ? `${kpis.expired} items are expired` : kpis.expiring3 > 0 ? `${kpis.expiring3} items expire within 3 days` : undefined}
-        />
-        <CategoryCard
-          icon="🛒"
-          title="Procurement"
-          sub="Purchase orders and supplier management"
-          bgClass="bg-orange-50/50 dark:bg-orange-950/30"
-          sections={[
-            { label: 'Orders', count: `${kpis.openPOs} open POs`, href: '/field/orders' },
-            { label: 'New Order', count: 'Create purchase order', href: '/field/orders/new' },
-          ]}
-        />
-        <Link
-          href="/field/profile"
-          className="flex items-center gap-3 rounded-xl bg-neutral-100/50 p-4 transition-colors hover:bg-neutral-100 dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
-        >
-          <span className="text-xl">👤</span>
-          <div>
-            <p className="text-base font-semibold">Profile</p>
-            <p className="text-xs text-neutral-500">
-              {user.full_name ?? 'User'} ·{' '}
-              <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs dark:bg-neutral-800">
-                Warehouse
-              </span>
-            </p>
-          </div>
-        </Link>
-      </div>
+        <p className="mb-2 mt-4 text-xs text-gray-400">Machine stock</p>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard value={podKpis.expired}    label="Expired"   cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring3}  label="< 3 days"  cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring7}  label="< 7 days"  cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
+        </div>
+      </SectionCard>
     </div>
   )
 }
 
-// ─── Driver Home ──────────────────────────────────────────────────
+// ─── Driver Home ──────────────────────────────────────────────────────────────
 
-function DriverHome({ user, kpis, podKpis }: { user: UserInfo; kpis: DriverKpis; podKpis: PodExpiryKpis }) {
+function DriverHome({
+  user,
+  kpis,
+  podKpis,
+}: {
+  user: UserInfo
+  kpis: DriverKpis
+  podKpis: PodExpiryKpis
+}) {
+  const router = useRouter()
+
+  async function handleSignOut() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
+
   return (
     <div className="px-4 py-4 pb-24">
       <h1 className="text-xl font-semibold">
         {getGreeting()}, {user.full_name ?? 'Driver'}
       </h1>
-      <p className="text-sm text-neutral-500 mb-4">{formatToday()}</p>
+      <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
-      {/* KPI row */}
-      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
-        <KpiCard value={kpis.stopsToday} label="Stops today" colour="blue" href="/field/trips" />
-        <KpiCard
-          value={kpis.pickupReady}
-          label="Ready to collect"
-          colour={kpis.pickupReady > 0 ? 'amber' : 'green'}
-          href="/field/pickup"
-        />
-        <KpiCard
-          value={kpis.toDispatch}
-          label="To dispatch"
-          colour={kpis.toDispatch > 0 ? 'orange' : 'green'}
-          href="/field/dispatching"
-        />
-        <KpiCard
-          value={kpis.openTasks}
-          label="Open tasks"
-          colour={kpis.openTasks > 0 ? 'red' : 'green'}
-          href="/field/tasks"
-        />
-      </div>
+      {/* ── Section 1: Today's Route ── */}
+      <SectionCard title="Today's Route" linkTo="/field/trips">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={kpis.stopsToday}
+            label="Stops today"
+            cardStyle={kpiCardStyle(kpis.stopsToday > 0 ? 1 : 0, 'low')}
+            href="/field/trips"
+          />
+          <StatCard
+            value={kpis.pickupReady}
+            label="Pickup ready"
+            cardStyle={kpiCardStyle(kpis.pickupReady, 'medium')}
+            href="/field/pickup"
+          />
+          <StatCard
+            value={kpis.toDispatch}
+            label="To dispatch"
+            cardStyle={kpiCardStyle(kpis.toDispatch, 'medium')}
+            href="/field/dispatching"
+          />
+          <StatCard
+            value={kpis.openTasks}
+            label="Open tasks"
+            cardStyle={kpiCardStyle(kpis.openTasks, 'high')}
+            href="/field/tasks"
+          />
+        </div>
+        {kpis.openTasks > 0 && (
+          <Link
+            href="/field/tasks"
+            className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100"
+          >
+            <span>⚠ You have {kpis.openTasks} pending task{kpis.openTasks === 1 ? '' : 's'}</span>
+            <span className="text-xs">View →</span>
+          </Link>
+        )}
+      </SectionCard>
 
-      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Machine Stock Expiry</p>
+      {/* ── Section 2: Machine Stock Expiry ── */}
+      <SectionCard title="Machine Stock Expiry" linkTo="/field/pod-inventory">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard value={podKpis.expired}    label="Expired"   cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring3}  label="< 3 days"  cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring7}  label="< 7 days"  cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
+        </div>
+      </SectionCard>
 
-      {/* Pod expiry grid */}
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard value={podKpis.expired}    label="Expired in machines" cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
-        <KpiCard value={podKpis.expiring3}  label="< 3 days"            cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
-        <KpiCard value={podKpis.expiring7}  label="< 7 days"            cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
-        <KpiCard value={podKpis.expiring30} label="< 30 days"           cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
-      </div>
-
-      {/* Activity cards */}
-      <div className="space-y-3">
-        <CategoryCard
-          icon="🗺️"
-          title="Today's Route"
-          sub="Your machine stops for today"
-          bgClass="bg-blue-50/50 dark:bg-blue-950/30"
-          sections={[
-            { label: 'All stops', count: `${kpis.stopsToday} machines`, href: '/field/trips' },
-            { label: 'Pickup', count: `${kpis.pickupReady} ready to collect`, href: '/field/pickup' },
-            { label: 'Dispatch', count: `${kpis.toDispatch} to dispatch`, href: '/field/dispatching' },
-          ]}
-        />
-        <CategoryCard
-          icon="🛒"
-          title="Tasks"
-          sub="Supplier collections and ad-hoc tasks"
-          bgClass="bg-amber-50/50 dark:bg-amber-950/30"
-          sections={[
-            { label: 'Open tasks', count: `${kpis.openTasks} pending`, href: '/field/tasks' },
-          ]}
-          alert={kpis.openTasks > 0 ? `You have ${kpis.openTasks} pending task(s)` : undefined}
-        />
-        <Link
-          href="/field/profile"
-          className="flex items-center gap-3 rounded-xl bg-neutral-100/50 p-4 transition-colors hover:bg-neutral-100 dark:bg-neutral-900/50 dark:hover:bg-neutral-900"
-        >
-          <span className="text-xl">👤</span>
+      {/* ── Section 3: Profile ── */}
+      <SectionCard title="Profile" linkTo="/field/profile">
+        <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
           <div>
-            <p className="text-base font-semibold">Profile</p>
-            <p className="text-xs text-neutral-500">
-              {user.full_name ?? 'User'} · Driver
-            </p>
+            <p className="text-sm font-semibold text-gray-800">{user.full_name ?? 'Driver'}</p>
+            <span className="mt-0.5 inline-block rounded bg-neutral-200 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+              Field Staff
+            </span>
           </div>
-        </Link>
-      </div>
+          <button
+            onClick={handleSignOut}
+            className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+          >
+            Sign out
+          </button>
+        </div>
+      </SectionCard>
     </div>
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function FieldPage() {
   const [user, setUser] = useState<UserInfo | null>(null)
@@ -430,12 +416,10 @@ export default function FieldPage() {
     setUser({ full_name: fullName, role })
 
     if (role === 'warehouse') {
-      // Precompute date boundaries
-      const todayPlus3 = addDays(today, 3)
-      const todayPlus7 = addDays(today, 7)
+      const todayPlus3  = addDays(today, 3)
+      const todayPlus7  = addDays(today, 7)
       const todayPlus30 = addDays(today, 30)
 
-      // Warehouse KPIs
       const [
         { data: dispatchLines },
         { count: expiredCount },
@@ -445,64 +429,64 @@ export default function FieldPage() {
         { data: openPOData },
         { count: activeInvCount },
         { count: expiryWeekCount },
-        { data: pendingPOLines },
+        { count: receivedTodayCount },
         { data: lastControlRows },
       ] = await Promise.all([
-        // Dispatch lines today
+        // Dispatch lines today — pick up packed/picked_up/dispatched counts
         supabase
           .from('refill_dispatching')
-          .select('machine_id, packed')
+          .select('machine_id, packed, picked_up, dispatched')
           .eq('dispatch_date', today)
           .eq('include', true),
-        // Expired: expiration_date < today
+        // Expired warehouse inventory
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .lt('expiration_date', today),
-        // Expiring within 3 days: >= today AND <= today+3
+        // Expiring within 3 days
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gte('expiration_date', today)
           .lte('expiration_date', todayPlus3),
-        // Expiring 3-7 days: > today+3 AND <= today+7
+        // Expiring 3–7 days
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gt('expiration_date', todayPlus3)
           .lte('expiration_date', todayPlus7),
-        // Expiring 7-30 days: > today+7 AND <= today+30
+        // Expiring 7–30 days
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gt('expiration_date', todayPlus7)
           .lte('expiration_date', todayPlus30),
-        // Open POs (distinct)
+        // Open POs
         supabase
           .from('purchase_orders')
           .select('po_id')
           .is('received_date', null),
-        // Active inventory items
+        // Active inventory item count
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active'),
-        // Expiring <=7 days (for category card)
+        // Expiring ≤7 days (for internal use)
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gte('expiration_date', today)
           .lte('expiration_date', todayPlus7),
-        // Pending receiving
+        // Received today
         supabase
           .from('purchase_orders')
-          .select('po_id')
-          .is('received_date', null),
+          .select('po_id', { count: 'exact', head: true })
+          .eq('received_date', today),
         // Last inventory control
         supabase
           .from('inventory_control_log')
@@ -511,18 +495,18 @@ export default function FieldPage() {
           .limit(1),
       ])
 
-      // Count distinct machines
+      // Count distinct machines + line statuses
       const machineSet = new Set<string>()
       let packedCount = 0
+      let pickedUpCount = 0
+      let dispatchedCount = 0
       const totalCount = dispatchLines?.length ?? 0
       dispatchLines?.forEach((l) => {
         machineSet.add(l.machine_id)
-        if (l.packed) packedCount++
+        if (l.packed)      packedCount++
+        if (l.picked_up)   pickedUpCount++
+        if (l.dispatched)  dispatchedCount++
       })
-
-      // Count distinct POs for receiving
-      const pendingPOSet = new Set<string>()
-      pendingPOLines?.forEach((l) => pendingPOSet.add(l.po_id))
 
       // Compute last control days
       let lastControlDays: number | null = null
@@ -533,17 +517,19 @@ export default function FieldPage() {
       }
 
       setWhKpis({
-        machinesToday: machineSet.size,
-        packedLines: packedCount,
-        totalLines: totalCount,
-        expired: expiredCount ?? 0,
-        expiring3: expiring3Count ?? 0,
-        expiring7: expiring7Count ?? 0,
-        expiring30: expiring30Count ?? 0,
-        openPOs: new Set(openPOData?.map(r => r.po_id) ?? []).size,
-        activeItems: activeInvCount ?? 0,
-        expiringWeek: expiryWeekCount ?? 0,
-        pendingReceiving: pendingPOSet.size,
+        machinesToday:    machineSet.size,
+        totalLines:       totalCount,
+        packedLines:      packedCount,
+        pickedUpLines:    pickedUpCount,
+        dispatchedLines:  dispatchedCount,
+        expired:          expiredCount ?? 0,
+        expiring3:        expiring3Count ?? 0,
+        expiring7:        expiring7Count ?? 0,
+        expiring30:       expiring30Count ?? 0,
+        openPOs:          new Set(openPOData?.map(r => r.po_id) ?? []).size,
+        receivedToday:    receivedTodayCount ?? 0,
+        activeItems:      activeInvCount ?? 0,
+        expiringWeek:     expiryWeekCount ?? 0,
         lastControlDays,
       })
 
@@ -553,11 +539,12 @@ export default function FieldPage() {
         .select('expiration_date')
         .eq('status', 'Active')
 
-      const podExpiredWh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
-      const podExp3Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0
-      const podExp7Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus3 && r.expiration_date <= todayPlus7).length ?? 0
-      const podExp30Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0
+      const podExpiredWh  = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
+      const podExp3Wh     = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0
+      const podExp7Wh     = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus3 && r.expiration_date <= todayPlus7).length ?? 0
+      const podExp30Wh    = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0
       setPodKpis({ expired: podExpiredWh, expiring3: podExp3Wh, expiring7: podExp7Wh, expiring30: podExp30Wh })
+
     } else {
       // Driver KPIs
       const [
@@ -575,7 +562,6 @@ export default function FieldPage() {
           .in('status', ['pending', 'acknowledged']),
       ])
 
-      // Group by machine
       const machines = new Map<string, { packed: boolean[]; pickedUp: boolean[]; dispatched: boolean[] }>()
       dispatchLines?.forEach((l) => {
         const m = machines.get(l.machine_id) ?? { packed: [], pickedUp: [], dispatched: [] }
@@ -588,11 +574,10 @@ export default function FieldPage() {
       let pickupReady = 0
       let toDispatch = 0
       machines.forEach((m) => {
-        const allPacked = m.packed.length > 0 && m.packed.every(Boolean)
-        const allPickedUp = m.pickedUp.length > 0 && m.pickedUp.every(Boolean)
-        const allDispatched = m.dispatched.length > 0 && m.dispatched.every(Boolean)
-
-        if (allPacked && !allPickedUp) pickupReady++
+        const allPacked     = m.packed.length > 0     && m.packed.every(Boolean)
+        const allPickedUp   = m.pickedUp.length > 0   && m.pickedUp.every(Boolean)
+        const allDispatched = m.dispatched.length > 0  && m.dispatched.every(Boolean)
+        if (allPacked   && !allPickedUp)   pickupReady++
         if (allPickedUp && !allDispatched) toDispatch++
       })
 
@@ -604,8 +589,8 @@ export default function FieldPage() {
       })
 
       // Pod inventory expiry KPIs
-      const todayPlus3d = addDays(today, 3)
-      const todayPlus7d = addDays(today, 7)
+      const todayPlus3d  = addDays(today, 3)
+      const todayPlus7d  = addDays(today, 7)
       const todayPlus30d = addDays(today, 30)
 
       const { data: podExpiryDataDr } = await supabase
@@ -614,9 +599,9 @@ export default function FieldPage() {
         .eq('status', 'Active')
 
       const podExpiredDr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
-      const podExp3Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3d).length ?? 0
-      const podExp7Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus3d && r.expiration_date <= todayPlus7d).length ?? 0
-      const podExp30Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus7d && r.expiration_date <= todayPlus30d).length ?? 0
+      const podExp3Dr    = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3d).length ?? 0
+      const podExp7Dr    = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus3d && r.expiration_date <= todayPlus7d).length ?? 0
+      const podExp30Dr   = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus7d && r.expiration_date <= todayPlus30d).length ?? 0
       setPodKpis({ expired: podExpiredDr, expiring3: podExp3Dr, expiring7: podExp7Dr, expiring30: podExp30Dr })
     }
   }, [])
