@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 type StopStatus = 'done' | 'in_progress' | 'ready_to_dispatch' | 'ready_for_pickup' | 'packing'
 
@@ -143,7 +144,7 @@ export default function TripsPage() {
 
   return (
     <div className="px-4 py-4">
-      <h1 className="mb-4 text-xl font-semibold">Today&apos;s Trips</h1>
+      <FieldHeader title="Today's Trips" />
       <ul className="space-y-2">
         {stops.map((stop, idx) => {
           const cfg = statusConfig[stop.status]

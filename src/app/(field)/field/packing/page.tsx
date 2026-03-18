@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface PackingMachine {
   machine_id: string
@@ -96,7 +97,7 @@ export default function PackingPage() {
 
   return (
     <div className="px-4 py-4">
-      <h1 className="mb-4 text-xl font-semibold">Packing</h1>
+      <FieldHeader title="Packing" />
       <ul className="space-y-2">
         {machines.map((machine) => {
           const ready = machine.packed_count === machine.sku_count

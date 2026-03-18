@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../../components/field-header'
 
 const ISSUE_TYPES = ['Hardware', 'Payment terminal', 'Display', 'Other']
 
@@ -159,14 +160,7 @@ export default function IssuePage() {
 
   return (
     <div className="px-4 py-4">
-      <button
-        onClick={() => router.back()}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back
-      </button>
-
-      <h1 className="mb-1 text-xl font-semibold">Report Issue</h1>
+      <FieldHeader title="Report Issue" />
       <p className="mb-4 text-sm text-neutral-500">{machineName}</p>
 
       <form onSubmit={handleSubmit} className="space-y-4">

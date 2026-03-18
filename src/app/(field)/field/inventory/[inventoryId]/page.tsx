@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../components/field-header'
 
 type InventoryStatus = 'Active' | 'Inactive' | 'Expired' | 'Removed' | 'Reserved'
 
@@ -268,12 +269,7 @@ export default function InventoryDetailPage() {
 
   return (
     <div className="px-4 py-4 pb-24">
-      <button
-        onClick={() => router.push('/field/inventory')}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back to inventory
-      </button>
+      <FieldHeader title="Item Detail" />
 
       {/* Header */}
       <div className="mb-4">

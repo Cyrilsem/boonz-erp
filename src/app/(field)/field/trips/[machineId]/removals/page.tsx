@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../../components/field-header'
 
 interface ProductOption {
   pod_product_id: string
@@ -107,14 +108,7 @@ export default function RemovalsPage() {
 
   return (
     <div className="px-4 py-4">
-      <button
-        onClick={() => router.back()}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back
-      </button>
-
-      <h1 className="mb-1 text-xl font-semibold">Log Removals</h1>
+      <FieldHeader title="Removals" />
       <p className="mb-4 text-sm text-neutral-500">{machineName}</p>
 
       <div className="space-y-3">

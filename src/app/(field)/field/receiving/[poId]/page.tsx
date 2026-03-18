@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../components/field-header'
 
 interface POLine {
   po_line_id: string
@@ -86,6 +87,35 @@ export default function ReceivingDetailPage() {
 
     mapped.sort((a, b) => a.boonz_product_name.localeCompare(b.boonz_product_name))
     setLines(mapped)
+
+    // Fetch last known locations for each product
+    const productIds = mapped.map(l => l.boonz_product_id)
+    if (productIds.length > 0) {
+      const { data: locationData } = await supabase
+        .from('warehouse_inventory')
+        .select('boonz_product_id, wh_location')
+        .in('boonz_product_id', productIds)
+        .not('wh_location', 'is', null)
+        .eq('status', 'Active')
+        .order('created_at', { ascending: false })
+
+      if (locationData) {
+        // Build map of product_id -> most recent location
+        const locationMap = new Map<string, string>()
+        for (const row of locationData) {
+          if (!locationMap.has(row.boonz_product_id) && row.wh_location) {
+            locationMap.set(row.boonz_product_id, row.wh_location)
+          }
+        }
+
+        // Pre-fill locations
+        setLines(prev => prev.map(l => ({
+          ...l,
+          wh_location: locationMap.get(l.boonz_product_id) ?? l.wh_location
+        })))
+      }
+    }
+
     setLoading(false)
   }, [poId])
 
@@ -201,12 +231,7 @@ export default function ReceivingDetailPage() {
 
   return (
     <div className="px-4 py-4 pb-24">
-      <button
-        onClick={() => router.push('/field/receiving')}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back
-      </button>
+      <FieldHeader title="Receive Delivery" />
 
       {header && (
         <div className="mb-4">
@@ -274,7 +299,7 @@ export default function ReceivingDetailPage() {
                   onChange={(e) =>
                     updateLine(line.po_line_id, 'wh_location', e.target.value)
                   }
-                  placeholder="e.g. Shelf B2"
+                  placeholder="e.g. A-01"
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                 />
               </div>

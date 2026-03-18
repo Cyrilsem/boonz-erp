@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../components/field-header'
 
 interface MachineInfo {
   official_name: string
@@ -262,12 +263,7 @@ export default function MachineRefillPage() {
 
   return (
     <div className="px-4 py-4">
-      <button
-        onClick={() => router.push('/field/trips')}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back to trips
-      </button>
+      <FieldHeader title="Machine Refill" />
 
       {machine && (
         <div className="mb-4">

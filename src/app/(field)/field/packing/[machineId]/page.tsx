@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../components/field-header'
 
 interface PackingLine {
   dispatch_id: string
@@ -183,12 +184,7 @@ export default function PackingDetailPage() {
 
   return (
     <div className="px-4 py-4">
-      <button
-        onClick={() => router.back()}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back
-      </button>
+      <FieldHeader title="Machine Detail" />
 
       {machine && (
         <div className="mb-4">

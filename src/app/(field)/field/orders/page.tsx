@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface POGroup {
   po_id: string
@@ -157,7 +158,7 @@ export default function OrdersPage() {
 
   return (
     <div className="px-4 py-4 pb-24">
-      <h1 className="mb-3 text-xl font-semibold">Purchase Orders</h1>
+      <FieldHeader title="Purchase Orders" />
 
       {/* Tabs */}
       <div className="mb-4 flex border-b border-neutral-200 dark:border-neutral-800">

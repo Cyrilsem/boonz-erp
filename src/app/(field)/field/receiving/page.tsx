@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface PendingPO {
   po_id: string
@@ -94,7 +95,7 @@ export default function ReceivingPage() {
 
   return (
     <div className="px-4 py-4">
-      <h1 className="mb-4 text-xl font-semibold">Receiving</h1>
+      <FieldHeader title="Receiving" />
       <ul className="space-y-2">
         {pos.map((po) => (
           <li key={po.po_id}>

@@ -60,6 +60,9 @@ export default function BottomTabs() {
     fetchRole()
   }, [])
 
+  // Only show bottom tabs on the /field home page
+  if (pathname !== '/field') return null
+
   if (!tabs) {
     return (
       <nav className="fixed bottom-0 left-0 right-0 z-10 flex h-[44px] border-t border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950" />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface PickupLine {
   dispatch_id: string
@@ -167,7 +168,7 @@ export default function PickupPage() {
 
   return (
     <div className="px-4 py-4">
-      <h1 className="mb-4 text-xl font-semibold">Pickup</h1>
+      <FieldHeader title="Pickup" />
 
       {readyMachines.length > 0 && (
         <div className="mb-6">

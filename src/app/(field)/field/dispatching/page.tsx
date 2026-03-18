@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface DispatchMachine {
   machine_id: string
@@ -123,7 +124,7 @@ export default function DispatchingPage() {
 
   return (
     <div className="px-4 py-4">
-      <h1 className="mb-4 text-xl font-semibold">Dispatching</h1>
+      <FieldHeader title="Dispatching" />
 
       {toDispatch.length > 0 && (
         <div className="mb-6">

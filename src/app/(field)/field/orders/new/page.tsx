@@ -31,7 +31,6 @@ interface POLine {
   product_name: string
   qty: number
   price: number | null
-  expiry_date: string
 }
 
 interface ImportedRow {
@@ -175,7 +174,7 @@ export default function NewOrderPage() {
 
   // Manual lines
   const [lines, setLines] = useState<POLine[]>([
-    { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null, expiry_date: '' },
+    { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null },
   ])
 
   // Import
@@ -191,11 +190,16 @@ export default function NewOrderPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient()
 
-    const [{ data: suppData }, { data: prodData }, { data: poData }] = await Promise.all([
+    const [{ data: suppData, error: suppError }, { data: prodData, error: prodError }, { data: poData }] = await Promise.all([
       supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code, supplier_email').eq('status', 'Active').order('supplier_name'),
       supabase.from('boonz_products').select('product_id, boonz_product_name, product_category').eq('status', 'Active').order('boonz_product_name'),
       supabase.from('purchase_orders').select('po_number').order('po_number', { ascending: false }).limit(1),
     ])
+
+    console.log('[NewPO] suppliers loaded:', suppData?.length, 'products:', prodData?.length)
+    if (!suppData?.length || !prodData?.length) {
+      console.error('[NewPO] supplier error:', suppError, 'product error:', prodError)
+    }
 
     if (suppData) setSuppliers(suppData)
     if (prodData) setProducts(prodData)
@@ -223,7 +227,7 @@ export default function NewOrderPage() {
   function addLine() {
     setLines((prev) => [
       ...prev,
-      { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null, expiry_date: '' },
+      { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null },
     ])
   }
 
@@ -334,7 +338,7 @@ export default function NewOrderPage() {
             product_name: products.find((p) => p.product_id === l.product_id)?.boonz_product_name ?? '',
             qty: l.qty,
             price: l.price,
-            expiry_date: l.expiry_date,
+            expiry_date: '' as string,
           }))
       : importedRows
           .filter((r) => r.matched_product)
@@ -360,6 +364,12 @@ export default function NewOrderPage() {
     const finalLines = resolveFinalLines()
     if (finalLines.length === 0) {
       setError('Add at least one product line')
+      return
+    }
+
+    const missingPrice = finalLines.find(l => !l.price || l.price <= 0)
+    if (missingPrice) {
+      setError('Unit price is required for all lines')
       return
     }
 
@@ -545,12 +555,10 @@ export default function NewOrderPage() {
           </div>
           <div className="flex-1">
             <label className="block text-xs text-neutral-500 mb-0.5">PO ID</label>
-            <input
-              type="text"
-              value={poId}
-              onChange={(e) => setPoId(e.target.value)}
-              className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-            />
+            <p className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+              {poId}
+            </p>
+            <p className="mt-0.5 text-xs text-neutral-400">Auto-generated</p>
           </div>
         </div>
       </div>
@@ -622,7 +630,9 @@ export default function NewOrderPage() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-xs text-neutral-500 mb-0.5">Unit price (AED)</label>
+                    <label className="block text-xs text-neutral-500 mb-0.5">
+                      Unit price (AED) <span className="text-red-500">*</span>
+                    </label>
                     <input
                       type="number"
                       min={0}
@@ -631,21 +641,12 @@ export default function NewOrderPage() {
                       onChange={(e) =>
                         updateLine(line.key, 'price', e.target.value ? parseFloat(e.target.value) : null)
                       }
-                      placeholder="Optional"
+                      placeholder="0.00"
                       className="w-full rounded border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs text-neutral-500 mb-0.5">Expiry date</label>
-                  <input
-                    type="date"
-                    value={line.expiry_date}
-                    onChange={(e) => updateLine(line.key, 'expiry_date', e.target.value)}
-                    className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                  />
-                </div>
               </div>
             </div>
           ))}

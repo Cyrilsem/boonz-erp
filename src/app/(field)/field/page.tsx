@@ -15,11 +15,15 @@ interface WarehouseKpis {
   machinesToday: number
   packedLines: number
   totalLines: number
-  expiringCritical: number
+  expired: number
+  expiring3: number
+  expiring7: number
+  expiring30: number
   openPOs: number
   activeItems: number
   expiringWeek: number
   pendingReceiving: number
+  lastControlDays: number | null // null = never
 }
 
 interface DriverKpis {
@@ -49,14 +53,22 @@ function todayISO(): string {
   return new Date().toISOString().split('T')[0]
 }
 
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
+}
+
 function KpiCard({
   value,
   label,
+  subLabel,
   colour,
   href,
 }: {
   value: string | number
   label: string
+  subLabel?: string
   colour: 'blue' | 'green' | 'amber' | 'orange' | 'red' | 'grey'
   href: string
 }) {
@@ -76,6 +88,9 @@ function KpiCard({
     >
       <p className="text-2xl font-bold">{value}</p>
       <p className="mt-0.5 text-xs font-medium text-center">{label}</p>
+      {subLabel && (
+        <p className="mt-0.5 text-[10px] opacity-70 text-center">{subLabel}</p>
+      )}
     </Link>
   )
 }
@@ -143,11 +158,29 @@ function Skeleton() {
 // ─── Warehouse Home ───────────────────────────────────────────────
 
 function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) {
+  const packPct = kpis.totalLines === 0
+    ? 0
+    : Math.round((kpis.packedLines / kpis.totalLines) * 100)
+
   const packColour = kpis.totalLines === 0
     ? 'grey' as const
-    : kpis.packedLines === kpis.totalLines
+    : packPct === 100
       ? 'green' as const
       : 'amber' as const
+
+  const controlColour = kpis.lastControlDays === null
+    ? 'red' as const
+    : kpis.lastControlDays <= 7
+      ? 'green' as const
+      : kpis.lastControlDays <= 14
+        ? 'amber' as const
+        : 'red' as const
+
+  const controlValue = kpis.lastControlDays === null
+    ? 'Never'
+    : kpis.lastControlDays === 0
+      ? 'Today'
+      : `${kpis.lastControlDays}d ago`
 
   return (
     <div className="px-4 py-4 pb-24">
@@ -156,26 +189,65 @@ function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) 
       </h1>
       <p className="text-sm text-neutral-500 mb-4">{formatToday()}</p>
 
-      {/* KPI row */}
-      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
-        <KpiCard value={kpis.machinesToday} label="Machines today" colour="blue" href="/field/packing" />
+      {/* KPI row 1 */}
+      <div className="mb-3 flex gap-3 overflow-x-auto pb-1">
         <KpiCard
-          value={`${kpis.packedLines}/${kpis.totalLines}`}
-          label="Packed today"
+          value={kpis.machinesToday}
+          label="To refill today"
+          subLabel="machines scheduled"
+          colour="blue"
+          href="/field/packing"
+        />
+        <KpiCard
+          value={`${packPct}%`}
+          label="Packing complete"
+          subLabel={`${kpis.packedLines}/${kpis.totalLines} lines`}
           colour={packColour}
           href="/field/packing"
         />
         <KpiCard
-          value={kpis.expiringCritical}
-          label="Expiring ≤3 days"
-          colour={kpis.expiringCritical > 0 ? 'red' : 'green'}
+          value={kpis.openPOs}
+          label="Open POs"
+          colour={kpis.openPOs > 0 ? 'amber' : 'green'}
+          href="/field/orders"
+        />
+      </div>
+
+      {/* KPI row 2 — expiry grid */}
+      <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiCard
+          value={kpis.expired}
+          label="Expired"
+          colour={kpis.expired > 0 ? 'red' : 'green'}
           href="/field/inventory"
         />
         <KpiCard
-          value={kpis.openPOs}
-          label="Pending orders"
-          colour={kpis.openPOs > 0 ? 'amber' : 'green'}
-          href="/field/orders"
+          value={kpis.expiring3}
+          label="< 3 days"
+          colour={kpis.expiring3 > 0 ? 'red' : 'green'}
+          href="/field/inventory"
+        />
+        <KpiCard
+          value={kpis.expiring7}
+          label="< 7 days"
+          colour={kpis.expiring7 > 0 ? 'amber' : 'green'}
+          href="/field/inventory"
+        />
+        <KpiCard
+          value={kpis.expiring30}
+          label="< 30 days"
+          colour="blue"
+          href="/field/inventory"
+        />
+      </div>
+
+      {/* KPI row 3 — last control */}
+      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
+        <KpiCard
+          value={controlValue}
+          label="Last control"
+          colour={controlColour}
+          href="/field/inventory"
         />
       </div>
 
@@ -200,7 +272,7 @@ function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) 
             { label: 'Warehouse Stock', count: `${kpis.activeItems} active items`, href: '/field/inventory' },
             { label: 'Expiry Sweep', count: `${kpis.expiringWeek} expiring this week`, href: '/field/inventory' },
           ]}
-          alert={kpis.expiringCritical > 0 ? `${kpis.expiringCritical} items expire within 3 days` : undefined}
+          alert={kpis.expired > 0 ? `${kpis.expired} items are expired` : kpis.expiring3 > 0 ? `${kpis.expiring3} items expire within 3 days` : undefined}
         />
         <CategoryCard
           icon="🛒"
@@ -331,14 +403,23 @@ export default function FieldPage() {
     setUser({ full_name: fullName, role })
 
     if (role === 'warehouse') {
+      // Precompute date boundaries
+      const todayPlus3 = addDays(today, 3)
+      const todayPlus7 = addDays(today, 7)
+      const todayPlus30 = addDays(today, 30)
+
       // Warehouse KPIs
       const [
         { data: dispatchLines },
-        { data: expiryItems },
-        { data: openPOLines },
-        { data: activeInv },
-        { data: expiryWeekItems },
+        { count: expiredCount },
+        { count: expiring3Count },
+        { count: expiring7Count },
+        { count: expiring30Count },
+        { count: openPOCount },
+        { count: activeInvCount },
+        { count: expiryWeekCount },
         { data: pendingPOLines },
+        { data: lastControlRows },
       ] = await Promise.all([
         // Dispatch lines today
         supabase
@@ -346,12 +427,33 @@ export default function FieldPage() {
           .select('machine_id, packed')
           .eq('dispatch_date', today)
           .eq('include', true),
-        // Expiring ≤3 days
+        // Expired: expiration_date < today
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
-          .lte('expiration_date', new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0]),
+          .lt('expiration_date', today),
+        // Expiring within 3 days: >= today AND <= today+3
+        supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id', { count: 'exact', head: true })
+          .eq('status', 'Active')
+          .gte('expiration_date', today)
+          .lte('expiration_date', todayPlus3),
+        // Expiring 3-7 days: > today+3 AND <= today+7
+        supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id', { count: 'exact', head: true })
+          .eq('status', 'Active')
+          .gt('expiration_date', todayPlus3)
+          .lte('expiration_date', todayPlus7),
+        // Expiring 7-30 days: > today+7 AND <= today+30
+        supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id', { count: 'exact', head: true })
+          .eq('status', 'Active')
+          .gt('expiration_date', todayPlus7)
+          .lte('expiration_date', todayPlus30),
         // Open POs
         supabase
           .from('purchase_orders')
@@ -362,17 +464,24 @@ export default function FieldPage() {
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active'),
-        // Expiring ≤7 days
+        // Expiring <=7 days (for category card)
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
-          .lte('expiration_date', new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]),
+          .gte('expiration_date', today)
+          .lte('expiration_date', todayPlus7),
         // Pending receiving
         supabase
           .from('purchase_orders')
           .select('po_id')
           .is('received_date', null),
+        // Last inventory control
+        supabase
+          .from('inventory_control_log')
+          .select('conducted_at')
+          .order('conducted_at', { ascending: false })
+          .limit(1),
       ])
 
       // Count distinct machines
@@ -388,15 +497,27 @@ export default function FieldPage() {
       const pendingPOSet = new Set<string>()
       pendingPOLines?.forEach((l) => pendingPOSet.add(l.po_id))
 
+      // Compute last control days
+      let lastControlDays: number | null = null
+      if (lastControlRows && lastControlRows.length > 0 && lastControlRows[0].conducted_at) {
+        const controlDate = new Date(lastControlRows[0].conducted_at)
+        const now = new Date()
+        lastControlDays = Math.floor((now.getTime() - controlDate.getTime()) / 86400000)
+      }
+
       setWhKpis({
         machinesToday: machineSet.size,
         packedLines: packedCount,
         totalLines: totalCount,
-        expiringCritical: expiryItems?.length ?? 0,
-        openPOs: openPOLines?.length ?? 0,
-        activeItems: activeInv?.length ?? 0,
-        expiringWeek: expiryWeekItems?.length ?? 0,
+        expired: expiredCount ?? 0,
+        expiring3: expiring3Count ?? 0,
+        expiring7: expiring7Count ?? 0,
+        expiring30: expiring30Count ?? 0,
+        openPOs: openPOCount ?? 0,
+        activeItems: activeInvCount ?? 0,
+        expiringWeek: expiryWeekCount ?? 0,
         pendingReceiving: pendingPOSet.size,
+        lastControlDays,
       })
     } else {
       // Driver KPIs

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface DriverTask {
   task_id: string
@@ -156,7 +157,7 @@ export default function TasksPage() {
 
   return (
     <div className="px-4 py-4 pb-24">
-      <h1 className="mb-4 text-xl font-semibold">Tasks</h1>
+      <FieldHeader title="Tasks" />
 
       {/* Pending */}
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">

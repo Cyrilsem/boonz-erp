@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../components/field-header'
 
 interface MachineInfo {
   official_name: string
@@ -178,12 +179,7 @@ export default function DispatchingDetailPage() {
 
   return (
     <div className="px-4 py-4">
-      <button
-        onClick={() => router.push('/field/dispatching')}
-        className="mb-3 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-      >
-        ← Back to dispatching
-      </button>
+      <FieldHeader title="Dispatch Detail" />
 
       {machine && (
         <div className="mb-4">
