@@ -66,37 +66,58 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split('T')[0]
 }
 
+interface KpiCardStyle {
+  bg: string
+  border: string
+  text: string
+  sub: string
+}
+
+function kpiCardStyle(count: number, urgency: 'critical' | 'high' | 'medium' | 'low'): KpiCardStyle {
+  if (count === 0) return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', sub: 'text-green-500' }
+  const map: Record<typeof urgency, KpiCardStyle> = {
+    critical: { bg: 'bg-red-50',    border: 'border-red-200',    text: 'text-red-700',    sub: 'text-red-500'    },
+    high:     { bg: 'bg-red-50',    border: 'border-red-200',    text: 'text-red-600',    sub: 'text-red-400'    },
+    medium:   { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', sub: 'text-yellow-500' },
+    low:      { bg: 'bg-lime-50',   border: 'border-lime-200',   text: 'text-lime-700',   sub: 'text-lime-500'   },
+  }
+  return map[urgency]
+}
+
 function KpiCard({
   value,
   label,
   subLabel,
   colour,
+  cardStyle,
   href,
 }: {
   value: string | number
   label: string
   subLabel?: string
-  colour: 'blue' | 'green' | 'amber' | 'orange' | 'red' | 'grey'
+  colour?: 'blue' | 'green' | 'amber' | 'orange' | 'red' | 'grey'
+  cardStyle?: KpiCardStyle
   href: string
 }) {
   const colourMap = {
-    blue: 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-    green: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
-    amber: 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+    blue:   'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
+    green:  'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300',
+    amber:  'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
     orange: 'bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300',
-    red: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
-    grey: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400',
+    red:    'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
+    grey:   'bg-neutral-100 text-neutral-600 dark:bg-neutral-900 dark:text-neutral-400',
   }
 
+  const containerClass = cardStyle
+    ? `flex min-w-[130px] shrink-0 flex-col items-center rounded-xl border p-4 transition-opacity hover:opacity-80 ${cardStyle.bg} ${cardStyle.border} ${cardStyle.text}`
+    : `flex min-w-[130px] shrink-0 flex-col items-center rounded-xl p-4 transition-opacity hover:opacity-80 ${colour ? colourMap[colour] : ''}`
+
   return (
-    <Link
-      href={href}
-      className={`flex min-w-[130px] shrink-0 flex-col items-center rounded-xl p-4 transition-opacity hover:opacity-80 ${colourMap[colour]}`}
-    >
+    <Link href={href} className={containerClass}>
       <p className="text-2xl font-bold">{value}</p>
-      <p className="mt-0.5 text-xs font-medium text-center">{label}</p>
+      <p className="mt-0.5 text-center text-xs font-medium">{label}</p>
       {subLabel && (
-        <p className="mt-0.5 text-[10px] opacity-70 text-center">{subLabel}</p>
+        <p className="mt-0.5 text-center text-[10px] opacity-70">{subLabel}</p>
       )}
     </Link>
   )
@@ -230,60 +251,20 @@ function WarehouseHome({ user, kpis, podKpis }: { user: UserInfo; kpis: Warehous
 
       {/* KPI row 2 — expiry grid */}
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard
-          value={kpis.expired}
-          label="Expired"
-          colour={kpis.expired > 0 ? 'red' : 'green'}
-          href="/field/inventory"
-        />
-        <KpiCard
-          value={kpis.expiring3}
-          label="< 3 days"
-          colour={kpis.expiring3 > 0 ? 'red' : 'green'}
-          href="/field/inventory"
-        />
-        <KpiCard
-          value={kpis.expiring7}
-          label="< 7 days"
-          colour={kpis.expiring7 > 0 ? 'amber' : 'green'}
-          href="/field/inventory"
-        />
-        <KpiCard
-          value={kpis.expiring30}
-          label="< 30 days"
-          colour="blue"
-          href="/field/inventory"
-        />
+        <KpiCard value={kpis.expired}   label="Expired"    cardStyle={kpiCardStyle(kpis.expired,   'critical')} href="/field/inventory" />
+        <KpiCard value={kpis.expiring3} label="< 3 days"   cardStyle={kpiCardStyle(kpis.expiring3, 'high')}     href="/field/inventory" />
+        <KpiCard value={kpis.expiring7} label="< 7 days"   cardStyle={kpiCardStyle(kpis.expiring7, 'medium')}   href="/field/inventory" />
+        <KpiCard value={kpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(kpis.expiring30,'low')}      href="/field/inventory" />
       </div>
 
       <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Machine Stock Expiry</p>
 
       {/* KPI row 3 — pod expiry grid */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard
-          value={podKpis.expired}
-          label="Expired in machines"
-          colour="red"
-          href="/field/pod-inventory"
-        />
-        <KpiCard
-          value={podKpis.expiring3}
-          label="< 3 days"
-          colour={podKpis.expiring3 > 0 ? 'red' : 'green'}
-          href="/field/pod-inventory"
-        />
-        <KpiCard
-          value={podKpis.expiring7}
-          label="< 7 days"
-          colour={podKpis.expiring7 > 0 ? 'amber' : 'green'}
-          href="/field/pod-inventory"
-        />
-        <KpiCard
-          value={podKpis.expiring30}
-          label="< 30 days"
-          colour="blue"
-          href="/field/pod-inventory"
-        />
+        <KpiCard value={podKpis.expired}   label="Expired in machines" cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
+        <KpiCard value={podKpis.expiring3} label="< 3 days"            cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
+        <KpiCard value={podKpis.expiring7} label="< 7 days"            cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
+        <KpiCard value={podKpis.expiring30} label="< 30 days"          cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
       </div>
 
       {/* Category cards */}
@@ -376,30 +357,10 @@ function DriverHome({ user, kpis, podKpis }: { user: UserInfo; kpis: DriverKpis;
 
       {/* Pod expiry grid */}
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard
-          value={podKpis.expired}
-          label="Expired in machines"
-          colour="red"
-          href="/field/pod-inventory"
-        />
-        <KpiCard
-          value={podKpis.expiring3}
-          label="< 3 days"
-          colour={podKpis.expiring3 > 0 ? 'red' : 'green'}
-          href="/field/pod-inventory"
-        />
-        <KpiCard
-          value={podKpis.expiring7}
-          label="< 7 days"
-          colour={podKpis.expiring7 > 0 ? 'amber' : 'green'}
-          href="/field/pod-inventory"
-        />
-        <KpiCard
-          value={podKpis.expiring30}
-          label="< 30 days"
-          colour="blue"
-          href="/field/pod-inventory"
-        />
+        <KpiCard value={podKpis.expired}    label="Expired in machines" cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
+        <KpiCard value={podKpis.expiring3}  label="< 3 days"            cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
+        <KpiCard value={podKpis.expiring7}  label="< 7 days"            cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
+        <KpiCard value={podKpis.expiring30} label="< 30 days"           cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
       </div>
 
       {/* Activity cards */}
