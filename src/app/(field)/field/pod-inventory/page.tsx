@@ -76,38 +76,31 @@ function getGroupKey(row: PodRow, groupBy: Exclude<GroupBy, 'none'>): string {
   }
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Expiry style helper ──────────────────────────────────────────────────────
 
-function PodExpiryBadge({ days }: { days: number | null }) {
-  if (days === null) return null
-  if (days <= 0) {
-    return (
-      <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">
-        Expired
-      </span>
-    )
-  }
-  const label = `${days}d left`
-  if (days <= 3) {
-    return (
-      <span className="rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">
-        {label}
-      </span>
-    )
-  }
-  if (days <= 7) {
-    return (
-      <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-        {label}
-      </span>
-    )
-  }
-  return (
-    <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-700 dark:bg-orange-900 dark:text-orange-300">
-      {label}
-    </span>
-  )
+interface ExpiryStyle {
+  badgeBg: string
+  badgeText: string
+  label: string
+  qtyColor: string
 }
+
+function getExpiryStyle(expiryDate: string | null): ExpiryStyle {
+  if (!expiryDate) return { badgeBg: '', badgeText: '', label: '', qtyColor: 'text-gray-700' }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const exp = new Date(expiryDate + 'T00:00:00')
+  exp.setHours(0, 0, 0, 0)
+  const diffDays = Math.floor((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0)   return { badgeBg: 'bg-red-100',   badgeText: 'text-red-700',    label: 'Expired',           qtyColor: 'text-red-600'    }
+  if (diffDays === 0) return { badgeBg: 'bg-red-50',    badgeText: 'text-red-400',    label: 'Today',             qtyColor: 'text-red-400'    }
+  if (diffDays <= 3)  return { badgeBg: 'bg-red-50',    badgeText: 'text-red-400',    label: `${diffDays}d left`, qtyColor: 'text-red-400'    }
+  if (diffDays <= 7)  return { badgeBg: 'bg-yellow-50', badgeText: 'text-yellow-600', label: `${diffDays}d left`, qtyColor: 'text-yellow-600' }
+  if (diffDays <= 30) return { badgeBg: 'bg-lime-50',   badgeText: 'text-lime-600',   label: `${diffDays}d left`, qtyColor: 'text-lime-600'   }
+  return                     { badgeBg: 'bg-green-50',  badgeText: 'text-green-600',  label: `${diffDays}d left`, qtyColor: 'text-green-600'  }
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SectionHeader({
   label,
@@ -141,13 +134,7 @@ interface PodRowItemProps {
 }
 
 function PodRowItem({ row, showProduct, showMachine, showCategory }: PodRowItemProps) {
-  const days = daysUntilExpiry(row.expiration_date)
-  const qtyColour =
-    days !== null && days <= 0
-      ? 'text-red-600 dark:text-red-400'
-      : days !== null && days <= 3
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-neutral-700 dark:text-neutral-300'
+  const style = getExpiryStyle(row.expiration_date)
 
   // Line 1: product name if showProduct, otherwise machine name (product grouping)
   const line1 = showProduct ? row.boonz_product_name : row.machine_name
@@ -171,12 +158,16 @@ function PodRowItem({ row, showProduct, showMachine, showCategory }: PodRowItemP
         )}
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <span className="text-xs text-neutral-400">{formatDate(row.expiration_date)}</span>
-          <PodExpiryBadge days={days} />
+          {style.label && (
+            <span className={`rounded-full ${style.badgeBg} px-3 py-1 text-sm font-semibold ${style.badgeText}`}>
+              {style.label}
+            </span>
+          )}
         </div>
       </div>
 
       {/* Right side: qty */}
-      <div className={`flex shrink-0 flex-col items-end ${qtyColour}`}>
+      <div className={`flex shrink-0 flex-col items-end ${style.qtyColor}`}>
         <p className="text-xl font-bold leading-none">{row.current_stock}</p>
         <p className="mt-0.5 text-xs opacity-60">units</p>
       </div>

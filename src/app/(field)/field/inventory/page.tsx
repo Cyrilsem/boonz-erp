@@ -49,30 +49,36 @@ function formatDate(dateStr: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-function ExpiryBadge({ days }: { days: number | null }) {
-  if (days === null) return null
-  if (days <= 0) {
-    return (
-      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
-        Expired
-      </span>
-    )
-  }
-  if (days <= 3) {
-    return (
-      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-        Expiring soon
-      </span>
-    )
-  }
-  if (days <= 7) {
-    return (
-      <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900 dark:text-orange-300">
-        This week
-      </span>
-    )
-  }
-  return null
+interface ExpiryStyle {
+  badgeBg: string
+  badgeText: string
+  label: string
+  qtyColor: string
+}
+
+function getExpiryStyle(expiryDate: string | null): ExpiryStyle {
+  if (!expiryDate) return { badgeBg: '', badgeText: '', label: '', qtyColor: 'text-gray-700' }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const exp = new Date(expiryDate + 'T00:00:00')
+  exp.setHours(0, 0, 0, 0)
+  const diffDays = Math.floor((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0)  return { badgeBg: 'bg-red-100',    badgeText: 'text-red-700',    label: 'Expired',          qtyColor: 'text-red-600'    }
+  if (diffDays === 0) return { badgeBg: 'bg-red-50',     badgeText: 'text-red-400',    label: 'Today',            qtyColor: 'text-red-400'    }
+  if (diffDays <= 3)  return { badgeBg: 'bg-red-50',     badgeText: 'text-red-400',    label: `${diffDays}d left`, qtyColor: 'text-red-400'   }
+  if (diffDays <= 7)  return { badgeBg: 'bg-yellow-50',  badgeText: 'text-yellow-600', label: `${diffDays}d left`, qtyColor: 'text-yellow-600' }
+  if (diffDays <= 30) return { badgeBg: 'bg-lime-50',    badgeText: 'text-lime-600',   label: `${diffDays}d left`, qtyColor: 'text-lime-600'  }
+  return                     { badgeBg: 'bg-green-50',   badgeText: 'text-green-600',  label: `${diffDays}d left`, qtyColor: 'text-green-600' }
+}
+
+function ExpiryBadge({ expiryDate }: { expiryDate: string | null }) {
+  const style = getExpiryStyle(expiryDate)
+  if (!style.label) return null
+  return (
+    <span className={`rounded-full ${style.badgeBg} px-2 py-0.5 text-xs font-medium ${style.badgeText}`}>
+      {style.label}
+    </span>
+  )
 }
 
 export default function InventoryPage() {
@@ -445,7 +451,6 @@ export default function InventoryPage() {
         ) : (
           <ul className="space-y-2">
             {processed.map((row) => {
-              const days = daysUntilExpiry(row.expiration_date)
               const edit = controlEdits.get(row.wh_inventory_id)
 
               if (controlMode && edit) {
@@ -551,7 +556,7 @@ export default function InventoryPage() {
                       {/* Line 3: Expiry + badges */}
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-neutral-500">{formatDate(row.expiration_date)}</span>
-                        <ExpiryBadge days={days} />
+                        <ExpiryBadge expiryDate={row.expiration_date} />
                         {row.status === 'Inactive' && (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                             Inactive
@@ -561,13 +566,7 @@ export default function InventoryPage() {
                     </div>
 
                     {/* Right side: qty */}
-                    <div className={`flex shrink-0 flex-col items-end ${
-                      days !== null && days <= 0
-                        ? 'text-red-600 dark:text-red-400'
-                        : days !== null && days <= 3
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-neutral-700 dark:text-neutral-300'
-                    }`}>
+                    <div className={`flex shrink-0 flex-col items-end ${getExpiryStyle(row.expiration_date).qtyColor}`}>
                       <p className="text-xl font-bold leading-none">{row.warehouse_stock}</p>
                       <p className="mt-0.5 text-xs opacity-60">units</p>
                     </div>
