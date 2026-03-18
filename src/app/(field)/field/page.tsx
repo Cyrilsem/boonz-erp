@@ -590,7 +590,7 @@ export default function FieldPage() {
       const { data: podExpiryDataWh } = await supabase
         .from('pod_inventory')
         .select('expiration_date')
-        .not('status', 'in', '("Removed","Removed / Expired","Removed/ Expired")')
+        .eq('status', 'Active')
 
       const podExpiredWh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
       const podExp3Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0
@@ -650,7 +650,7 @@ export default function FieldPage() {
       const { data: podExpiryDataDr } = await supabase
         .from('pod_inventory')
         .select('expiration_date')
-        .not('status', 'in', '("Removed","Removed / Expired","Removed/ Expired")')
+        .eq('status', 'Active')
 
       const podExpiredDr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
       const podExp3Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3d).length ?? 0

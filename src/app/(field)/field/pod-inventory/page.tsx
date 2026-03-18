@@ -91,7 +91,7 @@ export default function PodInventoryPage() {
           boonz_products ( boonz_product_name ),
           machines ( official_name )
         `)
-        .not('status', 'in', '("Removed","Removed / Expired","Removed/ Expired")')
+        .eq('status', 'Active')
         .order('expiration_date', { ascending: true })
 
       console.log('[PodInventory] fetch:', data?.length, error)
