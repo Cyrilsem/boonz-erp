@@ -13,9 +13,10 @@ interface PodRow {
   expiration_date: string | null
 }
 
-interface CategoryGroup {
-  category: string
-  rows: PodRow[]
+interface MachineGroup {
+  machineName: string
+  items: PodRow[]
+  totalItems: number
   totalUnits: number
 }
 
@@ -74,7 +75,9 @@ function PodExpiryBadge({ days }: { days: number | null }) {
   )
 }
 
-function PodRowItem({ row }: { row: PodRow }) {
+// showCategory: true → show product_category on line 2 (used in grouped expired view)
+//               false → show machine_name on line 2 (used in flat list views)
+function PodRowItem({ row, showCategory }: { row: PodRow; showCategory: boolean }) {
   const days = daysUntilExpiry(row.expiration_date)
   const qtyColour =
     days !== null && days <= 0
@@ -84,17 +87,16 @@ function PodRowItem({ row }: { row: PodRow }) {
       : 'text-neutral-700 dark:text-neutral-300'
 
   return (
-    <li
-      key={row.pod_inventory_id}
-      className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
-    >
+    <li className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
       {/* Left side */}
       <div className="min-w-0 flex-1 pr-3">
         {/* Line 1: Product name */}
         <p className="text-sm font-bold truncate">{row.boonz_product_name}</p>
 
-        {/* Line 2: Machine name */}
-        <p className="mt-0.5 text-xs text-neutral-500 truncate">{row.machine_name}</p>
+        {/* Line 2: Category (grouped view) or machine name (flat view) */}
+        <p className="mt-0.5 text-xs text-neutral-500 truncate">
+          {showCategory ? row.product_category : row.machine_name}
+        </p>
 
         {/* Line 3: Expiry date + badge */}
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
@@ -205,32 +207,39 @@ export default function PodInventoryPage() {
     })
   }, [rows, filter, search])
 
-  // Group by category — only used when filter === 'expired'
-  const groupedByCategory = useMemo((): CategoryGroup[] => {
+  // Group by machine — only used when filter === 'expired'
+  // Items within each machine: expiration_date ASC, then boonz_product_name ASC
+  // Machines sorted by totalUnits DESC (most urgent machine first)
+  const groupedByMachine = useMemo((): MachineGroup[] => {
     if (filter !== 'expired') return []
 
-    // Sort by category ASC, then expiration_date ASC within category
-    const sorted = [...filtered].sort((a, b) => {
-      const catCmp = a.product_category.localeCompare(b.product_category)
-      if (catCmp !== 0) return catCmp
-      if (a.expiration_date === null && b.expiration_date === null) return 0
-      if (a.expiration_date === null) return 1
-      if (b.expiration_date === null) return -1
-      return a.expiration_date.localeCompare(b.expiration_date)
-    })
-
     const map = new Map<string, PodRow[]>()
-    for (const row of sorted) {
-      const cat = row.product_category
-      if (!map.has(cat)) map.set(cat, [])
-      map.get(cat)!.push(row)
+    for (const row of filtered) {
+      if (!map.has(row.machine_name)) map.set(row.machine_name, [])
+      map.get(row.machine_name)!.push(row)
     }
 
-    return Array.from(map.entries()).map(([category, catRows]) => ({
-      category,
-      rows: catRows,
-      totalUnits: catRows.reduce((sum, r) => sum + r.current_stock, 0),
-    }))
+    const groups: MachineGroup[] = Array.from(map.entries()).map(([machineName, items]) => {
+      const sorted = [...items].sort((a, b) => {
+        if (a.expiration_date === null && b.expiration_date === null) {
+          return a.boonz_product_name.localeCompare(b.boonz_product_name)
+        }
+        if (a.expiration_date === null) return 1
+        if (b.expiration_date === null) return -1
+        const dateCmp = a.expiration_date.localeCompare(b.expiration_date)
+        if (dateCmp !== 0) return dateCmp
+        return a.boonz_product_name.localeCompare(b.boonz_product_name)
+      })
+      return {
+        machineName,
+        items: sorted,
+        totalItems: sorted.length,
+        totalUnits: sorted.reduce((sum, r) => sum + r.current_stock, 0),
+      }
+    })
+
+    // Sort machines by totalUnits DESC
+    return groups.sort((a, b) => b.totalUnits - a.totalUnits)
   }, [filtered, filter])
 
   const totalUnits = useMemo(
@@ -283,7 +292,9 @@ export default function PodInventoryPage() {
         {/* Summary line */}
         {filtered.length > 0 && (
           <p className="mb-3 text-xs text-neutral-500">
-            {filtered.length} items · {totalUnits} units at risk
+            {filter === 'expired'
+              ? `${groupedByMachine.length} machines · ${filtered.length} items · ${totalUnits} units expired`
+              : `${filtered.length} items · ${totalUnits} units at risk`}
           </p>
         )}
 
@@ -299,34 +310,34 @@ export default function PodInventoryPage() {
             </p>
           </div>
         ) : filter === 'expired' ? (
-          /* Grouped by category — Expired view only */
+          /* Grouped by machine — Expired view only */
           <div className="space-y-5">
-            {groupedByCategory.map((group) => (
-              <div key={group.category}>
-                {/* Category header */}
+            {groupedByMachine.map((group) => (
+              <div key={group.machineName}>
+                {/* Machine header */}
                 <div className="mb-2 flex items-center gap-2">
-                  <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wide">
-                    {group.category}
+                  <p className="text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wide shrink-0">
+                    {group.machineName}
                   </p>
-                  <p className="text-xs text-neutral-400">
-                    {group.rows.length} items · {group.totalUnits} units
+                  <p className="text-xs text-neutral-400 shrink-0">
+                    {group.totalItems} items · {group.totalUnits} units
                   </p>
                   <div className="flex-1 border-t border-neutral-200 dark:border-neutral-700" />
                 </div>
-                {/* Rows */}
+                {/* Rows — show product_category on line 2 */}
                 <ul className="space-y-2">
-                  {group.rows.map((row) => (
-                    <PodRowItem key={row.pod_inventory_id} row={row} />
+                  {group.items.map((row) => (
+                    <PodRowItem key={row.pod_inventory_id} row={row} showCategory={true} />
                   ))}
                 </ul>
               </div>
             ))}
           </div>
         ) : (
-          /* Flat list — all other filters */
+          /* Flat list — all other filters, show machine name on line 2 */
           <ul className="space-y-2">
             {filtered.map((row) => (
-              <PodRowItem key={row.pod_inventory_id} row={row} />
+              <PodRowItem key={row.pod_inventory_id} row={row} showCategory={false} />
             ))}
           </ul>
         )}
