@@ -16,6 +16,30 @@ interface DriverTask {
   collected_at: string | null
 }
 
+interface POLineDetail {
+  boonz_product_name: string
+  ordered_qty: number
+  price_per_unit_aed: number | null
+  total_price_aed: number | null
+}
+
+type Outcome =
+  | 'purchased_full'
+  | 'purchased_partial'
+  | 'not_available'
+  | 'price_too_high'
+  | 'expired_on_shelf'
+  | 'other'
+
+const OUTCOME_OPTIONS: { value: Outcome; label: string; icon: string }[] = [
+  { value: 'purchased_full', label: 'Purchased in full', icon: '✅' },
+  { value: 'purchased_partial', label: 'Purchased partial qty', icon: '⚠️' },
+  { value: 'not_available', label: 'Not available', icon: '❌' },
+  { value: 'price_too_high', label: 'Price too high', icon: '💰' },
+  { value: 'expired_on_shelf', label: 'Expired on shelf', icon: '🗓️' },
+  { value: 'other', label: 'Other', icon: '📝' },
+]
+
 function formatDateTime(isoStr: string): string {
   const d = new Date(isoStr)
   return (
@@ -58,6 +82,16 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<DriverTask[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  // Accordion state
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
+  const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([])
+  const [expandLoading, setExpandLoading] = useState(false)
+
+  // Outcome state (per expanded task)
+  const [selectedOutcome, setSelectedOutcome] = useState<Outcome | null>(null)
+  const [outcomeQty, setOutcomeQty] = useState<number | null>(null)
+  const [outcomeComment, setOutcomeComment] = useState('')
 
   const fetchTasks = useCallback(async () => {
     const supabase = createClient()
@@ -118,6 +152,52 @@ export default function TasksPage() {
     }
   }, [fetchTasks])
 
+  async function toggleExpand(task: DriverTask) {
+    if (expandedTaskId === task.task_id) {
+      setExpandedTaskId(null)
+      setExpandedLines([])
+      resetOutcomeState()
+      return
+    }
+
+    setExpandedTaskId(task.task_id)
+    setExpandedLines([])
+    setExpandLoading(true)
+    resetOutcomeState()
+
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('purchase_orders')
+      .select(`
+        ordered_qty,
+        price_per_unit_aed,
+        total_price_aed,
+        boonz_products!inner(boonz_product_name)
+      `)
+      .eq('po_id', task.po_id)
+
+    if (data) {
+      const mapped: POLineDetail[] = data.map((row) => {
+        const p = row.boonz_products as unknown as { boonz_product_name: string }
+        return {
+          boonz_product_name: p.boonz_product_name,
+          ordered_qty: row.ordered_qty ?? 0,
+          price_per_unit_aed: row.price_per_unit_aed,
+          total_price_aed: row.total_price_aed,
+        }
+      })
+      setExpandedLines(mapped)
+    }
+
+    setExpandLoading(false)
+  }
+
+  function resetOutcomeState() {
+    setSelectedOutcome(null)
+    setOutcomeQty(null)
+    setOutcomeComment('')
+  }
+
   async function acknowledge(taskId: string) {
     setUpdatingId(taskId)
     const supabase = createClient()
@@ -130,12 +210,43 @@ export default function TasksPage() {
   }
 
   async function markCollected(taskId: string) {
+    if (!selectedOutcome) return
+
     setUpdatingId(taskId)
     const supabase = createClient()
     await supabase
       .from('driver_tasks')
-      .update({ status: 'collected', collected_at: new Date().toISOString() })
+      .update({
+        status: 'collected',
+        collected_at: new Date().toISOString(),
+        outcome: selectedOutcome,
+        outcome_qty: selectedOutcome === 'purchased_partial' ? outcomeQty : null,
+        outcome_comment: outcomeComment || null,
+      })
       .eq('task_id', taskId)
+
+    setExpandedTaskId(null)
+    resetOutcomeState()
+    await fetchTasks()
+    setUpdatingId(null)
+  }
+
+  async function cancelTask(taskId: string) {
+    if (!confirm('Cancel this task?')) return
+
+    setUpdatingId(taskId)
+    const supabase = createClient()
+    await supabase
+      .from('driver_tasks')
+      .update({
+        status: 'cancelled',
+        outcome: 'other' as const,
+        outcome_comment: outcomeComment || 'Cancelled by driver',
+      })
+      .eq('task_id', taskId)
+
+    setExpandedTaskId(null)
+    resetOutcomeState()
     await fetchTasks()
     setUpdatingId(null)
   }
@@ -149,9 +260,12 @@ export default function TasksPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading tasks…</p>
-      </div>
+      <>
+        <FieldHeader title="Tasks" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading tasks…</p>
+        </div>
+      </>
     )
   }
 
@@ -169,48 +283,218 @@ export default function TasksPage() {
         </p>
       ) : (
         <ul className="mb-6 space-y-2">
-          {pending.map((task) => (
-            <li
-              key={task.task_id}
-              className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
-            >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">{task.supplier_name}</p>
-                  <p className="text-xs text-neutral-500">{task.po_id}</p>
-                  <p className="text-xs text-neutral-400 mt-0.5">
-                    {formatDateTime(task.created_at)}
-                  </p>
-                </div>
-                <StatusBadge status={task.status} />
-              </div>
+          {pending.map((task) => {
+            const isExpanded = expandedTaskId === task.task_id
 
-              {task.notes && (
-                <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
-                  {task.notes}
-                </p>
-              )}
-
-              <div className="flex gap-2">
-                {task.status === 'pending' && (
-                  <button
-                    onClick={() => acknowledge(task.task_id)}
-                    disabled={updatingId === task.task_id}
-                    className="flex-1 rounded-lg border border-blue-300 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950"
-                  >
-                    {updatingId === task.task_id ? 'Updating…' : 'Acknowledge'}
-                  </button>
-                )}
-                <button
-                  onClick={() => markCollected(task.task_id)}
-                  disabled={updatingId === task.task_id}
-                  className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+            return (
+              <li
+                key={task.task_id}
+                className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950"
+              >
+                {/* Card header — tappable */}
+                <div
+                  className="cursor-pointer p-4"
+                  onClick={() => toggleExpand(task)}
                 >
-                  {updatingId === task.task_id ? 'Updating…' : 'Mark collected'}
-                </button>
-              </div>
-            </li>
-          ))}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">{task.supplier_name}</p>
+                      <p className="text-xs text-neutral-500">{task.po_id}</p>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        {formatDateTime(task.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={task.status} />
+                      <span className="text-xs text-neutral-400">
+                        {isExpanded ? '▲' : '▼'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {task.notes && (
+                    <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                      {task.notes}
+                    </p>
+                  )}
+                </div>
+
+                {/* Accordion actions (always visible, outside accordion) */}
+                {!isExpanded && (
+                  <div className="flex gap-2 px-4 pb-4">
+                    {task.status === 'pending' && (
+                      <button
+                        onClick={() => acknowledge(task.task_id)}
+                        disabled={updatingId === task.task_id}
+                        className="flex-1 rounded-lg border border-blue-300 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950"
+                      >
+                        {updatingId === task.task_id ? 'Updating…' : 'Acknowledge'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Expanded accordion */}
+                <div
+                  className="overflow-hidden transition-all duration-200"
+                  style={{ maxHeight: isExpanded ? '800px' : '0px' }}
+                >
+                  <div className="border-t border-neutral-100 px-4 pb-4 pt-3 dark:border-neutral-800">
+                    {expandLoading ? (
+                      <div className="space-y-2">
+                        {[1, 2, 3].map((i) => (
+                          <div
+                            key={i}
+                            className="h-6 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800"
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        {/* PO Line details table */}
+                        <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">
+                          Order Details
+                        </p>
+                        <table className="w-full text-xs mb-3">
+                          <thead>
+                            <tr className="text-left text-neutral-400">
+                              <th className="pb-1 font-medium">Product</th>
+                              <th className="pb-1 font-medium text-right">Qty</th>
+                              <th className="pb-1 font-medium text-right">Price</th>
+                              <th className="pb-1 font-medium text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {expandedLines.map((line, idx) => (
+                              <tr
+                                key={idx}
+                                className="border-t border-neutral-50 dark:border-neutral-900"
+                              >
+                                <td className="py-1.5 pr-2 truncate max-w-[120px]">
+                                  {line.boonz_product_name}
+                                </td>
+                                <td className="py-1.5 text-right">{line.ordered_qty}</td>
+                                <td className="py-1.5 text-right">
+                                  {line.price_per_unit_aed != null
+                                    ? `${line.price_per_unit_aed.toFixed(2)}`
+                                    : '—'}
+                                </td>
+                                <td className="py-1.5 text-right">
+                                  {line.total_price_aed != null
+                                    ? `${line.total_price_aed.toFixed(2)}`
+                                    : '—'}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t border-neutral-200 font-medium dark:border-neutral-700">
+                              <td className="pt-1.5" colSpan={3}>
+                                Total
+                              </td>
+                              <td className="pt-1.5 text-right">
+                                {expandedLines
+                                  .reduce((sum, l) => sum + (l.total_price_aed ?? 0), 0)
+                                  .toFixed(2)}{' '}
+                                AED
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+
+                        {/* Acknowledge button for pending */}
+                        {task.status === 'pending' && (
+                          <button
+                            onClick={() => acknowledge(task.task_id)}
+                            disabled={updatingId === task.task_id}
+                            className="mb-4 w-full rounded-lg border border-blue-300 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950"
+                          >
+                            {updatingId === task.task_id ? 'Updating…' : 'Acknowledge'}
+                          </button>
+                        )}
+
+                        {/* Outcome confirmation */}
+                        <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2 mt-2">
+                          Confirm purchase outcome
+                        </p>
+
+                        {/* Outcome pills */}
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {OUTCOME_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              onClick={() => {
+                                setSelectedOutcome(opt.value)
+                                if (opt.value !== 'purchased_partial') setOutcomeQty(null)
+                              }}
+                              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                                selectedOutcome === opt.value
+                                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+                              }`}
+                            >
+                              {opt.icon} {opt.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Partial qty input */}
+                        {selectedOutcome === 'purchased_partial' && (
+                          <div className="mb-3">
+                            <label className="block text-xs text-neutral-500 mb-0.5">
+                              Quantity purchased
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={outcomeQty ?? ''}
+                              onChange={(e) =>
+                                setOutcomeQty(e.target.value ? parseFloat(e.target.value) : null)
+                              }
+                              placeholder="Enter actual qty"
+                              className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                            />
+                          </div>
+                        )}
+
+                        {/* Comment */}
+                        <div className="mb-3">
+                          <label className="block text-xs text-neutral-500 mb-0.5">
+                            Notes (optional)
+                          </label>
+                          <input
+                            type="text"
+                            value={outcomeComment}
+                            onChange={(e) => setOutcomeComment(e.target.value)}
+                            placeholder="Add any notes..."
+                            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                          />
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="space-y-2">
+                          <button
+                            onClick={() => markCollected(task.task_id)}
+                            disabled={!selectedOutcome || updatingId === task.task_id}
+                            className="w-full rounded-lg bg-neutral-900 py-2.5 text-xs font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                          >
+                            {updatingId === task.task_id ? 'Saving…' : 'Mark as collected'}
+                          </button>
+                          <button
+                            onClick={() => cancelTask(task.task_id)}
+                            disabled={updatingId === task.task_id}
+                            className="w-full rounded-lg border border-red-300 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+                          >
+                            {updatingId === task.task_id ? 'Saving…' : 'Mark as cancelled'}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
 

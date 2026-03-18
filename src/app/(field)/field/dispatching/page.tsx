@@ -100,22 +100,28 @@ export default function DispatchingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading dispatching…</p>
-      </div>
+      <>
+        <FieldHeader title="Dispatching" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading dispatching…</p>
+        </div>
+      </>
     )
   }
 
   if (machines.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          No machines collected yet
-        </p>
-        <p className="mt-1 text-sm text-neutral-500">
-          Complete pickups first.
-        </p>
-      </div>
+      <>
+        <FieldHeader title="Dispatching" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            No machines collected yet
+          </p>
+          <p className="mt-1 text-sm text-neutral-500">
+            Complete pickups first.
+          </p>
+        </div>
+      </>
     )
   }
 

@@ -242,9 +242,12 @@ export default function MachineRefillPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading machine details…</p>
-      </div>
+      <>
+        <FieldHeader title="Machine Refill" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading machine details…</p>
+        </div>
+      </>
     )
   }
 

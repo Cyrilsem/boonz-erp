@@ -77,19 +77,25 @@ export default function ReceivingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading deliveries…</p>
-      </div>
+      <>
+        <FieldHeader title="Receiving" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading deliveries…</p>
+        </div>
+      </>
     )
   }
 
   if (pos.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          No pending deliveries
-        </p>
-      </div>
+      <>
+        <FieldHeader title="Receiving" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            No pending deliveries
+          </p>
+        </div>
+      </>
     )
   }
 

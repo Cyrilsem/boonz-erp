@@ -126,19 +126,25 @@ export default function TripsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading trips…</p>
-      </div>
+      <>
+        <FieldHeader title="Today's Trips" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading trips…</p>
+        </div>
+      </>
     )
   }
 
   if (stops.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          No stops for today
-        </p>
-      </div>
+      <>
+        <FieldHeader title="Today's Trips" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            No stops for today
+          </p>
+        </div>
+      </>
     )
   }
 

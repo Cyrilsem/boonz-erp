@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../components/field-header'
 
 interface InventoryRow {
   inventory_id: string
@@ -154,15 +155,18 @@ export default function ExpiryPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading inventory…</p>
-      </div>
+      <>
+        <FieldHeader title="Expiry" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading inventory…</p>
+        </div>
+      </>
     )
   }
 
   return (
     <div className="px-4 py-4">
-      <h1 className="mb-4 text-xl font-semibold">Expiry Sweep</h1>
+      <FieldHeader title="Expiry" />
 
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
         {filters.map((f) => (

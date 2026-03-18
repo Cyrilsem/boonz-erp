@@ -187,45 +187,54 @@ export default function ReceivingDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading PO details…</p>
-      </div>
+      <>
+        <FieldHeader title="Receive Delivery" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading PO details…</p>
+        </div>
+      </>
     )
   }
 
   if (submitted) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <div className="mb-4 rounded-full bg-green-100 p-4 dark:bg-green-900">
-          <span className="text-2xl">✓</span>
+      <>
+        <FieldHeader title="Receive Delivery" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <div className="mb-4 rounded-full bg-green-100 p-4 dark:bg-green-900">
+            <span className="text-2xl">✓</span>
+          </div>
+          <h2 className="mb-2 text-lg font-semibold">Received ✓</h2>
+          <p className="mb-4 text-sm text-neutral-500">
+            {header?.po_id} has been received into inventory
+          </p>
+          <button
+            onClick={() => router.push('/field/receiving')}
+            className="rounded-lg bg-neutral-900 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+          >
+            Back to receiving
+          </button>
         </div>
-        <h2 className="mb-2 text-lg font-semibold">Received ✓</h2>
-        <p className="mb-4 text-sm text-neutral-500">
-          {header?.po_id} has been received into inventory
-        </p>
-        <button
-          onClick={() => router.push('/field/receiving')}
-          className="rounded-lg bg-neutral-900 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-        >
-          Back to receiving
-        </button>
-      </div>
+      </>
     )
   }
 
   if (lines.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          No pending lines for this PO
-        </p>
-        <button
-          onClick={() => router.back()}
-          className="mt-4 text-sm text-neutral-500 hover:text-neutral-700"
-        >
-          ← Back
-        </button>
-      </div>
+      <>
+        <FieldHeader title="Receive Delivery" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            No pending lines for this PO
+          </p>
+          <button
+            onClick={() => router.back()}
+            className="mt-4 text-sm text-neutral-500 hover:text-neutral-700"
+          >
+            ← Back
+          </button>
+        </div>
+      </>
     )
   }
 

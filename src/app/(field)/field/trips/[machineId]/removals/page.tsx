@@ -100,9 +100,12 @@ export default function RemovalsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading…</p>
-      </div>
+      <>
+        <FieldHeader title="Removals" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading…</p>
+        </div>
+      </>
     )
   }
 

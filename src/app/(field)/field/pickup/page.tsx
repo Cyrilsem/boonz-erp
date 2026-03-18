@@ -144,9 +144,12 @@ export default function PickupPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading pickup list…</p>
-      </div>
+      <>
+        <FieldHeader title="Pickup" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading pickup list…</p>
+        </div>
+      </>
     )
   }
 
@@ -155,14 +158,17 @@ export default function PickupPage() {
 
   if (machines.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          No machines ready for pickup
-        </p>
-        <p className="mt-1 text-sm text-neutral-500">
-          Warehouse is still packing
-        </p>
-      </div>
+      <>
+        <FieldHeader title="Pickup" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            No machines ready for pickup
+          </p>
+          <p className="mt-1 text-sm text-neutral-500">
+            Warehouse is still packing
+          </p>
+        </div>
+      </>
     )
   }
 

@@ -150,9 +150,12 @@ export default function OrdersPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading orders…</p>
-      </div>
+      <>
+        <FieldHeader title="Purchase Orders" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading orders…</p>
+        </div>
+      </>
     )
   }
 

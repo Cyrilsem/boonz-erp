@@ -163,9 +163,12 @@ export default function PackingDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading packing details…</p>
-      </div>
+      <>
+        <FieldHeader title="Machine Detail" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading packing details…</p>
+        </div>
+      </>
     )
   }
 

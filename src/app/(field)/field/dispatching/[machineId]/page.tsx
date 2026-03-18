@@ -157,9 +157,12 @@ export default function DispatchingDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading dispatch details…</p>
-      </div>
+      <>
+        <FieldHeader title="Dispatch Detail" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading dispatch details…</p>
+        </div>
+      </>
     )
   }
 

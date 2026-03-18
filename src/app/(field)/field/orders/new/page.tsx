@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { FieldHeader } from '../../../components/field-header'
 import * as XLSX from 'xlsx'
 
 const WALK_IN_SUPPLIER_CODES = ['SUP_005', 'SUP_011'] as const
@@ -500,9 +501,12 @@ export default function NewOrderPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading…</p>
-      </div>
+      <>
+        <FieldHeader title="New Order" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading…</p>
+        </div>
+      </>
     )
   }
 

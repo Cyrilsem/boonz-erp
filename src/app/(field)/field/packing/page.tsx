@@ -79,19 +79,25 @@ export default function PackingPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading packing list…</p>
-      </div>
+      <>
+        <FieldHeader title="Packing" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading packing list…</p>
+        </div>
+      </>
     )
   }
 
   if (machines.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          No machines to pack today
-        </p>
-      </div>
+      <>
+        <FieldHeader title="Packing" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            No machines to pack today
+          </p>
+        </div>
+      </>
     )
   }
 

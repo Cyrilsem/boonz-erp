@@ -245,25 +245,31 @@ export default function InventoryDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <p className="text-neutral-500">Loading…</p>
-      </div>
+      <>
+        <FieldHeader title="Item Detail" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading…</p>
+        </div>
+      </>
     )
   }
 
   if (!item) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-          Item not found
-        </p>
-        <button
-          onClick={() => router.push('/field/inventory')}
-          className="mt-4 text-sm text-neutral-500 hover:text-neutral-700"
-        >
-          ← Back to inventory
-        </button>
-      </div>
+      <>
+        <FieldHeader title="Item Detail" />
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
+            Item not found
+          </p>
+          <button
+            onClick={() => router.push('/field/inventory')}
+            className="mt-4 text-sm text-neutral-500 hover:text-neutral-700"
+          >
+            ← Back to inventory
+          </button>
+        </div>
+      </>
     )
   }
 

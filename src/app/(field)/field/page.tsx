@@ -211,7 +211,15 @@ function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) 
           colour={kpis.openPOs > 0 ? 'amber' : 'green'}
           href="/field/orders"
         />
+        <KpiCard
+          value={controlValue}
+          label="Last control"
+          colour={controlColour}
+          href="/field/inventory"
+        />
       </div>
+
+      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Expiry Alerts</p>
 
       {/* KPI row 2 — expiry grid */}
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -237,16 +245,6 @@ function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) 
           value={kpis.expiring30}
           label="< 30 days"
           colour="blue"
-          href="/field/inventory"
-        />
-      </div>
-
-      {/* KPI row 3 — last control */}
-      <div className="mb-5 flex gap-3 overflow-x-auto pb-1">
-        <KpiCard
-          value={controlValue}
-          label="Last control"
-          colour={controlColour}
           href="/field/inventory"
         />
       </div>
@@ -415,7 +413,7 @@ export default function FieldPage() {
         { count: expiring3Count },
         { count: expiring7Count },
         { count: expiring30Count },
-        { count: openPOCount },
+        { data: openPOData },
         { count: activeInvCount },
         { count: expiryWeekCount },
         { data: pendingPOLines },
@@ -454,10 +452,10 @@ export default function FieldPage() {
           .eq('status', 'Active')
           .gt('expiration_date', todayPlus7)
           .lte('expiration_date', todayPlus30),
-        // Open POs
+        // Open POs (distinct)
         supabase
           .from('purchase_orders')
-          .select('po_id', { count: 'exact', head: true })
+          .select('po_id')
           .is('received_date', null),
         // Active inventory items
         supabase
@@ -513,7 +511,7 @@ export default function FieldPage() {
         expiring3: expiring3Count ?? 0,
         expiring7: expiring7Count ?? 0,
         expiring30: expiring30Count ?? 0,
-        openPOs: openPOCount ?? 0,
+        openPOs: new Set(openPOData?.map(r => r.po_id) ?? []).size,
         activeItems: activeInvCount ?? 0,
         expiringWeek: expiryWeekCount ?? 0,
         pendingReceiving: pendingPOSet.size,
@@ -532,7 +530,7 @@ export default function FieldPage() {
           .eq('include', true),
         supabase
           .from('driver_tasks')
-          .select('task_id', { count: 'exact', head: true })
+          .select('task_id')
           .in('status', ['pending', 'acknowledged']),
       ])
 
