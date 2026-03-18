@@ -526,39 +526,50 @@ export default function InventoryPage() {
                 <li key={row.wh_inventory_id}>
                   <Link
                     href={`/field/inventory/${row.wh_inventory_id}`}
-                    className="block rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                    className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
                   >
-                    {/* Line 1: Product name */}
-                    <p className="text-sm font-bold truncate">{row.boonz_product_name}</p>
+                    {/* Left side */}
+                    <div className="min-w-0 flex-1 pr-3">
+                      {/* Line 1: Product name */}
+                      <p className="text-sm font-bold truncate">{row.boonz_product_name}</p>
 
-                    {/* Line 2: Location badge + category + batch */}
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                        {row.wh_location || 'Unassigned'}
-                      </span>
-                      {row.product_category && (
-                        <>
-                          <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
-                          <span className="text-neutral-500">{row.product_category}</span>
-                        </>
-                      )}
-                      <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
-                      <span className="text-neutral-400">{row.batch_id || 'No batch'}</span>
+                      {/* Line 2: Location badge + category + batch */}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                          {row.wh_location || 'Unassigned'}
+                        </span>
+                        {row.product_category && (
+                          <>
+                            <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
+                            <span className="text-neutral-500">{row.product_category}</span>
+                          </>
+                        )}
+                        <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
+                        <span className="text-neutral-400">{row.batch_id || 'No batch'}</span>
+                      </div>
+
+                      {/* Line 3: Expiry + badges */}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="text-neutral-500">{formatDate(row.expiration_date)}</span>
+                        <ExpiryBadge days={days} />
+                        {row.status === 'Inactive' && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Line 3: Stock + expiry + badges */}
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                      <span className="font-medium text-neutral-700 dark:text-neutral-300">
-                        {row.warehouse_stock} units
-                      </span>
-                      <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
-                      <span className="text-neutral-500">{formatDate(row.expiration_date)}</span>
-                      <ExpiryBadge days={days} />
-                      {row.status === 'Inactive' && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-                          Inactive
-                        </span>
-                      )}
+                    {/* Right side: qty */}
+                    <div className={`flex shrink-0 flex-col items-end ${
+                      days !== null && days <= 0
+                        ? 'text-red-600 dark:text-red-400'
+                        : days !== null && days <= 3
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-neutral-700 dark:text-neutral-300'
+                    }`}>
+                      <p className="text-xl font-bold leading-none">{row.warehouse_stock}</p>
+                      <p className="mt-0.5 text-xs opacity-60">units</p>
                     </div>
                   </Link>
                 </li>

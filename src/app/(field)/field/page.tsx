@@ -33,6 +33,13 @@ interface DriverKpis {
   openTasks: number
 }
 
+interface PodExpiryKpis {
+  expired: number
+  expiring3: number
+  expiring7: number
+  expiring30: number
+}
+
 function getGreeting(): string {
   const h = new Date().getHours()
   if (h < 12) return 'Good morning'
@@ -157,7 +164,7 @@ function Skeleton() {
 
 // ─── Warehouse Home ───────────────────────────────────────────────
 
-function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) {
+function WarehouseHome({ user, kpis, podKpis }: { user: UserInfo; kpis: WarehouseKpis; podKpis: PodExpiryKpis }) {
   const packPct = kpis.totalLines === 0
     ? 0
     : Math.round((kpis.packedLines / kpis.totalLines) * 100)
@@ -249,6 +256,36 @@ function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) 
         />
       </div>
 
+      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Machine Stock Expiry</p>
+
+      {/* KPI row 3 — pod expiry grid */}
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiCard
+          value={podKpis.expired}
+          label="Expired in machines"
+          colour="red"
+          href="/field/pod-inventory"
+        />
+        <KpiCard
+          value={podKpis.expiring3}
+          label="< 3 days"
+          colour={podKpis.expiring3 > 0 ? 'red' : 'green'}
+          href="/field/pod-inventory"
+        />
+        <KpiCard
+          value={podKpis.expiring7}
+          label="< 7 days"
+          colour={podKpis.expiring7 > 0 ? 'amber' : 'green'}
+          href="/field/pod-inventory"
+        />
+        <KpiCard
+          value={podKpis.expiring30}
+          label="< 30 days"
+          colour="blue"
+          href="/field/pod-inventory"
+        />
+      </div>
+
       {/* Category cards */}
       <div className="space-y-3">
         <CategoryCard
@@ -304,7 +341,7 @@ function WarehouseHome({ user, kpis }: { user: UserInfo; kpis: WarehouseKpis }) 
 
 // ─── Driver Home ──────────────────────────────────────────────────
 
-function DriverHome({ user, kpis }: { user: UserInfo; kpis: DriverKpis }) {
+function DriverHome({ user, kpis, podKpis }: { user: UserInfo; kpis: DriverKpis; podKpis: PodExpiryKpis }) {
   return (
     <div className="px-4 py-4 pb-24">
       <h1 className="text-xl font-semibold">
@@ -332,6 +369,36 @@ function DriverHome({ user, kpis }: { user: UserInfo; kpis: DriverKpis }) {
           label="Open tasks"
           colour={kpis.openTasks > 0 ? 'red' : 'green'}
           href="/field/tasks"
+        />
+      </div>
+
+      <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mt-4 mb-2">Machine Stock Expiry</p>
+
+      {/* Pod expiry grid */}
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiCard
+          value={podKpis.expired}
+          label="Expired in machines"
+          colour="red"
+          href="/field/pod-inventory"
+        />
+        <KpiCard
+          value={podKpis.expiring3}
+          label="< 3 days"
+          colour={podKpis.expiring3 > 0 ? 'red' : 'green'}
+          href="/field/pod-inventory"
+        />
+        <KpiCard
+          value={podKpis.expiring7}
+          label="< 7 days"
+          colour={podKpis.expiring7 > 0 ? 'amber' : 'green'}
+          href="/field/pod-inventory"
+        />
+        <KpiCard
+          value={podKpis.expiring30}
+          label="< 30 days"
+          colour="blue"
+          href="/field/pod-inventory"
         />
       </div>
 
@@ -381,6 +448,7 @@ export default function FieldPage() {
   const [user, setUser] = useState<UserInfo | null>(null)
   const [whKpis, setWhKpis] = useState<WarehouseKpis | null>(null)
   const [driverKpis, setDriverKpis] = useState<DriverKpis | null>(null)
+  const [podKpis, setPodKpis] = useState<PodExpiryKpis | null>(null)
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
@@ -517,6 +585,18 @@ export default function FieldPage() {
         pendingReceiving: pendingPOSet.size,
         lastControlDays,
       })
+
+      // Pod inventory expiry KPIs
+      const { data: podExpiryDataWh } = await supabase
+        .from('pod_inventory')
+        .select('expiration_date')
+        .not('status', 'in', '("Removed","Removed / Expired","Removed/ Expired")')
+
+      const podExpiredWh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
+      const podExp3Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0
+      const podExp7Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus3 && r.expiration_date <= todayPlus7).length ?? 0
+      const podExp30Wh = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0
+      setPodKpis({ expired: podExpiredWh, expiring3: podExp3Wh, expiring7: podExp7Wh, expiring30: podExp30Wh })
     } else {
       // Driver KPIs
       const [
@@ -561,6 +641,22 @@ export default function FieldPage() {
         toDispatch,
         openTasks: openTasksData?.length ?? 0,
       })
+
+      // Pod inventory expiry KPIs
+      const todayPlus3d = addDays(today, 3)
+      const todayPlus7d = addDays(today, 7)
+      const todayPlus30d = addDays(today, 30)
+
+      const { data: podExpiryDataDr } = await supabase
+        .from('pod_inventory')
+        .select('expiration_date')
+        .not('status', 'in', '("Removed","Removed / Expired","Removed/ Expired")')
+
+      const podExpiredDr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
+      const podExp3Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3d).length ?? 0
+      const podExp7Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus3d && r.expiration_date <= todayPlus7d).length ?? 0
+      const podExp30Dr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus7d && r.expiration_date <= todayPlus30d).length ?? 0
+      setPodKpis({ expired: podExpiredDr, expiring3: podExp3Dr, expiring7: podExp7Dr, expiring30: podExp30Dr })
     }
   }, [])
 
@@ -583,10 +679,10 @@ export default function FieldPage() {
   if (!user) return <Skeleton />
 
   if (user.role === 'warehouse') {
-    if (!whKpis) return <Skeleton />
-    return <WarehouseHome user={user} kpis={whKpis} />
+    if (!whKpis || !podKpis) return <Skeleton />
+    return <WarehouseHome user={user} kpis={whKpis} podKpis={podKpis} />
   }
 
-  if (!driverKpis) return <Skeleton />
-  return <DriverHome user={user} kpis={driverKpis} />
+  if (!driverKpis || !podKpis) return <Skeleton />
+  return <DriverHome user={user} kpis={driverKpis} podKpis={podKpis} />
 }
