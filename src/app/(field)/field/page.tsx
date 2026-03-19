@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { type Language, translations } from '../components/onboarding/translations'
+import LanguagePicker from '../components/onboarding/language-picker'
+import TourOverlay from '../components/onboarding/tour'
 
 type Role = 'warehouse' | 'field_staff'
 
@@ -184,10 +187,12 @@ function WarehouseHome({
   user,
   kpis,
   podKpis,
+  onRestartTour,
 }: {
   user: UserInfo
   kpis: WarehouseKpis
   podKpis: PodExpiryKpis
+  onRestartTour: () => void
 }) {
   const n = kpis.machinesToday
 
@@ -289,6 +294,16 @@ function WarehouseHome({
           <StatCard value={podKpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
         </div>
       </SectionCard>
+
+      {/* Restart tour */}
+      <div className="mt-2 pb-4 text-center">
+        <button
+          onClick={onRestartTour}
+          className="text-xs text-neutral-400 underline underline-offset-2 hover:text-neutral-600 dark:hover:text-neutral-300"
+        >
+          Restart app tour
+        </button>
+      </div>
     </div>
   )
 }
@@ -299,10 +314,12 @@ function DriverHome({
   user,
   kpis,
   podKpis,
+  onRestartTour,
 }: {
   user: UserInfo
   kpis: DriverKpis
   podKpis: PodExpiryKpis
+  onRestartTour: () => void
 }) {
   const router = useRouter()
 
@@ -382,6 +399,14 @@ function DriverHome({
             Sign out
           </button>
         </div>
+        <div className="mt-3 text-center">
+          <button
+            onClick={onRestartTour}
+            className="text-xs text-neutral-400 underline underline-offset-2 hover:text-neutral-600 dark:hover:text-neutral-300"
+          >
+            Restart app tour
+          </button>
+        </div>
       </SectionCard>
     </div>
   )
@@ -395,6 +420,14 @@ export default function FieldPage() {
   const [driverKpis, setDriverKpis] = useState<DriverKpis | null>(null)
   const [podKpis, setPodKpis] = useState<PodExpiryKpis | null>(null)
 
+  // Onboarding
+  const [userId, setUserId] = useState<string | null>(null)
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false)
+  const [showTour, setShowTour] = useState(false)
+  const [tourLanguage, setTourLanguage] = useState<Language>('en')
+  const [tourRole, setTourRole] = useState<Role>('field_staff')
+  const hasCheckedOnboarding = useRef(false)
+
   const fetchData = useCallback(async () => {
     const supabase = createClient()
     const today = todayISO()
@@ -402,15 +435,30 @@ export default function FieldPage() {
     const { data: { user: authUser } } = await supabase.auth.getUser()
     if (!authUser) return
 
+    setUserId(authUser.id)
+
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('full_name, role')
+      .select('full_name, role, preferred_language, onboarding_complete')
       .eq('id', authUser.id)
       .single()
 
     const role = (profile?.role ?? 'field_staff') as Role
     const fullName = profile?.full_name ?? null
     setUser({ full_name: fullName, role })
+    setTourRole(role)
+
+    // Onboarding check — only fire once per mount
+    if (!hasCheckedOnboarding.current && !profile?.onboarding_complete) {
+      hasCheckedOnboarding.current = true
+      const preferredLang = (profile?.preferred_language ?? null) as Language | null
+      if (!preferredLang || preferredLang === 'en') {
+        setShowLanguagePicker(true)
+      } else {
+        setTourLanguage(preferredLang)
+        setShowTour(true)
+      }
+    }
 
     if (role === 'warehouse') {
       const todayPlus3  = addDays(today, 3)
@@ -607,13 +655,76 @@ export default function FieldPage() {
     }
   }, [fetchData])
 
+  async function handleLanguageConfirm(lang: Language) {
+    setShowLanguagePicker(false)
+    setTourLanguage(lang)
+    setShowTour(true)
+    if (userId) {
+      const supabase = createClient()
+      await supabase
+        .from('user_profiles')
+        .update({ preferred_language: lang })
+        .eq('id', userId)
+    }
+  }
+
+  async function handleTourComplete() {
+    setShowTour(false)
+    if (userId) {
+      const supabase = createClient()
+      await supabase
+        .from('user_profiles')
+        .update({ onboarding_complete: true })
+        .eq('id', userId)
+    }
+  }
+
+  async function handleRestartTour() {
+    setShowTour(true)
+    if (userId) {
+      const supabase = createClient()
+      await supabase
+        .from('user_profiles')
+        .update({ onboarding_complete: false })
+        .eq('id', userId)
+    }
+  }
+
   if (!user) return <Skeleton />
+
+  const tourSteps = tourRole === 'warehouse'
+    ? translations[tourLanguage].warehouseTour
+    : translations[tourLanguage].driverTour
 
   if (user.role === 'warehouse') {
     if (!whKpis || !podKpis) return <Skeleton />
-    return <WarehouseHome user={user} kpis={whKpis} podKpis={podKpis} />
+    return (
+      <>
+        {showLanguagePicker && <LanguagePicker onComplete={handleLanguageConfirm} />}
+        {showTour && (
+          <TourOverlay
+            steps={tourSteps}
+            onComplete={handleTourComplete}
+            onSkip={handleTourComplete}
+          />
+        )}
+        <WarehouseHome user={user} kpis={whKpis} podKpis={podKpis} onRestartTour={handleRestartTour} />
+      </>
+    )
   }
 
   if (!driverKpis || !podKpis) return <Skeleton />
-  return <DriverHome user={user} kpis={driverKpis} podKpis={podKpis} />
+  return (
+    <>
+      {showLanguagePicker && <LanguagePicker onComplete={handleLanguageConfirm} />}
+      {showTour && (
+        <TourOverlay
+          steps={tourSteps}
+          onComplete={handleTourComplete}
+          onSkip={handleTourComplete}
+        />
+      )}
+      <DriverHome user={user} kpis={driverKpis} podKpis={podKpis} onRestartTour={handleRestartTour} />
+    </>
+  )
 }
