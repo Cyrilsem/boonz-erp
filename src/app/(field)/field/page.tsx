@@ -8,7 +8,9 @@ import { type Language, translations } from '../components/onboarding/translatio
 import LanguagePicker from '../components/onboarding/language-picker'
 import Tour from '../components/onboarding/tour'
 
-type Role = 'warehouse' | 'field_staff'
+type Role = 'warehouse' | 'field_staff' | 'operator_admin' | 'superadmin' | 'manager'
+
+const ADMIN_ROLES: Role[] = ['operator_admin', 'superadmin', 'manager']
 
 interface UserInfo {
   full_name: string | null
@@ -36,6 +38,13 @@ interface DriverKpis {
   pickedUpMachines: number
   dispatchedMachines: number
   openTasks: number
+}
+
+interface ConfigCounts {
+  boonzProducts: number
+  podProducts: number
+  suppliers: number
+  productMappings: number
 }
 
 interface PodExpiryKpis {
@@ -190,11 +199,13 @@ function WarehouseHome({
   kpis,
   podKpis,
   onRestartTour,
+  configCounts,
 }: {
   user: UserInfo
   kpis: WarehouseKpis
   podKpis: PodExpiryKpis
   onRestartTour: () => void
+  configCounts?: ConfigCounts
 }) {
   const n = kpis.machinesToday
 
@@ -297,6 +308,38 @@ function WarehouseHome({
           <StatCard value={podKpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
         </div>
       </SectionCard>
+
+      {/* ── Section 4: Configuration (admin roles only) ── */}
+      {configCounts && (
+        <SectionCard title="Configuration" linkTo="/field/config" tourId="config">
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              value={configCounts.boonzProducts}
+              label="Boonz products"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/boonz-products"
+            />
+            <StatCard
+              value={configCounts.podProducts}
+              label="Pod products"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/pod-products"
+            />
+            <StatCard
+              value={configCounts.suppliers}
+              label="Active suppliers"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/suppliers"
+            />
+            <StatCard
+              value={configCounts.productMappings}
+              label="Active mappings"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/product-mapping"
+            />
+          </div>
+        </SectionCard>
+      )}
 
       {/* Restart tour */}
       <div className="mt-2 pb-4 text-center">
@@ -422,6 +465,7 @@ export default function FieldPage() {
   const [whKpis, setWhKpis] = useState<WarehouseKpis | null>(null)
   const [driverKpis, setDriverKpis] = useState<DriverKpis | null>(null)
   const [podKpis, setPodKpis] = useState<PodExpiryKpis | null>(null)
+  const [configCounts, setConfigCounts] = useState<ConfigCounts | null>(null)
 
   // Onboarding
   const [userId, setUserId] = useState<string | null>(null)
@@ -463,7 +507,9 @@ export default function FieldPage() {
       }
     }
 
-    if (role === 'warehouse') {
+    const isAdmin = ADMIN_ROLES.includes(role)
+
+    if (role === 'warehouse' || isAdmin) {
       const todayPlus3  = addDays(today, 3)
       const todayPlus7  = addDays(today, 7)
       const todayPlus30 = addDays(today, 30)
@@ -584,6 +630,27 @@ export default function FieldPage() {
         expiring30: podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0,
       })
 
+      // Config counts — only for admin roles
+      if (isAdmin) {
+        const [
+          { count: boonzCount },
+          { count: podCount },
+          { count: supplierCount },
+          { count: mappingCount },
+        ] = await Promise.all([
+          supabase.from('boonz_products').select('product_id', { count: 'exact', head: true }),
+          supabase.from('pod_products').select('pod_product_id', { count: 'exact', head: true }),
+          supabase.from('suppliers').select('supplier_id', { count: 'exact', head: true }).eq('status', 'Active'),
+          supabase.from('product_mapping').select('mapping_id', { count: 'exact', head: true }).eq('status', 'Active'),
+        ])
+        setConfigCounts({
+          boonzProducts:   boonzCount   ?? 0,
+          podProducts:     podCount     ?? 0,
+          suppliers:       supplierCount ?? 0,
+          productMappings: mappingCount  ?? 0,
+        })
+      }
+
     } else {
       // Driver KPIs
       const [
@@ -695,11 +762,13 @@ export default function FieldPage() {
 
   if (!user) return <Skeleton />
 
-  const tourSteps = tourRole === 'warehouse'
+  const isAdminRole = ADMIN_ROLES.includes(user.role)
+
+  const tourSteps = (tourRole === 'warehouse' || isAdminRole)
     ? translations[tourLanguage].warehouseTour
     : translations[tourLanguage].driverTour
 
-  if (user.role === 'warehouse') {
+  if (user.role === 'warehouse' || isAdminRole) {
     if (!whKpis || !podKpis) return <Skeleton />
     return (
       <>
@@ -711,7 +780,13 @@ export default function FieldPage() {
             onSkip={handleTourComplete}
           />
         )}
-        <WarehouseHome user={user} kpis={whKpis} podKpis={podKpis} onRestartTour={handleRestartTour} />
+        <WarehouseHome
+          user={user}
+          kpis={whKpis}
+          podKpis={podKpis}
+          onRestartTour={handleRestartTour}
+          configCounts={isAdminRole ? configCounts ?? undefined : undefined}
+        />
       </>
     )
   }

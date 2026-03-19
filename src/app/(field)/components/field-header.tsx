@@ -24,10 +24,15 @@ function getBackPath(pathname: string): string | null {
     { regex: /^\/field\/dispatching\/[^/]+$/, parent: '/field/dispatching' },
     { regex: /^\/field\/trips\/[^/]+$/, parent: '/field/trips' },
     { regex: /^\/field\/orders\/new$/, parent: '/field/orders' },
+    // Config sub-pages → back to config hub
+    { regex: /^\/field\/config\/.+$/, parent: '/field/config' },
   ]
   for (const p of level2Patterns) {
     if (p.regex.test(pathname)) return p.parent
   }
+
+  // Config hub → back to home
+  if (pathname === '/field/config') return '/field'
 
   // Level 1: everything else goes home
   return '/field'
