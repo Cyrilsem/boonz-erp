@@ -27,6 +27,13 @@ interface ControlEdit {
 type ExpiryFilter = 'all' | 'expired' | '3days' | '7days' | '30days'
 type SortOption = 'expiry' | 'location' | 'name' | 'qty_high' | 'qty_low'
 type StatusFilter = 'Active' | 'Inactive' | 'all'
+type GroupBy = 'category' | 'product' | 'location' | 'none'
+
+interface InventoryGroup {
+  key: string
+  items: InventoryRow[]
+  totalUnits: number
+}
 
 const expiryFilters: { label: string; value: ExpiryFilter }[] = [
   { label: 'All', value: 'all' },
@@ -61,6 +68,28 @@ function ExpiryBadge({ expiryDate }: { expiryDate: string | null }) {
   )
 }
 
+function SectionHeader({
+  label,
+  itemCount,
+  countLabel,
+  totalUnits,
+}: {
+  label: string
+  itemCount: number
+  countLabel: string
+  totalUnits: number
+}) {
+  return (
+    <div className="flex items-center gap-2 mt-4 mb-2">
+      <span className="shrink-0 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{label}</span>
+      <span className="shrink-0 text-xs text-neutral-500">
+        {itemCount} {countLabel} · {totalUnits} units
+      </span>
+      <hr className="flex-1 border-neutral-200 dark:border-neutral-700" />
+    </div>
+  )
+}
+
 export default function InventoryPage() {
   const [rows, setRows] = useState<InventoryRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,6 +98,7 @@ export default function InventoryPage() {
   const [sortBy, setSortBy] = useState<SortOption>('expiry')
   const [hideEmpty, setHideEmpty] = useState(true)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('Active')
+  const [groupBy, setGroupBy] = useState<GroupBy>('none')
 
   // Inventory control mode
   const [controlMode, setControlMode] = useState(false)
@@ -281,6 +311,52 @@ export default function InventoryPage() {
     return filtered
   }, [rows, search, expiryFilter, sortBy, hideEmpty])
 
+  const groups: InventoryGroup[] = useMemo(() => {
+    if (groupBy === 'none') return []
+
+    const map = new Map<string, InventoryRow[]>()
+    for (const row of processed) {
+      let key: string
+      if (groupBy === 'category') key = row.product_category ?? 'Uncategorised'
+      else if (groupBy === 'product') key = row.boonz_product_name
+      else key = row.wh_location ?? 'No location'
+
+      const existing = map.get(key)
+      if (existing) existing.push(row)
+      else map.set(key, [row])
+    }
+
+    const result: InventoryGroup[] = Array.from(map.entries()).map(([key, items]) => ({
+      key,
+      items,
+      totalUnits: items.reduce((s, r) => s + r.warehouse_stock, 0),
+    }))
+
+    // Sort groups: location → alpha; category/product → totalUnits DESC
+    if (groupBy === 'location') {
+      result.sort((a, b) => a.key.localeCompare(b.key))
+    } else {
+      result.sort((a, b) => b.totalUnits - a.totalUnits)
+    }
+
+    // Sort items within each group
+    for (const group of result) {
+      group.items.sort((a, b) => {
+        const da = daysUntilExpiry(a.expiration_date)
+        const db = daysUntilExpiry(b.expiration_date)
+        const secondaryA = groupBy === 'product' ? (a.wh_location ?? '') : a.boonz_product_name
+        const secondaryB = groupBy === 'product' ? (b.wh_location ?? '') : b.boonz_product_name
+        if (da === null && db === null) return secondaryA.localeCompare(secondaryB)
+        if (da === null) return 1
+        if (db === null) return -1
+        const diff = da - db
+        return diff !== 0 ? diff : secondaryA.localeCompare(secondaryB)
+      })
+    }
+
+    return result
+  }, [processed, groupBy])
+
   if (loading) {
     return (
       <>
@@ -395,7 +471,7 @@ export default function InventoryPage() {
         </div>
 
         {/* Sort */}
-        <div className="mb-4 flex items-center gap-2 text-xs text-neutral-500">
+        <div className="mb-3 flex items-center gap-2 text-xs text-neutral-500">
           <span>Sort:</span>
           {([
             { label: 'Expiry', value: 'expiry' as SortOption },
@@ -418,6 +494,29 @@ export default function InventoryPage() {
           ))}
         </div>
 
+        {/* Group by */}
+        <div className="mb-4 flex items-center gap-2 text-xs text-neutral-500">
+          <span>Group:</span>
+          {([
+            { label: 'Category', value: 'category' as GroupBy },
+            { label: 'Product', value: 'product' as GroupBy },
+            { label: 'Location', value: 'location' as GroupBy },
+            { label: 'None', value: 'none' as GroupBy },
+          ]).map((g) => (
+            <button
+              key={g.value}
+              onClick={() => setGroupBy(g.value)}
+              className={`rounded px-2 py-1 transition-colors ${
+                groupBy === g.value
+                  ? 'bg-neutral-200 font-medium text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'hover:bg-neutral-100 dark:hover:bg-neutral-800'
+              }`}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+
         {/* Results */}
         {processed.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center">
@@ -428,7 +527,164 @@ export default function InventoryPage() {
               {search ? 'Try a different search term' : 'Try a different expiry range'}
             </p>
           </div>
+        ) : groupBy !== 'none' ? (
+          /* ── Grouped view ── */
+          <div>
+            {groups.map((group) => (
+              <div key={group.key}>
+                <SectionHeader
+                  label={group.key}
+                  itemCount={groupBy === 'product' ? group.items.length : group.items.length}
+                  countLabel={groupBy === 'product' ? 'batches' : 'items'}
+                  totalUnits={group.totalUnits}
+                />
+                <ul className="space-y-2">
+                  {group.items.map((row) => {
+                    const edit = controlEdits.get(row.wh_inventory_id)
+
+                    if (controlMode && edit) {
+                      return (
+                        <li
+                          key={row.wh_inventory_id}
+                          className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/30"
+                        >
+                          <p className="truncate text-sm font-bold">{row.boonz_product_name}</p>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                            {groupBy !== 'location' && (
+                              <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                {row.wh_location || 'Unassigned'}
+                              </span>
+                            )}
+                            {groupBy !== 'category' && row.product_category && (
+                              <>
+                                <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
+                                <span className="text-neutral-500">{row.product_category}</span>
+                              </>
+                            )}
+                            <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
+                            <span className="text-neutral-400">{row.batch_id || 'No batch'}</span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+                            <div>
+                              <label className="mb-1 block text-xs text-neutral-500">Qty</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={edit.qty}
+                                onChange={(e) =>
+                                  updateControlEdit(row.wh_inventory_id, 'qty', parseInt(e.target.value, 10) || 0)
+                                }
+                                className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-neutral-500">Location</label>
+                              <input
+                                type="text"
+                                value={edit.location}
+                                onChange={(e) =>
+                                  updateControlEdit(row.wh_inventory_id, 'location', e.target.value)
+                                }
+                                className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs text-neutral-500">Status</label>
+                              <button
+                                onClick={() =>
+                                  updateControlEdit(
+                                    row.wh_inventory_id,
+                                    'status',
+                                    edit.status === 'Active' ? 'Inactive' : 'Active'
+                                  )
+                                }
+                                className={`w-full rounded px-2 py-1.5 text-sm font-medium ${
+                                  edit.status === 'Active'
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                                    : 'bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400'
+                                }`}
+                              >
+                                {edit.status}
+                              </button>
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    }
+
+                    return (
+                      <li key={row.wh_inventory_id}>
+                        <Link
+                          href={`/field/inventory/${row.wh_inventory_id}`}
+                          className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                        >
+                          <div className="min-w-0 flex-1 pr-3">
+                            {/* Line 1: location badge (product groupBy) or product name */}
+                            {groupBy === 'product' ? (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                  {row.wh_location || 'Unassigned'}
+                                </span>
+                                {row.product_category && (
+                                  <span className="text-xs text-neutral-500">{row.product_category}</span>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="truncate text-sm font-bold">{row.boonz_product_name}</p>
+                            )}
+
+                            {/* Line 2: meta badges */}
+                            {groupBy !== 'product' && (
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                                {groupBy !== 'location' && (
+                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                    {row.wh_location || 'Unassigned'}
+                                  </span>
+                                )}
+                                {groupBy !== 'category' && row.product_category && (
+                                  <>
+                                    <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
+                                    <span className="text-neutral-500">{row.product_category}</span>
+                                  </>
+                                )}
+                                <span className="text-neutral-300 dark:text-neutral-600">&middot;</span>
+                                <span className="text-neutral-400">{row.batch_id || 'No batch'}</span>
+                              </div>
+                            )}
+
+                            {/* Batch line for product groupBy */}
+                            {groupBy === 'product' && (
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
+                                <span className="text-neutral-400">{row.batch_id || 'No batch'}</span>
+                              </div>
+                            )}
+
+                            {/* Expiry row */}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                              <span className="text-neutral-500">{formatDate(row.expiration_date)}</span>
+                              <ExpiryBadge expiryDate={row.expiration_date} />
+                              {row.status === 'Inactive' && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                  Inactive
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className={`flex shrink-0 flex-col items-end ${getExpiryStyle(row.expiration_date).qtyColor}`}>
+                            <p className="text-xl font-bold leading-none">{row.warehouse_stock}</p>
+                            <p className="mt-0.5 text-xs opacity-60">units</p>
+                          </div>
+                        </Link>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
         ) : (
+          /* ── Flat view ── */
           <ul className="space-y-2">
             {processed.map((row) => {
               const edit = controlEdits.get(row.wh_inventory_id)
@@ -440,7 +696,7 @@ export default function InventoryPage() {
                     className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/30"
                   >
                     {/* Line 1: Product name */}
-                    <p className="text-sm font-bold truncate">{row.boonz_product_name}</p>
+                    <p className="truncate text-sm font-bold">{row.boonz_product_name}</p>
 
                     {/* Line 2: Location badge + category + batch */}
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
@@ -516,7 +772,7 @@ export default function InventoryPage() {
                     {/* Left side */}
                     <div className="min-w-0 flex-1 pr-3">
                       {/* Line 1: Product name */}
-                      <p className="text-sm font-bold truncate">{row.boonz_product_name}</p>
+                      <p className="truncate text-sm font-bold">{row.boonz_product_name}</p>
 
                       {/* Line 2: Location badge + category + batch */}
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">

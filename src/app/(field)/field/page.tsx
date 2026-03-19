@@ -14,10 +14,9 @@ interface UserInfo {
 
 interface WarehouseKpis {
   machinesToday: number
-  totalLines: number
-  packedLines: number
-  pickedUpLines: number
-  dispatchedLines: number
+  packedMachines: number
+  pickedUpMachines: number
+  dispatchedMachines: number
   expired: number
   expiring3: number
   expiring7: number
@@ -41,6 +40,14 @@ interface PodExpiryKpis {
   expiring3: number
   expiring7: number
   expiring30: number
+}
+
+// Per-machine stats used by both warehouse and driver branches
+interface MachineStats {
+  total: number
+  packed: number
+  pickedUp: number
+  dispatched: number
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -71,7 +78,7 @@ function addDays(dateStr: string, days: number): string {
   return d.toISOString().split('T')[0]
 }
 
-// ─── KPI card style ───────────────────────────────────────────────────────────
+// ─── KPI card styles ──────────────────────────────────────────────────────────
 
 interface KpiCardStyle {
   bg: string
@@ -89,6 +96,14 @@ function kpiCardStyle(count: number, urgency: 'critical' | 'high' | 'medium' | '
     low:      { bg: 'bg-lime-50',   border: 'border-lime-200',   text: 'text-lime-700',   sub: 'text-lime-500'   },
   }
   return map[urgency]
+}
+
+// Ratio-based card colour: gray=no data, green=all done, yellow=partial, red=not started
+function ratioCardStyle(count: number, total: number): KpiCardStyle {
+  if (total === 0) return { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-500', sub: 'text-gray-400' }
+  if (count === total) return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', sub: 'text-green-500' }
+  if (count > 0)       return { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', sub: 'text-yellow-500' }
+  return                      { bg: 'bg-red-50',    border: 'border-red-200',    text: 'text-red-600',    sub: 'text-red-400'    }
 }
 
 // ─── Section card ─────────────────────────────────────────────────────────────
@@ -149,15 +164,6 @@ function StatCard({
   )
 }
 
-// ─── Pct card style helper ────────────────────────────────────────────────────
-
-function pctCardStyle(pct: number, hasLines: boolean): KpiCardStyle {
-  if (!hasLines) return kpiCardStyle(0, 'low')
-  if (pct === 100) return kpiCardStyle(0, 'low')
-  if (pct > 0) return kpiCardStyle(1, 'medium')
-  return kpiCardStyle(1, 'high')
-}
-
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton() {
@@ -183,10 +189,7 @@ function WarehouseHome({
   kpis: WarehouseKpis
   podKpis: PodExpiryKpis
 }) {
-  const packedPct    = kpis.totalLines > 0 ? Math.round((kpis.packedLines    / kpis.totalLines) * 100) : 0
-  const pickedUpPct  = kpis.totalLines > 0 ? Math.round((kpis.pickedUpLines  / kpis.totalLines) * 100) : 0
-  const dispatchedPct = kpis.totalLines > 0 ? Math.round((kpis.dispatchedLines / kpis.totalLines) * 100) : 0
-  const hasLines = kpis.totalLines > 0
+  const n = kpis.machinesToday
 
   const lastControlLabel = kpis.lastControlDays === null
     ? 'Last control: Never'
@@ -211,30 +214,27 @@ function WarehouseHome({
       <SectionCard title="Daily Refills" linkTo="/field/packing">
         <div className="grid grid-cols-2 gap-3">
           <StatCard
-            value={kpis.machinesToday}
+            value={n}
             label="To refill today"
-            cardStyle={kpiCardStyle(kpis.machinesToday > 0 ? 1 : 0, 'low')}
+            cardStyle={ratioCardStyle(n, n)}
             href="/field/packing"
           />
           <StatCard
-            value={`${packedPct}%`}
-            label="Packing complete"
-            subLabel={`${kpis.packedLines} of ${kpis.totalLines} lines`}
-            cardStyle={pctCardStyle(packedPct, hasLines)}
+            value={`${kpis.packedMachines}/${n}`}
+            label="Machines packed"
+            cardStyle={ratioCardStyle(kpis.packedMachines, n)}
             href="/field/packing"
           />
           <StatCard
-            value={`${pickedUpPct}%`}
-            label="Picked up"
-            subLabel={`${kpis.pickedUpLines} of ${kpis.totalLines} lines`}
-            cardStyle={pctCardStyle(pickedUpPct, hasLines)}
+            value={`${kpis.pickedUpMachines}/${n}`}
+            label="Machines picked up"
+            cardStyle={ratioCardStyle(kpis.pickedUpMachines, n)}
             href="/field/pickup"
           />
           <StatCard
-            value={`${dispatchedPct}%`}
-            label="Dispatched"
-            subLabel={`${kpis.dispatchedLines} of ${kpis.totalLines} lines`}
-            cardStyle={pctCardStyle(dispatchedPct, hasLines)}
+            value={`${kpis.dispatchedMachines}/${n}`}
+            label="Machines dispatched"
+            cardStyle={ratioCardStyle(kpis.dispatchedMachines, n)}
             href="/field/dispatching"
           />
         </div>
@@ -275,10 +275,10 @@ function WarehouseHome({
       >
         <p className="mb-2 mt-1 text-xs text-gray-400">Warehouse stock</p>
         <div className="grid grid-cols-2 gap-3">
-          <StatCard value={kpis.expired}   label="Expired"   cardStyle={kpiCardStyle(kpis.expired,   'critical')} href="/field/inventory" />
-          <StatCard value={kpis.expiring3} label="< 3 days"  cardStyle={kpiCardStyle(kpis.expiring3, 'high')}     href="/field/inventory" />
-          <StatCard value={kpis.expiring7} label="< 7 days"  cardStyle={kpiCardStyle(kpis.expiring7, 'medium')}   href="/field/inventory" />
-          <StatCard value={kpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(kpis.expiring30,'low')}     href="/field/inventory" />
+          <StatCard value={kpis.expired}    label="Expired"   cardStyle={kpiCardStyle(kpis.expired,   'critical')} href="/field/inventory" />
+          <StatCard value={kpis.expiring3}  label="< 3 days"  cardStyle={kpiCardStyle(kpis.expiring3, 'high')}     href="/field/inventory" />
+          <StatCard value={kpis.expiring7}  label="< 7 days"  cardStyle={kpiCardStyle(kpis.expiring7, 'medium')}   href="/field/inventory" />
+          <StatCard value={kpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(kpis.expiring30,'low')}      href="/field/inventory" />
         </div>
 
         <p className="mb-2 mt-4 text-xs text-gray-400">Machine stock</p>
@@ -325,7 +325,7 @@ function DriverHome({
           <StatCard
             value={kpis.stopsToday}
             label="Stops today"
-            cardStyle={kpiCardStyle(kpis.stopsToday > 0 ? 1 : 0, 'low')}
+            cardStyle={ratioCardStyle(kpis.stopsToday, kpis.stopsToday)}
             href="/field/trips"
           />
           <StatCard
@@ -401,7 +401,6 @@ export default function FieldPage() {
     const supabase = createClient()
     const today = todayISO()
 
-    // Get current user + role
     const { data: { user: authUser } } = await supabase.auth.getUser()
     if (!authUser) return
 
@@ -421,7 +420,7 @@ export default function FieldPage() {
       const todayPlus30 = addDays(today, 30)
 
       const [
-        { data: dispatchLines },
+        { data: dispatchData },
         { count: expiredCount },
         { count: expiring3Count },
         { count: expiring7Count },
@@ -432,62 +431,52 @@ export default function FieldPage() {
         { count: receivedTodayCount },
         { data: lastControlRows },
       ] = await Promise.all([
-        // Dispatch lines today — pick up packed/picked_up/dispatched counts
         supabase
           .from('refill_dispatching')
           .select('machine_id, packed, picked_up, dispatched')
           .eq('dispatch_date', today)
           .eq('include', true),
-        // Expired warehouse inventory
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .lt('expiration_date', today),
-        // Expiring within 3 days
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gte('expiration_date', today)
           .lte('expiration_date', todayPlus3),
-        // Expiring 3–7 days
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gt('expiration_date', todayPlus3)
           .lte('expiration_date', todayPlus7),
-        // Expiring 7–30 days
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gt('expiration_date', todayPlus7)
           .lte('expiration_date', todayPlus30),
-        // Open POs
         supabase
           .from('purchase_orders')
           .select('po_id')
           .is('received_date', null),
-        // Active inventory item count
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active'),
-        // Expiring ≤7 days (for internal use)
         supabase
           .from('warehouse_inventory')
           .select('wh_inventory_id', { count: 'exact', head: true })
           .eq('status', 'Active')
           .gte('expiration_date', today)
           .lte('expiration_date', todayPlus7),
-        // Received today
         supabase
           .from('purchase_orders')
           .select('po_id', { count: 'exact', head: true })
           .eq('received_date', today),
-        // Last inventory control
         supabase
           .from('inventory_control_log')
           .select('conducted_at')
@@ -495,60 +484,61 @@ export default function FieldPage() {
           .limit(1),
       ])
 
-      // Count distinct machines + line statuses
-      const machineSet = new Set<string>()
-      let packedCount = 0
-      let pickedUpCount = 0
-      let dispatchedCount = 0
-      const totalCount = dispatchLines?.length ?? 0
-      dispatchLines?.forEach((l) => {
-        machineSet.add(l.machine_id)
-        if (l.packed)      packedCount++
-        if (l.picked_up)   pickedUpCount++
-        if (l.dispatched)  dispatchedCount++
-      })
+      // Group by machine, count completed status per-machine
+      const machineMap = new Map<string, MachineStats>()
+      for (const row of dispatchData ?? []) {
+        const m = machineMap.get(row.machine_id) ?? { total: 0, packed: 0, pickedUp: 0, dispatched: 0 }
+        m.total++
+        if (row.packed)      m.packed++
+        if (row.picked_up)   m.pickedUp++
+        if (row.dispatched)  m.dispatched++
+        machineMap.set(row.machine_id, m)
+      }
+      const machines = Array.from(machineMap.values())
+      const totalMachines      = machines.length
+      const packedMachines     = machines.filter(m => m.total > 0 && m.packed    === m.total).length
+      const pickedUpMachines   = machines.filter(m => m.total > 0 && m.pickedUp  === m.total).length
+      const dispatchedMachines = machines.filter(m => m.total > 0 && m.dispatched === m.total).length
 
-      // Compute last control days
       let lastControlDays: number | null = null
       if (lastControlRows && lastControlRows.length > 0 && lastControlRows[0].conducted_at) {
         const controlDate = new Date(lastControlRows[0].conducted_at)
-        const now = new Date()
-        lastControlDays = Math.floor((now.getTime() - controlDate.getTime()) / 86400000)
+        lastControlDays = Math.floor((Date.now() - controlDate.getTime()) / 86400000)
       }
 
       setWhKpis({
-        machinesToday:    machineSet.size,
-        totalLines:       totalCount,
-        packedLines:      packedCount,
-        pickedUpLines:    pickedUpCount,
-        dispatchedLines:  dispatchedCount,
-        expired:          expiredCount ?? 0,
-        expiring3:        expiring3Count ?? 0,
-        expiring7:        expiring7Count ?? 0,
-        expiring30:       expiring30Count ?? 0,
-        openPOs:          new Set(openPOData?.map(r => r.po_id) ?? []).size,
-        receivedToday:    receivedTodayCount ?? 0,
-        activeItems:      activeInvCount ?? 0,
-        expiringWeek:     expiryWeekCount ?? 0,
+        machinesToday:     totalMachines,
+        packedMachines,
+        pickedUpMachines,
+        dispatchedMachines,
+        expired:           expiredCount ?? 0,
+        expiring3:         expiring3Count ?? 0,
+        expiring7:         expiring7Count ?? 0,
+        expiring30:        expiring30Count ?? 0,
+        openPOs:           new Set(openPOData?.map(r => r.po_id) ?? []).size,
+        receivedToday:     receivedTodayCount ?? 0,
+        activeItems:       activeInvCount ?? 0,
+        expiringWeek:      expiryWeekCount ?? 0,
         lastControlDays,
       })
 
       // Pod inventory expiry KPIs
-      const { data: podExpiryDataWh } = await supabase
+      const { data: podData } = await supabase
         .from('pod_inventory')
         .select('expiration_date')
         .eq('status', 'Active')
 
-      const podExpiredWh  = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
-      const podExp3Wh     = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0
-      const podExp7Wh     = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus3 && r.expiration_date <= todayPlus7).length ?? 0
-      const podExp30Wh    = podExpiryDataWh?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0
-      setPodKpis({ expired: podExpiredWh, expiring3: podExp3Wh, expiring7: podExp7Wh, expiring30: podExp30Wh })
+      setPodKpis({
+        expired:   podData?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0,
+        expiring3: podData?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0,
+        expiring7: podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus3 && r.expiration_date <= todayPlus7).length ?? 0,
+        expiring30: podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0,
+      })
 
     } else {
       // Driver KPIs
       const [
-        { data: dispatchLines },
+        { data: dispatchData },
         { data: openTasksData },
       ] = await Promise.all([
         supabase
@@ -562,27 +552,23 @@ export default function FieldPage() {
           .in('status', ['pending', 'acknowledged']),
       ])
 
-      const machines = new Map<string, { packed: boolean[]; pickedUp: boolean[]; dispatched: boolean[] }>()
-      dispatchLines?.forEach((l) => {
-        const m = machines.get(l.machine_id) ?? { packed: [], pickedUp: [], dispatched: [] }
-        m.packed.push(!!l.packed)
-        m.pickedUp.push(!!l.picked_up)
-        m.dispatched.push(!!l.dispatched)
-        machines.set(l.machine_id, m)
-      })
+      // Same machine-level counting as warehouse
+      const machineMap = new Map<string, MachineStats>()
+      for (const row of dispatchData ?? []) {
+        const m = machineMap.get(row.machine_id) ?? { total: 0, packed: 0, pickedUp: 0, dispatched: 0 }
+        m.total++
+        if (row.packed)      m.packed++
+        if (row.picked_up)   m.pickedUp++
+        if (row.dispatched)  m.dispatched++
+        machineMap.set(row.machine_id, m)
+      }
+      const machines = Array.from(machineMap.values())
 
-      let pickupReady = 0
-      let toDispatch = 0
-      machines.forEach((m) => {
-        const allPacked     = m.packed.length > 0     && m.packed.every(Boolean)
-        const allPickedUp   = m.pickedUp.length > 0   && m.pickedUp.every(Boolean)
-        const allDispatched = m.dispatched.length > 0  && m.dispatched.every(Boolean)
-        if (allPacked   && !allPickedUp)   pickupReady++
-        if (allPickedUp && !allDispatched) toDispatch++
-      })
+      const pickupReady = machines.filter(m => m.packed === m.total && m.pickedUp  < m.total && m.total > 0).length
+      const toDispatch  = machines.filter(m => m.pickedUp === m.total && m.dispatched < m.total && m.total > 0).length
 
       setDriverKpis({
-        stopsToday: machines.size,
+        stopsToday: machineMap.size,
         pickupReady,
         toDispatch,
         openTasks: openTasksData?.length ?? 0,
@@ -593,16 +579,17 @@ export default function FieldPage() {
       const todayPlus7d  = addDays(today, 7)
       const todayPlus30d = addDays(today, 30)
 
-      const { data: podExpiryDataDr } = await supabase
+      const { data: podData } = await supabase
         .from('pod_inventory')
         .select('expiration_date')
         .eq('status', 'Active')
 
-      const podExpiredDr = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0
-      const podExp3Dr    = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3d).length ?? 0
-      const podExp7Dr    = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus3d && r.expiration_date <= todayPlus7d).length ?? 0
-      const podExp30Dr   = podExpiryDataDr?.filter(r => r.expiration_date && r.expiration_date > todayPlus7d && r.expiration_date <= todayPlus30d).length ?? 0
-      setPodKpis({ expired: podExpiredDr, expiring3: podExp3Dr, expiring7: podExp7Dr, expiring30: podExp30Dr })
+      setPodKpis({
+        expired:    podData?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0,
+        expiring3:  podData?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3d).length ?? 0,
+        expiring7:  podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus3d && r.expiration_date <= todayPlus7d).length ?? 0,
+        expiring30: podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus7d && r.expiration_date <= todayPlus30d).length ?? 0,
+      })
     }
   }, [])
 
