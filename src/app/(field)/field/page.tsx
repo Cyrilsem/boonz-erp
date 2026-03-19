@@ -31,6 +31,7 @@ interface WarehouseKpis {
   activeItems: number
   expiringWeek: number
   lastControlDays: number | null // null = never
+  openTasksCount: number
 }
 
 interface DriverKpis {
@@ -458,6 +459,200 @@ function DriverHome({
   )
 }
 
+// ─── Operator Admin Home ──────────────────────────────────────────────────────
+
+function OperatorAdminHome({
+  user,
+  kpis,
+  podKpis,
+  onRestartTour,
+  configCounts,
+}: {
+  user: UserInfo
+  kpis: WarehouseKpis
+  podKpis: PodExpiryKpis
+  onRestartTour: () => void
+  configCounts: ConfigCounts | null
+}) {
+  const n = kpis.machinesToday
+  const pickupReadyMachines = Math.max(0, kpis.packedMachines - kpis.pickedUpMachines)
+  const toDispatchMachines  = Math.max(0, kpis.pickedUpMachines - kpis.dispatchedMachines)
+
+  const lastControlLabel = kpis.lastControlDays === null
+    ? 'Last control: Never'
+    : kpis.lastControlDays === 0
+    ? 'Last control: Today'
+    : `Last control: ${kpis.lastControlDays}d ago`
+
+  const lastControlColor = kpis.lastControlDays === null || kpis.lastControlDays > 30
+    ? 'text-red-500'
+    : kpis.lastControlDays > 7
+    ? 'text-yellow-500'
+    : 'text-green-500'
+
+  return (
+    <div className="px-4 py-4 pb-24">
+      <h1 className="text-xl font-semibold">
+        {getGreeting()}, {user.full_name ?? 'Operator'}
+      </h1>
+      <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
+
+      {/* ── Section 1: Daily Refills ── */}
+      <SectionCard title="Daily Refills" linkTo="/field/packing" tourId="daily-refills">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={n}
+            label="To refill today"
+            cardStyle={ratioCardStyle(n, n)}
+            href="/field/packing"
+          />
+          <StatCard
+            value={`${kpis.packedMachines}/${n}`}
+            label="Machines packed"
+            cardStyle={ratioCardStyle(kpis.packedMachines, n)}
+            href="/field/packing"
+          />
+          <StatCard
+            value={`${kpis.pickedUpMachines}/${n}`}
+            label="Machines picked up"
+            cardStyle={ratioCardStyle(kpis.pickedUpMachines, n)}
+            href="/field/pickup"
+          />
+          <StatCard
+            value={`${kpis.dispatchedMachines}/${n}`}
+            label="Machines dispatched"
+            cardStyle={ratioCardStyle(kpis.dispatchedMachines, n)}
+            href="/field/dispatching"
+          />
+        </div>
+      </SectionCard>
+
+      {/* ── Section 2: Procurement ── */}
+      <SectionCard title="Procurement" linkTo="/field/orders" tourId="procurement">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={kpis.openPOs}
+            label="Open orders"
+            subLabel="Pending delivery"
+            cardStyle={kpiCardStyle(kpis.openPOs, 'medium')}
+            href="/field/orders"
+          />
+          <StatCard
+            value={kpis.receivedToday}
+            label="Received today"
+            cardStyle={kpiCardStyle(0, 'low')}
+            href="/field/receiving"
+          />
+          <Link
+            href="/field/orders/new"
+            className="col-span-2 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
+          >
+            + New Purchase Order
+          </Link>
+        </div>
+      </SectionCard>
+
+      {/* ── Section 3: Inventory ── */}
+      <SectionCard
+        title="Inventory"
+        linkTo="/field/inventory"
+        tourId="inventory"
+        rightContent={
+          <span className={`text-xs font-medium ${lastControlColor}`}>{lastControlLabel}</span>
+        }
+      >
+        <p className="mb-2 mt-1 text-xs text-gray-400">Warehouse stock</p>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard value={kpis.expired}    label="Expired"   cardStyle={kpiCardStyle(kpis.expired,   'critical')} href="/field/inventory" />
+          <StatCard value={kpis.expiring3}  label="< 3 days"  cardStyle={kpiCardStyle(kpis.expiring3, 'high')}     href="/field/inventory" />
+          <StatCard value={kpis.expiring7}  label="< 7 days"  cardStyle={kpiCardStyle(kpis.expiring7, 'medium')}   href="/field/inventory" />
+          <StatCard value={kpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(kpis.expiring30,'low')}      href="/field/inventory" />
+        </div>
+
+        <p className="mb-2 mt-4 text-xs text-gray-400">Machine stock</p>
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard value={podKpis.expired}    label="Expired"   cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring3}  label="< 3 days"  cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring7}  label="< 7 days"  cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
+          <StatCard value={podKpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
+        </div>
+      </SectionCard>
+
+      {/* ── Section 4: Field Operations ── */}
+      <SectionCard title="Field Operations" linkTo="/field/trips" tourId="field-ops">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={kpis.openTasksCount}
+            label="Driver tasks"
+            cardStyle={kpis.openTasksCount > 0 ? kpiCardStyle(kpis.openTasksCount, 'high') : kpiCardStyle(0, 'low')}
+            href="/field/tasks"
+          />
+          <StatCard
+            value={pickupReadyMachines}
+            label="Ready to collect"
+            cardStyle={ratioCardStyle(pickupReadyMachines, n)}
+            href="/field/pickup"
+          />
+          <StatCard
+            value={toDispatchMachines}
+            label="To dispatch"
+            cardStyle={ratioCardStyle(toDispatchMachines, n)}
+            href="/field/dispatching"
+          />
+          <StatCard
+            value={podKpis.expired}
+            label="Expired in machines"
+            cardStyle={kpiCardStyle(podKpis.expired, 'critical')}
+            href="/field/pod-inventory"
+          />
+        </div>
+      </SectionCard>
+
+      {/* ── Section 5: Configuration ── */}
+      {configCounts && (
+        <SectionCard title="Configuration" linkTo="/field/config" tourId="config">
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              value={configCounts.boonzProducts}
+              label="Boonz products"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/boonz-products"
+            />
+            <StatCard
+              value={configCounts.podProducts}
+              label="Pod products"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/pod-products"
+            />
+            <StatCard
+              value={configCounts.suppliers}
+              label="Active suppliers"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/suppliers"
+            />
+            <StatCard
+              value={configCounts.productMappings}
+              label="Active mappings"
+              cardStyle={kpiCardStyle(0, 'low')}
+              href="/field/config/product-mapping"
+            />
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Restart tour */}
+      <div className="mt-2 pb-4 text-center">
+        <button
+          onClick={onRestartTour}
+          className="text-xs text-neutral-400 underline underline-offset-2 hover:text-neutral-600 dark:hover:text-neutral-300"
+        >
+          Restart app tour
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function FieldPage() {
@@ -525,6 +720,7 @@ export default function FieldPage() {
         { count: expiryWeekCount },
         { count: receivedTodayCount },
         { data: lastControlRows },
+        { data: openTasksData },
       ] = await Promise.all([
         supabase
           .from('refill_dispatching')
@@ -577,6 +773,10 @@ export default function FieldPage() {
           .select('conducted_at')
           .order('conducted_at', { ascending: false })
           .limit(1),
+        supabase
+          .from('driver_tasks')
+          .select('task_id')
+          .in('status', ['pending', 'acknowledged']),
       ])
 
       // Group by machine, count completed status per-machine
@@ -615,6 +815,7 @@ export default function FieldPage() {
         activeItems:       activeInvCount ?? 0,
         expiringWeek:      expiryWeekCount ?? 0,
         lastControlDays,
+        openTasksCount:    openTasksData?.length ?? 0,
       })
 
       // Pod inventory expiry KPIs
@@ -764,35 +965,12 @@ export default function FieldPage() {
 
   const isAdminRole = ADMIN_ROLES.includes(user.role)
 
-  const tourSteps = (tourRole === 'warehouse' || isAdminRole)
-    ? translations[tourLanguage].warehouseTour
-    : translations[tourLanguage].driverTour
+  // field_staff → driver tour; all other roles → warehouse tour
+  const tourSteps = tourRole === 'field_staff'
+    ? translations[tourLanguage].driverTour
+    : translations[tourLanguage].warehouseTour
 
-  if (user.role === 'warehouse' || isAdminRole) {
-    if (!whKpis || !podKpis) return <Skeleton />
-    return (
-      <>
-        {showLanguagePicker && <LanguagePicker onComplete={handleLanguageConfirm} />}
-        {showTour && (
-          <Tour
-            steps={tourSteps}
-            onComplete={handleTourComplete}
-            onSkip={handleTourComplete}
-          />
-        )}
-        <WarehouseHome
-          user={user}
-          kpis={whKpis}
-          podKpis={podKpis}
-          onRestartTour={handleRestartTour}
-          configCounts={isAdminRole ? configCounts ?? undefined : undefined}
-        />
-      </>
-    )
-  }
-
-  if (!driverKpis || !podKpis) return <Skeleton />
-  return (
+  const tourOverlay = (
     <>
       {showLanguagePicker && <LanguagePicker onComplete={handleLanguageConfirm} />}
       {showTour && (
@@ -802,7 +980,63 @@ export default function FieldPage() {
           onSkip={handleTourComplete}
         />
       )}
-      <DriverHome user={user} kpis={driverKpis} podKpis={podKpis} onRestartTour={handleRestartTour} />
     </>
+  )
+
+  // ── Warehouse staff ──
+  if (user.role === 'warehouse') {
+    if (!whKpis || !podKpis) return <Skeleton />
+    return (
+      <>
+        {tourOverlay}
+        <WarehouseHome
+          user={user}
+          kpis={whKpis}
+          podKpis={podKpis}
+          onRestartTour={handleRestartTour}
+        />
+      </>
+    )
+  }
+
+  // ── Operator / Admin ──
+  if (isAdminRole) {
+    if (!whKpis || !podKpis) return <Skeleton />
+    return (
+      <>
+        {tourOverlay}
+        <OperatorAdminHome
+          user={user}
+          kpis={whKpis}
+          podKpis={podKpis}
+          onRestartTour={handleRestartTour}
+          configCounts={configCounts}
+        />
+      </>
+    )
+  }
+
+  // ── Driver / Field staff ──
+  if (user.role === 'field_staff') {
+    if (!driverKpis || !podKpis) return <Skeleton />
+    return (
+      <>
+        {tourOverlay}
+        <DriverHome user={user} kpis={driverKpis} podKpis={podKpis} onRestartTour={handleRestartTour} />
+      </>
+    )
+  }
+
+  // ── Unknown role fallback ──
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <div className="text-center">
+        <p className="text-sm text-neutral-500">
+          Your account role (<code className="font-mono text-xs">{user.role}</code>) doesn&apos;t have a
+          configured home page yet.
+        </p>
+        <p className="mt-1 text-xs text-neutral-400">Contact your administrator.</p>
+      </div>
+    </div>
   )
 }

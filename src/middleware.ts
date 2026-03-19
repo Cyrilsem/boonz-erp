@@ -63,7 +63,10 @@ export async function middleware(request: NextRequest) {
 
   const role = profile?.role ?? 'field_staff'
 
+  // Roles that can access /app + /chat
   const appRoles    = ['superadmin', 'operator_admin', 'manager', 'finance']
+  // Ops roles can also access /field (full ops visibility)
+  const opsRoles    = ['superadmin', 'operator_admin', 'manager']
   const fieldRoles  = ['field_staff', 'warehouse']
   const portalRoles = ['client']
 
@@ -77,14 +80,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Wrong surface → redirect to correct one
+  // Field-only roles: block from app / portal / chat
   if (fieldRoles.includes(role) && (onApp || onPortal || onChat)) {
     return NextResponse.redirect(new URL('/field', request.url))
   }
+  // Portal-only roles: block from app / field / chat
   if (portalRoles.includes(role) && (onApp || onField || onChat)) {
     return NextResponse.redirect(new URL('/portal', request.url))
   }
-  if (appRoles.includes(role) && (onField || onPortal)) {
+  // Ops roles: can access /field + /app — block portal only
+  if (opsRoles.includes(role) && onPortal) {
+    return NextResponse.redirect(new URL('/app', request.url))
+  }
+  // Finance: /app only — block field / portal
+  if (role === 'finance' && (onField || onPortal)) {
     return NextResponse.redirect(new URL('/app', request.url))
   }
 
