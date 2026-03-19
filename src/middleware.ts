@@ -36,6 +36,7 @@ export async function middleware(request: NextRequest) {
   // Pass-through: public routes, Next.js internals, static files
   const isPublic =
     path.startsWith('/login') ||
+    path.startsWith('/reset-password') ||
     path.startsWith('/auth') ||
     path.startsWith('/_next') ||
     path.startsWith('/api') ||
