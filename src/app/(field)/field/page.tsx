@@ -30,8 +30,8 @@ interface WarehouseKpis {
 
 interface DriverKpis {
   stopsToday: number
-  pickupReady: number
-  toDispatch: number
+  pickedUpMachines: number
+  dispatchedMachines: number
   openTasks: number
 }
 
@@ -329,36 +329,34 @@ function DriverHome({
             href="/field/trips"
           />
           <StatCard
-            value={kpis.pickupReady}
-            label="Pickup ready"
-            cardStyle={kpiCardStyle(kpis.pickupReady, 'medium')}
+            value={`${kpis.pickedUpMachines}/${kpis.stopsToday}`}
+            label="Machines picked up"
+            cardStyle={ratioCardStyle(kpis.pickedUpMachines, kpis.stopsToday)}
             href="/field/pickup"
           />
           <StatCard
-            value={kpis.toDispatch}
-            label="To dispatch"
-            cardStyle={kpiCardStyle(kpis.toDispatch, 'medium')}
+            value={`${kpis.dispatchedMachines}/${kpis.stopsToday}`}
+            label="Machines dispatched"
+            cardStyle={ratioCardStyle(kpis.dispatchedMachines, kpis.stopsToday)}
             href="/field/dispatching"
           />
-          <StatCard
-            value={kpis.openTasks}
-            label="Open tasks"
-            cardStyle={kpiCardStyle(kpis.openTasks, 'high')}
-            href="/field/tasks"
-          />
+          {/* empty cell — 3 stats only */}
+          <div />
         </div>
-        {kpis.openTasks > 0 && (
-          <Link
-            href="/field/tasks"
-            className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100"
-          >
-            <span>⚠ You have {kpis.openTasks} pending task{kpis.openTasks === 1 ? '' : 's'}</span>
-            <span className="text-xs">View →</span>
-          </Link>
-        )}
       </SectionCard>
 
-      {/* ── Section 2: Machine Stock Expiry ── */}
+      {/* ── Section 2: Tasks ── */}
+      <SectionCard title="Tasks" linkTo="/field/tasks">
+        <StatCard
+          value={kpis.openTasks}
+          label="Open tasks"
+          subLabel="Pending & acknowledged"
+          cardStyle={kpiCardStyle(kpis.openTasks, 'high')}
+          href="/field/tasks"
+        />
+      </SectionCard>
+
+      {/* ── Section 3: Machine Stock Expiry ── */}
       <SectionCard title="Machine Stock Expiry" linkTo="/field/pod-inventory">
         <div className="grid grid-cols-2 gap-3">
           <StatCard value={podKpis.expired}    label="Expired"   cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
@@ -368,7 +366,7 @@ function DriverHome({
         </div>
       </SectionCard>
 
-      {/* ── Section 3: Profile ── */}
+      {/* ── Section 4: Profile ── */}
       <SectionCard title="Profile" linkTo="/field/profile">
         <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
           <div>
@@ -564,13 +562,13 @@ export default function FieldPage() {
       }
       const machines = Array.from(machineMap.values())
 
-      const pickupReady = machines.filter(m => m.packed === m.total && m.pickedUp  < m.total && m.total > 0).length
-      const toDispatch  = machines.filter(m => m.pickedUp === m.total && m.dispatched < m.total && m.total > 0).length
+      const pickedUpMachines   = machines.filter(m => m.total > 0 && m.pickedUp   === m.total).length
+      const dispatchedMachines = machines.filter(m => m.total > 0 && m.dispatched === m.total).length
 
       setDriverKpis({
         stopsToday: machineMap.size,
-        pickupReady,
-        toDispatch,
+        pickedUpMachines,
+        dispatchedMachines,
         openTasks: openTasksData?.length ?? 0,
       })
 

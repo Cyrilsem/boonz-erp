@@ -28,16 +28,12 @@ type Outcome =
   | 'purchased_full'
   | 'purchased_partial'
   | 'not_available'
-  | 'price_too_high'
-  | 'expired_on_shelf'
   | 'other'
 
 const OUTCOME_OPTIONS: { value: Outcome; label: string; icon: string }[] = [
   { value: 'purchased_full', label: 'Full', icon: '✅' },
   { value: 'purchased_partial', label: 'Partial', icon: '⚠️' },
   { value: 'not_available', label: 'N/A', icon: '❌' },
-  { value: 'price_too_high', label: 'Price', icon: '💰' },
-  { value: 'expired_on_shelf', label: 'Expired', icon: '🗓️' },
   { value: 'other', label: 'Other', icon: '📝' },
 ]
 

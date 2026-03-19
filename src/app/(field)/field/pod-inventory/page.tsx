@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../components/field-header'
 import { getExpiryStyle } from '@/app/(field)/utils/expiry'
@@ -9,6 +9,8 @@ import { getExpiryStyle } from '@/app/(field)/utils/expiry'
 
 interface PodRow {
   pod_inventory_id: string
+  machine_id: string
+  boonz_product_id: string
   boonz_product_name: string
   product_category: string
   machine_name: string
@@ -27,6 +29,7 @@ interface DisplayGroup {
 
 type PodFilter = 'expired' | '3days' | '7days' | '30days' | 'all'
 type GroupBy = 'machine' | 'product' | 'category' | 'none'
+type EditType = 'in_stock' | 'sold' | 'damaged'
 
 // ─── Static config ────────────────────────────────────────────────────────────
 
@@ -77,6 +80,29 @@ function getGroupKey(row: PodRow, groupBy: Exclude<GroupBy, 'none'>): string {
   }
 }
 
+async function compressImage(file: File): Promise<Blob> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const blobUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(blobUrl)
+      const maxW = 1200
+      let { width, height } = img
+      if (width > maxW) {
+        height = Math.round((height * maxW) / width)
+        width = maxW
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob((blob) => resolve(blob!), 'image/jpeg', 0.7)
+    }
+    img.src = blobUrl
+  })
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SectionHeader({
@@ -105,18 +131,18 @@ function SectionHeader({
 
 interface PodRowItemProps {
   row: PodRow
-  showProduct: boolean   // true → line 1 = product name; false → line 1 = machine name
-  showMachine: boolean   // show machine name on line 2 (only when showProduct=true)
-  showCategory: boolean  // show product_category on line 2 (takes precedence over showMachine)
+  showProduct: boolean
+  showMachine: boolean
+  showCategory: boolean
+  isPending: boolean
+  onClick: () => void
 }
 
-function PodRowItem({ row, showProduct, showMachine, showCategory }: PodRowItemProps) {
+function PodRowItem({ row, showProduct, showMachine, showCategory, isPending, onClick }: PodRowItemProps) {
   const style = getExpiryStyle(row.expiration_date)
 
-  // Line 1: product name if showProduct, otherwise machine name (product grouping)
   const line1 = showProduct ? row.boonz_product_name : row.machine_name
 
-  // Line 2: only meaningful when line 1 is the product name
   const line2: string | null = showProduct
     ? showCategory
       ? row.product_category
@@ -126,7 +152,10 @@ function PodRowItem({ row, showProduct, showMachine, showCategory }: PodRowItemP
     : null
 
   return (
-    <li className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+    <li
+      className="cursor-pointer flex items-start rounded-lg border border-neutral-200 bg-white p-4 transition-colors active:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:active:bg-neutral-900"
+      onClick={onClick}
+    >
       {/* Left side */}
       <div className="min-w-0 flex-1 pr-3">
         <p className="truncate text-sm font-bold">{line1}</p>
@@ -138,6 +167,11 @@ function PodRowItem({ row, showProduct, showMachine, showCategory }: PodRowItemP
           {style.label && (
             <span className={`rounded-full ${style.badgeBg} px-3 py-1 text-sm font-semibold ${style.badgeText}`}>
               {style.label}
+            </span>
+          )}
+          {isPending && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              Review pending
             </span>
           )}
         </div>
@@ -154,7 +188,7 @@ function PodRowItem({ row, showProduct, showMachine, showCategory }: PodRowItemP
 
 // ─── Row props per groupBy ────────────────────────────────────────────────────
 
-function rowProps(groupBy: GroupBy): Omit<PodRowItemProps, 'row'> {
+function rowProps(groupBy: GroupBy): Omit<PodRowItemProps, 'row' | 'isPending' | 'onClick'> {
   switch (groupBy) {
     case 'machine':   return { showProduct: true,  showMachine: false, showCategory: true  }
     case 'product':   return { showProduct: false, showMachine: true,  showCategory: false }
@@ -173,21 +207,62 @@ export default function PodInventoryPage() {
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
-  // Reset group + machine when expiry filter changes
+  // Pending edits
+  const [pendingEditIds, setPendingEditIds] = useState<Set<string>>(new Set())
+
+  // Toast
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Edit modal
+  const [selectedRow, setSelectedRow] = useState<PodRow | null>(null)
+  const [editType, setEditType] = useState<EditType | null>(null)
+  const [editQty, setEditQty] = useState<number>(0)
+  const [editNotes, setEditNotes] = useState('')
+  const [editPhoto, setEditPhoto] = useState<File | null>(null)
+  const [editPhotoUrl, setEditPhotoUrl] = useState<string | null>(null)
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
+
+  // Reset expiry filter changes
   function handleFilterChange(newFilter: PodFilter) {
     setFilter(newFilter)
     setGroupBy(DEFAULT_GROUP_BY[newFilter])
     setSelectedMachine(null)
   }
 
+  function closeModal() {
+    setSelectedRow(null)
+    setEditType(null)
+    setEditQty(0)
+    setEditNotes('')
+    if (editPhotoUrl) URL.revokeObjectURL(editPhotoUrl)
+    setEditPhoto(null)
+    setEditPhotoUrl(null)
+    setEditSubmitting(false)
+    setEditError(null)
+  }
+
+  const fetchPendingEdits = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('pod_inventory_edits')
+      .select('pod_inventory_id')
+      .eq('status', 'pending')
+    if (data) {
+      setPendingEditIds(new Set(data.map((r) => r.pod_inventory_id as string)))
+    }
+  }, [])
+
   useEffect(() => {
     async function fetchData() {
       const supabase = createClient()
 
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('pod_inventory')
         .select(`
           pod_inventory_id,
+          machine_id,
+          boonz_product_id,
           current_stock,
           expiration_date,
           status,
@@ -198,8 +273,6 @@ export default function PodInventoryPage() {
         .gt('current_stock', 0)
         .order('expiration_date', { ascending: true })
 
-      console.log('[PodInventory] fetch:', data?.length, error)
-
       if (data) {
         const mapped: PodRow[] = data.map((row) => {
           const p = row.boonz_products as unknown as {
@@ -209,6 +282,8 @@ export default function PodInventoryPage() {
           const m = row.machines as unknown as { official_name: string } | null
           return {
             pod_inventory_id: row.pod_inventory_id,
+            machine_id: row.machine_id,
+            boonz_product_id: row.boonz_product_id,
             boonz_product_name: p?.boonz_product_name ?? '—',
             product_category: p?.product_category ?? 'Uncategorised',
             machine_name: m?.official_name ?? '—',
@@ -220,10 +295,70 @@ export default function PodInventoryPage() {
       }
       setLoading(false)
     }
-    fetchData()
-  }, [])
 
-  // Step 1: apply search + expiry filter (feeds machine dropdown)
+    fetchData()
+    fetchPendingEdits()
+  }, [fetchPendingEdits])
+
+  async function submitEdit() {
+    if (!selectedRow || !editType) return
+    setEditSubmitting(true)
+    setEditError(null)
+
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setEditError('Not authenticated')
+      setEditSubmitting(false)
+      return
+    }
+
+    let photoPath: string | null = null
+    if (editPhoto && editType === 'damaged') {
+      try {
+        const compressed = await compressImage(editPhoto)
+        const timestamp = Date.now()
+        const path = `${selectedRow.pod_inventory_id}/${timestamp}.jpg`
+        const { error: uploadError } = await supabase.storage
+          .from('pod-inventory-edits')
+          .upload(path, compressed, { contentType: 'image/jpeg' })
+        if (uploadError) throw uploadError
+        photoPath = path
+      } catch {
+        setEditError('Failed to upload photo. Please try again.')
+        setEditSubmitting(false)
+        return
+      }
+    }
+
+    const { error: insertError } = await supabase
+      .from('pod_inventory_edits')
+      .insert({
+        pod_inventory_id: selectedRow.pod_inventory_id,
+        machine_id: selectedRow.machine_id,
+        boonz_product_id: selectedRow.boonz_product_id,
+        requested_by: user.id,
+        edit_type: editType,
+        quantity_update:
+          editType === 'sold' || editType === 'damaged' ? editQty || null : null,
+        photo_path: photoPath,
+        notes: editNotes.trim() || null,
+      })
+
+    if (insertError) {
+      setEditError('Failed to submit. Please try again.')
+      setEditSubmitting(false)
+      return
+    }
+
+    const editedId = selectedRow.pod_inventory_id
+    closeModal()
+    setPendingEditIds((prev) => new Set([...prev, editedId]))
+    setToast('Submitted for warehouse review')
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  // Step 1: apply search + expiry filter
   const filtered = useMemo(() => {
     let result = rows
 
@@ -247,7 +382,6 @@ export default function PodInventoryPage() {
       }
     })
 
-    // Sorted: expiry ASC → machine name ASC
     return [...result].sort((a, b) => {
       const da = daysUntilExpiry(a.expiration_date)
       const db = daysUntilExpiry(b.expiration_date)
@@ -259,19 +393,19 @@ export default function PodInventoryPage() {
     })
   }, [rows, filter, search])
 
-  // Step 2: distinct machine names from expiry-filtered data (for dropdown)
+  // Step 2: distinct machine names
   const machineOptions = useMemo((): string[] => {
     const names = new Set(filtered.map((r) => r.machine_name))
     return Array.from(names).sort()
   }, [filtered])
 
-  // Step 3: apply machine filter on top of expiry-filtered data
+  // Step 3: apply machine filter
   const machineFiltered = useMemo((): PodRow[] => {
     if (!selectedMachine) return filtered
     return filtered.filter((r) => r.machine_name === selectedMachine)
   }, [filtered, selectedMachine])
 
-  // Step 4: build display groups (only when groupBy !== 'none')
+  // Step 4: build display groups
   const groups = useMemo((): DisplayGroup[] => {
     if (groupBy === 'none') return []
 
@@ -299,8 +433,6 @@ export default function PodInventoryPage() {
       })
 
       const totalUnits = sorted.reduce((sum, r) => sum + r.current_stock, 0)
-
-      // Product grouping counts distinct machines; all others count items
       const isProductGroup = groupBy === 'product'
       const itemCount = isProductGroup
         ? new Set(sorted.map((r) => r.machine_name)).size
@@ -310,7 +442,6 @@ export default function PodInventoryPage() {
       return { key, headerLabel: key, itemCount, countLabel, totalUnits, items: sorted }
     })
 
-    // Sort groups by totalUnits DESC
     return built.sort((a, b) => b.totalUnits - a.totalUnits)
   }, [machineFiltered, groupBy])
 
@@ -373,7 +504,6 @@ export default function PodInventoryPage() {
 
         {/* Controls row: machine dropdown + group by pills */}
         <div className="mb-3 flex items-center justify-between gap-3">
-          {/* LEFT: Machine dropdown */}
           <select
             value={selectedMachine ?? ''}
             onChange={(e) => setSelectedMachine(e.target.value || null)}
@@ -387,7 +517,6 @@ export default function PodInventoryPage() {
             ))}
           </select>
 
-          {/* RIGHT: Group by pills */}
           <div className="flex shrink-0 gap-1">
             {GROUP_OPTIONS.map((g) => (
               <button
@@ -422,7 +551,6 @@ export default function PodInventoryPage() {
             </p>
           </div>
         ) : groupBy !== 'none' ? (
-          /* Grouped view */
           <div className="space-y-5">
             {groups.map((group) => (
               <div key={group.key}>
@@ -434,21 +562,210 @@ export default function PodInventoryPage() {
                 />
                 <ul className="space-y-2">
                   {group.items.map((row) => (
-                    <PodRowItem key={row.pod_inventory_id} row={row} {...rp} />
+                    <PodRowItem
+                      key={row.pod_inventory_id}
+                      row={row}
+                      {...rp}
+                      isPending={pendingEditIds.has(row.pod_inventory_id)}
+                      onClick={() => setSelectedRow(row)}
+                    />
                   ))}
                 </ul>
               </div>
             ))}
           </div>
         ) : (
-          /* Flat list */
           <ul className="space-y-2">
             {machineFiltered.map((row) => (
-              <PodRowItem key={row.pod_inventory_id} row={row} {...rp} />
+              <PodRowItem
+                key={row.pod_inventory_id}
+                row={row}
+                {...rp}
+                isPending={pendingEditIds.has(row.pod_inventory_id)}
+                onClick={() => setSelectedRow(row)}
+              />
             ))}
           </ul>
         )}
       </div>
+
+      {/* ── Edit modal (bottom sheet) ── */}
+      {selectedRow && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40" onClick={closeModal} />
+
+          {/* Sheet */}
+          <div className="relative z-10 max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white px-4 pt-5 pb-10 shadow-xl dark:bg-neutral-900">
+            {/* Header */}
+            <div className="mb-4">
+              <p className="text-base font-bold">{selectedRow.boonz_product_name}</p>
+              <p className="text-sm text-neutral-500">{selectedRow.machine_name}</p>
+              <p className="mt-1 text-xs text-neutral-400">
+                {selectedRow.current_stock} units · expires {formatDate(selectedRow.expiration_date)}
+              </p>
+            </div>
+
+            <p className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+              What is the current status of this item?
+            </p>
+
+            {/* Type buttons */}
+            <div className="mb-4 space-y-2">
+              {/* Still in stock */}
+              <button
+                onClick={() => setEditType('in_stock')}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === 'in_stock'
+                    ? 'border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950'
+                    : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
+                }`}
+              >
+                <p className="text-sm font-semibold">✅ Still in stock</p>
+                <p className="text-xs text-neutral-500">Product is present and not expired</p>
+              </button>
+
+              {/* Sold / consumed */}
+              <button
+                onClick={() => { setEditType('sold'); setEditQty(0) }}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === 'sold'
+                    ? 'border-blue-500 bg-blue-50 dark:border-blue-600 dark:bg-blue-950'
+                    : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
+                }`}
+              >
+                <p className="text-sm font-semibold">💰 Sold / consumed</p>
+                <p className="text-xs text-neutral-500">Product was purchased by a customer</p>
+              </button>
+              {editType === 'sold' && (
+                <div className="ml-4">
+                  <label className="mb-1 block text-xs text-neutral-500">
+                    How many units sold?
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedRow.current_stock}
+                    value={editQty || ''}
+                    onChange={(e) => setEditQty(parseInt(e.target.value, 10) || 0)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    placeholder="0"
+                  />
+                </div>
+              )}
+
+              {/* Damaged */}
+              <button
+                onClick={() => { setEditType('damaged'); setEditQty(0) }}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === 'damaged'
+                    ? 'border-red-500 bg-red-50 dark:border-red-600 dark:bg-red-950'
+                    : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
+                }`}
+              >
+                <p className="text-sm font-semibold">🔴 Damaged</p>
+                <p className="text-xs text-neutral-500">Product is damaged or unusable</p>
+              </button>
+              {editType === 'damaged' && (
+                <div className="ml-4 space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      How many units damaged?
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={selectedRow.current_stock}
+                      value={editQty || ''}
+                      onChange={(e) => setEditQty(parseInt(e.target.value, 10) || 0)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      Photo (optional)
+                    </label>
+                    {editPhotoUrl ? (
+                      <div className="relative">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={editPhotoUrl}
+                          alt="Damage photo"
+                          className="h-32 w-full rounded-lg object-cover"
+                        />
+                        <button
+                          onClick={() => {
+                            setEditPhoto(null)
+                            if (editPhotoUrl) URL.revokeObjectURL(editPhotoUrl)
+                            setEditPhotoUrl(null)
+                          }}
+                          className="absolute right-2 top-2 rounded-full bg-black/50 px-2 py-0.5 text-xs text-white"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-500 hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-800">
+                        <span>📷 Capture photo</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="sr-only"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            setEditPhoto(file)
+                            setEditPhotoUrl(URL.createObjectURL(file))
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Notes */}
+            <input
+              type="text"
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              placeholder="Add a note… (optional)"
+              className="mb-4 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+            />
+
+            {editError && (
+              <p className="mb-3 text-sm text-red-600 dark:text-red-400">{editError}</p>
+            )}
+
+            {/* Action buttons */}
+            <div className="space-y-2">
+              <button
+                onClick={submitEdit}
+                disabled={!editType || editSubmitting}
+                className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
+              >
+                {editSubmitting ? 'Submitting…' : 'Submit for review'}
+              </button>
+              <button
+                onClick={closeModal}
+                className="w-full rounded-xl border border-neutral-300 py-3 text-sm font-medium text-neutral-700 dark:border-neutral-600 dark:text-neutral-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-24 left-4 right-4 z-50 rounded-xl bg-green-100 px-4 py-3 text-center text-sm font-medium text-green-800 shadow-lg dark:bg-green-900 dark:text-green-200">
+          {toast}
+        </div>
+      )}
     </div>
   )
 }
