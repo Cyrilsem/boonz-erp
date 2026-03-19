@@ -661,6 +661,8 @@ export default function FieldPage() {
   const [driverKpis, setDriverKpis] = useState<DriverKpis | null>(null)
   const [podKpis, setPodKpis] = useState<PodExpiryKpis | null>(null)
   const [configCounts, setConfigCounts] = useState<ConfigCounts | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
 
   // Onboarding
   const [userId, setUserId] = useState<string | null>(null)
@@ -671,6 +673,8 @@ export default function FieldPage() {
   const hasCheckedOnboarding = useRef(false)
 
   const fetchData = useCallback(async () => {
+    setFetchError(null)
+    try {
     const supabase = createClient()
     const today = todayISO()
 
@@ -687,6 +691,7 @@ export default function FieldPage() {
 
     const role = (profile?.role ?? 'field_staff') as Role
     const fullName = profile?.full_name ?? null
+    console.log('[field/page] role detected:', role)
     setUser({ full_name: fullName, role })
     setTourRole(role)
 
@@ -908,6 +913,13 @@ export default function FieldPage() {
         expiring30: podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus7d && r.expiration_date <= todayPlus30d).length ?? 0,
       })
     }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('[field/page] fetchData error:', msg)
+      setFetchError(msg)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -960,6 +972,15 @@ export default function FieldPage() {
         .eq('id', userId)
     }
   }
+
+  if (loading) return <div className="p-8 text-center text-sm text-gray-400">Loading...</div>
+
+  if (fetchError) return (
+    <div className="p-8 text-center">
+      <p className="text-sm font-medium text-red-600">Dashboard error</p>
+      <p className="mt-1 font-mono text-xs text-red-400">{fetchError}</p>
+    </div>
+  )
 
   if (!user) return <Skeleton />
 

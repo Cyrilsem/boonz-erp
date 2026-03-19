@@ -25,15 +25,14 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Always use getUser() — not getSession(). getUser() validates the JWT
-  // server-side. getSession() reads from cookie without validation.
+  // Always use getUser() — validates JWT server-side (not getSession() which reads cookie only)
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
 
-  // Pass-through: public routes, Next.js internals, static files
+  // ── Public pass-through ──────────────────────────────────────────────────────
   const isPublic =
     path.startsWith('/login') ||
     path.startsWith('/reset-password') ||
@@ -43,18 +42,16 @@ export async function middleware(request: NextRequest) {
     path === '/favicon.ico' ||
     /\.(svg|png|jpg|jpeg|gif|webp|ico|css|js)$/.test(path)
 
-  if (isPublic) {
-    return supabaseResponse
-  }
+  if (isPublic) return supabaseResponse
 
-  // No session → redirect to login, preserve intended destination
+  // ── No session → login ───────────────────────────────────────────────────────
   if (!user) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirectTo', path)
     return NextResponse.redirect(loginUrl)
   }
 
-  // Fetch role from user_profiles
+  // ── Fetch role ───────────────────────────────────────────────────────────────
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('role')
@@ -63,40 +60,52 @@ export async function middleware(request: NextRequest) {
 
   const role = profile?.role ?? 'field_staff'
 
-  // Roles that can access /app + /chat
-  const appRoles    = ['superadmin', 'operator_admin', 'manager', 'finance']
-  // Ops roles can also access /field (full ops visibility)
-  const opsRoles    = ['superadmin', 'operator_admin', 'manager']
-  const fieldRoles  = ['field_staff', 'warehouse']
-  const portalRoles = ['client']
-
   const onApp    = path.startsWith('/app')
   const onField  = path.startsWith('/field')
   const onPortal = path.startsWith('/portal')
   const onChat   = path.startsWith('/chat')
 
-  // Chat: app roles only
-  if (onChat && !appRoles.includes(role)) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  // ── Field-only roles (warehouse, field_staff) ────────────────────────────────
+  // Allow: /field/*
+  // Block: /app, /portal, /chat → redirect to /field
+  if (role === 'field_staff' || role === 'warehouse') {
+    if (onApp || onPortal || onChat) {
+      return NextResponse.redirect(new URL('/field', request.url))
+    }
+    return supabaseResponse
   }
 
-  // Field-only roles: block from app / portal / chat
-  if (fieldRoles.includes(role) && (onApp || onPortal || onChat)) {
-    return NextResponse.redirect(new URL('/field', request.url))
-  }
-  // Portal-only roles: block from app / field / chat
-  if (portalRoles.includes(role) && (onApp || onField || onChat)) {
-    return NextResponse.redirect(new URL('/portal', request.url))
-  }
-  // Ops roles: can access /field + /app — block portal only
-  if (opsRoles.includes(role) && onPortal) {
-    return NextResponse.redirect(new URL('/app', request.url))
-  }
-  // Finance: /app only — block field / portal
-  if (role === 'finance' && (onField || onPortal)) {
-    return NextResponse.redirect(new URL('/app', request.url))
+  // ── Ops roles (operator_admin, manager, superadmin) ──────────────────────────
+  // Allow: /field/*, /app/*, /chat/* — full ops visibility across both surfaces
+  // Block: /portal → redirect to /app
+  if (role === 'operator_admin' || role === 'manager' || role === 'superadmin') {
+    if (onPortal) {
+      return NextResponse.redirect(new URL('/app', request.url))
+    }
+    return supabaseResponse  // explicit pass-through — /field/packing etc reach the page
   }
 
+  // ── Finance ──────────────────────────────────────────────────────────────────
+  // Allow: /app/*, /chat/*
+  // Block: /field, /portal → redirect to /app
+  if (role === 'finance') {
+    if (onField || onPortal) {
+      return NextResponse.redirect(new URL('/app', request.url))
+    }
+    return supabaseResponse
+  }
+
+  // ── Client (portal-only) ─────────────────────────────────────────────────────
+  // Allow: /portal/*
+  // Block: everything else → redirect to /portal
+  if (role === 'client') {
+    if (onApp || onField || onChat) {
+      return NextResponse.redirect(new URL('/portal', request.url))
+    }
+    return supabaseResponse
+  }
+
+  // ── Unknown role — pass through, page-level guards handle it ─────────────────
   return supabaseResponse
 }
 
