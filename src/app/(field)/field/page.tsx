@@ -844,10 +844,10 @@ export default function FieldPage() {
           { count: supplierCount },
           { count: mappingCount },
         ] = await Promise.all([
-          supabase.from('boonz_products').select('product_id', { count: 'exact', head: true }),
-          supabase.from('pod_products').select('pod_product_id', { count: 'exact', head: true }),
-          supabase.from('suppliers').select('supplier_id', { count: 'exact', head: true }).eq('status', 'Active'),
-          supabase.from('product_mapping').select('mapping_id', { count: 'exact', head: true }).eq('status', 'Active'),
+          supabase.from('boonz_products').select('*', { count: 'exact', head: true }),
+          supabase.from('pod_products').select('*', { count: 'exact', head: true }),
+          supabase.from('suppliers').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
+          supabase.from('product_mapping').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
         ])
         setConfigCounts({
           boonzProducts:   boonzCount   ?? 0,
