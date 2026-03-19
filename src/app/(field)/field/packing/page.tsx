@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../components/field-header'
+import { usePageTour } from '../../components/onboarding/use-page-tour'
+import Tour from '../../components/onboarding/tour'
 
 interface PackingMachine {
   machine_id: string
@@ -15,6 +17,7 @@ interface PackingMachine {
 export default function PackingPage() {
   const [machines, setMachines] = useState<PackingMachine[]>([])
   const [loading, setLoading] = useState(true)
+  const { showTour, tourSteps, completeTour } = usePageTour('packing')
 
   const fetchMachines = useCallback(async () => {
     const supabase = createClient()
@@ -104,8 +107,11 @@ export default function PackingPage() {
   return (
     <div className="px-4 py-4">
       <FieldHeader title="Packing" />
-      <ul className="space-y-2">
-        {machines.map((machine) => {
+      {showTour && tourSteps.length > 0 && (
+        <Tour steps={tourSteps} onComplete={completeTour} onSkip={completeTour} />
+      )}
+      <ul data-tour="packing-list" className="space-y-2">
+        {machines.map((machine, idx) => {
           const ready = machine.packed_count === machine.sku_count
           return (
             <li key={machine.machine_id}>
@@ -122,6 +128,7 @@ export default function PackingPage() {
                   </p>
                 </div>
                 <span
+                  {...(idx === 0 ? { 'data-tour': 'packing-status' } : {})}
                   className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
                     ready
                       ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'

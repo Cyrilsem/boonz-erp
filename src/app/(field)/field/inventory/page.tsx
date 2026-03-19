@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../components/field-header'
 import { getExpiryStyle } from '@/app/(field)/utils/expiry'
+import { usePageTour } from '../../components/onboarding/use-page-tour'
+import Tour from '../../components/onboarding/tour'
 
 interface InventoryRow {
   wh_inventory_id: string
@@ -93,6 +95,7 @@ function SectionHeader({
 export default function InventoryPage() {
   const [rows, setRows] = useState<InventoryRow[]>([])
   const [loading, setLoading] = useState(true)
+  const { showTour, tourSteps, completeTour } = usePageTour('inventory')
   const [search, setSearch] = useState('')
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>('7days')
   const [sortBy, setSortBy] = useState<SortOption>('expiry')
@@ -391,6 +394,9 @@ export default function InventoryPage() {
         }
       />
 
+      {showTour && tourSteps.length > 0 && (
+        <Tour steps={tourSteps} onComplete={completeTour} onSkip={completeTour} />
+      )}
       <div className="px-4 py-4">
         {/* Control mode message */}
         {controlMessage && (
@@ -400,6 +406,7 @@ export default function InventoryPage() {
         )}
 
         {/* Search */}
+        <div data-tour="inventory-filters">
         <input
           type="text"
           value={search}
@@ -516,8 +523,10 @@ export default function InventoryPage() {
             </button>
           ))}
         </div>
+        </div>
 
         {/* Results */}
+        <div data-tour="inventory-list">
         {processed.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center">
             <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
@@ -812,6 +821,7 @@ export default function InventoryPage() {
             })}
           </ul>
         )}
+        </div>
       </div>
 
       {/* Floating "Complete control" button */}

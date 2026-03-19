@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { type Language, translations } from '../components/onboarding/translations'
 import LanguagePicker from '../components/onboarding/language-picker'
-import TourOverlay from '../components/onboarding/tour'
+import Tour from '../components/onboarding/tour'
 
 type Role = 'warehouse' | 'field_staff'
 
@@ -116,14 +116,16 @@ function SectionCard({
   linkTo,
   rightContent,
   children,
+  tourId,
 }: {
   title: string
   linkTo?: string
   rightContent?: React.ReactNode
   children: React.ReactNode
+  tourId?: string
 }) {
   return (
-    <section className="mb-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <section data-tour={tourId} className="mb-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">{title}</h2>
         <div className="flex items-center gap-2">
@@ -216,7 +218,7 @@ function WarehouseHome({
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
       {/* ── Section 1: Daily Refills ── */}
-      <SectionCard title="Daily Refills" linkTo="/field/packing">
+      <SectionCard title="Daily Refills" linkTo="/field/packing" tourId="daily-refills">
         <div className="grid grid-cols-2 gap-3">
           <StatCard
             value={n}
@@ -246,7 +248,7 @@ function WarehouseHome({
       </SectionCard>
 
       {/* ── Section 2: Procurement ── */}
-      <SectionCard title="Procurement" linkTo="/field/orders">
+      <SectionCard title="Procurement" linkTo="/field/orders" tourId="procurement">
         <div className="grid grid-cols-2 gap-3">
           <StatCard
             value={kpis.openPOs}
@@ -274,6 +276,7 @@ function WarehouseHome({
       <SectionCard
         title="Inventory"
         linkTo="/field/inventory"
+        tourId="inventory"
         rightContent={
           <span className={`text-xs font-medium ${lastControlColor}`}>{lastControlLabel}</span>
         }
@@ -337,7 +340,7 @@ function DriverHome({
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
 
       {/* ── Section 1: Today's Route ── */}
-      <SectionCard title="Today's Route" linkTo="/field/trips">
+      <SectionCard title="Today's Route" linkTo="/field/trips" tourId="todays-route">
         <div className="grid grid-cols-2 gap-3">
           <StatCard
             value={kpis.stopsToday}
@@ -363,7 +366,7 @@ function DriverHome({
       </SectionCard>
 
       {/* ── Section 2: Tasks ── */}
-      <SectionCard title="Tasks" linkTo="/field/tasks">
+      <SectionCard title="Tasks" linkTo="/field/tasks" tourId="tasks">
         <StatCard
           value={kpis.openTasks}
           label="Open tasks"
@@ -374,7 +377,7 @@ function DriverHome({
       </SectionCard>
 
       {/* ── Section 3: Machine Stock Expiry ── */}
-      <SectionCard title="Machine Stock Expiry" linkTo="/field/pod-inventory">
+      <SectionCard title="Machine Stock Expiry" linkTo="/field/pod-inventory" tourId="machine-expiry">
         <div className="grid grid-cols-2 gap-3">
           <StatCard value={podKpis.expired}    label="Expired"   cardStyle={kpiCardStyle(podKpis.expired,   'critical')} href="/field/pod-inventory" />
           <StatCard value={podKpis.expiring3}  label="< 3 days"  cardStyle={kpiCardStyle(podKpis.expiring3, 'high')}     href="/field/pod-inventory" />
@@ -384,7 +387,7 @@ function DriverHome({
       </SectionCard>
 
       {/* ── Section 4: Profile ── */}
-      <SectionCard title="Profile" linkTo="/field/profile">
+      <SectionCard title="Profile" linkTo="/field/profile" tourId="profile">
         <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-gray-800">{user.full_name ?? 'Driver'}</p>
@@ -702,7 +705,7 @@ export default function FieldPage() {
       <>
         {showLanguagePicker && <LanguagePicker onComplete={handleLanguageConfirm} />}
         {showTour && (
-          <TourOverlay
+          <Tour
             steps={tourSteps}
             onComplete={handleTourComplete}
             onSkip={handleTourComplete}
@@ -718,7 +721,7 @@ export default function FieldPage() {
     <>
       {showLanguagePicker && <LanguagePicker onComplete={handleLanguageConfirm} />}
       {showTour && (
-        <TourOverlay
+        <Tour
           steps={tourSteps}
           onComplete={handleTourComplete}
           onSkip={handleTourComplete}

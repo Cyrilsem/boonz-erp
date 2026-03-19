@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../components/field-header'
+import { usePageTour } from '../../components/onboarding/use-page-tour'
+import Tour from '../../components/onboarding/tour'
 
 interface DriverTask {
   task_id: string
@@ -79,6 +81,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<DriverTask[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const { showTour, tourSteps, completeTour } = usePageTour('tasks')
 
   // Accordion state
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
@@ -301,6 +304,9 @@ export default function TasksPage() {
   return (
     <div className="px-4 py-4 pb-24">
       <FieldHeader title="Tasks" />
+      {showTour && tourSteps.length > 0 && pending.length > 0 && (
+        <Tour steps={tourSteps} onComplete={completeTour} onSkip={completeTour} />
+      )}
 
       {/* Pending */}
       <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
@@ -312,13 +318,14 @@ export default function TasksPage() {
         </p>
       ) : (
         <ul className="mb-6 space-y-2">
-          {pending.map((task) => {
+          {pending.map((task, idx) => {
             const isExpanded = expandedTaskId === task.task_id
             const canSubmit = isExpanded && allLinesHaveOutcome()
 
             return (
               <li
                 key={task.task_id}
+                {...(idx === 0 ? { 'data-tour': 'task-card' } : {})}
                 className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950"
               >
                 {/* Card header — tappable */}

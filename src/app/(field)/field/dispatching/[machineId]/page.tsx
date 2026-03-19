@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../../components/field-header'
+import { usePageTour } from '../../../components/onboarding/use-page-tour'
+import Tour from '../../../components/onboarding/tour'
 
 interface MachineInfo {
   official_name: string
@@ -29,6 +31,7 @@ export default function DispatchingDetailPage() {
   const params = useParams<{ machineId: string }>()
   const router = useRouter()
   const machineId = params.machineId
+  const { showTour, tourSteps, completeTour } = usePageTour('dispatching')
 
   const [machine, setMachine] = useState<MachineInfo | null>(null)
   const [lines, setLines] = useState<DispatchLine[]>([])
@@ -268,9 +271,12 @@ export default function DispatchingDetailPage() {
   return (
     <div className="px-4 py-4">
       <FieldHeader title="Dispatch Detail" />
+      {showTour && tourSteps.length > 0 && (
+        <Tour steps={tourSteps} onComplete={completeTour} onSkip={completeTour} />
+      )}
 
       {/* ── Machine photos ── */}
-      <div className="mb-5">
+      <div data-tour="dispatch-photos" className="mb-5">
         <p className="text-sm font-bold uppercase tracking-wide text-neutral-500">Machine photos</p>
         <p className="mb-3 text-xs text-neutral-400">Take a photo before and after refilling</p>
         <div className="grid grid-cols-2 gap-3">
@@ -345,8 +351,8 @@ export default function DispatchingDetailPage() {
         </div>
       )}
 
-      {shelves.map(([shelfCode, shelfLines]) => (
-        <div key={shelfCode} className="mb-4">
+      {shelves.map(([shelfCode, shelfLines], idx) => (
+        <div key={shelfCode} {...(idx === 0 ? { 'data-tour': 'dispatch-lines' } : {})} className="mb-4">
           <h2 className="mb-2 text-sm font-semibold text-neutral-500 uppercase tracking-wide">
             Shelf {shelfCode}
           </h2>
