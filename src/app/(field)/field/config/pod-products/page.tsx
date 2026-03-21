@@ -9,6 +9,10 @@ import { FieldHeader } from '../../../components/field-header'
 
 const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager']
 
+type TabId = 'products' | 'aliases'
+
+// ─── Product types ─────────────────────────────────────────────────────────────
+
 interface PodProduct {
   pod_product_id: string
   custom_code: string | null
@@ -26,7 +30,6 @@ interface PodProduct {
 
 interface PodDraft {
   pod_product_name: string
-  custom_code: string
   product_category: string
   barcode: string
   machine_type: string
@@ -41,7 +44,7 @@ interface Supplier { supplier_id: string; supplier_name: string }
 
 function emptyDraft(): PodDraft {
   return {
-    pod_product_name: '', custom_code: '', product_category: '', barcode: '',
+    pod_product_name: '', product_category: '', barcode: '',
     machine_type: '', measurement_method: '', weight_g: '', purchasing_cost: '',
     recommended_selling_price: '', supplier_id: '',
   }
@@ -50,7 +53,6 @@ function emptyDraft(): PodDraft {
 function rowToDraft(r: PodProduct): PodDraft {
   return {
     pod_product_name: r.pod_product_name,
-    custom_code: r.custom_code ?? '',
     product_category: r.product_category ?? '',
     barcode: r.barcode ?? '',
     machine_type: r.machine_type ?? '',
@@ -65,7 +67,6 @@ function rowToDraft(r: PodProduct): PodDraft {
 function draftToPayload(d: PodDraft) {
   return {
     pod_product_name: d.pod_product_name.trim(),
-    custom_code: d.custom_code.trim() || null,
     product_category: d.product_category.trim() || null,
     barcode: d.barcode.trim() || null,
     machine_type: d.machine_type.trim() || null,
@@ -78,11 +79,12 @@ function draftToPayload(d: PodDraft) {
   }
 }
 
-function PodForm({ draft, onChange, categories, suppliers }: {
+function PodForm({ draft, onChange, categories, suppliers, customCode }: {
   draft: PodDraft
   onChange: (patch: Partial<PodDraft>) => void
   categories: string[]
   suppliers: Supplier[]
+  customCode: string
 }) {
   return (
     <div className="space-y-3">
@@ -94,8 +96,9 @@ function PodForm({ draft, onChange, categories, suppliers }: {
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-neutral-500">Custom Code</label>
-          <input type="text" value={draft.custom_code} onChange={(e) => onChange({ custom_code: e.target.value })}
-            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+          <div className="flex items-center rounded border border-neutral-200 bg-neutral-50 px-2 py-1.5 dark:border-neutral-700 dark:bg-neutral-800">
+            <span className="font-mono text-sm font-bold text-neutral-700 dark:text-neutral-300">{customCode || <span className="italic font-normal text-neutral-400">auto</span>}</span>
+          </div>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-neutral-500">Barcode</label>
@@ -152,22 +155,53 @@ function PodForm({ draft, onChange, categories, suppliers }: {
   )
 }
 
+// ─── Alias types ───────────────────────────────────────────────────────────────
+
+interface PodAlias {
+  id: string
+  official_name: string
+  original_name: string
+  mapped_at: string | null
+  is_active: boolean | null
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function PodProductsPage() {
   const router = useRouter()
+  const [activeTab, setActiveTab] = useState<TabId>('products')
+
+  // Products tab
   const [rows, setRows] = useState<PodProduct[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<Record<string, PodDraft>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [saveMsg, setSaveMsg] = useState<Record<string, string>>({})
-
   const [showAdd, setShowAdd] = useState(false)
   const [newDraft, setNewDraft] = useState<PodDraft>(emptyDraft())
+  const [generatedCode, setGeneratedCode] = useState('')
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+
+  // Aliases tab
+  const [aliases, setAliases] = useState<PodAlias[]>([])
+  const [aliasSearch, setAliasSearch] = useState('')
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+  const [addAliasForGroup, setAddAliasForGroup] = useState<string | null>(null)
+  const [inlineAlias, setInlineAlias] = useState('')
+  const [addingAlias, setAddingAlias] = useState(false)
+  const [inlineAliasError, setInlineAliasError] = useState<string | null>(null)
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameSaving, setRenameSaving] = useState(false)
+  const [showAddOfficial, setShowAddOfficial] = useState(false)
+  const [newOfficialName, setNewOfficialName] = useState('')
+  const [newOfficialAlias, setNewOfficialAlias] = useState('')
+  const [addingOfficial, setAddingOfficial] = useState(false)
+  const [addOfficialError, setAddOfficialError] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
@@ -176,12 +210,13 @@ export default function PodProductsPage() {
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
     if (!profile || !ADMIN_ROLES.includes(profile.role)) { router.push('/field'); return }
 
-    const [{ data: podData }, { data: supplierData }] = await Promise.all([
+    const [{ data: podData }, { data: supplierData }, { data: aliasData }] = await Promise.all([
       supabase
         .from('pod_products')
         .select('pod_product_id, custom_code, pod_product_name, product_category, barcode, machine_type, measurement_method, weight_g, purchasing_cost, recommended_selling_price, supplier_id, suppliers(supplier_name)')
         .order('pod_product_name'),
       supabase.from('suppliers').select('supplier_id, supplier_name').eq('status', 'Active').order('supplier_name'),
+      supabase.from('product_name_conventions').select('id, official_name, original_name, mapped_at, is_active').order('official_name'),
     ])
 
     if (podData) {
@@ -191,6 +226,16 @@ export default function PodProductsPage() {
       }))
     }
     if (supplierData) setSuppliers(supplierData)
+    if (aliasData) {
+      // Deduplicate by original_name|||official_name
+      const seen = new Set<string>()
+      const deduped: PodAlias[] = []
+      for (const a of aliasData as PodAlias[]) {
+        const key = `${a.original_name}|||${a.official_name}`
+        if (!seen.has(key)) { seen.add(key); deduped.push(a) }
+      }
+      setAliases(deduped)
+    }
     setLoading(false)
   }, [router])
 
@@ -203,6 +248,35 @@ export default function PodProductsPage() {
     const q = search.toLowerCase()
     return rows.filter(r => r.pod_product_name.toLowerCase().includes(q) || (r.custom_code ?? '').toLowerCase().includes(q))
   }, [rows, search])
+
+  // Grouped aliases
+  const aliasGroups = useMemo(() => {
+    const q = aliasSearch.toLowerCase()
+    const src = q
+      ? aliases.filter(a => a.official_name.toLowerCase().includes(q) || a.original_name.toLowerCase().includes(q))
+      : aliases
+    const groups: Record<string, PodAlias[]> = {}
+    for (const a of src) {
+      if (!groups[a.official_name]) groups[a.official_name] = []
+      groups[a.official_name].push(a)
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+  }, [aliases, aliasSearch])
+
+  // ── Products tab actions ───────────────────────────────────────────────────
+
+  async function generateNextCode() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('pod_products')
+      .select('custom_code')
+      .like('custom_code', 'PD%')
+      .order('custom_code', { ascending: false })
+      .limit(1)
+    const last = data?.[0]?.custom_code ?? 'PD000'
+    const num = parseInt(last.replace(/^PD/, ''), 10) || 0
+    setGeneratedCode(`PD${String(num + 1).padStart(3, '0')}`)
+  }
 
   function openEdit(row: PodProduct) {
     if (expandedId === row.pod_product_id) { setExpandedId(null); return }
@@ -231,10 +305,77 @@ export default function PodProductsPage() {
     if (!newDraft.pod_product_name.trim()) { setAddError('Product name required'); return }
     setAdding(true); setAddError(null)
     const supabase = createClient()
-    const { error } = await supabase.from('pod_products').insert(draftToPayload(newDraft))
+    const { error } = await supabase.from('pod_products').insert({
+      ...draftToPayload(newDraft),
+      custom_code: generatedCode || null,
+    })
     if (error) { setAddError(error.message); setAdding(false); return }
     setShowAdd(false); setNewDraft(emptyDraft())
     await fetchData(); setAdding(false)
+  }
+
+  // ── Aliases tab actions ────────────────────────────────────────────────────
+
+  async function toggleAlias(id: string, current: boolean | null) {
+    const supabase = createClient()
+    await supabase.from('product_name_conventions').update({ is_active: !current }).eq('id', id)
+    await fetchData()
+  }
+
+  async function deleteAlias(id: string) {
+    const supabase = createClient()
+    await supabase.from('product_name_conventions').delete().eq('id', id)
+    await fetchData()
+  }
+
+  async function addInlineAlias(officialName: string) {
+    if (!inlineAlias.trim()) return
+    const isDupe = aliases.some(
+      a => a.official_name === officialName && a.original_name.toLowerCase() === inlineAlias.trim().toLowerCase()
+    )
+    if (isDupe) { setInlineAliasError('Already exists'); return }
+    setAddingAlias(true); setInlineAliasError(null)
+    const supabase = createClient()
+    const { error } = await supabase.from('product_name_conventions').insert({
+      official_name: officialName,
+      original_name: inlineAlias.trim(),
+      is_active: true,
+    })
+    if (!error) {
+      setAddAliasForGroup(null); setInlineAlias('')
+      await fetchData()
+    }
+    setAddingAlias(false)
+  }
+
+  async function handleRenameGroup(oldName: string) {
+    if (!renameValue.trim() || renameValue.trim() === oldName) { setRenamingGroup(null); return }
+    setRenameSaving(true)
+    const supabase = createClient()
+    await supabase.from('product_name_conventions')
+      .update({ official_name: renameValue.trim() })
+      .eq('official_name', oldName)
+    setRenamingGroup(null); setRenameValue('')
+    await fetchData()
+    setRenameSaving(false)
+  }
+
+  async function handleAddOfficialName() {
+    if (!newOfficialName.trim()) { setAddOfficialError('Official name required'); return }
+    const isDupe = aliases.some(a => a.official_name.toLowerCase() === newOfficialName.trim().toLowerCase())
+    if (isDupe) { setAddOfficialError('This name already exists'); return }
+    setAddingOfficial(true); setAddOfficialError(null)
+    const supabase = createClient()
+    const rows: { official_name: string; original_name: string; is_active: boolean }[] = [
+      { official_name: newOfficialName.trim(), original_name: newOfficialName.trim(), is_active: true },
+    ]
+    if (newOfficialAlias.trim() && newOfficialAlias.trim().toLowerCase() !== newOfficialName.trim().toLowerCase()) {
+      rows.push({ official_name: newOfficialName.trim(), original_name: newOfficialAlias.trim(), is_active: true })
+    }
+    const { error } = await supabase.from('product_name_conventions').insert(rows)
+    if (error) { setAddOfficialError(error.message); setAddingOfficial(false); return }
+    setShowAddOfficial(false); setNewOfficialName(''); setNewOfficialAlias('')
+    await fetchData(); setAddingOfficial(false)
   }
 
   if (loading) {
@@ -251,79 +392,294 @@ export default function PodProductsPage() {
       <FieldHeader
         title="Pod Products"
         rightAction={
-          <button onClick={() => { setNewDraft(emptyDraft()); setShowAdd(true) }}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
-            + Add
-          </button>
+          activeTab === 'products' ? (
+            <button
+              onClick={() => { setNewDraft(emptyDraft()); generateNextCode(); setShowAdd(true) }}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              + Add
+            </button>
+          ) : (
+            <button
+              onClick={() => { setNewOfficialName(''); setNewOfficialAlias(''); setAddOfficialError(null); setShowAddOfficial(true) }}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              + Name
+            </button>
+          )
         }
       />
-      <div className="px-4 py-4">
-        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or code…"
-          className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900" />
-        <p className="mb-3 text-xs text-neutral-500">{filtered.length} products</p>
 
-        <ul className="space-y-2">
-          {filtered.map((row) => {
-            const isExpanded = expandedId === row.pod_product_id
-            const draft = drafts[row.pod_product_id]
-            return (
-              <li key={row.pod_product_id} className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-                <div className="cursor-pointer p-3" onClick={() => openEdit(row)}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold truncate">{row.pod_product_name}</p>
-                      {row.custom_code && <p className="text-xs text-neutral-500">{row.custom_code}</p>}
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {row.product_category && (
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{row.product_category}</span>
-                        )}
-                        {row.machine_type && (
-                          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">{row.machine_type}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      {row.recommended_selling_price != null && <p className="text-xs text-neutral-500">{row.recommended_selling_price.toFixed(2)} AED</p>}
-                      {row.supplier_name && <p className="text-xs text-neutral-400">{row.supplier_name}</p>}
-                      <span className="text-xs text-neutral-400">{isExpanded ? '▲' : '▼'}</span>
-                    </div>
-                  </div>
-                </div>
-                {isExpanded && draft && (
-                  <div className="border-t border-neutral-100 px-3 pb-4 pt-3 dark:border-neutral-800">
-                    <PodForm draft={draft} onChange={(patch) => setDrafts((p) => ({ ...p, [row.pod_product_id]: { ...p[row.pod_product_id], ...patch } }))} categories={categories} suppliers={suppliers} />
-                    {saveMsg[row.pod_product_id] && (
-                      <p className={`mt-2 text-xs font-medium ${saveMsg[row.pod_product_id].startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>{saveMsg[row.pod_product_id]}</p>
-                    )}
-                    <div className="mt-3 flex gap-2">
-                      <button onClick={() => saveEdit(row.pod_product_id)} disabled={saving[row.pod_product_id]}
-                        className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900">
-                        {saving[row.pod_product_id] ? 'Saving…' : 'Save'}
-                      </button>
-                      <button onClick={() => setExpandedId(null)}
-                        className="rounded-lg border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-600">
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
+      {/* Tabs */}
+      <div className="flex border-b border-neutral-200 dark:border-neutral-800">
+        {(['products', 'aliases'] as TabId[]).map((tab) => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`flex-1 py-3 text-sm font-medium transition-colors ${
+              activeTab === tab
+                ? 'border-b-2 border-blue-600 text-blue-600'
+                : 'text-neutral-500 hover:text-neutral-700'
+            }`}
+          >
+            {tab === 'aliases' ? 'Pod Aliases' : 'Products'}
+          </button>
+        ))}
       </div>
 
+      {/* ── Products tab ── */}
+      {activeTab === 'products' && (
+        <div className="px-4 py-4">
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or code…"
+            className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900" />
+          <p className="mb-3 text-xs text-neutral-500">{filtered.length} products</p>
+
+          <ul className="space-y-2">
+            {filtered.map((row) => {
+              const isExpanded = expandedId === row.pod_product_id
+              const draft = drafts[row.pod_product_id]
+              return (
+                <li key={row.pod_product_id} className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+                  <div className="cursor-pointer p-3" onClick={() => openEdit(row)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold truncate">{row.pod_product_name}</p>
+                        {row.custom_code && <p className="font-mono text-xs text-neutral-500">{row.custom_code}</p>}
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {row.product_category && (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">{row.product_category}</span>
+                          )}
+                          {row.machine_type && (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">{row.machine_type}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        {row.recommended_selling_price != null && <p className="text-xs text-neutral-500">{row.recommended_selling_price.toFixed(2)} AED</p>}
+                        {row.supplier_name && <p className="text-xs text-neutral-400">{row.supplier_name}</p>}
+                        <span className="text-xs text-neutral-400">{isExpanded ? '▲' : '▼'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {isExpanded && draft && (
+                    <div className="border-t border-neutral-100 px-3 pb-4 pt-3 dark:border-neutral-800">
+                      <PodForm
+                        draft={draft}
+                        onChange={(patch) => setDrafts((p) => ({ ...p, [row.pod_product_id]: { ...p[row.pod_product_id], ...patch } }))}
+                        categories={categories}
+                        suppliers={suppliers}
+                        customCode={row.custom_code ?? ''}
+                      />
+                      {saveMsg[row.pod_product_id] && (
+                        <p className={`mt-2 text-xs font-medium ${saveMsg[row.pod_product_id].startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
+                          {saveMsg[row.pod_product_id]}
+                        </p>
+                      )}
+                      <div className="mt-3 flex gap-2">
+                        <button onClick={() => saveEdit(row.pod_product_id)} disabled={saving[row.pod_product_id]}
+                          className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900">
+                          {saving[row.pod_product_id] ? 'Saving…' : 'Save'}
+                        </button>
+                        <button onClick={() => setExpandedId(null)}
+                          className="rounded-lg border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-600">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Aliases tab ── */}
+      {activeTab === 'aliases' && (
+        <div className="px-4 py-4">
+          <input type="text" value={aliasSearch} onChange={(e) => setAliasSearch(e.target.value)}
+            placeholder="Search names…"
+            className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900" />
+          <p className="mb-3 text-xs text-neutral-500">{aliasGroups.length} canonical names</p>
+
+          <ul className="space-y-2">
+            {aliasGroups.map(([officialName, group]) => {
+              const isOpen = expandedGroup === officialName
+              const isRenaming = renamingGroup === officialName
+              return (
+                <li key={officialName} className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+                  <button
+                    className="w-full p-3 text-left"
+                    onClick={() => {
+                      if (isRenaming) return
+                      setExpandedGroup(isOpen ? null : officialName)
+                      setAddAliasForGroup(null); setInlineAlias(''); setInlineAliasError(null)
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold truncate">{officialName}</p>
+                        <p className="text-xs text-neutral-500">{group.length} alias{group.length !== 1 ? 'es' : ''}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-neutral-400">{isOpen ? '▲' : '▼'}</span>
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-neutral-100 px-3 pb-3 pt-2 dark:border-neutral-800">
+                      {/* Rename row */}
+                      {isRenaming ? (
+                        <div className="mb-2 flex gap-2">
+                          <input
+                            type="text"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            autoFocus
+                            className="flex-1 rounded border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                          />
+                          <button
+                            onClick={() => handleRenameGroup(officialName)}
+                            disabled={renameSaving}
+                            className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                          >
+                            {renameSaving ? '…' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => { setRenamingGroup(null); setRenameValue('') }}
+                            className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setRenamingGroup(officialName); setRenameValue(officialName) }}
+                          className="mb-2 text-xs text-neutral-400 hover:text-blue-600"
+                        >
+                          Rename official name ({group.length} aliases will update)
+                        </button>
+                      )}
+
+                      {/* Alias list */}
+                      <ul className="space-y-1">
+                        {group.map((alias) => (
+                          <li key={alias.id} className="flex items-center gap-2 py-1">
+                            <span className="min-w-0 flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
+                              {alias.original_name}
+                            </span>
+                            {alias.mapped_at && (
+                              <span className="shrink-0 text-xs text-neutral-400">
+                                {new Date(alias.mapped_at).toLocaleDateString()}
+                              </span>
+                            )}
+                            <button
+                              onClick={() => toggleAlias(alias.id, alias.is_active)}
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                                alias.is_active
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                                  : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
+                              }`}
+                            >
+                              {alias.is_active ? 'On' : 'Off'}
+                            </button>
+                            <button
+                              onClick={() => deleteAlias(alias.id)}
+                              className="shrink-0 text-base leading-none text-neutral-400 hover:text-red-500"
+                            >
+                              ×
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+
+                      {/* Inline add */}
+                      {addAliasForGroup === officialName ? (
+                        <div className="mt-2 space-y-1">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={inlineAlias}
+                              onChange={(e) => setInlineAlias(e.target.value)}
+                              placeholder="Original name…"
+                              autoFocus
+                              className="flex-1 rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-900"
+                            />
+                            <button
+                              onClick={() => addInlineAlias(officialName)}
+                              disabled={addingAlias}
+                              className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                            >
+                              Add
+                            </button>
+                            <button
+                              onClick={() => { setAddAliasForGroup(null); setInlineAlias(''); setInlineAliasError(null) }}
+                              className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-500"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          {inlineAliasError && <p className="text-xs text-red-500">{inlineAliasError}</p>}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setAddAliasForGroup(officialName); setInlineAlias(''); setInlineAliasError(null) }}
+                          className="mt-2 text-xs text-blue-600 hover:underline"
+                        >
+                          + Add alias
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Add product bottom sheet ── */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowAdd(false)} />
           <div className="relative z-10 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
             <h3 className="mb-4 text-center text-base font-bold">Add Pod Product</h3>
             {addError && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{addError}</div>}
-            <PodForm draft={newDraft} onChange={(patch) => setNewDraft((p) => ({ ...p, ...patch }))} categories={categories} suppliers={suppliers} />
+            <PodForm
+              draft={newDraft}
+              onChange={(patch) => setNewDraft((p) => ({ ...p, ...patch }))}
+              categories={categories}
+              suppliers={suppliers}
+              customCode={generatedCode || 'generating…'}
+            />
             <button onClick={handleAdd} disabled={adding}
               className="mt-4 w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
               {adding ? 'Creating…' : 'Create Product'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add official name bottom sheet ── */}
+      {showAddOfficial && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowAddOfficial(false)} />
+          <div className="relative z-10 rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
+            <h3 className="mb-4 text-center text-base font-bold">New Official Name</h3>
+            {addOfficialError && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{addOfficialError}</div>}
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-neutral-500">Official name *</label>
+                <input type="text" value={newOfficialName} onChange={(e) => setNewOfficialName(e.target.value)}
+                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-neutral-500">First alias (optional)</label>
+                <input type="text" value={newOfficialAlias} onChange={(e) => setNewOfficialAlias(e.target.value)}
+                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+              </div>
+            </div>
+            <button onClick={handleAddOfficialName} disabled={addingOfficial}
+              className="mt-4 w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              {addingOfficial ? 'Creating…' : 'Create'}
             </button>
           </div>
         </div>

@@ -31,7 +31,6 @@ interface BoonzProduct {
 }
 
 interface ProductDraft {
-  boonz_product_name: string
   product_brand: string
   product_sub_brand: string
   product_category: string
@@ -52,7 +51,6 @@ interface ProductDraft {
 
 function rowToDraft(r: BoonzProduct): ProductDraft {
   return {
-    boonz_product_name: r.boonz_product_name,
     product_brand: r.product_brand ?? '',
     product_sub_brand: r.product_sub_brand ?? '',
     product_category: r.product_category ?? '',
@@ -74,7 +72,7 @@ function rowToDraft(r: BoonzProduct): ProductDraft {
 
 function emptyDraft(): ProductDraft {
   return {
-    boonz_product_name: '', product_brand: '', product_sub_brand: '',
+    product_brand: '', product_sub_brand: '',
     product_category: '', category_group: '', product_weight_g: '',
     actual_weight_g: '', description: '',
     attr_healthy: false, attr_drink: false, attr_salty: false, attr_sweet: false, attr_30days: false,
@@ -116,26 +114,29 @@ function ProductForm({
       <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">Identity</p>
         <div className="space-y-2">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500">Product Name *</label>
-            <input
-              type="text"
-              value={draft.boonz_product_name}
-              onChange={(e) => onChange({ boonz_product_name: e.target.value })}
-              className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-            />
-          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-500">Brand</label>
+              <label className="mb-1 block text-xs font-medium text-neutral-500">Brand *</label>
               <input type="text" value={draft.product_brand} onChange={(e) => onChange({ product_brand: e.target.value })}
                 className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-500">Sub-brand</label>
+              <label className="mb-1 block text-xs font-medium text-neutral-500">Sub-brand *</label>
               <input type="text" value={draft.product_sub_brand} onChange={(e) => onChange({ product_sub_brand: e.target.value })}
                 className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
             </div>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-neutral-500">Product name</p>
+            {draft.product_brand.trim() && draft.product_sub_brand.trim() ? (
+              <p className="rounded-lg bg-gray-50 px-3 py-2 text-base font-bold text-gray-900 dark:bg-neutral-800 dark:text-neutral-100">
+                {draft.product_brand.trim()} - {draft.product_sub_brand.trim()}
+              </p>
+            ) : (
+              <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm italic text-gray-400 dark:bg-neutral-800">
+                Fill in Brand and Sub-brand above
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -217,7 +218,7 @@ function ProductForm({
 
 function draftToPayload(d: ProductDraft) {
   return {
-    boonz_product_name: d.boonz_product_name.trim(),
+    boonz_product_name: `${d.product_brand.trim()} - ${d.product_sub_brand.trim()}`,
     product_brand: d.product_brand.trim() || null,
     product_sub_brand: d.product_sub_brand.trim() || null,
     product_category: d.product_category.trim() || null,
@@ -297,7 +298,10 @@ export default function BoonzProductsPage() {
 
   async function saveEdit(id: string) {
     const draft = drafts[id]
-    if (!draft || !draft.boonz_product_name.trim()) return
+    if (!draft || !draft.product_brand.trim() || !draft.product_sub_brand.trim()) {
+      setSaveMsg((p) => ({ ...p, [id]: 'Error: Both Brand and Sub-brand are required to generate the product name' }))
+      return
+    }
     setSaving((p) => ({ ...p, [id]: true }))
     const supabase = createClient()
     const { error } = await supabase.from('boonz_products').update(draftToPayload(draft)).eq('product_id', id)
@@ -313,8 +317,12 @@ export default function BoonzProductsPage() {
   }
 
   async function handleAdd() {
-    if (!newDraft.boonz_product_name.trim()) { setAddError('Product name is required'); return }
-    const exists = rows.some(r => r.boonz_product_name.toLowerCase() === newDraft.boonz_product_name.toLowerCase())
+    if (!newDraft.product_brand.trim() || !newDraft.product_sub_brand.trim()) {
+      setAddError('Both Brand and Sub-brand are required to generate the product name')
+      return
+    }
+    const computedName = `${newDraft.product_brand.trim()} - ${newDraft.product_sub_brand.trim()}`
+    const exists = rows.some(r => r.boonz_product_name.toLowerCase() === computedName.toLowerCase())
     if (exists) { setAddError('A product with this name already exists'); return }
     setAdding(true)
     setAddError(null)

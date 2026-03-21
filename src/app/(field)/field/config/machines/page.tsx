@@ -2,13 +2,14 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../../components/field-header'
 
 const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager']
-const MACHINE_STATUS_OPTIONS = ['active', 'inactive', 'maintenance', 'decommissioned']
+
+const DEFAULT_STATUS_OPTIONS = ['Active', 'Inactive', 'Maintenance', 'Pending', 'Valid', 'Online today', 'Switched off', 'Scheduled']
 
 // ─── Machine types ─────────────────────────────────────────────────────────────
 
@@ -19,6 +20,9 @@ interface Machine {
   pod_location: string | null
   pod_address: string | null
   status: string | null
+  contact_person: string | null
+  contact_email: string | null
+  contact_phone: string | null
   notes: string | null
 }
 
@@ -28,7 +32,17 @@ interface MachineDraft {
   pod_location: string
   pod_address: string
   status: string
+  contact_person: string
+  contact_email: string
+  contact_phone: string
   notes: string
+}
+
+function emptyMachineDraft(): MachineDraft {
+  return {
+    official_name: '', pod_number: '', pod_location: '', pod_address: '',
+    status: 'Active', contact_person: '', contact_email: '', contact_phone: '', notes: '',
+  }
 }
 
 function machineRowToDraft(r: Machine): MachineDraft {
@@ -37,9 +51,74 @@ function machineRowToDraft(r: Machine): MachineDraft {
     pod_number: r.pod_number ?? '',
     pod_location: r.pod_location ?? '',
     pod_address: r.pod_address ?? '',
-    status: r.status ?? 'active',
+    status: r.status ?? 'Active',
+    contact_person: r.contact_person ?? '',
+    contact_email: r.contact_email ?? '',
+    contact_phone: r.contact_phone ?? '',
     notes: r.notes ?? '',
   }
+}
+
+function MachineFormFields({ draft, onChange, statusOptions }: {
+  draft: MachineDraft
+  onChange: (patch: Partial<MachineDraft>) => void
+  statusOptions: string[]
+}) {
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">Official Name *</label>
+        <input type="text" value={draft.official_name} onChange={(e) => onChange({ official_name: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-neutral-500">Pod Number</label>
+          <input type="text" value={draft.pod_number} onChange={(e) => onChange({ pod_number: e.target.value })}
+            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-neutral-500">Status</label>
+          <select value={draft.status} onChange={(e) => onChange({ status: e.target.value })}
+            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900">
+            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">Location</label>
+        <input type="text" value={draft.pod_location} onChange={(e) => onChange({ pod_location: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">Address</label>
+        <input type="text" value={draft.pod_address} onChange={(e) => onChange({ pod_address: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">Contact Person</label>
+        <input type="text" value={draft.contact_person} onChange={(e) => onChange({ contact_person: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-neutral-500">Email</label>
+          <input type="email" value={draft.contact_email} onChange={(e) => onChange({ contact_email: e.target.value })}
+            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-neutral-500">Phone</label>
+          <input type="tel" value={draft.contact_phone} onChange={(e) => onChange({ contact_phone: e.target.value })}
+            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+        </div>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">Notes</label>
+        <textarea rows={2} value={draft.notes} onChange={(e) => onChange({ notes: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+      </div>
+    </div>
+  )
 }
 
 // ─── Alias types ──────────────────────────────────────────────────────────────
@@ -47,28 +126,25 @@ function machineRowToDraft(r: Machine): MachineDraft {
 interface Alias {
   alias_id: string
   machine_id: string
-  current_official: string
   original_name: string
   official_name: string
   is_active: boolean | null
 }
 
-interface AliasDraft {
-  original_name: string
-  official_name: string
-  is_active: boolean
-}
+// ─── CSV ──────────────────────────────────────────────────────────────────────
 
-function aliasRowToDraft(r: Alias): AliasDraft {
-  return {
-    original_name: r.original_name,
-    official_name: r.official_name,
-    is_active: !!r.is_active,
-  }
-}
+const CSV_COLUMNS = ['official_name', 'pod_number', 'pod_location', 'pod_address', 'status', 'contact_person', 'contact_email', 'contact_phone', 'notes']
 
-function emptyAliasDraft(): AliasDraft {
-  return { original_name: '', official_name: '', is_active: true }
+function parseCsv(text: string): Record<string, string>[] {
+  const lines = text.split('\n').filter(l => l.trim())
+  if (lines.length < 2) return []
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+  return lines.slice(1).map(line => {
+    const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''))
+    const obj: Record<string, string> = {}
+    headers.forEach((h, i) => { obj[h] = vals[i] ?? '' })
+    return obj
+  }).filter(r => r['official_name'])
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -82,25 +158,32 @@ export default function MachinesPage() {
   // Machines tab
   const [machines, setMachines] = useState<Machine[]>([])
   const [machineSearch, setMachineSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [machineExpanded, setMachineExpanded] = useState<string | null>(null)
   const [machineDrafts, setMachineDrafts] = useState<Record<string, MachineDraft>>({})
   const [machineSaving, setMachineSaving] = useState<Record<string, boolean>>({})
   const [machineSaveMsg, setMachineSaveMsg] = useState<Record<string, string>>({})
 
+  // Add machine
+  const [showAddMachine, setShowAddMachine] = useState(false)
+  const [newMachine, setNewMachine] = useState<MachineDraft>(emptyMachineDraft())
+  const [addingMachine, setAddingMachine] = useState(false)
+  const [addMachineError, setAddMachineError] = useState<string | null>(null)
+
+  // Bulk CSV
+  const [showBulkCsv, setShowBulkCsv] = useState(false)
+  const [csvPreview, setCsvPreview] = useState<Record<string, string>[]>([])
+  const [importingCsv, setImportingCsv] = useState(false)
+  const [csvError, setCsvError] = useState<string | null>(null)
+  const [csvResult, setCsvResult] = useState<string | null>(null)
+
   // Aliases tab
   const [aliases, setAliases] = useState<Alias[]>([])
   const [aliasSearch, setAliasSearch] = useState('')
-  const [aliasExpanded, setAliasExpanded] = useState<string | null>(null)
-  const [aliasDrafts, setAliasDrafts] = useState<Record<string, AliasDraft>>({})
-  const [aliasSaving, setAliasSaving] = useState<Record<string, boolean>>({})
-  const [aliasSaveMsg, setAliasSaveMsg] = useState<Record<string, string>>({})
-
-  // Add alias
-  const [showAddAlias, setShowAddAlias] = useState(false)
-  const [newAlias, setNewAlias] = useState<AliasDraft>(emptyAliasDraft())
+  const [aliasGroupExpanded, setAliasGroupExpanded] = useState<string | null>(null)
+  const [addAliasForGroup, setAddAliasForGroup] = useState<string | null>(null)
+  const [inlineAlias, setInlineAlias] = useState('')
   const [addingAlias, setAddingAlias] = useState(false)
-  const [addAliasError, setAddAliasError] = useState<string | null>(null)
-  const [machineSearch2, setMachineSearch2] = useState('')
 
   const [loading, setLoading] = useState(true)
 
@@ -112,34 +195,66 @@ export default function MachinesPage() {
     if (!profile || !ADMIN_ROLES.includes(profile.role)) { router.push('/field'); return }
 
     const [{ data: machineData }, { data: aliasData }] = await Promise.all([
-      supabase.from('machines').select('machine_id, official_name, pod_number, pod_location, pod_address, status, notes').order('official_name'),
-      supabase
-        .from('machine_name_aliases')
+      supabase.from('machines')
+        .select('machine_id, official_name, pod_number, pod_location, pod_address, status, contact_person, contact_email, contact_phone, notes')
+        .order('official_name'),
+      supabase.from('machine_name_aliases')
         .select('alias_id, machine_id, original_name, official_name, is_active, machines!inner(official_name)')
         .order('official_name'),
     ])
 
     if (machineData) setMachines(machineData as Machine[])
     if (aliasData) {
-      setAliases(aliasData.map((r) => {
+      const seen = new Set<string>()
+      const deduped: Alias[] = []
+      for (const r of aliasData) {
         const m = r.machines as unknown as { official_name: string }
-        return { ...r, current_official: m.official_name } as Alias
-      }))
+        const a = { ...r, official_name: m.official_name } as Alias
+        const key = `${a.original_name}|||${a.official_name}`
+        if (!seen.has(key)) { seen.add(key); deduped.push(a) }
+      }
+      setAliases(deduped)
     }
     setLoading(false)
   }, [router])
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Derived status options from data
+  const statusOptions = useMemo(() => {
+    const fromData = [...new Set(machines.map(m => m.status).filter(Boolean))] as string[]
+    const combined = [...new Set([...fromData, ...DEFAULT_STATUS_OPTIONS])].sort()
+    return combined
+  }, [machines])
+
+  // Filtered machines
+  const filteredMachines = useMemo(() => {
+    let result = machines
+    if (statusFilter !== 'all') result = result.filter(m => m.status === statusFilter)
+    if (machineSearch) result = result.filter(m => m.official_name.toLowerCase().includes(machineSearch.toLowerCase()))
+    return result
+  }, [machines, machineSearch, statusFilter])
+
+  // Grouped aliases
+  const aliasGroups = useMemo(() => {
+    const q = aliasSearch.toLowerCase()
+    const src = q
+      ? aliases.filter(a => a.official_name.toLowerCase().includes(q) || a.original_name.toLowerCase().includes(q))
+      : aliases
+    const groups: Record<string, Alias[]> = {}
+    for (const a of src) {
+      if (!groups[a.official_name]) groups[a.official_name] = []
+      groups[a.official_name].push(a)
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+  }, [aliases, aliasSearch])
+
   // ── Machine edit ─────────────────────────────────────────────────────────────
+
   function openMachineEdit(row: Machine) {
     if (machineExpanded === row.machine_id) { setMachineExpanded(null); return }
     setMachineExpanded(row.machine_id)
     setMachineDrafts((p) => ({ ...p, [row.machine_id]: machineRowToDraft(row) }))
-  }
-
-  function patchMachine(id: string, patch: Partial<MachineDraft>) {
-    setMachineDrafts((p) => ({ ...p, [id]: { ...p[id], ...patch } }))
   }
 
   async function saveMachine(id: string) {
@@ -153,6 +268,9 @@ export default function MachinesPage() {
       pod_location: draft.pod_location.trim() || null,
       pod_address: draft.pod_address.trim() || null,
       status: draft.status,
+      contact_person: draft.contact_person.trim() || null,
+      contact_email: draft.contact_email.trim() || null,
+      contact_phone: draft.contact_phone.trim() || null,
       notes: draft.notes.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('machine_id', id)
@@ -167,69 +285,105 @@ export default function MachinesPage() {
     setMachineSaving((p) => ({ ...p, [id]: false }))
   }
 
-  // ── Alias edit ────────────────────────────────────────────────────────────────
-  function openAliasEdit(row: Alias) {
-    if (aliasExpanded === row.alias_id) { setAliasExpanded(null); return }
-    setAliasExpanded(row.alias_id)
-    setAliasDrafts((p) => ({ ...p, [row.alias_id]: aliasRowToDraft(row) }))
-  }
-
-  function patchAlias(id: string, patch: Partial<AliasDraft>) {
-    setAliasDrafts((p) => ({ ...p, [id]: { ...p[id], ...patch } }))
-  }
-
-  async function saveAlias(id: string) {
-    const draft = aliasDrafts[id]
-    if (!draft) return
-    setAliasSaving((p) => ({ ...p, [id]: true }))
+  async function handleAddMachine() {
+    if (!newMachine.official_name.trim()) { setAddMachineError('Official name is required'); return }
+    setAddingMachine(true); setAddMachineError(null)
     const supabase = createClient()
-    // Resolve machine_id from official_name
-    const machine = machines.find(m => m.official_name === draft.official_name)
-    const { error } = await supabase.from('machine_name_aliases').update({
-      original_name: draft.original_name.trim(),
-      official_name: draft.official_name.trim(),
-      machine_id: machine?.machine_id ?? aliases.find(a => a.alias_id === id)?.machine_id,
-      is_active: draft.is_active,
-    }).eq('alias_id', id)
-    if (error) {
-      setAliasSaveMsg((p) => ({ ...p, [id]: `Error: ${error.message}` }))
-    } else {
-      setAliasSaveMsg((p) => ({ ...p, [id]: 'Saved ✓' }))
-      await fetchData()
-      setAliasExpanded(null)
-      setTimeout(() => setAliasSaveMsg((p) => ({ ...p, [id]: '' })), 2000)
-    }
-    setAliasSaving((p) => ({ ...p, [id]: false }))
+    const { error } = await supabase.from('machines').insert({
+      official_name: newMachine.official_name.trim(),
+      pod_number: newMachine.pod_number.trim() || null,
+      pod_location: newMachine.pod_location.trim() || null,
+      pod_address: newMachine.pod_address.trim() || null,
+      status: newMachine.status,
+      contact_person: newMachine.contact_person.trim() || null,
+      contact_email: newMachine.contact_email.trim() || null,
+      contact_phone: newMachine.contact_phone.trim() || null,
+      notes: newMachine.notes.trim() || null,
+    })
+    if (error) { setAddMachineError(error.message); setAddingMachine(false); return }
+    setShowAddMachine(false); setNewMachine(emptyMachineDraft())
+    await fetchData(); setAddingMachine(false)
   }
 
-  async function handleAddAlias() {
-    if (!newAlias.original_name.trim() || !newAlias.official_name.trim()) {
-      setAddAliasError('Both names required'); return
+  // ── CSV import ────────────────────────────────────────────────────────────────
+
+  function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvError(null); setCsvResult(null)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const parsed = parseCsv(text)
+      if (!parsed.length) { setCsvError('No valid rows found. Check column headers.'); return }
+      setCsvPreview(parsed)
     }
-    const machine = machines.find(m => m.official_name === newAlias.official_name)
-    if (!machine) { setAddAliasError('Machine not found — select from the list'); return }
-    setAddingAlias(true); setAddAliasError(null)
+    reader.readAsText(file)
+  }
+
+  async function handleCsvImport() {
+    if (!csvPreview.length) return
+    setImportingCsv(true); setCsvError(null); setCsvResult(null)
+    const existingNames = new Set(machines.map(m => m.official_name.toLowerCase()))
+    const toInsert = csvPreview.filter(r => !existingNames.has((r['official_name'] ?? '').toLowerCase()))
+    const skipped = csvPreview.length - toInsert.length
+    if (toInsert.length === 0) {
+      setCsvResult(`0 added, ${skipped} skipped (already exist)`)
+      setImportingCsv(false); return
+    }
+    const supabase = createClient()
+    const { error } = await supabase.from('machines').insert(
+      toInsert.map(r => ({
+        official_name: r['official_name'],
+        pod_number: r['pod_number'] || null,
+        pod_location: r['pod_location'] || null,
+        pod_address: r['pod_address'] || null,
+        status: r['status'] || 'Active',
+        contact_person: r['contact_person'] || null,
+        contact_email: r['contact_email'] || null,
+        contact_phone: r['contact_phone'] || null,
+        notes: r['notes'] || null,
+      }))
+    )
+    if (error) { setCsvError(error.message); setImportingCsv(false); return }
+    setCsvResult(`${toInsert.length} added, ${skipped} skipped (already exist)`)
+    setCsvPreview([])
+    await fetchData()
+    setImportingCsv(false)
+  }
+
+  // ── Alias actions ─────────────────────────────────────────────────────────────
+
+  async function toggleAlias(aliasId: string, current: boolean | null) {
+    const supabase = createClient()
+    await supabase.from('machine_name_aliases').update({ is_active: !current }).eq('alias_id', aliasId)
+    await fetchData()
+  }
+
+  async function deleteAlias(aliasId: string) {
+    const supabase = createClient()
+    await supabase.from('machine_name_aliases').delete().eq('alias_id', aliasId)
+    await fetchData()
+  }
+
+  async function addInlineAlias(officialName: string) {
+    if (!inlineAlias.trim()) return
+    const machine = machines.find(m => m.official_name === officialName)
+    if (!machine) return
+    setAddingAlias(true)
     const supabase = createClient()
     const { error } = await supabase.from('machine_name_aliases').insert({
-      original_name: newAlias.original_name.trim(),
-      official_name: newAlias.official_name.trim(),
+      original_name: inlineAlias.trim(),
+      official_name: officialName,
       machine_id: machine.machine_id,
-      is_active: newAlias.is_active,
+      is_active: true,
     })
-    if (error) { setAddAliasError(error.message); setAddingAlias(false); return }
-    setShowAddAlias(false); setNewAlias(emptyAliasDraft()); setMachineSearch2('')
-    await fetchData(); setAddingAlias(false)
+    if (!error) {
+      setAddAliasForGroup(null); setInlineAlias('')
+      await fetchData()
+    }
+    setAddingAlias(false)
   }
-
-  const filteredMachines = machines.filter(m =>
-    !machineSearch || m.official_name.toLowerCase().includes(machineSearch.toLowerCase())
-  )
-  const filteredAliases = aliases.filter(a =>
-    !aliasSearch || a.original_name.toLowerCase().includes(aliasSearch.toLowerCase()) || a.official_name.toLowerCase().includes(aliasSearch.toLowerCase())
-  )
-  const filteredMachines2 = machines.filter(m =>
-    !machineSearch2 || m.official_name.toLowerCase().includes(machineSearch2.toLowerCase())
-  )
 
   if (loading) {
     return (
@@ -244,11 +398,21 @@ export default function MachinesPage() {
     <div className="pb-24">
       <FieldHeader
         title="Machines & Aliases"
-        rightAction={activeTab === 'aliases' ? (
-          <button onClick={() => { setNewAlias(emptyAliasDraft()); setShowAddAlias(true) }}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
-            + Add
-          </button>
+        rightAction={activeTab === 'machines' ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setCsvPreview([]); setCsvError(null); setCsvResult(null); setShowBulkCsv(true) }}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+            >
+              CSV
+            </button>
+            <button
+              onClick={() => { setNewMachine(emptyMachineDraft()); setAddMachineError(null); setShowAddMachine(true) }}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              + Add
+            </button>
+          </div>
         ) : undefined}
       />
 
@@ -269,11 +433,21 @@ export default function MachinesPage() {
         ))}
       </div>
 
+      {/* ── Machines tab ── */}
       {activeTab === 'machines' && (
         <div className="px-4 py-4">
-          <input type="text" value={machineSearch} onChange={(e) => setMachineSearch(e.target.value)}
-            placeholder="Search machines…"
-            className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900" />
+          <div className="mb-3 flex gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-lg border border-neutral-300 px-2 py-2 text-xs dark:border-neutral-600 dark:bg-neutral-900"
+            >
+              <option value="all">All statuses</option>
+              {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <input type="text" value={machineSearch} onChange={(e) => setMachineSearch(e.target.value)}
+              placeholder="Search machines…" className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900" />
+          </div>
           <p className="mb-3 text-xs text-neutral-500">{filteredMachines.length} machines</p>
 
           <ul className="space-y-2">
@@ -288,58 +462,31 @@ export default function MachinesPage() {
                         <p className="text-sm font-semibold truncate">{row.official_name}</p>
                         {row.pod_number && <p className="text-xs text-neutral-500">#{row.pod_number}</p>}
                         {row.pod_location && <p className="text-xs text-neutral-500">{row.pod_location}</p>}
+                        {row.contact_person && <p className="text-xs text-neutral-400">{row.contact_person}</p>}
                       </div>
                       <div className="shrink-0 text-right">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          row.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                          : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
+                          (row.status ?? '').toLowerCase() === 'active' || row.status === 'Online today'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                            : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
                         }`}>{row.status ?? 'unknown'}</span>
                         <p className="mt-1 text-xs text-neutral-400">{isExpanded ? '▲' : '▼'}</p>
                       </div>
                     </div>
                   </div>
                   {isExpanded && draft && (
-                    <div className="border-t border-neutral-100 px-3 pb-4 pt-3 dark:border-neutral-800 space-y-2">
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Official Name</label>
-                        <input type="text" value={draft.official_name} onChange={(e) => patchMachine(row.machine_id, { official_name: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-neutral-500">Pod Number</label>
-                          <input type="text" value={draft.pod_number} onChange={(e) => patchMachine(row.machine_id, { pod_number: e.target.value })}
-                            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs font-medium text-neutral-500">Status</label>
-                          <select value={draft.status} onChange={(e) => patchMachine(row.machine_id, { status: e.target.value })}
-                            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900">
-                            {MACHINE_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-                          </select>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Location</label>
-                        <input type="text" value={draft.pod_location} onChange={(e) => patchMachine(row.machine_id, { pod_location: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Address</label>
-                        <input type="text" value={draft.pod_address} onChange={(e) => patchMachine(row.machine_id, { pod_address: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Notes</label>
-                        <textarea rows={2} value={draft.notes} onChange={(e) => patchMachine(row.machine_id, { notes: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                      </div>
+                    <div className="border-t border-neutral-100 px-3 pb-4 pt-3 dark:border-neutral-800">
+                      <MachineFormFields
+                        draft={draft}
+                        onChange={(patch) => setMachineDrafts((p) => ({ ...p, [row.machine_id]: { ...p[row.machine_id], ...patch } }))}
+                        statusOptions={statusOptions}
+                      />
                       {machineSaveMsg[row.machine_id] && (
-                        <p className={`text-xs font-medium ${machineSaveMsg[row.machine_id].startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
+                        <p className={`mt-2 text-xs font-medium ${machineSaveMsg[row.machine_id].startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
                           {machineSaveMsg[row.machine_id]}
                         </p>
                       )}
-                      <div className="flex gap-2 pt-1">
+                      <div className="mt-3 flex gap-2">
                         <button onClick={() => saveMachine(row.machine_id)} disabled={machineSaving[row.machine_id]}
                           className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900">
                           {machineSaving[row.machine_id] ? 'Saving…' : 'Save'}
@@ -358,67 +505,95 @@ export default function MachinesPage() {
         </div>
       )}
 
+      {/* ── Aliases tab ── */}
       {activeTab === 'aliases' && (
         <div className="px-4 py-4">
           <input type="text" value={aliasSearch} onChange={(e) => setAliasSearch(e.target.value)}
             placeholder="Search aliases…"
             className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900" />
-          <p className="mb-3 text-xs text-neutral-500">{filteredAliases.length} aliases</p>
+          <p className="mb-3 text-xs text-neutral-500">{aliasGroups.length} machines with aliases</p>
 
           <ul className="space-y-2">
-            {filteredAliases.map((row) => {
-              const isExpanded = aliasExpanded === row.alias_id
-              const draft = aliasDrafts[row.alias_id]
+            {aliasGroups.map(([officialName, group]) => {
+              const isOpen = aliasGroupExpanded === officialName
               return (
-                <li key={row.alias_id} className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-                  <div className="cursor-pointer p-3" onClick={() => openAliasEdit(row)}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate">{row.original_name}</p>
-                        <p className="text-xs text-neutral-500 truncate">→ {row.official_name}</p>
+                <li key={officialName} className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+                  <button
+                    className="w-full p-3 text-left"
+                    onClick={() => {
+                      setAliasGroupExpanded(isOpen ? null : officialName)
+                      setAddAliasForGroup(null); setInlineAlias('')
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold">{officialName}</p>
+                        <p className="text-xs text-neutral-500">{group.length} alias{group.length !== 1 ? 'es' : ''}</p>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          row.is_active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                          : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
-                        }`}>{row.is_active ? 'Active' : 'Inactive'}</span>
-                        <span className="text-xs text-neutral-400">{isExpanded ? '▲' : '▼'}</span>
-                      </div>
+                      <span className="text-xs text-neutral-400">{isOpen ? '▲' : '▼'}</span>
                     </div>
-                  </div>
-                  {isExpanded && draft && (
-                    <div className="border-t border-neutral-100 px-3 pb-4 pt-3 dark:border-neutral-800 space-y-2">
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Original Name</label>
-                        <input type="text" value={draft.original_name} onChange={(e) => patchAlias(row.alias_id, { original_name: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Official Name (machine)</label>
-                        <input type="text" list="alias-machines" value={draft.official_name} onChange={(e) => patchAlias(row.alias_id, { official_name: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
-                        <datalist id="alias-machines">{machines.map(m => <option key={m.machine_id} value={m.official_name} />)}</datalist>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-medium text-neutral-500">Active</label>
-                        <button onClick={() => patchAlias(row.alias_id, { is_active: !draft.is_active })}
-                          className={`rounded-full px-3 py-1 text-xs font-medium ${draft.is_active ? 'bg-green-600 text-white' : 'bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400'}`}>
-                          {draft.is_active ? 'Yes' : 'No'}
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t border-neutral-100 px-3 pb-3 pt-2 dark:border-neutral-800">
+                      <ul className="space-y-1">
+                        {group.map((alias) => (
+                          <li key={alias.alias_id} className="flex items-center gap-2 py-1">
+                            <span className="min-w-0 flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
+                              {alias.original_name}
+                            </span>
+                            <button
+                              onClick={() => toggleAlias(alias.alias_id, alias.is_active)}
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                                alias.is_active
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                                  : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
+                              }`}
+                            >
+                              {alias.is_active ? 'On' : 'Off'}
+                            </button>
+                            <button
+                              onClick={() => deleteAlias(alias.alias_id)}
+                              className="shrink-0 text-base leading-none text-neutral-400 hover:text-red-500"
+                            >
+                              ×
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+
+                      {addAliasForGroup === officialName ? (
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            type="text"
+                            value={inlineAlias}
+                            onChange={(e) => setInlineAlias(e.target.value)}
+                            placeholder="Original name…"
+                            autoFocus
+                            className="flex-1 rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-900"
+                          />
+                          <button
+                            onClick={() => addInlineAlias(officialName)}
+                            disabled={addingAlias}
+                            className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                          >
+                            Add
+                          </button>
+                          <button
+                            onClick={() => { setAddAliasForGroup(null); setInlineAlias('') }}
+                            className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setAddAliasForGroup(officialName); setInlineAlias('') }}
+                          className="mt-2 text-xs text-blue-600 hover:underline"
+                        >
+                          + Add alias
                         </button>
-                      </div>
-                      {aliasSaveMsg[row.alias_id] && (
-                        <p className={`text-xs font-medium ${aliasSaveMsg[row.alias_id].startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>{aliasSaveMsg[row.alias_id]}</p>
                       )}
-                      <div className="flex gap-2 pt-1">
-                        <button onClick={() => saveAlias(row.alias_id)} disabled={aliasSaving[row.alias_id]}
-                          className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900">
-                          {aliasSaving[row.alias_id] ? 'Saving…' : 'Save'}
-                        </button>
-                        <button onClick={() => setAliasExpanded(null)}
-                          className="rounded-lg border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-600">
-                          Cancel
-                        </button>
-                      </div>
                     </div>
                   )}
                 </li>
@@ -428,42 +603,72 @@ export default function MachinesPage() {
         </div>
       )}
 
-      {/* Add alias bottom sheet */}
-      {showAddAlias && (
+      {/* ── Add machine bottom sheet ── */}
+      {showAddMachine && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowAddAlias(false)} />
-          <div className="relative z-10 max-h-[80vh] overflow-y-auto rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
-            <h3 className="mb-4 text-center text-base font-bold">Add Alias</h3>
-            {addAliasError && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{addAliasError}</div>}
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Original Name</label>
-                <input type="text" value={newAlias.original_name} onChange={(e) => setNewAlias(p => ({ ...p, original_name: e.target.value }))}
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800" />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Machine</label>
-                <input type="text" value={machineSearch2} onChange={(e) => setMachineSearch2(e.target.value)}
-                  placeholder="Search machines…"
-                  className="mb-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-800" />
-                <select value={newAlias.official_name} onChange={(e) => setNewAlias(p => ({ ...p, official_name: e.target.value }))}
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800">
-                  <option value="">Select machine…</option>
-                  {filteredMachines2.map(m => <option key={m.machine_id} value={m.official_name}>{m.official_name}</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-neutral-500">Active</label>
-                <button onClick={() => setNewAlias(p => ({ ...p, is_active: !p.is_active }))}
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${newAlias.is_active ? 'bg-green-600 text-white' : 'bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400'}`}>
-                  {newAlias.is_active ? 'Yes' : 'No'}
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowAddMachine(false)} />
+          <div className="relative z-10 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
+            <h3 className="mb-4 text-center text-base font-bold">Add Machine</h3>
+            {addMachineError && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{addMachineError}</div>}
+            <MachineFormFields
+              draft={newMachine}
+              onChange={(patch) => setNewMachine((p) => ({ ...p, ...patch }))}
+              statusOptions={statusOptions}
+            />
+            <button onClick={handleAddMachine} disabled={addingMachine}
+              className="mt-4 w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+              {addingMachine ? 'Creating…' : 'Create Machine'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk CSV bottom sheet ── */}
+      {showBulkCsv && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowBulkCsv(false)} />
+          <div className="relative z-10 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
+            <h3 className="mb-2 text-center text-base font-bold">Bulk Add Machines (CSV)</h3>
+            <p className="mb-3 text-center text-xs text-neutral-400">
+              Expected columns: {CSV_COLUMNS.join(', ')}
+            </p>
+            {csvError && <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{csvError}</div>}
+            {csvResult && <div className="mb-3 rounded-lg bg-green-50 px-3 py-2 text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300">{csvResult}</div>}
+
+            <label className="mb-3 flex cursor-pointer flex-col items-center rounded-lg border-2 border-dashed border-neutral-300 py-4 text-sm text-neutral-500 hover:border-blue-400 dark:border-neutral-700">
+              <span>Choose CSV file</span>
+              <input type="file" accept=".csv" className="sr-only" onChange={handleCsvFile} />
+            </label>
+
+            {csvPreview.length > 0 && (
+              <>
+                <p className="mb-2 text-xs text-neutral-500">{csvPreview.length} rows to import</p>
+                <div className="mb-3 max-h-40 overflow-y-auto rounded border border-neutral-200 dark:border-neutral-700">
+                  <table className="w-full text-xs">
+                    <thead className="bg-neutral-50 dark:bg-neutral-800">
+                      <tr>
+                        <th className="px-2 py-1 text-left">Official name</th>
+                        <th className="px-2 py-1 text-left">Location</th>
+                        <th className="px-2 py-1 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvPreview.map((r, i) => (
+                        <tr key={i} className="border-t border-neutral-100 dark:border-neutral-800">
+                          <td className="px-2 py-1">{r['official_name']}</td>
+                          <td className="px-2 py-1 text-neutral-500">{r['pod_location']}</td>
+                          <td className="px-2 py-1 text-neutral-500">{r['status']}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button onClick={handleCsvImport} disabled={importingCsv}
+                  className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                  {importingCsv ? 'Importing…' : `Import ${csvPreview.length} machines`}
                 </button>
-              </div>
-              <button onClick={handleAddAlias} disabled={addingAlias}
-                className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-                {addingAlias ? 'Creating…' : 'Create Alias'}
-              </button>
-            </div>
+              </>
+            )}
           </div>
         </div>
       )}

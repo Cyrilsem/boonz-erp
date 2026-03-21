@@ -17,7 +17,6 @@ interface HubCounts {
   machinesCount: number
   aliasesCount: number
   suppliers: number
-  productNaming: number
 }
 
 interface NavCard {
@@ -64,13 +63,6 @@ const NAV_CARDS: NavCard[] = [
     href: '/field/config/suppliers',
     countLabel: (c) => `${c.suppliers} active suppliers`,
   },
-  {
-    title: 'Product Naming',
-    icon: '🏷️',
-    desc: 'Name normalisation and conventions',
-    href: '/field/config/product-naming',
-    countLabel: (c) => `${c.productNaming} mappings`,
-  },
 ]
 
 export default function ConfigPage() {
@@ -101,7 +93,6 @@ export default function ConfigPage() {
       { count: machineCount },
       { count: aliasCount },
       { count: supplierCount },
-      { count: namingCount },
     ] = await Promise.all([
       supabase.from('product_mapping').select('mapping_id', { count: 'exact', head: true }).eq('status', 'Active'),
       supabase.from('boonz_products').select('product_id', { count: 'exact', head: true }),
@@ -109,7 +100,6 @@ export default function ConfigPage() {
       supabase.from('machines').select('machine_id', { count: 'exact', head: true }),
       supabase.from('machine_name_aliases').select('alias_id', { count: 'exact', head: true }),
       supabase.from('suppliers').select('supplier_id', { count: 'exact', head: true }).eq('status', 'Active'),
-      supabase.from('product_name_conventions').select('id', { count: 'exact', head: true }),
     ])
 
     setCounts({
@@ -119,7 +109,6 @@ export default function ConfigPage() {
       machinesCount:   machineCount ?? 0,
       aliasesCount:    aliasCount   ?? 0,
       suppliers:       supplierCount ?? 0,
-      productNaming:   namingCount  ?? 0,
     })
     setLoading(false)
   }, [router])
