@@ -100,6 +100,8 @@ export default function ProductMappingPage() {
   const [addSplits, setAddSplits] = useState<{ key: string; boonz_product_id: string; split_pct: number }[]>([])
   const [addError, setAddError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [addLoadingExisting, setAddLoadingExisting] = useState(false)
+  const [addIsUpdate, setAddIsUpdate] = useState(false)
 
   // ── Auth + reference data ──────────────────────────────────────────────────
   useEffect(() => {
@@ -116,7 +118,13 @@ export default function ProductMappingPage() {
         supabase.from('boonz_products').select('product_id, boonz_product_name').order('boonz_product_name'),
         supabase.from('pod_products').select('pod_product_id, pod_product_name').order('pod_product_name'),
       ])
-      if (mData) setMachines(mData)
+      if (mData) {
+        setMachines(mData)
+        if (mData.length > 0) {
+          setSelectedMachineId(mData[0].machine_id)
+          setAddMachineId(mData[0].machine_id)
+        }
+      }
       if (bData) setBoonzProducts(bData)
       if (ppData) setPodProducts(ppData)
       setLoadingRef(false)
@@ -183,7 +191,7 @@ export default function ProductMappingPage() {
   // ── useMemo: By Machine ───────────────────────────────────────────────────
   const byMachineGroups = useMemo<MachineSection[]>(() => {
     const machineMap = new Map<string, { machine_id: string | null; machine_name: string; pods: Map<string, PodGroup> }>()
-    for (const r of mappings.filter(m => m.status === 'Active')) {
+    for (const r of mappings.filter(m => m.status === 'Active' && m.machine_id !== null)) {
       const key = r.machine_id ?? '__global__'
       if (!machineMap.has(key)) {
         machineMap.set(key, {
@@ -202,12 +210,8 @@ export default function ProductMappingPage() {
       machine_name: s.machine_name,
       pod_groups: [...s.pods.values()].sort((a, b) => a.pod_product_name.localeCompare(b.pod_product_name)),
     }))
-    // Global first, then A→Z
-    sections.sort((a, b) => {
-      if (a.machine_id === null) return -1
-      if (b.machine_id === null) return 1
-      return a.machine_name.localeCompare(b.machine_name)
-    })
+    // A→Z by machine name (no global section)
+    sections.sort((a, b) => a.machine_name.localeCompare(b.machine_name))
     return sections
   }, [mappings])
 
@@ -281,21 +285,27 @@ export default function ProductMappingPage() {
     setSaveError(null)
     const supabase = createClient()
 
-    let delError: { message: string } | null = null
-    if (machineId === null) {
-      const res = await supabase.from('product_mapping').delete().eq('pod_product_id', podId).is('machine_id', null)
-      delError = res.error
-    } else {
-      const res = await supabase.from('product_mapping').delete().eq('pod_product_id', podId).eq('machine_id', machineId)
-      delError = res.error
+    // Update existing rows (have a mapping_id in DB)
+    for (const s of active.filter(s => s.mapping_id)) {
+      const { error } = await supabase.from('product_mapping')
+        .update({ split_pct: s.split_pct })
+        .eq('mapping_id', s.mapping_id!)
+      if (error) { setSaveError(error.message); setSaving(false); return }
     }
-    if (delError) { setSaveError(delError.message); setSaving(false); return }
 
-    if (active.length > 0) {
-      const { error: insErr } = await supabase.from('product_mapping').insert(
-        active.map(s => ({ pod_product_id: podId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' }))
+    // Upsert new rows (no mapping_id yet)
+    const newRows = active.filter(s => !s.mapping_id)
+    if (newRows.length > 0) {
+      const { error } = await supabase.from('product_mapping').upsert(
+        newRows.map(s => ({ pod_product_id: podId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' })),
+        { onConflict: 'pod_product_id,boonz_product_id,machine_id' }
       )
-      if (insErr) { setSaveError(insErr.message); setSaving(false); return }
+      if (error) { setSaveError(error.message); setSaving(false); return }
+    }
+
+    // Delete rows marked for removal
+    for (const s of (splitDrafts[key] ?? []).filter(s => s.toDelete && s.mapping_id)) {
+      await supabase.from('product_mapping').delete().eq('mapping_id', s.mapping_id!)
     }
     setSaving(false)
     setExpandedKey(null)
@@ -328,9 +338,10 @@ export default function ProductMappingPage() {
     setAdding(true)
     setAddError(null)
     const supabase = createClient()
-    const machineId = addMachineId === '__global__' ? null : addMachineId
-    const { error } = await supabase.from('product_mapping').insert(
-      addSplits.map(s => ({ pod_product_id: addPodId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' }))
+    const machineId = addMachineId || null
+    const { error } = await supabase.from('product_mapping').upsert(
+      addSplits.map(s => ({ pod_product_id: addPodId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' })),
+      { onConflict: 'pod_product_id,boonz_product_id,machine_id' }
     )
     if (error) { setAddError(error.message); setAdding(false); return }
     setShowAdd(false)
@@ -338,6 +349,34 @@ export default function ProductMappingPage() {
     setAdding(false)
     await loadMappings()
   }
+
+  // Pre-populate splits when pod + machine are both selected in the add modal
+  useEffect(() => {
+    if (!showAdd || !addPodId || !addMachineId) return
+    let cancelled = false
+    async function prefetch() {
+      setAddLoadingExisting(true)
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('product_mapping')
+        .select('boonz_product_id, split_pct')
+        .eq('pod_product_id', addPodId)
+        .eq('machine_id', addMachineId)
+        .eq('status', 'Active')
+      if (cancelled) return
+      if (data && data.length > 0) {
+        setAddSplits(data.map(r => ({ key: nk(), boonz_product_id: r.boonz_product_id as string, split_pct: r.split_pct as number })))
+        setAddIsUpdate(true)
+      } else {
+        setAddSplits([{ key: nk(), boonz_product_id: boonzProducts[0]?.product_id ?? '', split_pct: 100 }])
+        setAddIsUpdate(false)
+      }
+      setAddLoadingExisting(false)
+    }
+    prefetch()
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addPodId, addMachineId, showAdd])
 
   const addTotal = addSplits.reduce((s, r) => s + (r.split_pct || 0), 0)
 
@@ -555,7 +594,11 @@ export default function ProductMappingPage() {
           <button
             onClick={() => {
               setShowAdd(true)
-              setAddSplits([{ key: nk(), boonz_product_id: boonzProducts[0]?.product_id ?? '', split_pct: 100 }])
+              setAddPodId('')
+              setAddPodSearch('')
+              setAddMachineId(selectedMachineId ?? machines[0]?.machine_id ?? '')
+              setAddSplits([])
+              setAddIsUpdate(false)
               setAddError(null)
             }}
             className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
@@ -570,11 +613,10 @@ export default function ProductMappingPage() {
         {/* Machine selector — hidden when groupBy = 'machine' */}
         {groupBy !== 'machine' && (
           <select
-            value={selectedMachineId ?? '__global__'}
-            onChange={e => setSelectedMachineId(e.target.value === '__global__' ? null : e.target.value)}
+            value={selectedMachineId ?? ''}
+            onChange={e => setSelectedMachineId(e.target.value || null)}
             className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
           >
-            <option value="__global__">Global (all machines)</option>
             {machines.map(m => <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>)}
           </select>
         )}
@@ -614,14 +656,24 @@ export default function ProductMappingPage() {
         <>
           {/* ── BY PRODUCT ───────────────────────────────────────────────── */}
           {groupBy === 'product' && (
-            <ul className="space-y-2 px-4">
-              {filteredProductGroups.length === 0 && (
-                <li className="py-10 text-center text-sm text-neutral-400">
-                  No mappings for {getMachineName(selectedMachineId)}
-                </li>
+            <>
+              {selectedMachineId && (
+                <p className="px-4 pb-1 text-xs text-neutral-400">
+                  Showing splits for:{' '}
+                  <span className="font-medium text-neutral-600 dark:text-neutral-300">
+                    {getMachineName(selectedMachineId)}
+                  </span>
+                </p>
               )}
-              {filteredProductGroups.map(g => renderPodRow(g, selectedMachineId))}
-            </ul>
+              <ul className="space-y-2 px-4">
+                {filteredProductGroups.length === 0 && (
+                  <li className="py-10 text-center text-sm text-neutral-400">
+                    No mappings for {getMachineName(selectedMachineId)}
+                  </li>
+                )}
+                {filteredProductGroups.map(g => renderPodRow(g, selectedMachineId))}
+              </ul>
+            </>
           )}
 
           {/* ── BY MACHINE ───────────────────────────────────────────────── */}
@@ -703,7 +755,19 @@ export default function ProductMappingPage() {
             )}
 
             <div className="space-y-3">
-              {/* Pod product */}
+              {/* Step 1: Machine (required, no global option) */}
+              <div>
+                <label className="mb-1 block text-xs font-medium text-neutral-500">Machine *</label>
+                <select
+                  value={addMachineId}
+                  onChange={e => { setAddMachineId(e.target.value); setAddPodId(''); setAddSplits([]) }}
+                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
+                >
+                  {machines.map(m => <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>)}
+                </select>
+              </div>
+
+              {/* Step 2: Pod product */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-neutral-500">Pod Product *</label>
                 <input
@@ -723,19 +787,12 @@ export default function ProductMappingPage() {
                     <option key={p.pod_product_id} value={p.pod_product_id}>{p.pod_product_name}</option>
                   ))}
                 </select>
-              </div>
-
-              {/* Machine */}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Machine *</label>
-                <select
-                  value={addMachineId}
-                  onChange={e => setAddMachineId(e.target.value)}
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
-                >
-                  <option value="__global__">Global (all machines)</option>
-                  {machines.map(m => <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>)}
-                </select>
+                {addLoadingExisting && (
+                  <p className="mt-1 text-xs text-neutral-400">Loading existing splits…</p>
+                )}
+                {addIsUpdate && !addLoadingExisting && (
+                  <p className="mt-1 text-xs text-amber-600">Existing splits loaded — editing will overwrite them.</p>
+                )}
               </div>
 
               {/* Splits */}
@@ -792,10 +849,10 @@ export default function ProductMappingPage() {
 
               <button
                 onClick={handleAddCreate}
-                disabled={adding}
+                disabled={adding || addLoadingExisting}
                 className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {adding ? 'Creating…' : 'Create mapping'}
+                {adding ? 'Saving…' : addIsUpdate ? 'Update mapping' : 'Create mapping'}
               </button>
             </div>
           </div>
