@@ -1,11 +1,14 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../../components/field-header'
 import { usePageTour } from '../../../components/onboarding/use-page-tour'
 import Tour from '../../../components/onboarding/tour'
+import { getExpiryStyle } from '@/app/(field)/utils/expiry'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MachineInfo {
   official_name: string
@@ -19,22 +22,36 @@ interface DispatchPhoto {
 
 interface DispatchLine {
   dispatch_id: string
+  boonz_product_id: string | null
+  shelf_id: string | null
   shelf_code: string
   pod_product_name: string
   quantity: number
   filled_quantity: number
   dispatched: boolean
+  expiry_date: string | null
   comment: string
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatDMY(date: string | null): string {
+  if (!date) return '—'
+  return new Date(date + 'T00:00:00').toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: '2-digit',
+  })
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function DispatchingDetailPage() {
   const params = useParams<{ machineId: string }>()
-  const router = useRouter()
   const machineId = params.machineId
   const { showTour, tourSteps, completeTour } = usePageTour('dispatching')
 
   const [machine, setMachine] = useState<MachineInfo | null>(null)
   const [lines, setLines] = useState<DispatchLine[]>([])
+  const [invWarnings, setInvWarnings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [markingAll, setMarkingAll] = useState(false)
 
@@ -59,9 +76,12 @@ export default function DispatchingDetailPage() {
       .from('refill_dispatching')
       .select(`
         dispatch_id,
+        boonz_product_id,
+        shelf_id,
         quantity,
         filled_quantity,
         dispatched,
+        expiry_date,
         comment,
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
@@ -77,11 +97,14 @@ export default function DispatchingDetailPage() {
         const product = line.pod_products as unknown as { pod_product_name: string }
         return {
           dispatch_id: line.dispatch_id,
+          boonz_product_id: (line.boonz_product_id as string | null) ?? null,
+          shelf_id: (line.shelf_id as string | null) ?? null,
           shelf_code: shelf.shelf_code,
           pod_product_name: product.pod_product_name,
           quantity: line.quantity ?? 0,
           filled_quantity: line.filled_quantity ?? line.quantity ?? 0,
           dispatched: !!line.dispatched,
+          expiry_date: (line.expiry_date as string | null) ?? null,
           comment: (line.comment as string) ?? '',
         }
       })
@@ -107,9 +130,24 @@ export default function DispatchingDetailPage() {
     setLoading(false)
   }, [machineId])
 
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // Products with mixed expiry dates across their dispatch lines
+  const mixedDateProducts = useMemo(() => {
+    const byProduct = new Map<string, Set<string>>()
+    for (const l of lines) {
+      if (!l.expiry_date || !l.boonz_product_id) continue
+      if (!byProduct.has(l.boonz_product_id)) byProduct.set(l.boonz_product_id, new Set())
+      byProduct.get(l.boonz_product_id)!.add(l.expiry_date)
+    }
+    const mixed = new Set<string>()
+    for (const [pid, dates] of byProduct) {
+      if (dates.size > 1) mixed.add(pid)
+    }
+    return mixed
+  }, [lines])
+
+  // ── Photo capture ──────────────────────────────────────────────────────────
 
   async function compressImage(file: File): Promise<Blob> {
     return new Promise((resolve) => {
@@ -171,19 +209,119 @@ export default function DispatchingDetailPage() {
     setPhotoUploading(null)
   }
 
+  // ── Inventory update logic (non-blocking) ──────────────────────────────────
+
+  async function runInventoryUpdates(line: DispatchLine): Promise<string | null> {
+    const productId = line.boonz_product_id
+    if (!productId) return null
+
+    const supabase = createClient()
+    const today = new Date().toISOString().split('T')[0]
+
+    // A — Deduct from warehouse_inventory
+    try {
+      interface WhRow { wh_inventory_id: string; warehouse_stock: number }
+      let whRow: WhRow | null = null
+
+      if (line.expiry_date) {
+        const { data } = await supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id, warehouse_stock')
+          .eq('boonz_product_id', productId)
+          .eq('expiration_date', line.expiry_date)
+          .eq('status', 'Active')
+          .limit(1)
+        whRow = ((data ?? []) as WhRow[])[0] ?? null
+      }
+
+      if (!whRow) {
+        // FIFO fallback — earliest non-null expiry
+        const { data } = await supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id, warehouse_stock')
+          .eq('boonz_product_id', productId)
+          .eq('status', 'Active')
+          .order('expiration_date', { ascending: true, nullsFirst: false })
+          .limit(1)
+        whRow = ((data ?? []) as WhRow[])[0] ?? null
+      }
+
+      if (whRow) {
+        const newStock = Math.max(0, (whRow.warehouse_stock ?? 0) - line.filled_quantity)
+        const { error } = await supabase
+          .from('warehouse_inventory')
+          .update({ warehouse_stock: newStock })
+          .eq('wh_inventory_id', whRow.wh_inventory_id)
+        if (error) throw error
+      } else {
+        console.warn('[Dispatch] No warehouse batch found for product', productId)
+      }
+    } catch (err) {
+      console.error('[Dispatch] Warehouse deduction failed:', err)
+      return '⚠ Inventory update failed'
+    }
+
+    // B — Update pod_inventory
+    if (line.shelf_id) {
+      try {
+        interface PodRow { pod_inventory_id: string; current_stock: number }
+        const { data: existingRows } = await supabase
+          .from('pod_inventory')
+          .select('pod_inventory_id, current_stock')
+          .eq('machine_id', machineId)
+          .eq('shelf_id', line.shelf_id)
+          .eq('boonz_product_id', productId)
+          .eq('status', 'Active')
+          .order('snapshot_date', { ascending: false })
+          .limit(1)
+
+        const existingPod = ((existingRows ?? []) as PodRow[])[0] ?? null
+
+        if (existingPod) {
+          const { error } = await supabase
+            .from('pod_inventory')
+            .update({
+              current_stock: (existingPod.current_stock ?? 0) + line.filled_quantity,
+              expiration_date: line.expiry_date,
+              snapshot_date: today,
+            })
+            .eq('pod_inventory_id', existingPod.pod_inventory_id)
+          if (error) throw error
+        } else {
+          const { error } = await supabase
+            .from('pod_inventory')
+            .insert({
+              machine_id: machineId,
+              shelf_id: line.shelf_id,
+              boonz_product_id: productId,
+              current_stock: line.filled_quantity,
+              expiration_date: line.expiry_date,
+              batch_id: `DISPATCH-${today}`,
+              status: 'Active',
+              snapshot_date: today,
+            })
+          if (error) throw error
+        }
+      } catch (err) {
+        console.error('[Dispatch] Pod inventory update failed:', err)
+        return '⚠ Inventory update failed'
+      }
+    }
+
+    return null
+  }
+
+  // ── Line actions ───────────────────────────────────────────────────────────
+
   function updateQuantity(dispatchId: string, value: number) {
     setLines((prev) =>
-      prev.map((l) =>
-        l.dispatch_id === dispatchId ? { ...l, filled_quantity: value } : l
-      )
+      prev.map((l) => l.dispatch_id === dispatchId ? { ...l, filled_quantity: value } : l)
     )
   }
 
   function updateComment(dispatchId: string, value: string) {
     setLines((prev) =>
-      prev.map((l) =>
-        l.dispatch_id === dispatchId ? { ...l, comment: value } : l
-      )
+      prev.map((l) => l.dispatch_id === dispatchId ? { ...l, comment: value } : l)
     )
   }
 
@@ -211,34 +349,41 @@ export default function DispatchingDetailPage() {
       .eq('dispatch_id', dispatchId)
 
     setLines((prev) =>
-      prev.map((l) =>
-        l.dispatch_id === dispatchId ? { ...l, dispatched: true } : l
-      )
+      prev.map((l) => l.dispatch_id === dispatchId ? { ...l, dispatched: true } : l)
     )
+
+    // Inventory updates — non-blocking, dispatch confirmed regardless
+    const warning = await runInventoryUpdates(line)
+    if (warning) {
+      setInvWarnings((prev) => ({ ...prev, [dispatchId]: warning }))
+    }
   }
 
   async function handleMarkAllDispatched() {
     setMarkingAll(true)
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+    const undispatched = lines.filter((l) => !l.dispatched)
 
-    // For unedited lines, use planned quantity
-    const updates = lines
-      .filter((l) => !l.dispatched)
-      .map((l) =>
-        supabase
-          .from('refill_dispatching')
-          .update({
-            dispatched: true,
-            filled_quantity: l.filled_quantity,
-            item_added: true,
-            comment: l.comment.trim() || null,
-          })
-          .eq('dispatch_id', l.dispatch_id)
-          .eq('dispatch_date', today)
-      )
+    // Sequential — avoid inventory conflicts; dispatch confirmed per line
+    for (const l of undispatched) {
+      await supabase
+        .from('refill_dispatching')
+        .update({
+          dispatched: true,
+          filled_quantity: l.filled_quantity,
+          item_added: true,
+          comment: l.comment.trim() || null,
+        })
+        .eq('dispatch_id', l.dispatch_id)
+        .eq('dispatch_date', today)
 
-    await Promise.all(updates)
+      const warning = await runInventoryUpdates(l)
+      if (warning) {
+        setInvWarnings((prev) => ({ ...prev, [l.dispatch_id]: warning }))
+      }
+    }
+
     setLines((prev) => prev.map((l) => ({ ...l, dispatched: true })))
     setMarkingAll(false)
   }
@@ -257,19 +402,16 @@ export default function DispatchingDetailPage() {
   const doneCount = lines.filter((l) => l.dispatched).length
   const allDone = lines.length > 0 && doneCount === lines.length
 
-  // Group by shelf_code
   const grouped = new Map<string, DispatchLine[]>()
   for (const line of lines) {
     const existing = grouped.get(line.shelf_code) ?? []
     existing.push(line)
     grouped.set(line.shelf_code, existing)
   }
-  const shelves = Array.from(grouped.entries()).sort((a, b) =>
-    a[0].localeCompare(b[0])
-  )
+  const shelves = Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]))
 
   return (
-    <div className="px-4 py-4">
+    <div className="px-4 py-4 pb-24">
       <FieldHeader title="Dispatch Detail" />
       {showTour && tourSteps.length > 0 && (
         <Tour steps={tourSteps} onComplete={completeTour} onSkip={completeTour} />
@@ -353,57 +495,83 @@ export default function DispatchingDetailPage() {
 
       {shelves.map(([shelfCode, shelfLines], idx) => (
         <div key={shelfCode} {...(idx === 0 ? { 'data-tour': 'dispatch-lines' } : {})} className="mb-4">
-          <h2 className="mb-2 text-sm font-semibold text-neutral-500 uppercase tracking-wide">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
             Shelf {shelfCode}
           </h2>
           <ul className="space-y-1">
-            {shelfLines.map((line) => (
-              <li
-                key={line.dispatch_id}
-                className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950"
-              >
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => handleDispatchLine(line.dispatch_id)}
-                    disabled={line.dispatched}
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border text-sm ${
-                      line.dispatched
-                        ? 'border-green-500 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                        : 'border-neutral-300 bg-white hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-900'
-                    }`}
-                  >
-                    {line.dispatched ? '✓' : ''}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {line.pod_product_name}
-                    </p>
-                    <p className="text-xs text-neutral-500">
-                      Planned: {line.quantity}
-                    </p>
+            {shelfLines.map((line) => {
+              const expiryStyle = getExpiryStyle(line.expiry_date)
+              const isMixed = line.boonz_product_id ? mixedDateProducts.has(line.boonz_product_id) : false
+              const invWarning = invWarnings[line.dispatch_id]
+
+              return (
+                <li
+                  key={line.dispatch_id}
+                  className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950"
+                >
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleDispatchLine(line.dispatch_id)}
+                      disabled={line.dispatched}
+                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border text-sm ${
+                        line.dispatched
+                          ? 'border-green-500 bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                          : 'border-neutral-300 bg-white hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-900'
+                      }`}
+                    >
+                      {line.dispatched ? '✓' : ''}
+                    </button>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{line.pod_product_name}</p>
+
+                      {/* Expiry from packing step */}
+                      {line.expiry_date && (
+                        <p className="mt-0.5 text-xs">
+                          <span className="text-neutral-500">Expiry: </span>
+                          <span className={expiryStyle.qtyColor}>{formatDMY(line.expiry_date)}</span>
+                        </p>
+                      )}
+
+                      {/* Mixed-batch signal */}
+                      {isMixed && (
+                        <p className="mt-0.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                          ⚠ Mixed dates — load oldest first
+                        </p>
+                      )}
+
+                      {/* Inventory warning (non-blocking) */}
+                      {invWarning && (
+                        <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">{invWarning}</p>
+                      )}
+
+                      <p className="mt-0.5 text-xs text-neutral-500">Planned: {line.quantity}</p>
+                    </div>
+
+                    <input
+                      type="number"
+                      min={0}
+                      value={line.filled_quantity}
+                      onChange={(e) =>
+                        updateQuantity(line.dispatch_id, parseFloat(e.target.value) || 0)
+                      }
+                      disabled={line.dispatched}
+                      className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                    />
                   </div>
+
                   <input
-                    type="number"
-                    min={0}
-                    value={line.filled_quantity}
-                    onChange={(e) =>
-                      updateQuantity(line.dispatch_id, parseFloat(e.target.value) || 0)
-                    }
+                    type="text"
+                    value={line.comment}
+                    onChange={(e) => updateComment(line.dispatch_id, e.target.value)}
+                    onBlur={(e) => saveComment(line.dispatch_id, e.target.value)}
                     disabled={line.dispatched}
-                    className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                    placeholder="Add note…"
+                    className="mt-2 w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 placeholder:text-neutral-400 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
                   />
-                </div>
-                <input
-                  type="text"
-                  value={line.comment}
-                  onChange={(e) => updateComment(line.dispatch_id, e.target.value)}
-                  onBlur={(e) => saveComment(line.dispatch_id, e.target.value)}
-                  disabled={line.dispatched}
-                  placeholder="Add note…"
-                  className="mt-2 w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 placeholder:text-neutral-400 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
-                />
-              </li>
-            ))}
+                </li>
+              )
+            })}
           </ul>
         </div>
       ))}
