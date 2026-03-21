@@ -285,6 +285,7 @@ export default function DispatchingDetailPage() {
         .eq('machine_id', machineId)
         .eq('boonz_product_id', productId)
         .eq('status', 'Active')
+        .order('current_stock', { ascending: false })
         .order('snapshot_date', { ascending: false })
         .limit(1)
 
@@ -299,6 +300,7 @@ export default function DispatchingDetailPage() {
             snapshot_date: today,
           })
           .eq('pod_inventory_id', existing.pod_inventory_id)
+        console.log('[Dispatch] pod inventory updated: UPDATE stock:', filledQty)
       } else {
         await supabase
           .from('pod_inventory')
@@ -312,6 +314,7 @@ export default function DispatchingDetailPage() {
             status: 'Active',
             snapshot_date: today,
           })
+        console.log('[Dispatch] pod inventory updated: INSERT stock:', filledQty)
       }
     } catch (err) {
       console.error('[Dispatch] pod inventory update failed:', err)
