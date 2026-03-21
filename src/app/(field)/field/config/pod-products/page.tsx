@@ -162,7 +162,6 @@ interface PodAlias {
   official_name: string
   original_name: string
   mapped_at: string | null
-  is_active: boolean | null
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -216,7 +215,10 @@ export default function PodProductsPage() {
         .select('pod_product_id, custom_code, pod_product_name, product_category, barcode, machine_type, measurement_method, weight_g, purchasing_cost, recommended_selling_price, supplier_id, suppliers(supplier_name)')
         .order('pod_product_name'),
       supabase.from('suppliers').select('supplier_id, supplier_name').eq('status', 'Active').order('supplier_name'),
-      supabase.from('product_name_conventions').select('id, official_name, original_name, mapped_at, is_active').order('official_name'),
+      supabase.from('product_name_conventions')
+        .select('id, original_name, official_name, mapped_at')
+        .order('official_name', { ascending: true })
+        .order('original_name', { ascending: true }),
     ])
 
     if (podData) {
@@ -226,16 +228,19 @@ export default function PodProductsPage() {
       }))
     }
     if (supplierData) setSuppliers(supplierData)
-    if (aliasData) {
-      // Deduplicate by original_name|||official_name
-      const seen = new Set<string>()
-      const deduped: PodAlias[] = []
-      for (const a of aliasData as PodAlias[]) {
-        const key = `${a.original_name}|||${a.official_name}`
-        if (!seen.has(key)) { seen.add(key); deduped.push(a) }
+
+    // Deduplicate by original_name within each official_name using Map
+    const grouped = new Map<string, { official_name: string; aliases: PodAlias[] }>()
+    for (const row of (aliasData ?? []) as PodAlias[]) {
+      if (!grouped.has(row.official_name)) grouped.set(row.official_name, { official_name: row.official_name, aliases: [] })
+      const group = grouped.get(row.official_name)!
+      if (!group.aliases.find(a => a.original_name === row.original_name)) {
+        group.aliases.push(row)
       }
-      setAliases(deduped)
     }
+    const deduped = Array.from(grouped.values()).flatMap(g => g.aliases)
+    console.log('[PodAliases] loaded rows:', aliasData?.length, 'groups:', grouped.size)
+    setAliases(deduped)
     setLoading(false)
   }, [router])
 
@@ -249,18 +254,21 @@ export default function PodProductsPage() {
     return rows.filter(r => r.pod_product_name.toLowerCase().includes(q) || (r.custom_code ?? '').toLowerCase().includes(q))
   }, [rows, search])
 
-  // Grouped aliases
+  // Grouped aliases (Map-based, deduplicated by original_name within official_name)
   const aliasGroups = useMemo(() => {
     const q = aliasSearch.toLowerCase()
     const src = q
       ? aliases.filter(a => a.official_name.toLowerCase().includes(q) || a.original_name.toLowerCase().includes(q))
       : aliases
-    const groups: Record<string, PodAlias[]> = {}
-    for (const a of src) {
-      if (!groups[a.official_name]) groups[a.official_name] = []
-      groups[a.official_name].push(a)
+    const grouped = new Map<string, { official_name: string; aliases: PodAlias[] }>()
+    for (const row of src) {
+      if (!grouped.has(row.official_name)) grouped.set(row.official_name, { official_name: row.official_name, aliases: [] })
+      const group = grouped.get(row.official_name)!
+      if (!group.aliases.find(a => a.original_name === row.original_name)) {
+        group.aliases.push(row)
+      }
     }
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+    return Array.from(grouped.values()).sort((a, b) => a.official_name.localeCompare(b.official_name))
   }, [aliases, aliasSearch])
 
   // ── Products tab actions ───────────────────────────────────────────────────
@@ -316,12 +324,6 @@ export default function PodProductsPage() {
 
   // ── Aliases tab actions ────────────────────────────────────────────────────
 
-  async function toggleAlias(id: string, current: boolean | null) {
-    const supabase = createClient()
-    await supabase.from('product_name_conventions').update({ is_active: !current }).eq('id', id)
-    await fetchData()
-  }
-
   async function deleteAlias(id: string) {
     const supabase = createClient()
     await supabase.from('product_name_conventions').delete().eq('id', id)
@@ -339,7 +341,6 @@ export default function PodProductsPage() {
     const { error } = await supabase.from('product_name_conventions').insert({
       official_name: officialName,
       original_name: inlineAlias.trim(),
-      is_active: true,
     })
     if (!error) {
       setAddAliasForGroup(null); setInlineAlias('')
@@ -366,11 +367,11 @@ export default function PodProductsPage() {
     if (isDupe) { setAddOfficialError('This name already exists'); return }
     setAddingOfficial(true); setAddOfficialError(null)
     const supabase = createClient()
-    const rows: { official_name: string; original_name: string; is_active: boolean }[] = [
-      { official_name: newOfficialName.trim(), original_name: newOfficialName.trim(), is_active: true },
+    const rows: { official_name: string; original_name: string }[] = [
+      { official_name: newOfficialName.trim(), original_name: newOfficialName.trim() },
     ]
     if (newOfficialAlias.trim() && newOfficialAlias.trim().toLowerCase() !== newOfficialName.trim().toLowerCase()) {
-      rows.push({ official_name: newOfficialName.trim(), original_name: newOfficialAlias.trim(), is_active: true })
+      rows.push({ official_name: newOfficialName.trim(), original_name: newOfficialAlias.trim() })
     }
     const { error } = await supabase.from('product_name_conventions').insert(rows)
     if (error) { setAddOfficialError(error.message); setAddingOfficial(false); return }
@@ -502,7 +503,7 @@ export default function PodProductsPage() {
           <p className="mb-3 text-xs text-neutral-500">{aliasGroups.length} canonical names</p>
 
           <ul className="space-y-2">
-            {aliasGroups.map(([officialName, group]) => {
+            {aliasGroups.map(({ official_name: officialName, aliases: group }) => {
               const isOpen = expandedGroup === officialName
               const isRenaming = renamingGroup === officialName
               return (
@@ -571,16 +572,6 @@ export default function PodProductsPage() {
                                 {new Date(alias.mapped_at).toLocaleDateString()}
                               </span>
                             )}
-                            <button
-                              onClick={() => toggleAlias(alias.id, alias.is_active)}
-                              className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                                alias.is_active
-                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                                  : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
-                              }`}
-                            >
-                              {alias.is_active ? 'On' : 'Off'}
-                            </button>
                             <button
                               onClick={() => deleteAlias(alias.id)}
                               className="shrink-0 text-base leading-none text-neutral-400 hover:text-red-500"
