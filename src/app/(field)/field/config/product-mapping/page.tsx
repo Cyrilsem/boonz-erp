@@ -2,241 +2,270 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../../components/field-header'
 
 const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager']
-const STATUS_OPTIONS = ['Active', 'Inactive', 'Dormant'] as const
-type MappingStatus = typeof STATUS_OPTIONS[number]
+
+interface Machine { machine_id: string; official_name: string }
+interface BoonzProduct { product_id: string; boonz_product_name: string }
+interface PodProduct { pod_product_id: string; pod_product_name: string }
 
 interface MappingRow {
   mapping_id: string
   pod_product_id: string
   pod_product_name: string
   boonz_product_id: string
-  boonz_product_name: string
-  machine_id: string | null
-  machine_name: string | null
   split_pct: number
-  is_global_default: boolean
-  status: string
-  avg_cost: number | null
 }
 
-interface MappingDraft {
+interface PodGroup {
+  pod_product_id: string
+  pod_product_name: string
+  total_pct: number
+  split_count: number
+}
+
+interface SplitDraft {
+  key: string
+  mapping_id: string | null
   boonz_product_id: string
-  machine_id: string | null
   split_pct: number
-  status: string
-  avg_cost: string
+  toDelete: boolean
 }
 
-interface PodProduct { pod_product_id: string; pod_product_name: string }
-interface BoonzProduct { product_id: string; boonz_product_name: string }
-interface Machine { machine_id: string; official_name: string }
+interface RawRow {
+  mapping_id: string
+  pod_product_id: string
+  boonz_product_id: string
+  split_pct: number
+  pod_products: { pod_product_name: string }
+}
 
-type FilterTab = 'all' | 'global' | 'machine' | 'active' | 'inactive'
+let _k = 0
+const nk = () => `k${++_k}`
 
 export default function ProductMappingPage() {
   const router = useRouter()
-  const [rows, setRows] = useState<MappingRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [filterTab, setFilterTab] = useState<FilterTab>('all')
 
-  // Reference data for dropdowns
-  const [podProducts, setPodProducts] = useState<PodProduct[]>([])
-  const [boonzProducts, setBoonzProducts] = useState<BoonzProduct[]>([])
+  const [authed, setAuthed] = useState(false)
+  const [loadingRef, setLoadingRef] = useState(true)
+  const [loadingMaps, setLoadingMaps] = useState(false)
+
   const [machines, setMachines] = useState<Machine[]>([])
+  const [boonzProducts, setBoonzProducts] = useState<BoonzProduct[]>([])
+  const [podProducts, setPodProducts] = useState<PodProduct[]>([])
+  const [mappings, setMappings] = useState<MappingRow[]>([])
 
-  // Inline edit
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [drafts, setDrafts] = useState<Record<string, MappingDraft>>({})
-  const [saving, setSaving] = useState<Record<string, boolean>>({})
-  const [saveMsg, setSaveMsg] = useState<Record<string, string>>({})
+  const [selectedMachineId, setSelectedMachineId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
-  // Add new
+  // Accordion
+  const [expandedPodId, setExpandedPodId] = useState<string | null>(null)
+  const [splitDrafts, setSplitDrafts] = useState<Record<string, SplitDraft[]>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Bulk apply
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
+  const [bulkConfirm, setBulkConfirm] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
+
+  // Add modal
   const [showAdd, setShowAdd] = useState(false)
-  const [newPodId, setNewPodId] = useState('')
-  const [newBoonzId, setNewBoonzId] = useState('')
-  const [newMachineId, setNewMachineId] = useState<string>('__global__')
-  const [newSplitPct, setNewSplitPct] = useState('100')
-  const [newStatus, setNewStatus] = useState<MappingStatus>('Active')
-  const [newAvgCost, setNewAvgCost] = useState('')
-  const [adding, setAdding] = useState(false)
+  const [addPodId, setAddPodId] = useState('')
+  const [addPodSearch, setAddPodSearch] = useState('')
+  const [addMachineId, setAddMachineId] = useState('__global__')
+  const [addSplits, setAddSplits] = useState<{ key: string; boonz_product_id: string; split_pct: number }[]>([])
   const [addError, setAddError] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
 
-  // Dropdown search helpers
-  const [boonzSearch, setBoonzSearch] = useState('')
-  const [newBoonzSearch, setNewBoonzSearch] = useState('')
-  const [newPodSearch, setNewPodSearch] = useState('')
+  // Auth + reference data
+  useEffect(() => {
+    async function init() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+      const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+      if (!profile || !ADMIN_ROLES.includes(profile.role)) { router.push('/field'); return }
 
-  const fetchData = useCallback(async () => {
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return }
-    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-    if (!profile || !ADMIN_ROLES.includes(profile.role)) { router.push('/field'); return }
-
-    const [
-      { data: mappingData },
-      { data: podData },
-      { data: boonzData },
-      { data: machineData },
-    ] = await Promise.all([
-      supabase
-        .from('product_mapping')
-        .select('mapping_id, pod_product_id, boonz_product_id, machine_id, split_pct, is_global_default, status, avg_cost, pod_products!inner(pod_product_name), boonz_products!inner(boonz_product_name), machines(official_name)')
-        .order('pod_product_id'),
-      supabase.from('pod_products').select('pod_product_id, pod_product_name').order('pod_product_name'),
-      supabase.from('boonz_products').select('product_id, boonz_product_name').order('boonz_product_name'),
-      supabase.from('machines').select('machine_id, official_name').eq('status', 'active').order('official_name'),
-    ])
-
-    if (mappingData) {
-      const mapped: MappingRow[] = mappingData.map((r) => {
-        const pp = r.pod_products as unknown as { pod_product_name: string }
-        const bp = r.boonz_products as unknown as { boonz_product_name: string }
-        const m = r.machines as unknown as { official_name: string } | null
-        return {
-          mapping_id: r.mapping_id,
-          pod_product_id: r.pod_product_id,
-          pod_product_name: pp.pod_product_name,
-          boonz_product_id: r.boonz_product_id,
-          boonz_product_name: bp.boonz_product_name,
-          machine_id: r.machine_id,
-          machine_name: m?.official_name ?? null,
-          split_pct: r.split_pct ?? 100,
-          is_global_default: !!r.is_global_default,
-          status: r.status ?? 'Active',
-          avg_cost: r.avg_cost,
-        }
-      })
-      setRows(mapped)
+      const [{ data: mData }, { data: bData }, { data: ppData }] = await Promise.all([
+        supabase.from('machines').select('machine_id, official_name').eq('status', 'active').order('official_name'),
+        supabase.from('boonz_products').select('product_id, boonz_product_name').order('boonz_product_name'),
+        supabase.from('pod_products').select('pod_product_id, pod_product_name').order('pod_product_name'),
+      ])
+      if (mData) setMachines(mData)
+      if (bData) setBoonzProducts(bData)
+      if (ppData) setPodProducts(ppData)
+      setLoadingRef(false)
+      setAuthed(true)
     }
-    if (podData) setPodProducts(podData)
-    if (boonzData) setBoonzProducts(boonzData)
-    if (machineData) setMachines(machineData)
-    setLoading(false)
+    init()
   }, [router])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  const loadMappings = useCallback(async () => {
+    setLoadingMaps(true)
+    setExpandedPodId(null)
+    setSplitDrafts({})
+    setSaveError(null)
 
-  function openEdit(row: MappingRow) {
-    if (expandedId === row.mapping_id) { setExpandedId(null); return }
-    setExpandedId(row.mapping_id)
-    setBoonzSearch('')
-    setDrafts((prev) => ({
+    const supabase = createClient()
+    const sel = 'mapping_id, pod_product_id, boonz_product_id, split_pct, pod_products!inner(pod_product_name)'
+
+    let rawData: RawRow[] = []
+    if (selectedMachineId === null) {
+      const { data } = await supabase.from('product_mapping').select(sel).eq('status', 'Active').is('machine_id', null)
+      rawData = (data ?? []) as unknown as RawRow[]
+    } else {
+      const { data } = await supabase.from('product_mapping').select(sel).eq('status', 'Active').eq('machine_id', selectedMachineId)
+      rawData = (data ?? []) as unknown as RawRow[]
+    }
+
+    // Deduplicate by mapping_id
+    const seen = new Set<string>()
+    const rows: MappingRow[] = []
+    for (const r of rawData) {
+      if (seen.has(r.mapping_id)) continue
+      seen.add(r.mapping_id)
+      rows.push({
+        mapping_id: r.mapping_id,
+        pod_product_id: r.pod_product_id,
+        pod_product_name: r.pod_products.pod_product_name,
+        boonz_product_id: r.boonz_product_id,
+        split_pct: r.split_pct ?? 0,
+      })
+    }
+    setMappings(rows)
+    setLoadingMaps(false)
+  }, [selectedMachineId])
+
+  useEffect(() => { if (authed) loadMappings() }, [authed, loadMappings])
+
+  const podGroups = useMemo<PodGroup[]>(() => {
+    const map = new Map<string, PodGroup>()
+    for (const r of mappings) {
+      const g = map.get(r.pod_product_id)
+      if (g) { g.total_pct += r.split_pct; g.split_count++ }
+      else map.set(r.pod_product_id, { pod_product_id: r.pod_product_id, pod_product_name: r.pod_product_name, total_pct: r.split_pct, split_count: 1 })
+    }
+    return [...map.values()].sort((a, b) => a.pod_product_name.localeCompare(b.pod_product_name))
+  }, [mappings])
+
+  const filteredGroups = useMemo(() => {
+    if (!search.trim()) return podGroups
+    const q = search.toLowerCase()
+    return podGroups.filter(g => g.pod_product_name.toLowerCase().includes(q))
+  }, [podGroups, search])
+
+  const filteredPodProducts = useMemo(() =>
+    podProducts.filter(p => p.pod_product_name.toLowerCase().includes(addPodSearch.toLowerCase()))
+  , [podProducts, addPodSearch])
+
+  function toggleAccordion(podId: string) {
+    if (expandedPodId === podId) { setExpandedPodId(null); return }
+    setExpandedPodId(podId)
+    setBulkOpen(false)
+    setBulkSelected(new Set())
+    setBulkConfirm(false)
+    setSaveError(null)
+    const rows = mappings.filter(r => r.pod_product_id === podId)
+    setSplitDrafts(prev => ({
       ...prev,
-      [row.mapping_id]: {
-        boonz_product_id: row.boonz_product_id,
-        machine_id: row.machine_id,
-        split_pct: row.split_pct,
-        status: row.status,
-        avg_cost: row.avg_cost?.toString() ?? '',
-      },
+      [podId]: rows.map(r => ({ key: nk(), mapping_id: r.mapping_id, boonz_product_id: r.boonz_product_id, split_pct: r.split_pct, toDelete: false })),
     }))
   }
 
-  function patchDraft(id: string, patch: Partial<MappingDraft>) {
-    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }))
+  function patchSplit(podId: string, key: string, patch: Partial<SplitDraft>) {
+    setSplitDrafts(prev => ({ ...prev, [podId]: prev[podId].map(s => s.key === key ? { ...s, ...patch } : s) }))
   }
 
-  // Compute split pct sum for a pod+machine combo (excluding current mapping)
-  function splitWarning(draft: MappingDraft, currentId: string, podId: string): string | null {
-    const machineId = draft.machine_id
-    const otherRows = rows.filter(
-      (r) => r.pod_product_id === podId && r.machine_id === machineId && r.mapping_id !== currentId
-    )
-    const otherSum = otherRows.reduce((s, r) => s + (r.split_pct ?? 0), 0)
-    const total = otherSum + (draft.split_pct ?? 0)
-    if (total !== 100) return `Split %s don't add up to 100% — currently ${total}%`
-    return null
+  function addSplitRow(podId: string) {
+    const firstBoonz = boonzProducts[0]?.product_id ?? ''
+    setSplitDrafts(prev => ({ ...prev, [podId]: [...(prev[podId] ?? []), { key: nk(), mapping_id: null, boonz_product_id: firstBoonz, split_pct: 0, toDelete: false }] }))
   }
 
-  async function saveEdit(id: string, podId: string) {
-    const draft = drafts[id]
-    if (!draft) return
-    setSaving((p) => ({ ...p, [id]: true }))
+  function splitTotal(podId: string) {
+    return (splitDrafts[podId] ?? []).filter(s => !s.toDelete).reduce((sum, s) => sum + (s.split_pct || 0), 0)
+  }
+
+  async function saveMapping(podId: string) {
+    const active = (splitDrafts[podId] ?? []).filter(s => !s.toDelete)
+    if (active.some(s => !s.boonz_product_id)) { setSaveError('All rows must have a boonz product selected'); return }
+    setSaving(true)
+    setSaveError(null)
     const supabase = createClient()
-    const { error } = await supabase
-      .from('product_mapping')
-      .update({
-        boonz_product_id: draft.boonz_product_id,
-        machine_id: draft.machine_id,
-        is_global_default: draft.machine_id === null,
-        split_pct: draft.split_pct,
-        status: draft.status,
-        avg_cost: draft.avg_cost ? parseFloat(draft.avg_cost) : null,
-      })
-      .eq('mapping_id', id)
 
-    if (error) {
-      setSaveMsg((p) => ({ ...p, [id]: `Error: ${error.message}` }))
+    let delError: { message: string } | null = null
+    if (selectedMachineId === null) {
+      const res = await supabase.from('product_mapping').delete().eq('pod_product_id', podId).is('machine_id', null)
+      delError = res.error
     } else {
-      setSaveMsg((p) => ({ ...p, [id]: 'Saved ✓' }))
-      await fetchData()
-      setExpandedId(null)
-      setTimeout(() => setSaveMsg((p) => ({ ...p, [id]: '' })), 2000)
+      const res = await supabase.from('product_mapping').delete().eq('pod_product_id', podId).eq('machine_id', selectedMachineId)
+      delError = res.error
     }
-    setSaving((p) => ({ ...p, [id]: false }))
-    void podId
+    if (delError) { setSaveError(delError.message); setSaving(false); return }
+
+    if (active.length > 0) {
+      const { error: insErr } = await supabase.from('product_mapping').insert(
+        active.map(s => ({ pod_product_id: podId, boonz_product_id: s.boonz_product_id, machine_id: selectedMachineId, split_pct: s.split_pct, status: 'Active' }))
+      )
+      if (insErr) { setSaveError(insErr.message); setSaving(false); return }
+    }
+
+    setSaving(false)
+    setExpandedPodId(null)
+    await loadMappings()
   }
 
-  async function handleAdd() {
-    if (!newPodId || !newBoonzId) { setAddError('Select pod product and boonz product'); return }
+  async function applyBulk(podId: string) {
+    const active = (splitDrafts[podId] ?? []).filter(s => !s.toDelete)
+    setBulkSaving(true)
+    const supabase = createClient()
+    for (const machineId of bulkSelected) {
+      await supabase.from('product_mapping').delete().eq('pod_product_id', podId).eq('machine_id', machineId)
+      if (active.length > 0) {
+        await supabase.from('product_mapping').insert(
+          active.map(s => ({ pod_product_id: podId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' }))
+        )
+      }
+    }
+    setBulkSaving(false)
+    setBulkConfirm(false)
+    setBulkOpen(false)
+    setBulkSelected(new Set())
+  }
+
+  async function handleAddCreate() {
+    if (!addPodId) { setAddError('Select a pod product'); return }
+    if (addSplits.length === 0) { setAddError('Add at least one split row'); return }
+    if (addSplits.some(s => !s.boonz_product_id)) { setAddError('All rows must have a boonz product selected'); return }
     setAdding(true)
     setAddError(null)
     const supabase = createClient()
-    const machineId = newMachineId === '__global__' ? null : newMachineId
-    const { error } = await supabase.from('product_mapping').insert({
-      pod_product_id: newPodId,
-      boonz_product_id: newBoonzId,
-      machine_id: machineId,
-      is_global_default: machineId === null,
-      split_pct: parseFloat(newSplitPct) || 100,
-      status: newStatus,
-      avg_cost: newAvgCost ? parseFloat(newAvgCost) : null,
-    })
+    const machineId = addMachineId === '__global__' ? null : addMachineId
+    const { error } = await supabase.from('product_mapping').insert(
+      addSplits.map(s => ({ pod_product_id: addPodId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' }))
+    )
     if (error) { setAddError(error.message); setAdding(false); return }
     setShowAdd(false)
-    setNewPodId(''); setNewBoonzId(''); setNewMachineId('__global__')
-    setNewSplitPct('100'); setNewStatus('Active'); setNewAvgCost('')
-    setNewBoonzSearch(''); setNewPodSearch('')
-    await fetchData()
+    setAddPodId(''); setAddPodSearch(''); setAddMachineId('__global__'); setAddSplits([])
     setAdding(false)
+    await loadMappings()
   }
 
-  const FILTER_TABS: { label: string; value: FilterTab }[] = [
-    { label: 'All', value: 'all' },
-    { label: 'Global', value: 'global' },
-    { label: 'Machine', value: 'machine' },
-    { label: 'Active', value: 'active' },
-    { label: 'Inactive', value: 'inactive' },
-  ]
+  const machineName = selectedMachineId
+    ? (machines.find(m => m.machine_id === selectedMachineId)?.official_name ?? '')
+    : 'Global'
+  const addTotal = addSplits.reduce((s, r) => s + (r.split_pct || 0), 0)
 
-  const filtered = rows.filter((r) => {
-    const q = search.toLowerCase()
-    const matchSearch = !q || r.pod_product_name.toLowerCase().includes(q) || r.boonz_product_name.toLowerCase().includes(q)
-    let matchFilter = true
-    if (filterTab === 'global') matchFilter = r.machine_id === null
-    if (filterTab === 'machine') matchFilter = r.machine_id !== null
-    if (filterTab === 'active') matchFilter = r.status === 'Active'
-    if (filterTab === 'inactive') matchFilter = r.status !== 'Active'
-    return matchSearch && matchFilter
-  })
-
-  const filteredBoonz = boonzProducts.filter((b) => b.boonz_product_name.toLowerCase().includes(boonzSearch.toLowerCase()))
-  const filteredNewBoonz = boonzProducts.filter((b) => b.boonz_product_name.toLowerCase().includes(newBoonzSearch.toLowerCase()))
-  const filteredNewPod = podProducts.filter((p) => p.pod_product_name.toLowerCase().includes(newPodSearch.toLowerCase()))
-
-  if (loading) {
+  if (loadingRef) {
     return (
       <>
         <FieldHeader title="Product Mapping" />
-        <div className="flex items-center justify-center p-8"><p className="text-neutral-500">Loading…</p></div>
+        <div className="flex items-center justify-center p-12 text-sm text-neutral-400">Loading…</div>
       </>
     )
   }
@@ -247,184 +276,230 @@ export default function ProductMappingPage() {
         title="Product Mapping"
         rightAction={
           <button
-            onClick={() => setShowAdd(true)}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            onClick={() => {
+              setShowAdd(true)
+              setAddSplits([{ key: nk(), boonz_product_id: boonzProducts[0]?.product_id ?? '', split_pct: 100 }])
+              setAddError(null)
+            }}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
           >
-            + Add
+            + New mapping
           </button>
         }
       />
 
-      <div className="px-4 py-4">
+      {/* Machine selector */}
+      <div className="sticky top-0 z-10 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <select
+          value={selectedMachineId ?? '__global__'}
+          onChange={e => setSelectedMachineId(e.target.value === '__global__' ? null : e.target.value)}
+          className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        >
+          <option value="__global__">Global (all machines)</option>
+          {machines.map(m => <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>)}
+        </select>
+      </div>
+
+      <div className="px-4 py-3">
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search pod or boonz product…"
-          className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search pod product…"
+          className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
         />
+      </div>
 
-        {/* Filter tabs */}
-        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-          {FILTER_TABS.map((t) => (
-            <button
-              key={t.value}
-              onClick={() => setFilterTab(t.value)}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                filterTab === t.value
-                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <p className="mb-3 text-xs text-neutral-500">{filtered.length} mappings</p>
-
-        <ul className="space-y-2">
-          {filtered.map((row) => {
-            const isExpanded = expandedId === row.mapping_id
-            const draft = drafts[row.mapping_id]
-            const warning = draft ? splitWarning(draft, row.mapping_id, row.pod_product_id) : null
+      {loadingMaps ? (
+        <div className="flex items-center justify-center p-8 text-sm text-neutral-400">Loading mappings…</div>
+      ) : (
+        <ul className="space-y-2 px-4">
+          {filteredGroups.length === 0 && (
+            <li className="py-10 text-center text-sm text-neutral-400">No mappings for {machineName}</li>
+          )}
+          {filteredGroups.map(g => {
+            const isOpen = expandedPodId === g.pod_product_id
+            const ok = Math.round(g.total_pct) === 100
+            const drafts = splitDrafts[g.pod_product_id] ?? []
+            const activeDrafts = drafts.filter(s => !s.toDelete)
+            const deletedDrafts = drafts.filter(s => s.toDelete)
+            const total = splitTotal(g.pod_product_id)
+            const totalOk = Math.round(total) === 100
 
             return (
-              <li key={row.mapping_id} className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+              <li
+                key={g.pod_product_id}
+                className={`overflow-hidden rounded-xl border bg-white dark:bg-neutral-950 ${
+                  ok
+                    ? 'border-neutral-200 dark:border-neutral-800'
+                    : 'border-neutral-200 border-l-4 border-l-red-500 dark:border-neutral-800'
+                }`}
+              >
                 {/* Row header */}
-                <div className="cursor-pointer p-3" onClick={() => openEdit(row)}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{row.pod_product_name}</p>
-                      <p className="text-xs text-neutral-500 truncate">→ {row.boonz_product_name}</p>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
-                          {row.split_pct}%
-                        </span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
-                          {row.machine_name ?? 'Global'}
-                        </span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${
-                          row.status === 'Active' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                          : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800'
-                        }`}>{row.status}</span>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      {row.avg_cost != null && (
-                        <p className="text-xs text-neutral-500">{row.avg_cost.toFixed(2)} AED</p>
-                      )}
-                      <span className="text-xs text-neutral-400">{isExpanded ? '▲' : '▼'}</span>
-                    </div>
+                <button
+                  className="flex w-full items-center justify-between px-4 py-3 text-left"
+                  onClick={() => toggleAccordion(g.pod_product_id)}
+                >
+                  <p className="max-w-[55%] truncate text-sm font-semibold">{g.pod_product_name}</p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                      {g.split_count} product{g.split_count !== 1 ? 's' : ''}
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      ok
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                    }`}>
+                      {ok ? '100%' : `${Math.round(g.total_pct)}% ⚠`}
+                    </span>
+                    <span className="text-xs text-neutral-400">{isOpen ? '▲' : '▼'}</span>
                   </div>
-                </div>
+                </button>
 
-                {/* Expanded edit */}
-                {isExpanded && draft && (
-                  <div className="border-t border-neutral-100 px-3 pb-4 pt-3 dark:border-neutral-800 space-y-3">
-                    {warning && (
-                      <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                        ⚠️ {warning}
-                      </div>
-                    )}
+                {/* Accordion */}
+                {isOpen && (
+                  <div className="space-y-3 border-t border-neutral-100 px-4 pb-4 pt-3 dark:border-neutral-800">
+                    <p className="text-xs text-neutral-500">
+                      {selectedMachineId ? `Machine: ${machineName}` : 'Global mapping (applies to all machines)'}
+                    </p>
 
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-neutral-500">Boonz Product</label>
-                      <input
-                        type="text"
-                        value={boonzSearch}
-                        onChange={(e) => setBoonzSearch(e.target.value)}
-                        placeholder="Search…"
-                        className="mb-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-900"
-                      />
-                      <select
-                        value={draft.boonz_product_id}
-                        onChange={(e) => patchDraft(row.mapping_id, { boonz_product_id: e.target.value })}
-                        className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-900"
-                      >
-                        {filteredBoonz.map((b) => (
-                          <option key={b.product_id} value={b.product_id}>{b.boonz_product_name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-neutral-500">Machine</label>
-                      <select
-                        value={draft.machine_id ?? '__global__'}
-                        onChange={(e) => patchDraft(row.mapping_id, { machine_id: e.target.value === '__global__' ? null : e.target.value })}
-                        className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-900"
-                      >
-                        <option value="__global__">Global (all machines)</option>
-                        {machines.map((m) => (
-                          <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Split %</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={draft.split_pct}
-                          onChange={(e) => patchDraft(row.mapping_id, { split_pct: parseFloat(e.target.value) || 0 })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs font-medium text-neutral-500">Avg Cost (AED)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={draft.avg_cost}
-                          onChange={(e) => patchDraft(row.mapping_id, { avg_cost: e.target.value })}
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-neutral-500">Status</label>
-                      <div className="flex gap-2">
-                        {STATUS_OPTIONS.map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => patchDraft(row.mapping_id, { status: s })}
-                            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                              draft.status === s
-                                ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                                : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
-                            }`}
+                    {/* Split rows */}
+                    <div className="space-y-2">
+                      {activeDrafts.map(s => (
+                        <div key={s.key} className="flex items-center gap-2">
+                          <select
+                            value={s.boonz_product_id}
+                            onChange={e => patchSplit(g.pod_product_id, s.key, { boonz_product_id: e.target.value })}
+                            className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-900"
                           >
-                            {s}
-                          </button>
-                        ))}
-                      </div>
+                            {boonzProducts.map(b => <option key={b.product_id} value={b.product_id}>{b.boonz_product_name}</option>)}
+                          </select>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            value={s.split_pct}
+                            onChange={e => patchSplit(g.pod_product_id, s.key, { split_pct: parseFloat(e.target.value) || 0 })}
+                            className="w-16 shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-900"
+                          />
+                          <span className="shrink-0 text-xs text-neutral-500">%</span>
+                          <button
+                            onClick={() => patchSplit(g.pod_product_id, s.key, { toDelete: true })}
+                            className="shrink-0 text-sm font-bold text-red-400 hover:text-red-600"
+                          >×</button>
+                        </div>
+                      ))}
+                      {deletedDrafts.map(s => (
+                        <div key={s.key} className="flex items-center gap-2 opacity-40">
+                          <span className="flex-1 truncate text-xs line-through text-neutral-400">
+                            {boonzProducts.find(b => b.product_id === s.boonz_product_id)?.boonz_product_name ?? s.boonz_product_id}
+                          </span>
+                          <button
+                            onClick={() => patchSplit(g.pod_product_id, s.key, { toDelete: false })}
+                            className="shrink-0 text-xs text-blue-500 hover:text-blue-700"
+                          >Undo</button>
+                        </div>
+                      ))}
                     </div>
 
-                    {saveMsg[row.mapping_id] && (
-                      <p className={`text-xs font-medium ${saveMsg[row.mapping_id].startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
-                        {saveMsg[row.mapping_id]}
-                      </p>
-                    )}
+                    <button
+                      onClick={() => addSplitRow(g.pod_product_id)}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      + Add boonz product
+                    </button>
+
+                    {/* Live total bar */}
+                    <div className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                      totalOk
+                        ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                        : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                    }`}>
+                      {totalOk
+                        ? `${total}% of 100% — ✓`
+                        : total < 100
+                          ? `${total}% of 100% — ${100 - total}% remaining`
+                          : `${total}% of 100% — Over by ${total - 100}%`
+                      }
+                    </div>
+
+                    {saveError && <p className="text-xs font-medium text-red-600">{saveError}</p>}
 
                     <div className="flex gap-2">
                       <button
-                        onClick={() => saveEdit(row.mapping_id, row.pod_product_id)}
-                        disabled={saving[row.mapping_id]}
-                        className="flex-1 rounded-lg bg-neutral-900 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+                        onClick={() => saveMapping(g.pod_product_id)}
+                        disabled={saving}
+                        className="flex-1 rounded-xl bg-neutral-900 py-2.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
                       >
-                        {saving[row.mapping_id] ? 'Saving…' : 'Save'}
+                        {saving ? 'Saving…' : 'Save changes'}
                       </button>
                       <button
-                        onClick={() => setExpandedId(null)}
-                        className="rounded-lg border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-600"
+                        onClick={() => setExpandedPodId(null)}
+                        className="rounded-xl border border-neutral-300 px-4 py-2 text-xs font-medium text-neutral-600 dark:border-neutral-700"
                       >
                         Cancel
                       </button>
+                    </div>
+
+                    {/* Bulk apply */}
+                    <div className="border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                      <button
+                        onClick={() => { setBulkOpen(!bulkOpen); setBulkConfirm(false) }}
+                        className="text-xs font-medium text-neutral-500 hover:text-neutral-700"
+                      >
+                        {bulkOpen ? '▲' : '▼'} Apply to other machines
+                      </button>
+                      {bulkOpen && (
+                        <div className="mt-2 space-y-2">
+                          <p className="text-xs text-neutral-400">Select machines to copy these splits to (replaces existing):</p>
+                          {machines
+                            .filter(m => m.machine_id !== selectedMachineId)
+                            .map(m => (
+                              <label key={m.machine_id} className="flex items-center gap-2 text-xs">
+                                <input
+                                  type="checkbox"
+                                  checked={bulkSelected.has(m.machine_id)}
+                                  onChange={e => {
+                                    const next = new Set(bulkSelected)
+                                    e.target.checked ? next.add(m.machine_id) : next.delete(m.machine_id)
+                                    setBulkSelected(next)
+                                  }}
+                                />
+                                {m.official_name}
+                              </label>
+                            ))
+                          }
+                          {bulkSelected.size > 0 && !bulkConfirm && (
+                            <button
+                              onClick={() => setBulkConfirm(true)}
+                              className="rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+                            >
+                              Apply to {bulkSelected.size} machine{bulkSelected.size !== 1 ? 's' : ''}
+                            </button>
+                          )}
+                          {bulkConfirm && (
+                            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-900/20">
+                              <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                                Apply these splits to {bulkSelected.size} machine{bulkSelected.size !== 1 ? 's' : ''}? This will replace their existing mappings.
+                              </p>
+                              <div className="mt-2 flex gap-2">
+                                <button
+                                  onClick={() => applyBulk(g.pod_product_id)}
+                                  disabled={bulkSaving}
+                                  className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                                >
+                                  {bulkSaving ? 'Applying…' : 'Confirm'}
+                                </button>
+                                <button
+                                  onClick={() => setBulkConfirm(false)}
+                                  className="text-xs text-neutral-500 hover:text-neutral-700"
+                                >Cancel</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -432,126 +507,115 @@ export default function ProductMappingPage() {
             )
           })}
         </ul>
-      </div>
+      )}
 
-      {/* Add new bottom sheet */}
+      {/* Add new mapping modal */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowAdd(false)} />
           <div className="relative z-10 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
-            <h3 className="mb-4 text-center text-base font-bold">Add Mapping</h3>
+            <h3 className="mb-4 text-center text-base font-bold">New Mapping</h3>
 
             {addError && (
-              <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{addError}</div>
+              <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                {addError}
+              </div>
             )}
 
             <div className="space-y-3">
+              {/* Pod product */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Pod Product</label>
+                <label className="mb-1 block text-xs font-medium text-neutral-500">Pod Product *</label>
                 <input
                   type="text"
-                  value={newPodSearch}
-                  onChange={(e) => setNewPodSearch(e.target.value)}
-                  placeholder="Search pod product…"
+                  value={addPodSearch}
+                  onChange={e => setAddPodSearch(e.target.value)}
+                  placeholder="Search…"
                   className="mb-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-800"
                 />
                 <select
-                  value={newPodId}
-                  onChange={(e) => setNewPodId(e.target.value)}
+                  value={addPodId}
+                  onChange={e => setAddPodId(e.target.value)}
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
                 >
                   <option value="">Select pod product…</option>
-                  {filteredNewPod.map((p) => (
+                  {filteredPodProducts.map(p => (
                     <option key={p.pod_product_id} value={p.pod_product_id}>{p.pod_product_name}</option>
                   ))}
                 </select>
               </div>
 
+              {/* Machine */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Boonz Product</label>
-                <input
-                  type="text"
-                  value={newBoonzSearch}
-                  onChange={(e) => setNewBoonzSearch(e.target.value)}
-                  placeholder="Search boonz product…"
-                  className="mb-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-600 dark:bg-neutral-800"
-                />
+                <label className="mb-1 block text-xs font-medium text-neutral-500">Machine *</label>
                 <select
-                  value={newBoonzId}
-                  onChange={(e) => setNewBoonzId(e.target.value)}
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
-                >
-                  <option value="">Select boonz product…</option>
-                  {filteredNewBoonz.map((b) => (
-                    <option key={b.product_id} value={b.product_id}>{b.boonz_product_name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Machine</label>
-                <select
-                  value={newMachineId}
-                  onChange={(e) => setNewMachineId(e.target.value)}
+                  value={addMachineId}
+                  onChange={e => setAddMachineId(e.target.value)}
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
                 >
                   <option value="__global__">Global (all machines)</option>
-                  {machines.map((m) => (
-                    <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>
-                  ))}
+                  {machines.map(m => <option key={m.machine_id} value={m.machine_id}>{m.official_name}</option>)}
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">Split %</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={newSplitPct}
-                    onChange={(e) => setNewSplitPct(e.target.value)}
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-500">Avg Cost (AED)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={newAvgCost}
-                    onChange={(e) => setNewAvgCost(e.target.value)}
-                    placeholder="Optional"
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
-                  />
-                </div>
-              </div>
-
+              {/* Splits */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-500">Status</label>
-                <div className="flex gap-2">
-                  {STATUS_OPTIONS.map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setNewStatus(s)}
-                      className={`rounded-full px-3 py-1 text-xs font-medium ${
-                        newStatus === s
-                          ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                          : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
-                      }`}
-                    >
-                      {s}
-                    </button>
+                <label className="mb-1 block text-xs font-medium text-neutral-500">Boonz Product Splits</label>
+                <div className="space-y-2">
+                  {addSplits.map(s => (
+                    <div key={s.key} className="flex items-center gap-2">
+                      <select
+                        value={s.boonz_product_id}
+                        onChange={e => setAddSplits(prev => prev.map(r => r.key === s.key ? { ...r, boonz_product_id: e.target.value } : r))}
+                        className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
+                      >
+                        {boonzProducts.map(b => <option key={b.product_id} value={b.product_id}>{b.boonz_product_name}</option>)}
+                      </select>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        value={s.split_pct}
+                        onChange={e => setAddSplits(prev => prev.map(r => r.key === s.key ? { ...r, split_pct: parseFloat(e.target.value) || 0 } : r))}
+                        className="w-16 shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-800"
+                      />
+                      <span className="shrink-0 text-xs text-neutral-500">%</span>
+                      <button
+                        onClick={() => setAddSplits(prev => prev.filter(r => r.key !== s.key))}
+                        className="shrink-0 text-sm font-bold text-red-400 hover:text-red-600"
+                      >×</button>
+                    </div>
                   ))}
                 </div>
+                <button
+                  onClick={() => setAddSplits(prev => [...prev, { key: nk(), boonz_product_id: boonzProducts[0]?.product_id ?? '', split_pct: 0 }])}
+                  className="mt-2 text-xs font-medium text-blue-600 hover:text-blue-800"
+                >
+                  + Add row
+                </button>
+              </div>
+
+              {/* Live total */}
+              <div className={`rounded-lg px-3 py-2 text-xs font-medium ${
+                Math.round(addTotal) === 100
+                  ? 'bg-green-50 text-green-700'
+                  : 'bg-amber-50 text-amber-700'
+              }`}>
+                {Math.round(addTotal) === 100
+                  ? `${addTotal}% ✓`
+                  : addTotal < 100
+                    ? `${addTotal}% — ${100 - addTotal}% remaining`
+                    : `${addTotal}% — over by ${addTotal - 100}%`
+                }
               </div>
 
               <button
-                onClick={handleAdd}
+                onClick={handleAddCreate}
                 disabled={adding}
                 className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {adding ? 'Creating…' : 'Create Mapping'}
+                {adding ? 'Creating…' : 'Create mapping'}
               </button>
             </div>
           </div>
