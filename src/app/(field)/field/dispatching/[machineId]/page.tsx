@@ -209,106 +209,114 @@ export default function DispatchingDetailPage() {
     setPhotoUploading(null)
   }
 
-  // ── Inventory update logic (non-blocking) ──────────────────────────────────
+  // ── Inventory update logic (non-blocking, two independent steps) ───────────
 
-  async function runInventoryUpdates(line: DispatchLine): Promise<string | null> {
+  async function runInventoryUpdates(line: DispatchLine): Promise<void> {
     const productId = line.boonz_product_id
-    if (!productId) return null
+    if (!productId) return
 
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+    const filledQty = line.filled_quantity || line.quantity || 0
+    if (filledQty <= 0) return
 
-    // A — Deduct from warehouse_inventory
-    try {
-      interface WhRow { wh_inventory_id: string; warehouse_stock: number }
-      let whRow: WhRow | null = null
+    // Inner helper: walk ALL batches FIFO until qty is satisfied
+    async function deductFromWarehouse(boonzProductId: string, qtyToDeduct: number): Promise<void> {
+      interface WhRow { wh_inventory_id: string; warehouse_stock: number; expiration_date: string | null }
 
-      if (line.expiry_date) {
-        const { data } = await supabase
-          .from('warehouse_inventory')
-          .select('wh_inventory_id, warehouse_stock')
-          .eq('boonz_product_id', productId)
-          .eq('expiration_date', line.expiry_date)
-          .eq('status', 'Active')
-          .limit(1)
-        whRow = ((data ?? []) as WhRow[])[0] ?? null
+      const { data: batches } = await supabase
+        .from('warehouse_inventory')
+        .select('wh_inventory_id, warehouse_stock, expiration_date')
+        .eq('boonz_product_id', boonzProductId)
+        .eq('status', 'Active')
+        .gt('warehouse_stock', 0)
+        .order('expiration_date', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: true })
+
+      if (!batches || batches.length === 0) {
+        console.warn('[Dispatch] no warehouse stock found for', boonzProductId)
+        return
       }
 
-      if (!whRow) {
-        // FIFO fallback — earliest non-null expiry
-        const { data } = await supabase
-          .from('warehouse_inventory')
-          .select('wh_inventory_id, warehouse_stock')
-          .eq('boonz_product_id', productId)
-          .eq('status', 'Active')
-          .order('expiration_date', { ascending: true, nullsFirst: false })
-          .limit(1)
-        whRow = ((data ?? []) as WhRow[])[0] ?? null
-      }
+      let remaining = qtyToDeduct
+      for (const batch of batches as WhRow[]) {
+        if (remaining <= 0) break
+        const available = batch.warehouse_stock ?? 0
+        const deduct = Math.min(available, remaining)
+        const newStock = available - deduct
+        remaining -= deduct
 
-      if (whRow) {
-        const newStock = Math.max(0, (whRow.warehouse_stock ?? 0) - line.filled_quantity)
         const { error } = await supabase
           .from('warehouse_inventory')
           .update({ warehouse_stock: newStock })
-          .eq('wh_inventory_id', whRow.wh_inventory_id)
-        if (error) throw error
+          .eq('wh_inventory_id', batch.wh_inventory_id)
+
+        if (error) {
+          console.error('[Dispatch] warehouse deduction error:', error)
+          // Continue to next batch even if one fails
+        }
+
+        console.log(
+          `[Dispatch] deducted ${deduct} from batch ${batch.wh_inventory_id}`,
+          `(expiry: ${batch.expiration_date}, remaining to deduct: ${remaining})`
+        )
+      }
+
+      if (remaining > 0) {
+        console.warn(`[Dispatch] insufficient stock: still need ${remaining} more units`)
+      }
+    }
+
+    // STEP 1 — Warehouse FIFO deduction (best-effort, never blocks pod update)
+    try {
+      await deductFromWarehouse(productId, filledQty)
+    } catch (err) {
+      console.error('[Dispatch] warehouse step failed:', err)
+      // Non-blocking — always continue to pod update
+    }
+
+    // STEP 2 — Pod inventory update (always runs regardless of step 1)
+    try {
+      interface PodRow { pod_inventory_id: string; current_stock: number }
+
+      const { data: existingRows } = await supabase
+        .from('pod_inventory')
+        .select('pod_inventory_id, current_stock')
+        .eq('machine_id', machineId)
+        .eq('boonz_product_id', productId)
+        .eq('status', 'Active')
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+
+      const existing = ((existingRows ?? []) as PodRow[])[0] ?? null
+
+      if (existing) {
+        await supabase
+          .from('pod_inventory')
+          .update({
+            current_stock: (existing.current_stock ?? 0) + filledQty,
+            expiration_date: line.expiry_date ?? null,
+            snapshot_date: today,
+          })
+          .eq('pod_inventory_id', existing.pod_inventory_id)
       } else {
-        console.warn('[Dispatch] No warehouse batch found for product', productId)
+        await supabase
+          .from('pod_inventory')
+          .insert({
+            machine_id: machineId,
+            shelf_id: line.shelf_id ?? null,
+            boonz_product_id: productId,
+            current_stock: filledQty,
+            expiration_date: line.expiry_date ?? null,
+            batch_id: `DISPATCH-${today}`,
+            status: 'Active',
+            snapshot_date: today,
+          })
       }
     } catch (err) {
-      console.error('[Dispatch] Warehouse deduction failed:', err)
-      return '⚠ Inventory update failed'
+      console.error('[Dispatch] pod inventory update failed:', err)
+      setInvWarnings((prev) => ({ ...prev, [line.dispatch_id]: '⚠ Inventory update failed' }))
     }
-
-    // B — Update pod_inventory
-    if (line.shelf_id) {
-      try {
-        interface PodRow { pod_inventory_id: string; current_stock: number }
-        const { data: existingRows } = await supabase
-          .from('pod_inventory')
-          .select('pod_inventory_id, current_stock')
-          .eq('machine_id', machineId)
-          .eq('shelf_id', line.shelf_id)
-          .eq('boonz_product_id', productId)
-          .eq('status', 'Active')
-          .order('snapshot_date', { ascending: false })
-          .limit(1)
-
-        const existingPod = ((existingRows ?? []) as PodRow[])[0] ?? null
-
-        if (existingPod) {
-          const { error } = await supabase
-            .from('pod_inventory')
-            .update({
-              current_stock: (existingPod.current_stock ?? 0) + line.filled_quantity,
-              expiration_date: line.expiry_date,
-              snapshot_date: today,
-            })
-            .eq('pod_inventory_id', existingPod.pod_inventory_id)
-          if (error) throw error
-        } else {
-          const { error } = await supabase
-            .from('pod_inventory')
-            .insert({
-              machine_id: machineId,
-              shelf_id: line.shelf_id,
-              boonz_product_id: productId,
-              current_stock: line.filled_quantity,
-              expiration_date: line.expiry_date,
-              batch_id: `DISPATCH-${today}`,
-              status: 'Active',
-              snapshot_date: today,
-            })
-          if (error) throw error
-        }
-      } catch (err) {
-        console.error('[Dispatch] Pod inventory update failed:', err)
-        return '⚠ Inventory update failed'
-      }
-    }
-
-    return null
   }
 
   // ── Line actions ───────────────────────────────────────────────────────────
@@ -353,10 +361,7 @@ export default function DispatchingDetailPage() {
     )
 
     // Inventory updates — non-blocking, dispatch confirmed regardless
-    const warning = await runInventoryUpdates(line)
-    if (warning) {
-      setInvWarnings((prev) => ({ ...prev, [dispatchId]: warning }))
-    }
+    await runInventoryUpdates(line)
   }
 
   async function handleMarkAllDispatched() {
@@ -378,10 +383,7 @@ export default function DispatchingDetailPage() {
         .eq('dispatch_id', l.dispatch_id)
         .eq('dispatch_date', today)
 
-      const warning = await runInventoryUpdates(l)
-      if (warning) {
-        setInvWarnings((prev) => ({ ...prev, [l.dispatch_id]: warning }))
-      }
+      await runInventoryUpdates(l)
     }
 
     setLines((prev) => prev.map((l) => ({ ...l, dispatched: true })))
