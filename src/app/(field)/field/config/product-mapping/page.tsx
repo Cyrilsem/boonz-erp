@@ -43,6 +43,7 @@ interface MachineSection {
 interface SplitDraft {
   key: string
   mapping_id: string | null
+  original_boonz_id: string | null   // boonz_product_id as loaded from DB; null for new rows
   boonz_product_id: string
   split_pct: number
   toDelete: boolean
@@ -260,7 +261,14 @@ export default function ProductMappingPage() {
       : mappings.filter(r => r.pod_product_id === podId && r.machine_id === machineId)
     setSplitDrafts(prev => ({
       ...prev,
-      [key]: rows.map(r => ({ key: nk(), mapping_id: r.mapping_id, boonz_product_id: r.boonz_product_id, split_pct: r.split_pct, toDelete: false })),
+      [key]: rows.map(r => ({
+        key: nk(),
+        mapping_id: r.mapping_id,
+        original_boonz_id: r.boonz_product_id,
+        boonz_product_id: r.boonz_product_id,
+        split_pct: r.split_pct,
+        toDelete: false,
+      })),
     }))
   }
 
@@ -270,7 +278,10 @@ export default function ProductMappingPage() {
 
   function addSplitRow(draftKey: string) {
     const firstBoonz = boonzProducts[0]?.product_id ?? ''
-    setSplitDrafts(prev => ({ ...prev, [draftKey]: [...(prev[draftKey] ?? []), { key: nk(), mapping_id: null, boonz_product_id: firstBoonz, split_pct: 0, toDelete: false }] }))
+    setSplitDrafts(prev => ({
+      ...prev,
+      [draftKey]: [...(prev[draftKey] ?? []), { key: nk(), mapping_id: null, original_boonz_id: null, boonz_product_id: firstBoonz, split_pct: 0, toDelete: false }],
+    }))
   }
 
   function splitTotal(draftKey: string) {
@@ -279,37 +290,62 @@ export default function ProductMappingPage() {
 
   async function saveMapping(podId: string, machineId: string | null) {
     const key = aKey(podId, machineId)
-    const active = (splitDrafts[key] ?? []).filter(s => !s.toDelete)
-    if (active.some(s => !s.boonz_product_id)) { setSaveError('All rows must have a boonz product selected'); return }
+    const lines = splitDrafts[key] ?? []
+    const active = lines.filter(s => !s.toDelete)
+
+    // Validation: all active lines must have a boonz product
+    if (active.some(s => !s.boonz_product_id)) {
+      setSaveError('All rows must have a boonz product selected')
+      return
+    }
+
     setSaving(true)
     setSaveError(null)
     const supabase = createClient()
 
-    // Update existing rows (have a mapping_id in DB)
-    for (const s of active.filter(s => s.mapping_id)) {
-      const { error } = await supabase.from('product_mapping')
-        .update({ split_pct: s.split_pct })
-        .eq('mapping_id', s.mapping_id!)
-      if (error) { setSaveError(error.message); setSaving(false); return }
-    }
+    try {
+      for (const line of lines) {
+        if (line.toDelete) {
+          // Case A: marked for deletion
+          if (line.mapping_id) {
+            const { error } = await supabase.from('product_mapping').delete().eq('mapping_id', line.mapping_id)
+            if (error) { console.error('[ProductMapping] delete error:', error.message); throw error }
+          }
+        } else if (line.mapping_id && line.boonz_product_id !== line.original_boonz_id) {
+          // Case C: boonz product changed — boonz_product_id is part of the unique key,
+          // so we must DELETE the old row and INSERT a new one
+          const { error: delErr } = await supabase.from('product_mapping').delete().eq('mapping_id', line.mapping_id)
+          if (delErr) { console.error('[ProductMapping] case-C delete error:', delErr.message); throw delErr }
+          const { error: insErr } = await supabase.from('product_mapping').insert({
+            pod_product_id: podId,
+            boonz_product_id: line.boonz_product_id,
+            machine_id: machineId,
+            split_pct: line.split_pct,
+            status: 'Active',
+          })
+          if (insErr) { console.error('[ProductMapping] case-C insert error:', insErr.message); throw insErr }
+        } else if (line.mapping_id) {
+          // Case B: existing row, boonz product unchanged — update split_pct only
+          const { error } = await supabase.from('product_mapping').update({ split_pct: line.split_pct }).eq('mapping_id', line.mapping_id)
+          if (error) { console.error('[ProductMapping] update error:', error.message); throw error }
+        } else {
+          // Case D: brand new row
+          const { error } = await supabase.from('product_mapping').upsert(
+            { pod_product_id: podId, boonz_product_id: line.boonz_product_id, machine_id: machineId, split_pct: line.split_pct, status: 'Active' },
+            { onConflict: 'pod_product_id,boonz_product_id,machine_id' }
+          )
+          if (error) { console.error('[ProductMapping] upsert error:', error.message); throw error }
+        }
+      }
 
-    // Upsert new rows (no mapping_id yet)
-    const newRows = active.filter(s => !s.mapping_id)
-    if (newRows.length > 0) {
-      const { error } = await supabase.from('product_mapping').upsert(
-        newRows.map(s => ({ pod_product_id: podId, boonz_product_id: s.boonz_product_id, machine_id: machineId, split_pct: s.split_pct, status: 'Active' })),
-        { onConflict: 'pod_product_id,boonz_product_id,machine_id' }
-      )
-      if (error) { setSaveError(error.message); setSaving(false); return }
+      await loadMappings()
+      setExpandedKey(null)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? 'Save failed'
+      setSaveError(msg)
+    } finally {
+      setSaving(false)
     }
-
-    // Delete rows marked for removal
-    for (const s of (splitDrafts[key] ?? []).filter(s => s.toDelete && s.mapping_id)) {
-      await supabase.from('product_mapping').delete().eq('mapping_id', s.mapping_id!)
-    }
-    setSaving(false)
-    setExpandedKey(null)
-    await loadMappings()
   }
 
   async function applyBulk(podId: string, machineId: string | null) {
@@ -492,7 +528,11 @@ export default function ProductMappingPage() {
               }
             </div>
 
-            {saveError && <p className="text-xs font-medium text-red-600">{saveError}</p>}
+            {saveError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+                {saveError}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <button
