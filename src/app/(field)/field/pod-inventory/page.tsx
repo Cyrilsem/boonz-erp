@@ -202,7 +202,7 @@ function rowProps(groupBy: GroupBy): Omit<PodRowItemProps, 'row' | 'isPending' |
 export default function PodInventoryPage() {
   const [rows, setRows] = useState<PodRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<PodFilter>('7days')
+  const [filter, setFilter] = useState<PodFilter>('all')
   const [groupBy, setGroupBy] = useState<GroupBy>(DEFAULT_GROUP_BY['7days'])
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null)
   const [search, setSearch] = useState('')
