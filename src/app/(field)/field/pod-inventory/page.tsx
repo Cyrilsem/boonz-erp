@@ -34,6 +34,8 @@ interface DisplayGroup {
 type PodFilter = 'expired' | '3days' | '7days' | '30days' | 'all'
 type GroupBy = 'machine' | 'product' | 'category' | 'none'
 type EditType = 'in_stock' | 'sold' | 'damaged'
+type SortField = 'expiry' | 'qty' | 'product'
+type SortDir = 'asc' | 'desc'
 
 // ─── Static config ────────────────────────────────────────────────────────────
 
@@ -42,7 +44,7 @@ const FILTER_OPTIONS: { label: string; value: PodFilter }[] = [
   { label: '< 3 days', value: '3days' },
   { label: '< 7 days', value: '7days' },
   { label: '< 30 days', value: '30days' },
-  { label: 'All active', value: 'all' },
+  { label: 'All stock', value: 'all' },
 ]
 
 const GROUP_OPTIONS: { label: string; value: GroupBy }[] = [
@@ -212,6 +214,8 @@ export default function PodInventoryPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>(DEFAULT_GROUP_BY['7days'])
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [sortField, setSortField] = useState<SortField>('expiry')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   // Pending edits
   const [pendingEditIds, setPendingEditIds] = useState<Set<string>>(new Set())
@@ -394,15 +398,27 @@ export default function PodInventoryPage() {
     })
 
     return [...result].sort((a, b) => {
-      const da = daysUntilExpiry(a.expiration_date)
-      const db = daysUntilExpiry(b.expiration_date)
-      if (da === null && db === null) return (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
-      if (da === null) return 1
-      if (db === null) return -1
-      if (da !== db) return da - db
+      const dir = sortDir === 'asc' ? 1 : -1
+      if (sortField === 'expiry') {
+        const da = daysUntilExpiry(a.expiration_date)
+        const db = daysUntilExpiry(b.expiration_date)
+        if (da === null && db === null) return (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
+        if (da === null) return 1   // nulls always last regardless of dir
+        if (db === null) return -1
+        if (da !== db) return (da - db) * dir
+        return (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
+      }
+      if (sortField === 'qty') {
+        const diff = a.current_stock - b.current_stock
+        if (diff !== 0) return diff * dir
+        return (a.boonz_products?.boonz_product_name ?? '—').localeCompare(b.boonz_products?.boonz_product_name ?? '—')
+      }
+      // sortField === 'product'
+      const cmp = (a.boonz_products?.boonz_product_name ?? '—').localeCompare(b.boonz_products?.boonz_product_name ?? '—')
+      if (cmp !== 0) return cmp * dir
       return (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
     })
-  }, [rows, filter, search])
+  }, [rows, filter, search, sortField, sortDir])
 
   // Step 2: distinct machine names
   const machineOptions = useMemo((): string[] => {
@@ -509,6 +525,34 @@ export default function PodInventoryPage() {
               }`}
             >
               {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sort controls */}
+        <div className="mb-3 flex items-center gap-1.5">
+          <span className="shrink-0 text-xs text-neutral-400">Sort:</span>
+          {(['expiry', 'qty', 'product'] as SortField[]).map((sf) => (
+            <button
+              key={sf}
+              onClick={() => {
+                if (sortField === sf) {
+                  setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+                } else {
+                  setSortField(sf)
+                  setSortDir('asc')
+                }
+              }}
+              className={`flex items-center gap-0.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                sortField === sf
+                  ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                  : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+              }`}
+            >
+              {sf === 'expiry' ? 'Expiry' : sf === 'qty' ? 'Qty' : 'Product'}
+              {sortField === sf && (
+                <span className="ml-0.5 text-[10px]">{sortDir === 'asc' ? '↑' : '↓'}</span>
+              )}
             </button>
           ))}
         </div>
