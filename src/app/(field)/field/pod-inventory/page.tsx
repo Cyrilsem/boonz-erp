@@ -11,11 +11,15 @@ interface PodRow {
   pod_inventory_id: string
   machine_id: string
   boonz_product_id: string
-  boonz_product_name: string
-  product_category: string
-  machine_name: string
   current_stock: number
   expiration_date: string | null
+  boonz_products: {
+    boonz_product_name: string
+    product_category: string | null
+  } | null
+  machines: {
+    official_name: string
+  } | null
 }
 
 interface DisplayGroup {
@@ -74,9 +78,9 @@ function formatDate(dateStr: string | null): string {
 
 function getGroupKey(row: PodRow, groupBy: Exclude<GroupBy, 'none'>): string {
   switch (groupBy) {
-    case 'machine':   return row.machine_name
-    case 'product':   return row.boonz_product_name
-    case 'category':  return row.product_category
+    case 'machine':   return row.machines?.official_name ?? '—'
+    case 'product':   return row.boonz_products?.boonz_product_name ?? '—'
+    case 'category':  return row.boonz_products?.product_category ?? 'Uncategorised'
   }
 }
 
@@ -141,13 +145,15 @@ interface PodRowItemProps {
 function PodRowItem({ row, showProduct, showMachine, showCategory, isPending, onClick }: PodRowItemProps) {
   const style = getExpiryStyle(row.expiration_date)
 
-  const line1 = showProduct ? row.boonz_product_name : row.machine_name
+  const line1 = showProduct
+    ? (row.boonz_products?.boonz_product_name ?? '—')
+    : (row.machines?.official_name ?? '—')
 
   const line2: string | null = showProduct
     ? showCategory
-      ? row.product_category
+      ? (row.boonz_products?.product_category ?? 'Uncategorised')
       : showMachine
-      ? row.machine_name
+      ? (row.machines?.official_name ?? '—')
       : null
     : null
 
@@ -274,24 +280,15 @@ export default function PodInventoryPage() {
       .limit(10000)
 
     if (data) {
-      const mapped: PodRow[] = data.map((row) => {
-        const p = row.boonz_products as unknown as {
-          boonz_product_name: string
-          product_category: string | null
-        } | null
-        const m = row.machines as unknown as { official_name: string } | null
-        return {
-          pod_inventory_id: row.pod_inventory_id,
-          machine_id: row.machine_id,
-          boonz_product_id: row.boonz_product_id,
-          boonz_product_name: p?.boonz_product_name ?? '—',
-          product_category: p?.product_category ?? 'Uncategorised',
-          machine_name: m?.official_name ?? '—',
-          current_stock: row.current_stock ?? 0,
-          expiration_date: row.expiration_date,
-        }
-      })
-      setRows(mapped)
+      setRows(data.map((row) => ({
+        pod_inventory_id: row.pod_inventory_id,
+        machine_id: row.machine_id,
+        boonz_product_id: row.boonz_product_id,
+        current_stock: row.current_stock ?? 0,
+        expiration_date: row.expiration_date,
+        boonz_products: row.boonz_products as unknown as { boonz_product_name: string; product_category: string | null } | null,
+        machines: row.machines as unknown as { official_name: string } | null,
+      })))
     }
     setLoading(false)
   }, [])
@@ -380,8 +377,8 @@ export default function PodInventoryPage() {
       const q = search.toLowerCase()
       result = result.filter(
         (r) =>
-          r.boonz_product_name.toLowerCase().includes(q) ||
-          r.machine_name.toLowerCase().includes(q)
+          (r.boonz_products?.boonz_product_name ?? '').toLowerCase().includes(q) ||
+          (r.machines?.official_name ?? '').toLowerCase().includes(q)
       )
     }
 
@@ -399,24 +396,24 @@ export default function PodInventoryPage() {
     return [...result].sort((a, b) => {
       const da = daysUntilExpiry(a.expiration_date)
       const db = daysUntilExpiry(b.expiration_date)
-      if (da === null && db === null) return a.machine_name.localeCompare(b.machine_name)
+      if (da === null && db === null) return (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
       if (da === null) return 1
       if (db === null) return -1
       if (da !== db) return da - db
-      return a.machine_name.localeCompare(b.machine_name)
+      return (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
     })
   }, [rows, filter, search])
 
   // Step 2: distinct machine names
   const machineOptions = useMemo((): string[] => {
-    const names = new Set(filtered.map((r) => r.machine_name))
+    const names = new Set(filtered.map((r) => r.machines?.official_name ?? '—'))
     return Array.from(names).sort()
   }, [filtered])
 
   // Step 3: apply machine filter
   const machineFiltered = useMemo((): PodRow[] => {
     if (!selectedMachine) return filtered
-    return filtered.filter((r) => r.machine_name === selectedMachine)
+    return filtered.filter((r) => (r.machines?.official_name ?? '—') === selectedMachine)
   }, [filtered, selectedMachine])
 
   // Step 4: build display groups
@@ -434,22 +431,22 @@ export default function PodInventoryPage() {
       const sorted = [...items].sort((a, b) => {
         if (a.expiration_date === null && b.expiration_date === null) {
           return groupBy === 'product'
-            ? a.machine_name.localeCompare(b.machine_name)
-            : a.boonz_product_name.localeCompare(b.boonz_product_name)
+            ? (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
+            : (a.boonz_products?.boonz_product_name ?? '—').localeCompare(b.boonz_products?.boonz_product_name ?? '—')
         }
         if (a.expiration_date === null) return 1
         if (b.expiration_date === null) return -1
         const dc = a.expiration_date.localeCompare(b.expiration_date)
         if (dc !== 0) return dc
         return groupBy === 'product'
-          ? a.machine_name.localeCompare(b.machine_name)
-          : a.boonz_product_name.localeCompare(b.boonz_product_name)
+          ? (a.machines?.official_name ?? '—').localeCompare(b.machines?.official_name ?? '—')
+          : (a.boonz_products?.boonz_product_name ?? '—').localeCompare(b.boonz_products?.boonz_product_name ?? '—')
       })
 
       const totalUnits = sorted.reduce((sum, r) => sum + r.current_stock, 0)
       const isProductGroup = groupBy === 'product'
       const itemCount = isProductGroup
-        ? new Set(sorted.map((r) => r.machine_name)).size
+        ? new Set(sorted.map((r) => r.machines?.official_name ?? '—')).size
         : sorted.length
       const countLabel = isProductGroup ? 'machines' : 'items'
 
@@ -613,8 +610,8 @@ export default function PodInventoryPage() {
           <div className="relative z-10 max-h-[90vh] overflow-y-auto rounded-t-2xl bg-white px-4 pt-5 pb-10 shadow-xl dark:bg-neutral-900">
             {/* Header */}
             <div className="mb-4">
-              <p className="text-base font-bold">{selectedRow.boonz_product_name}</p>
-              <p className="text-sm text-neutral-500">{selectedRow.machine_name}</p>
+              <p className="text-base font-bold">{selectedRow.boonz_products?.boonz_product_name ?? '—'}</p>
+              <p className="text-sm text-neutral-500">{selectedRow.machines?.official_name ?? '—'}</p>
               <p className="mt-1 text-xs text-neutral-400">
                 {selectedRow.current_stock} units · expires {formatDate(selectedRow.expiration_date)}
               </p>
