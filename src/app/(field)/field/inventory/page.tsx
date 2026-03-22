@@ -28,7 +28,7 @@ interface ControlEdit {
 
 type ExpiryFilter = 'all' | 'expired' | '3days' | '7days' | '30days'
 type SortOption = 'expiry' | 'location' | 'name' | 'qty_high' | 'qty_low'
-type StatusFilter = 'Active' | 'Inactive' | 'all'
+type StatusFilter = 'All' | 'Active' | 'Expired' | 'Inactive'
 type GroupBy = 'category' | 'product' | 'location' | 'none'
 
 // ─── Pending review types ──────────────────────────────────────────────────────
@@ -159,12 +159,6 @@ export default function InventoryPage() {
         boonz_products!inner(boonz_product_name, product_category)
       `)
 
-    if (statusFilter !== 'all') {
-      query.eq('status', statusFilter)
-    } else {
-      query.in('status', ['Active', 'Inactive'])
-    }
-
     const { data } = await query
 
     if (!data || data.length === 0) {
@@ -193,7 +187,7 @@ export default function InventoryPage() {
 
     setRows(mapped)
     setLoading(false)
-  }, [statusFilter])
+  }, [])
 
   const fetchUserRole = useCallback(async () => {
     const supabase = createClient()
@@ -433,10 +427,12 @@ export default function InventoryPage() {
 
         if (whBatch && whBatch.length > 0) {
           whBatchFound = true
+          const batchId = whBatch[0].wh_inventory_id
+          console.log('[Approve expired] warehouse batch found and marked Expired:', batchId)
           await supabase
             .from('warehouse_inventory')
             .update({ status: 'Expired', warehouse_stock: 0, snapshot_date: today })
-            .eq('wh_inventory_id', whBatch[0].wh_inventory_id)
+            .eq('wh_inventory_id', batchId)
         }
       } catch (e) {
         console.error('[approve expired] step 3 failed', e)
@@ -444,6 +440,7 @@ export default function InventoryPage() {
 
       // Step 4: if no warehouse batch found, insert a returned-expired record
       if (!whBatchFound) {
+        console.log('[Approve expired] no warehouse batch found, inserting Expired record')
         try {
           await supabase.from('warehouse_inventory').insert({
             boonz_product_id: edit.boonz_product_id,
@@ -512,6 +509,11 @@ export default function InventoryPage() {
   const processed: InventoryRow[] = useMemo(() => {
     let filtered = rows
 
+    // Status filter
+    if (statusFilter !== 'All') {
+      filtered = filtered.filter((r) => r.status === statusFilter)
+    }
+
     // Hide empty
     if (hideEmpty) {
       filtered = filtered.filter((r) => r.warehouse_stock > 0)
@@ -564,7 +566,7 @@ export default function InventoryPage() {
     })
 
     return filtered
-  }, [rows, search, expiryFilter, sortBy, hideEmpty])
+  }, [rows, search, expiryFilter, sortBy, hideEmpty, statusFilter])
 
   const groups: InventoryGroup[] = useMemo(() => {
     if (groupBy === 'none') return []
@@ -750,9 +752,10 @@ export default function InventoryPage() {
         {/* Status filter pills */}
         <div className="mb-3 flex gap-2">
           {([
+            { label: 'All', value: 'All' as StatusFilter },
             { label: 'Active', value: 'Active' as StatusFilter },
+            { label: 'Expired', value: 'Expired' as StatusFilter },
             { label: 'Inactive', value: 'Inactive' as StatusFilter },
-            { label: 'All', value: 'all' as StatusFilter },
           ]).map((s) => (
             <button
               key={s.value}
@@ -957,7 +960,11 @@ export default function InventoryPage() {
                       <li key={row.wh_inventory_id}>
                         <Link
                           href={`/field/inventory/${row.wh_inventory_id}`}
-                          className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                          className={`flex items-start rounded-lg border p-4 transition-colors ${
+                            row.status === 'Expired'
+                              ? 'border-l-4 border-l-red-400 border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900'
+                              : 'border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900'
+                          }`}
                         >
                           <div className="min-w-0 flex-1 pr-3">
                             {/* Line 1: location badge (product groupBy) or product name */}
@@ -1004,8 +1011,13 @@ export default function InventoryPage() {
                             <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                               <span className="text-neutral-500">{formatDate(row.expiration_date)}</span>
                               <ExpiryBadge expiryDate={row.expiration_date} />
+                              {row.status === 'Expired' && (
+                                <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+                                  Expired
+                                </span>
+                              )}
                               {row.status === 'Inactive' && (
-                                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                <span className="rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">
                                   Inactive
                                 </span>
                               )}
@@ -1108,7 +1120,11 @@ export default function InventoryPage() {
                 <li key={row.wh_inventory_id}>
                   <Link
                     href={`/field/inventory/${row.wh_inventory_id}`}
-                    className="flex items-start rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                    className={`flex items-start rounded-lg border p-4 transition-colors ${
+                      row.status === 'Expired'
+                        ? 'border-l-4 border-l-red-400 border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900'
+                        : 'border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900'
+                    }`}
                   >
                     {/* Left side */}
                     <div className="min-w-0 flex-1 pr-3">
@@ -1134,8 +1150,13 @@ export default function InventoryPage() {
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                         <span className="text-neutral-500">{formatDate(row.expiration_date)}</span>
                         <ExpiryBadge expiryDate={row.expiration_date} />
+                        {row.status === 'Expired' && (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+                            Expired
+                          </span>
+                        )}
                         {row.status === 'Inactive' && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                          <span className="rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">
                             Inactive
                           </span>
                         )}
