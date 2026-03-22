@@ -253,52 +253,65 @@ export default function PodInventoryPage() {
     }
   }, [])
 
-  useEffect(() => {
-    async function fetchData() {
-      const supabase = createClient()
+  const fetchData = useCallback(async () => {
+    const supabase = createClient()
 
-      const { data } = await supabase
-        .from('pod_inventory')
-        .select(`
-          pod_inventory_id,
-          machine_id,
-          boonz_product_id,
-          current_stock,
-          expiration_date,
-          status,
-          boonz_products ( boonz_product_name, product_category ),
-          machines ( official_name )
-        `)
-        .eq('status', 'Active')
-        .gt('current_stock', 0)
-        .order('expiration_date', { ascending: true })
+    const { data } = await supabase
+      .from('pod_inventory')
+      .select(`
+        pod_inventory_id,
+        machine_id,
+        boonz_product_id,
+        current_stock,
+        expiration_date,
+        status,
+        boonz_products ( boonz_product_name, product_category ),
+        machines ( official_name )
+      `)
+      .eq('status', 'Active')
+      .gt('current_stock', 0)
+      .order('expiration_date', { ascending: true })
 
-      if (data) {
-        const mapped: PodRow[] = data.map((row) => {
-          const p = row.boonz_products as unknown as {
-            boonz_product_name: string
-            product_category: string | null
-          } | null
-          const m = row.machines as unknown as { official_name: string } | null
-          return {
-            pod_inventory_id: row.pod_inventory_id,
-            machine_id: row.machine_id,
-            boonz_product_id: row.boonz_product_id,
-            boonz_product_name: p?.boonz_product_name ?? '—',
-            product_category: p?.product_category ?? 'Uncategorised',
-            machine_name: m?.official_name ?? '—',
-            current_stock: row.current_stock ?? 0,
-            expiration_date: row.expiration_date,
-          }
-        })
-        setRows(mapped)
-      }
-      setLoading(false)
+    if (data) {
+      const mapped: PodRow[] = data.map((row) => {
+        const p = row.boonz_products as unknown as {
+          boonz_product_name: string
+          product_category: string | null
+        } | null
+        const m = row.machines as unknown as { official_name: string } | null
+        return {
+          pod_inventory_id: row.pod_inventory_id,
+          machine_id: row.machine_id,
+          boonz_product_id: row.boonz_product_id,
+          boonz_product_name: p?.boonz_product_name ?? '—',
+          product_category: p?.product_category ?? 'Uncategorised',
+          machine_name: m?.official_name ?? '—',
+          current_stock: row.current_stock ?? 0,
+          expiration_date: row.expiration_date,
+        }
+      })
+      setRows(mapped)
     }
+    setLoading(false)
+  }, [])
 
+  useEffect(() => {
     fetchData()
     fetchPendingEdits()
-  }, [fetchPendingEdits])
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchData()
+    }
+    const handleFocus = () => fetchData()
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [fetchData, fetchPendingEdits])
 
   async function submitEdit() {
     if (!selectedRow || !editType) return
