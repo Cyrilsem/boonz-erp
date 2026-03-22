@@ -57,7 +57,7 @@ const DEFAULT_GROUP_BY: Record<PodFilter, GroupBy> = {
   '3days': 'machine',
   '7days': 'machine',
   '30days': 'category',
-  all: 'none',
+  all: 'machine',
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
