@@ -171,7 +171,7 @@ function StatCard({
   return (
     <Link
       href={href}
-      className={`rounded-xl border p-3 transition-opacity hover:opacity-80 ${cardStyle.bg} ${cardStyle.border}`}
+      className={`block rounded-xl border p-3 transition-opacity hover:opacity-80 ${cardStyle.bg} ${cardStyle.border}`}
     >
       <p className={`text-2xl font-bold ${cardStyle.text}`}>{value}</p>
       <p className={`mt-0.5 text-xs font-medium ${cardStyle.text}`}>{label}</p>
