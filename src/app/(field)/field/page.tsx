@@ -426,13 +426,15 @@ function DriverHome({
 
       {/* ── Section 2: Tasks ── */}
       <SectionCard title="Tasks" linkTo="/field/tasks" tourId="tasks">
-        <StatCard
-          value={kpis.openTasks}
-          label="Open tasks"
-          subLabel="Pending & acknowledged"
-          cardStyle={kpiCardStyle(kpis.openTasks, 'high')}
-          href="/field/tasks"
-        />
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard
+            value={kpis.openTasks}
+            label="Open tasks"
+            subLabel="Pending & acknowledged"
+            cardStyle={kpiCardStyle(kpis.openTasks, 'high')}
+            href="/field/tasks"
+          />
+        </div>
       </SectionCard>
 
       {/* ── Section 3: Machine Stock Expiry ── */}
