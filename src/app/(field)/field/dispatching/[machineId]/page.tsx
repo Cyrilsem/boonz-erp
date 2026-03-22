@@ -52,8 +52,7 @@ export default function DispatchingDetailPage() {
   const [machine, setMachine] = useState<MachineInfo | null>(null)
   const [lines, setLines] = useState<DispatchLine[]>([])
   const [invWarnings, setInvWarnings] = useState<Record<string, string>>({})
-  const [debugLog, setDebugLog] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
+const [loading, setLoading] = useState(true)
   const [markingAll, setMarkingAll] = useState(false)
 
   // Photos
@@ -230,10 +229,7 @@ export default function DispatchingDetailPage() {
       return
     }
 
-    const log = (msg: string) => {
-      console.log('[Dispatch]', msg)
-      setDebugLog((prev) => [...prev, msg])
-    }
+    const log = (msg: string) => { console.log('[Dispatch]', msg) }
 
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
@@ -317,7 +313,6 @@ export default function DispatchingDetailPage() {
       }
     } catch (err) {
       console.error('[Dispatch] pod inventory error:', err)
-      setDebugLog((prev) => [...prev, 'POD ERROR: ' + (err as Error).message])
       setInvWarnings((prev) => ({ ...prev, [line.dispatch_id]: '⚠ Pod inventory update failed' }))
     }
   }
@@ -613,20 +608,6 @@ export default function DispatchingDetailPage() {
         </p>
       )}
 
-      {debugLog.length > 0 && (
-        <div className="fixed bottom-20 left-0 right-0 mx-4 bg-black/90 text-green-400 text-xs font-mono p-3 rounded-xl z-50 max-h-40 overflow-y-auto">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-white font-bold">Inventory Debug</p>
-            <button
-              onClick={() => setDebugLog([])}
-              className="text-neutral-400 hover:text-white text-xs"
-            >
-              Clear log
-            </button>
-          </div>
-          {debugLog.map((entry, i) => <p key={i}>{entry}</p>)}
-        </div>
-      )}
     </div>
   )
 }
