@@ -271,6 +271,7 @@ export default function PodInventoryPage() {
       .eq('status', 'Active')
       .gt('current_stock', 0)
       .order('expiration_date', { ascending: true })
+      .limit(10000)
 
     if (data) {
       const mapped: PodRow[] = data.map((row) => {
