@@ -33,7 +33,7 @@ interface DisplayGroup {
 
 type PodFilter = 'expired' | '3days' | '7days' | '30days' | 'all'
 type GroupBy = 'machine' | 'product' | 'category' | 'none'
-type EditType = 'in_stock' | 'sold' | 'damaged'
+type EditType = 'in_stock' | 'sold' | 'partial_sold' | 'damaged' | 'expired'
 type SortField = 'expiry' | 'qty' | 'product'
 type SortDir = 'asc' | 'desc'
 
@@ -226,7 +226,7 @@ export default function PodInventoryPage() {
   // Edit modal
   const [selectedRow, setSelectedRow] = useState<PodRow | null>(null)
   const [editType, setEditType] = useState<EditType | null>(null)
-  const [editQty, setEditQty] = useState<number>(0)
+  const [editQty, setEditQty] = useState<string>('')
   const [editNotes, setEditNotes] = useState('')
   const [editPhoto, setEditPhoto] = useState<File | null>(null)
   const [editPhotoUrl, setEditPhotoUrl] = useState<string | null>(null)
@@ -243,7 +243,7 @@ export default function PodInventoryPage() {
   function closeModal() {
     setSelectedRow(null)
     setEditType(null)
-    setEditQty(0)
+    setEditQty('')
     setEditNotes('')
     if (editPhotoUrl) URL.revokeObjectURL(editPhotoUrl)
     setEditPhoto(null)
@@ -315,6 +315,19 @@ export default function PodInventoryPage() {
     }
   }, [fetchData, fetchPendingEdits])
 
+  function handleEditTypeChange(newType: EditType) {
+    if (!selectedRow) return
+    setEditType(newType)
+    const autoQty: Record<EditType, string> = {
+      in_stock:     String(selectedRow.current_stock),
+      sold:         String(selectedRow.current_stock),
+      partial_sold: '',
+      damaged:      '',
+      expired:      String(selectedRow.current_stock),
+    }
+    setEditQty(autoQty[newType])
+  }
+
   async function submitEdit() {
     if (!selectedRow || !editType) return
     setEditSubmitting(true)
@@ -354,8 +367,10 @@ export default function PodInventoryPage() {
         boonz_product_id: selectedRow.boonz_product_id,
         requested_by: user.id,
         edit_type: editType,
-        quantity_update:
-          editType === 'sold' || editType === 'damaged' ? editQty || null : null,
+        quantity_update: (() => {
+          const n = parseInt(editQty, 10)
+          return Number.isFinite(n) ? n : null
+        })(),
         photo_path: photoPath,
         notes: editNotes.trim() || null,
       })
@@ -667,9 +682,10 @@ export default function PodInventoryPage() {
 
             {/* Type buttons */}
             <div className="mb-4 space-y-2">
-              {/* Still in stock */}
+
+              {/* 1. Still in stock */}
               <button
-                onClick={() => setEditType('in_stock')}
+                onClick={() => handleEditTypeChange('in_stock')}
                 className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
                   editType === 'in_stock'
                     ? 'border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950'
@@ -679,10 +695,24 @@ export default function PodInventoryPage() {
                 <p className="text-sm font-semibold">✅ Still in stock</p>
                 <p className="text-xs text-neutral-500">Product is present and not expired</p>
               </button>
+              {editType === 'in_stock' && (
+                <div className="ml-4">
+                  <label className="mb-1 block text-xs text-neutral-500">Quantity in stock</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={editQty}
+                    onChange={(e) => setEditQty(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-xs text-neutral-400">Current stock — adjust if needed</p>
+                </div>
+              )}
 
-              {/* Sold / consumed */}
+              {/* 2. Sold / consumed */}
               <button
-                onClick={() => { setEditType('sold'); setEditQty(0) }}
+                onClick={() => handleEditTypeChange('sold')}
                 className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
                   editType === 'sold'
                     ? 'border-blue-500 bg-blue-50 dark:border-blue-600 dark:bg-blue-950'
@@ -690,28 +720,55 @@ export default function PodInventoryPage() {
                 }`}
               >
                 <p className="text-sm font-semibold">💰 Sold / consumed</p>
-                <p className="text-xs text-neutral-500">Product was purchased by a customer</p>
+                <p className="text-xs text-neutral-500">All units purchased by a customer</p>
               </button>
               {editType === 'sold' && (
                 <div className="ml-4">
-                  <label className="mb-1 block text-xs text-neutral-500">
-                    How many units sold?
-                  </label>
+                  <label className="mb-1 block text-xs text-neutral-500">Units sold</label>
                   <input
                     type="number"
                     min={0}
                     max={selectedRow.current_stock}
-                    value={editQty || ''}
-                    onChange={(e) => setEditQty(parseInt(e.target.value, 10) || 0)}
+                    value={editQty}
+                    onChange={(e) => setEditQty(e.target.value)}
                     className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
                     placeholder="0"
                   />
+                  <p className="mt-1 text-xs text-neutral-400">(pre-filled — all units sold)</p>
                 </div>
               )}
 
-              {/* Damaged */}
+              {/* 3. Partial sold */}
               <button
-                onClick={() => { setEditType('damaged'); setEditQty(0) }}
+                onClick={() => handleEditTypeChange('partial_sold')}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === 'partial_sold'
+                    ? 'border-orange-500 bg-orange-50 dark:border-orange-600 dark:bg-orange-950'
+                    : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
+                }`}
+              >
+                <p className="text-sm font-semibold">🟠 Partial sold</p>
+                <p className="text-xs text-neutral-500">Some units sold, some remain</p>
+              </button>
+              {editType === 'partial_sold' && (
+                <div className="ml-4">
+                  <label className="mb-1 block text-xs text-neutral-500">Units sold</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedRow.current_stock}
+                    value={editQty}
+                    onChange={(e) => setEditQty(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-xs text-neutral-400">Enter how many units were sold</p>
+                </div>
+              )}
+
+              {/* 4. Damaged */}
+              <button
+                onClick={() => handleEditTypeChange('damaged')}
                 className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
                   editType === 'damaged'
                     ? 'border-red-500 bg-red-50 dark:border-red-600 dark:bg-red-950'
@@ -724,23 +781,20 @@ export default function PodInventoryPage() {
               {editType === 'damaged' && (
                 <div className="ml-4 space-y-3">
                   <div>
-                    <label className="mb-1 block text-xs text-neutral-500">
-                      How many units damaged?
-                    </label>
+                    <label className="mb-1 block text-xs text-neutral-500">Units damaged</label>
                     <input
                       type="number"
                       min={0}
                       max={selectedRow.current_stock}
-                      value={editQty || ''}
-                      onChange={(e) => setEditQty(parseInt(e.target.value, 10) || 0)}
+                      value={editQty}
+                      onChange={(e) => setEditQty(e.target.value)}
                       className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
                       placeholder="0"
                     />
+                    <p className="mt-1 text-xs text-neutral-400">Enter how many units were damaged</p>
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs text-neutral-500">
-                      Photo (optional)
-                    </label>
+                    <label className="mb-1 block text-xs text-neutral-500">Photo (optional)</label>
                     {editPhotoUrl ? (
                       <div className="relative">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -780,6 +834,35 @@ export default function PodInventoryPage() {
                   </div>
                 </div>
               )}
+
+              {/* 5. Removed (expired) */}
+              <button
+                onClick={() => handleEditTypeChange('expired')}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === 'expired'
+                    ? 'border-neutral-500 bg-neutral-100 dark:border-neutral-500 dark:bg-neutral-800'
+                    : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
+                }`}
+              >
+                <p className="text-sm font-semibold">🗑️ Removed (expired)</p>
+                <p className="text-xs text-neutral-500">Item removed from machine due to expiry</p>
+              </button>
+              {editType === 'expired' && (
+                <div className="ml-4">
+                  <label className="mb-1 block text-xs text-neutral-500">Units removed</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedRow.current_stock}
+                    value={editQty}
+                    onChange={(e) => setEditQty(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-xs text-neutral-400">(pre-filled — all units removed)</p>
+                </div>
+              )}
+
             </div>
 
             {/* Notes */}

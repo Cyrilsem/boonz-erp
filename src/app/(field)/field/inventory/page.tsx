@@ -40,7 +40,7 @@ interface PendingEdit {
   pod_inventory_id: string
   machine_id: string
   boonz_product_id: string
-  edit_type: 'sold' | 'damaged' | 'in_stock'
+  edit_type: 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'in_stock'
   quantity_update: number | null
   notes: string | null
   created_at: string
@@ -250,7 +250,7 @@ export default function InventoryPage() {
           pod_inventory_id: r.pod_inventory_id,
           machine_id: r.machine_id,
           boonz_product_id: r.boonz_product_id,
-          edit_type: r.edit_type as 'sold' | 'damaged' | 'in_stock',
+          edit_type: r.edit_type as 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'in_stock',
           quantity_update: r.quantity_update as number | null,
           notes: r.notes as string | null,
           created_at: r.created_at as string,
@@ -390,7 +390,7 @@ export default function InventoryPage() {
 
     try {
       const qty = edit.quantity_update ?? 0
-      if (edit.edit_type === 'sold' || edit.edit_type === 'damaged') {
+      if (edit.edit_type === 'sold' || edit.edit_type === 'partial_sold' || edit.edit_type === 'damaged' || edit.edit_type === 'expired') {
         const { data: podRow } = await supabase
           .from('pod_inventory')
           .select('current_stock')
@@ -609,8 +609,12 @@ export default function InventoryPage() {
                   const badge =
                     edit.edit_type === 'sold'
                       ? { label: 'Sold', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' }
+                      : edit.edit_type === 'partial_sold'
+                      ? { label: 'Partial sold', cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' }
                       : edit.edit_type === 'damaged'
                       ? { label: 'Damaged', cls: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' }
+                      : edit.edit_type === 'expired'
+                      ? { label: 'Removed (expired)', cls: 'bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400' }
                       : { label: 'Stock update', cls: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400' }
 
                   return (
