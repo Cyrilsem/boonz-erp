@@ -388,28 +388,101 @@ export default function InventoryPage() {
       })
       .eq('edit_id', editId)
 
-    try {
-      const qty = edit.quantity_update ?? 0
-      if (edit.edit_type === 'sold' || edit.edit_type === 'partial_sold' || edit.edit_type === 'damaged' || edit.edit_type === 'expired') {
+    if (edit.edit_type === 'expired') {
+      // ── Expired: 4-step flow, all steps non-blocking ──────────────────────
+      const today = new Date().toISOString().split('T')[0]
+
+      // Step 1: get expiration_date from pod_inventory
+      let podExpiryDate: string | null = null
+      try {
         const { data: podRow } = await supabase
           .from('pod_inventory')
-          .select('current_stock')
+          .select('expiration_date')
           .eq('pod_inventory_id', edit.pod_inventory_id)
+          .limit(1)
           .single()
-        if (podRow) {
-          await supabase
-            .from('pod_inventory')
-            .update({ current_stock: Math.max(0, (podRow.current_stock ?? 0) - qty) })
-            .eq('pod_inventory_id', edit.pod_inventory_id)
-        }
-      } else {
+        podExpiryDate = podRow?.expiration_date ?? null
+      } catch (e) {
+        console.error('[approve expired] step 1 failed', e)
+      }
+
+      // Step 2: zero-out pod_inventory and mark removed
+      try {
         await supabase
           .from('pod_inventory')
-          .update({ current_stock: qty })
+          .update({ current_stock: 0, status: 'Removed / Expired', snapshot_date: today })
           .eq('pod_inventory_id', edit.pod_inventory_id)
+      } catch (e) {
+        console.error('[approve expired] step 2 failed', e)
       }
-    } catch {
-      // Non-blocking: edit record is already approved
+
+      // Step 3: find matching warehouse batch and mark as Expired
+      let whBatchFound = false
+      try {
+        const baseQuery = supabase
+          .from('warehouse_inventory')
+          .select('wh_inventory_id')
+          .eq('boonz_product_id', edit.boonz_product_id)
+          .eq('status', 'Active')
+          .order('expiration_date', { ascending: true, nullsFirst: false })
+          .limit(1)
+
+        const { data: whBatch } = podExpiryDate
+          ? await baseQuery.or(`expiration_date.eq.${podExpiryDate},expiration_date.is.null`)
+          : await baseQuery
+
+        if (whBatch && whBatch.length > 0) {
+          whBatchFound = true
+          await supabase
+            .from('warehouse_inventory')
+            .update({ status: 'Expired', warehouse_stock: 0, snapshot_date: today })
+            .eq('wh_inventory_id', whBatch[0].wh_inventory_id)
+        }
+      } catch (e) {
+        console.error('[approve expired] step 3 failed', e)
+      }
+
+      // Step 4: if no warehouse batch found, insert a returned-expired record
+      if (!whBatchFound) {
+        try {
+          await supabase.from('warehouse_inventory').insert({
+            boonz_product_id: edit.boonz_product_id,
+            warehouse_stock: 0,
+            expiration_date: podExpiryDate,
+            batch_id: `RETURNED-EXPIRED-${today}`,
+            status: 'Expired',
+            snapshot_date: today,
+          })
+        } catch (e) {
+          console.error('[approve expired] step 4 failed', e)
+        }
+      }
+    } else {
+      // ── All other types: update pod_inventory ─────────────────────────────
+      try {
+        const qty = edit.quantity_update ?? 0
+        if (edit.edit_type === 'sold' || edit.edit_type === 'partial_sold' || edit.edit_type === 'damaged') {
+          const { data: podRow } = await supabase
+            .from('pod_inventory')
+            .select('current_stock')
+            .eq('pod_inventory_id', edit.pod_inventory_id)
+            .single()
+          if (podRow) {
+            await supabase
+              .from('pod_inventory')
+              .update({ current_stock: Math.max(0, (podRow.current_stock ?? 0) - qty) })
+              .eq('pod_inventory_id', edit.pod_inventory_id)
+          }
+        } else {
+          // in_stock: set to the reported quantity
+          await supabase
+            .from('pod_inventory')
+            .update({ current_stock: qty })
+            .eq('pod_inventory_id', edit.pod_inventory_id)
+        }
+      } catch {
+        // Non-blocking: edit record is already approved
+      }
     }
 
     setPendingEdits(prev => prev.filter(e => e.edit_id !== editId))
