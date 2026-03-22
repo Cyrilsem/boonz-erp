@@ -32,6 +32,7 @@ interface WarehouseKpis {
   expiringWeek: number
   lastControlDays: number | null // null = never
   openTasksCount: number
+  pendingPodReviews: number
 }
 
 interface DriverKpis {
@@ -308,6 +309,20 @@ function WarehouseHome({
           <StatCard value={podKpis.expiring7}  label="< 7 days"  cardStyle={kpiCardStyle(podKpis.expiring7, 'medium')}   href="/field/pod-inventory" />
           <StatCard value={podKpis.expiring30} label="< 30 days" cardStyle={kpiCardStyle(podKpis.expiring30,'low')}      href="/field/pod-inventory" />
         </div>
+
+        {kpis.pendingPodReviews > 0 && (
+          <>
+            <p className="mb-2 mt-4 text-xs text-gray-400">Pod edit reviews</p>
+            <div className="grid grid-cols-1 gap-3">
+              <StatCard
+                value={kpis.pendingPodReviews}
+                label="Pod reviews pending"
+                cardStyle={kpiCardStyle(kpis.pendingPodReviews, 'high')}
+                href="/field/inventory"
+              />
+            </div>
+          </>
+        )}
       </SectionCard>
 
       {/* ── Section 4: Configuration (admin roles only) ── */}
@@ -605,6 +620,14 @@ function OperatorAdminHome({
             cardStyle={kpiCardStyle(podKpis.expired, 'critical')}
             href="/field/pod-inventory"
           />
+          {kpis.pendingPodReviews > 0 && (
+            <StatCard
+              value={kpis.pendingPodReviews}
+              label="Pod reviews pending"
+              cardStyle={kpiCardStyle(kpis.pendingPodReviews, 'high')}
+              href="/field/inventory"
+            />
+          )}
         </div>
       </SectionCard>
 
@@ -726,6 +749,7 @@ export default function FieldPage() {
         { count: receivedTodayCount },
         { data: lastControlRows },
         { data: openTasksData },
+        { count: pendingPodReviewsCount },
       ] = await Promise.all([
         supabase
           .from('refill_dispatching')
@@ -782,6 +806,10 @@ export default function FieldPage() {
           .from('driver_tasks')
           .select('task_id')
           .in('status', ['pending', 'acknowledged']),
+        supabase
+          .from('pod_inventory_edits')
+          .select('edit_id', { count: 'exact', head: true })
+          .eq('status', 'pending'),
       ])
 
       // Group by machine, count completed status per-machine
@@ -821,6 +849,7 @@ export default function FieldPage() {
         expiringWeek:      expiryWeekCount ?? 0,
         lastControlDays,
         openTasksCount:    openTasksData?.length ?? 0,
+        pendingPodReviews: pendingPodReviewsCount ?? 0,
       })
 
       // Pod inventory expiry KPIs

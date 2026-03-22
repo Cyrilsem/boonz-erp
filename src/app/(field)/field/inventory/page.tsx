@@ -31,6 +31,33 @@ type SortOption = 'expiry' | 'location' | 'name' | 'qty_high' | 'qty_low'
 type StatusFilter = 'Active' | 'Inactive' | 'all'
 type GroupBy = 'category' | 'product' | 'location' | 'none'
 
+// ─── Pending review types ──────────────────────────────────────────────────────
+
+const REVIEWER_ROLES = ['warehouse', 'operator_admin', 'manager', 'superadmin'] as const
+
+interface PendingEdit {
+  edit_id: string
+  pod_inventory_id: string
+  machine_id: string
+  boonz_product_id: string
+  edit_type: 'sold' | 'damaged' | 'in_stock'
+  quantity_update: number | null
+  notes: string | null
+  created_at: string
+  machine_name: string
+  boonz_product_name: string
+  submitted_by_name: string | null
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
 interface InventoryGroup {
   key: string
   items: InventoryRow[]
@@ -103,6 +130,13 @@ export default function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('Active')
   const [groupBy, setGroupBy] = useState<GroupBy>('none')
 
+  // Pending reviews
+  const [userRole, setUserRole] = useState<string | null>(null)
+  const [pendingEdits, setPendingEdits] = useState<PendingEdit[]>([])
+  const [reviewExpanded, setReviewExpanded] = useState(true)
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
+  const [reviewToast, setReviewToast] = useState<string | null>(null)
+
   // Inventory control mode
   const [controlMode, setControlMode] = useState(false)
   const [controlEdits, setControlEdits] = useState<Map<string, ControlEdit>>(new Map())
@@ -161,21 +195,97 @@ export default function InventoryPage() {
     setLoading(false)
   }, [statusFilter])
 
+  const fetchUserRole = useCallback(async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+    setUserRole(data?.role ?? null)
+  }, [])
+
+  const fetchPendingEdits = useCallback(async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('pod_inventory_edits')
+      .select(`
+        edit_id, pod_inventory_id, machine_id, boonz_product_id,
+        edit_type, quantity_update, notes, status, created_at, requested_by,
+        machines!inner(official_name),
+        boonz_products!inner(boonz_product_name)
+      `)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+
+    if (!data || data.length === 0) {
+      setPendingEdits([])
+      return
+    }
+
+    const userIds = [
+      ...new Set(
+        data
+          .map(r => r.requested_by as string | null)
+          .filter((id): id is string => id !== null)
+      ),
+    ]
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, full_name')
+      .in('id', userIds)
+    const nameMap = new Map<string, string | null>(
+      (profiles ?? []).map(p => [p.id as string, p.full_name as string | null])
+    )
+
+    setPendingEdits(
+      data.map(r => {
+        const m = r.machines as unknown as { official_name: string }
+        const bp = r.boonz_products as unknown as { boonz_product_name: string }
+        const reqBy = r.requested_by as string | null
+        return {
+          edit_id: r.edit_id,
+          pod_inventory_id: r.pod_inventory_id,
+          machine_id: r.machine_id,
+          boonz_product_id: r.boonz_product_id,
+          edit_type: r.edit_type as 'sold' | 'damaged' | 'in_stock',
+          quantity_update: r.quantity_update as number | null,
+          notes: r.notes as string | null,
+          created_at: r.created_at as string,
+          machine_name: m.official_name,
+          boonz_product_name: bp.boonz_product_name,
+          submitted_by_name: reqBy ? (nameMap.get(reqBy) ?? null) : null,
+        }
+      })
+    )
+  }, [])
+
   useEffect(() => {
     fetchData()
-  }, [fetchData])
+    fetchUserRole()
+    fetchPendingEdits()
+  }, [fetchData, fetchUserRole, fetchPendingEdits])
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === 'visible') fetchData()
+      if (document.visibilityState === 'visible') {
+        fetchData()
+        fetchPendingEdits()
+      }
+    }
+    function handleFocus() {
+      fetchData()
+      fetchPendingEdits()
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', fetchData)
+    window.addEventListener('focus', handleFocus)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', fetchData)
+      window.removeEventListener('focus', handleFocus)
     }
-  }, [fetchData])
+  }, [fetchData, fetchPendingEdits])
 
   // Enter control mode: initialize edits from current rows
   function enterControlMode() {
@@ -255,6 +365,75 @@ export default function InventoryPage() {
     await fetchData()
 
     setTimeout(() => setControlMessage(null), 3000)
+  }
+
+  // ─── Review handlers ────────────────────────────────────────────────────────
+
+  function showReviewToast(msg: string) {
+    setReviewToast(msg)
+    setTimeout(() => setReviewToast(null), 3000)
+  }
+
+  async function handleApprove(editId: string, edit: PendingEdit) {
+    setProcessingIds(prev => new Set([...prev, editId]))
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    await supabase
+      .from('pod_inventory_edits')
+      .update({
+        status: 'approved',
+        reviewed_by: user?.id ?? null,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('edit_id', editId)
+
+    try {
+      const qty = edit.quantity_update ?? 0
+      if (edit.edit_type === 'sold' || edit.edit_type === 'damaged') {
+        const { data: podRow } = await supabase
+          .from('pod_inventory')
+          .select('current_stock')
+          .eq('pod_inventory_id', edit.pod_inventory_id)
+          .single()
+        if (podRow) {
+          await supabase
+            .from('pod_inventory')
+            .update({ current_stock: Math.max(0, (podRow.current_stock ?? 0) - qty) })
+            .eq('pod_inventory_id', edit.pod_inventory_id)
+        }
+      } else {
+        await supabase
+          .from('pod_inventory')
+          .update({ current_stock: qty })
+          .eq('pod_inventory_id', edit.pod_inventory_id)
+      }
+    } catch {
+      // Non-blocking: edit record is already approved
+    }
+
+    setPendingEdits(prev => prev.filter(e => e.edit_id !== editId))
+    setProcessingIds(prev => { const s = new Set(prev); s.delete(editId); return s })
+    showReviewToast('Edit approved')
+  }
+
+  async function handleReject(editId: string) {
+    setProcessingIds(prev => new Set([...prev, editId]))
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    await supabase
+      .from('pod_inventory_edits')
+      .update({
+        status: 'rejected',
+        reviewed_by: user?.id ?? null,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('edit_id', editId)
+
+    setPendingEdits(prev => prev.filter(e => e.edit_id !== editId))
+    setProcessingIds(prev => { const s = new Set(prev); s.delete(editId); return s })
+    showReviewToast('Edit rejected')
   }
 
   const processed: InventoryRow[] = useMemo(() => {
@@ -402,6 +581,82 @@ export default function InventoryPage() {
         {controlMessage && (
           <div className="mb-3 rounded-lg bg-green-100 px-3 py-2 text-sm font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
             {controlMessage}
+          </div>
+        )}
+
+        {/* ── Pending Reviews section ── */}
+        {userRole && (REVIEWER_ROLES as readonly string[]).includes(userRole) && pendingEdits.length > 0 && (
+          <div className="mb-4">
+            <button
+              onClick={() => setReviewExpanded(e => !e)}
+              className="flex w-full items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left dark:border-amber-900/40 dark:bg-amber-950/30"
+            >
+              <span className="text-sm font-semibold text-amber-900 dark:text-amber-300">
+                Pending Reviews
+              </span>
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+                {pendingEdits.length}
+              </span>
+              <span className="ml-auto text-xs text-amber-600 dark:text-amber-400">
+                {reviewExpanded ? '▲' : '▼'}
+              </span>
+            </button>
+
+            {reviewExpanded && (
+              <ul className="mt-2 space-y-2">
+                {pendingEdits.map(edit => {
+                  const isProcessing = processingIds.has(edit.edit_id)
+                  const badge =
+                    edit.edit_type === 'sold'
+                      ? { label: 'Sold', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' }
+                      : edit.edit_type === 'damaged'
+                      ? { label: 'Damaged', cls: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' }
+                      : { label: 'Stock update', cls: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400' }
+
+                  return (
+                    <li
+                      key={edit.edit_id}
+                      className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold">{edit.boonz_product_name}</p>
+                        <p className="text-xs text-neutral-500">{edit.machine_name}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                          {edit.quantity_update !== null && (
+                            <span className="text-xs text-neutral-500">Qty: {edit.quantity_update}</span>
+                          )}
+                        </div>
+                        {edit.notes && (
+                          <p className="mt-1 text-xs italic text-neutral-400">{edit.notes}</p>
+                        )}
+                        <p className="mt-1 text-xs text-neutral-400">
+                          {edit.submitted_by_name ?? 'Driver'} · {formatTimeAgo(edit.created_at)}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1.5">
+                        <button
+                          onClick={() => handleApprove(edit.edit_id, edit)}
+                          disabled={isProcessing}
+                          className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-40"
+                        >
+                          ✓ Approve
+                        </button>
+                        <button
+                          onClick={() => handleReject(edit.edit_id)}
+                          disabled={isProcessing}
+                          className="rounded-lg border border-red-400 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/30"
+                        >
+                          ✗ Reject
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </div>
         )}
 
@@ -823,6 +1078,13 @@ export default function InventoryPage() {
         )}
         </div>
       </div>
+
+      {/* Review toast */}
+      {reviewToast && (
+        <div className="fixed bottom-24 left-4 right-4 z-50 rounded-xl bg-green-100 px-4 py-3 text-center text-sm font-medium text-green-800 shadow-lg dark:bg-green-900 dark:text-green-200">
+          {reviewToast}
+        </div>
+      )}
 
       {/* Floating "Complete control" button */}
       {controlMode && (
