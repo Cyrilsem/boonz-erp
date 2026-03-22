@@ -52,6 +52,7 @@ export default function DispatchingDetailPage() {
   const [machine, setMachine] = useState<MachineInfo | null>(null)
   const [lines, setLines] = useState<DispatchLine[]>([])
   const [invWarnings, setInvWarnings] = useState<Record<string, string>>({})
+  const [debugLog, setDebugLog] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [markingAll, setMarkingAll] = useState(false)
 
@@ -229,19 +230,28 @@ export default function DispatchingDetailPage() {
       return
     }
 
+    const log = (msg: string) => {
+      console.log('[Dispatch]', msg)
+      setDebugLog((prev) => [...prev, msg])
+    }
+
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+
+    log('qty=' + qty)
 
     // ── STEP 1: Warehouse FIFO deduction ─────────────────────────
     try {
       const { data: batches } = await supabase
         .from('warehouse_inventory')
-        .select('wh_inventory_id, warehouse_stock')
+        .select('wh_inventory_id, warehouse_stock, expiration_date')
         .eq('boonz_product_id', line.boonz_product_id)
         .eq('status', 'Active')
         .gt('warehouse_stock', 0)
         .order('expiration_date', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: true })
+
+      log('WH: deducting from ' + (batches?.length ?? 0) + ' batches')
 
       let remaining = qty
       for (const batch of batches ?? []) {
@@ -252,7 +262,7 @@ export default function DispatchingDetailPage() {
           .from('warehouse_inventory')
           .update({ warehouse_stock: batch.warehouse_stock - deduct })
           .eq('wh_inventory_id', batch.wh_inventory_id)
-        console.log('[Dispatch] WH deduct', deduct, 'from', batch.wh_inventory_id, 'remaining:', remaining)
+        log('WH: deducted ' + deduct + ' from batch expiry=' + batch.expiration_date + ' remaining=' + remaining)
       }
     } catch (err) {
       console.error('[Dispatch] warehouse step error:', err)
@@ -274,6 +284,8 @@ export default function DispatchingDetailPage() {
 
       if (selectErr) throw selectErr
 
+      log('POD: found ' + (rows?.length ?? 0) + ' existing rows')
+
       if (rows && rows.length > 0) {
         // UPDATE existing row
         const { error: updateErr } = await supabase
@@ -285,7 +297,7 @@ export default function DispatchingDetailPage() {
           })
           .eq('pod_inventory_id', rows[0].pod_inventory_id)
         if (updateErr) throw updateErr
-        console.log('[Dispatch] pod UPDATE ok, new stock:', (rows[0].current_stock ?? 0) + qty)
+        log('POD: UPDATE row ' + rows[0].pod_inventory_id + ' new_stock=' + ((rows[0].current_stock ?? 0) + qty))
       } else {
         // INSERT new row
         const { error: insertErr } = await supabase
@@ -301,10 +313,11 @@ export default function DispatchingDetailPage() {
             snapshot_date: today,
           })
         if (insertErr) throw insertErr
-        console.log('[Dispatch] pod INSERT ok, stock:', qty)
+        log('POD: INSERT new row stock=' + qty)
       }
     } catch (err) {
       console.error('[Dispatch] pod inventory error:', err)
+      setDebugLog((prev) => [...prev, 'POD ERROR: ' + (err as Error).message])
       setInvWarnings((prev) => ({ ...prev, [line.dispatch_id]: '⚠ Pod inventory update failed' }))
     }
   }
@@ -598,6 +611,21 @@ export default function DispatchingDetailPage() {
         <p className="mt-4 text-center text-sm font-medium text-green-600 dark:text-green-400">
           All items dispatched ✓
         </p>
+      )}
+
+      {debugLog.length > 0 && (
+        <div className="fixed bottom-20 left-0 right-0 mx-4 bg-black/90 text-green-400 text-xs font-mono p-3 rounded-xl z-50 max-h-40 overflow-y-auto">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-white font-bold">Inventory Debug</p>
+            <button
+              onClick={() => setDebugLog([])}
+              className="text-neutral-400 hover:text-white text-xs"
+            >
+              Clear log
+            </button>
+          </div>
+          {debugLog.map((entry, i) => <p key={i}>{entry}</p>)}
+        </div>
       )}
     </div>
   )
