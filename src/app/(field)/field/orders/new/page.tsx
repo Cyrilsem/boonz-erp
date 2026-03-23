@@ -191,19 +191,27 @@ export default function NewOrderPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient()
 
-    const [{ data: suppData, error: suppError }, { data: prodData, error: prodError }, { data: poData }] = await Promise.all([
-      supabase.from('suppliers').select('supplier_id, supplier_name, supplier_code, supplier_email').eq('status', 'Active').order('supplier_name'),
-      supabase.from('boonz_products').select('product_id, boonz_product_name, product_category').eq('status', 'Active').order('boonz_product_name'),
-      supabase.from('purchase_orders').select('po_number').order('po_number', { ascending: false }).limit(1),
-    ])
-
-    console.log('[NewPO] suppliers loaded:', suppData?.length, 'products:', prodData?.length)
-    if (!suppData?.length || !prodData?.length) {
-      console.error('[NewPO] supplier error:', suppError, 'product error:', prodError)
-    }
-
+    const { data: suppData, error: suppErr } = await supabase
+      .from('suppliers')
+      .select('supplier_id, supplier_name, supplier_code, supplier_email')
+      .order('supplier_name')
+    if (suppErr) console.error('[NewOrder] suppliers fetch error:', suppErr)
+    else console.log('[NewOrder] suppliers loaded:', suppData?.length)
     if (suppData) setSuppliers(suppData)
+
+    const { data: prodData, error: prodErr } = await supabase
+      .from('boonz_products')
+      .select('product_id, boonz_product_name, product_category')
+      .order('boonz_product_name')
+    if (prodErr) console.error('[NewOrder] products fetch error:', prodErr)
+    else console.log('[NewOrder] products loaded:', prodData?.length)
     if (prodData) setProducts(prodData)
+
+    const { data: poData } = await supabase
+      .from('purchase_orders')
+      .select('po_number')
+      .order('po_number', { ascending: false })
+      .limit(1)
 
     const year = new Date().getFullYear()
     const lastNum = poData?.[0]?.po_number ?? 0
