@@ -752,6 +752,7 @@ export default function FieldPage() {
         { data: lastControlRows },
         { data: openTasksData },
         { count: pendingPodReviewsCount },
+        { data: podData },
       ] = await Promise.all([
         supabase
           .from('refill_dispatching')
@@ -812,6 +813,10 @@ export default function FieldPage() {
           .from('pod_inventory_edits')
           .select('edit_id', { count: 'exact', head: true })
           .eq('status', 'pending'),
+        supabase
+          .from('pod_inventory')
+          .select('expiration_date')
+          .eq('status', 'Active'),
       ])
 
       // Group by machine, count completed status per-machine
@@ -855,11 +860,6 @@ export default function FieldPage() {
       })
 
       // Pod inventory expiry KPIs
-      const { data: podData } = await supabase
-        .from('pod_inventory')
-        .select('expiration_date')
-        .eq('status', 'Active')
-
       setPodKpis({
         expired:   podData?.filter(r => r.expiration_date && r.expiration_date < today).length ?? 0,
         expiring3: podData?.filter(r => r.expiration_date && r.expiration_date >= today && r.expiration_date <= todayPlus3).length ?? 0,

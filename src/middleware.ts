@@ -28,6 +28,7 @@ export async function middleware(request: NextRequest) {
   // Always use getUser() — validates JWT server-side (not getSession() which reads cookie only)
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser()
 
   const path = request.nextUrl.pathname
@@ -45,7 +46,7 @@ export async function middleware(request: NextRequest) {
   if (isPublic) return supabaseResponse
 
   // ── No session → login ───────────────────────────────────────────────────────
-  if (!user) {
+  if (authError || !user) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirectTo', path)
     return NextResponse.redirect(loginUrl)

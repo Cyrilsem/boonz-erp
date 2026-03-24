@@ -70,6 +70,14 @@ const NAV_CARDS: NavCard[] = [
     module: 'config.suppliers',
     countLabel: (c) => `${c.suppliers} active suppliers`,
   },
+  {
+    title: 'Access Management',
+    icon: '🔐',
+    desc: 'Control which modules each user can access',
+    href: '/field/config/access',
+    module: 'config.access',
+    countLabel: () => '',
+  },
 ]
 
 export default function ConfigPage() {
@@ -140,6 +148,7 @@ export default function ConfigPage() {
 
   // Admin roles always have access; others check DB permissions
   function hasAccess(mod: string): boolean {
+    if (mod === 'config.access') return ADMIN_ONLY_ROLES.includes(role)
     if (ADMIN_ONLY_ROLES.includes(role)) return true
     if (mod in modulePerms) return modulePerms[mod]
     // Default: warehouse has config module access
@@ -185,20 +194,6 @@ export default function ConfigPage() {
             </Link>
           ))}
 
-          {/* Access Management — operator_admin / superadmin only */}
-          {ADMIN_ONLY_ROLES.includes(role) && (
-            <Link
-              href="/field/config/access"
-              className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-colors hover:bg-gray-50"
-            >
-              <span className="text-3xl">🔐</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-gray-900">Access Management</p>
-                <p className="text-xs text-gray-500">Control which modules each user can access</p>
-              </div>
-              <span className="text-gray-400">→</span>
-            </Link>
-          )}
         </div>
       </div>
     </div>
