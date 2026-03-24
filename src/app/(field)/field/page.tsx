@@ -867,8 +867,8 @@ export default function FieldPage() {
         expiring30: podData?.filter(r => r.expiration_date && r.expiration_date > todayPlus7 && r.expiration_date <= todayPlus30).length ?? 0,
       })
 
-      // Config counts — only for admin roles
-      if (isAdmin) {
+      // Config counts — for admin roles and warehouse
+      if (isAdmin || role === 'warehouse') {
         const [
           { count: boonzCount },
           { count: podCount },
@@ -1046,6 +1046,7 @@ export default function FieldPage() {
           kpis={whKpis}
           podKpis={podKpis}
           onRestartTour={handleRestartTour}
+          configCounts={configCounts ?? undefined}
         />
       </>
     )

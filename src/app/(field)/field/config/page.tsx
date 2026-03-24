@@ -8,7 +8,8 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../components/field-header'
 
-const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager']
+const CONFIG_ROLES = ['operator_admin', 'superadmin', 'manager', 'warehouse']
+const ADMIN_ONLY_ROLES = ['operator_admin', 'superadmin']
 
 interface HubCounts {
   productMappings: number
@@ -24,6 +25,7 @@ interface NavCard {
   icon: string
   desc: string
   href: string
+  module: string
   countLabel: (c: HubCounts) => string
 }
 
@@ -33,6 +35,7 @@ const NAV_CARDS: NavCard[] = [
     icon: '🔗',
     desc: 'Link VOD products to Boonz catalog with split %',
     href: '/field/config/product-mapping',
+    module: 'config.product-mapping',
     countLabel: (c) => `${c.productMappings} active mappings`,
   },
   {
@@ -40,6 +43,7 @@ const NAV_CARDS: NavCard[] = [
     icon: '📦',
     desc: 'Master product database',
     href: '/field/config/boonz-products',
+    module: 'config.boonz-products',
     countLabel: (c) => `${c.boonzProducts} products`,
   },
   {
@@ -47,6 +51,7 @@ const NAV_CARDS: NavCard[] = [
     icon: '🖥️',
     desc: 'VOX machine product catalog',
     href: '/field/config/pod-products',
+    module: 'config.pod-products',
     countLabel: (c) => `${c.podProducts} products`,
   },
   {
@@ -54,6 +59,7 @@ const NAV_CARDS: NavCard[] = [
     icon: '🏪',
     desc: 'Machine names and aliases',
     href: '/field/config/machines',
+    module: 'config.machines',
     countLabel: (c) => `${c.machinesCount} machines · ${c.aliasesCount} aliases`,
   },
   {
@@ -61,6 +67,7 @@ const NAV_CARDS: NavCard[] = [
     icon: '🚚',
     desc: 'Supplier database and credentials',
     href: '/field/config/suppliers',
+    module: 'config.suppliers',
     countLabel: (c) => `${c.suppliers} active suppliers`,
   },
 ]
@@ -68,6 +75,8 @@ const NAV_CARDS: NavCard[] = [
 export default function ConfigPage() {
   const router = useRouter()
   const [counts, setCounts] = useState<HubCounts | null>(null)
+  const [role, setRole] = useState<string>('')
+  const [modulePerms, setModulePerms] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
 
   const fetchData = useCallback(async () => {
@@ -81,10 +90,24 @@ export default function ConfigPage() {
       .eq('id', user.id)
       .single()
 
-    if (!profile || !ADMIN_ROLES.includes(profile.role)) {
+    if (!profile || !CONFIG_ROLES.includes(profile.role)) {
       router.push('/field')
       return
     }
+
+    setRole(profile.role)
+
+    // Fetch this user's module permissions
+    const { data: permsData } = await supabase
+      .from('module_permissions')
+      .select('module, can_access')
+      .eq('user_id', user.id)
+
+    const perms: Record<string, boolean> = {}
+    for (const p of permsData ?? []) {
+      perms[p.module as string] = p.can_access as boolean
+    }
+    setModulePerms(perms)
 
     const [
       { count: mappingCount },
@@ -115,6 +138,14 @@ export default function ConfigPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Admin roles always have access; others check DB permissions
+  function hasAccess(mod: string): boolean {
+    if (ADMIN_ONLY_ROLES.includes(role)) return true
+    if (mod in modulePerms) return modulePerms[mod]
+    // Default: warehouse has config module access
+    return true
+  }
+
   if (loading) {
     return (
       <>
@@ -126,13 +157,15 @@ export default function ConfigPage() {
     )
   }
 
+  const visibleCards = NAV_CARDS.filter((card) => hasAccess(card.module))
+
   return (
     <div className="pb-24">
       <FieldHeader title="Configuration" />
       <div className="px-4 py-4">
         <p className="mb-4 text-sm text-neutral-500">Manage master data and naming conventions</p>
         <div className="grid grid-cols-1 gap-3">
-          {NAV_CARDS.map((card) => (
+          {visibleCards.map((card) => (
             <Link
               key={card.href}
               href={card.href}
@@ -151,6 +184,21 @@ export default function ConfigPage() {
               <span className="text-gray-400">→</span>
             </Link>
           ))}
+
+          {/* Access Management — operator_admin / superadmin only */}
+          {ADMIN_ONLY_ROLES.includes(role) && (
+            <Link
+              href="/field/config/access"
+              className="flex items-center gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm transition-colors hover:bg-gray-50"
+            >
+              <span className="text-3xl">🔐</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-gray-900">Access Management</p>
+                <p className="text-xs text-gray-500">Control which modules each user can access</p>
+              </div>
+              <span className="text-gray-400">→</span>
+            </Link>
+          )}
         </div>
       </div>
     </div>
