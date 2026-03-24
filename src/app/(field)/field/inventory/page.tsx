@@ -40,7 +40,7 @@ interface PendingEdit {
   pod_inventory_id: string
   machine_id: string
   boonz_product_id: string
-  edit_type: 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'in_stock'
+  edit_type: 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'in_stock' | 'return_to_warehouse'
   quantity_update: number | null
   notes: string | null
   created_at: string
@@ -244,7 +244,7 @@ export default function InventoryPage() {
           pod_inventory_id: r.pod_inventory_id,
           machine_id: r.machine_id,
           boonz_product_id: r.boonz_product_id,
-          edit_type: r.edit_type as 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'in_stock',
+          edit_type: r.edit_type as 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'in_stock' | 'return_to_warehouse',
           quantity_update: r.quantity_update as number | null,
           notes: r.notes as string | null,
           created_at: r.created_at as string,
@@ -453,6 +453,47 @@ export default function InventoryPage() {
         } catch (e) {
           console.error('[approve expired] step 4 failed', e)
         }
+      }
+    } else if (edit.edit_type === 'return_to_warehouse') {
+      // ── Return to warehouse: zero pod + insert active WH row ─────────────
+      const today = new Date().toISOString().split('T')[0]
+
+      // Step 1: get expiration_date from pod_inventory
+      let podExpiryDate: string | null = null
+      try {
+        const { data: podRow } = await supabase
+          .from('pod_inventory')
+          .select('expiration_date')
+          .eq('pod_inventory_id', edit.pod_inventory_id)
+          .limit(1)
+          .single()
+        podExpiryDate = podRow?.expiration_date ?? null
+      } catch (e) {
+        console.error('[approve return_to_warehouse] step 1 failed', e)
+      }
+
+      // Step 2: zero-out pod_inventory and mark Removed
+      try {
+        await supabase
+          .from('pod_inventory')
+          .update({ current_stock: 0, status: 'Removed', snapshot_date: today })
+          .eq('pod_inventory_id', edit.pod_inventory_id)
+      } catch (e) {
+        console.error('[approve return_to_warehouse] step 2 failed', e)
+      }
+
+      // Step 3: insert Active warehouse row (stock returns as reusable)
+      try {
+        await supabase.from('warehouse_inventory').insert({
+          boonz_product_id: edit.boonz_product_id,
+          warehouse_stock: edit.quantity_update ?? 0,
+          expiration_date: podExpiryDate,
+          batch_id: `RETURNED-FROM-POD-${today}`,
+          status: 'Active',
+          snapshot_date: today,
+        })
+      } catch (e) {
+        console.error('[approve return_to_warehouse] step 3 failed', e)
       }
     } else {
       // ── All other types: update pod_inventory ─────────────────────────────
@@ -690,6 +731,8 @@ export default function InventoryPage() {
                       ? { label: 'Damaged', cls: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300' }
                       : edit.edit_type === 'expired'
                       ? { label: 'Removed (expired)', cls: 'bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400' }
+                      : edit.edit_type === 'return_to_warehouse'
+                      ? { label: 'Return to WH', cls: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' }
                       : { label: 'Stock update', cls: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400' }
 
                   return (

@@ -33,7 +33,7 @@ interface DisplayGroup {
 
 type PodFilter = 'expired' | '3days' | '7days' | '30days' | 'all'
 type GroupBy = 'machine' | 'product' | 'category' | 'none'
-type EditType = 'in_stock' | 'sold' | 'partial_sold' | 'damaged' | 'expired'
+type EditType = 'in_stock' | 'sold' | 'partial_sold' | 'damaged' | 'expired' | 'return_to_warehouse'
 type SortField = 'expiry' | 'qty' | 'product'
 type SortDir = 'asc' | 'desc'
 
@@ -319,11 +319,12 @@ export default function PodInventoryPage() {
     if (!selectedRow) return
     setEditType(newType)
     const autoQty: Record<EditType, string> = {
-      in_stock:     String(selectedRow.current_stock),
-      sold:         String(selectedRow.current_stock),
-      partial_sold: '',
-      damaged:      '',
-      expired:      String(selectedRow.current_stock),
+      in_stock:             String(selectedRow.current_stock),
+      sold:                 String(selectedRow.current_stock),
+      partial_sold:         '',
+      damaged:              '',
+      expired:              String(selectedRow.current_stock),
+      return_to_warehouse:  String(selectedRow.current_stock),
     }
     setEditQty(autoQty[newType])
   }
@@ -860,6 +861,34 @@ export default function PodInventoryPage() {
                     placeholder="0"
                   />
                   <p className="mt-1 text-xs text-neutral-400">(pre-filled — all units removed)</p>
+                </div>
+              )}
+
+              {/* 6. Return to warehouse */}
+              <button
+                onClick={() => handleEditTypeChange('return_to_warehouse')}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === 'return_to_warehouse'
+                    ? 'border-neutral-500 bg-neutral-100 dark:border-neutral-500 dark:bg-neutral-800'
+                    : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800'
+                }`}
+              >
+                <p className="text-sm font-semibold">↩ Return to warehouse</p>
+                <p className="text-xs text-neutral-500">Remove from machine — return stock to warehouse</p>
+              </button>
+              {editType === 'return_to_warehouse' && (
+                <div className="ml-4">
+                  <label className="mb-1 block text-xs text-neutral-500">Units returned</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={selectedRow.current_stock}
+                    value={editQty}
+                    onChange={(e) => setEditQty(e.target.value)}
+                    className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    placeholder="0"
+                  />
+                  <p className="mt-1 text-xs text-neutral-400">(pre-filled — full stock being returned)</p>
                 </div>
               )}
 

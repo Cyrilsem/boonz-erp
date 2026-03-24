@@ -5,15 +5,23 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../../components/field-header'
 
-interface POLine {
+interface ReceiveBatch {
+  batch_key: string
+  received_qty: number
+  expiry_date: string
+}
+
+interface ReceiveLine {
   po_line_id: string
+  po_id: string
   boonz_product_id: string
   boonz_product_name: string
   ordered_qty: number
-  received_qty: number
-  expiry_date: string
+  supplier_id: string
+  price_per_unit_aed: number | null
+  purchase_date: string
   wh_location: string
-  overage: boolean
+  batches: ReceiveBatch[]
 }
 
 interface POHeader {
@@ -27,13 +35,17 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function generateKey(): string {
+  return Math.random().toString(36).slice(2)
+}
+
 export default function ReceivingDetailPage() {
   const params = useParams<{ poId: string }>()
   const router = useRouter()
   const poId = decodeURIComponent(params.poId)
 
   const [header, setHeader] = useState<POHeader | null>(null)
-  const [lines, setLines] = useState<POLine[]>([])
+  const [lines, setLines] = useState<ReceiveLine[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -51,6 +63,8 @@ export default function ReceivingDetailPage() {
         ordered_qty,
         expiry_date,
         boonz_product_id,
+        supplier_id,
+        price_per_unit_aed,
         boonz_products!inner(boonz_product_name),
         suppliers!inner(supplier_name)
       `)
@@ -71,25 +85,33 @@ export default function ReceivingDetailPage() {
       purchase_date: first.purchase_date,
     })
 
-    const mapped: POLine[] = poLines.map((line) => {
+    const mapped: ReceiveLine[] = poLines.map((line) => {
       const p = line.boonz_products as unknown as { boonz_product_name: string }
       return {
         po_line_id: line.po_line_id,
+        po_id: line.po_id,
         boonz_product_id: line.boonz_product_id,
         boonz_product_name: p.boonz_product_name,
         ordered_qty: line.ordered_qty ?? 0,
-        received_qty: line.ordered_qty ?? 0,
-        expiry_date: line.expiry_date ?? '',
+        supplier_id: (line.supplier_id as string) ?? '',
+        price_per_unit_aed: (line.price_per_unit_aed as number | null) ?? null,
+        purchase_date: line.purchase_date,
         wh_location: '',
-        overage: false,
+        batches: [
+          {
+            batch_key: generateKey(),
+            received_qty: line.ordered_qty ?? 0,
+            expiry_date: (line.expiry_date as string | null) ?? '',
+          },
+        ],
       }
     })
 
     mapped.sort((a, b) => a.boonz_product_name.localeCompare(b.boonz_product_name))
     setLines(mapped)
 
-    // Fetch last known locations for each product
-    const productIds = mapped.map(l => l.boonz_product_id)
+    // Pre-fill warehouse locations from most recent active batch per product
+    const productIds = mapped.map((l) => l.boonz_product_id)
     if (productIds.length > 0) {
       const { data: locationData } = await supabase
         .from('warehouse_inventory')
@@ -100,19 +122,18 @@ export default function ReceivingDetailPage() {
         .order('created_at', { ascending: false })
 
       if (locationData) {
-        // Build map of product_id -> most recent location
         const locationMap = new Map<string, string>()
         for (const row of locationData) {
           if (!locationMap.has(row.boonz_product_id) && row.wh_location) {
             locationMap.set(row.boonz_product_id, row.wh_location)
           }
         }
-
-        // Pre-fill locations
-        setLines(prev => prev.map(l => ({
-          ...l,
-          wh_location: locationMap.get(l.boonz_product_id) ?? l.wh_location
-        })))
+        setLines((prev) =>
+          prev.map((l) => ({
+            ...l,
+            wh_location: locationMap.get(l.boonz_product_id) ?? l.wh_location,
+          }))
+        )
       }
     }
 
@@ -123,16 +144,55 @@ export default function ReceivingDetailPage() {
     fetchData()
   }, [fetchData])
 
-  function updateLine(poLineId: string, field: 'received_qty' | 'expiry_date' | 'wh_location', value: string | number) {
+  function addBatch(poLineId: string) {
     setLines((prev) =>
-      prev.map((l) => {
-        if (l.po_line_id !== poLineId) return l
-        const updated = { ...l, [field]: value }
-        if (field === 'received_qty') {
-          updated.overage = (value as number) > l.ordered_qty
-        }
-        return updated
-      })
+      prev.map((l) =>
+        l.po_line_id !== poLineId
+          ? l
+          : {
+              ...l,
+              batches: [
+                ...l.batches,
+                { batch_key: generateKey(), received_qty: 0, expiry_date: '' },
+              ],
+            }
+      )
+    )
+  }
+
+  function removeBatch(poLineId: string, batchKey: string) {
+    setLines((prev) =>
+      prev.map((l) =>
+        l.po_line_id !== poLineId
+          ? l
+          : { ...l, batches: l.batches.filter((b) => b.batch_key !== batchKey) }
+      )
+    )
+  }
+
+  function updateBatch(
+    poLineId: string,
+    batchKey: string,
+    field: 'received_qty' | 'expiry_date',
+    value: string | number
+  ) {
+    setLines((prev) =>
+      prev.map((l) =>
+        l.po_line_id !== poLineId
+          ? l
+          : {
+              ...l,
+              batches: l.batches.map((b) =>
+                b.batch_key !== batchKey ? b : { ...b, [field]: value }
+              ),
+            }
+      )
+    )
+  }
+
+  function updateWHLocation(poLineId: string, value: string) {
+    setLines((prev) =>
+      prev.map((l) => (l.po_line_id !== poLineId ? l : { ...l, wh_location: value }))
     )
   }
 
@@ -142,43 +202,67 @@ export default function ReceivingDetailPage() {
 
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
-    const batchTimestamp = Date.now()
 
-    // 1. Mark PO lines as received
-    const updatePromises = lines.map((line) =>
-      supabase
-        .from('purchase_orders')
-        .update({ received_date: today })
-        .eq('po_line_id', line.po_line_id)
-    )
+    for (const line of lines) {
+      const activeBatches = line.batches.filter((b) => b.received_qty > 0)
+      if (activeBatches.length === 0) continue
 
-    const updateResults = await Promise.all(updatePromises)
-    const updateError = updateResults.find((r) => r.error)
-    if (updateError?.error) {
-      setError(`Failed to update PO: ${updateError.error.message}`)
-      setSubmitting(false)
-      return
-    }
+      for (let i = 0; i < activeBatches.length; i++) {
+        const batch = activeBatches[i]
 
-    // 2. Insert warehouse inventory
-    const inventoryInserts = lines.map((line) => ({
-      boonz_product_id: line.boonz_product_id,
-      snapshot_date: today,
-      warehouse_stock: line.received_qty,
-      expiration_date: line.expiry_date || null,
-      batch_id: `${poId}-${batchTimestamp}`,
-      wh_location: line.wh_location || null,
-      status: 'Active',
-    }))
+        if (i === 0) {
+          // Update original PO line with received date, actual qty, and expiry
+          const { error: updateErr } = await supabase
+            .from('purchase_orders')
+            .update({
+              received_date: today,
+              expiry_date: batch.expiry_date || null,
+              ordered_qty: batch.received_qty,
+            })
+            .eq('po_line_id', line.po_line_id)
 
-    const { error: insertError } = await supabase
-      .from('warehouse_inventory')
-      .insert(inventoryInserts)
+          if (updateErr) {
+            setError(`Failed to update PO: ${updateErr.message}`)
+            setSubmitting(false)
+            return
+          }
+        } else {
+          // Insert additional PO line for extra batches
+          const { error: insertErr } = await supabase.from('purchase_orders').insert({
+            po_id: line.po_id,
+            supplier_id: line.supplier_id,
+            boonz_product_id: line.boonz_product_id,
+            ordered_qty: batch.received_qty,
+            price_per_unit_aed: line.price_per_unit_aed,
+            expiry_date: batch.expiry_date || null,
+            purchase_date: line.purchase_date,
+            received_date: today,
+          })
 
-    if (insertError) {
-      setError(`Failed to create inventory: ${insertError.message}`)
-      setSubmitting(false)
-      return
+          if (insertErr) {
+            setError(`Failed to insert batch: ${insertErr.message}`)
+            setSubmitting(false)
+            return
+          }
+        }
+
+        // Insert warehouse inventory row for each batch
+        const { error: whErr } = await supabase.from('warehouse_inventory').insert({
+          boonz_product_id: line.boonz_product_id,
+          warehouse_stock: batch.received_qty,
+          expiration_date: batch.expiry_date || null,
+          batch_id: `${poId}-B${i + 1}`,
+          wh_location: line.wh_location || null,
+          status: 'Active',
+          snapshot_date: today,
+        })
+
+        if (whErr) {
+          setError(`Failed to create inventory: ${whErr.message}`)
+          setSubmitting(false)
+          return
+        }
+      }
     }
 
     setSubmitted(true)
@@ -250,71 +334,114 @@ export default function ReceivingDetailPage() {
         </div>
       )}
 
-      <ul className="space-y-3">
-        {lines.map((line) => (
-          <li
-            key={line.po_line_id}
-            className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
-          >
-            <p className="text-sm font-semibold mb-2 truncate">
-              {line.boonz_product_name}
-            </p>
-            <p className="text-xs text-neutral-500 mb-3">
-              Ordered: {line.ordered_qty}
-            </p>
+      <ul className="space-y-4">
+        {lines.map((line) => {
+          const batchTotal = line.batches.reduce((sum, b) => sum + b.received_qty, 0)
+          const totalColor =
+            batchTotal === line.ordered_qty
+              ? 'text-green-600 dark:text-green-400'
+              : batchTotal > line.ordered_qty
+              ? 'text-red-600 dark:text-red-400'
+              : 'text-amber-600 dark:text-amber-400'
 
-            <div className="space-y-2">
-              <div>
-                <label className="block text-xs text-neutral-500 mb-0.5">
-                  Received qty
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={line.received_qty}
-                  onChange={(e) =>
-                    updateLine(line.po_line_id, 'received_qty', parseFloat(e.target.value) || 0)
-                  }
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                />
-                {line.overage && (
-                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                    Quantity exceeds PO — are you sure?
-                  </p>
-                )}
+          return (
+            <li
+              key={line.po_line_id}
+              className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
+            >
+              {/* Product header */}
+              <p className="mb-1 text-sm font-bold">{line.boonz_product_name}</p>
+              <p className="mb-3 text-xs text-neutral-500">Ordered: {line.ordered_qty} units</p>
+
+              {/* Sub-batch rows */}
+              <div className="space-y-3">
+                {line.batches.map((batch, bIdx) => (
+                  <div
+                    key={batch.batch_key}
+                    className="ml-2 rounded-lg border border-neutral-100 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-900"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-neutral-500">
+                        Batch {bIdx + 1}
+                      </span>
+                      {line.batches.length > 1 && (
+                        <button
+                          onClick={() => removeBatch(line.po_line_id, batch.batch_key)}
+                          className="text-xs text-red-500 hover:text-red-700 dark:text-red-400"
+                        >
+                          × remove
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-0.5 block text-xs text-neutral-500">Qty</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={batch.received_qty}
+                          onChange={(e) =>
+                            updateBatch(
+                              line.po_line_id,
+                              batch.batch_key,
+                              'received_qty',
+                              parseFloat(e.target.value) || 0
+                            )
+                          }
+                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-0.5 block text-xs text-neutral-500">Expiry date</label>
+                        <input
+                          type="date"
+                          value={batch.expiry_date}
+                          onChange={(e) =>
+                            updateBatch(
+                              line.po_line_id,
+                              batch.batch_key,
+                              'expiry_date',
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              <div>
-                <label className="block text-xs text-neutral-500 mb-0.5">
-                  Expiry date
-                </label>
-                <input
-                  type="date"
-                  value={line.expiry_date}
-                  onChange={(e) =>
-                    updateLine(line.po_line_id, 'expiry_date', e.target.value)
-                  }
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                />
-              </div>
+              {/* Add batch button */}
+              <button
+                onClick={() => addBatch(line.po_line_id)}
+                className="mt-2 text-xs font-medium text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+              >
+                + Add expiry batch
+              </button>
 
-              <div>
-                <label className="block text-xs text-neutral-500 mb-0.5">
+              {/* Running total */}
+              <p className={`mt-2 text-xs font-medium ${totalColor}`}>
+                {batchTotal} of {line.ordered_qty} received
+              </p>
+
+              {/* Warehouse location */}
+              <div className="mt-3">
+                <label className="mb-0.5 block text-xs text-neutral-500">
                   Warehouse location
                 </label>
                 <input
                   type="text"
                   value={line.wh_location}
-                  onChange={(e) =>
-                    updateLine(line.po_line_id, 'wh_location', e.target.value)
-                  }
+                  onChange={(e) => updateWHLocation(line.po_line_id, e.target.value)}
                   placeholder="e.g. A-01"
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                 />
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
 
       {error && (

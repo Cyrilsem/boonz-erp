@@ -14,10 +14,10 @@ const EDGE_FN_URL =
   'https://eizcexopcuoycuosittm.supabase.co/functions/v1/send-po-notification'
 
 interface Supplier {
-  supplier_id: string
+  id: string
   supplier_name: string
   supplier_code: string | null
-  supplier_email: string | null
+  email: string | null
 }
 
 interface Product {
@@ -193,7 +193,7 @@ export default function NewOrderPage() {
 
     const { data: suppData, error: suppErr } = await supabase
       .from('suppliers')
-      .select('supplier_id, supplier_name, supplier_code, supplier_email')
+      .select('id, supplier_name, supplier_code, email')
       .order('supplier_name')
     if (suppErr) console.error('[NewOrder] suppliers fetch error:', suppErr)
     else console.log('[NewOrder] suppliers loaded:', suppData?.length)
@@ -394,7 +394,7 @@ export default function NewOrderPage() {
     setError(null)
 
     const supabase = createClient()
-    const supplier = suppliers.find((s) => s.supplier_id === supplierId)
+    const supplier = suppliers.find((s) => s.id === supplierId)
     if (!supplier) {
       setError('Supplier not found')
       setSubmitting(false)
@@ -456,7 +456,7 @@ export default function NewOrderPage() {
             supplier_id: supplierId,
             supplier_name: supplier.supplier_name,
             supplier_code: supplier.supplier_code ?? '',
-            supplier_email: supplier.supplier_email,
+            supplier_email: supplier.email,
             purchase_date: poDate,
             lines: finalLines.map((l) => ({
               boonz_product_name: l.product_name,
@@ -500,7 +500,7 @@ export default function NewOrderPage() {
   }
 
   // Derived: selected supplier info for confirm dialog
-  const selectedSupplier = suppliers.find((s) => s.supplier_id === supplierId)
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId)
   const isWalkIn = selectedSupplier
     ? WALK_IN_SUPPLIER_CODES.includes(
         (selectedSupplier.supplier_code ?? '') as typeof WALK_IN_SUPPLIER_CODES[number]
@@ -519,7 +519,7 @@ export default function NewOrderPage() {
   }
 
   const supplierItems = suppliers.map((s) => ({
-    id: s.supplier_id,
+    id: s.id,
     label: s.supplier_name,
     secondary: s.supplier_code ?? undefined,
   }))
@@ -860,7 +860,7 @@ export default function NewOrderPage() {
                   and CC info@boonz.me.
                 </p>
                 <p className="mt-1 text-xs text-neutral-400">
-                  To: {selectedSupplier.supplier_email || 'info@boonz.me'}
+                  To: {selectedSupplier.email || 'info@boonz.me'}
                 </p>
               </>
             )}
