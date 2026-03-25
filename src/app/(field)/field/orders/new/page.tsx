@@ -175,7 +175,7 @@ export default function NewOrderPage() {
 
   // Manual lines
   const [lines, setLines] = useState<POLine[]>([
-    { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null },
+    { key: crypto.randomUUID(), product_id: '', product_name: '', qty: 0, price: null },
   ])
 
   // Import
@@ -213,16 +213,15 @@ export default function NewOrderPage() {
     else console.log('[NewOrder] products loaded:', prodData?.length)
     if (prodData) setProducts(prodData)
 
-    const { data: poData } = await supabase
+    const { data: lastPO } = await supabase
       .from('purchase_orders')
       .select('po_number')
+      .not('po_number', 'is', null)
       .order('po_number', { ascending: false })
       .limit(1)
-
-    const year = new Date().getFullYear()
-    const lastNum = poData?.[0]?.po_number ?? 0
-    const nextNum = lastNum + 1
-    setPoId(`PO-${year}-${String(nextNum).padStart(3, '0')}`)
+      .single()
+    const nextNum = (lastPO?.po_number ?? 9016) + 1
+    setPoId(`PO-${new Date().getFullYear()}-${nextNum}`)
 
     setLoading(false)
   }, [])
@@ -242,7 +241,7 @@ export default function NewOrderPage() {
   function addLine() {
     setLines((prev) => [
       ...prev,
-      { key: generateKey(), product_id: '', product_name: '', qty: 1, price: null },
+      { key: crypto.randomUUID(), product_id: '', product_name: '', qty: 0, price: null },
     ])
   }
 
@@ -260,6 +259,13 @@ export default function NewOrderPage() {
       if (prev.length <= 1) return prev
       return prev.filter((l) => l.key !== key)
     })
+  }
+
+  function handleSupplierChange(id: string) {
+    setSupplierId(id)
+    setLines([{ key: crypto.randomUUID(), product_id: '', product_name: '', qty: 0, price: null }])
+    setPriceInputs({})
+    setLastPrices({})
   }
 
   async function fetchLastPrice(boonzProductId: string): Promise<number | null> {
@@ -360,7 +366,7 @@ export default function NewOrderPage() {
   function resolveFinalLines() {
     return mode === 'manual'
       ? lines
-          .filter((l) => l.product_id)
+          .filter((l) => l.product_id && l.qty > 0)
           .map((l) => ({
             product_id: l.product_id,
             product_name: products.find((p) => p.product_id === l.product_id)?.boonz_product_name ?? '',
@@ -391,7 +397,7 @@ export default function NewOrderPage() {
 
     const finalLines = resolveFinalLines()
     if (finalLines.length === 0) {
-      setError('Add at least one product line')
+      setError('Add at least one product with qty > 0')
       return
     }
 
@@ -427,10 +433,12 @@ export default function NewOrderPage() {
     const { data: lastPo } = await supabase
       .from('purchase_orders')
       .select('po_number')
+      .not('po_number', 'is', null)
       .order('po_number', { ascending: false })
       .limit(1)
+      .single()
 
-    const nextNumber = (lastPo?.[0]?.po_number ?? 0) + 1
+    const nextNumber = (lastPo?.po_number ?? 9016) + 1
 
     const inserts = finalLines.map((line) => ({
       po_id: poId,
@@ -531,6 +539,13 @@ export default function NewOrderPage() {
       setSubmitStatus(`Order saved and email sent to ${supplier.supplier_name}`)
     }
 
+    // Reset form for next order
+    setLines([{ key: crypto.randomUUID(), product_id: '', product_name: '', qty: 0, price: null }])
+    setSupplierId('')
+    setPriceInputs({})
+    setLastPrices({})
+    setPoId(`PO-${new Date().getFullYear()}-${nextNumber + 1}`)
+
     setTimeout(() => router.push('/field/orders'), 1500)
   }
 
@@ -585,7 +600,7 @@ export default function NewOrderPage() {
           <SearchableDropdown
             items={supplierItems}
             value={supplierId}
-            onChange={setSupplierId}
+            onChange={handleSupplierChange}
             placeholder="Select supplier…"
           />
         </div>
