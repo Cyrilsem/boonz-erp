@@ -277,10 +277,11 @@ export default function ProductMappingPage() {
   }
 
   function addSplitRow(draftKey: string) {
-    const firstBoonz = boonzProducts[0]?.product_id ?? ''
+    // Always init boonz_product_id to '' so the user must explicitly choose a product.
+    // Never inherit boonzProducts[0] — that caused wrong products being saved to DB.
     setSplitDrafts(prev => ({
       ...prev,
-      [draftKey]: [...(prev[draftKey] ?? []), { key: nk(), mapping_id: null, original_boonz_id: null, boonz_product_id: firstBoonz, split_pct: 0, toDelete: false }],
+      [draftKey]: [...(prev[draftKey] ?? []), { key: nk(), mapping_id: null, original_boonz_id: null, boonz_product_id: '', split_pct: 0, toDelete: false }],
     }))
   }
 
@@ -345,8 +346,45 @@ export default function ProductMappingPage() {
         }
       }
 
-      await loadMappings()
-      setExpandedKey(null)
+      // Targeted re-fetch: reload only this pod+machine from DB so the accordion
+      // stays open and shows exactly what was saved — no stale local state.
+      const sel2 = 'mapping_id, pod_product_id, boonz_product_id, machine_id, split_pct, status, pod_products!inner(pod_product_name), boonz_products!inner(boonz_product_name), machines(official_name)'
+      const baseQ = supabase
+        .from('product_mapping')
+        .select(sel2)
+        .eq('pod_product_id', podId)
+        .eq('status', 'Active')
+      const { data: freshRaw } = machineId === null
+        ? await baseQ.is('machine_id', null)
+        : await baseQ.eq('machine_id', machineId)
+      const freshRows: MappingRow[] = ((freshRaw ?? []) as unknown as RawRow[]).map(r => ({
+        mapping_id: r.mapping_id,
+        pod_product_id: r.pod_product_id,
+        pod_product_name: r.pod_products.pod_product_name,
+        boonz_product_id: r.boonz_product_id,
+        boonz_product_name: r.boonz_products.boonz_product_name,
+        machine_id: r.machine_id,
+        machine_name: r.machines?.official_name ?? null,
+        split_pct: r.split_pct ?? 0,
+        status: r.status ?? 'Active',
+      }))
+      // Replace rows for this pod+machine in global state (drives the list view)
+      setMappings(prev => [
+        ...prev.filter(r => !(r.pod_product_id === podId && r.machine_id === machineId)),
+        ...freshRows,
+      ])
+      // Re-populate accordion splits from fresh DB data (keep accordion open)
+      setSplitDrafts(prev => ({
+        ...prev,
+        [key]: freshRows.map(r => ({
+          key: nk(),
+          mapping_id: r.mapping_id,
+          original_boonz_id: r.boonz_product_id,
+          boonz_product_id: r.boonz_product_id,
+          split_pct: r.split_pct,
+          toDelete: false,
+        })),
+      }))
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : (err as { message?: string })?.message ?? 'Save failed'
       setSaveError(msg)
@@ -488,6 +526,7 @@ export default function ProductMappingPage() {
                     onChange={e => patchSplit(key, s.key, { boonz_product_id: e.target.value })}
                     className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-xs dark:border-neutral-600 dark:bg-neutral-900"
                   >
+                    <option value="">Select product…</option>
                     {boonzProducts.map(b => <option key={b.product_id} value={b.product_id}>{b.boonz_product_name}</option>)}
                   </select>
                   <input
