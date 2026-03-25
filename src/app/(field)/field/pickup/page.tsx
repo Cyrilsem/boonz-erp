@@ -28,6 +28,7 @@ export default function PickupPage() {
   const fetchMachines = useCallback(async () => {
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
     // Only show machines where ALL lines are packed
     const { data: lines } = await supabase
@@ -38,7 +39,8 @@ export default function PickupPage() {
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
       `)
-      .eq('dispatch_date', today)
+      .gte('dispatch_date', yesterday)
+      .lte('dispatch_date', today)
       .eq('include', true)
 
     if (!lines || lines.length === 0) {
@@ -122,12 +124,14 @@ export default function PickupPage() {
     setConfirming(machineId)
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
     await supabase
       .from('refill_dispatching')
       .update({ picked_up: true })
       .eq('machine_id', machineId)
-      .eq('dispatch_date', today)
+      .gte('dispatch_date', yesterday)
+      .lte('dispatch_date', today)
 
     setMachines((prev) =>
       prev.map((m) =>

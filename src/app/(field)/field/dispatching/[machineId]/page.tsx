@@ -80,6 +80,7 @@ export default function DispatchingDetailPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
     const { data: machineData } = await supabase
       .from('machines')
@@ -105,7 +106,8 @@ export default function DispatchingDetailPage() {
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
       `)
-      .eq('dispatch_date', today)
+      .gte('dispatch_date', yesterday)
+      .lte('dispatch_date', today)
       .eq('include', true)
       .eq('machine_id', machineId)
       .eq('picked_up', true)

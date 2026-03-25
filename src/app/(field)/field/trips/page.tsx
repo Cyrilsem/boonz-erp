@@ -56,11 +56,13 @@ export default function TripsPage() {
   const fetchStops = useCallback(async () => {
     const supabase = createClient()
     const today = new Date().toISOString().split('T')[0]
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
     const { data: lines } = await supabase
       .from('refill_dispatching')
       .select('dispatch_id, machine_id, packed, picked_up, dispatched, machines!inner(official_name, pod_location, pod_address)')
-      .eq('dispatch_date', today)
+      .gte('dispatch_date', yesterday)
+      .lte('dispatch_date', today)
       .eq('include', true)
 
     if (!lines || lines.length === 0) {

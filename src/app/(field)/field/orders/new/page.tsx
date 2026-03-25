@@ -194,6 +194,7 @@ export default function NewOrderPage() {
     const { data: suppData, error: suppErr } = await supabase
       .from('suppliers')
       .select('id, supplier_name, supplier_code, email')
+      .eq('status', 'Active')
       .order('supplier_name')
     if (suppErr) console.error('[NewOrder] suppliers fetch error:', suppErr)
     else console.log('[NewOrder] suppliers loaded:', suppData?.length)
@@ -634,10 +635,16 @@ export default function NewOrderPage() {
                       Qty <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="number"
-                      min={1}
-                      value={line.qty}
-                      onChange={(e) => updateLine(line.key, 'qty', parseInt(e.target.value) || 1)}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={line.qty === 0 ? '' : line.qty}
+                      placeholder="0"
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, '')
+                        updateLine(line.key, 'qty', val === '' ? 0 : Math.max(0, parseInt(val, 10)))
+                      }}
                       className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
                     />
                   </div>
@@ -646,14 +653,15 @@ export default function NewOrderPage() {
                       Unit price (AED) <span className="text-red-500">*</span>
                     </label>
                     <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={line.price ?? ''}
-                      onChange={(e) =>
-                        updateLine(line.key, 'price', e.target.value ? parseFloat(e.target.value) : null)
-                      }
+                      type="text"
+                      inputMode="decimal"
+                      value={line.price === null ? '' : line.price}
                       placeholder="0.00"
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.]/g, '')
+                        updateLine(line.key, 'price', val === '' ? null : parseFloat(val) || null)
+                      }}
                       className="w-full rounded border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                     />
                   </div>
