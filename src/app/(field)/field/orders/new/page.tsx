@@ -457,27 +457,65 @@ export default function NewOrderPage() {
       return
     }
 
-    // b. Call Edge Function for notification
-    const { data: { session } } = await supabase.auth.getSession()
-    const token = session?.access_token
+    // b. Notification: driver_task (direct DB) or email (Edge Function, non-blocking)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setError('Session expired — please log in again')
+      setSubmitting(false)
+      setSubmitStatus(null)
+      return
+    }
 
-    if (token) {
+    const isWalkIn = WALK_IN_SUPPLIER_CODES.includes(
+      (supplier.supplier_code ?? '') as typeof WALK_IN_SUPPLIER_CODES[number]
+    )
+
+    if (isWalkIn) {
+      const notes = finalLines.map((l) => `${l.product_name} x${l.qty}`).join(', ')
+      const { error: taskError } = await supabase
+        .from('driver_tasks')
+        .insert({
+          po_id: poId,
+          po_number: nextNumber,
+          supplier_id: supplierId,
+          status: 'pending',
+          created_by: user.id,
+          notes,
+        })
+      if (taskError) {
+        console.error('[NewOrder] driver_task insert error:', taskError)
+        setError('Order saved but could not create driver task. Please contact admin.')
+        setSubmitting(false)
+        setSubmitStatus(null)
+        return
+      }
+      await supabase.from('po_notifications').insert({
+        po_id: poId,
+        po_number: nextNumber,
+        notification_type: 'driver_task',
+        recipient: 'driver',
+        status: 'sent',
+        sent_by: user.id,
+      })
+      setSubmitStatus('Order created — driver task sent')
+    } else {
+      // Email: call Edge Function non-blocking (PO is already saved)
       try {
-        const res = await fetch(EDGE_FN_URL, {
+        const { data: { session } } = await supabase.auth.getSession()
+        await fetch(EDGE_FN_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            'Authorization': `Bearer ${session?.access_token}`,
+            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
           },
           body: JSON.stringify({
             po_id: poId,
             po_number: nextNumber,
             supplier_id: supplierId,
-            supplier_name: supplier.supplier_name,
-            supplier_code: supplier.supplier_code ?? '',
             supplier_email: supplier.contact_email,
-            purchase_date: poDate,
+            notification_type: 'email',
+            created_by: user.id,
             lines: finalLines.map((l) => ({
               boonz_product_name: l.product_name,
               ordered_qty: l.qty,
@@ -485,35 +523,12 @@ export default function NewOrderPage() {
               total_price_aed: l.price ? l.qty * l.price : null,
               expiry_date: l.expiry_date || null,
             })),
-            created_by: session.user.id,
           }),
         })
-
-        const result = await res.json()
-
-        if (!res.ok || result.error) {
-          // PO saved but notification failed
-          setSubmitStatus(null)
-          setError('Order saved but notification failed. You can retry from the order details.')
-          setTimeout(() => router.push('/field/orders'), 2000)
-          return
-        }
-
-        // Success
-        const isWalkIn = WALK_IN_SUPPLIER_CODES.includes(
-          (supplier.supplier_code ?? '') as typeof WALK_IN_SUPPLIER_CODES[number]
-        )
-        setSubmitStatus(
-          isWalkIn
-            ? `Order saved — driver task created`
-            : `Order saved and email sent to ${supplier.supplier_name}`
-        )
-      } catch {
-        setSubmitStatus(null)
-        setError('Order saved but notification failed. You can retry from the order details.')
-        setTimeout(() => router.push('/field/orders'), 2000)
-        return
+      } catch (err) {
+        console.error('[NewOrder] email notification failed (non-blocking):', err)
       }
+      setSubmitStatus(`Order saved and email sent to ${supplier.supplier_name}`)
     }
 
     setTimeout(() => router.push('/field/orders'), 1500)
