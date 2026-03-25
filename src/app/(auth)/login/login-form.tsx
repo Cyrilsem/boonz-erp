@@ -9,7 +9,11 @@ export default function LoginForm() {
   const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(
+    searchParams.get('error') === 'session_invalid'
+      ? 'Your session expired. Please log in again.'
+      : ''
+  )
   const [loading, setLoading] = useState(false)
   const [resetSent, setResetSent] = useState(false)
 
@@ -19,6 +23,11 @@ export default function LoginForm() {
     setLoading(true)
 
     const supabase = createClient()
+    // Always clear any existing session before signing in a new user.
+    // Without this, a previously cached session (e.g. driver) can persist
+    // and Supabase returns the old user instead of the newly signed-in one.
+    await supabase.auth.signOut()
+
     const { error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -30,7 +39,7 @@ export default function LoginForm() {
       return
     }
 
-    const redirectTo = searchParams.get('redirectTo') || '/app'
+    const redirectTo = searchParams.get('redirectTo') || '/field'
     router.push(redirectTo)
   }
 

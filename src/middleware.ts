@@ -59,7 +59,16 @@ export async function middleware(request: NextRequest) {
     .eq('id', user.id)
     .single()
 
-  const role = profile?.role ?? 'field_staff'
+  const role = profile?.role ?? null
+
+  if (!role) {
+    // Profile missing or RLS blocked read — force re-login instead of
+    // silently falling through as field_staff
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('redirectTo', path)
+    loginUrl.searchParams.set('error', 'session_invalid')
+    return NextResponse.redirect(loginUrl)
+  }
 
   const onApp    = path.startsWith('/app')
   const onField  = path.startsWith('/field')
