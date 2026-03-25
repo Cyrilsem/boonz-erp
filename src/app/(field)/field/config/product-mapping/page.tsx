@@ -65,6 +65,29 @@ let _k = 0
 const nk = () => `k${++_k}`
 const aKey = (podId: string, machineId: string | null) => `${podId}|||${machineId ?? '__global__'}`
 
+const MAPPING_SEL = 'mapping_id, pod_product_id, boonz_product_id, machine_id, split_pct, status, pod_products!inner(pod_product_name), boonz_products!inner(boonz_product_name), machines(official_name)'
+
+function mapRows(rawData: unknown[]): MappingRow[] {
+  const seen = new Set<string>()
+  const rows: MappingRow[] = []
+  for (const r of (rawData as RawRow[])) {
+    if (seen.has(r.mapping_id)) continue
+    seen.add(r.mapping_id)
+    rows.push({
+      mapping_id: r.mapping_id,
+      pod_product_id: r.pod_product_id,
+      pod_product_name: r.pod_products.pod_product_name,
+      boonz_product_id: r.boonz_product_id,
+      boonz_product_name: r.boonz_products.boonz_product_name,
+      machine_id: r.machine_id,
+      machine_name: r.machines?.official_name ?? null,
+      split_pct: r.split_pct ?? 0,
+      status: r.status ?? 'Active',
+    })
+  }
+  return rows
+}
+
 export default function ProductMappingPage() {
   const router = useRouter()
 
@@ -134,54 +157,43 @@ export default function ProductMappingPage() {
     init()
   }, [router])
 
-  // ── Load ALL mappings (no machine filter — grouping is client-side) ─────────
-  const loadMappings = useCallback(async () => {
+  // ── Load mappings for the selected machine only (avoids 1000-row Supabase limit) ──
+  const loadMappingsForMachine = useCallback(async (machineId: string | null) => {
     setLoadingMaps(true)
+    setMappings([])
     setExpandedKey(null)
     setSplitDrafts({})
     setSaveError(null)
     const supabase = createClient()
-    const sel = 'mapping_id, pod_product_id, boonz_product_id, machine_id, split_pct, status, pod_products!inner(pod_product_name), boonz_products!inner(boonz_product_name), machines(official_name)'
-    const { data } = await supabase.from('product_mapping').select(sel).order('pod_product_id')
-    const rawData = (data ?? []) as unknown as RawRow[]
-
-    // Deduplicate by mapping_id
-    const seen = new Set<string>()
-    const rows: MappingRow[] = []
-    for (const r of rawData) {
-      if (seen.has(r.mapping_id)) continue
-      seen.add(r.mapping_id)
-      rows.push({
-        mapping_id: r.mapping_id,
-        pod_product_id: r.pod_product_id,
-        pod_product_name: r.pod_products.pod_product_name,
-        boonz_product_id: r.boonz_product_id,
-        boonz_product_name: r.boonz_products.boonz_product_name,
-        machine_id: r.machine_id,
-        machine_name: r.machines?.official_name ?? null,
-        split_pct: r.split_pct ?? 0,
-        status: r.status ?? 'Active',
-      })
-    }
-    setMappings(rows)
+    const q = supabase
+      .from('product_mapping')
+      .select(MAPPING_SEL)
+      .eq('status', 'Active')
+      .order('pod_product_id')
+      .limit(10000)
+    const { data } = machineId === null
+      ? await q.is('machine_id', null)
+      : await q.eq('machine_id', machineId)
+    setMappings(mapRows(data ?? []))
     setLoadingMaps(false)
   }, [])
 
-  useEffect(() => { if (authed) loadMappings() }, [authed, loadMappings])
+  // Re-fetch whenever selected machine changes (or on first auth)
+  useEffect(() => {
+    if (!authed) return
+    loadMappingsForMachine(selectedMachineId)
+  }, [authed, selectedMachineId, loadMappingsForMachine])
 
-  // ── useMemo: By Product (filtered to selected machine) ────────────────────
+  // ── useMemo: By Product (all rows in state are already for the selected machine) ──
   const byProductGroups = useMemo<PodGroup[]>(() => {
-    const rows = selectedMachineId === null
-      ? mappings.filter(r => r.machine_id === null && r.status === 'Active')
-      : mappings.filter(r => r.machine_id === selectedMachineId && r.status === 'Active')
     const map = new Map<string, PodGroup>()
-    for (const r of rows) {
+    for (const r of mappings.filter(r => r.status === 'Active')) {
       const g = map.get(r.pod_product_id)
       if (g) { g.total_pct += r.split_pct; g.split_count++ }
       else map.set(r.pod_product_id, { pod_product_id: r.pod_product_id, pod_product_name: r.pod_product_name, total_pct: r.split_pct, split_count: 1 })
     }
     return [...map.values()].sort((a, b) => a.pod_product_name.localeCompare(b.pod_product_name))
-  }, [mappings, selectedMachineId])
+  }, [mappings])
 
   const filteredProductGroups = useMemo(() => {
     if (!search.trim()) return byProductGroups
@@ -348,12 +360,12 @@ export default function ProductMappingPage() {
 
       // Targeted re-fetch: reload only this pod+machine from DB so the accordion
       // stays open and shows exactly what was saved — no stale local state.
-      const sel2 = 'mapping_id, pod_product_id, boonz_product_id, machine_id, split_pct, status, pod_products!inner(pod_product_name), boonz_products!inner(boonz_product_name), machines(official_name)'
       const baseQ = supabase
         .from('product_mapping')
-        .select(sel2)
+        .select(MAPPING_SEL)
         .eq('pod_product_id', podId)
         .eq('status', 'Active')
+        .limit(10000)
       const { data: freshRaw } = machineId === null
         ? await baseQ.is('machine_id', null)
         : await baseQ.eq('machine_id', machineId)
@@ -433,7 +445,7 @@ export default function ProductMappingPage() {
     setShowAdd(false)
     setAddPodId(''); setAddPodSearch(''); setAddMachineId('__global__'); setAddSplits([])
     setAdding(false)
-    await loadMappings()
+    await loadMappingsForMachine(selectedMachineId)
   }
 
   // Pre-populate splits when pod + machine are both selected in the add modal
