@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '../../../components/field-header'
 
-const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager']
+const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager', 'warehouse']
 
 type GroupBy = 'product' | 'machine' | 'none'
 

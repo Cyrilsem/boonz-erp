@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FieldHeader } from '@/app/(field)/components/field-header'
 
-const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager']
+const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager', 'warehouse']
 
 type FilterTab = 'all' | 'active' | 'inactive' | 'suspended'
 
