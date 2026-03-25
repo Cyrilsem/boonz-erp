@@ -958,14 +958,21 @@ export default function FieldPage() {
   }, [fetchData])
 
   useEffect(() => {
+    const REFETCH_COOLDOWN = 30_000
+    let lastFetch = Date.now()
+
     function handleVisibility() {
-      if (document.visibilityState === 'visible') fetchData()
+      if (document.visibilityState === 'visible') {
+        const now = Date.now()
+        if (now - lastFetch > REFETCH_COOLDOWN) {
+          lastFetch = now
+          fetchData()
+        }
+      }
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', fetchData)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', fetchData)
     }
   }, [fetchData])
 

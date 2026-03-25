@@ -23,11 +23,6 @@ export default function LoginForm() {
     setLoading(true)
 
     const supabase = createClient()
-    // Always clear any existing session before signing in a new user.
-    // Without this, a previously cached session (e.g. driver) can persist
-    // and Supabase returns the old user instead of the newly signed-in one.
-    await supabase.auth.signOut()
-
     const { error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
