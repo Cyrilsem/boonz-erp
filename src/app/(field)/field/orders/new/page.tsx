@@ -182,6 +182,11 @@ export default function NewOrderPage() {
   const [importedRows, setImportedRows] = useState<ImportedRow[]>([])
   const [importReady, setImportReady] = useState(false)
 
+  // Price input raw strings (FIX 3: prevent decimal point loss on keystroke)
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({})
+  // Last purchase price hints (FIX 2: auto-fill on product select)
+  const [lastPrices, setLastPrices] = useState<Record<string, number | null>>({})
+
   // Submit + confirm dialog
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -255,6 +260,19 @@ export default function NewOrderPage() {
       if (prev.length <= 1) return prev
       return prev.filter((l) => l.key !== key)
     })
+  }
+
+  async function fetchLastPrice(boonzProductId: string): Promise<number | null> {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('purchase_orders')
+      .select('price_per_unit_aed')
+      .eq('boonz_product_id', boonzProductId)
+      .not('price_per_unit_aed', 'is', null)
+      .order('purchase_date', { ascending: false })
+      .limit(1)
+      .single()
+    return data?.price_per_unit_aed ?? null
   }
 
   // -- Excel import --
@@ -449,7 +467,8 @@ export default function NewOrderPage() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+            'Authorization': `Bearer ${token}`,
+            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
           },
           body: JSON.stringify({
             po_id: poId,
@@ -624,7 +643,15 @@ export default function NewOrderPage() {
                   <SearchableDropdown
                     items={productItems}
                     value={line.product_id}
-                    onChange={(id) => updateLine(line.key, 'product_id', id)}
+                    onChange={async (id) => {
+                      updateLine(line.key, 'product_id', id)
+                      const lastPrice = await fetchLastPrice(id)
+                      setLastPrices((prev) => ({ ...prev, [line.key]: lastPrice }))
+                      if (lastPrice !== null) {
+                        updateLine(line.key, 'price', lastPrice)
+                        setPriceInputs((prev) => ({ ...prev, [line.key]: String(lastPrice) }))
+                      }
+                    }}
                     placeholder="Select product…"
                   />
                 </div>
@@ -655,15 +682,27 @@ export default function NewOrderPage() {
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={line.price === null ? '' : line.price}
+                      value={priceInputs[line.key] ?? (line.price === null ? '' : String(line.price))}
                       placeholder="0.00"
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const val = e.target.value.replace(/[^0-9.]/g, '')
-                        updateLine(line.key, 'price', val === '' ? null : parseFloat(val) || null)
+                        setPriceInputs((prev) => ({ ...prev, [line.key]: val }))
+                      }}
+                      onBlur={() => {
+                        const raw = priceInputs[line.key] ?? ''
+                        const num = parseFloat(raw)
+                        const parsed = isNaN(num) ? null : Math.round(num * 100) / 100
+                        updateLine(line.key, 'price', parsed)
+                        setPriceInputs((prev) => ({ ...prev, [line.key]: parsed === null ? '' : String(parsed) }))
                       }}
                       className="w-full rounded border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                     />
+                    {lastPrices[line.key] != null && (
+                      <p className="mt-0.5 text-xs text-neutral-400">
+                        Last purchase: AED {lastPrices[line.key]}
+                      </p>
+                    )}
                   </div>
                 </div>
 
