@@ -299,6 +299,13 @@ export default function ProductMappingPage() {
       return
     }
 
+    // Validation: splits must total exactly 100%
+    const draftTotal = active.reduce((sum, s) => sum + (s.split_pct || 0), 0)
+    if (Math.round(draftTotal) !== 100) {
+      setSaveError(`Total is ${draftTotal.toFixed(0)}% — adjust splits to reach exactly 100% before saving`)
+      return
+    }
+
     setSaving(true)
     setSaveError(null)
     const supabase = createClient()
@@ -371,6 +378,11 @@ export default function ProductMappingPage() {
     if (!addPodId) { setAddError('Select a pod product'); return }
     if (addSplits.length === 0) { setAddError('Add at least one split row'); return }
     if (addSplits.some(s => !s.boonz_product_id)) { setAddError('All rows must have a boonz product selected'); return }
+    const addTotalCheck = addSplits.reduce((s, r) => s + (r.split_pct || 0), 0)
+    if (Math.round(addTotalCheck) !== 100) {
+      setAddError(`Total is ${addTotalCheck.toFixed(0)}% — adjust splits to reach exactly 100% before saving`)
+      return
+    }
     setAdding(true)
     setAddError(null)
     const supabase = createClient()

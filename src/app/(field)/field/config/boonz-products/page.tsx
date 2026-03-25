@@ -9,6 +9,19 @@ import { FieldHeader } from '../../../components/field-header'
 
 const ADMIN_ROLES = ['operator_admin', 'superadmin', 'manager', 'warehouse']
 
+const SOURCING_CHANNELS = [
+  'Union Coop',
+  'Amazon',
+  'Supplier CF',
+  'Supplier FH',
+  'Supplier MG',
+  'Supplier TD',
+  'Arab Sweet, Jaleel',
+  'Arab Sweet, Union Coop, Jaleel',
+  'Leb',
+  'Other',
+]
+
 interface BoonzProduct {
   product_id: string
   boonz_product_name: string
@@ -208,8 +221,33 @@ function ProductForm({
         </div>
         <div className="mt-2">
           <label className="mb-1 block text-xs font-medium text-neutral-500">Sourcing Channel</label>
-          <input type="text" value={draft.sourcing_channel} onChange={(e) => onChange({ sourcing_channel: e.target.value })}
-            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900" />
+          {(() => {
+            const isOther = draft.sourcing_channel === 'Other' || !SOURCING_CHANNELS.includes(draft.sourcing_channel)
+            const selectValue = isOther ? 'Other' : draft.sourcing_channel
+            return (
+              <>
+                <select
+                  value={selectValue}
+                  onChange={(e) => onChange({ sourcing_channel: e.target.value })}
+                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                >
+                  <option value="">Select channel…</option>
+                  {SOURCING_CHANNELS.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                {isOther && (
+                  <input
+                    type="text"
+                    value={draft.sourcing_channel === 'Other' ? '' : draft.sourcing_channel}
+                    placeholder="Enter custom channel…"
+                    onChange={(e) => onChange({ sourcing_channel: e.target.value || 'Other' })}
+                    className="mt-1 w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                  />
+                )}
+              </>
+            )
+          })()}
         </div>
       </div>
     </div>
