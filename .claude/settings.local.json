@@ -17,7 +17,23 @@
       "Bash(mv \"src/app/\\(field\\)/packing\" \"src/app/\\(field\\)/field/packing\")",
       "Bash(mv \"src/app/\\(field\\)/pickup\" \"src/app/\\(field\\)/field/pickup\")",
       "Bash(mv \"src/app/\\(field\\)/trips\" \"src/app/\\(field\\)/field/trips\")",
-      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field/profile\")"
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field/profile\")",
+      "Bash(npm install:*)",
+      "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field/page.tsx\")",
+      "Bash(ls -la \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/\")",
+      "Bash(find \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)\" -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\))",
+      "Bash(find \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field\" -name \"page.tsx\")",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(sed -i '' \"s/^''use client''$/''use client''\\\\n\\\\nexport const dynamic = ''force-dynamic''/\" \"$f\")",
+      "Bash(echo \"Done: $f\")",
+      "Bash(done)",
+      "Bash(head -4 \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field/config/page.tsx\")",
+      "Bash(do echo:*)",
+      "Bash(cat \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/bottom-tabs.tsx\")",
+      "Bash(cat \"src/app/\\(field\\)/field/pod-inventory/page.tsx\")",
+      "Bash(xargs cat:*)",
+      "Bash(wc -l \"src/app/\\(field\\)/field/config/product-mapping/page.tsx\" \"src/app/\\(field\\)/field/config/boonz-products/page.tsx\" \"src/app/\\(field\\)/field/orders/new/page.tsx\")"
     ]
   }
 }
