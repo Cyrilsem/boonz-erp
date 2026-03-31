@@ -91,8 +91,16 @@ type MachineHealth = {
   days_until_empty: number;
   has_sensor_errors: boolean;
   machine_status: string;
-  health_tier: "critical" | "warning" | "healthy" | "inactive" | "excluded";
+  health_tier:
+    | "critical"
+    | "warning"
+    | "healthy"
+    | "inactive"
+    | "offline"
+    | "excluded";
   health_sort: number;
+  include_in_refill: boolean;
+  recently_offline: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -123,6 +131,39 @@ function fmt2(n: number): string {
   });
 }
 
+const tierColors: Record<string, { card: string; bar: string; dot: string }> = {
+  critical: {
+    card: "bg-red-50 border-red-300",
+    bar: "bg-red-400",
+    dot: "bg-red-500",
+  },
+  warning: {
+    card: "bg-amber-50 border-amber-300",
+    bar: "bg-amber-400",
+    dot: "bg-amber-500",
+  },
+  healthy: {
+    card: "bg-green-50 border-green-200",
+    bar: "bg-green-400",
+    dot: "bg-green-500",
+  },
+  inactive: {
+    card: "bg-gray-100 border-gray-300",
+    bar: "bg-gray-300",
+    dot: "bg-gray-400",
+  },
+  offline: {
+    card: "bg-gray-50 border-gray-300 opacity-70",
+    bar: "bg-gray-300",
+    dot: "bg-gray-400",
+  },
+  excluded: {
+    card: "bg-gray-50 border-gray-200 opacity-50",
+    bar: "bg-gray-200",
+    dot: "bg-gray-300",
+  },
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RefillPage() {
@@ -146,6 +187,8 @@ export default function RefillPage() {
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [machineAisles, setMachineAisles] = useState<AisleRow[]>([]);
   const [loadingAisles, setLoadingAisles] = useState(false);
+  const [includeInRefill, setIncludeInRefill] = useState(true);
+  const [modalSort, setModalSort] = useState<"slot" | "stock" | "fill">("slot");
 
   const getSupabase = useCallback(() => {
     return createBrowserClient(
@@ -271,12 +314,17 @@ export default function RefillPage() {
   );
 
   useEffect(() => {
+    setModalSort("slot");
     if (!selectedMachine) {
       setMachineAisles([]);
       return;
     }
+    const health = machineHealth.find(
+      (m) => m.machine_name === selectedMachine,
+    );
+    setIncludeInRefill(health?.include_in_refill ?? true);
     loadAisles(selectedMachine);
-  }, [selectedMachine, loadAisles]);
+  }, [selectedMachine, loadAisles, machineHealth]);
 
   // Escape key closes modal
   useEffect(() => {
@@ -438,7 +486,40 @@ export default function RefillPage() {
     return counts;
   }, [machineHealth]);
 
+  const sortedAisles = useMemo(() => {
+    const sorted = [...machineAisles];
+    switch (modalSort) {
+      case "stock":
+        sorted.sort((a, b) => a.current - b.current);
+        break;
+      case "fill":
+        sorted.sort((a, b) => a.fillPct - b.fillPct);
+        break;
+      default:
+        break;
+    }
+    return sorted;
+  }, [machineAisles, modalSort]);
+
+  async function handleToggleRefill(machineName: string, include: boolean) {
+    const supabase = getSupabase();
+    const { error: rpcError } = await supabase.rpc("toggle_machine_refill", {
+      p_machine_name: machineName,
+      p_include: include,
+    });
+    if (!rpcError) {
+      const { data: healthData } = await supabase
+        .rpc("get_machine_health")
+        .limit(10000);
+      setMachineHealth((healthData as MachineHealth[]) || []);
+      setIncludeInRefill(include);
+    }
+  }
+
   const selectedDevice = devices.find((d) => d.device_name === selectedMachine);
+  const selectedHealth = machineHealth.find(
+    (m) => m.machine_name === selectedMachine,
+  );
   const modalTotalCapacity = machineAisles.reduce((s, a) => s + a.max, 0);
   const modalTotalCurrent = machineAisles.reduce((s, a) => s + a.current, 0);
 
@@ -653,6 +734,11 @@ export default function RefillPage() {
                     {tierCounts.inactive} inactive
                   </span>
                 )}
+                {tierCounts.offline != null && (
+                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                    {tierCounts.offline} offline
+                  </span>
+                )}
                 {tierCounts.excluded != null && (
                   <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">
                     {tierCounts.excluded} excluded
@@ -687,39 +773,21 @@ export default function RefillPage() {
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
             {sortedMachines.map((m) => {
-              const tierStyle =
-                m.health_tier === "critical"
-                  ? "border-red-300 bg-red-50"
-                  : m.health_tier === "warning"
-                    ? "border-amber-300 bg-amber-50"
-                    : m.health_tier === "healthy"
-                      ? "border-green-200 bg-green-50/50"
-                      : m.health_tier === "excluded"
-                        ? "border-gray-100 bg-gray-50/50 opacity-50"
-                        : "border-gray-200 bg-gray-50/50";
-
-              const fillBarColor =
-                m.health_tier === "critical"
-                  ? "bg-red-400"
-                  : m.health_tier === "warning"
-                    ? "bg-amber-400"
-                    : m.health_tier === "healthy"
-                      ? "bg-green-400"
-                      : "bg-gray-300";
+              const tc = tierColors[m.health_tier] ?? tierColors.inactive;
 
               return (
                 <button
                   key={m.machine_id}
                   type="button"
                   onClick={() => setSelectedMachine(m.machine_name)}
-                  className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tierStyle}`}
+                  className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
                 >
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <span className="text-xs font-medium text-gray-700 truncate leading-tight">
                       {m.machine_name}
                     </span>
                     <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.is_online ? "bg-green-500" : "bg-gray-300"}`}
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${tc.dot}`}
                     />
                   </div>
                   <div className="text-sm font-semibold text-gray-900">
@@ -732,7 +800,7 @@ export default function RefillPage() {
                   {/* Fill bar */}
                   <div className="mt-1.5 h-1 rounded-full bg-gray-200 overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${fillBarColor}`}
+                      className={`h-full rounded-full ${tc.bar}`}
                       style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
                     />
                   </div>
@@ -756,6 +824,13 @@ export default function RefillPage() {
                       )
                     )}
                   </div>
+                  {m.health_tier === "offline" && (
+                    <div
+                      className={`mt-1 text-[10px] font-medium ${m.recently_offline ? "text-amber-600" : "text-gray-400"}`}
+                    >
+                      {m.recently_offline ? "RECENTLY OFFLINE" : "OFFLINE"}
+                    </div>
+                  )}
                   {m.health_tier === "excluded" && (
                     <div className="mt-1 text-[10px] text-gray-400 italic">
                       excluded
@@ -1004,6 +1079,31 @@ export default function RefillPage() {
                     </span>
                   )}
                 </div>
+                {/* Include in refill toggle */}
+                {selectedHealth !== undefined && (
+                  <div className="flex items-center gap-2 mt-3">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <span className="text-xs text-gray-600">
+                        Include in refill
+                      </span>
+                      <div className="relative">
+                        <input
+                          type="checkbox"
+                          checked={includeInRefill}
+                          onChange={(e) =>
+                            handleToggleRefill(
+                              selectedMachine!,
+                              e.target.checked,
+                            )
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-colors" />
+                        <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5" />
+                      </div>
+                    </label>
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -1055,45 +1155,73 @@ export default function RefillPage() {
                   No slot data available for today&apos;s snapshot
                 </div>
               ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-200 text-gray-500 text-xs">
-                      <th className="text-left py-2 pr-3 font-medium">Slot</th>
-                      <th className="text-left py-2 px-2 font-medium">
-                        Product
-                      </th>
-                      <th className="text-right py-2 px-2 font-medium">
-                        Stock
-                      </th>
-                      <th className="text-right py-2 pl-2 font-medium">Fill</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {machineAisles.map((a, i) => (
-                      <tr
-                        key={`${a.slot}-${i}`}
-                        className="border-b border-gray-50"
+                <>
+                  {/* Sort controls */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-gray-500">Sort by:</span>
+                    {(["slot", "stock", "fill"] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setModalSort(opt)}
+                        className={`text-xs px-2 py-1 rounded transition-colors ${
+                          modalSort === opt
+                            ? "bg-gray-800 text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
                       >
-                        <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
-                          {a.slot}
-                        </td>
-                        <td className="py-1.5 px-2 text-gray-800 text-xs">
-                          {a.product || "—"}
-                        </td>
-                        <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
-                          {a.current} / {a.max}
-                        </td>
-                        <td className="py-1.5 pl-2 text-right">
-                          <span
-                            className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(a.fillPct)}`}
-                          >
-                            {a.fillPct}%
-                          </span>
-                        </td>
-                      </tr>
+                        {opt === "slot"
+                          ? "Slot"
+                          : opt === "stock"
+                            ? "Stock ↑"
+                            : "Fill % ↑"}
+                      </button>
                     ))}
-                  </tbody>
-                </table>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                        <th className="text-left py-2 pr-3 font-medium">
+                          Slot
+                        </th>
+                        <th className="text-left py-2 px-2 font-medium">
+                          Product
+                        </th>
+                        <th className="text-right py-2 px-2 font-medium">
+                          Stock
+                        </th>
+                        <th className="text-right py-2 pl-2 font-medium">
+                          Fill
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedAisles.map((a, i) => (
+                        <tr
+                          key={`${a.slot}-${i}`}
+                          className="border-b border-gray-50"
+                        >
+                          <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
+                            {a.slot}
+                          </td>
+                          <td className="py-1.5 px-2 text-gray-800 text-xs">
+                            {a.product || "—"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
+                            {a.current} / {a.max}
+                          </td>
+                          <td className="py-1.5 pl-2 text-right">
+                            <span
+                              className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(a.fillPct)}`}
+                            >
+                              {a.fillPct}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
               )}
             </div>
           </div>
