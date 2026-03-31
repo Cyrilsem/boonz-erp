@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -77,6 +77,24 @@ type DoorCabinet = { layers?: DoorLayer[] };
 
 type ProgressMsg = { step: string; detail: string; elapsed: string };
 
+type MachineHealth = {
+  machine_name: string;
+  machine_id: string;
+  is_online: boolean;
+  total_stock: number;
+  max_capacity: number;
+  fill_pct: number;
+  total_slots: number;
+  slots_at_zero: number;
+  slots_below_25pct: number;
+  daily_velocity: number;
+  days_until_empty: number;
+  has_sensor_errors: boolean;
+  machine_status: string;
+  health_tier: "critical" | "warning" | "healthy" | "inactive" | "excluded";
+  health_sort: number;
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function timeAgo(dateStr: string | null): string {
@@ -120,6 +138,10 @@ export default function RefillPage() {
   const [salesCount, setSalesCount] = useState<number | null>(null);
 
   const [progressMessages, setProgressMessages] = useState<ProgressMsg[]>([]);
+  const [machineHealth, setMachineHealth] = useState<MachineHealth[]>([]);
+  const [sortBy, setSortBy] = useState<"priority" | "stock" | "fill">(
+    "priority",
+  );
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [machineAisles, setMachineAisles] = useState<AisleRow[]>([]);
@@ -179,6 +201,12 @@ export default function RefillPage() {
       .from("sales_history")
       .select("*", { count: "exact", head: true });
     setSalesCount(count);
+
+    // Machine health cards
+    const { data: healthData } = await supabase
+      .rpc("get_machine_health")
+      .limit(10000);
+    if (healthData) setMachineHealth(healthData as MachineHealth[]);
   }, [getSupabase, lookbackDays]);
 
   useEffect(() => {
@@ -379,6 +407,37 @@ export default function RefillPage() {
     { txn_count: 0, total_units: 0, total_revenue: 0, total_cost: 0 },
   );
 
+  const sortedMachines = useMemo(() => {
+    const sorted = [...machineHealth];
+    switch (sortBy) {
+      case "stock":
+        sorted.sort((a, b) => a.total_stock - b.total_stock);
+        break;
+      case "fill":
+        sorted.sort((a, b) => a.fill_pct - b.fill_pct);
+        break;
+      default:
+        sorted.sort(
+          (a, b) => a.health_sort - b.health_sort || a.fill_pct - b.fill_pct,
+        );
+    }
+    return sorted.sort((a, b) => {
+      if (a.health_tier === "excluded" && b.health_tier !== "excluded")
+        return 1;
+      if (a.health_tier !== "excluded" && b.health_tier === "excluded")
+        return -1;
+      return 0;
+    });
+  }, [machineHealth, sortBy]);
+
+  const tierCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const m of machineHealth) {
+      counts[m.health_tier] = (counts[m.health_tier] ?? 0) + 1;
+    }
+    return counts;
+  }, [machineHealth]);
+
   const selectedDevice = devices.find((d) => d.device_name === selectedMachine);
   const modalTotalCapacity = machineAisles.reduce((s, a) => s + a.max, 0);
   const modalTotalCurrent = machineAisles.reduce((s, a) => s + a.current, 0);
@@ -564,53 +623,152 @@ export default function RefillPage() {
         )}
       </div>
 
-      {/* Machine status grid — cards are clickable */}
-      {devices.length > 0 && (
+      {/* Machine health cards */}
+      {machineHealth.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-medium text-gray-900">
-              Machine status
-            </h2>
-            <span className="text-xs text-gray-400">
-              {onlineCount} online, {offlineCount} offline
-            </span>
+          {/* Header: tier counts + sort controls */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-medium text-gray-900">
+                Machine health
+              </h2>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                {tierCounts.critical != null && (
+                  <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
+                    {tierCounts.critical} critical
+                  </span>
+                )}
+                {tierCounts.warning != null && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                    {tierCounts.warning} warning
+                  </span>
+                )}
+                {tierCounts.healthy != null && (
+                  <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                    {tierCounts.healthy} healthy
+                  </span>
+                )}
+                {tierCounts.inactive != null && (
+                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                    {tierCounts.inactive} inactive
+                  </span>
+                )}
+                {tierCounts.excluded != null && (
+                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">
+                    {tierCounts.excluded} excluded
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <span>Sort:</span>
+              {(["priority", "stock", "fill"] as const).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setSortBy(opt)}
+                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                    sortBy === opt
+                      ? "bg-gray-900 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {opt === "priority"
+                    ? "Priority"
+                    : opt === "stock"
+                      ? "Stock"
+                      : "Fill %"}
+                </button>
+              ))}
+            </div>
           </div>
           <p className="text-xs text-gray-400 mb-3">
             Click a machine to see slot inventory
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-            {[...devices]
-              .sort((a, b) => {
-                if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
-                return a.device_name.localeCompare(b.device_name);
-              })
-              .map((m) => (
-                <button
-                  key={m.device_name}
-                  type="button"
-                  onClick={() => setSelectedMachine(m.device_name)}
-                  className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${
-                    m.is_online
+            {sortedMachines.map((m) => {
+              const tierStyle =
+                m.health_tier === "critical"
+                  ? "border-red-300 bg-red-50"
+                  : m.health_tier === "warning"
+                    ? "border-amber-300 bg-amber-50"
+                    : m.health_tier === "healthy"
                       ? "border-green-200 bg-green-50/50"
-                      : "border-gray-100 bg-gray-50/50 opacity-60"
-                  }`}
+                      : m.health_tier === "excluded"
+                        ? "border-gray-100 bg-gray-50/50 opacity-50"
+                        : "border-gray-200 bg-gray-50/50";
+
+              const fillBarColor =
+                m.health_tier === "critical"
+                  ? "bg-red-400"
+                  : m.health_tier === "warning"
+                    ? "bg-amber-400"
+                    : m.health_tier === "healthy"
+                      ? "bg-green-400"
+                      : "bg-gray-300";
+
+              return (
+                <button
+                  key={m.machine_id}
+                  type="button"
+                  onClick={() => setSelectedMachine(m.machine_name)}
+                  className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tierStyle}`}
                 >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-xs font-medium text-gray-700 truncate">
-                      {m.device_name}
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="text-xs font-medium text-gray-700 truncate leading-tight">
+                      {m.machine_name}
                     </span>
                     <span
                       className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.is_online ? "bg-green-500" : "bg-gray-300"}`}
                     />
                   </div>
-                  <div className="text-lg font-semibold text-gray-900 mt-0.5">
-                    {m.total_curr_stock}
-                    <span className="text-[11px] text-gray-400 font-normal ml-0.5">
-                      units
+                  <div className="text-sm font-semibold text-gray-900">
+                    {m.total_stock.toLocaleString()}
+                    <span className="text-[11px] text-gray-400 font-normal">
+                      {" "}
+                      / {m.max_capacity.toLocaleString()}
                     </span>
                   </div>
+                  {/* Fill bar */}
+                  <div className="mt-1.5 h-1 rounded-full bg-gray-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${fillBarColor}`}
+                      style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
+                    />
+                  </div>
+                  <div className="mt-1.5 text-[10px] text-gray-500 leading-tight">
+                    {m.daily_velocity > 0 && (
+                      <span>↗ {m.daily_velocity.toFixed(1)}/day · </span>
+                    )}
+                    {m.slots_at_zero > 0 ? (
+                      <span
+                        className={
+                          m.health_tier === "critical"
+                            ? "text-red-600 font-medium"
+                            : ""
+                        }
+                      >
+                        {m.slots_at_zero} empty
+                      </span>
+                    ) : (
+                      m.daily_velocity === 0 && (
+                        <span className="text-gray-400">{m.fill_pct}%</span>
+                      )
+                    )}
+                  </div>
+                  {m.health_tier === "excluded" && (
+                    <div className="mt-1 text-[10px] text-gray-400 italic">
+                      excluded
+                    </div>
+                  )}
+                  {m.has_sensor_errors && (
+                    <div className="mt-1 text-[10px] text-amber-600 font-medium">
+                      ⚠ sensor
+                    </div>
+                  )}
                 </button>
-              ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -791,14 +949,17 @@ export default function RefillPage() {
       )}
 
       {/* Empty state */}
-      {devices.length === 0 && summaries.length === 0 && !refreshing && (
-        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-          <div className="text-gray-400 text-sm mb-2">No data yet</div>
-          <p className="text-gray-500 text-sm">
-            Click &quot;Refresh data&quot; to pull the latest from Weimi API
-          </p>
-        </div>
-      )}
+      {devices.length === 0 &&
+        summaries.length === 0 &&
+        machineHealth.length === 0 &&
+        !refreshing && (
+          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+            <div className="text-gray-400 text-sm mb-2">No data yet</div>
+            <p className="text-gray-500 text-sm">
+              Click &quot;Refresh data&quot; to pull the latest from Weimi API
+            </p>
+          </div>
+        )}
 
       {/* Machine Detail Modal */}
       {selectedMachine && (
