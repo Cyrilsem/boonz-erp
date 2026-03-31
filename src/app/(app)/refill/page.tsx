@@ -75,6 +75,8 @@ type DoorLayer = {
 
 type DoorCabinet = { layers?: DoorLayer[] };
 
+type ProgressMsg = { step: string; detail: string; elapsed: string };
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function timeAgo(dateStr: string | null): string {
@@ -116,6 +118,8 @@ export default function RefillPage() {
   const [salesByMachine, setSalesByMachine] = useState<SaleRow[]>([]);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [salesCount, setSalesCount] = useState<number | null>(null);
+
+  const [progressMessages, setProgressMessages] = useState<ProgressMsg[]>([]);
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [machineAisles, setMachineAisles] = useState<AisleRow[]>([]);
@@ -256,11 +260,13 @@ export default function RefillPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedMachine]);
 
-  // ── Refresh handler ──────────────────────────────────────────────────────────
+  // ── Refresh handler (SSE streaming with JSON fallback) ───────────────────────
   async function handleRefresh() {
     setRefreshing(true);
     setError(null);
     setResult(null);
+    setProgressMessages([]);
+
     try {
       const supabase = getSupabase();
       const {
@@ -271,14 +277,18 @@ export default function RefillPage() {
         return;
       }
 
-      const resp = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/refresh-stage1`,
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/refresh-stage1`,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: anonKey,
           },
           body: JSON.stringify({
             lookback_days: lookbackDays,
@@ -286,12 +296,67 @@ export default function RefillPage() {
           }),
         },
       );
-      const data = await resp.json();
-      if (!resp.ok || data.status === "error") {
-        setError(data.error || `HTTP ${resp.status}`);
-      } else {
-        setResult(data);
-        await loadData();
+
+      if (!response.ok) {
+        // Non-streaming error response
+        const errData = await response.json().catch(() => ({}));
+        setError(
+          (errData as { error?: string }).error || `HTTP ${response.status}`,
+        );
+        return;
+      }
+
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (!contentType.includes("text/event-stream")) {
+        // Server returned plain JSON despite SSE request — handle as before
+        const data = (await response.json()) as RefreshResult & {
+          error?: string;
+        };
+        if (data.status === "error") {
+          setError(data.error ?? "Refresh failed");
+        } else {
+          setResult(data);
+          await loadData();
+        }
+        return;
+      }
+
+      // ── SSE streaming path ────────────────────────────────────────────────
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line.slice(6)) as Record<string, unknown>;
+          } catch {
+            continue; // skip malformed events
+          }
+
+          const step = event.step as string;
+          const detail = (event.detail as string) ?? "";
+          const elapsed = (event.elapsed as string) ?? "";
+
+          setProgressMessages((prev) => [...prev, { step, detail, elapsed }]);
+
+          if (step === "done") {
+            setResult(event as unknown as RefreshResult);
+            await loadData();
+          } else if (step === "error") {
+            setError(detail || "Refresh failed");
+          }
+        }
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -405,16 +470,42 @@ export default function RefillPage() {
           </div>
         </div>
 
-        {result && (
+        {/* Live SSE progress — visible while refreshing */}
+        {refreshing && progressMessages.length > 0 && (
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-1">
+            <p className="text-blue-700 font-medium text-sm flex items-center gap-2">
+              <span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+              Refreshing...
+            </p>
+            <div className="space-y-0.5 mt-2">
+              {progressMessages.slice(-5).map((msg, i, arr) => (
+                <p
+                  key={i}
+                  className={`text-xs font-mono ${i === arr.length - 1 ? "text-blue-700" : "text-blue-400"}`}
+                >
+                  → {msg.detail}
+                  {msg.elapsed && (
+                    <span className="text-blue-300"> ({msg.elapsed}s)</span>
+                  )}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Success banner */}
+        {!refreshing && result && result.status !== "error" && (
           <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
               <span className="w-2 h-2 rounded-full bg-green-500" />
               <span className="text-green-700 font-medium text-sm">
                 Refresh complete
               </span>
-              <span className="text-xs text-green-500">
-                {result.duration_seconds}s
-              </span>
+              {result.duration_seconds && (
+                <span className="text-xs text-green-500">
+                  {result.duration_seconds}s
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
               <div className="bg-white rounded px-3 py-2 border border-green-100">
@@ -447,6 +538,14 @@ export default function RefillPage() {
                 </div>
               </div>
             </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Pulled {result.lookback_days} days of sales →{" "}
+              {result.sales?.upserted?.toLocaleString()} transactions synced.
+              Device status updated for {result.machines_total} machines (
+              {result.machines_online} online).
+              {result.sales?.skipped > 0 &&
+                ` ${result.sales.skipped} skipped (unknown machine).`}
+            </p>
           </div>
         )}
 
