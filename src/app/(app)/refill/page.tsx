@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+
 type RefreshResult = {
   status: string;
   duration_seconds: number;
@@ -42,15 +44,82 @@ type SummaryRow = {
   snapshot_date: string;
 };
 
+type SaleRow = {
+  machine_name: string;
+  machine_id: string;
+  txn_count: number;
+  total_revenue: number;
+  total_units: number;
+  total_cost: number;
+  last_sale: string | null;
+};
+
+type AisleRow = {
+  slot: string;
+  product: string;
+  current: number;
+  max: number;
+  layer: string;
+  fillPct: number;
+};
+
+type DoorLayer = {
+  layer: string;
+  aisles?: Array<{
+    showName: string;
+    goodsName: string;
+    currStock: number;
+    maxStock: number;
+  }>;
+};
+
+type DoorCabinet = { layers?: DoorLayer[] };
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function fillBg(pct: number): string {
+  if (pct === 0) return "bg-red-100 text-red-700";
+  if (pct <= 25) return "bg-orange-100 text-orange-700";
+  if (pct <= 50) return "bg-yellow-100 text-yellow-700";
+  if (pct <= 75) return "bg-lime-100 text-lime-700";
+  return "bg-green-100 text-green-700";
+}
+
+function fmt2(n: number): string {
+  return n.toLocaleString("en-AE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function RefillPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<RefreshResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lookbackDays, setLookbackDays] = useState(90);
+
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [summaries, setSummaries] = useState<SummaryRow[]>([]);
+  const [salesByMachine, setSalesByMachine] = useState<SaleRow[]>([]);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [salesCount, setSalesCount] = useState<number | null>(null);
+
+  const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
+  const [machineAisles, setMachineAisles] = useState<AisleRow[]>([]);
+  const [loadingAisles, setLoadingAisles] = useState(false);
 
   const getSupabase = useCallback(() => {
     return createBrowserClient(
@@ -59,6 +128,7 @@ export default function RefillPage() {
     );
   }, []);
 
+  // ── Load page data (re-runs when lookbackDays changes) ──────────────────────
   const loadData = useCallback(async () => {
     const supabase = getSupabase();
 
@@ -91,34 +161,111 @@ export default function RefillPage() {
       .from("v_machine_summary")
       .select("*")
       .limit(10000);
-
-    if (summaryData && summaryData.length > 0) {
+    if (summaryData && summaryData.length > 0)
       setSummaries(summaryData as SummaryRow[]);
-    }
 
-    // Sales count
+    // Sales by machine (RPC with lookback filter)
+    const { data: salesData } = await supabase
+      .rpc("get_sales_by_machine", { lookback_days: lookbackDays })
+      .limit(10000);
+    if (salesData) setSalesByMachine(salesData as SaleRow[]);
+
+    // Total sales row count
     const { count } = await supabase
       .from("sales_history")
       .select("*", { count: "exact", head: true });
-
     setSalesCount(count);
-  }, [getSupabase]);
+  }, [getSupabase, lookbackDays]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // ── Load aisle detail when a machine card is clicked ────────────────────────
+  const loadAisles = useCallback(
+    async (machineName: string) => {
+      setLoadingAisles(true);
+      setMachineAisles([]);
+      const supabase = getSupabase();
+      const today = new Date().toISOString().split("T")[0];
+
+      // Try today's snapshot first, fall back to latest
+      let row: { door_statuses: unknown } | null = null;
+      const { data: todayData } = await supabase
+        .from("weimi_device_status")
+        .select("door_statuses")
+        .eq("device_name", machineName)
+        .eq("snapshot_date", today)
+        .maybeSingle();
+
+      if (todayData) {
+        row = todayData;
+      } else {
+        const { data: latestData } = await supabase
+          .from("weimi_device_status")
+          .select("door_statuses")
+          .eq("device_name", machineName)
+          .order("snapshot_date", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        row = latestData;
+      }
+
+      if (row?.door_statuses) {
+        const aisles: AisleRow[] = [];
+        const cabinets = row.door_statuses as DoorCabinet[];
+        for (const cab of cabinets) {
+          for (const layer of cab.layers ?? []) {
+            for (const aisle of layer.aisles ?? []) {
+              aisles.push({
+                slot: aisle.showName,
+                product: aisle.goodsName,
+                current: aisle.currStock,
+                max: aisle.maxStock,
+                layer: layer.layer,
+                fillPct:
+                  aisle.maxStock > 0
+                    ? Math.round((aisle.currStock / aisle.maxStock) * 100)
+                    : 0,
+              });
+            }
+          }
+        }
+        setMachineAisles(aisles);
+      }
+      setLoadingAisles(false);
+    },
+    [getSupabase],
+  );
+
+  useEffect(() => {
+    if (!selectedMachine) {
+      setMachineAisles([]);
+      return;
+    }
+    loadAisles(selectedMachine);
+  }, [selectedMachine, loadAisles]);
+
+  // Escape key closes modal
+  useEffect(() => {
+    if (!selectedMachine) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setSelectedMachine(null);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedMachine]);
+
+  // ── Refresh handler ──────────────────────────────────────────────────────────
   async function handleRefresh() {
     setRefreshing(true);
     setError(null);
     setResult(null);
-
     try {
       const supabase = getSupabase();
       const {
         data: { session },
       } = await supabase.auth.getSession();
-
       if (!session) {
         setError("Not authenticated. Please log in again.");
         return;
@@ -139,9 +286,7 @@ export default function RefillPage() {
           }),
         },
       );
-
       const data = await resp.json();
-
       if (!resp.ok || data.status === "error") {
         setError(data.error || `HTTP ${resp.status}`);
       } else {
@@ -149,16 +294,31 @@ export default function RefillPage() {
         await loadData();
       }
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      setError(message);
+      setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setRefreshing(false);
     }
   }
 
-  const onlineDevices = devices.filter((d) => d.is_online);
-  const offlineDevices = devices.filter((d) => !d.is_online);
+  // ── Derived values ────────────────────────────────────────────────────────────
+  const onlineCount = devices.filter((d) => d.is_online).length;
+  const offlineCount = devices.length - onlineCount;
 
+  const salesTotals = salesByMachine.reduce(
+    (acc, r) => ({
+      txn_count: acc.txn_count + Number(r.txn_count),
+      total_units: acc.total_units + Number(r.total_units),
+      total_revenue: acc.total_revenue + Number(r.total_revenue),
+      total_cost: acc.total_cost + Number(r.total_cost),
+    }),
+    { txn_count: 0, total_units: 0, total_revenue: 0, total_cost: 0 },
+  );
+
+  const selectedDevice = devices.find((d) => d.device_name === selectedMachine);
+  const modalTotalCapacity = machineAisles.reduce((s, a) => s + a.max, 0);
+  const modalTotalCurrent = machineAisles.reduce((s, a) => s + a.current, 0);
+
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6">
       {/* Header */}
@@ -169,7 +329,7 @@ export default function RefillPage() {
         </p>
       </div>
 
-      {/* Refresh controls */}
+      {/* Controls card */}
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
         <div className="flex items-center gap-4 flex-wrap">
           <button
@@ -245,7 +405,6 @@ export default function RefillPage() {
           </div>
         </div>
 
-        {/* Success result */}
         {result && (
           <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -291,7 +450,6 @@ export default function RefillPage() {
           </div>
         )}
 
-        {/* Error result */}
         {error && (
           <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
             <div className="flex items-start gap-2">
@@ -307,7 +465,7 @@ export default function RefillPage() {
         )}
       </div>
 
-      {/* Machine status grid */}
+      {/* Machine status grid — cards are clickable */}
       {devices.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <div className="flex items-center justify-between mb-4">
@@ -315,19 +473,24 @@ export default function RefillPage() {
               Machine status
             </h2>
             <span className="text-xs text-gray-400">
-              {onlineDevices.length} online, {offlineDevices.length} offline
+              {onlineCount} online, {offlineCount} offline
             </span>
           </div>
+          <p className="text-xs text-gray-400 mb-3">
+            Click a machine to see slot inventory
+          </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-            {devices
+            {[...devices]
               .sort((a, b) => {
                 if (a.is_online !== b.is_online) return a.is_online ? -1 : 1;
                 return a.device_name.localeCompare(b.device_name);
               })
               .map((m) => (
-                <div
+                <button
                   key={m.device_name}
-                  className={`border rounded-lg px-3 py-2.5 ${
+                  type="button"
+                  onClick={() => setSelectedMachine(m.device_name)}
+                  className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${
                     m.is_online
                       ? "border-green-200 bg-green-50/50"
                       : "border-gray-100 bg-gray-50/50 opacity-60"
@@ -338,9 +501,7 @@ export default function RefillPage() {
                       {m.device_name}
                     </span>
                     <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        m.is_online ? "bg-green-500" : "bg-gray-300"
-                      }`}
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${m.is_online ? "bg-green-500" : "bg-gray-300"}`}
                     />
                   </div>
                   <div className="text-lg font-semibold text-gray-900 mt-0.5">
@@ -349,8 +510,107 @@ export default function RefillPage() {
                       units
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sales summary table */}
+      {salesByMachine.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-medium text-gray-900">
+              Sales summary
+            </h2>
+            <span className="text-xs text-gray-400">
+              Last {lookbackDays} days
+            </span>
+          </div>
+          <div className="overflow-x-auto -mx-5 px-5">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                  <th className="text-left py-2.5 pr-3 font-medium">Machine</th>
+                  <th className="text-right py-2.5 px-2 font-medium">
+                    Transactions
+                  </th>
+                  <th className="text-right py-2.5 px-2 font-medium">
+                    Units sold
+                  </th>
+                  <th className="text-right py-2.5 px-2 font-medium">
+                    Revenue (AED)
+                  </th>
+                  <th className="text-right py-2.5 px-2 font-medium">
+                    Cost (AED)
+                  </th>
+                  <th className="text-right py-2.5 px-2 font-medium">
+                    Margin (AED)
+                  </th>
+                  <th className="text-right py-2.5 pl-2 font-medium">
+                    Last sale
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesByMachine.map((s) => {
+                  const margin = Number(s.total_revenue) - Number(s.total_cost);
+                  return (
+                    <tr
+                      key={s.machine_id}
+                      className="border-b border-gray-50 hover:bg-gray-50/50"
+                    >
+                      <td className="py-2 pr-3 font-medium text-gray-900">
+                        {s.machine_name}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
+                        {Number(s.txn_count).toLocaleString()}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
+                        {Number(s.total_units).toLocaleString()}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-700 tabular-nums font-medium">
+                        {fmt2(Number(s.total_revenue))}
+                      </td>
+                      <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
+                        {fmt2(Number(s.total_cost))}
+                      </td>
+                      <td
+                        className={`py-2 px-2 text-right tabular-nums font-medium ${margin >= 0 ? "text-green-700" : "text-red-600"}`}
+                      >
+                        {fmt2(margin)}
+                      </td>
+                      <td className="py-2 pl-2 text-right text-gray-400 text-xs tabular-nums">
+                        {timeAgo(s.last_sale)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold text-gray-900">
+                  <td className="py-2 pr-3 text-sm">Total</td>
+                  <td className="py-2 px-2 text-right tabular-nums text-sm">
+                    {salesTotals.txn_count.toLocaleString()}
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-sm">
+                    {salesTotals.total_units.toLocaleString()}
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-sm">
+                    {fmt2(salesTotals.total_revenue)}
+                  </td>
+                  <td className="py-2 px-2 text-right tabular-nums text-sm">
+                    {fmt2(salesTotals.total_cost)}
+                  </td>
+                  <td
+                    className={`py-2 px-2 text-right tabular-nums text-sm ${salesTotals.total_revenue - salesTotals.total_cost >= 0 ? "text-green-700" : "text-red-600"}`}
+                  >
+                    {fmt2(salesTotals.total_revenue - salesTotals.total_cost)}
+                  </td>
+                  <td className="py-2 pl-2" />
+                </tr>
+              </tfoot>
+            </table>
           </div>
         </div>
       )}
@@ -383,7 +643,7 @@ export default function RefillPage() {
                 </tr>
               </thead>
               <tbody>
-                {summaries
+                {[...summaries]
                   .sort((a, b) => (b.shortage_pct || 0) - (a.shortage_pct || 0))
                   .map((s) => (
                     <tr
@@ -395,9 +655,7 @@ export default function RefillPage() {
                       </td>
                       <td className="py-2 px-2 text-center">
                         <span
-                          className={`inline-block w-1.5 h-1.5 rounded-full ${
-                            s.is_online ? "bg-green-500" : "bg-gray-300"
-                          }`}
+                          className={`inline-block w-1.5 h-1.5 rounded-full ${s.is_online ? "bg-green-500" : "bg-gray-300"}`}
                         />
                       </td>
                       <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
@@ -440,6 +698,145 @@ export default function RefillPage() {
           <p className="text-gray-500 text-sm">
             Click &quot;Refresh data&quot; to pull the latest from Weimi API
           </p>
+        </div>
+      )}
+
+      {/* Machine Detail Modal */}
+      {selectedMachine && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedMachine(null);
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSelectedMachine(null)}
+          />
+
+          {/* Panel */}
+          <div className="relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">
+                  {selectedMachine}
+                </h3>
+                <div className="flex items-center gap-3 mt-1">
+                  {selectedDevice && (
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+                        selectedDevice.is_online
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${selectedDevice.is_online ? "bg-green-500" : "bg-gray-400"}`}
+                      />
+                      {selectedDevice.is_online ? "Online" : "Offline"}
+                    </span>
+                  )}
+                  {!loadingAisles && machineAisles.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {modalTotalCurrent} / {modalTotalCapacity} units
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMachine(null)}
+                className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
+                <svg
+                  className="w-5 h-5"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="overflow-y-auto flex-1 px-5 py-4">
+              {loadingAisles ? (
+                <div className="flex items-center justify-center py-12 text-gray-400 text-sm gap-2">
+                  <svg
+                    className="animate-spin h-4 w-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  Loading slots...
+                </div>
+              ) : machineAisles.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 text-sm">
+                  No slot data available for today&apos;s snapshot
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                      <th className="text-left py-2 pr-3 font-medium">Slot</th>
+                      <th className="text-left py-2 px-2 font-medium">
+                        Product
+                      </th>
+                      <th className="text-right py-2 px-2 font-medium">
+                        Stock
+                      </th>
+                      <th className="text-right py-2 pl-2 font-medium">Fill</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {machineAisles.map((a, i) => (
+                      <tr
+                        key={`${a.slot}-${i}`}
+                        className="border-b border-gray-50"
+                      >
+                        <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
+                          {a.slot}
+                        </td>
+                        <td className="py-1.5 px-2 text-gray-800 text-xs">
+                          {a.product || "—"}
+                        </td>
+                        <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
+                          {a.current} / {a.max}
+                        </td>
+                        <td className="py-1.5 pl-2 text-right">
+                          <span
+                            className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(a.fillPct)}`}
+                          >
+                            {a.fillPct}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
