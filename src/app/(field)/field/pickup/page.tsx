@@ -1,81 +1,92 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../components/field-header'
+import { useEffect, useState, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../components/field-header";
 
 interface PickupLine {
-  dispatch_id: string
-  shelf_code: string
-  pod_product_name: string
-  quantity: number
+  dispatch_id: string;
+  shelf_code: string;
+  pod_product_name: string;
+  quantity: number;
 }
 
 interface PickupMachine {
-  machine_id: string
-  official_name: string
-  line_count: number
-  all_picked_up: boolean
-  lines: PickupLine[]
+  machine_id: string;
+  official_name: string;
+  line_count: number;
+  all_picked_up: boolean;
+  lines: PickupLine[];
 }
 
 export default function PickupPage() {
-  const [machines, setMachines] = useState<PickupMachine[]>([])
-  const [loading, setLoading] = useState(true)
-  const [confirming, setConfirming] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [machines, setMachines] = useState<PickupMachine[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const fetchMachines = useCallback(async () => {
-    const supabase = createClient()
-    const today = new Date().toISOString().split('T')[0]
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    const supabase = createClient();
+    const today = new Date().toISOString().split("T")[0];
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .split("T")[0];
 
     // Only show machines where ALL lines are packed
     const { data: lines } = await supabase
-      .from('refill_dispatching')
-      .select(`
+      .from("refill_dispatching")
+      .select(
+        `
         dispatch_id, machine_id, packed, picked_up, quantity,
         machines!inner(official_name),
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
-      `)
-      .gte('dispatch_date', yesterday)
-      .lte('dispatch_date', today)
-      .eq('include', true)
+      `,
+      )
+      .gte("dispatch_date", yesterday)
+      .lte("dispatch_date", today)
+      .eq("include", true);
 
     if (!lines || lines.length === 0) {
-      setMachines([])
-      setLoading(false)
-      return
+      setMachines([]);
+      setLoading(false);
+      return;
     }
 
-    const grouped = new Map<string, {
-      machine_id: string
-      official_name: string
-      total: number
-      packed_count: number
-      picked_up_count: number
-      lines: PickupLine[]
-    }>()
+    const grouped = new Map<
+      string,
+      {
+        machine_id: string;
+        official_name: string;
+        total: number;
+        packed_count: number;
+        picked_up_count: number;
+        lines: PickupLine[];
+      }
+    >();
 
     for (const line of lines) {
-      const m = line.machines as unknown as { official_name: string }
-      const shelf = line.shelf_configurations as unknown as { shelf_code: string }
-      const product = line.pod_products as unknown as { pod_product_name: string }
+      const m = line.machines as unknown as { official_name: string };
+      const shelf = line.shelf_configurations as unknown as {
+        shelf_code: string;
+      };
+      const product = line.pod_products as unknown as {
+        pod_product_name: string;
+      };
 
-      const existing = grouped.get(line.machine_id)
+      const existing = grouped.get(line.machine_id);
       const pickupLine: PickupLine = {
         dispatch_id: line.dispatch_id,
         shelf_code: shelf.shelf_code,
         pod_product_name: product.pod_product_name,
         quantity: line.quantity ?? 0,
-      }
+      };
 
       if (existing) {
-        existing.total += 1
-        if (line.packed) existing.packed_count += 1
-        if (line.picked_up) existing.picked_up_count += 1
-        existing.lines.push(pickupLine)
+        existing.total += 1;
+        if (line.packed) existing.packed_count += 1;
+        if (line.picked_up) existing.picked_up_count += 1;
+        existing.lines.push(pickupLine);
       } else {
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
@@ -84,7 +95,7 @@ export default function PickupPage() {
           packed_count: line.packed ? 1 : 0,
           picked_up_count: line.picked_up ? 1 : 0,
           lines: [pickupLine],
-        })
+        });
       }
     }
 
@@ -98,52 +109,54 @@ export default function PickupPage() {
         all_picked_up: m.picked_up_count === m.total,
         lines: m.lines.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code)),
       }))
-      .sort((a, b) => a.official_name.localeCompare(b.official_name))
+      .sort((a, b) => a.official_name.localeCompare(b.official_name));
 
-    setMachines(result)
-    setLoading(false)
-  }, [])
+    setMachines(result);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    fetchMachines()
-  }, [fetchMachines])
+    fetchMachines();
+  }, [fetchMachines]);
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === 'visible') fetchMachines()
+      if (document.visibilityState === "visible") fetchMachines();
     }
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', fetchMachines)
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", fetchMachines);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', fetchMachines)
-    }
-  }, [fetchMachines])
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", fetchMachines);
+    };
+  }, [fetchMachines]);
 
   async function handleConfirmPickup(machineId: string) {
-    setConfirming(machineId)
-    const supabase = createClient()
-    const today = new Date().toISOString().split('T')[0]
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    setConfirming(machineId);
+    const supabase = createClient();
+    const today = new Date().toISOString().split("T")[0];
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .split("T")[0];
 
     await supabase
-      .from('refill_dispatching')
+      .from("refill_dispatching")
       .update({ picked_up: true })
-      .eq('machine_id', machineId)
-      .gte('dispatch_date', yesterday)
-      .lte('dispatch_date', today)
+      .eq("machine_id", machineId)
+      .gte("dispatch_date", yesterday)
+      .lte("dispatch_date", today);
 
     setMachines((prev) =>
       prev.map((m) =>
-        m.machine_id === machineId ? { ...m, all_picked_up: true } : m
-      )
-    )
-    setExpanded(null)
-    setConfirming(null)
+        m.machine_id === machineId ? { ...m, all_picked_up: true } : m,
+      ),
+    );
+    setExpanded(null);
+    setConfirming(null);
   }
 
   function toggleExpanded(machineId: string) {
-    setExpanded((prev) => (prev === machineId ? null : machineId))
+    setExpanded((prev) => (prev === machineId ? null : machineId));
   }
 
   if (loading) {
@@ -154,11 +167,11 @@ export default function PickupPage() {
           <p className="text-neutral-500">Loading pickup list…</p>
         </div>
       </>
-    )
+    );
   }
 
-  const readyMachines = machines.filter((m) => !m.all_picked_up)
-  const collectedMachines = machines.filter((m) => m.all_picked_up)
+  const readyMachines = machines.filter((m) => !m.all_picked_up);
+  const collectedMachines = machines.filter((m) => m.all_picked_up);
 
   if (machines.length === 0) {
     return (
@@ -173,7 +186,7 @@ export default function PickupPage() {
           </p>
         </div>
       </>
-    )
+    );
   }
 
   return (
@@ -187,7 +200,7 @@ export default function PickupPage() {
           </h2>
           <ul className="space-y-2">
             {readyMachines.map((machine) => {
-              const isExpanded = expanded === machine.machine_id
+              const isExpanded = expanded === machine.machine_id;
               return (
                 <li
                   key={machine.machine_id}
@@ -206,7 +219,7 @@ export default function PickupPage() {
                       </p>
                     </div>
                     <span className="shrink-0 text-neutral-400">
-                      {isExpanded ? '▲' : '▼'}
+                      {isExpanded ? "▲" : "▼"}
                     </span>
                   </button>
 
@@ -235,12 +248,14 @@ export default function PickupPage() {
                         disabled={confirming === machine.machine_id}
                         className="mt-3 w-full rounded-lg bg-neutral-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
                       >
-                        {confirming === machine.machine_id ? 'Confirming…' : 'Confirm pickup'}
+                        {confirming === machine.machine_id
+                          ? "Confirming…"
+                          : "Confirm pickup"}
                       </button>
                     </div>
                   )}
                 </li>
-              )
+              );
             })}
           </ul>
         </div>
@@ -274,5 +289,5 @@ export default function PickupPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

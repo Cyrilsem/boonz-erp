@@ -1,104 +1,105 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../components/field-header'
-import { usePageTour } from '../../components/onboarding/use-page-tour'
-import Tour from '../../components/onboarding/tour'
+import { useEffect, useState, useCallback } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../components/field-header";
+import { usePageTour } from "../../components/onboarding/use-page-tour";
+import Tour from "../../components/onboarding/tour";
 
 interface DriverTask {
-  task_id: string
-  po_id: string
-  po_number: number
-  supplier_name: string
-  status: 'pending' | 'acknowledged' | 'collected' | 'cancelled'
-  notes: string | null
-  created_at: string
-  acknowledged_at: string | null
-  collected_at: string | null
+  task_id: string;
+  po_id: string;
+  po_number: number;
+  supplier_name: string;
+  status: "pending" | "acknowledged" | "collected" | "cancelled";
+  notes: string | null;
+  created_at: string;
+  acknowledged_at: string | null;
+  collected_at: string | null;
 }
 
 interface POLineDetail {
-  po_line_id: string
-  boonz_product_name: string
-  ordered_qty: number
-  price_per_unit_aed: number | null
-  total_price_aed: number | null
+  po_line_id: string;
+  boonz_product_name: string;
+  ordered_qty: number;
+  price_per_unit_aed: number | null;
+  total_price_aed: number | null;
 }
 
 type Outcome =
-  | 'purchased_full'
-  | 'purchased_partial'
-  | 'not_available'
-  | 'other'
+  | "purchased_full"
+  | "purchased_partial"
+  | "not_available"
+  | "other";
 
 const OUTCOME_OPTIONS: { value: Outcome; label: string; icon: string }[] = [
-  { value: 'purchased_full', label: 'Full', icon: '✅' },
-  { value: 'purchased_partial', label: 'Partial', icon: '⚠️' },
-  { value: 'not_available', label: 'N/A', icon: '❌' },
-  { value: 'other', label: 'Other', icon: '📝' },
-]
+  { value: "purchased_full", label: "Full", icon: "✅" },
+  { value: "purchased_partial", label: "Partial", icon: "⚠️" },
+  { value: "not_available", label: "N/A", icon: "❌" },
+  { value: "other", label: "Other", icon: "📝" },
+];
 
 function formatDateTime(isoStr: string): string {
-  const d = new Date(isoStr)
+  const d = new Date(isoStr);
   return (
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-    ' at ' +
-    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  )
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+    " at " +
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  );
 }
 
-function StatusBadge({ status }: { status: DriverTask['status'] }) {
+function StatusBadge({ status }: { status: DriverTask["status"] }) {
   switch (status) {
-    case 'pending':
+    case "pending":
       return (
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
           Pending
         </span>
-      )
-    case 'acknowledged':
+      );
+    case "acknowledged":
       return (
         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
           On my way
         </span>
-      )
-    case 'collected':
+      );
+    case "collected":
       return (
         <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
           Collected ✓
         </span>
-      )
-    case 'cancelled':
+      );
+    case "cancelled":
       return (
         <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
           Cancelled
         </span>
-      )
+      );
   }
 }
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<DriverTask[]>([])
-  const [loading, setLoading] = useState(true)
-  const [updatingId, setUpdatingId] = useState<string | null>(null)
-  const { showTour, tourSteps, completeTour } = usePageTour('tasks')
+  const [tasks, setTasks] = useState<DriverTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const { showTour, tourSteps, completeTour } = usePageTour("tasks");
 
   // Accordion state
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null)
-  const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([])
-  const [expandLoading, setExpandLoading] = useState(false)
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([]);
+  const [expandLoading, setExpandLoading] = useState(false);
 
   // Per-line outcome state keyed by boonz_product_name (unique within a PO)
-  const [lineOutcomes, setLineOutcomes] = useState<Record<string, Outcome>>({})
-  const [lineQtys, setLineQtys] = useState<Record<string, number>>({})
-  const [lineComments, setLineComments] = useState<Record<string, string>>({})
+  const [lineOutcomes, setLineOutcomes] = useState<Record<string, Outcome>>({});
+  const [lineQtys, setLineQtys] = useState<Record<string, number>>({});
+  const [lineComments, setLineComments] = useState<Record<string, string>>({});
 
   const fetchTasks = useCallback(async () => {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { data } = await supabase
-      .from('driver_tasks')
-      .select(`
+      .from("driver_tasks")
+      .select(
+        `
         task_id,
         po_id,
         po_number,
@@ -108,74 +109,76 @@ export default function TasksPage() {
         acknowledged_at,
         collected_at,
         suppliers!inner(supplier_name)
-      `)
-      .order('created_at', { ascending: false })
+      `,
+      )
+      .order("created_at", { ascending: false });
 
     if (!data || data.length === 0) {
-      setTasks([])
-      setLoading(false)
-      return
+      setTasks([]);
+      setLoading(false);
+      return;
     }
 
     const mapped: DriverTask[] = data.map((row) => {
-      const s = row.suppliers as unknown as { supplier_name: string }
+      const s = row.suppliers as unknown as { supplier_name: string };
       return {
         task_id: row.task_id,
         po_id: row.po_id,
         po_number: row.po_number,
         supplier_name: s.supplier_name,
-        status: row.status as DriverTask['status'],
+        status: row.status as DriverTask["status"],
         notes: row.notes,
         created_at: row.created_at,
         acknowledged_at: row.acknowledged_at,
         collected_at: row.collected_at,
-      }
-    })
+      };
+    });
 
-    setTasks(mapped)
-    setLoading(false)
-  }, [])
+    setTasks(mapped);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    fetchTasks()
-  }, [fetchTasks])
+    fetchTasks();
+  }, [fetchTasks]);
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === 'visible') fetchTasks()
+      if (document.visibilityState === "visible") fetchTasks();
     }
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', fetchTasks)
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", fetchTasks);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', fetchTasks)
-    }
-  }, [fetchTasks])
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", fetchTasks);
+    };
+  }, [fetchTasks]);
 
   function resetLineState() {
-    setLineOutcomes({})
-    setLineQtys({})
-    setLineComments({})
+    setLineOutcomes({});
+    setLineQtys({});
+    setLineComments({});
   }
 
   async function toggleExpand(task: DriverTask) {
     if (expandedTaskId === task.task_id) {
-      setExpandedTaskId(null)
-      setExpandedLines([])
-      resetLineState()
-      return
+      setExpandedTaskId(null);
+      setExpandedLines([]);
+      resetLineState();
+      return;
     }
 
-    setExpandedTaskId(task.task_id)
-    setExpandedLines([])
-    setExpandLoading(true)
-    resetLineState()
+    setExpandedTaskId(task.task_id);
+    setExpandedLines([]);
+    setExpandLoading(true);
+    resetLineState();
 
-    const supabase = createClient()
-    console.log('[Tasks] fetching PO lines for po_id:', task.po_id)
+    const supabase = createClient();
+    console.log("[Tasks] fetching PO lines for po_id:", task.po_id);
     const { data, error } = await supabase
-      .from('purchase_orders')
-      .select(`
+      .from("purchase_orders")
+      .select(
+        `
         po_line_id,
         po_id,
         ordered_qty,
@@ -183,48 +186,54 @@ export default function TasksPage() {
         total_price_aed,
         boonz_product_id,
         boonz_products ( boonz_product_name )
-      `)
-      .eq('po_id', task.po_id)
+      `,
+      )
+      .eq("po_id", task.po_id);
 
-    console.log('[Tasks] PO lines result:', data, error)
+    console.log("[Tasks] PO lines result:", data, error);
 
     if (data) {
       const mapped: POLineDetail[] = data.map((row) => {
-        const p = row.boonz_products as unknown as { boonz_product_name: string } | null
+        const p = row.boonz_products as unknown as {
+          boonz_product_name: string;
+        } | null;
         return {
           po_line_id: row.po_line_id,
           boonz_product_name: p?.boonz_product_name ?? row.boonz_product_id,
           ordered_qty: row.ordered_qty ?? 0,
           price_per_unit_aed: row.price_per_unit_aed,
           total_price_aed: row.total_price_aed,
-        }
-      })
-      setExpandedLines(mapped)
+        };
+      });
+      setExpandedLines(mapped);
     }
 
-    setExpandLoading(false)
+    setExpandLoading(false);
   }
 
   async function acknowledge(taskId: string) {
-    setUpdatingId(taskId)
-    const supabase = createClient()
+    setUpdatingId(taskId);
+    const supabase = createClient();
     await supabase
-      .from('driver_tasks')
-      .update({ status: 'acknowledged', acknowledged_at: new Date().toISOString() })
-      .eq('task_id', taskId)
-    await fetchTasks()
-    setUpdatingId(null)
+      .from("driver_tasks")
+      .update({
+        status: "acknowledged",
+        acknowledged_at: new Date().toISOString(),
+      })
+      .eq("task_id", taskId);
+    await fetchTasks();
+    setUpdatingId(null);
   }
 
   function allLinesHaveOutcome(): boolean {
-    if (expandedLines.length === 0) return false
-    return expandedLines.every((l) => !!lineOutcomes[l.po_line_id])
+    if (expandedLines.length === 0) return false;
+    return expandedLines.every((l) => !!lineOutcomes[l.po_line_id]);
   }
 
   async function markCollected(taskId: string) {
-    if (!allLinesHaveOutcome()) return
+    if (!allLinesHaveOutcome()) return;
 
-    setUpdatingId(taskId)
+    setUpdatingId(taskId);
 
     // Build per-line detail for outcome_comment
     const lineDetail = expandedLines.map((l) => ({
@@ -232,63 +241,63 @@ export default function TasksPage() {
       product_name: l.boonz_product_name,
       outcome: lineOutcomes[l.po_line_id],
       qty_purchased:
-        lineOutcomes[l.po_line_id] === 'purchased_partial'
+        lineOutcomes[l.po_line_id] === "purchased_partial"
           ? (lineQtys[l.po_line_id] ?? null)
           : null,
       comment: lineComments[l.po_line_id] || null,
-    }))
+    }));
 
     // Summary outcome: 'purchased_full' only if every line was full
     const summaryOutcome: Outcome = lineDetail.every(
-      (l) => l.outcome === 'purchased_full'
+      (l) => l.outcome === "purchased_full",
     )
-      ? 'purchased_full'
-      : 'purchased_partial'
+      ? "purchased_full"
+      : "purchased_partial";
 
-    const supabase = createClient()
+    const supabase = createClient();
     await supabase
-      .from('driver_tasks')
+      .from("driver_tasks")
       .update({
-        status: 'collected',
+        status: "collected",
         collected_at: new Date().toISOString(),
         outcome: summaryOutcome,
         outcome_qty: null,
         outcome_comment: JSON.stringify({ lines: lineDetail }),
       })
-      .eq('task_id', taskId)
+      .eq("task_id", taskId);
 
-    setExpandedTaskId(null)
-    resetLineState()
-    await fetchTasks()
-    setUpdatingId(null)
+    setExpandedTaskId(null);
+    resetLineState();
+    await fetchTasks();
+    setUpdatingId(null);
   }
 
   async function cancelTask(taskId: string) {
-    if (!confirm('Cancel this task?')) return
+    if (!confirm("Cancel this task?")) return;
 
-    setUpdatingId(taskId)
-    const supabase = createClient()
+    setUpdatingId(taskId);
+    const supabase = createClient();
     await supabase
-      .from('driver_tasks')
+      .from("driver_tasks")
       .update({
-        status: 'cancelled',
-        outcome: 'other' as const,
-        outcome_comment: 'Cancelled by driver',
+        status: "cancelled",
+        outcome: "other" as const,
+        outcome_comment: "Cancelled by driver",
       })
-      .eq('task_id', taskId)
+      .eq("task_id", taskId);
 
-    setExpandedTaskId(null)
-    resetLineState()
-    await fetchTasks()
-    setUpdatingId(null)
+    setExpandedTaskId(null);
+    resetLineState();
+    await fetchTasks();
+    setUpdatingId(null);
   }
 
   const pending = tasks.filter(
-    (t) => t.status === 'pending' || t.status === 'acknowledged'
-  )
+    (t) => t.status === "pending" || t.status === "acknowledged",
+  );
   const completed = tasks.filter(
-    (t) => t.status === 'collected' || t.status === 'cancelled'
-  )
+    (t) => t.status === "collected" || t.status === "cancelled",
+  );
 
   if (loading) {
     return (
@@ -298,14 +307,18 @@ export default function TasksPage() {
           <p className="text-neutral-500">Loading tasks…</p>
         </div>
       </>
-    )
+    );
   }
 
   return (
     <div className="px-4 py-4 pb-24">
       <FieldHeader title="Tasks" />
       {showTour && tourSteps.length > 0 && pending.length > 0 && (
-        <Tour steps={tourSteps} onComplete={completeTour} onSkip={completeTour} />
+        <Tour
+          steps={tourSteps}
+          onComplete={completeTour}
+          onSkip={completeTour}
+        />
       )}
 
       {/* Pending */}
@@ -319,13 +332,13 @@ export default function TasksPage() {
       ) : (
         <ul className="mb-6 space-y-2">
           {pending.map((task, idx) => {
-            const isExpanded = expandedTaskId === task.task_id
-            const canSubmit = isExpanded && allLinesHaveOutcome()
+            const isExpanded = expandedTaskId === task.task_id;
+            const canSubmit = isExpanded && allLinesHaveOutcome();
 
             return (
               <li
                 key={task.task_id}
-                {...(idx === 0 ? { 'data-tour': 'task-card' } : {})}
+                {...(idx === 0 ? { "data-tour": "task-card" } : {})}
                 className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950"
               >
                 {/* Card header — tappable */}
@@ -335,7 +348,9 @@ export default function TasksPage() {
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold">{task.supplier_name}</p>
+                      <p className="text-sm font-semibold">
+                        {task.supplier_name}
+                      </p>
                       <p className="text-xs text-neutral-500">{task.po_id}</p>
                       <p className="text-xs text-neutral-400 mt-0.5">
                         {formatDateTime(task.created_at)}
@@ -344,7 +359,7 @@ export default function TasksPage() {
                     <div className="flex items-center gap-2">
                       <StatusBadge status={task.status} />
                       <span className="text-xs text-neutral-400">
-                        {isExpanded ? '▲' : '▼'}
+                        {isExpanded ? "▲" : "▼"}
                       </span>
                     </div>
                   </div>
@@ -356,14 +371,16 @@ export default function TasksPage() {
                 </div>
 
                 {/* Collapsed: show acknowledge only */}
-                {!isExpanded && task.status === 'pending' && (
+                {!isExpanded && task.status === "pending" && (
                   <div className="px-4 pb-4">
                     <button
                       onClick={() => acknowledge(task.task_id)}
                       disabled={updatingId === task.task_id}
                       className="w-full rounded-lg border border-blue-300 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950"
                     >
-                      {updatingId === task.task_id ? 'Updating…' : 'Acknowledge'}
+                      {updatingId === task.task_id
+                        ? "Updating…"
+                        : "Acknowledge"}
                     </button>
                   </div>
                 )}
@@ -371,7 +388,7 @@ export default function TasksPage() {
                 {/* Expanded accordion */}
                 <div
                   className="overflow-hidden transition-all duration-200"
-                  style={{ maxHeight: isExpanded ? '1200px' : '0px' }}
+                  style={{ maxHeight: isExpanded ? "1200px" : "0px" }}
                 >
                   <div className="border-t border-neutral-100 px-4 pb-4 pt-3 dark:border-neutral-800">
                     {expandLoading ? (
@@ -386,13 +403,15 @@ export default function TasksPage() {
                     ) : (
                       <>
                         {/* Acknowledge inside accordion for pending */}
-                        {task.status === 'pending' && (
+                        {task.status === "pending" && (
                           <button
                             onClick={() => acknowledge(task.task_id)}
                             disabled={updatingId === task.task_id}
                             className="mb-4 w-full rounded-lg border border-blue-300 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 disabled:opacity-50 dark:border-blue-700 dark:text-blue-400 dark:hover:bg-blue-950"
                           >
-                            {updatingId === task.task_id ? 'Updating…' : 'Acknowledge'}
+                            {updatingId === task.task_id
+                              ? "Updating…"
+                              : "Acknowledge"}
                           </button>
                         )}
 
@@ -403,8 +422,8 @@ export default function TasksPage() {
 
                         <div className="space-y-4">
                           {expandedLines.map((line) => {
-                            const key = line.po_line_id
-                            const lineOutcome = lineOutcomes[key]
+                            const key = line.po_line_id;
+                            const lineOutcome = lineOutcomes[key];
 
                             return (
                               <div
@@ -418,10 +437,22 @@ export default function TasksPage() {
                                 <p className="text-xs text-neutral-500 mb-2">
                                   Ordered {line.ordered_qty}
                                   {line.price_per_unit_aed != null && (
-                                    <> · {line.price_per_unit_aed.toFixed(2)} AED/unit</>
+                                    <>
+                                      {" "}
+                                      · {line.price_per_unit_aed.toFixed(
+                                        2,
+                                      )}{" "}
+                                      AED/unit
+                                    </>
                                   )}
                                   {line.total_price_aed != null && (
-                                    <> · Total {line.total_price_aed.toFixed(2)} AED</>
+                                    <>
+                                      {" "}
+                                      · Total {line.total_price_aed.toFixed(
+                                        2,
+                                      )}{" "}
+                                      AED
+                                    </>
                                   )}
                                 </p>
 
@@ -438,8 +469,8 @@ export default function TasksPage() {
                                       }
                                       className={`rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
                                         lineOutcome === opt.value
-                                          ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                                          : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700'
+                                          ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                                          : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
                                       }`}
                                     >
                                       {opt.icon} {opt.label}
@@ -448,11 +479,11 @@ export default function TasksPage() {
                                 </div>
 
                                 {/* Partial qty */}
-                                {lineOutcome === 'purchased_partial' && (
+                                {lineOutcome === "purchased_partial" && (
                                   <input
                                     type="number"
                                     min={0}
-                                    value={lineQtys[key] ?? ''}
+                                    value={lineQtys[key] ?? ""}
                                     onChange={(e) =>
                                       setLineQtys((prev) => ({
                                         ...prev,
@@ -469,7 +500,7 @@ export default function TasksPage() {
                                 {/* Per-line comment */}
                                 <input
                                   type="text"
-                                  value={lineComments[key] ?? ''}
+                                  value={lineComments[key] ?? ""}
                                   onChange={(e) =>
                                     setLineComments((prev) => ({
                                       ...prev,
@@ -480,7 +511,7 @@ export default function TasksPage() {
                                   className="w-full rounded border border-neutral-200 px-2 py-1 text-xs placeholder:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
                                 />
                               </div>
-                            )
+                            );
                           })}
                         </div>
 
@@ -492,17 +523,19 @@ export default function TasksPage() {
                             className="w-full rounded-lg bg-neutral-900 py-2.5 text-xs font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
                           >
                             {updatingId === task.task_id
-                              ? 'Saving…'
+                              ? "Saving…"
                               : canSubmit
-                              ? 'Mark as collected'
-                              : `Select outcome for all ${expandedLines.length} product${expandedLines.length !== 1 ? 's' : ''}`}
+                                ? "Mark as collected"
+                                : `Select outcome for all ${expandedLines.length} product${expandedLines.length !== 1 ? "s" : ""}`}
                           </button>
                           <button
                             onClick={() => cancelTask(task.task_id)}
                             disabled={updatingId === task.task_id}
                             className="w-full rounded-lg border border-red-300 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
                           >
-                            {updatingId === task.task_id ? 'Saving…' : 'Mark as cancelled'}
+                            {updatingId === task.task_id
+                              ? "Saving…"
+                              : "Mark as cancelled"}
                           </button>
                         </div>
                       </>
@@ -510,7 +543,7 @@ export default function TasksPage() {
                   </div>
                 </div>
               </li>
-            )
+            );
           })}
         </ul>
       )}
@@ -538,7 +571,9 @@ export default function TasksPage() {
                     {formatDateTime(task.created_at)}
                   </p>
                   {task.notes && (
-                    <p className="text-xs text-neutral-500 mt-1">{task.notes}</p>
+                    <p className="text-xs text-neutral-500 mt-1">
+                      {task.notes}
+                    </p>
                   )}
                 </div>
                 <StatusBadge status={task.status} />
@@ -548,5 +583,5 @@ export default function TasksPage() {
         </ul>
       )}
     </div>
-  )
+  );
 }

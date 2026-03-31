@@ -20,13 +20,13 @@ Replaces AppSheet for field operations. Stack: Next.js 15 on Vercel, Supabase (`
 
 ## Tech stack
 
-| Layer | Tech |
-|---|---|
-| Frontend | Next.js 15.x, TypeScript strict, Tailwind CSS |
-| Backend | Supabase (PostgreSQL + RLS + Edge Functions) |
-| Auth | Supabase Auth (email/password) |
-| Hosting | Vercel (auto-deploy on main push) |
-| Automation | n8n VPS |
+| Layer         | Tech                                                 |
+| ------------- | ---------------------------------------------------- |
+| Frontend      | Next.js 15.x, TypeScript strict, Tailwind CSS        |
+| Backend       | Supabase (PostgreSQL + RLS + Edge Functions)         |
+| Auth          | Supabase Auth (email/password)                       |
+| Hosting       | Vercel (auto-deploy on main push)                    |
+| Automation    | n8n VPS                                              |
 | Notifications | Resend API (email), driver tasks (walk-in suppliers) |
 
 ---
@@ -39,11 +39,11 @@ Replaces AppSheet for field operations. Stack: Next.js 15 on Vercel, Supabase (`
 
 ## Test users
 
-| Email | Password | Role |
-|---|---|---|
-| cyrilsem@gmail.com | (own password) | operator_admin |
-| driver@boonz.test | Test1234! | field_staff |
-| warehouse@boonz.test | Test1234! | warehouse |
+| Email                | Password       | Role           |
+| -------------------- | -------------- | -------------- |
+| cyrilsem@gmail.com   | (own password) | operator_admin |
+| driver@boonz.test    | Test1234!      | field_staff    |
+| warehouse@boonz.test | Test1234!      | warehouse      |
 
 ---
 
@@ -88,33 +88,33 @@ client                                → allow /portal/* only
 
 ## Key files
 
-| File | Purpose |
-|---|---|
-| `src/middleware.ts` | Role-based routing (working, ignore deprecation warning) |
-| `src/app/(field)/field/page.tsx` | Role-aware home — WarehouseHome, DriverHome, OperatorAdminHome |
-| `src/app/(field)/components/field-header.tsx` | Smart back nav via `getBackPath()` |
-| `src/app/(field)/utils/expiry.ts` | Shared `getExpiryStyle()` colour util |
-| `src/app/(field)/components/onboarding/tour.tsx` | SVG spotlight onboarding engine |
+| File                                             | Purpose                                                        |
+| ------------------------------------------------ | -------------------------------------------------------------- |
+| `src/middleware.ts`                              | Role-based routing (working, ignore deprecation warning)       |
+| `src/app/(field)/field/page.tsx`                 | Role-aware home — WarehouseHome, DriverHome, OperatorAdminHome |
+| `src/app/(field)/components/field-header.tsx`    | Smart back nav via `getBackPath()`                             |
+| `src/app/(field)/utils/expiry.ts`                | Shared `getExpiryStyle()` colour util                          |
+| `src/app/(field)/components/onboarding/tour.tsx` | SVG spotlight onboarding engine                                |
 
 ---
 
 ## Database — key tables
 
-| Table | Rows | Purpose |
-|---|---|---|
-| `suppliers` | 13 | Supplier master |
-| `machines` | 31 | Machine registry |
-| `boonz_products` | 258 | Master product catalog |
-| `pod_products` | 100 | Machine-facing product catalog |
-| `shelf_configurations` | 992 | Per-machine shelf slots |
-| `product_mapping` | 5,407 | Pod→Boonz product splits per machine |
-| `warehouse_inventory` | ~425 | Warehouse stock batches with expiry |
-| `pod_inventory` | ~6,837 | Per-machine stock snapshots |
-| `purchase_orders` | ~4,024 | PO lines (flat — po_id groups lines) |
-| `refill_dispatching` | ~7,929 | Daily dispatch log per machine/shelf |
-| `pod_inventory_edits` | ~10 | Driver stock edit requests (pending review) |
-| `product_name_conventions` | 507 | Raw→official name normalisation |
-| `machine_name_aliases` | 201 | Legacy machine name aliases |
+| Table                      | Rows   | Purpose                                     |
+| -------------------------- | ------ | ------------------------------------------- |
+| `suppliers`                | 13     | Supplier master                             |
+| `machines`                 | 31     | Machine registry                            |
+| `boonz_products`           | 258    | Master product catalog                      |
+| `pod_products`             | 100    | Machine-facing product catalog              |
+| `shelf_configurations`     | 992    | Per-machine shelf slots                     |
+| `product_mapping`          | 5,407  | Pod→Boonz product splits per machine        |
+| `warehouse_inventory`      | ~425   | Warehouse stock batches with expiry         |
+| `pod_inventory`            | ~6,837 | Per-machine stock snapshots                 |
+| `purchase_orders`          | ~4,024 | PO lines (flat — po_id groups lines)        |
+| `refill_dispatching`       | ~7,929 | Daily dispatch log per machine/shelf        |
+| `pod_inventory_edits`      | ~10    | Driver stock edit requests (pending review) |
+| `product_name_conventions` | 507    | Raw→official name normalisation             |
+| `machine_name_aliases`     | 201    | Legacy machine name aliases                 |
 
 ---
 
@@ -202,6 +202,7 @@ client                                → allow /portal/* only
 #### Config (`/field/config` + sub-pages — operator_admin/superadmin/manager only)
 
 **Product Mapping** (`/config/product-mapping`):
+
 - Machine-first: no global option, defaults to first machine A→Z
 - Group by: By product | By machine | None (flat)
 - By machine: 23 machine sections A→Z, Global section hidden
@@ -217,22 +218,26 @@ client                                → allow /portal/* only
 - RLS: DELETE policy added (was missing — caused silent failures)
 
 **Boonz Products** (`/config/boonz-products`):
+
 - `boonz_product_name = product_brand + " - " + product_sub_brand` (computed, read-only)
 - Save blocked if either field empty
 - Duplicate check on computed name
 
 **Pod Products** (`/config/pod-products`):
+
 - Two tabs: Products + Pod Aliases
 - `custom_code` read-only on edit, auto-generated `PD{NNN}` on add
 - Pod Aliases tab: mirrors product-naming — grouped by `official_name`, inline add/remove/rename
 
 **Machines** (`/config/machines`):
+
 - Status filter dropdown
 - "+ Add machine" modal (all fields including contact)
 - CSV bulk import (preview table, skip existing, add/skip count)
 - Aliases tab: grouped by `official_name` with inline add/toggle/delete
 
 **Suppliers** (`/config/suppliers`):
+
 - Standard CRUD
 
 ---
@@ -314,12 +319,12 @@ client                                → allow /portal/* only
 
 ## RLS summary — key policies
 
-| Table | Policies |
-|---|---|
-| `product_mapping` | INSERT/UPDATE (admins) + DELETE (admins — critical, was missing) + SELECT (all auth) |
-| `pod_inventory` | INSERT/UPDATE (field_staff + warehouse + admins) + SELECT (all auth) |
+| Table                 | Policies                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| `product_mapping`     | INSERT/UPDATE (admins) + DELETE (admins — critical, was missing) + SELECT (all auth)     |
+| `pod_inventory`       | INSERT/UPDATE (field_staff + warehouse + admins) + SELECT (all auth)                     |
 | `pod_inventory_edits` | INSERT (field_staff) + UPDATE (warehouse + operator_admin + manager) + SELECT (all auth) |
-| `warehouse_inventory` | INSERT/UPDATE (warehouse + admins) + SELECT (all auth) |
+| `warehouse_inventory` | INSERT/UPDATE (warehouse + admins) + SELECT (all auth)                                   |
 
 ---
 

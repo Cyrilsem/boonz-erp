@@ -1,46 +1,48 @@
-'use client'
+"use client";
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 interface FieldHeaderProps {
-  title: string
-  rightAction?: React.ReactNode
+  title: string;
+  rightAction?: React.ReactNode;
 }
 
 function getBackPath(pathname: string): string | null {
   // Home — no back button
-  if (pathname === '/field') return null
+  if (pathname === "/field") return null;
 
   // Level 3: /field/trips/[id]/issue or /field/trips/[id]/removals
-  const tripSubMatch = pathname.match(/^\/field\/trips\/([^/]+)\/(issue|removals)$/)
-  if (tripSubMatch) return `/field/trips/${tripSubMatch[1]}`
+  const tripSubMatch = pathname.match(
+    /^\/field\/trips\/([^/]+)\/(issue|removals)$/,
+  );
+  if (tripSubMatch) return `/field/trips/${tripSubMatch[1]}`;
 
   // Level 2: pages with a parent section
   const level2Patterns: { regex: RegExp; parent: string }[] = [
-    { regex: /^\/field\/packing\/[^/]+$/, parent: '/field/packing' },
-    { regex: /^\/field\/inventory\/[^/]+$/, parent: '/field/inventory' },
-    { regex: /^\/field\/receiving\/[^/]+$/, parent: '/field/receiving' },
-    { regex: /^\/field\/dispatching\/[^/]+$/, parent: '/field/dispatching' },
-    { regex: /^\/field\/trips\/[^/]+$/, parent: '/field/trips' },
-    { regex: /^\/field\/orders\/new$/, parent: '/field/orders' },
+    { regex: /^\/field\/packing\/[^/]+$/, parent: "/field/packing" },
+    { regex: /^\/field\/inventory\/[^/]+$/, parent: "/field/inventory" },
+    { regex: /^\/field\/receiving\/[^/]+$/, parent: "/field/receiving" },
+    { regex: /^\/field\/dispatching\/[^/]+$/, parent: "/field/dispatching" },
+    { regex: /^\/field\/trips\/[^/]+$/, parent: "/field/trips" },
+    { regex: /^\/field\/orders\/new$/, parent: "/field/orders" },
     // Config sub-pages → back to config hub
-    { regex: /^\/field\/config\/.+$/, parent: '/field/config' },
-  ]
+    { regex: /^\/field\/config\/.+$/, parent: "/field/config" },
+  ];
   for (const p of level2Patterns) {
-    if (p.regex.test(pathname)) return p.parent
+    if (p.regex.test(pathname)) return p.parent;
   }
 
   // Config hub → back to home
-  if (pathname === '/field/config') return '/field'
+  if (pathname === "/field/config") return "/field";
 
   // Level 1: everything else goes home
-  return '/field'
+  return "/field";
 }
 
 export function FieldHeader({ title, rightAction }: FieldHeaderProps) {
-  const pathname = usePathname()
-  const backPath = getBackPath(pathname)
+  const pathname = usePathname();
+  const backPath = getBackPath(pathname);
 
   return (
     <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
@@ -57,5 +59,5 @@ export function FieldHeader({ title, rightAction }: FieldHeaderProps) {
       <h1 className="text-base font-semibold">{title}</h1>
       <div className="min-w-[60px] text-right">{rightAction ?? null}</div>
     </div>
-  )
+  );
 }

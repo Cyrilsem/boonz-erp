@@ -1,101 +1,105 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../../../components/field-header'
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../../../components/field-header";
 
 interface ProductOption {
-  pod_product_id: string
-  pod_product_name: string
-  boonz_product_id: string | null
+  pod_product_id: string;
+  pod_product_name: string;
+  boonz_product_id: string | null;
 }
 
 interface RemovalLine {
-  product: ProductOption | null
-  quantity: number
-  reason: string
+  product: ProductOption | null;
+  quantity: number;
+  reason: string;
 }
 
-const REASONS = ['Expired', 'Damaged', 'Other']
+const REASONS = ["Expired", "Damaged", "Other"];
 
 export default function RemovalsPage() {
-  const params = useParams<{ machineId: string }>()
-  const router = useRouter()
-  const machineId = params.machineId
+  const params = useParams<{ machineId: string }>();
+  const router = useRouter();
+  const machineId = params.machineId;
 
-  const [products, setProducts] = useState<ProductOption[]>([])
+  const [products, setProducts] = useState<ProductOption[]>([]);
   const [removals, setRemovals] = useState<RemovalLine[]>([
-    { product: null, quantity: 1, reason: 'Expired' },
-  ])
-  const [submitting, setSubmitting] = useState(false)
-  const [loading, setLoading] = useState(true)
-  const [machineName, setMachineName] = useState('')
+    { product: null, quantity: 1, reason: "Expired" },
+  ]);
+  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [machineName, setMachineName] = useState("");
 
   useEffect(() => {
     async function fetchProducts() {
-      const supabase = createClient()
+      const supabase = createClient();
 
       const { data: machineData } = await supabase
-        .from('machines')
-        .select('official_name')
-        .eq('machine_id', machineId)
-        .single()
+        .from("machines")
+        .select("official_name")
+        .eq("machine_id", machineId)
+        .single();
 
-      if (machineData) setMachineName(machineData.official_name)
+      if (machineData) setMachineName(machineData.official_name);
 
       const { data: podProducts } = await supabase
-        .from('pod_products')
-        .select('pod_product_id, pod_product_name, boonz_product_id')
-        .order('pod_product_name')
+        .from("pod_products")
+        .select("pod_product_id, pod_product_name, boonz_product_id")
+        .order("pod_product_name");
 
       if (podProducts) {
-        setProducts(podProducts)
+        setProducts(podProducts);
       }
-      setLoading(false)
+      setLoading(false);
     }
 
-    fetchProducts()
-  }, [machineId])
+    fetchProducts();
+  }, [machineId]);
 
-  function updateRemoval(idx: number, field: keyof RemovalLine, value: unknown) {
+  function updateRemoval(
+    idx: number,
+    field: keyof RemovalLine,
+    value: unknown,
+  ) {
     setRemovals((prev) =>
-      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r))
-    )
+      prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)),
+    );
   }
 
   function addLine() {
     setRemovals((prev) => [
       ...prev,
-      { product: null, quantity: 1, reason: 'Expired' },
-    ])
+      { product: null, quantity: 1, reason: "Expired" },
+    ]);
   }
 
   function removeLine(idx: number) {
-    setRemovals((prev) => prev.filter((_, i) => i !== idx))
+    setRemovals((prev) => prev.filter((_, i) => i !== idx));
   }
 
   async function handleSubmit() {
-    const validLines = removals.filter((r) => r.product && r.quantity > 0)
+    const validLines = removals.filter((r) => r.product && r.quantity > 0);
     if (validLines.length === 0) {
-      router.back()
-      return
+      router.back();
+      return;
     }
 
-    setSubmitting(true)
-    const supabase = createClient()
-    const today = new Date().toISOString().split('T')[0]
+    setSubmitting(true);
+    const supabase = createClient();
+    const today = new Date().toISOString().split("T")[0];
 
     const inserts = validLines.map((r) => ({
       machine_id: machineId,
       boonz_product_id: r.product?.boonz_product_id ?? null,
       snapshot_date: today,
       current_stock: 0,
-      status: 'Removed / Expired',
-    }))
+      status: "Removed / Expired",
+    }));
 
-    await supabase.from('pod_inventory').insert(inserts)
-    router.back()
+    await supabase.from("pod_inventory").insert(inserts);
+    router.back();
   }
 
   if (loading) {
@@ -106,7 +110,7 @@ export default function RemovalsPage() {
           <p className="text-neutral-500">Loading…</p>
         </div>
       </>
-    )
+    );
   }
 
   return (
@@ -135,12 +139,12 @@ export default function RemovalsPage() {
             </div>
 
             <select
-              value={removal.product?.pod_product_id ?? ''}
+              value={removal.product?.pod_product_id ?? ""}
               onChange={(e) => {
                 const selected = products.find(
-                  (p) => p.pod_product_id === e.target.value
-                )
-                updateRemoval(idx, 'product', selected ?? null)
+                  (p) => p.pod_product_id === e.target.value,
+                );
+                updateRemoval(idx, "product", selected ?? null);
               }}
               className="mb-2 w-full rounded border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
             >
@@ -158,14 +162,14 @@ export default function RemovalsPage() {
                 min={1}
                 value={removal.quantity}
                 onChange={(e) =>
-                  updateRemoval(idx, 'quantity', parseInt(e.target.value) || 1)
+                  updateRemoval(idx, "quantity", parseInt(e.target.value) || 1)
                 }
                 className="w-20 rounded border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
                 placeholder="Qty"
               />
               <select
                 value={removal.reason}
-                onChange={(e) => updateRemoval(idx, 'reason', e.target.value)}
+                onChange={(e) => updateRemoval(idx, "reason", e.target.value)}
                 className="flex-1 rounded border border-neutral-300 px-2 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
               >
                 {REASONS.map((r) => (
@@ -198,9 +202,9 @@ export default function RemovalsPage() {
           disabled={submitting}
           className="flex-1 rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          {submitting ? 'Saving…' : 'Submit removals'}
+          {submitting ? "Saving…" : "Submit removals"}
         </button>
       </div>
     </div>
-  )
+  );
 }

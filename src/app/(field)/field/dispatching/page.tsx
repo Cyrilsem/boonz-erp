@@ -1,60 +1,67 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../components/field-header'
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../components/field-header";
 
 interface DispatchMachine {
-  machine_id: string
-  official_name: string
-  pod_location: string | null
-  total: number
-  dispatched_count: number
-  all_dispatched: boolean
+  machine_id: string;
+  official_name: string;
+  pod_location: string | null;
+  total: number;
+  dispatched_count: number;
+  all_dispatched: boolean;
 }
 
 export default function DispatchingPage() {
-  const [machines, setMachines] = useState<DispatchMachine[]>([])
-  const [loading, setLoading] = useState(true)
+  const [machines, setMachines] = useState<DispatchMachine[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const fetchMachines = useCallback(async () => {
-    const supabase = createClient()
-    const today = new Date().toISOString().split('T')[0]
-    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    const supabase = createClient();
+    const today = new Date().toISOString().split("T")[0];
+    const yesterday = new Date(Date.now() - 86400000)
+      .toISOString()
+      .split("T")[0];
 
     const { data: lines } = await supabase
-      .from('refill_dispatching')
-      .select('dispatch_id, machine_id, picked_up, dispatched, machines!inner(official_name, pod_location)')
-      .gte('dispatch_date', yesterday)
-      .lte('dispatch_date', today)
-      .eq('include', true)
+      .from("refill_dispatching")
+      .select(
+        "dispatch_id, machine_id, picked_up, dispatched, machines!inner(official_name, pod_location)",
+      )
+      .gte("dispatch_date", yesterday)
+      .lte("dispatch_date", today)
+      .eq("include", true);
 
     if (!lines || lines.length === 0) {
-      setMachines([])
-      setLoading(false)
-      return
+      setMachines([]);
+      setLoading(false);
+      return;
     }
 
-    const grouped = new Map<string, {
-      machine_id: string
-      official_name: string
-      pod_location: string | null
-      total: number
-      picked_up_count: number
-      dispatched_count: number
-    }>()
+    const grouped = new Map<
+      string,
+      {
+        machine_id: string;
+        official_name: string;
+        pod_location: string | null;
+        total: number;
+        picked_up_count: number;
+        dispatched_count: number;
+      }
+    >();
 
     for (const line of lines) {
       const m = line.machines as unknown as {
-        official_name: string
-        pod_location: string | null
-      }
-      const existing = grouped.get(line.machine_id)
+        official_name: string;
+        pod_location: string | null;
+      };
+      const existing = grouped.get(line.machine_id);
       if (existing) {
-        existing.total += 1
-        if (line.picked_up) existing.picked_up_count += 1
-        if (line.dispatched) existing.dispatched_count += 1
+        existing.total += 1;
+        if (line.picked_up) existing.picked_up_count += 1;
+        if (line.dispatched) existing.dispatched_count += 1;
       } else {
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
@@ -63,7 +70,7 @@ export default function DispatchingPage() {
           total: 1,
           picked_up_count: line.picked_up ? 1 : 0,
           dispatched_count: line.dispatched ? 1 : 0,
-        })
+        });
       }
     }
 
@@ -78,27 +85,27 @@ export default function DispatchingPage() {
         dispatched_count: m.dispatched_count,
         all_dispatched: m.dispatched_count === m.total,
       }))
-      .sort((a, b) => a.official_name.localeCompare(b.official_name))
+      .sort((a, b) => a.official_name.localeCompare(b.official_name));
 
-    setMachines(result)
-    setLoading(false)
-  }, [])
+    setMachines(result);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    fetchMachines()
-  }, [fetchMachines])
+    fetchMachines();
+  }, [fetchMachines]);
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === 'visible') fetchMachines()
+      if (document.visibilityState === "visible") fetchMachines();
     }
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', fetchMachines)
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", fetchMachines);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', fetchMachines)
-    }
-  }, [fetchMachines])
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", fetchMachines);
+    };
+  }, [fetchMachines]);
 
   if (loading) {
     return (
@@ -108,7 +115,7 @@ export default function DispatchingPage() {
           <p className="text-neutral-500">Loading dispatching…</p>
         </div>
       </>
-    )
+    );
   }
 
   if (machines.length === 0) {
@@ -124,11 +131,11 @@ export default function DispatchingPage() {
           </p>
         </div>
       </>
-    )
+    );
   }
 
-  const toDispatch = machines.filter((m) => !m.all_dispatched)
-  const completed = machines.filter((m) => m.all_dispatched)
+  const toDispatch = machines.filter((m) => !m.all_dispatched);
+  const completed = machines.filter((m) => m.all_dispatched);
 
   return (
     <div className="px-4 py-4">
@@ -196,5 +203,5 @@ export default function DispatchingPage() {
         </div>
       )}
     </div>
-  )
+  );
 }

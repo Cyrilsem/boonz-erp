@@ -1,79 +1,85 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../components/field-header'
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../components/field-header";
 
 interface PendingPO {
-  po_id: string
-  supplier_name: string
-  purchase_date: string
-  line_count: number
+  po_id: string;
+  supplier_name: string;
+  purchase_date: string;
+  line_count: number;
 }
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function ReceivingPage() {
-  const [pos, setPos] = useState<PendingPO[]>([])
-  const [loading, setLoading] = useState(true)
+  const [pos, setPos] = useState<PendingPO[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const fetchPOs = useCallback(async () => {
-    const supabase = createClient()
+    const supabase = createClient();
 
     const { data: lines } = await supabase
-      .from('purchase_orders')
-      .select('po_line_id, po_id, purchase_date, received_date, suppliers!inner(supplier_name)')
-      .is('received_date', null)
+      .from("purchase_orders")
+      .select(
+        "po_line_id, po_id, purchase_date, received_date, suppliers!inner(supplier_name)",
+      )
+      .is("received_date", null);
 
     if (!lines || lines.length === 0) {
-      setPos([])
-      setLoading(false)
-      return
+      setPos([]);
+      setLoading(false);
+      return;
     }
 
-    const grouped = new Map<string, PendingPO>()
+    const grouped = new Map<string, PendingPO>();
 
     for (const line of lines) {
-      const s = line.suppliers as unknown as { supplier_name: string }
-      const existing = grouped.get(line.po_id)
+      const s = line.suppliers as unknown as { supplier_name: string };
+      const existing = grouped.get(line.po_id);
       if (existing) {
-        existing.line_count += 1
+        existing.line_count += 1;
       } else {
         grouped.set(line.po_id, {
           po_id: line.po_id,
           supplier_name: s.supplier_name,
           purchase_date: line.purchase_date,
           line_count: 1,
-        })
+        });
       }
     }
 
     const sorted = Array.from(grouped.values()).sort((a, b) =>
-      a.po_id.localeCompare(b.po_id)
-    )
-    setPos(sorted)
-    setLoading(false)
-  }, [])
+      a.po_id.localeCompare(b.po_id),
+    );
+    setPos(sorted);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    fetchPOs()
-  }, [fetchPOs])
+    fetchPOs();
+  }, [fetchPOs]);
 
   useEffect(() => {
     function handleVisibility() {
-      if (document.visibilityState === 'visible') fetchPOs()
+      if (document.visibilityState === "visible") fetchPOs();
     }
-    document.addEventListener('visibilitychange', handleVisibility)
-    window.addEventListener('focus', fetchPOs)
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", fetchPOs);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      window.removeEventListener('focus', fetchPOs)
-    }
-  }, [fetchPOs])
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", fetchPOs);
+    };
+  }, [fetchPOs]);
 
   if (loading) {
     return (
@@ -83,7 +89,7 @@ export default function ReceivingPage() {
           <p className="text-neutral-500">Loading deliveries…</p>
         </div>
       </>
-    )
+    );
   }
 
   if (pos.length === 0) {
@@ -96,7 +102,7 @@ export default function ReceivingPage() {
           </p>
         </div>
       </>
-    )
+    );
   }
 
   return (
@@ -127,5 +133,5 @@ export default function ReceivingPage() {
         ))}
       </ul>
     </div>
-  )
+  );
 }

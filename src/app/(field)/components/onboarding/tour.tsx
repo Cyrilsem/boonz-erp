@@ -1,175 +1,192 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import type { TourStep, TooltipPosition } from './translations'
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { TourStep, TooltipPosition } from "./translations";
 
 interface TourProps {
-  steps: TourStep[]
-  onComplete: () => void
-  onSkip: () => void
+  steps: TourStep[];
+  onComplete: () => void;
+  onSkip: () => void;
 }
 
-const TOOLTIP_GAP = 12
-const TOOLTIP_WIDTH = 280
-const TOOLTIP_EST_HEIGHT = 200
-const MARGIN = 16
-const SPOTLIGHT_PAD = 8
-const SPOTLIGHT_RADIUS = 12
+const TOOLTIP_GAP = 12;
+const TOOLTIP_WIDTH = 280;
+const TOOLTIP_EST_HEIGHT = 200;
+const MARGIN = 16;
+const SPOTLIGHT_PAD = 8;
+const SPOTLIGHT_RADIUS = 12;
 
 interface TooltipCoords {
-  top: number
-  left: number
-  arrowDir: 'up' | 'down' | 'left-arrow' | 'right-arrow' | 'none'
+  top: number;
+  left: number;
+  arrowDir: "up" | "down" | "left-arrow" | "right-arrow" | "none";
 }
 
 function computeTooltipPosition(
   rect: DOMRect,
   preferred: TooltipPosition,
-  tooltipH: number
+  tooltipH: number,
 ): TooltipCoords {
-  const vh = window.innerHeight
-  const vw = window.innerWidth
+  const vh = window.innerHeight;
+  const vw = window.innerWidth;
 
-  const positions: TooltipPosition[] = [preferred, 'bottom', 'top', 'right', 'left', 'center']
-  const arrowMap: Record<TooltipPosition, TooltipCoords['arrowDir']> = {
-    bottom: 'up',
-    top: 'down',
-    right: 'left-arrow',
-    left: 'right-arrow',
-    center: 'none',
-  }
+  const positions: TooltipPosition[] = [
+    preferred,
+    "bottom",
+    "top",
+    "right",
+    "left",
+    "center",
+  ];
+  const arrowMap: Record<TooltipPosition, TooltipCoords["arrowDir"]> = {
+    bottom: "up",
+    top: "down",
+    right: "left-arrow",
+    left: "right-arrow",
+    center: "none",
+  };
 
   for (const pos of positions) {
-    let top = 0
-    let left = 0
+    let top = 0;
+    let left = 0;
 
-    if (pos === 'bottom') {
-      top = rect.bottom + SPOTLIGHT_PAD + TOOLTIP_GAP
-      left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2
-    } else if (pos === 'top') {
-      top = rect.top - SPOTLIGHT_PAD - tooltipH - TOOLTIP_GAP
-      left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2
-    } else if (pos === 'right') {
-      top = rect.top + rect.height / 2 - tooltipH / 2
-      left = rect.right + SPOTLIGHT_PAD + TOOLTIP_GAP
-    } else if (pos === 'left') {
-      top = rect.top + rect.height / 2 - tooltipH / 2
-      left = rect.left - SPOTLIGHT_PAD - TOOLTIP_WIDTH - TOOLTIP_GAP
+    if (pos === "bottom") {
+      top = rect.bottom + SPOTLIGHT_PAD + TOOLTIP_GAP;
+      left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
+    } else if (pos === "top") {
+      top = rect.top - SPOTLIGHT_PAD - tooltipH - TOOLTIP_GAP;
+      left = rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2;
+    } else if (pos === "right") {
+      top = rect.top + rect.height / 2 - tooltipH / 2;
+      left = rect.right + SPOTLIGHT_PAD + TOOLTIP_GAP;
+    } else if (pos === "left") {
+      top = rect.top + rect.height / 2 - tooltipH / 2;
+      left = rect.left - SPOTLIGHT_PAD - TOOLTIP_WIDTH - TOOLTIP_GAP;
     } else {
       // center fallback
       return {
         top: vh / 2 - tooltipH / 2,
         left: vw / 2 - TOOLTIP_WIDTH / 2,
-        arrowDir: 'none',
-      }
+        arrowDir: "none",
+      };
     }
 
     // Clamp to screen edges
-    top = Math.max(MARGIN, Math.min(top, vh - tooltipH - MARGIN))
-    left = Math.max(MARGIN, Math.min(left, vw - TOOLTIP_WIDTH - MARGIN))
+    top = Math.max(MARGIN, Math.min(top, vh - tooltipH - MARGIN));
+    left = Math.max(MARGIN, Math.min(left, vw - TOOLTIP_WIDTH - MARGIN));
 
     // Check overlap with target
-    const tooltipBottom = top + tooltipH
-    const tooltipRight = left + TOOLTIP_WIDTH
+    const tooltipBottom = top + tooltipH;
+    const tooltipRight = left + TOOLTIP_WIDTH;
 
-    const overlapsVertically = !(tooltipBottom < rect.top - SPOTLIGHT_PAD || top > rect.bottom + SPOTLIGHT_PAD)
-    const overlapsHorizontally = !(tooltipRight < rect.left - SPOTLIGHT_PAD || left > rect.right + SPOTLIGHT_PAD)
+    const overlapsVertically = !(
+      tooltipBottom < rect.top - SPOTLIGHT_PAD ||
+      top > rect.bottom + SPOTLIGHT_PAD
+    );
+    const overlapsHorizontally = !(
+      tooltipRight < rect.left - SPOTLIGHT_PAD ||
+      left > rect.right + SPOTLIGHT_PAD
+    );
 
     if (!overlapsVertically || !overlapsHorizontally) {
-      return { top, left, arrowDir: arrowMap[pos] }
+      return { top, left, arrowDir: arrowMap[pos] };
     }
   }
 
   // Ultimate fallback
-  return { top: vh - tooltipH - MARGIN, left: MARGIN, arrowDir: 'none' }
+  return { top: vh - tooltipH - MARGIN, left: MARGIN, arrowDir: "none" };
 }
 
 export default function Tour({ steps, onComplete, onSkip }: TourProps) {
-  const [currentStep, setCurrentStep] = useState(0)
-  const [targetRect, setTargetRect] = useState<DOMRect | null>(null)
-  const [tooltipCoords, setTooltipCoords] = useState<TooltipCoords | null>(null)
-  const tooltipRef = useRef<HTMLDivElement>(null)
-  const measureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [currentStep, setCurrentStep] = useState(0);
+  const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+  const [tooltipCoords, setTooltipCoords] = useState<TooltipCoords | null>(
+    null,
+  );
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const measureTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const step = steps[currentStep]
-  const isLast = currentStep === steps.length - 1
-  const total = steps.length
+  const step = steps[currentStep];
+  const isLast = currentStep === steps.length - 1;
+  const total = steps.length;
 
   const measure = useCallback(() => {
-    if (!step) return
+    if (!step) return;
 
-    const el = document.querySelector(`[data-tour="${step.targetId}"]`)
+    const el = document.querySelector(`[data-tour="${step.targetId}"]`);
     if (!el) {
       // Element not found — use center position
-      setTargetRect(null)
-      const tooltipH = tooltipRef.current?.offsetHeight ?? TOOLTIP_EST_HEIGHT
+      setTargetRect(null);
+      const tooltipH = tooltipRef.current?.offsetHeight ?? TOOLTIP_EST_HEIGHT;
       setTooltipCoords({
         top: window.innerHeight / 2 - tooltipH / 2,
         left: window.innerWidth / 2 - TOOLTIP_WIDTH / 2,
-        arrowDir: 'none',
-      })
-      return
+        arrowDir: "none",
+      });
+      return;
     }
 
-    const rect = el.getBoundingClientRect()
-    setTargetRect(rect)
-    const tooltipH = tooltipRef.current?.offsetHeight ?? TOOLTIP_EST_HEIGHT
-    setTooltipCoords(computeTooltipPosition(rect, step.tooltipPosition, tooltipH))
-  }, [step])
+    const rect = el.getBoundingClientRect();
+    setTargetRect(rect);
+    const tooltipH = tooltipRef.current?.offsetHeight ?? TOOLTIP_EST_HEIGHT;
+    setTooltipCoords(
+      computeTooltipPosition(rect, step.tooltipPosition, tooltipH),
+    );
+  }, [step]);
 
   // Scroll into view + measure on step change
   useEffect(() => {
-    if (!step) return
+    if (!step) return;
 
-    const el = document.querySelector(`[data-tour="${step.targetId}"]`)
+    const el = document.querySelector(`[data-tour="${step.targetId}"]`);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
 
     // Wait for scroll to settle, then measure
     measureTimeoutRef.current = setTimeout(() => {
-      measure()
+      measure();
       // Re-measure once more after a brief delay to account for layout shifts
-      setTimeout(measure, 100)
-    }, 350)
+      setTimeout(measure, 100);
+    }, 350);
 
     return () => {
-      if (measureTimeoutRef.current) clearTimeout(measureTimeoutRef.current)
-    }
-  }, [currentStep, step, measure])
+      if (measureTimeoutRef.current) clearTimeout(measureTimeoutRef.current);
+    };
+  }, [currentStep, step, measure]);
 
   // Handle resize
   useEffect(() => {
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [measure])
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [measure]);
 
   function handleNext() {
     if (isLast) {
-      onComplete()
+      onComplete();
     } else {
-      setCurrentStep((s) => s + 1)
+      setCurrentStep((s) => s + 1);
     }
   }
 
   // Tap on target element advances tour
   function handleTargetClick() {
-    handleNext()
+    handleNext();
   }
 
-  if (!step) return null
+  if (!step) return null;
 
-  const rect = targetRect
+  const rect = targetRect;
 
   return (
     <>
       {/* SVG spotlight overlay */}
       <svg
         style={{
-          position: 'fixed',
+          position: "fixed",
           inset: 0,
-          width: '100%',
-          height: '100%',
+          width: "100%",
+          height: "100%",
           zIndex: 9998,
         }}
         onClick={(e) => e.stopPropagation()}
@@ -216,13 +233,13 @@ export default function Tour({ steps, onComplete, onSkip }: TourProps) {
         <div
           onClick={handleTargetClick}
           style={{
-            position: 'fixed',
+            position: "fixed",
             left: rect.left - SPOTLIGHT_PAD,
             top: rect.top - SPOTLIGHT_PAD,
             width: rect.width + SPOTLIGHT_PAD * 2,
             height: rect.height + SPOTLIGHT_PAD * 2,
             zIndex: 9999,
-            cursor: 'pointer',
+            cursor: "pointer",
           }}
         />
       )}
@@ -231,61 +248,62 @@ export default function Tour({ steps, onComplete, onSkip }: TourProps) {
       <div
         ref={tooltipRef}
         style={{
-          position: 'fixed',
+          position: "fixed",
           zIndex: 10000,
           top: tooltipCoords?.top ?? window.innerHeight / 2 - 100,
-          left: tooltipCoords?.left ?? window.innerWidth / 2 - TOOLTIP_WIDTH / 2,
+          left:
+            tooltipCoords?.left ?? window.innerWidth / 2 - TOOLTIP_WIDTH / 2,
           width: TOOLTIP_WIDTH,
-          transition: 'top 0.25s ease, left 0.25s ease',
+          transition: "top 0.25s ease, left 0.25s ease",
         }}
         className="rounded-2xl bg-white p-4 shadow-xl dark:bg-neutral-900"
       >
         {/* Arrow */}
-        {tooltipCoords?.arrowDir === 'up' && (
+        {tooltipCoords?.arrowDir === "up" && (
           <div
             className="absolute -top-2 left-1/2 -translate-x-1/2"
             style={{
               width: 0,
               height: 0,
-              borderLeft: '8px solid transparent',
-              borderRight: '8px solid transparent',
-              borderBottom: '8px solid white',
+              borderLeft: "8px solid transparent",
+              borderRight: "8px solid transparent",
+              borderBottom: "8px solid white",
             }}
           />
         )}
-        {tooltipCoords?.arrowDir === 'down' && (
+        {tooltipCoords?.arrowDir === "down" && (
           <div
             className="absolute -bottom-2 left-1/2 -translate-x-1/2"
             style={{
               width: 0,
               height: 0,
-              borderLeft: '8px solid transparent',
-              borderRight: '8px solid transparent',
-              borderTop: '8px solid white',
+              borderLeft: "8px solid transparent",
+              borderRight: "8px solid transparent",
+              borderTop: "8px solid white",
             }}
           />
         )}
-        {tooltipCoords?.arrowDir === 'left-arrow' && (
+        {tooltipCoords?.arrowDir === "left-arrow" && (
           <div
             className="absolute -left-2 top-1/2 -translate-y-1/2"
             style={{
               width: 0,
               height: 0,
-              borderTop: '8px solid transparent',
-              borderBottom: '8px solid transparent',
-              borderRight: '8px solid white',
+              borderTop: "8px solid transparent",
+              borderBottom: "8px solid transparent",
+              borderRight: "8px solid white",
             }}
           />
         )}
-        {tooltipCoords?.arrowDir === 'right-arrow' && (
+        {tooltipCoords?.arrowDir === "right-arrow" && (
           <div
             className="absolute -right-2 top-1/2 -translate-y-1/2"
             style={{
               width: 0,
               height: 0,
-              borderTop: '8px solid transparent',
-              borderBottom: '8px solid transparent',
-              borderLeft: '8px solid white',
+              borderTop: "8px solid transparent",
+              borderBottom: "8px solid transparent",
+              borderLeft: "8px solid white",
             }}
           />
         )}
@@ -297,8 +315,8 @@ export default function Tour({ steps, onComplete, onSkip }: TourProps) {
               key={i}
               className={`h-2 rounded-full transition-all ${
                 i <= currentStep
-                  ? 'w-5 bg-blue-600 dark:bg-blue-400'
-                  : 'w-2 bg-neutral-200 dark:bg-neutral-700'
+                  ? "w-5 bg-blue-600 dark:bg-blue-400"
+                  : "w-2 bg-neutral-200 dark:bg-neutral-700"
               }`}
             />
           ))}
@@ -332,8 +350,8 @@ export default function Tour({ steps, onComplete, onSkip }: TourProps) {
             onClick={handleNext}
             className={`flex-1 rounded-2xl py-3 text-sm font-semibold transition-colors ${
               isLast
-                ? 'bg-green-600 text-white hover:bg-green-700'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+                ? "bg-green-600 text-white hover:bg-green-700"
+                : "bg-blue-600 text-white hover:bg-blue-700"
             }`}
           >
             {isLast ? step.buttonDone : step.buttonNext}
@@ -341,5 +359,5 @@ export default function Tour({ steps, onComplete, onSkip }: TourProps) {
         </div>
       </div>
     </>
-  )
+  );
 }

@@ -24,25 +24,61 @@
     },
     "currency": "AED",
     "open_questions": [
-      { "id": "OQ-01", "question": "Actual company name for supplier SUP_012 — currently contact person name used as fallback" },
-      { "id": "OQ-02", "question": "How to populate machine_product_pricing initially — manual entry or script from sales_history price variance?" },
-      { "id": "OQ-03", "question": "Enrichment strategy for sales_history.boonz_product_id NULLs (10,332 rows)" },
-      { "id": "OQ-04", "question": "Backfill strategy for sales_history.machine_id NULLs (3,445 rows) — machine_name_aliases coverage unknown" },
-      { "id": "OQ-05", "question": "VPS hosting — n8n + FastAPI on same instance or separate?" },
-      { "id": "OQ-06", "question": "Which Telegram user IDs go in TELEGRAM_ALLOWED_USER_IDS whitelist?" },
-      { "id": "OQ-07", "question": "Default client alert thresholds — stock % and revenue floor — can differ per client" },
-      { "id": "OQ-08", "question": "22 Feb 2026 Adyen/POS reconciliation discrepancy — root cause investigation needed before Phase 3 sign-off" }
+      {
+        "id": "OQ-01",
+        "question": "Actual company name for supplier SUP_012 — currently contact person name used as fallback"
+      },
+      {
+        "id": "OQ-02",
+        "question": "How to populate machine_product_pricing initially — manual entry or script from sales_history price variance?"
+      },
+      {
+        "id": "OQ-03",
+        "question": "Enrichment strategy for sales_history.boonz_product_id NULLs (10,332 rows)"
+      },
+      {
+        "id": "OQ-04",
+        "question": "Backfill strategy for sales_history.machine_id NULLs (3,445 rows) — machine_name_aliases coverage unknown"
+      },
+      {
+        "id": "OQ-05",
+        "question": "VPS hosting — n8n + FastAPI on same instance or separate?"
+      },
+      {
+        "id": "OQ-06",
+        "question": "Which Telegram user IDs go in TELEGRAM_ALLOWED_USER_IDS whitelist?"
+      },
+      {
+        "id": "OQ-07",
+        "question": "Default client alert thresholds — stock % and revenue floor — can differ per client"
+      },
+      {
+        "id": "OQ-08",
+        "question": "22 Feb 2026 Adyen/POS reconciliation discrepancy — root cause investigation needed before Phase 3 sign-off"
+      }
     ]
   },
 
   "roles": {
-    "superadmin":     { "surface": "all",     "scope": "all operators" },
-    "operator_admin": { "surface": "app",      "scope": "their operator only" },
-    "manager":        { "surface": "app",      "scope": "all modules except billing + user config" },
-    "finance":        { "surface": "app",      "scope": "financials + procurement, read-only ops" },
-    "field_staff":    { "surface": "field",    "scope": "their trips, pod check-ins, refill confirmation" },
-    "warehouse":      { "surface": "field",    "scope": "receiving, dispatch, inventory, stock counts" },
-    "client":         { "surface": "portal",   "scope": "their machines only, read-only" }
+    "superadmin": { "surface": "all", "scope": "all operators" },
+    "operator_admin": { "surface": "app", "scope": "their operator only" },
+    "manager": {
+      "surface": "app",
+      "scope": "all modules except billing + user config"
+    },
+    "finance": {
+      "surface": "app",
+      "scope": "financials + procurement, read-only ops"
+    },
+    "field_staff": {
+      "surface": "field",
+      "scope": "their trips, pod check-ins, refill confirmation"
+    },
+    "warehouse": {
+      "surface": "field",
+      "scope": "receiving, dispatch, inventory, stock counts"
+    },
+    "client": { "surface": "portal", "scope": "their machines only, read-only" }
   },
 
   "db_conventions": {
@@ -285,8 +321,26 @@
             "Tapping a stop navigates to stop detail screen (P2-S2)"
           ],
           "db_tables_read": [
-            { "table": "refill_dispatching", "key_columns": ["dispatch_id", "machine_id", "dispatch_date", "dispatched", "pod_product_id", "quantity"] },
-            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "pod_address"] }
+            {
+              "table": "refill_dispatching",
+              "key_columns": [
+                "dispatch_id",
+                "machine_id",
+                "dispatch_date",
+                "dispatched",
+                "pod_product_id",
+                "quantity"
+              ]
+            },
+            {
+              "table": "machines",
+              "key_columns": [
+                "machine_id",
+                "official_name",
+                "pod_location",
+                "pod_address"
+              ]
+            }
           ],
           "dependencies": ["P1-S7"]
         },
@@ -310,11 +364,26 @@
             "Duplicate check-in tap does not create duplicate rows"
           ],
           "db_tables_read": [
-            { "table": "refill_dispatching", "key_columns": ["dispatch_id", "machine_id", "pod_product_id", "quantity", "shelf_id"] },
-            { "table": "pod_products", "key_columns": ["pod_product_id", "pod_product_name"] }
+            {
+              "table": "refill_dispatching",
+              "key_columns": [
+                "dispatch_id",
+                "machine_id",
+                "pod_product_id",
+                "quantity",
+                "shelf_id"
+              ]
+            },
+            {
+              "table": "pod_products",
+              "key_columns": ["pod_product_id", "pod_product_name"]
+            }
           ],
           "db_tables_written": [
-            { "table": "trip_events", "note": "New table — create migration. Columns: id uuid PK, machine_id uuid FK machines, driver_user_id uuid FK auth.users, event_type text CHECK IN ('check_in','check_out','issue_reported'), dispatch_date date, latitude numeric, longitude numeric, gps_variance_m numeric, created_at timestamptz" }
+            {
+              "table": "trip_events",
+              "note": "New table — create migration. Columns: id uuid PK, machine_id uuid FK machines, driver_user_id uuid FK auth.users, event_type text CHECK IN ('check_in','check_out','issue_reported'), dispatch_date date, latitude numeric, longitude numeric, gps_variance_m numeric, created_at timestamptz"
+            }
           ],
           "dependencies": ["P2-S1"]
         },
@@ -338,7 +407,11 @@
             "Reconnect: queued confirmations sync automatically, user notified of success"
           ],
           "db_tables_written": [
-            { "table": "refill_dispatching", "key_columns": ["dispatch_id"], "columns_written": ["filled_quantity", "item_added", "dispatched"] }
+            {
+              "table": "refill_dispatching",
+              "key_columns": ["dispatch_id"],
+              "columns_written": ["filled_quantity", "item_added", "dispatched"]
+            }
           ],
           "dependencies": ["P2-S2"]
         },
@@ -361,7 +434,20 @@
             "Writes queued offline, sync on reconnect"
           ],
           "db_tables_written": [
-            { "table": "pod_inventory", "key_columns": ["pod_inventory_id"], "columns_written": ["machine_id", "shelf_id", "boonz_product_id", "snapshot_date", "current_stock", "status", "expiration_date", "batch_id"] }
+            {
+              "table": "pod_inventory",
+              "key_columns": ["pod_inventory_id"],
+              "columns_written": [
+                "machine_id",
+                "shelf_id",
+                "boonz_product_id",
+                "snapshot_date",
+                "current_stock",
+                "status",
+                "expiration_date",
+                "batch_id"
+              ]
+            }
           ],
           "dependencies": ["P2-S3"]
         },
@@ -387,7 +473,10 @@
             "Issue report works offline: queued and synced on reconnect"
           ],
           "db_tables_written": [
-            { "table": "machine_issues", "note": "New table — migration required. Columns: id uuid PK, machine_id uuid FK machines, reporter_user_id uuid FK auth.users, issue_type text, description text, photo_storage_path text, status text DEFAULT 'open' CHECK('open','in_progress','resolved'), created_at timestamptz, resolved_at timestamptz" }
+            {
+              "table": "machine_issues",
+              "note": "New table — migration required. Columns: id uuid PK, machine_id uuid FK machines, reporter_user_id uuid FK auth.users, issue_type text, description text, photo_storage_path text, status text DEFAULT 'open' CHECK('open','in_progress','resolved'), created_at timestamptz, resolved_at timestamptz"
+            }
           ],
           "storage_paths": ["machine-issues/{machine_id}/{timestamp}.jpg"],
           "dependencies": ["P2-S2"]
@@ -414,13 +503,43 @@
             "Manager notified (Telegram) if received_qty differs from ordered_qty by > 10%"
           ],
           "db_tables_read": [
-            { "table": "purchase_orders", "key_columns": ["po_line_id", "po_id", "supplier_id", "boonz_product_id", "ordered_qty", "purchase_date"] },
-            { "table": "suppliers", "key_columns": ["supplier_id", "supplier_name"] },
-            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name"] }
+            {
+              "table": "purchase_orders",
+              "key_columns": [
+                "po_line_id",
+                "po_id",
+                "supplier_id",
+                "boonz_product_id",
+                "ordered_qty",
+                "purchase_date"
+              ]
+            },
+            {
+              "table": "suppliers",
+              "key_columns": ["supplier_id", "supplier_name"]
+            },
+            {
+              "table": "boonz_products",
+              "key_columns": ["product_id", "boonz_product_name"]
+            }
           ],
           "db_tables_written": [
-            { "table": "purchase_orders", "columns_written": ["received_date"] },
-            { "table": "warehouse_inventory", "columns_written": ["boonz_product_id", "snapshot_date", "warehouse_stock", "expiration_date", "batch_id", "wh_location", "status"] }
+            {
+              "table": "purchase_orders",
+              "columns_written": ["received_date"]
+            },
+            {
+              "table": "warehouse_inventory",
+              "columns_written": [
+                "boonz_product_id",
+                "snapshot_date",
+                "warehouse_stock",
+                "expiration_date",
+                "batch_id",
+                "wh_location",
+                "status"
+              ]
+            }
           ],
           "dependencies": ["P1-S7"]
         },
@@ -442,8 +561,22 @@
             "Page refreshes list after each removal action"
           ],
           "db_tables_read": [
-            { "table": "warehouse_inventory", "key_columns": ["wh_inventory_id", "boonz_product_id", "expiration_date", "warehouse_stock", "batch_id", "wh_location", "status"] },
-            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name"] }
+            {
+              "table": "warehouse_inventory",
+              "key_columns": [
+                "wh_inventory_id",
+                "boonz_product_id",
+                "expiration_date",
+                "warehouse_stock",
+                "batch_id",
+                "wh_location",
+                "status"
+              ]
+            },
+            {
+              "table": "boonz_products",
+              "key_columns": ["product_id", "boonz_product_name"]
+            }
           ],
           "db_tables_written": [
             { "table": "warehouse_inventory", "columns_written": ["status"] }
@@ -504,10 +637,45 @@
             "KPI cards show accurate counts from DB"
           ],
           "db_tables_read": [
-            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "status"] },
-            { "table": "machine_summary", "key_columns": ["machine_id", "snapshot_date", "shortage_pct", "shortage_score", "total_capacity", "current_skus"] },
-            { "table": "machine_issues", "key_columns": ["id", "machine_id", "status", "issue_type", "created_at"] },
-            { "table": "trip_events", "key_columns": ["machine_id", "driver_user_id", "event_type", "dispatch_date"] }
+            {
+              "table": "machines",
+              "key_columns": [
+                "machine_id",
+                "official_name",
+                "pod_location",
+                "status"
+              ]
+            },
+            {
+              "table": "machine_summary",
+              "key_columns": [
+                "machine_id",
+                "snapshot_date",
+                "shortage_pct",
+                "shortage_score",
+                "total_capacity",
+                "current_skus"
+              ]
+            },
+            {
+              "table": "machine_issues",
+              "key_columns": [
+                "id",
+                "machine_id",
+                "status",
+                "issue_type",
+                "created_at"
+              ]
+            },
+            {
+              "table": "trip_events",
+              "key_columns": [
+                "machine_id",
+                "driver_user_id",
+                "event_type",
+                "dispatch_date"
+              ]
+            }
           ],
           "dependencies": ["P1-S6"]
         },
@@ -534,13 +702,39 @@
             "dispatch_approvals row written on approval"
           ],
           "db_tables_read": [
-            { "table": "refill_instructions", "key_columns": ["instruction_id", "machine_id", "shelf_id", "pod_product_name", "current_stock", "target_stock", "refill_qty", "refill_reason", "classification_name", "cs_input"] },
-            { "table": "shelf_configurations", "key_columns": ["shelf_id", "shelf_code", "max_capacity"] },
-            { "table": "machines", "key_columns": ["machine_id", "official_name"] }
+            {
+              "table": "refill_instructions",
+              "key_columns": [
+                "instruction_id",
+                "machine_id",
+                "shelf_id",
+                "pod_product_name",
+                "current_stock",
+                "target_stock",
+                "refill_qty",
+                "refill_reason",
+                "classification_name",
+                "cs_input"
+              ]
+            },
+            {
+              "table": "shelf_configurations",
+              "key_columns": ["shelf_id", "shelf_code", "max_capacity"]
+            },
+            {
+              "table": "machines",
+              "key_columns": ["machine_id", "official_name"]
+            }
           ],
           "db_tables_written": [
-            { "table": "refill_dispatching", "columns_written": ["quantity", "dispatched"] },
-            { "table": "dispatch_approvals", "note": "New table — migration required. Columns: id uuid PK, dispatch_date date, approved_by uuid FK auth.users, approved_at timestamptz, override_count int, note text" }
+            {
+              "table": "refill_dispatching",
+              "columns_written": ["quantity", "dispatched"]
+            },
+            {
+              "table": "dispatch_approvals",
+              "note": "New table — migration required. Columns: id uuid PK, dispatch_date date, approved_by uuid FK auth.users, approved_at timestamptz, override_count int, note text"
+            }
           ],
           "dependencies": ["P3-S1"]
         },
@@ -567,9 +761,33 @@
             "Page loads < 3 seconds for 30-day default range"
           ],
           "db_tables_read": [
-            { "table": "adyen_transactions", "key_columns": ["adyen_txn_id", "machine_id", "store", "creation_date", "captured_amount_value", "value_aed", "payment_method", "status"] },
-            { "table": "sales_history", "key_columns": ["transaction_id", "machine_id", "transaction_date", "total_amount", "machine_mapping"] },
-            { "table": "machines", "key_columns": ["machine_id", "official_name"] }
+            {
+              "table": "adyen_transactions",
+              "key_columns": [
+                "adyen_txn_id",
+                "machine_id",
+                "store",
+                "creation_date",
+                "captured_amount_value",
+                "value_aed",
+                "payment_method",
+                "status"
+              ]
+            },
+            {
+              "table": "sales_history",
+              "key_columns": [
+                "transaction_id",
+                "machine_id",
+                "transaction_date",
+                "total_amount",
+                "machine_mapping"
+              ]
+            },
+            {
+              "table": "machines",
+              "key_columns": ["machine_id", "official_name"]
+            }
           ],
           "known_issues": ["OQ-08"],
           "dependencies": ["P3-S1"]
@@ -595,8 +813,26 @@
             "Products with zero active stock shown with '0' (not hidden)"
           ],
           "db_tables_read": [
-            { "table": "warehouse_inventory", "key_columns": ["wh_inventory_id", "boonz_product_id", "warehouse_stock", "expiration_date", "batch_id", "wh_location", "status"] },
-            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name", "product_category"] }
+            {
+              "table": "warehouse_inventory",
+              "key_columns": [
+                "wh_inventory_id",
+                "boonz_product_id",
+                "warehouse_stock",
+                "expiration_date",
+                "batch_id",
+                "wh_location",
+                "status"
+              ]
+            },
+            {
+              "table": "boonz_products",
+              "key_columns": [
+                "product_id",
+                "boonz_product_name",
+                "product_category"
+              ]
+            }
           ],
           "dependencies": ["P3-S1"]
         },
@@ -621,12 +857,45 @@
             "Finance role cannot access this module (middleware blocks)"
           ],
           "db_tables_read": [
-            { "table": "suppliers", "key_columns": ["supplier_id", "supplier_name", "supplier_code", "category", "status", "contact_person", "contact_email", "contact_phone", "payment_terms", "contract_start_date", "contract_end_date", "rating"] },
-            { "table": "supplier_product_mapping", "key_columns": ["id", "supplier_id", "pod_product_id"] },
-            { "table": "pod_products", "key_columns": ["pod_product_id", "pod_product_name"] }
+            {
+              "table": "suppliers",
+              "key_columns": [
+                "supplier_id",
+                "supplier_name",
+                "supplier_code",
+                "category",
+                "status",
+                "contact_person",
+                "contact_email",
+                "contact_phone",
+                "payment_terms",
+                "contract_start_date",
+                "contract_end_date",
+                "rating"
+              ]
+            },
+            {
+              "table": "supplier_product_mapping",
+              "key_columns": ["id", "supplier_id", "pod_product_id"]
+            },
+            {
+              "table": "pod_products",
+              "key_columns": ["pod_product_id", "pod_product_name"]
+            }
           ],
           "db_tables_written": [
-            { "table": "suppliers", "columns_written": ["supplier_name", "contact_person", "contact_email", "contact_phone", "payment_terms", "status", "notes"] }
+            {
+              "table": "suppliers",
+              "columns_written": [
+                "supplier_name",
+                "contact_person",
+                "contact_email",
+                "contact_phone",
+                "payment_terms",
+                "status",
+                "notes"
+              ]
+            }
           ],
           "known_issues": ["OQ-01"],
           "dependencies": ["P3-S1"]
@@ -664,8 +933,14 @@
             "All tool calls logged to agent_tool_calls with timestamp, tool_name, input, output"
           ],
           "db_tables_written": [
-            { "table": "agent_sessions", "note": "New table. Columns: id uuid PK, chat_id text UNIQUE, messages jsonb (array of {role,content}), updated_at timestamptz" },
-            { "table": "agent_tool_calls", "note": "New table. Columns: id uuid PK, session_id uuid FK agent_sessions, tool_name text, input jsonb, output jsonb, called_at timestamptz, duration_ms int" }
+            {
+              "table": "agent_sessions",
+              "note": "New table. Columns: id uuid PK, chat_id text UNIQUE, messages jsonb (array of {role,content}), updated_at timestamptz"
+            },
+            {
+              "table": "agent_tool_calls",
+              "note": "New table. Columns: id uuid PK, session_id uuid FK agent_sessions, tool_name text, input jsonb, output jsonb, called_at timestamptz, duration_ms int"
+            }
           ],
           "env_vars": [
             "ANTHROPIC_API_KEY",
@@ -693,10 +968,27 @@
             "Tool call logged to agent_tool_calls"
           ],
           "db_tables_read": [
-            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "status"] },
-            { "table": "machine_summary", "key_columns": ["machine_id", "snapshot_date", "shortage_pct"] },
-            { "table": "machine_issues", "key_columns": ["machine_id", "status"] },
-            { "table": "refill_dispatching", "key_columns": ["machine_id", "dispatch_date", "dispatched"] }
+            {
+              "table": "machines",
+              "key_columns": [
+                "machine_id",
+                "official_name",
+                "pod_location",
+                "status"
+              ]
+            },
+            {
+              "table": "machine_summary",
+              "key_columns": ["machine_id", "snapshot_date", "shortage_pct"]
+            },
+            {
+              "table": "machine_issues",
+              "key_columns": ["machine_id", "status"]
+            },
+            {
+              "table": "refill_dispatching",
+              "key_columns": ["machine_id", "dispatch_date", "dispatched"]
+            }
           ],
           "dependencies": ["P4-S1"]
         },
@@ -720,9 +1012,25 @@
             "Claude responds with formatted summary: total, top performers, comparison if asked"
           ],
           "db_tables_read": [
-            { "table": "sales_history", "key_columns": ["transaction_id", "machine_id", "boonz_product_id", "transaction_date", "total_amount", "delivery_status"] },
-            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location"] },
-            { "table": "boonz_products", "key_columns": ["product_id", "boonz_product_name"] }
+            {
+              "table": "sales_history",
+              "key_columns": [
+                "transaction_id",
+                "machine_id",
+                "boonz_product_id",
+                "transaction_date",
+                "total_amount",
+                "delivery_status"
+              ]
+            },
+            {
+              "table": "machines",
+              "key_columns": ["machine_id", "official_name", "pod_location"]
+            },
+            {
+              "table": "boonz_products",
+              "key_columns": ["product_id", "boonz_product_name"]
+            }
           ],
           "dependencies": ["P4-S1"]
         },
@@ -748,7 +1056,15 @@
             "n8n webhook call logged to agent_tool_calls with HTTP response code"
           ],
           "db_tables_written": [
-            { "table": "dispatch_approvals", "columns_written": ["dispatch_date", "approved_by", "approved_at", "note"] },
+            {
+              "table": "dispatch_approvals",
+              "columns_written": [
+                "dispatch_date",
+                "approved_by",
+                "approved_at",
+                "note"
+              ]
+            },
             { "table": "refill_dispatching", "columns_written": ["dispatched"] }
           ],
           "dependencies": ["P4-S1", "P3-S2"]
@@ -807,10 +1123,16 @@
             "Max 20 turns sent to Claude API per request (older truncated in API call, kept in DB)"
           ],
           "db_tables_read": [
-            { "table": "agent_sessions", "key_columns": ["id", "chat_id", "messages"] }
+            {
+              "table": "agent_sessions",
+              "key_columns": ["id", "chat_id", "messages"]
+            }
           ],
           "db_tables_written": [
-            { "table": "agent_sessions", "columns_written": ["messages", "updated_at"] }
+            {
+              "table": "agent_sessions",
+              "columns_written": ["messages", "updated_at"]
+            }
           ],
           "dependencies": ["P5-S1"]
         }
@@ -865,10 +1187,38 @@
             "Dashboard loads < 2.5 seconds"
           ],
           "db_tables_read": [
-            { "table": "machines", "key_columns": ["machine_id", "official_name", "pod_location", "client_id"] },
-            { "table": "machine_summary", "key_columns": ["machine_id", "snapshot_date", "shortage_pct"] },
-            { "table": "sales_history", "key_columns": ["machine_id", "transaction_date", "total_amount", "pod_product_name", "delivery_status"] },
-            { "table": "machine_issues", "key_columns": ["machine_id", "status", "issue_type", "created_at"] }
+            {
+              "table": "machines",
+              "key_columns": [
+                "machine_id",
+                "official_name",
+                "pod_location",
+                "client_id"
+              ]
+            },
+            {
+              "table": "machine_summary",
+              "key_columns": ["machine_id", "snapshot_date", "shortage_pct"]
+            },
+            {
+              "table": "sales_history",
+              "key_columns": [
+                "machine_id",
+                "transaction_date",
+                "total_amount",
+                "pod_product_name",
+                "delivery_status"
+              ]
+            },
+            {
+              "table": "machine_issues",
+              "key_columns": [
+                "machine_id",
+                "status",
+                "issue_type",
+                "created_at"
+              ]
+            }
           ],
           "migrations_needed": [
             "ALTER TABLE machines ADD COLUMN IF NOT EXISTS client_id uuid REFERENCES auth.users(id)"
@@ -898,12 +1248,35 @@
             "Reports older than 90 days are deleted automatically"
           ],
           "db_tables_read": [
-            { "table": "sales_history", "key_columns": ["machine_id", "transaction_date", "total_amount", "pod_product_name", "delivery_status"] },
-            { "table": "machine_issues", "key_columns": ["machine_id", "issue_type", "status", "created_at"] },
-            { "table": "machines", "key_columns": ["machine_id", "official_name", "client_id"] }
+            {
+              "table": "sales_history",
+              "key_columns": [
+                "machine_id",
+                "transaction_date",
+                "total_amount",
+                "pod_product_name",
+                "delivery_status"
+              ]
+            },
+            {
+              "table": "machine_issues",
+              "key_columns": [
+                "machine_id",
+                "issue_type",
+                "status",
+                "created_at"
+              ]
+            },
+            {
+              "table": "machines",
+              "key_columns": ["machine_id", "official_name", "client_id"]
+            }
           ],
           "db_tables_written": [
-            { "table": "client_reports", "note": "New table. Columns: id uuid PK, client_id uuid FK auth.users, report_date date, storage_path text, emailed_at timestamptz, created_at timestamptz" }
+            {
+              "table": "client_reports",
+              "note": "New table. Columns: id uuid PK, client_id uuid FK auth.users, report_date date, storage_path text, emailed_at timestamptz, created_at timestamptz"
+            }
           ],
           "storage_paths": ["reports/{client_id}/{YYYY-MM-DD}.pdf"],
           "dependencies": ["P6-S2"]
@@ -915,9 +1288,23 @@
   "agent_config": {
     "model": "claude-sonnet-4-20250514",
     "max_tokens": 1000,
-    "confirmation_required_tools": ["approve_dispatch_plan", "flag_transaction_discrepancy", "update_stock_level", "trigger_refill_engine", "send_client_report", "send_supplier_notification", "reschedule_cron"],
+    "confirmation_required_tools": [
+      "approve_dispatch_plan",
+      "flag_transaction_discrepancy",
+      "update_stock_level",
+      "trigger_refill_engine",
+      "send_client_report",
+      "send_supplier_notification",
+      "reschedule_cron"
+    ],
     "confirmation_expiry_seconds": 60,
-    "read_only_tools": ["get_machine_status", "get_sales_summary", "get_inventory_levels", "get_dispatch_plan", "get_trip_status"],
+    "read_only_tools": [
+      "get_machine_status",
+      "get_sales_summary",
+      "get_inventory_levels",
+      "get_dispatch_plan",
+      "get_trip_status"
+    ],
     "system_prompt_path": "agent/system_prompt.md",
     "tool_definitions_path": "agent/tools/",
     "session_table": "agent_sessions",
@@ -925,30 +1312,76 @@
   },
 
   "n8n_flows": [
-    { "id": "ingest_adyen",        "trigger": "Adyen webhook",              "webhook_path": "/webhook/adyen-ingest",    "writes_to": "adyen_transactions" },
-    { "id": "ingest_vox_export",   "trigger": "Manual or scheduled cron",   "webhook_path": "/webhook/vox-ingest",     "writes_to": "sales_history" },
-    { "id": "trigger_refill_engine","trigger": "Cron or agent webhook",     "webhook_path": "/webhook/refill-trigger", "calls": "FastAPI POST /run" },
-    { "id": "notify_manager",      "trigger": "Supabase Realtime machine_issues INSERT", "webhook_path": null,         "sends": "Telegram message to manager" },
-    { "id": "daily_client_report", "trigger": "Cron 08:00 GST daily",       "webhook_path": null,                      "writes_to": "client_reports, Storage" },
-    { "id": "send_supplier_alert", "trigger": "Agent webhook",              "webhook_path": "/webhook/supplier-alert", "sends": "Email/WhatsApp to supplier" }
+    {
+      "id": "ingest_adyen",
+      "trigger": "Adyen webhook",
+      "webhook_path": "/webhook/adyen-ingest",
+      "writes_to": "adyen_transactions"
+    },
+    {
+      "id": "ingest_vox_export",
+      "trigger": "Manual or scheduled cron",
+      "webhook_path": "/webhook/vox-ingest",
+      "writes_to": "sales_history"
+    },
+    {
+      "id": "trigger_refill_engine",
+      "trigger": "Cron or agent webhook",
+      "webhook_path": "/webhook/refill-trigger",
+      "calls": "FastAPI POST /run"
+    },
+    {
+      "id": "notify_manager",
+      "trigger": "Supabase Realtime machine_issues INSERT",
+      "webhook_path": null,
+      "sends": "Telegram message to manager"
+    },
+    {
+      "id": "daily_client_report",
+      "trigger": "Cron 08:00 GST daily",
+      "webhook_path": null,
+      "writes_to": "client_reports, Storage"
+    },
+    {
+      "id": "send_supplier_alert",
+      "trigger": "Agent webhook",
+      "webhook_path": "/webhook/supplier-alert",
+      "sends": "Email/WhatsApp to supplier"
+    }
   ],
 
   "migrations_tracker": {
     "completed": [
-      "suppliers", "boonz_products", "machines", "pod_products", "shelf_configurations",
-      "machine_name_aliases", "product_name_conventions", "product_mapping", "supplier_product_mapping",
-      "product_pricing", "machine_product_pricing", "guardrail_products", "warehouse_inventory",
-      "pod_inventory", "purchase_orders", "weekly_procurement_plan", "machine_summary",
-      "refill_dispatching", "refill_instructions", "sales_history", "adyen_transactions"
+      "suppliers",
+      "boonz_products",
+      "machines",
+      "pod_products",
+      "shelf_configurations",
+      "machine_name_aliases",
+      "product_name_conventions",
+      "product_mapping",
+      "supplier_product_mapping",
+      "product_pricing",
+      "machine_product_pricing",
+      "guardrail_products",
+      "warehouse_inventory",
+      "pod_inventory",
+      "purchase_orders",
+      "weekly_procurement_plan",
+      "machine_summary",
+      "refill_dispatching",
+      "refill_instructions",
+      "sales_history",
+      "adyen_transactions"
     ],
     "pending": [
-      { "table": "user_profiles",      "phase": "P1", "story": "P1-S3" },
-      { "table": "trip_events",         "phase": "P2", "story": "P2-S2" },
-      { "table": "machine_issues",      "phase": "P2", "story": "P2-S5" },
-      { "table": "dispatch_approvals",  "phase": "P3", "story": "P3-S2" },
-      { "table": "agent_sessions",      "phase": "P4", "story": "P4-S1" },
-      { "table": "agent_tool_calls",    "phase": "P4", "story": "P4-S1" },
-      { "table": "client_reports",      "phase": "P6", "story": "P6-S3" },
+      { "table": "user_profiles", "phase": "P1", "story": "P1-S3" },
+      { "table": "trip_events", "phase": "P2", "story": "P2-S2" },
+      { "table": "machine_issues", "phase": "P2", "story": "P2-S5" },
+      { "table": "dispatch_approvals", "phase": "P3", "story": "P3-S2" },
+      { "table": "agent_sessions", "phase": "P4", "story": "P4-S1" },
+      { "table": "agent_tool_calls", "phase": "P4", "story": "P4-S1" },
+      { "table": "client_reports", "phase": "P6", "story": "P6-S3" },
       { "column": "machines.client_id", "phase": "P6", "story": "P6-S2" }
     ]
   }

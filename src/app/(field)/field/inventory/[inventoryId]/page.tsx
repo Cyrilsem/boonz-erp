@@ -1,75 +1,87 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useCallback } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../../components/field-header'
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../../components/field-header";
 
-type InventoryStatus = 'Active' | 'Inactive' | 'Expired' | 'Removed' | 'Reserved'
+type InventoryStatus =
+  | "Active"
+  | "Inactive"
+  | "Expired"
+  | "Removed"
+  | "Reserved";
 
 interface InventoryDetail {
-  wh_inventory_id: string
-  boonz_product_id: string
-  boonz_product_name: string
-  batch_id: string
-  wh_location: string | null
-  warehouse_stock: number
-  expiration_date: string | null
-  status: InventoryStatus
+  wh_inventory_id: string;
+  boonz_product_id: string;
+  boonz_product_name: string;
+  batch_id: string;
+  wh_location: string | null;
+  warehouse_stock: number;
+  expiration_date: string | null;
+  status: InventoryStatus;
 }
 
 interface AuditEntry {
-  audit_id: string
-  old_qty: number
-  new_qty: number
-  delta: number
-  reason: string | null
-  audited_at: string
-  full_name: string | null
+  audit_id: string;
+  old_qty: number;
+  new_qty: number;
+  delta: number;
+  reason: string | null;
+  audited_at: string;
+  full_name: string | null;
 }
 
 function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '—'
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  if (!dateStr) return "—";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 function formatAuditDate(isoStr: string): string {
-  const d = new Date(isoStr)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
-    ' at ' +
-    d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const d = new Date(isoStr);
+  return (
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) +
+    " at " +
+    d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  );
 }
 
 export default function InventoryDetailPage() {
-  const params = useParams<{ inventoryId: string }>()
-  const router = useRouter()
-  const inventoryId = params.inventoryId
+  const params = useParams<{ inventoryId: string }>();
+  const router = useRouter();
+  const inventoryId = params.inventoryId;
 
-  const [item, setItem] = useState<InventoryDetail | null>(null)
-  const [audits, setAudits] = useState<AuditEntry[]>([])
-  const [loading, setLoading] = useState(true)
+  const [item, setItem] = useState<InventoryDetail | null>(null);
+  const [audits, setAudits] = useState<AuditEntry[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Edit mode
-  const [editing, setEditing] = useState(false)
-  const [editQty, setEditQty] = useState(0)
-  const [editLocation, setEditLocation] = useState('')
-  const [editReason, setEditReason] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
+  const [editing, setEditing] = useState(false);
+  const [editQty, setEditQty] = useState(0);
+  const [editLocation, setEditLocation] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
   // Status toggle
-  const [showStatusConfirm, setShowStatusConfirm] = useState(false)
-  const [statusUpdating, setStatusUpdating] = useState(false)
+  const [showStatusConfirm, setShowStatusConfirm] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
 
   const fetchData = useCallback(async () => {
-    const supabase = createClient()
+    const supabase = createClient();
 
     // Fetch inventory item
     const { data: invData } = await supabase
-      .from('warehouse_inventory')
-      .select(`
+      .from("warehouse_inventory")
+      .select(
+        `
         wh_inventory_id,
         boonz_product_id,
         batch_id,
@@ -78,31 +90,35 @@ export default function InventoryDetailPage() {
         expiration_date,
         status,
         boonz_products!inner(boonz_product_name)
-      `)
-      .eq('wh_inventory_id', inventoryId)
-      .single()
+      `,
+      )
+      .eq("wh_inventory_id", inventoryId)
+      .single();
 
     if (invData) {
-      const p = invData.boonz_products as unknown as { boonz_product_name: string }
+      const p = invData.boonz_products as unknown as {
+        boonz_product_name: string;
+      };
       const detail: InventoryDetail = {
         wh_inventory_id: invData.wh_inventory_id,
         boonz_product_id: invData.boonz_product_id,
         boonz_product_name: p.boonz_product_name,
-        batch_id: invData.batch_id ?? '',
+        batch_id: invData.batch_id ?? "",
         wh_location: invData.wh_location,
         warehouse_stock: invData.warehouse_stock ?? 0,
         expiration_date: invData.expiration_date,
-        status: (invData.status as InventoryStatus) ?? 'Active',
-      }
-      setItem(detail)
-      setEditQty(detail.warehouse_stock)
-      setEditLocation(detail.wh_location ?? '')
+        status: (invData.status as InventoryStatus) ?? "Active",
+      };
+      setItem(detail);
+      setEditQty(detail.warehouse_stock);
+      setEditLocation(detail.wh_location ?? "");
     }
 
     // Fetch audit log
     const { data: auditData } = await supabase
-      .from('inventory_audit_log')
-      .select(`
+      .from("inventory_audit_log")
+      .select(
+        `
         audit_id,
         old_qty,
         new_qty,
@@ -110,14 +126,17 @@ export default function InventoryDetailPage() {
         reason,
         audited_at,
         user_profiles!inventory_audit_log_adjusted_by_fkey(full_name)
-      `)
-      .eq('wh_inventory_id', inventoryId)
-      .order('audited_at', { ascending: false })
-      .limit(10)
+      `,
+      )
+      .eq("wh_inventory_id", inventoryId)
+      .order("audited_at", { ascending: false })
+      .limit(10);
 
     if (auditData) {
       const mapped: AuditEntry[] = auditData.map((a) => {
-        const profile = a.user_profiles as unknown as { full_name: string | null } | null
+        const profile = a.user_profiles as unknown as {
+          full_name: string | null;
+        } | null;
         return {
           audit_id: a.audit_id,
           old_qty: a.old_qty ?? 0,
@@ -126,71 +145,71 @@ export default function InventoryDetailPage() {
           reason: a.reason,
           audited_at: a.audited_at,
           full_name: profile?.full_name ?? null,
-        }
-      })
-      setAudits(mapped)
+        };
+      });
+      setAudits(mapped);
     }
 
-    setLoading(false)
-  }, [inventoryId])
+    setLoading(false);
+  }, [inventoryId]);
 
   useEffect(() => {
-    fetchData()
-  }, [fetchData])
+    fetchData();
+  }, [fetchData]);
 
   function enterEditMode() {
-    if (!item) return
-    setEditQty(item.warehouse_stock)
-    setEditLocation(item.wh_location ?? '')
-    setEditReason('')
-    setSaveError(null)
-    setSaved(false)
-    setEditing(true)
+    if (!item) return;
+    setEditQty(item.warehouse_stock);
+    setEditLocation(item.wh_location ?? "");
+    setEditReason("");
+    setSaveError(null);
+    setSaved(false);
+    setEditing(true);
   }
 
   async function handleSave() {
-    if (!item) return
+    if (!item) return;
     if (!editReason.trim()) {
-      setSaveError('Reason is required')
-      return
+      setSaveError("Reason is required");
+      return;
     }
 
-    setSaving(true)
-    setSaveError(null)
+    setSaving(true);
+    setSaveError(null);
 
-    const supabase = createClient()
-    const oldQty = item.warehouse_stock
+    const supabase = createClient();
+    const oldQty = item.warehouse_stock;
 
     // 1. Update warehouse_inventory
     const { error: updateError } = await supabase
-      .from('warehouse_inventory')
+      .from("warehouse_inventory")
       .update({
         warehouse_stock: editQty,
         wh_location: editLocation.trim() || null,
       })
-      .eq('wh_inventory_id', inventoryId)
+      .eq("wh_inventory_id", inventoryId);
 
     if (updateError) {
-      setSaveError(`Save failed — try again`)
-      setSaving(false)
-      return
+      setSaveError(`Save failed — try again`);
+      setSaving(false);
+      return;
     }
 
     // 2. Insert audit log
     const { error: auditError } = await supabase
-      .from('inventory_audit_log')
+      .from("inventory_audit_log")
       .insert({
         wh_inventory_id: inventoryId,
         boonz_product_id: item.boonz_product_id,
         old_qty: oldQty,
         new_qty: editQty,
         reason: editReason.trim(),
-      })
+      });
 
     if (auditError) {
-      setSaveError(`Stock updated but audit log failed: ${auditError.message}`)
-      setSaving(false)
-      return
+      setSaveError(`Stock updated but audit log failed: ${auditError.message}`);
+      setSaving(false);
+      return;
     }
 
     // Update local state
@@ -198,49 +217,49 @@ export default function InventoryDetailPage() {
       ...item,
       warehouse_stock: editQty,
       wh_location: editLocation.trim() || null,
-    })
+    });
 
-    setSaving(false)
-    setEditing(false)
-    setSaved(true)
+    setSaving(false);
+    setEditing(false);
+    setSaved(true);
 
     // Refresh audit log
-    fetchData()
+    fetchData();
 
     // Clear saved indicator after 2 seconds
-    setTimeout(() => setSaved(false), 2000)
+    setTimeout(() => setSaved(false), 2000);
   }
 
-  async function handleStatusToggle(newStatus: 'Active' | 'Inactive') {
-    if (!item) return
-    setStatusUpdating(true)
-    setShowStatusConfirm(false)
+  async function handleStatusToggle(newStatus: "Active" | "Inactive") {
+    if (!item) return;
+    setStatusUpdating(true);
+    setShowStatusConfirm(false);
 
-    const supabase = createClient()
+    const supabase = createClient();
     const reason =
-      newStatus === 'Inactive'
-        ? 'Marked inactive — excluded from refill'
-        : 'Reactivated — included in refill'
+      newStatus === "Inactive"
+        ? "Marked inactive — excluded from refill"
+        : "Reactivated — included in refill";
 
     const { error: updateError } = await supabase
-      .from('warehouse_inventory')
+      .from("warehouse_inventory")
       .update({ status: newStatus })
-      .eq('wh_inventory_id', inventoryId)
+      .eq("wh_inventory_id", inventoryId);
 
     if (!updateError) {
-      await supabase.from('inventory_audit_log').insert({
+      await supabase.from("inventory_audit_log").insert({
         wh_inventory_id: inventoryId,
         boonz_product_id: item.boonz_product_id,
         old_qty: item.warehouse_stock,
         new_qty: item.warehouse_stock,
         reason,
-      })
+      });
 
-      setItem({ ...item, status: newStatus })
-      fetchData()
+      setItem({ ...item, status: newStatus });
+      fetchData();
     }
 
-    setStatusUpdating(false)
+    setStatusUpdating(false);
   }
 
   if (loading) {
@@ -251,7 +270,7 @@ export default function InventoryDetailPage() {
           <p className="text-neutral-500">Loading…</p>
         </div>
       </>
-    )
+    );
   }
 
   if (!item) {
@@ -263,14 +282,14 @@ export default function InventoryDetailPage() {
             Item not found
           </p>
           <button
-            onClick={() => router.push('/field/inventory')}
+            onClick={() => router.push("/field/inventory")}
             className="mt-4 text-sm text-neutral-500 hover:text-neutral-700"
           >
             ← Back to inventory
           </button>
         </div>
       </>
-    )
+    );
   }
 
   return (
@@ -281,51 +300,58 @@ export default function InventoryDetailPage() {
       <div className="mb-4">
         <h1 className="text-xl font-semibold">{item.boonz_product_name}</h1>
         <p className="text-sm text-neutral-500 mt-1">
-          {item.batch_id || 'No batch'} · {item.wh_location || 'No location'} · Expires {formatDate(item.expiration_date)}
+          {item.batch_id || "No batch"} · {item.wh_location || "No location"} ·
+          Expires {formatDate(item.expiration_date)}
         </p>
       </div>
 
       {/* Current stock */}
       <div className="mb-4 rounded-lg border border-neutral-200 bg-white p-6 text-center dark:border-neutral-800 dark:bg-neutral-950">
-        <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Current Stock</p>
+        <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">
+          Current Stock
+        </p>
         <p className="text-4xl font-bold">{item.warehouse_stock}</p>
         <p className="text-sm text-neutral-400 mt-1">units</p>
         {saved && (
-          <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">Saved ✓</p>
+          <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">
+            Saved ✓
+          </p>
         )}
       </div>
 
       {/* Refill status */}
       <div className="mb-4 flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
         <div>
-          <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">Refill status</p>
-          {item.status === 'Active' && (
+          <p className="text-xs uppercase tracking-wide text-neutral-500 mb-1">
+            Refill status
+          </p>
+          {item.status === "Active" && (
             <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
               Active — included in refill
             </span>
           )}
-          {item.status === 'Inactive' && (
+          {item.status === "Inactive" && (
             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
               Inactive — excluded from refill
             </span>
           )}
-          {item.status === 'Expired' && (
+          {item.status === "Expired" && (
             <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900 dark:text-red-200">
               Expired
             </span>
           )}
-          {item.status === 'Removed' && (
+          {item.status === "Removed" && (
             <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
               Removed
             </span>
           )}
-          {item.status === 'Reserved' && (
+          {item.status === "Reserved" && (
             <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
               Reserved
             </span>
           )}
         </div>
-        {item.status === 'Active' && (
+        {item.status === "Active" && (
           <button
             onClick={() => setShowStatusConfirm(true)}
             disabled={statusUpdating}
@@ -334,13 +360,13 @@ export default function InventoryDetailPage() {
             Mark as inactive
           </button>
         )}
-        {item.status === 'Inactive' && (
+        {item.status === "Inactive" && (
           <button
-            onClick={() => handleStatusToggle('Active')}
+            onClick={() => handleStatusToggle("Active")}
             disabled={statusUpdating}
             className="shrink-0 rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-50 disabled:opacity-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950"
           >
-            {statusUpdating ? 'Updating…' : 'Reactivate'}
+            {statusUpdating ? "Updating…" : "Reactivate"}
           </button>
         )}
       </div>
@@ -353,8 +379,8 @@ export default function InventoryDetailPage() {
               Mark {item.boonz_product_name} as inactive?
             </h2>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              This will exclude it from future refill plans.
-              Stock will remain tracked in the warehouse.
+              This will exclude it from future refill plans. Stock will remain
+              tracked in the warehouse.
             </p>
             <div className="mt-5 flex gap-3">
               <button
@@ -364,11 +390,11 @@ export default function InventoryDetailPage() {
                 Cancel
               </button>
               <button
-                onClick={() => handleStatusToggle('Inactive')}
+                onClick={() => handleStatusToggle("Inactive")}
                 disabled={statusUpdating}
                 className="flex-1 rounded-lg bg-amber-600 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
               >
-                {statusUpdating ? 'Updating…' : 'Confirm'}
+                {statusUpdating ? "Updating…" : "Confirm"}
               </button>
             </div>
           </div>
@@ -389,7 +415,9 @@ export default function InventoryDetailPage() {
 
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-neutral-500 mb-0.5">Quantity</label>
+              <label className="block text-xs text-neutral-500 mb-0.5">
+                Quantity
+              </label>
               <input
                 type="number"
                 min={0}
@@ -400,7 +428,9 @@ export default function InventoryDetailPage() {
             </div>
 
             <div>
-              <label className="block text-xs text-neutral-500 mb-0.5">Location</label>
+              <label className="block text-xs text-neutral-500 mb-0.5">
+                Location
+              </label>
               <input
                 type="text"
                 value={editLocation}
@@ -425,7 +455,9 @@ export default function InventoryDetailPage() {
           </div>
 
           {saveError && (
-            <p className="mt-2 text-sm text-red-600 dark:text-red-400">{saveError}</p>
+            <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+              {saveError}
+            </p>
           )}
 
           <div className="mt-4 flex gap-2">
@@ -440,7 +472,7 @@ export default function InventoryDetailPage() {
               disabled={saving}
               className="flex-1 rounded-lg bg-neutral-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
-              {saving ? 'Saving…' : 'Save adjustment'}
+              {saving ? "Saving…" : "Save adjustment"}
             </button>
           </div>
         </div>
@@ -472,17 +504,21 @@ export default function InventoryDetailPage() {
                       {audit.old_qty} → {audit.new_qty}
                     </p>
                     {audit.reason && (
-                      <p className="text-xs text-neutral-500 mt-0.5">{audit.reason}</p>
+                      <p className="text-xs text-neutral-500 mt-0.5">
+                        {audit.reason}
+                      </p>
                     )}
                     {audit.full_name && (
-                      <p className="text-xs text-neutral-400 mt-0.5">by {audit.full_name}</p>
+                      <p className="text-xs text-neutral-400 mt-0.5">
+                        by {audit.full_name}
+                      </p>
                     )}
                   </div>
                   <span
                     className={`shrink-0 text-sm font-semibold ${
                       audit.delta >= 0
-                        ? 'text-green-600 dark:text-green-400'
-                        : 'text-red-600 dark:text-red-400'
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-red-600 dark:text-red-400"
                     }`}
                   >
                     {audit.delta >= 0 ? `+${audit.delta}` : `${audit.delta}`}
@@ -494,5 +530,5 @@ export default function InventoryDetailPage() {
         )}
       </div>
     </div>
-  )
+  );
 }

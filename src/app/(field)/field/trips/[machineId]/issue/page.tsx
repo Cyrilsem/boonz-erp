@@ -1,141 +1,139 @@
-'use client'
+"use client";
 
-import { useEffect, useState, useRef } from 'react'
-import { useParams, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
-import { FieldHeader } from '../../../../components/field-header'
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../../../components/field-header";
 
-const ISSUE_TYPES = ['Hardware', 'Payment terminal', 'Display', 'Other']
+const ISSUE_TYPES = ["Hardware", "Payment terminal", "Display", "Other"];
 
 export default function IssuePage() {
-  const params = useParams<{ machineId: string }>()
-  const router = useRouter()
-  const machineId = params.machineId
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const params = useParams<{ machineId: string }>();
+  const router = useRouter();
+  const machineId = params.machineId;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [machineName, setMachineName] = useState('')
-  const [issueType, setIssueType] = useState('Hardware')
-  const [description, setDescription] = useState('')
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [machineName, setMachineName] = useState("");
+  const [issueType, setIssueType] = useState("Hardware");
+  const [description, setDescription] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchMachine() {
-      const supabase = createClient()
+      const supabase = createClient();
       const { data } = await supabase
-        .from('machines')
-        .select('official_name')
-        .eq('machine_id', machineId)
-        .single()
+        .from("machines")
+        .select("official_name")
+        .eq("machine_id", machineId)
+        .single();
 
-      if (data) setMachineName(data.official_name)
+      if (data) setMachineName(data.official_name);
     }
-    fetchMachine()
-  }, [machineId])
+    fetchMachine();
+  }, [machineId]);
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setPhotoFile(file)
-    const url = URL.createObjectURL(file)
-    setPhotoPreview(url)
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile(file);
+    const url = URL.createObjectURL(file);
+    setPhotoPreview(url);
   }
 
   async function compressImage(file: File): Promise<Blob> {
     return new Promise((resolve) => {
-      const img = new Image()
+      const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas')
-        let width = img.width
-        let height = img.height
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
 
         // Scale down if larger than 1200px on longest side
-        const MAX_DIM = 1200
+        const MAX_DIM = 1200;
         if (width > MAX_DIM || height > MAX_DIM) {
           if (width > height) {
-            height = Math.round((height * MAX_DIM) / width)
-            width = MAX_DIM
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
           } else {
-            width = Math.round((width * MAX_DIM) / height)
-            height = MAX_DIM
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
           }
         }
 
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, width, height)
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
 
-        canvas.toBlob(
-          (blob) => resolve(blob ?? new Blob()),
-          'image/jpeg',
-          0.7
-        )
-      }
-      img.src = URL.createObjectURL(file)
-    })
+        canvas.toBlob((blob) => resolve(blob ?? new Blob()), "image/jpeg", 0.7);
+      };
+      img.src = URL.createObjectURL(file);
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+    e.preventDefault();
     if (!description.trim()) {
-      setError('Please add a description')
-      return
+      setError("Please add a description");
+      return;
     }
 
-    setSubmitting(true)
-    setError(null)
+    setSubmitting(true);
+    setError(null);
 
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
-      setError('Not authenticated')
-      setSubmitting(false)
-      return
+      setError("Not authenticated");
+      setSubmitting(false);
+      return;
     }
 
-    let photoPath: string | null = null
+    let photoPath: string | null = null;
 
     if (photoFile) {
-      const compressed = await compressImage(photoFile)
-      const timestamp = Date.now()
-      const path = `machine-issues/${machineId}/${timestamp}.jpg`
+      const compressed = await compressImage(photoFile);
+      const timestamp = Date.now();
+      const path = `machine-issues/${machineId}/${timestamp}.jpg`;
 
       const { error: uploadError } = await supabase.storage
-        .from('machine-issues')
+        .from("machine-issues")
         .upload(path, compressed, {
-          contentType: 'image/jpeg',
+          contentType: "image/jpeg",
           upsert: false,
-        })
+        });
 
       if (!uploadError) {
-        photoPath = path
+        photoPath = path;
       }
     }
 
     const { error: insertError } = await supabase
-      .from('machine_issues')
+      .from("machine_issues")
       .insert({
         machine_id: machineId,
         reporter_user_id: user.id,
         issue_type: issueType,
         description: description.trim(),
         photo_storage_path: photoPath,
-        status: 'open',
-      })
+        status: "open",
+      });
 
     if (insertError) {
-      setError('Failed to submit issue. Please try again.')
-      setSubmitting(false)
-      return
+      setError("Failed to submit issue. Please try again.");
+      setSubmitting(false);
+      return;
     }
 
-    setSubmitted(true)
-    setSubmitting(false)
+    setSubmitted(true);
+    setSubmitting(false);
   }
 
   if (submitted) {
@@ -158,7 +156,7 @@ export default function IssuePage() {
           </button>
         </div>
       </>
-    )
+    );
   }
 
   return (
@@ -194,7 +192,9 @@ export default function IssuePage() {
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium">Photo (optional)</label>
+          <label className="mb-1 block text-sm font-medium">
+            Photo (optional)
+          </label>
           <input
             ref={fileInputRef}
             type="file"
@@ -208,7 +208,7 @@ export default function IssuePage() {
             onClick={() => fileInputRef.current?.click()}
             className="w-full rounded-lg border border-dashed border-neutral-300 py-3 text-sm text-neutral-500 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-900"
           >
-            {photoFile ? photoFile.name : 'Take or choose photo'}
+            {photoFile ? photoFile.name : "Take or choose photo"}
           </button>
           {photoPreview && (
             <img
@@ -228,9 +228,9 @@ export default function IssuePage() {
           disabled={submitting}
           className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          {submitting ? 'Submitting…' : 'Submit issue'}
+          {submitting ? "Submitting…" : "Submit issue"}
         </button>
       </form>
     </div>
-  )
+  );
 }

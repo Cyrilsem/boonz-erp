@@ -1,62 +1,61 @@
-'use client'
+"use client";
 
-import { createClient } from '@/lib/supabase/client'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { FormEvent, useState } from 'react'
+import { createClient } from "@/lib/supabase/client";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FormEvent, useState } from "react";
 
 export default function LoginForm() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState(
-    searchParams.get('error') === 'session_invalid'
-      ? 'Your session expired. Please log in again.'
-      : ''
-  )
-  const [loading, setLoading] = useState(false)
-  const [resetSent, setResetSent] = useState(false)
+    searchParams.get("error") === "session_invalid"
+      ? "Your session expired. Please log in again."
+      : "",
+  );
+  const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function handleLogin(e: FormEvent) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
+    e.preventDefault();
+    setError("");
+    setLoading(true);
 
-    const supabase = createClient()
+    const supabase = createClient();
     const { error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
-    })
+    });
 
     if (authError) {
-      setError(authError.message)
-      setLoading(false)
-      return
+      setError(authError.message);
+      setLoading(false);
+      return;
     }
 
-    const redirectTo = searchParams.get('redirectTo') || '/field'
-    router.push(redirectTo)
+    const redirectTo = searchParams.get("redirectTo") || "/field";
+    router.push(redirectTo);
   }
 
   async function handleForgotPassword() {
     if (!email) {
-      setError('Enter your email address first')
-      return
+      setError("Enter your email address first");
+      return;
     }
-    setError('')
-    setLoading(true)
+    setError("");
+    setLoading(true);
 
-    const supabase = createClient()
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      email,
-    )
+    const supabase = createClient();
+    const { error: resetError } =
+      await supabase.auth.resetPasswordForEmail(email);
 
-    setLoading(false)
+    setLoading(false);
     if (resetError) {
-      setError(resetError.message)
-      return
+      setError(resetError.message);
+      return;
     }
-    setResetSent(true)
+    setResetSent(true);
   }
 
   return (
@@ -112,7 +111,7 @@ export default function LoginForm() {
           disabled={loading}
           className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading ? "Signing in…" : "Sign in"}
         </button>
       </form>
 
@@ -124,5 +123,5 @@ export default function LoginForm() {
         Forgot password?
       </button>
     </div>
-  )
+  );
 }
