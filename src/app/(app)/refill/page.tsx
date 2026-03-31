@@ -171,10 +171,25 @@ function healthLabelBadgeClass(label: string): string {
 function strategyBadgeClass(strategy: string | null): string {
   if (!strategy) return "bg-gray-100 text-gray-500";
   if (strategy === "PROTECT") return "bg-green-100 text-green-700";
-  if (strategy === "MAINTAIN") return "bg-blue-100 text-blue-700";
+  if (strategy === "SUSTAIN") return "bg-blue-100 text-blue-700";
+  if (strategy === "MAINTAIN") return "bg-gray-100 text-gray-600";
+  if (strategy === "FIX MERCH") return "bg-orange-100 text-orange-700";
   if (strategy === "REMOVE") return "bg-red-100 text-red-700";
   if (strategy === "REPLACE") return "bg-orange-100 text-orange-700";
   return "bg-gray-100 text-gray-500";
+}
+
+function strategyTooltip(strategy: string | null): string {
+  if (!strategy) return "";
+  if (strategy === "PROTECT") return "High performer — keep fully stocked";
+  if (strategy === "SUSTAIN")
+    return "Standard performer — maintain current stock";
+  if (strategy === "MAINTAIN")
+    return "Low performer — refill only, don't expand";
+  if (strategy === "FIX MERCH")
+    return "Dead stock — needs product swap or removal";
+  if (strategy === "REMOVE") return "Remove this product from this machine";
+  return strategy;
 }
 
 const tierColors: Record<string, { card: string; bar: string }> = {
@@ -1028,7 +1043,7 @@ export default function RefillPage() {
                     )}
                     {m.dead_stock_count > 0 && (
                       <span className="text-red-500 font-medium">
-                        {m.dead_stock_count} dead
+                        {m.dead_stock_count}/{m.total_slots} dead
                       </span>
                     )}
                     {m.local_hero_count > 0 && (
@@ -1280,7 +1295,7 @@ export default function RefillPage() {
           />
 
           {/* Panel */}
-          <div className="relative z-10 w-full max-w-3xl max-h-[85vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
+          <div className="relative z-10 w-full max-w-6xl max-h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
             {/* Modal header */}
             <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
               <div className="flex-1 min-w-0">
@@ -1447,6 +1462,42 @@ export default function RefillPage() {
                     </div>
                   )}
 
+                  {/* Intelligence summary bar */}
+                  {selectedHealth && (
+                    <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {selectedHealth.machine_health_label && (
+                        <span
+                          className={`font-semibold px-1.5 py-0.5 rounded ${healthLabelBadgeClass(selectedHealth.machine_health_label)}`}
+                        >
+                          {selectedHealth.machine_health_label}
+                        </span>
+                      )}
+                      {selectedHealth.machine_strategy && (
+                        <span className="text-gray-500">
+                          {selectedHealth.machine_strategy}
+                        </span>
+                      )}
+                      <span className="text-gray-400">·</span>
+                      {selectedHealth.dead_stock_count > 0 && (
+                        <span className="text-red-600 font-medium">
+                          {selectedHealth.dead_stock_count}/
+                          {selectedHealth.total_slots} dead stock
+                        </span>
+                      )}
+                      {selectedHealth.local_hero_count > 0 && (
+                        <span className="text-green-600 font-medium">
+                          {selectedHealth.local_hero_count} hero
+                          {selectedHealth.local_hero_count !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {selectedHealth.daily_velocity > 0 && (
+                        <span>
+                          ↗ {selectedHealth.daily_velocity.toFixed(1)}/day
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Sort controls */}
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-xs text-gray-500">Sort by:</span>
@@ -1494,19 +1545,28 @@ export default function RefillPage() {
                           <th className="text-center py-2 px-2 font-medium">
                             Strategy
                           </th>
-                          <th className="text-center py-2 px-2 font-medium">
+                          <th
+                            className="text-center py-2 px-2 font-medium cursor-help"
+                            title="Global product status across all machines"
+                          >
                             Global
                           </th>
-                          <th className="text-center py-2 px-2 font-medium">
+                          <th
+                            className="text-center py-2 px-2 font-medium cursor-help"
+                            title="Local performance role in this machine"
+                          >
                             Local
                           </th>
                           <th className="text-right py-2 px-2 font-medium">
-                            7d
+                            7d Sales
                           </th>
                           <th className="text-right py-2 px-2 font-medium">
                             Score
                           </th>
-                          <th className="text-right py-2 px-2 font-medium">
+                          <th className="text-left py-2 px-2 font-medium">
+                            Suggestion
+                          </th>
+                          <th className="text-right py-2 pl-2 font-medium">
                             Exp.
                           </th>
                         </tr>
@@ -1535,29 +1595,22 @@ export default function RefillPage() {
                               <td className="py-1.5 pr-2 font-mono text-xs text-gray-600">
                                 {s.slot}
                               </td>
-                              <td className="py-1.5 px-2 text-xs max-w-[140px]">
+                              {/* Product */}
+                              <td className="py-1.5 px-2 text-xs max-w-[160px]">
                                 <div className="text-gray-800 truncate">
                                   {s.product || "—"}
                                 </div>
-                                {/* Claude suggested replacement */}
                                 {claudeSlot?.suggested_product && (
                                   <div className="text-[10px] text-purple-700 font-medium truncate">
-                                    → {claudeSlot.suggested_product}
+                                    🤖 {claudeSlot.suggested_product}
                                   </div>
                                 )}
-                                {/* Static suggested product (no Claude yet) */}
-                                {!claudeSlot &&
-                                  s.suggested_product &&
-                                  (s.strategy === "REPLACE" ||
-                                    s.strategy === "REMOVE") && (
-                                    <div className="text-[10px] text-amber-700 truncate">
-                                      → {s.suggested_product}
-                                    </div>
-                                  )}
                               </td>
+                              {/* Stock */}
                               <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600 whitespace-nowrap">
                                 {s.current_stock}/{s.max_stock}
                               </td>
+                              {/* Fill */}
                               <td className="py-1.5 px-2 text-right">
                                 <span
                                   className={`inline-block min-w-[2.5rem] text-center px-1 py-0.5 rounded text-[10px] font-medium ${fillBg(s.fill_pct)}`}
@@ -1565,10 +1618,12 @@ export default function RefillPage() {
                                   {s.fill_pct}%
                                 </span>
                               </td>
+                              {/* Strategy */}
                               <td className="py-1.5 px-2 text-center">
                                 {s.strategy ? (
                                   <span
-                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${strategyBadgeClass(s.strategy)}`}
+                                    title={strategyTooltip(s.strategy)}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium cursor-help ${strategyBadgeClass(s.strategy)}`}
                                   >
                                     {s.strategy}
                                   </span>
@@ -1577,49 +1632,106 @@ export default function RefillPage() {
                                     —
                                   </span>
                                 )}
-                                {s.action_code && (
-                                  <div className="text-[9px] text-gray-400 mt-0.5 leading-tight">
-                                    {s.action_code}
-                                  </div>
-                                )}
                               </td>
+                              {/* Global */}
                               <td className="py-1.5 px-2 text-center text-sm">
                                 {s.global_product_status?.includes("💎") ? (
-                                  "💎"
+                                  <span
+                                    title="Global Hero — top 20% product across all machines"
+                                    className="cursor-help"
+                                  >
+                                    💎
+                                  </span>
                                 ) : s.global_product_status?.includes("📦") ? (
-                                  "📦"
+                                  <span
+                                    title="Core Range — standard performer globally"
+                                    className="cursor-help"
+                                  >
+                                    📦
+                                  </span>
                                 ) : s.global_product_status?.includes("🔻") ? (
-                                  "🔻"
+                                  <span
+                                    title="Global Drag — bottom 20% product across all machines"
+                                    className="cursor-help"
+                                  >
+                                    🔻
+                                  </span>
                                 ) : (
                                   <span className="text-gray-300 text-xs">
                                     —
                                   </span>
                                 )}
                               </td>
+                              {/* Local */}
                               <td className="py-1.5 px-2 text-center text-sm">
                                 {s.local_performance_role?.includes("👑") ? (
-                                  "👑"
+                                  <span
+                                    title="Local Hero — top performer in this machine"
+                                    className="cursor-help"
+                                  >
+                                    👑
+                                  </span>
                                 ) : s.local_performance_role?.includes("💀") ? (
-                                  "💀"
+                                  <span
+                                    title="Dead Stock — zero or near-zero sales in this machine"
+                                    className="cursor-help"
+                                  >
+                                    💀
+                                  </span>
+                                ) : s.local_performance_role?.includes("✅") ? (
+                                  <span
+                                    title="Standard — normal performer in this machine"
+                                    className="cursor-help"
+                                  >
+                                    ✅
+                                  </span>
                                 ) : s.local_performance_role?.includes("📊") ? (
-                                  "📊"
+                                  <span
+                                    title="Standard — normal performer in this machine"
+                                    className="cursor-help"
+                                  >
+                                    📊
+                                  </span>
                                 ) : (
                                   <span className="text-gray-300 text-xs">
                                     —
                                   </span>
                                 )}
                               </td>
-                              <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
-                                {s.units_sold_7d != null
-                                  ? s.units_sold_7d.toFixed(0)
-                                  : "—"}
+                              {/* 7d Sales */}
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs">
+                                {s.units_sold_7d != null ? (
+                                  <span
+                                    className={
+                                      s.units_sold_7d > 0
+                                        ? "text-gray-900 font-semibold"
+                                        : "text-gray-400"
+                                    }
+                                  >
+                                    {s.units_sold_7d.toFixed(0)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
                               </td>
+                              {/* Score */}
                               <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-500">
                                 {s.product_base_score != null
-                                  ? s.product_base_score.toFixed(0)
+                                  ? s.product_base_score.toFixed(1)
                                   : "—"}
                               </td>
-                              <td className="py-1.5 px-2 text-right tabular-nums text-xs">
+                              {/* Suggestion */}
+                              <td className="py-1.5 px-2 text-xs max-w-[140px]">
+                                {s.suggested_product ? (
+                                  <span className="text-amber-700 truncate block">
+                                    {s.suggested_product}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
+                              </td>
+                              {/* Exp. */}
+                              <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
                                 {s.expiry_days != null ? (
                                   <span
                                     className={expiryDayClass(s.expiry_days)}
