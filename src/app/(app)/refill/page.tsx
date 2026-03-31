@@ -91,16 +91,25 @@ type MachineHealth = {
   days_until_empty: number;
   has_sensor_errors: boolean;
   machine_status: string;
-  health_tier:
-    | "critical"
-    | "warning"
-    | "healthy"
-    | "inactive"
-    | "offline"
-    | "excluded";
-  health_sort: number;
   include_in_refill: boolean;
   recently_offline: boolean;
+  expired_units: number;
+  expiring_7d_units: number;
+  expiring_30d_units: number;
+  days_to_earliest_expiry: number | null;
+  health_tier: "critical" | "warning" | "healthy" | "excluded";
+  health_sort: number;
+};
+
+type ExpiryDetail = {
+  boonz_product_name: string;
+  boonz_product_id: string;
+  total_qty: number;
+  earliest_expiry: string;
+  days_until_expiry: number;
+  expired_qty: number;
+  expiring_7d_qty: number;
+  expiring_30d_qty: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,36 +140,20 @@ function fmt2(n: number): string {
   });
 }
 
-const tierColors: Record<string, { card: string; bar: string; dot: string }> = {
-  critical: {
-    card: "bg-red-50 border-red-300",
-    bar: "bg-red-400",
-    dot: "bg-red-500",
-  },
-  warning: {
-    card: "bg-amber-50 border-amber-300",
-    bar: "bg-amber-400",
-    dot: "bg-amber-500",
-  },
-  healthy: {
-    card: "bg-green-50 border-green-200",
-    bar: "bg-green-400",
-    dot: "bg-green-500",
-  },
-  inactive: {
-    card: "bg-gray-100 border-gray-300",
-    bar: "bg-gray-300",
-    dot: "bg-gray-400",
-  },
-  offline: {
-    card: "bg-gray-50 border-gray-300 opacity-70",
-    bar: "bg-gray-300",
-    dot: "bg-gray-400",
-  },
+function expiryDayClass(days: number): string {
+  if (days < 0) return "text-red-600 font-bold";
+  if (days <= 7) return "text-amber-600 font-semibold";
+  if (days <= 30) return "text-yellow-600";
+  return "text-gray-400";
+}
+
+const tierColors: Record<string, { card: string; bar: string }> = {
+  critical: { card: "bg-red-50 border-red-300", bar: "bg-red-400" },
+  warning: { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" },
+  healthy: { card: "bg-green-50 border-green-200", bar: "bg-green-400" },
   excluded: {
     card: "bg-gray-50 border-gray-200 opacity-50",
     bar: "bg-gray-200",
-    dot: "bg-gray-300",
   },
 };
 
@@ -180,15 +173,18 @@ export default function RefillPage() {
 
   const [progressMessages, setProgressMessages] = useState<ProgressMsg[]>([]);
   const [machineHealth, setMachineHealth] = useState<MachineHealth[]>([]);
-  const [sortBy, setSortBy] = useState<"priority" | "stock" | "fill">(
-    "priority",
-  );
+  const [sortBy, setSortBy] = useState<
+    "priority" | "stock" | "fill" | "expiry"
+  >("priority");
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [machineAisles, setMachineAisles] = useState<AisleRow[]>([]);
+  const [expiryData, setExpiryData] = useState<ExpiryDetail[]>([]);
   const [loadingAisles, setLoadingAisles] = useState(false);
   const [includeInRefill, setIncludeInRefill] = useState(true);
-  const [modalSort, setModalSort] = useState<"slot" | "stock" | "fill">("slot");
+  const [modalSort, setModalSort] = useState<
+    "slot" | "stock" | "fill" | "expiry"
+  >("slot");
 
   const getSupabase = useCallback(() => {
     return createBrowserClient(
@@ -201,7 +197,7 @@ export default function RefillPage() {
   const loadData = useCallback(async () => {
     const supabase = getSupabase();
 
-    // Device status — latest snapshot
+    // Device status — latest snapshot (used for lastRefresh timestamp)
     const { data: deviceData } = await supabase
       .from("weimi_device_status")
       .select(
@@ -256,26 +252,32 @@ export default function RefillPage() {
     loadData();
   }, [loadData]);
 
-  // ── Load aisle detail when a machine card is clicked ────────────────────────
+  // ── Load aisle + expiry detail when a machine card is clicked ───────────────
   const loadAisles = useCallback(
     async (machineName: string) => {
       setLoadingAisles(true);
       setMachineAisles([]);
+      setExpiryData([]);
       const supabase = getSupabase();
       const today = new Date().toISOString().split("T")[0];
 
-      // Try today's snapshot first, fall back to latest
-      let row: { door_statuses: unknown } | null = null;
-      const { data: todayData } = await supabase
-        .from("weimi_device_status")
-        .select("door_statuses")
-        .eq("device_name", machineName)
-        .eq("snapshot_date", today)
-        .maybeSingle();
+      // Fetch aisles and expiry in parallel
+      const [todayResult, expiryResult] = await Promise.all([
+        supabase
+          .from("weimi_device_status")
+          .select("door_statuses")
+          .eq("device_name", machineName)
+          .eq("snapshot_date", today)
+          .maybeSingle(),
+        supabase
+          .rpc("get_machine_expiry_detail", { p_machine_name: machineName })
+          .limit(10000),
+      ]);
 
-      if (todayData) {
-        row = todayData;
-      } else {
+      let row: { door_statuses: unknown } | null = todayResult.data;
+
+      // Fall back to latest snapshot if today's not available
+      if (!row) {
         const { data: latestData } = await supabase
           .from("weimi_device_status")
           .select("door_statuses")
@@ -308,6 +310,11 @@ export default function RefillPage() {
         }
         setMachineAisles(aisles);
       }
+
+      if (expiryResult.data) {
+        setExpiryData(expiryResult.data as ExpiryDetail[]);
+      }
+
       setLoadingAisles(false);
     },
     [getSupabase],
@@ -317,6 +324,7 @@ export default function RefillPage() {
     setModalSort("slot");
     if (!selectedMachine) {
       setMachineAisles([]);
+      setExpiryData([]);
       return;
     }
     const health = machineHealth.find(
@@ -374,7 +382,6 @@ export default function RefillPage() {
       );
 
       if (!response.ok) {
-        // Non-streaming error response
         const errData = await response.json().catch(() => ({}));
         setError(
           (errData as { error?: string }).error || `HTTP ${response.status}`,
@@ -385,7 +392,6 @@ export default function RefillPage() {
       const contentType = response.headers.get("content-type") ?? "";
 
       if (!contentType.includes("text/event-stream")) {
-        // Server returned plain JSON despite SSE request — handle as before
         const data = (await response.json()) as RefreshResult & {
           error?: string;
         };
@@ -417,7 +423,7 @@ export default function RefillPage() {
           try {
             event = JSON.parse(line.slice(6)) as Record<string, unknown>;
           } catch {
-            continue; // skip malformed events
+            continue;
           }
 
           const step = event.step as string;
@@ -442,9 +448,6 @@ export default function RefillPage() {
   }
 
   // ── Derived values ────────────────────────────────────────────────────────────
-  const onlineCount = devices.filter((d) => d.is_online).length;
-  const offlineCount = devices.length - onlineCount;
-
   const salesTotals = salesByMachine.reduce(
     (acc, r) => ({
       txn_count: acc.txn_count + Number(r.txn_count),
@@ -463,6 +466,13 @@ export default function RefillPage() {
         break;
       case "fill":
         sorted.sort((a, b) => a.fill_pct - b.fill_pct);
+        break;
+      case "expiry":
+        sorted.sort((a, b) => {
+          const aExp = a.days_to_earliest_expiry ?? 9999;
+          const bExp = b.days_to_earliest_expiry ?? 9999;
+          return aExp - bExp;
+        });
         break;
       default:
         sorted.sort(
@@ -486,6 +496,28 @@ export default function RefillPage() {
     return counts;
   }, [machineHealth]);
 
+  // Build expiry lookup map for modal table
+  const expiryMap = useMemo(() => {
+    const map = new Map<string, ExpiryDetail>();
+    for (const ex of expiryData) {
+      map.set(ex.boonz_product_name.toLowerCase(), ex);
+    }
+    return map;
+  }, [expiryData]);
+
+  const findExpiry = useCallback(
+    (productName: string): ExpiryDetail | null => {
+      if (!productName) return null;
+      const lower = productName.toLowerCase();
+      if (expiryMap.has(lower)) return expiryMap.get(lower)!;
+      for (const [key, val] of expiryMap) {
+        if (key.includes(lower) || lower.includes(key)) return val;
+      }
+      return null;
+    },
+    [expiryMap],
+  );
+
   const sortedAisles = useMemo(() => {
     const sorted = [...machineAisles];
     switch (modalSort) {
@@ -495,11 +527,18 @@ export default function RefillPage() {
       case "fill":
         sorted.sort((a, b) => a.fillPct - b.fillPct);
         break;
+      case "expiry":
+        sorted.sort((a, b) => {
+          const aExp = findExpiry(a.product)?.days_until_expiry ?? 9999;
+          const bExp = findExpiry(b.product)?.days_until_expiry ?? 9999;
+          return aExp - bExp;
+        });
+        break;
       default:
         break;
     }
     return sorted;
-  }, [machineAisles, modalSort]);
+  }, [machineAisles, modalSort, findExpiry]);
 
   async function handleToggleRefill(machineName: string, include: boolean) {
     const supabase = getSupabase();
@@ -516,12 +555,21 @@ export default function RefillPage() {
     }
   }
 
-  const selectedDevice = devices.find((d) => d.device_name === selectedMachine);
   const selectedHealth = machineHealth.find(
     (m) => m.machine_name === selectedMachine,
   );
   const modalTotalCapacity = machineAisles.reduce((s, a) => s + a.max, 0);
   const modalTotalCurrent = machineAisles.reduce((s, a) => s + a.current, 0);
+
+  // Expiry summary for modal header
+  const modalExpiredCount = expiryData.reduce(
+    (s, e) => s + (e.expired_qty ?? 0),
+    0,
+  );
+  const modalExpiring7dCount = expiryData.reduce(
+    (s, e) => s + (e.expiring_7d_qty ?? 0),
+    0,
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
@@ -662,7 +710,7 @@ export default function RefillPage() {
               <div className="bg-white rounded px-3 py-2 border border-green-100">
                 <div className="text-gray-500 text-xs">Machines</div>
                 <div className="font-semibold text-gray-900">
-                  {result.machines_online}/{result.machines_total} online
+                  {result.machines_online}/{result.machines_total} synced
                 </div>
               </div>
               <div className="bg-white rounded px-3 py-2 border border-green-100">
@@ -681,8 +729,7 @@ export default function RefillPage() {
             <p className="text-xs text-gray-500 mt-3">
               Pulled {result.lookback_days} days of sales →{" "}
               {result.sales?.upserted?.toLocaleString()} transactions synced.
-              Device status updated for {result.machines_total} machines (
-              {result.machines_online} online).
+              Device status updated for {result.machines_total} machines.
               {result.sales?.skipped > 0 &&
                 ` ${result.sales.skipped} skipped (unknown machine).`}
             </p>
@@ -729,16 +776,6 @@ export default function RefillPage() {
                     {tierCounts.healthy} healthy
                   </span>
                 )}
-                {tierCounts.inactive != null && (
-                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                    {tierCounts.inactive} inactive
-                  </span>
-                )}
-                {tierCounts.offline != null && (
-                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                    {tierCounts.offline} offline
-                  </span>
-                )}
                 {tierCounts.excluded != null && (
                   <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">
                     {tierCounts.excluded} excluded
@@ -748,7 +785,7 @@ export default function RefillPage() {
             </div>
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <span>Sort:</span>
-              {(["priority", "stock", "fill"] as const).map((opt) => (
+              {(["priority", "stock", "fill", "expiry"] as const).map((opt) => (
                 <button
                   key={opt}
                   type="button"
@@ -763,7 +800,9 @@ export default function RefillPage() {
                     ? "Priority"
                     : opt === "stock"
                       ? "Stock"
-                      : "Fill %"}
+                      : opt === "fill"
+                        ? "Fill %"
+                        : "Expiry"}
                 </button>
               ))}
             </div>
@@ -773,7 +812,7 @@ export default function RefillPage() {
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
             {sortedMachines.map((m) => {
-              const tc = tierColors[m.health_tier] ?? tierColors.inactive;
+              const tc = tierColors[m.health_tier] ?? tierColors.excluded;
 
               return (
                 <button
@@ -782,13 +821,10 @@ export default function RefillPage() {
                   onClick={() => setSelectedMachine(m.machine_name)}
                   className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
                 >
-                  <div className="flex items-center justify-between gap-1 mb-1">
-                    <span className="text-xs font-medium text-gray-700 truncate leading-tight">
+                  <div className="mb-1">
+                    <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
                       {m.machine_name}
                     </span>
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${tc.dot}`}
-                    />
                   </div>
                   <div className="text-sm font-semibold text-gray-900">
                     {m.total_stock.toLocaleString()}
@@ -824,13 +860,20 @@ export default function RefillPage() {
                       )
                     )}
                   </div>
-                  {m.health_tier === "offline" && (
-                    <div
-                      className={`mt-1 text-[10px] font-medium ${m.recently_offline ? "text-amber-600" : "text-gray-400"}`}
-                    >
-                      {m.recently_offline ? "RECENTLY OFFLINE" : "OFFLINE"}
+                  {/* Expiry badge */}
+                  {m.expired_units > 0 ? (
+                    <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-red-100 text-red-600 inline-block">
+                      ⚠ {m.expired_units} expired
                     </div>
-                  )}
+                  ) : m.expiring_7d_units > 0 ? (
+                    <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-700 inline-block">
+                      ⏰ {m.expiring_7d_units} exp. 7d
+                    </div>
+                  ) : m.expiring_30d_units > 0 ? (
+                    <div className="mt-1 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 inline-block">
+                      📅 {m.expiring_30d_units} exp. 30d
+                    </div>
+                  ) : null}
                   {m.health_tier === "excluded" && (
                     <div className="mt-1 text-[10px] text-gray-400 italic">
                       excluded
@@ -958,9 +1001,6 @@ export default function RefillPage() {
               <thead>
                 <tr className="border-b border-gray-200 text-gray-500 text-xs">
                   <th className="text-left py-2.5 pr-3 font-medium">Machine</th>
-                  <th className="text-center py-2.5 px-2 font-medium">
-                    Status
-                  </th>
                   <th className="text-right py-2.5 px-2 font-medium">Slots</th>
                   <th className="text-right py-2.5 px-2 font-medium">
                     Capacity
@@ -984,11 +1024,6 @@ export default function RefillPage() {
                     >
                       <td className="py-2 pr-3 font-medium text-gray-900">
                         {s.machine_name}
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        <span
-                          className={`inline-block w-1.5 h-1.5 rounded-full ${s.is_online ? "bg-green-500" : "bg-gray-300"}`}
-                        />
                       </td>
                       <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
                         {s.total_slots}
@@ -1051,31 +1086,32 @@ export default function RefillPage() {
           />
 
           {/* Panel */}
-          <div className="relative z-10 w-full max-w-2xl max-h-[85vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
+          <div className="relative z-10 w-full max-w-3xl max-h-[85vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
             {/* Modal header */}
             <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
-              <div>
+              <div className="flex-1 min-w-0">
                 <h3 className="text-base font-semibold text-gray-900">
                   {selectedMachine}
                 </h3>
-                <div className="flex items-center gap-3 mt-1">
-                  {selectedDevice && (
-                    <span
-                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
-                        selectedDevice.is_online
-                          ? "bg-green-100 text-green-700"
-                          : "bg-gray-100 text-gray-500"
-                      }`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full ${selectedDevice.is_online ? "bg-green-500" : "bg-gray-400"}`}
-                      />
-                      {selectedDevice.is_online ? "Online" : "Offline"}
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {!loadingAisles && (
+                    <span className="text-sm text-gray-500">
+                      {modalTotalCurrent} / {modalTotalCapacity} units
                     </span>
                   )}
-                  {!loadingAisles && machineAisles.length > 0 && (
-                    <span className="text-xs text-gray-500">
-                      {modalTotalCurrent} / {modalTotalCapacity} units
+                  {selectedHealth?.machine_status === "Warehouse" && (
+                    <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
+                      Warehouse
+                    </span>
+                  )}
+                  {modalExpiredCount > 0 && (
+                    <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded">
+                      ⚠ {modalExpiredCount} expired
+                    </span>
+                  )}
+                  {modalExpiring7dCount > 0 && (
+                    <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded">
+                      ⏰ {modalExpiring7dCount} expiring 7d
                     </span>
                   )}
                 </div>
@@ -1086,7 +1122,7 @@ export default function RefillPage() {
                       <span className="text-xs text-gray-600">
                         Include in refill
                       </span>
-                      <div className="relative">
+                      <div className="relative inline-flex items-center">
                         <input
                           type="checkbox"
                           checked={includeInRefill}
@@ -1098,8 +1134,8 @@ export default function RefillPage() {
                           }
                           className="sr-only peer"
                         />
-                        <div className="w-10 h-5 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-colors" />
-                        <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5" />
+                        <div className="w-10 h-5 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-colors cursor-pointer" />
+                        <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5 pointer-events-none" />
                       </div>
                     </label>
                   </div>
@@ -1159,24 +1195,28 @@ export default function RefillPage() {
                   {/* Sort controls */}
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-xs text-gray-500">Sort by:</span>
-                    {(["slot", "stock", "fill"] as const).map((opt) => (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setModalSort(opt)}
-                        className={`text-xs px-2 py-1 rounded transition-colors ${
-                          modalSort === opt
-                            ? "bg-gray-800 text-white"
-                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                        }`}
-                      >
-                        {opt === "slot"
-                          ? "Slot"
-                          : opt === "stock"
-                            ? "Stock ↑"
-                            : "Fill % ↑"}
-                      </button>
-                    ))}
+                    {(["slot", "stock", "fill", "expiry"] as const).map(
+                      (opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => setModalSort(opt)}
+                          className={`text-xs px-2 py-1 rounded transition-colors ${
+                            modalSort === opt
+                              ? "bg-gray-800 text-white"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          {opt === "slot"
+                            ? "Slot"
+                            : opt === "stock"
+                              ? "Stock ↑"
+                              : opt === "fill"
+                                ? "Fill % ↑"
+                                : "Expiry ↑"}
+                        </button>
+                      ),
+                    )}
                   </div>
                   <table className="w-full text-sm">
                     <thead>
@@ -1190,35 +1230,72 @@ export default function RefillPage() {
                         <th className="text-right py-2 px-2 font-medium">
                           Stock
                         </th>
-                        <th className="text-right py-2 pl-2 font-medium">
+                        <th className="text-right py-2 px-2 font-medium">
                           Fill
+                        </th>
+                        <th className="text-right py-2 px-2 font-medium">
+                          Exp. days
+                        </th>
+                        <th className="text-right py-2 pl-2 font-medium">
+                          Exp. qty
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedAisles.map((a, i) => (
-                        <tr
-                          key={`${a.slot}-${i}`}
-                          className="border-b border-gray-50"
-                        >
-                          <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
-                            {a.slot}
-                          </td>
-                          <td className="py-1.5 px-2 text-gray-800 text-xs">
-                            {a.product || "—"}
-                          </td>
-                          <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
-                            {a.current} / {a.max}
-                          </td>
-                          <td className="py-1.5 pl-2 text-right">
-                            <span
-                              className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(a.fillPct)}`}
-                            >
-                              {a.fillPct}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {sortedAisles.map((a, i) => {
+                        const ex = findExpiry(a.product);
+                        return (
+                          <tr
+                            key={`${a.slot}-${i}`}
+                            className="border-b border-gray-50"
+                          >
+                            <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
+                              {a.slot}
+                            </td>
+                            <td className="py-1.5 px-2 text-gray-800 text-xs">
+                              {a.product || "—"}
+                            </td>
+                            <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
+                              {a.current} / {a.max}
+                            </td>
+                            <td className="py-1.5 px-2 text-right">
+                              <span
+                                className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(a.fillPct)}`}
+                              >
+                                {a.fillPct}%
+                              </span>
+                            </td>
+                            <td className="py-1.5 px-2 text-right tabular-nums text-xs">
+                              {ex != null ? (
+                                <span
+                                  className={expiryDayClass(
+                                    ex.days_until_expiry,
+                                  )}
+                                >
+                                  {ex.days_until_expiry < 0
+                                    ? `${ex.days_until_expiry}d`
+                                    : `${ex.days_until_expiry}d`}
+                                </span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                            <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
+                              {ex && ex.expired_qty > 0 ? (
+                                <span className="text-red-600 font-medium">
+                                  {ex.expired_qty} exp
+                                </span>
+                              ) : ex && ex.expiring_7d_qty > 0 ? (
+                                <span className="text-amber-600">
+                                  {ex.expiring_7d_qty} exp
+                                </span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </>
