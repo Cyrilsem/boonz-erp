@@ -33,7 +33,11 @@
       "Bash(cat \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/bottom-tabs.tsx\")",
       "Bash(cat \"src/app/\\(field\\)/field/pod-inventory/page.tsx\")",
       "Bash(xargs cat:*)",
-      "Bash(wc -l \"src/app/\\(field\\)/field/config/product-mapping/page.tsx\" \"src/app/\\(field\\)/field/config/boonz-products/page.tsx\" \"src/app/\\(field\\)/field/orders/new/page.tsx\")"
+      "Bash(wc -l \"src/app/\\(field\\)/field/config/product-mapping/page.tsx\" \"src/app/\\(field\\)/field/config/boonz-products/page.tsx\" \"src/app/\\(field\\)/field/orders/new/page.tsx\")",
+      "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/boonz 2.0 \\(marco\\)/boonz/output/refill_instructions.csv\")",
+      "Bash(node -e \"require\\(''''csv-parse''''\\)\")",
+      "Bash(npx tsx:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

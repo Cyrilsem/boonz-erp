@@ -73,17 +73,16 @@ async function main() {
 
   // 2. Delete existing rows for this report date
   console.log(`Deleting rows with report_timestamp >= '${DELETE_FROM_DATE}'…`);
-  const { error: delError, count: delCount } = await supabase
+  const { error: delError } = await supabase
     .from("refill_instructions")
     .delete()
-    .gte("report_timestamp", DELETE_FROM_DATE)
-    .select("*", { count: "exact", head: true });
+    .gte("report_timestamp", DELETE_FROM_DATE);
 
   if (delError) {
     console.error("Delete failed:", delError.message);
     process.exit(1);
   }
-  console.log(`  → Deleted ${delCount ?? "?"} rows`);
+  console.log(`  → Deleted existing rows for ${DELETE_FROM_DATE}+`);
 
   // 3. Build machine_id cache
   console.log("Building machine lookup…");

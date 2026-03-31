@@ -62,9 +62,34 @@ type SlotWithExpiry = {
   fill_pct: number;
   expiry_days: number | null;
   expiry_qty: number | null;
+  strategy: string | null;
+  action_code: string | null;
+  global_product_status: string | null;
+  local_performance_role: string | null;
+  local_product_strategy: string | null;
+  suggested_product: string | null;
+  units_sold_7d: number | null;
+  product_base_score: number | null;
 };
 
 type ProgressMsg = { step: string; detail: string; elapsed: string };
+
+type SlotReview = {
+  slot: string;
+  product: string;
+  action: "KEEP" | "REPLACE" | "REDUCE" | "BOOST";
+  suggested_product: string | null;
+  substitution_reason: string;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  priority: number;
+};
+
+type MachineReview = {
+  machine_name: string;
+  overall_assessment: string;
+  anomalies: string[];
+  slot_reviews: SlotReview[];
+};
 
 type MachineHealth = {
   machine_name: string;
@@ -88,6 +113,10 @@ type MachineHealth = {
   days_to_earliest_expiry: number | null;
   health_tier: "critical" | "warning" | "healthy" | "excluded";
   health_sort: number;
+  machine_health_label: string;
+  machine_strategy: string;
+  dead_stock_count: number;
+  local_hero_count: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -123,6 +152,29 @@ function expiryDayClass(days: number): string {
   if (days <= 7) return "text-amber-600 font-semibold";
   if (days <= 30) return "text-yellow-600";
   return "text-gray-400";
+}
+
+function healthLabelBadgeClass(label: string): string {
+  if (label.includes("Star"))
+    return "bg-emerald-100 text-emerald-800 border border-emerald-300";
+  if (label.includes("Stable"))
+    return "bg-yellow-100 text-yellow-800 border border-yellow-300";
+  if (label.includes("At Risk"))
+    return "bg-orange-100 text-orange-800 border border-orange-300";
+  if (label.includes("Ramp-Up"))
+    return "bg-blue-100 text-blue-800 border border-blue-300";
+  if (label.includes("Zombie"))
+    return "bg-red-100 text-red-800 border border-red-300";
+  return "bg-gray-100 text-gray-700 border border-gray-200";
+}
+
+function strategyBadgeClass(strategy: string | null): string {
+  if (!strategy) return "bg-gray-100 text-gray-500";
+  if (strategy === "PROTECT") return "bg-green-100 text-green-700";
+  if (strategy === "MAINTAIN") return "bg-blue-100 text-blue-700";
+  if (strategy === "REMOVE") return "bg-red-100 text-red-700";
+  if (strategy === "REPLACE") return "bg-orange-100 text-orange-700";
+  return "bg-gray-100 text-gray-500";
 }
 
 const tierColors: Record<string, { card: string; bar: string }> = {
@@ -162,6 +214,14 @@ export default function RefillPage() {
   const [modalSort, setModalSort] = useState<
     "slot" | "stock" | "fill" | "expiry"
   >("slot");
+
+  const [reviewResults, setReviewResults] = useState<
+    Record<string, MachineReview>
+  >({});
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewProgress, setReviewProgress] = useState<ProgressMsg[]>([]);
+  const [reviewingAll, setReviewingAll] = useState(false);
+  const [reviewAllProgress, setReviewAllProgress] = useState<ProgressMsg[]>([]);
 
   const getSupabase = useCallback(() => {
     return createBrowserClient(
@@ -246,6 +306,8 @@ export default function RefillPage() {
 
   useEffect(() => {
     setModalSort("slot");
+    setReviewing(false);
+    setReviewProgress([]);
     if (!selectedMachine) {
       setMachineSlots([]);
       return;
@@ -456,6 +518,151 @@ export default function RefillPage() {
     }
   }
 
+  // ── Claude review — single machine (SSE) ────────────────────────────────────
+  async function handleReviewMachine(machineName: string) {
+    setReviewing(true);
+    setReviewProgress([]);
+    try {
+      const supabase = getSupabase();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setReviewing(false);
+        return;
+      }
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/review-machine`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: anonKey,
+          },
+          body: JSON.stringify({ machine_name: machineName }),
+        },
+      );
+      if (!response.ok) {
+        setReviewing(false);
+        return;
+      }
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line.slice(6)) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
+          const step = event.step as string;
+          const detail = (event.detail as string) ?? "";
+          setReviewProgress((prev) => [...prev, { step, detail, elapsed: "" }]);
+          if (step === "done") {
+            const results = event.results as MachineReview[] | undefined;
+            if (results && results.length > 0) {
+              setReviewResults((prev) => {
+                const next = { ...prev };
+                for (const r of results) next[r.machine_name] = r;
+                return next;
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[review-machine]", e);
+    } finally {
+      setReviewing(false);
+    }
+  }
+
+  // ── Claude review — all machines (SSE) ──────────────────────────────────────
+  async function handleReviewAll() {
+    setReviewingAll(true);
+    setReviewAllProgress([]);
+    try {
+      const supabase = getSupabase();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setReviewingAll(false);
+        return;
+      }
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+      const response = await fetch(
+        `${supabaseUrl}/functions/v1/review-machine`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: anonKey,
+          },
+          body: JSON.stringify({ review_all: true }),
+        },
+      );
+      if (!response.ok) {
+        setReviewingAll(false);
+        return;
+      }
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line.slice(6)) as Record<string, unknown>;
+          } catch {
+            continue;
+          }
+          const step = event.step as string;
+          const detail = (event.detail as string) ?? "";
+          setReviewAllProgress((prev) => [
+            ...prev,
+            { step, detail, elapsed: "" },
+          ]);
+          if (step === "done") {
+            const results = event.results as MachineReview[] | undefined;
+            if (results) {
+              setReviewResults((prev) => {
+                const next = { ...prev };
+                for (const r of results) next[r.machine_name] = r;
+                return next;
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[review-all]", e);
+    } finally {
+      setReviewingAll(false);
+    }
+  }
+
   const selectedHealth = machineHealth.find(
     (m) => m.machine_name === selectedMachine,
   );
@@ -516,6 +723,43 @@ export default function RefillPage() {
             )}
           </button>
 
+          <button
+            onClick={handleReviewAll}
+            disabled={reviewingAll || refreshing}
+            className={`px-4 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+              reviewingAll
+                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                : "bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800"
+            }`}
+          >
+            {reviewingAll ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="animate-spin h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Reviewing…
+              </span>
+            ) : (
+              "🤖 Review All"
+            )}
+          </button>
+
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <label htmlFor="lookback">Lookback:</label>
             <select
@@ -572,6 +816,36 @@ export default function RefillPage() {
                 </p>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Review All progress — visible while reviewing all machines */}
+        {reviewingAll && reviewAllProgress.length > 0 && (
+          <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-1">
+            <p className="text-purple-700 font-medium text-sm flex items-center gap-2">
+              <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+              Reviewing all machines with Claude…
+            </p>
+            <div className="space-y-0.5 mt-2">
+              {reviewAllProgress.slice(-5).map((msg, i, arr) => (
+                <p
+                  key={i}
+                  className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
+                >
+                  → {msg.detail}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Review All done badge */}
+        {!reviewingAll && Object.keys(reviewResults).length > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-purple-700">
+            <span className="w-2 h-2 rounded-full bg-purple-500" />
+            {Object.keys(reviewResults).length} machine
+            {Object.keys(reviewResults).length !== 1 ? "s" : ""} reviewed by
+            Claude
           </div>
         )}
 
@@ -715,12 +989,25 @@ export default function RefillPage() {
                   onClick={() => setSelectedMachine(m.machine_name)}
                   className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
                 >
-                  <div className="mb-1">
+                  {/* Health label badge */}
+                  {m.machine_health_label && (
+                    <div
+                      className={`text-[9px] font-semibold px-1.5 py-0.5 rounded mb-1 inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
+                    >
+                      {m.machine_health_label}
+                    </div>
+                  )}
+                  <div className="mb-0.5">
                     <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
                       {m.machine_name}
                     </span>
+                    {m.machine_strategy && (
+                      <span className="text-[10px] text-gray-400 leading-tight block truncate">
+                        {m.machine_strategy}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-sm font-semibold text-gray-900">
+                  <div className="text-sm font-semibold text-gray-900 mt-1">
                     {m.total_stock.toLocaleString()}
                     <span className="text-[11px] text-gray-400 font-normal">
                       {" "}
@@ -734,11 +1021,22 @@ export default function RefillPage() {
                       style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
                     />
                   </div>
-                  <div className="mt-1.5 text-[10px] text-gray-500 leading-tight">
+                  {/* Quick stats: velocity + dead/hero */}
+                  <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
                     {m.daily_velocity > 0 && (
-                      <span>↗ {m.daily_velocity.toFixed(1)}/day · </span>
+                      <span>↗ {m.daily_velocity.toFixed(1)}/day</span>
                     )}
-                    {m.slots_at_zero > 0 ? (
+                    {m.dead_stock_count > 0 && (
+                      <span className="text-red-500 font-medium">
+                        {m.dead_stock_count} dead
+                      </span>
+                    )}
+                    {m.local_hero_count > 0 && (
+                      <span className="text-green-600 font-medium">
+                        {m.local_hero_count} hero
+                      </span>
+                    )}
+                    {m.slots_at_zero > 0 && (
                       <span
                         className={
                           m.health_tier === "critical"
@@ -748,10 +1046,6 @@ export default function RefillPage() {
                       >
                         {m.slots_at_zero} empty
                       </span>
-                    ) : (
-                      m.daily_velocity === 0 && (
-                        <span className="text-gray-400">{m.fill_pct}%</span>
-                      )
                     )}
                   </div>
                   {/* Expiry badge */}
@@ -768,6 +1062,12 @@ export default function RefillPage() {
                       📅 {m.expiring_30d_units} exp. 30d
                     </div>
                   ) : null}
+                  {/* Claude reviewed badge */}
+                  {reviewResults[m.machine_name] && (
+                    <div className="mt-1 text-[10px] text-purple-600 font-medium">
+                      ✓ Reviewed
+                    </div>
+                  )}
                   {m.health_tier === "excluded" && (
                     <div className="mt-1 text-[10px] text-gray-400 italic">
                       excluded
@@ -1009,9 +1309,9 @@ export default function RefillPage() {
                     </span>
                   )}
                 </div>
-                {/* Include in refill toggle */}
-                {selectedHealth !== undefined && (
-                  <div className="flex items-center gap-2 mt-3">
+                {/* Include in refill toggle + Review button row */}
+                <div className="flex items-center gap-3 mt-3 flex-wrap">
+                  {selectedHealth !== undefined && (
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <span className="text-xs text-gray-600">
                         Include in refill
@@ -1032,8 +1332,51 @@ export default function RefillPage() {
                         <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5 pointer-events-none" />
                       </div>
                     </label>
-                  </div>
-                )}
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      selectedMachine && handleReviewMachine(selectedMachine)
+                    }
+                    disabled={reviewing}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      reviewing
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : reviewResults[selectedMachine ?? ""]
+                          ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                          : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                    }`}
+                  >
+                    {reviewing ? (
+                      <span className="flex items-center gap-1.5">
+                        <svg
+                          className="animate-spin h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Reviewing…
+                      </span>
+                    ) : reviewResults[selectedMachine ?? ""] ? (
+                      "🤖 Re-review with Claude"
+                    ) : (
+                      "🤖 Review with Claude"
+                    )}
+                  </button>
+                </div>
               </div>
               <button
                 type="button"
@@ -1086,6 +1429,24 @@ export default function RefillPage() {
                 </div>
               ) : (
                 <>
+                  {/* Review progress — visible while Claude is reviewing */}
+                  {reviewing && reviewProgress.length > 0 && (
+                    <div className="mb-3 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                      <p className="text-purple-700 font-medium text-xs flex items-center gap-1.5 mb-1">
+                        <span className="inline-block w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                        Claude is reviewing…
+                      </p>
+                      {reviewProgress.slice(-3).map((msg, i, arr) => (
+                        <p
+                          key={i}
+                          className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
+                        >
+                          → {msg.detail}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Sort controls */}
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-xs text-gray-500">Sort by:</span>
@@ -1112,79 +1473,254 @@ export default function RefillPage() {
                       ),
                     )}
                   </div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 text-gray-500 text-xs">
-                        <th className="text-left py-2 pr-3 font-medium">
-                          Slot
-                        </th>
-                        <th className="text-left py-2 px-2 font-medium">
-                          Product
-                        </th>
-                        <th className="text-right py-2 px-2 font-medium">
-                          Stock
-                        </th>
-                        <th className="text-right py-2 px-2 font-medium">
-                          Fill
-                        </th>
-                        <th className="text-right py-2 px-2 font-medium">
-                          Exp. days
-                        </th>
-                        <th className="text-right py-2 pl-2 font-medium">
-                          Exp. qty
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedSlots.map((s, i) => (
-                        <tr
-                          key={`${s.slot}-${i}`}
-                          className="border-b border-gray-50"
-                        >
-                          <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
-                            {s.slot}
-                          </td>
-                          <td className="py-1.5 px-2 text-gray-800 text-xs">
-                            {s.product || "—"}
-                          </td>
-                          <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
-                            {s.current_stock} / {s.max_stock}
-                          </td>
-                          <td className="py-1.5 px-2 text-right">
-                            <span
-                              className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(s.fill_pct)}`}
-                            >
-                              {s.fill_pct}%
-                            </span>
-                          </td>
-                          <td className="py-1.5 px-2 text-right tabular-nums text-xs">
-                            {s.expiry_days != null ? (
-                              <span className={expiryDayClass(s.expiry_days)}>
-                                {s.expiry_days}d
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
-                          </td>
-                          <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
-                            {s.expiry_qty != null && s.expiry_qty > 0 ? (
-                              <span
-                                className={
-                                  s.expiry_days != null && s.expiry_days < 0
-                                    ? "text-red-600 font-medium"
-                                    : "text-amber-600"
-                                }
-                              >
-                                {s.expiry_qty} exp
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            )}
-                          </td>
+
+                  {/* Slot intelligence table */}
+                  <div className="overflow-x-auto -mx-5 px-5">
+                    <table className="w-full text-sm min-w-[600px]">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                          <th className="text-left py-2 pr-2 font-medium">
+                            Slot
+                          </th>
+                          <th className="text-left py-2 px-2 font-medium">
+                            Product
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            Stock
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            Fill
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium">
+                            Strategy
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium">
+                            Global
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium">
+                            Local
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            7d
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            Score
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            Exp.
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {sortedSlots.map((s, idx) => {
+                          const claudeSlot = reviewResults[
+                            selectedMachine ?? ""
+                          ]?.slot_reviews.find((r) => r.slot === s.slot);
+                          const isReplace =
+                            claudeSlot?.action === "REPLACE" ||
+                            s.strategy === "REPLACE";
+                          const isRemove = s.strategy === "REMOVE";
+
+                          return (
+                            <tr
+                              key={`${s.slot}-${idx}`}
+                              className={`border-b border-gray-50 ${
+                                isReplace
+                                  ? "bg-amber-50"
+                                  : isRemove
+                                    ? "bg-red-50/40"
+                                    : ""
+                              }`}
+                            >
+                              <td className="py-1.5 pr-2 font-mono text-xs text-gray-600">
+                                {s.slot}
+                              </td>
+                              <td className="py-1.5 px-2 text-xs max-w-[140px]">
+                                <div className="text-gray-800 truncate">
+                                  {s.product || "—"}
+                                </div>
+                                {/* Claude suggested replacement */}
+                                {claudeSlot?.suggested_product && (
+                                  <div className="text-[10px] text-purple-700 font-medium truncate">
+                                    → {claudeSlot.suggested_product}
+                                  </div>
+                                )}
+                                {/* Static suggested product (no Claude yet) */}
+                                {!claudeSlot &&
+                                  s.suggested_product &&
+                                  (s.strategy === "REPLACE" ||
+                                    s.strategy === "REMOVE") && (
+                                    <div className="text-[10px] text-amber-700 truncate">
+                                      → {s.suggested_product}
+                                    </div>
+                                  )}
+                              </td>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600 whitespace-nowrap">
+                                {s.current_stock}/{s.max_stock}
+                              </td>
+                              <td className="py-1.5 px-2 text-right">
+                                <span
+                                  className={`inline-block min-w-[2.5rem] text-center px-1 py-0.5 rounded text-[10px] font-medium ${fillBg(s.fill_pct)}`}
+                                >
+                                  {s.fill_pct}%
+                                </span>
+                              </td>
+                              <td className="py-1.5 px-2 text-center">
+                                {s.strategy ? (
+                                  <span
+                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${strategyBadgeClass(s.strategy)}`}
+                                  >
+                                    {s.strategy}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 text-xs">
+                                    —
+                                  </span>
+                                )}
+                                {s.action_code && (
+                                  <div className="text-[9px] text-gray-400 mt-0.5 leading-tight">
+                                    {s.action_code}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2 text-center text-sm">
+                                {s.global_product_status?.includes("💎") ? (
+                                  "💎"
+                                ) : s.global_product_status?.includes("📦") ? (
+                                  "📦"
+                                ) : s.global_product_status?.includes("🔻") ? (
+                                  "🔻"
+                                ) : (
+                                  <span className="text-gray-300 text-xs">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2 text-center text-sm">
+                                {s.local_performance_role?.includes("👑") ? (
+                                  "👑"
+                                ) : s.local_performance_role?.includes("💀") ? (
+                                  "💀"
+                                ) : s.local_performance_role?.includes("📊") ? (
+                                  "📊"
+                                ) : (
+                                  <span className="text-gray-300 text-xs">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
+                                {s.units_sold_7d != null
+                                  ? s.units_sold_7d.toFixed(0)
+                                  : "—"}
+                              </td>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-500">
+                                {s.product_base_score != null
+                                  ? s.product_base_score.toFixed(0)
+                                  : "—"}
+                              </td>
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs">
+                                {s.expiry_days != null ? (
+                                  <span
+                                    className={expiryDayClass(s.expiry_days)}
+                                  >
+                                    {s.expiry_days}d
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Claude review results section */}
+                  {reviewResults[selectedMachine ?? ""] && (
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sm font-medium text-purple-800">
+                          🤖 Claude Review
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {
+                            reviewResults[
+                              selectedMachine ?? ""
+                            ].slot_reviews.filter((r) => r.action === "REPLACE")
+                              .length
+                          }{" "}
+                          replacements recommended
+                        </span>
+                      </div>
+
+                      {/* Overall assessment */}
+                      <div className="bg-purple-50 border border-purple-100 rounded-lg px-3 py-2.5 mb-3 text-xs text-purple-900 leading-relaxed">
+                        {
+                          reviewResults[selectedMachine ?? ""]
+                            .overall_assessment
+                        }
+                      </div>
+
+                      {/* Anomalies */}
+                      {reviewResults[selectedMachine ?? ""].anomalies.length >
+                        0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {reviewResults[selectedMachine ?? ""].anomalies.map(
+                            (a, i) => (
+                              <span
+                                key={i}
+                                className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium"
+                              >
+                                ⚠ {a}
+                              </span>
+                            ),
+                          )}
+                        </div>
+                      )}
+
+                      {/* Replacement recommendations */}
+                      {reviewResults[selectedMachine ?? ""].slot_reviews
+                        .filter((r) => r.action === "REPLACE")
+                        .sort((a, b) => a.priority - b.priority)
+                        .map((r) => (
+                          <div
+                            key={r.slot}
+                            className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0"
+                          >
+                            <span className="font-mono text-xs text-gray-500 w-8 shrink-0 pt-0.5">
+                              {r.slot}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs text-gray-700 font-medium">
+                                  {r.product}
+                                </span>
+                                <span className="text-gray-400 text-xs">→</span>
+                                <span className="text-xs text-amber-800 font-semibold">
+                                  {r.suggested_product ?? "TBD"}
+                                </span>
+                                <span
+                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                    r.confidence === "HIGH"
+                                      ? "bg-green-100 text-green-700"
+                                      : r.confidence === "MEDIUM"
+                                        ? "bg-yellow-100 text-yellow-700"
+                                        : "bg-gray-100 text-gray-500"
+                                  }`}
+                                >
+                                  {r.confidence}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+                                {r.substitution_reason}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>
