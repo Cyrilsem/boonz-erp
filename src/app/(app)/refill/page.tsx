@@ -54,26 +54,15 @@ type SaleRow = {
   last_sale: string | null;
 };
 
-type AisleRow = {
+type SlotWithExpiry = {
   slot: string;
   product: string;
-  current: number;
-  max: number;
-  layer: string;
-  fillPct: number;
+  current_stock: number;
+  max_stock: number;
+  fill_pct: number;
+  expiry_days: number | null;
+  expiry_qty: number | null;
 };
-
-type DoorLayer = {
-  layer: string;
-  aisles?: Array<{
-    showName: string;
-    goodsName: string;
-    currStock: number;
-    maxStock: number;
-  }>;
-};
-
-type DoorCabinet = { layers?: DoorLayer[] };
 
 type ProgressMsg = { step: string; detail: string; elapsed: string };
 
@@ -99,17 +88,6 @@ type MachineHealth = {
   days_to_earliest_expiry: number | null;
   health_tier: "critical" | "warning" | "healthy" | "excluded";
   health_sort: number;
-};
-
-type ExpiryDetail = {
-  boonz_product_name: string;
-  boonz_product_id: string;
-  total_qty: number;
-  earliest_expiry: string;
-  days_until_expiry: number;
-  expired_qty: number;
-  expiring_7d_qty: number;
-  expiring_30d_qty: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -178,8 +156,7 @@ export default function RefillPage() {
   >("priority");
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
-  const [machineAisles, setMachineAisles] = useState<AisleRow[]>([]);
-  const [expiryData, setExpiryData] = useState<ExpiryDetail[]>([]);
+  const [machineSlots, setMachineSlots] = useState<SlotWithExpiry[]>([]);
   const [loadingAisles, setLoadingAisles] = useState(false);
   const [includeInRefill, setIncludeInRefill] = useState(true);
   const [modalSort, setModalSort] = useState<
@@ -252,69 +229,16 @@ export default function RefillPage() {
     loadData();
   }, [loadData]);
 
-  // ── Load aisle + expiry detail when a machine card is clicked ───────────────
+  // ── Load slot + expiry detail when a machine card is clicked ────────────────
   const loadAisles = useCallback(
     async (machineName: string) => {
       setLoadingAisles(true);
-      setMachineAisles([]);
-      setExpiryData([]);
+      setMachineSlots([]);
       const supabase = getSupabase();
-      const today = new Date().toISOString().split("T")[0];
-
-      // Fetch aisles and expiry in parallel
-      const [todayResult, expiryResult] = await Promise.all([
-        supabase
-          .from("weimi_device_status")
-          .select("door_statuses")
-          .eq("device_name", machineName)
-          .eq("snapshot_date", today)
-          .maybeSingle(),
-        supabase
-          .rpc("get_machine_expiry_detail", { p_machine_name: machineName })
-          .limit(10000),
-      ]);
-
-      let row: { door_statuses: unknown } | null = todayResult.data;
-
-      // Fall back to latest snapshot if today's not available
-      if (!row) {
-        const { data: latestData } = await supabase
-          .from("weimi_device_status")
-          .select("door_statuses")
-          .eq("device_name", machineName)
-          .order("snapshot_date", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        row = latestData;
-      }
-
-      if (row?.door_statuses) {
-        const aisles: AisleRow[] = [];
-        const cabinets = row.door_statuses as DoorCabinet[];
-        for (const cab of cabinets) {
-          for (const layer of cab.layers ?? []) {
-            for (const aisle of layer.aisles ?? []) {
-              aisles.push({
-                slot: aisle.showName,
-                product: aisle.goodsName,
-                current: aisle.currStock,
-                max: aisle.maxStock,
-                layer: layer.layer,
-                fillPct:
-                  aisle.maxStock > 0
-                    ? Math.round((aisle.currStock / aisle.maxStock) * 100)
-                    : 0,
-              });
-            }
-          }
-        }
-        setMachineAisles(aisles);
-      }
-
-      if (expiryResult.data) {
-        setExpiryData(expiryResult.data as ExpiryDetail[]);
-      }
-
+      const { data: slotsData } = await supabase
+        .rpc("get_machine_slots_with_expiry", { p_machine_name: machineName })
+        .limit(10000);
+      setMachineSlots((slotsData as SlotWithExpiry[]) || []);
       setLoadingAisles(false);
     },
     [getSupabase],
@@ -323,8 +247,7 @@ export default function RefillPage() {
   useEffect(() => {
     setModalSort("slot");
     if (!selectedMachine) {
-      setMachineAisles([]);
-      setExpiryData([]);
+      setMachineSlots([]);
       return;
     }
     const health = machineHealth.find(
@@ -496,41 +419,19 @@ export default function RefillPage() {
     return counts;
   }, [machineHealth]);
 
-  // Build expiry lookup map for modal table
-  const expiryMap = useMemo(() => {
-    const map = new Map<string, ExpiryDetail>();
-    for (const ex of expiryData) {
-      map.set(ex.boonz_product_name.toLowerCase(), ex);
-    }
-    return map;
-  }, [expiryData]);
-
-  const findExpiry = useCallback(
-    (productName: string): ExpiryDetail | null => {
-      if (!productName) return null;
-      const lower = productName.toLowerCase();
-      if (expiryMap.has(lower)) return expiryMap.get(lower)!;
-      for (const [key, val] of expiryMap) {
-        if (key.includes(lower) || lower.includes(key)) return val;
-      }
-      return null;
-    },
-    [expiryMap],
-  );
-
-  const sortedAisles = useMemo(() => {
-    const sorted = [...machineAisles];
+  const sortedSlots = useMemo(() => {
+    const sorted = [...machineSlots];
     switch (modalSort) {
       case "stock":
-        sorted.sort((a, b) => a.current - b.current);
+        sorted.sort((a, b) => a.current_stock - b.current_stock);
         break;
       case "fill":
-        sorted.sort((a, b) => a.fillPct - b.fillPct);
+        sorted.sort((a, b) => a.fill_pct - b.fill_pct);
         break;
       case "expiry":
         sorted.sort((a, b) => {
-          const aExp = findExpiry(a.product)?.days_until_expiry ?? 9999;
-          const bExp = findExpiry(b.product)?.days_until_expiry ?? 9999;
+          const aExp = a.expiry_days ?? 9999;
+          const bExp = b.expiry_days ?? 9999;
           return aExp - bExp;
         });
         break;
@@ -538,7 +439,7 @@ export default function RefillPage() {
         break;
     }
     return sorted;
-  }, [machineAisles, modalSort, findExpiry]);
+  }, [machineSlots, modalSort]);
 
   async function handleToggleRefill(machineName: string, include: boolean) {
     const supabase = getSupabase();
@@ -558,16 +459,9 @@ export default function RefillPage() {
   const selectedHealth = machineHealth.find(
     (m) => m.machine_name === selectedMachine,
   );
-  const modalTotalCapacity = machineAisles.reduce((s, a) => s + a.max, 0);
-  const modalTotalCurrent = machineAisles.reduce((s, a) => s + a.current, 0);
-
-  // Expiry summary for modal header
-  const modalExpiredCount = expiryData.reduce(
-    (s, e) => s + (e.expired_qty ?? 0),
-    0,
-  );
-  const modalExpiring7dCount = expiryData.reduce(
-    (s, e) => s + (e.expiring_7d_qty ?? 0),
+  const modalTotalCapacity = machineSlots.reduce((s, a) => s + a.max_stock, 0);
+  const modalTotalCurrent = machineSlots.reduce(
+    (s, a) => s + a.current_stock,
     0,
   );
 
@@ -1104,14 +998,14 @@ export default function RefillPage() {
                       Warehouse
                     </span>
                   )}
-                  {modalExpiredCount > 0 && (
+                  {(selectedHealth?.expired_units ?? 0) > 0 && (
                     <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded">
-                      ⚠ {modalExpiredCount} expired
+                      ⚠ {selectedHealth!.expired_units} expired
                     </span>
                   )}
-                  {modalExpiring7dCount > 0 && (
+                  {(selectedHealth?.expiring_7d_units ?? 0) > 0 && (
                     <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded">
-                      ⏰ {modalExpiring7dCount} expiring 7d
+                      ⏰ {selectedHealth!.expiring_7d_units} expiring 7d
                     </span>
                   )}
                 </div>
@@ -1186,9 +1080,9 @@ export default function RefillPage() {
                   </svg>
                   Loading slots...
                 </div>
-              ) : machineAisles.length === 0 ? (
+              ) : machineSlots.length === 0 ? (
                 <div className="text-center py-12 text-gray-400 text-sm">
-                  No slot data available for today&apos;s snapshot
+                  No slot data available for this machine
                 </div>
               ) : (
                 <>
@@ -1242,60 +1136,53 @@ export default function RefillPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedAisles.map((a, i) => {
-                        const ex = findExpiry(a.product);
-                        return (
-                          <tr
-                            key={`${a.slot}-${i}`}
-                            className="border-b border-gray-50"
-                          >
-                            <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
-                              {a.slot}
-                            </td>
-                            <td className="py-1.5 px-2 text-gray-800 text-xs">
-                              {a.product || "—"}
-                            </td>
-                            <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
-                              {a.current} / {a.max}
-                            </td>
-                            <td className="py-1.5 px-2 text-right">
-                              <span
-                                className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(a.fillPct)}`}
-                              >
-                                {a.fillPct}%
+                      {sortedSlots.map((s, i) => (
+                        <tr
+                          key={`${s.slot}-${i}`}
+                          className="border-b border-gray-50"
+                        >
+                          <td className="py-1.5 pr-3 font-mono text-xs text-gray-600">
+                            {s.slot}
+                          </td>
+                          <td className="py-1.5 px-2 text-gray-800 text-xs">
+                            {s.product || "—"}
+                          </td>
+                          <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600">
+                            {s.current_stock} / {s.max_stock}
+                          </td>
+                          <td className="py-1.5 px-2 text-right">
+                            <span
+                              className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${fillBg(s.fill_pct)}`}
+                            >
+                              {s.fill_pct}%
+                            </span>
+                          </td>
+                          <td className="py-1.5 px-2 text-right tabular-nums text-xs">
+                            {s.expiry_days != null ? (
+                              <span className={expiryDayClass(s.expiry_days)}>
+                                {s.expiry_days}d
                               </span>
-                            </td>
-                            <td className="py-1.5 px-2 text-right tabular-nums text-xs">
-                              {ex != null ? (
-                                <span
-                                  className={expiryDayClass(
-                                    ex.days_until_expiry,
-                                  )}
-                                >
-                                  {ex.days_until_expiry < 0
-                                    ? `${ex.days_until_expiry}d`
-                                    : `${ex.days_until_expiry}d`}
-                                </span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                            <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
-                              {ex && ex.expired_qty > 0 ? (
-                                <span className="text-red-600 font-medium">
-                                  {ex.expired_qty} exp
-                                </span>
-                              ) : ex && ex.expiring_7d_qty > 0 ? (
-                                <span className="text-amber-600">
-                                  {ex.expiring_7d_qty} exp
-                                </span>
-                              ) : (
-                                <span className="text-gray-300">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
+                            {s.expiry_qty != null && s.expiry_qty > 0 ? (
+                              <span
+                                className={
+                                  s.expiry_days != null && s.expiry_days < 0
+                                    ? "text-red-600 font-medium"
+                                    : "text-amber-600"
+                                }
+                              >
+                                {s.expiry_qty} exp
+                              </span>
+                            ) : (
+                              <span className="text-gray-300">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </>
