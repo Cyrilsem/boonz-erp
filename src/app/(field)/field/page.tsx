@@ -1045,7 +1045,8 @@ export default function FieldPage() {
           supabase
             .from("pod_inventory")
             .select("expiration_date")
-            .eq("status", "Active"),
+            .eq("status", "Active")
+            .limit(10000),
         ]);
 
         // Group by machine, count completed status per-machine
@@ -1218,7 +1219,8 @@ export default function FieldPage() {
         const { data: podData } = await supabase
           .from("pod_inventory")
           .select("expiration_date")
-          .eq("status", "Active");
+          .eq("status", "Active")
+          .limit(10000);
 
         setPodKpis({
           expired:
