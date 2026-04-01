@@ -46,11 +46,11 @@ type SortDir = "asc" | "desc";
 // ─── Static config ────────────────────────────────────────────────────────────
 
 const FILTER_OPTIONS: { label: string; value: PodFilter }[] = [
+  { label: "All stock", value: "all" },
   { label: "Expired", value: "expired" },
   { label: "< 3 days", value: "3days" },
   { label: "< 7 days", value: "7days" },
   { label: "< 30 days", value: "30days" },
-  { label: "All stock", value: "all" },
 ];
 
 const GROUP_OPTIONS: { label: string; value: GroupBy }[] = [
@@ -315,29 +315,21 @@ export default function PodInventoryPage() {
       .order("expiration_date", { ascending: true })
       .limit(10000);
 
-    console.log("[pod-inv] fetch returned:", data?.length, "rows");
-    console.log(
-      "[pod-inv] TEST in raw data:",
-      data?.find(
-        (r) => r.boonz_product_id === "aaaaaaaa-0000-0000-0000-000000000001",
-      ) ?? "NOT FOUND",
-    );
-
     if (data) {
-      const mapped = data.map((row) => ({
-        pod_inventory_id: row.pod_inventory_id,
-        machine_id: row.machine_id,
-        boonz_product_id: row.boonz_product_id,
-        current_stock: row.current_stock ?? 0,
-        expiration_date: row.expiration_date,
-        boonz_products: row.boonz_products as unknown as {
-          boonz_product_name: string;
-          product_category: string | null;
-        } | null,
-        machines: row.machines as unknown as { official_name: string } | null,
-      }));
-      console.log("[pod-inv] rows set, count:", mapped.length);
-      setRows(mapped);
+      setRows(
+        data.map((row) => ({
+          pod_inventory_id: row.pod_inventory_id,
+          machine_id: row.machine_id,
+          boonz_product_id: row.boonz_product_id,
+          current_stock: row.current_stock ?? 0,
+          expiration_date: row.expiration_date,
+          boonz_products: row.boonz_products as unknown as {
+            boonz_product_name: string;
+            product_category: string | null;
+          } | null,
+          machines: row.machines as unknown as { official_name: string } | null,
+        })),
+      );
     }
     setLoading(false);
   }, []);
@@ -467,15 +459,6 @@ export default function PodInventoryPage() {
       }
     });
 
-    console.log(
-      "[pod-inv] filtered count:",
-      result.length,
-      "| TEST in filtered:",
-      result.find(
-        (r) => r.boonz_product_id === "aaaaaaaa-0000-0000-0000-000000000001",
-      ) ?? "NOT FOUND",
-    );
-
     return [...result].sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
       if (sortField === "expiry") {
@@ -509,6 +492,30 @@ export default function PodInventoryPage() {
       );
     });
   }, [rows, filter, search, sortField, sortDir]);
+
+  // Filter counts (computed from all rows, ignoring current filter)
+  const filterCounts = useMemo(
+    () => ({
+      all: rows.length,
+      expired: rows.filter((r) => {
+        const d = daysUntilExpiry(r.expiration_date);
+        return d !== null && d <= 0;
+      }).length,
+      "3days": rows.filter((r) => {
+        const d = daysUntilExpiry(r.expiration_date);
+        return d !== null && d >= 0 && d <= 3;
+      }).length,
+      "7days": rows.filter((r) => {
+        const d = daysUntilExpiry(r.expiration_date);
+        return d !== null && d <= 7;
+      }).length,
+      "30days": rows.filter((r) => {
+        const d = daysUntilExpiry(r.expiration_date);
+        return d !== null && d <= 30;
+      }).length,
+    }),
+    [rows],
+  );
 
   // Step 2: distinct machine names
   const machineOptions = useMemo((): string[] => {
@@ -636,19 +643,34 @@ export default function PodInventoryPage() {
 
         {/* Expiry filter pills */}
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-          {FILTER_OPTIONS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => handleFilterChange(f.value)}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                filter === f.value
-                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                  : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+          {FILTER_OPTIONS.map((f) => {
+            const count = filterCounts[f.value];
+            const isActive = filter === f.value;
+            return (
+              <button
+                key={f.value}
+                onClick={() => handleFilterChange(f.value)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                }`}
+              >
+                {f.label}{" "}
+                <span
+                  className={
+                    isActive
+                      ? "opacity-70"
+                      : count === 0
+                        ? "text-neutral-300 dark:text-neutral-600"
+                        : "text-neutral-400 dark:text-neutral-500"
+                  }
+                >
+                  ({count})
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Sort controls */}
@@ -730,6 +752,14 @@ export default function PodInventoryPage() {
                 ? "Try a different search term"
                 : "All clear for this range"}
             </p>
+            {!search && filter !== "all" && rows.length > 0 && (
+              <button
+                onClick={() => handleFilterChange("all")}
+                className="mt-4 text-sm text-neutral-500 underline underline-offset-2"
+              >
+                Show all {rows.length} items
+              </button>
+            )}
           </div>
         ) : groupBy !== "none" ? (
           <div className="space-y-5">
