@@ -520,7 +520,15 @@ export default function DispatchingDetailPage() {
 
   return (
     <div className="px-4 py-4 pb-40">
-      <FieldHeader title="Dispatch Detail" />
+      <div className="flex items-start justify-between">
+        <FieldHeader title="Dispatch Detail" />
+        <button
+          onClick={fetchData}
+          className="mt-1 shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        >
+          ↺ Refresh
+        </button>
+      </div>
       {showTour && tourSteps.length > 0 && (
         <Tour
           steps={tourSteps}

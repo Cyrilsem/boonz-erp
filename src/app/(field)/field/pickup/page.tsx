@@ -173,10 +173,22 @@ export default function PickupPage() {
   const readyMachines = machines.filter((m) => !m.all_picked_up);
   const collectedMachines = machines.filter((m) => m.all_picked_up);
 
+  const RefreshButton = () => (
+    <div className="flex justify-end px-4 pt-1 pb-2">
+      <button
+        onClick={fetchMachines}
+        className="shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+      >
+        ↺ Refresh
+      </button>
+    </div>
+  );
+
   if (machines.length === 0) {
     return (
       <>
         <FieldHeader title="Pickup" />
+        <RefreshButton />
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
             No machines ready for pickup
@@ -192,6 +204,14 @@ export default function PickupPage() {
   return (
     <div className="px-4 py-4">
       <FieldHeader title="Pickup" />
+      <div className="mb-3 flex justify-end">
+        <button
+          onClick={fetchMachines}
+          className="shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+        >
+          ↺ Refresh
+        </button>
+      </div>
 
       {readyMachines.length > 0 && (
         <div className="mb-6">
