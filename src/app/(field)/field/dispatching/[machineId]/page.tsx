@@ -184,9 +184,9 @@ export default function DispatchingDetailPage() {
 
   // Products with mixed expiry dates across their dispatch lines
   const mixedDateProducts = useMemo(() => {
-    const byProduct = new Map<string, Set<string>>();
+    const byProduct = new Map<string, Set<string | null>>();
     for (const l of lines) {
-      if (!l.expiry_date || !l.boonz_product_id) continue;
+      if (!l.boonz_product_id) continue;
       if (!byProduct.has(l.boonz_product_id))
         byProduct.set(l.boonz_product_id, new Set());
       byProduct.get(l.boonz_product_id)!.add(l.expiry_date);
