@@ -315,21 +315,29 @@ export default function PodInventoryPage() {
       .order("expiration_date", { ascending: true })
       .limit(10000);
 
+    console.log("[pod-inv] fetch returned:", data?.length, "rows");
+    console.log(
+      "[pod-inv] TEST in raw data:",
+      data?.find(
+        (r) => r.boonz_product_id === "aaaaaaaa-0000-0000-0000-000000000001",
+      ) ?? "NOT FOUND",
+    );
+
     if (data) {
-      setRows(
-        data.map((row) => ({
-          pod_inventory_id: row.pod_inventory_id,
-          machine_id: row.machine_id,
-          boonz_product_id: row.boonz_product_id,
-          current_stock: row.current_stock ?? 0,
-          expiration_date: row.expiration_date,
-          boonz_products: row.boonz_products as unknown as {
-            boonz_product_name: string;
-            product_category: string | null;
-          } | null,
-          machines: row.machines as unknown as { official_name: string } | null,
-        })),
-      );
+      const mapped = data.map((row) => ({
+        pod_inventory_id: row.pod_inventory_id,
+        machine_id: row.machine_id,
+        boonz_product_id: row.boonz_product_id,
+        current_stock: row.current_stock ?? 0,
+        expiration_date: row.expiration_date,
+        boonz_products: row.boonz_products as unknown as {
+          boonz_product_name: string;
+          product_category: string | null;
+        } | null,
+        machines: row.machines as unknown as { official_name: string } | null,
+      }));
+      console.log("[pod-inv] rows set, count:", mapped.length);
+      setRows(mapped);
     }
     setLoading(false);
   }, []);
@@ -458,6 +466,15 @@ export default function PodInventoryPage() {
           return true;
       }
     });
+
+    console.log(
+      "[pod-inv] filtered count:",
+      result.length,
+      "| TEST in filtered:",
+      result.find(
+        (r) => r.boonz_product_id === "aaaaaaaa-0000-0000-0000-000000000001",
+      ) ?? "NOT FOUND",
+    );
 
     return [...result].sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
