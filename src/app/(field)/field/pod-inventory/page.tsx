@@ -597,14 +597,25 @@ export default function PodInventoryPage() {
       <FieldHeader title="Machine Stock Expiry" />
 
       <div className="px-4 py-4">
-        {/* Search */}
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search product or machine…"
-          className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
-        />
+        {/* Search + Refresh */}
+        <div className="mb-3 flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search product or machine…"
+            className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+          />
+          <button
+            onClick={() => {
+              fetchData();
+              fetchPendingEdits();
+            }}
+            className="shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            ↺ Refresh
+          </button>
+        </div>
 
         {/* Expiry filter pills */}
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
