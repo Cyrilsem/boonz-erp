@@ -10,6 +10,7 @@ import {
 } from "../components/onboarding/translations";
 import LanguagePicker from "../components/onboarding/language-picker";
 import Tour from "../components/onboarding/tour";
+import { RefillPlanReview } from "@/components/RefillPlanReview";
 
 type Role =
   | "warehouse"
@@ -677,6 +678,9 @@ function OperatorAdminHome({
         {getGreeting()}, {user.full_name ?? "Operator"}
       </h1>
       <p className="mb-4 text-sm text-neutral-500">{formatToday()}</p>
+
+      {/* ── Refill Plan Review (pending operator approvals) ── */}
+      <RefillPlanReview />
 
       {/* ── Section 1: Daily Refills ── */}
       <SectionCard
