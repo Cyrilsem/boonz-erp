@@ -5,6 +5,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const podsParam = searchParams.get("pods") ?? "";
   const consolidated = searchParams.get("consolidated") === "true";
+  const startDate = searchParams.get("start_date") || null;
+  const endDate = searchParams.get("end_date") || null;
 
   const pods = podsParam.length
     ? podsParam
@@ -21,6 +23,8 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase.rpc("get_vox_consumer_report", {
     p_pods: pods,
     p_consolidated: consolidated,
+    p_start_date: startDate,
+    p_end_date: endDate,
   });
 
   if (error) {

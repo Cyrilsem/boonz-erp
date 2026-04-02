@@ -90,6 +90,16 @@ function SectionCard({
   );
 }
 
+function formatDateLabel(iso: string): string {
+  // Parse as local date to avoid UTC-shift display issues
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-AE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function VoxConsumersPage() {
@@ -99,16 +109,49 @@ export default function VoxConsumersPage() {
   const [data, setData] = useState<VoxConsumerReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("2026-02-06");
+  const [endDate, setEndDate] = useState(
+    () => new Date().toISOString().split("T")[0],
+  );
+
+  // Preset ranges (computed once at mount)
+  const presets = useMemo(() => {
+    const d = new Date();
+    const iso = (dt: Date) => dt.toISOString().split("T")[0];
+    const ago = (n: number) => {
+      const dt = new Date(d);
+      dt.setDate(dt.getDate() - n);
+      return iso(dt);
+    };
+    const todayIso = iso(d);
+    return [
+      { label: "Last 7d", start: ago(6), end: todayIso },
+      { label: "Last 30d", start: ago(29), end: todayIso },
+      {
+        label: "This month",
+        start: iso(new Date(d.getFullYear(), d.getMonth(), 1)),
+        end: todayIso,
+      },
+      { label: "All time", start: "2026-02-06", end: todayIso },
+    ];
+  }, []);
+
+  const todayStr = presets[3].end;
 
   const load = useCallback(async () => {
     if (pods.length === 0) return;
     setLoading(true);
     setErr(null);
-    const result = await fetchVoxConsumerReport(pods, consolidated);
+    const result = await fetchVoxConsumerReport(
+      pods,
+      consolidated,
+      startDate,
+      endDate,
+    );
     if (!result) setErr("Failed to load report. Check API connection.");
     else setData(result);
     setLoading(false);
-  }, [pods, consolidated]);
+  }, [pods, consolidated, startDate, endDate]);
 
   useEffect(() => {
     load();
@@ -186,7 +229,7 @@ export default function VoxConsumersPage() {
             </h1>
             <p className="text-xs text-zinc-400 mt-0.5">
               {s
-                ? `${s.num_machines} machine${s.num_machines !== 1 ? "s" : ""} · Feb 6, 2026 — today`
+                ? `${s.num_machines} machine${s.num_machines !== 1 ? "s" : ""} · ${formatDateLabel(startDate)} — ${formatDateLabel(endDate)}`
                 : "Loading…"}
             </p>
           </div>
@@ -250,6 +293,58 @@ export default function VoxConsumersPage() {
         </div>
       )}
 
+      {/* ── Date range picker bar ───────────────────────────────────────────── */}
+      <div className="border-b border-gray-200 bg-white px-6 py-3">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-3">
+          {/* Preset buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {presets.map(({ label, start, end }) => (
+              <button
+                key={label}
+                onClick={() => {
+                  setStartDate(start);
+                  setEndDate(end);
+                }}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  startDate === start && endDate === end
+                    ? "bg-teal-600 text-white"
+                    : "bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Date inputs */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-gray-400 shrink-0">From</span>
+            <input
+              type="date"
+              value={startDate}
+              min="2026-02-06"
+              max={endDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            />
+            <span className="text-gray-400 shrink-0">To</span>
+            <input
+              type="date"
+              value={endDate}
+              min={startDate}
+              max={todayStr}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+            />
+          </div>
+
+          {/* Current range label */}
+          <span className="ml-auto text-[10px] text-gray-400 shrink-0">
+            Showing: {formatDateLabel(startDate)} – {formatDateLabel(endDate)}
+          </span>
+        </div>
+      </div>
+
       <div className="max-w-6xl mx-auto px-6 py-6">
         {/* ── Tab bar ──────────────────────────────────────────────────────── */}
         <div className="flex mb-6 border-b border-gray-200 overflow-x-auto">
@@ -294,6 +389,22 @@ export default function VoxConsumersPage() {
             {/* ══════════════════════════ OVERVIEW ══════════════════════════ */}
             {tab === "overview" && (
               <div className="space-y-5">
+                {/* Date range confirmation */}
+                {s.date_range && (
+                  <p className="text-xs text-gray-400">
+                    <span className="font-medium text-gray-600">
+                      {formatDateLabel(s.date_range.start)}
+                    </span>
+                    {" — "}
+                    <span className="font-medium text-gray-600">
+                      {formatDateLabel(s.date_range.end)}
+                    </span>
+                    {" · "}
+                    {s.num_machines} machine
+                    {s.num_machines !== 1 ? "s" : ""}
+                  </p>
+                )}
+
                 {/* Primary KPIs */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <KpiCard

@@ -20,6 +20,7 @@ export type VoxSummary = {
   num_machines: number;
   has_adyen_data: boolean;
   adyen_match_pct: number;
+  date_range: { start: string; end: string };
   mercato: SiteSummary;
   mirdif: SiteSummary;
 };
@@ -162,11 +163,15 @@ export function formatWallet(variant: string): string {
 export async function fetchVoxConsumerReport(
   pods: VoxPod[],
   consolidated: boolean,
+  startDate?: string | null,
+  endDate?: string | null,
 ): Promise<VoxConsumerReport | null> {
   const params = new URLSearchParams({
     pods: pods.join(","),
     consolidated: String(consolidated),
   });
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
   try {
     const res = await fetch(`/api/vox/consumers?${params}`, {
       cache: "no-store",
