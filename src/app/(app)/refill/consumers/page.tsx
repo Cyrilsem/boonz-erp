@@ -1,991 +1,1650 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Script from "next/script";
 import {
-  fetchVoxConsumerReport,
-  aed,
-  fmt,
-  defaultRate,
-  formatWallet,
   type VoxConsumerReport,
-  type VoxPod,
+  VOX_PODS,
+  MACHINE_LABELS,
+  WALLET_NAMES,
+  FUND_COLORS,
+  CARD_COLORS,
+  PROD_COLORS,
+  aed,
+  pct,
+  fetchVoxConsumerReport,
 } from "@/lib/vox-data";
 
-type Tab = "overview" | "sites" | "products" | "payments" | "transactions";
-type Pod = VoxPod;
+const GRID = "#1E2D42";
+const MERC = "#3B82F6";
+const MIRD = "#10B981";
+const PLUG = {
+  legend: { display: false },
+  tooltip: {
+    backgroundColor: "#0F1520",
+    borderColor: GRID,
+    borderWidth: 1,
+    titleColor: "#E8EDF5",
+    bodyColor: "#8892A4",
+    padding: 10,
+  },
+};
 
-// ── Small reusable pieces ─────────────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`bg-white rounded-xl p-4 border shadow-sm ${
-        accent ? "border-teal-200" : "border-gray-100"
-      }`}
-    >
-      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-        {label}
-      </p>
-      <p
-        className={`text-2xl font-bold mt-1 tabular-nums ${
-          accent ? "text-teal-700" : "text-gray-900"
-        }`}
-      >
-        {value}
-      </p>
-      {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  );
+function useChart(
+  ref: React.RefObject<HTMLCanvasElement | null>,
+  cfg: any,
+  deps: any[],
+) {
+  const inst = useRef<any>(null);
+  useEffect(() => {
+    const C = (window as any).Chart;
+    if (!C || !ref.current || !cfg) return;
+    if (inst.current) inst.current.destroy();
+    inst.current = new C(ref.current, cfg);
+    return () => {
+      if (inst.current) {
+        inst.current.destroy();
+        inst.current = null;
+      }
+    };
+  }, deps);
 }
 
-function Bar({
-  value,
-  max,
-  color = "bg-teal-500",
-}: {
-  value: number;
-  max: number;
-  color?: string;
-}) {
-  const w = max > 0 ? Math.round((value / max) * 100) : 0;
-  return (
-    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-      <div
-        className={`${color} h-1.5 rounded-full transition-all`}
-        style={{ width: `${w}%` }}
-      />
-    </div>
-  );
-}
+const CSS = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
+:root{--bg:#080C12;--surface:#0F1520;--surface2:#161F2E;--border:#1E2D42;--merc:#3B82F6;--merc-dim:rgba(59,130,246,0.12);--mird:#10B981;--mird-dim:rgba(16,185,129,0.12);--amber:#F59E0B;--red:#EF4444;--white:#E8EDF5;--grey:#5A6A80;--grey2:#8892A4;--font-head:'Syne',sans-serif;--font-mono:'DM Mono',monospace}
+.vr{background:var(--bg);color:var(--white);font-family:var(--font-mono);font-size:13px;line-height:1.5;min-height:100vh}.vr *{box-sizing:border-box}
+.vr nav{position:sticky;top:0;z-index:100;background:rgba(8,12,18,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;flex-wrap:wrap}
+.nb{font-family:var(--font-head);font-weight:800;font-size:15px;padding:14px 24px 14px 0;border-right:1px solid var(--border);margin-right:8px;letter-spacing:-0.5px}
+.nt{padding:14px 18px;font-size:11px;font-family:var(--font-mono);letter-spacing:0.08em;text-transform:uppercase;color:var(--grey);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap}.nt:hover{color:var(--white)}.nt.a{color:var(--white);border-bottom-color:var(--merc)}
+.nm{margin-left:auto;font-size:10px;color:var(--grey);display:flex;gap:16px;align-items:center}
+.sb{padding:3px 10px;border-radius:2px;font-size:10px;font-weight:500}.sbm{background:var(--merc-dim);color:var(--merc);border:1px solid rgba(59,130,246,0.3)}.sbi{background:var(--mird-dim);color:var(--mird);border:1px solid rgba(16,185,129,0.3)}
+.pg{padding:28px 24px;max-width:1400px;margin:0 auto;animation:vf .3s ease}@keyframes vf{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.sl{font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--grey);margin-bottom:14px;display:flex;align-items:center;gap:10px}.sl::after{content:'';flex:1;height:1px;background:var(--border)}
+.vr h2{font-family:var(--font-head);font-weight:700;font-size:22px;letter-spacing:-0.5px;margin-bottom:4px}.vr h3{font-family:var(--font-head);font-weight:600;font-size:15px;margin-bottom:12px}
+.gr{display:grid;gap:14px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
+.cd{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:18px 20px}
+.kp{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px 18px;position:relative;overflow:hidden}.kp::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.kp.km::before{background:var(--merc)}.kp.ki::before{background:var(--mird)}.kp.ka::before{background:var(--amber)}.kp.kr::before{background:var(--red)}
+.kl{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--grey);margin-bottom:8px}.kv{font-family:var(--font-head);font-size:26px;font-weight:800;letter-spacing:-1px;line-height:1}.ks{font-size:10px;color:var(--grey);margin-top:6px}
+.kv.vm{color:var(--merc)}.kv.vi{color:var(--mird)}.kv.va{color:var(--amber)}.kv.vr2{color:var(--red)}
+.cw{position:relative}.cw canvas{width:100%!important}
+.sr{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px}@media(max-width:1000px){.sr{grid-template-columns:repeat(3,1fr)}}
+.ss{display:grid;grid-template-columns:1fr 1fr;border-radius:6px;overflow:hidden;margin-bottom:14px}
+.si{padding:10px 16px;display:flex;justify-content:space-between;align-items:center}.si.sm{background:var(--merc-dim);border:1px solid rgba(59,130,246,0.2)}.si.sd{background:var(--mird-dim);border:1px solid rgba(16,185,129,0.2);border-left:none}
+.si .sn{font-family:var(--font-head);font-weight:700;font-size:13px}.sn.snm{color:var(--merc)}.sn.sni{color:var(--mird)}
+.si .st{font-size:11px;color:var(--grey2);display:flex;gap:16px}.si .st strong{color:var(--white)}
+.pr{display:flex;align-items:center;gap:10px;margin-bottom:8px}.pl{font-size:11px;color:var(--grey2);width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}.pb{flex:1;height:6px;background:var(--border);border-radius:2px;overflow:hidden}.pf{height:100%;border-radius:2px;transition:width .8s ease}.pv{font-size:11px;color:var(--white);width:52px;text-align:right;font-weight:500;flex-shrink:0}.pp{font-size:10px;color:var(--grey);width:30px;text-align:right;flex-shrink:0}
+.lg{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--grey2)}.ld{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.it{display:flex;gap:0;border:1px solid var(--border);border-radius:5px;overflow:hidden;margin-bottom:14px;width:fit-content}.itb{padding:6px 16px;font-size:11px;font-family:var(--font-mono);color:var(--grey);cursor:pointer;background:var(--surface);border-right:1px solid var(--border);transition:all .15s}.itb:last-child{border-right:none}.itb.a,.itb:hover{background:var(--surface2);color:var(--white)}
+.tw{overflow-x:auto;border-radius:6px;border:1px solid var(--border)}.vr table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:900px}.vr thead th{background:var(--surface2);padding:10px 12px;text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);font-weight:500;white-space:nowrap;border-bottom:1px solid var(--border)}.vr thead th.r{text-align:right}.vr thead th.c{text-align:center}.vr tbody tr{border-bottom:1px solid var(--border);transition:background .15s}.vr tbody tr:hover{background:var(--surface2)}.vr tbody tr.dc{background:rgba(239,68,68,.06)}.vr tbody tr.dc:hover{background:rgba(239,68,68,.12)}.vr tbody td{padding:9px 12px;vertical-align:middle}.vr tbody td.r{text-align:right}.vr tbody td.c{text-align:center}
+.tm{font-size:11px;font-weight:500;white-space:nowrap}.tp{font-size:10px;color:rgba(96,165,250,.7);font-family:var(--font-mono)}.tf{font-size:10px;padding:2px 7px;border-radius:3px;display:inline-block;font-weight:500}.fd{background:rgba(59,130,246,.12);color:#60A5FA}.fc{background:rgba(16,185,129,.12);color:#34D399}.fp{background:rgba(245,158,11,.12);color:#FCD34D}
+.sp{font-size:9.5px;padding:2px 8px;border-radius:2px;font-weight:600;display:inline-block;letter-spacing:.05em;text-transform:uppercase}.spm{background:var(--merc-dim);color:var(--merc)}.spd{background:var(--mird-dim);color:var(--mird)}
+.db{font-size:9px;padding:2px 6px;background:rgba(239,68,68,.15);color:var(--red);border-radius:2px;display:inline-block}
+.fb{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.fn{padding:6px 14px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--grey2);font-size:11px;font-family:var(--font-mono);cursor:pointer;transition:all .15s}.fn:hover,.fn.a{border-color:var(--merc);color:var(--white);background:var(--merc-dim)}.fn.mb:hover,.fn.mb.a{border-color:var(--mird);color:var(--white);background:var(--mird-dim)}
+.fs{flex:1}.cl{font-size:11px;color:var(--grey)}
+.vr input[type=text]{padding:6px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--white);font-size:11px;font-family:var(--font-mono);outline:none;width:220px}.vr input[type=text]:focus{border-color:var(--merc)}.vr input::placeholder{color:var(--grey)}
+.pw{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:4px;margin-bottom:4px}.pd{width:8px;height:8px;border-radius:50%;flex-shrink:0}.pn{flex:1;font-size:11px;color:var(--grey2)}.pc{font-size:11px;color:var(--grey);width:30px;text-align:right}.pa{font-size:12px;color:var(--white);font-weight:500;width:75px;text-align:right}.pe{font-size:10px;color:var(--grey);width:35px;text-align:right}
+.eb{border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.05);border-radius:6px;padding:14px 18px}.eb h4{font-family:var(--font-head);font-size:13px;color:var(--amber);margin-bottom:6px}
+.cb{background:#0D1117;border-bottom:1px solid #1E2D42;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.cbl{font-size:10px;color:#5A6A80;text-transform:uppercase;letter-spacing:.1em}
+.cbb{padding:5px 14px;border-radius:4px;font-size:11px;font-family:var(--font-mono);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--grey);transition:all .15s}
+.csep{width:1px;height:20px;background:#1E2D42;margin:0 8px}
+.vr footer{text-align:center;padding:28px 24px;color:var(--grey);font-size:10px;letter-spacing:.05em;border-top:1px solid var(--border);margin-top:40px}`;
 
-function SectionCard({
-  title,
-  right,
-  children,
-}: {
-  title: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-          {title}
-        </p>
-        {right}
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-  );
-}
-
-function formatDateLabel(iso: string): string {
-  // Parse as local date to avoid UTC-shift display issues
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-AE", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
-
-export default function VoxConsumersPage() {
-  const [pods, setPods] = useState<Pod[]>(["Mercato", "Mirdif"]);
-  const [consolidated, setConsolidated] = useState(true);
-  const [tab, setTab] = useState<Tab>("overview");
-  const [data, setData] = useState<VoxConsumerReport | null>(null);
+export default function VOXConsumersPage() {
+  const [cjs, setCjs] = useState(false);
+  const [pods, setPods] = useState<string[]>(["Mercato", "Mirdif"]);
+  const [vm, setVm] = useState<"consolidated" | "by-machine">("consolidated");
+  const [tab, setTab] = useState("overview");
+  const [D, setD] = useState<VoxConsumerReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [startDate, setStartDate] = useState("2026-02-06");
-  const [endDate, setEndDate] = useState(
-    () => new Date().toISOString().split("T")[0],
-  );
+  const [pt, setPt] = useState("both");
+  const [tsf, setTsf] = useState("all");
+  const [tff, setTff] = useState("all");
+  const [tq, setTq] = useState("");
 
-  // Preset ranges (computed once at mount)
-  const presets = useMemo(() => {
-    const d = new Date();
-    const iso = (dt: Date) => dt.toISOString().split("T")[0];
-    const ago = (n: number) => {
-      const dt = new Date(d);
-      dt.setDate(dt.getDate() - n);
-      return iso(dt);
-    };
-    const todayIso = iso(d);
-    return [
-      { label: "Last 7d", start: ago(6), end: todayIso },
-      { label: "Last 30d", start: ago(29), end: todayIso },
-      {
-        label: "This month",
-        start: iso(new Date(d.getFullYear(), d.getMonth(), 1)),
-        end: todayIso,
-      },
-      { label: "All time", start: "2026-02-06", end: todayIso },
-    ];
-  }, []);
-
-  const todayStr = presets[3].end;
+  const dailyR = useRef<HTMLCanvasElement>(null),
+    dowR = useRef<HTMLCanvasElement>(null),
+    hourlyR = useRef<HTMLCanvasElement>(null),
+    splitR = useRef<HTMLCanvasElement>(null);
+  const mdR = useRef<HTMLCanvasElement>(null),
+    miR = useRef<HTMLCanvasElement>(null);
+  const bubR = useRef<HTMLCanvasElement>(null),
+    pbR = useRef<HTMLCanvasElement>(null);
+  const fuR = useRef<HTMLCanvasElement>(null),
+    caR = useRef<HTMLCanvasElement>(null),
+    waR = useRef<HTMLCanvasElement>(null),
+    fsR = useRef<HTMLCanvasElement>(null),
+    csR = useRef<HTMLCanvasElement>(null);
 
   const load = useCallback(async () => {
-    if (pods.length === 0) return;
     setLoading(true);
     setErr(null);
-    const result = await fetchVoxConsumerReport(
-      pods,
-      consolidated,
-      startDate,
-      endDate,
-    );
-    if (!result) setErr("Failed to load report. Check API connection.");
-    else setData(result);
-    setLoading(false);
-  }, [pods, consolidated, startDate, endDate]);
-
+    try {
+      setD(await fetchVoxConsumerReport(pods, vm === "consolidated"));
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [pods, vm]);
   useEffect(() => {
     load();
   }, [load]);
+  const tog = (p: string) =>
+    setPods((v) => {
+      if (v.includes(p)) {
+        if (v.length === 1) return v;
+        return v.filter((x) => x !== p);
+      }
+      return [...v, p];
+    });
 
-  const togglePod = (pod: Pod) => {
-    setPods((prev) =>
-      prev.includes(pod)
-        ? prev.length > 1
-          ? prev.filter((p) => p !== pod)
-          : prev
-        : [...prev, pod],
-    );
-  };
+  const S = D?.summary,
+    ha = S?.has_adyen_data ?? false,
+    ts = S?.total_sales ?? 0,
+    tc = S?.total_captured ?? 0,
+    gp = ts - tc,
+    dp = ts > 0 ? ((gp / ts) * 100).toFixed(1) : "0";
 
-  const s = data?.summary;
-  const avgOrder = s && s.total_txns > 0 ? s.total_sales / s.total_txns : 0;
+  useChart(
+    dailyR,
+    D && cjs && tab === "overview"
+      ? {
+          type: "bar",
+          data: {
+            labels: [...new Set(D.daily.map((d) => d.date))]
+              .sort()
+              .map((d) => d.slice(5)),
+            datasets: pods.map((s) => ({
+              label: s,
+              data: [...new Set(D.daily.map((d) => d.date))]
+                .sort()
+                .map((dt) => {
+                  const e = D.daily.find((d) => d.date === dt && d.site === s);
+                  return e ? e.amount : 0;
+                }),
+              backgroundColor: VOX_PODS[s]?.color || "#555",
+              borderRadius: 3,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              ...PLUG,
+              legend: {
+                display: true,
+                labels: { color: "#8892A4", boxWidth: 12 },
+              },
+            },
+            scales: {
+              x: { grid: { color: GRID } },
+              y: { grid: { color: GRID }, beginAtZero: true },
+            },
+          },
+        }
+      : null,
+    [D, cjs, pods, tab],
+  );
+  useChart(
+    hourlyR,
+    D && cjs && tab === "overview"
+      ? {
+          type: "bar",
+          data: {
+            labels: Array.from({ length: 24 }, (_, i) => `${i}h`),
+            datasets: pods.map((s) => ({
+              label: s,
+              data: Array.from({ length: 24 }, (_, h) => {
+                const e = D.hourly.find((d) => d.hour === h && d.site === s);
+                return e ? e.amount : 0;
+              }),
+              backgroundColor: VOX_PODS[s]?.color || "#555",
+              borderRadius: 2,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: PLUG,
+            scales: {
+              x: { stacked: true, grid: { color: GRID } },
+              y: { stacked: true, grid: { color: GRID }, beginAtZero: true },
+            },
+          },
+        }
+      : null,
+    [D, cjs, pods, tab],
+  );
+  useChart(
+    dowR,
+    D && cjs && tab === "overview"
+      ? {
+          type: "bar",
+          data: {
+            labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            datasets: pods.map((s) => ({
+              label: s,
+              data: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                (day) => {
+                  const e = D.dow.find((d) => d.dow === day && d.site === s);
+                  return e ? e.amount : 0;
+                },
+              ),
+              backgroundColor: VOX_PODS[s]?.color || "#555",
+              borderRadius: 3,
+            })),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: PLUG,
+            scales: {
+              x: { stacked: true, grid: { color: GRID } },
+              y: { stacked: true, grid: { color: GRID }, beginAtZero: true },
+            },
+          },
+        }
+      : null,
+    [D, cjs, pods, tab],
+  );
+  useChart(
+    splitR,
+    D && cjs && tab === "overview"
+      ? {
+          type: "doughnut",
+          data: {
+            labels: pods,
+            datasets: [
+              {
+                data: pods.map((s) =>
+                  D.machines
+                    .filter((m) => m.site === s)
+                    .reduce((a, m) => a + m.amount, 0),
+                ),
+                backgroundColor: pods.map((s) => VOX_PODS[s]?.color || "#555"),
+                borderColor: "#080C12",
+                borderWidth: 2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "62%",
+            plugins: {
+              ...PLUG,
+              legend: {
+                display: true,
+                position: "bottom",
+                labels: {
+                  color: "#8892A4",
+                  boxWidth: 10,
+                  padding: 10,
+                  font: { size: 10 },
+                },
+              },
+            },
+          },
+        }
+      : null,
+    [D, cjs, pods, tab],
+  );
+  useChart(
+    mdR,
+    D && cjs && tab === "sites"
+      ? {
+          type: "line",
+          data: {
+            labels: D.daily
+              .filter((d) => d.site === "Mercato")
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map((d) => d.date.slice(5)),
+            datasets: [
+              {
+                data: D.daily
+                  .filter((d) => d.site === "Mercato")
+                  .sort((a, b) => a.date.localeCompare(b.date))
+                  .map((d) => d.amount),
+                borderColor: MERC,
+                backgroundColor: "rgba(59,130,246,0.1)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: PLUG,
+            scales: {
+              x: { grid: { color: GRID } },
+              y: { grid: { color: GRID }, beginAtZero: true },
+            },
+          },
+        }
+      : null,
+    [D, cjs, tab],
+  );
+  useChart(
+    miR,
+    D && cjs && tab === "sites"
+      ? {
+          type: "line",
+          data: {
+            labels: D.daily
+              .filter((d) => d.site === "Mirdif")
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map((d) => d.date.slice(5)),
+            datasets: [
+              {
+                data: D.daily
+                  .filter((d) => d.site === "Mirdif")
+                  .sort((a, b) => a.date.localeCompare(b.date))
+                  .map((d) => d.amount),
+                borderColor: MIRD,
+                backgroundColor: "rgba(16,185,129,0.1)",
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: PLUG,
+            scales: {
+              x: { grid: { color: GRID } },
+              y: { grid: { color: GRID }, beginAtZero: true },
+            },
+          },
+        }
+      : null,
+    [D, cjs, tab],
+  );
 
-  // ── Aggregated chart data ─────────────────────────────────────────────────
+  const gpd = useCallback(() => {
+    if (!D) return [];
+    let p = [...D.products];
+    if (pt !== "both") p = p.filter((x) => x.site === pt);
+    const c: Record<
+      string,
+      { name: string; revenue: number; qty: number; sites: string[] }
+    > = {};
+    p.forEach((x) => {
+      if (!c[x.name])
+        c[x.name] = { name: x.name, revenue: 0, qty: 0, sites: [] };
+      c[x.name].revenue += x.revenue;
+      c[x.name].qty += x.qty;
+      c[x.name].sites.push(x.site);
+    });
+    return Object.values(c).sort((a, b) => b.revenue - a.revenue);
+  }, [D, pt]);
+  useChart(
+    bubR,
+    D && cjs && tab === "products"
+      ? (() => {
+          const pd = gpd();
+          const mx = Math.max(...pd.map((p) => p.revenue), 1);
+          return {
+            type: "bubble",
+            data: {
+              datasets: pd.map((p, i) => ({
+                label: p.name,
+                data: [
+                  {
+                    x: p.qty,
+                    y: p.qty > 0 ? +(p.revenue / p.qty).toFixed(1) : 0,
+                    r: Math.max(5, (p.revenue / mx) * 40),
+                  },
+                ],
+                backgroundColor: PROD_COLORS[i % PROD_COLORS.length] + "CC",
+                borderColor: PROD_COLORS[i % PROD_COLORS.length],
+                borderWidth: 1.5,
+              })),
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  ...PLUG.tooltip,
+                  callbacks: {
+                    title: (ctx: any) => ctx[0].dataset.label,
+                    label: (ctx: any) => [
+                      `Units: ${ctx.parsed.x}`,
+                      `Avg: AED ${ctx.parsed.y}`,
+                      `Rev: ${aed(pd.find((p) => p.name === ctx.dataset.label)?.revenue || 0)}`,
+                    ],
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  grid: { color: GRID },
+                  title: {
+                    display: true,
+                    text: "Units Sold \u2192",
+                    color: "#5A6A80",
+                    font: { size: 10 },
+                  },
+                  beginAtZero: true,
+                },
+                y: {
+                  grid: { color: GRID },
+                  title: {
+                    display: true,
+                    text: "\u2191 Avg Price (AED)",
+                    color: "#5A6A80",
+                    font: { size: 10 },
+                  },
+                  beginAtZero: true,
+                },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab, pt],
+  );
+  useChart(
+    pbR,
+    D && cjs && tab === "products"
+      ? (() => {
+          const pd = gpd();
+          return {
+            type: "bar",
+            data: {
+              labels: pd.map((p) => p.name),
+              datasets: [
+                {
+                  data: pd.map((p) => p.revenue),
+                  backgroundColor: PROD_COLORS.slice(0, pd.length),
+                  borderRadius: 3,
+                },
+              ],
+            },
+            options: {
+              indexAxis: "y" as const,
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: PLUG,
+              scales: {
+                x: { grid: { color: GRID }, beginAtZero: true },
+                y: { grid: { color: GRID }, ticks: { font: { size: 10 } } },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab, pt],
+  );
 
-  const { dailyAgg, maxDaily } = useMemo(() => {
-    if (!data) return { dailyAgg: [] as [string, number][], maxDaily: 1 };
-    const map = new Map<string, number>();
-    for (const d of data.daily)
-      map.set(d.date, (map.get(d.date) ?? 0) + d.amount);
-    const sorted = Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-42);
-    return {
-      dailyAgg: sorted,
-      maxDaily: Math.max(...sorted.map(([, v]) => v), 1),
-    };
-  }, [data]);
+  useChart(
+    fuR,
+    D && cjs && tab === "payments"
+      ? (() => {
+          const a: Record<string, { c: number; s: number }> = {};
+          D.funding.forEach((f) => {
+            if (!a[f.source]) a[f.source] = { c: 0, s: 0 };
+            a[f.source].c += f.count;
+            a[f.source].s += f.sum;
+          });
+          const ar = Object.entries(a).sort((x, y) => y[1].s - x[1].s);
+          const t = ar.reduce((s, [, d]) => s + d.s, 0);
+          return {
+            type: "doughnut",
+            data: {
+              labels: ar.map(([k]) => k),
+              datasets: [
+                {
+                  data: ar.map(([, v]) => v.s),
+                  backgroundColor: ar.map(([k]) => FUND_COLORS[k] || "#555"),
+                  borderColor: "#080C12",
+                  borderWidth: 2,
+                  hoverOffset: 5,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: "62%",
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: true,
+                  position: "bottom",
+                  labels: {
+                    color: "#8892A4",
+                    boxWidth: 10,
+                    padding: 10,
+                    font: { size: 10 },
+                  },
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx: any) =>
+                      ` AED ${ctx.parsed.toFixed(0)} (${((ctx.parsed / t) * 100).toFixed(0)}%)`,
+                  },
+                },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab],
+  );
+  useChart(
+    caR,
+    D && cjs && tab === "payments"
+      ? (() => {
+          const a: Record<string, { c: number; s: number }> = {};
+          D.cards.forEach((c) => {
+            if (!a[c.method]) a[c.method] = { c: 0, s: 0 };
+            a[c.method].c += c.count;
+            a[c.method].s += c.sum;
+          });
+          const ar = Object.entries(a).sort((x, y) => y[1].s - x[1].s);
+          const t = ar.reduce((s, [, d]) => s + d.s, 0);
+          return {
+            type: "doughnut",
+            data: {
+              labels: ar.map(([k]) => k),
+              datasets: [
+                {
+                  data: ar.map(([, v]) => v.s),
+                  backgroundColor: ar.map(([k]) => CARD_COLORS[k] || "#555"),
+                  borderColor: "#080C12",
+                  borderWidth: 2,
+                  hoverOffset: 5,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: "62%",
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: true,
+                  position: "bottom",
+                  labels: {
+                    color: "#8892A4",
+                    boxWidth: 10,
+                    padding: 10,
+                    font: { size: 10 },
+                  },
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx: any) =>
+                      ` AED ${ctx.parsed.toFixed(0)} (${((ctx.parsed / t) * 100).toFixed(0)}%)`,
+                  },
+                },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab],
+  );
+  useChart(
+    waR,
+    D && cjs && tab === "payments"
+      ? (() => {
+          const ar = [...D.wallets].sort((a, b) => b.sum - a.sum);
+          const t = ar.reduce((s, w) => s + w.sum, 0);
+          return {
+            type: "doughnut",
+            data: {
+              labels: ar.map((w) => WALLET_NAMES[w.variant] || w.variant),
+              datasets: [
+                {
+                  data: ar.map((w) => w.sum),
+                  backgroundColor: PROD_COLORS.slice(0, ar.length),
+                  borderColor: "#080C12",
+                  borderWidth: 2,
+                  hoverOffset: 5,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: "62%",
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: true,
+                  position: "bottom",
+                  labels: {
+                    color: "#8892A4",
+                    boxWidth: 10,
+                    padding: 10,
+                    font: { size: 10 },
+                  },
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx: any) =>
+                      ` AED ${ctx.parsed.toFixed(0)} (${((ctx.parsed / t) * 100).toFixed(0)}%)`,
+                  },
+                },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab],
+  );
+  useChart(
+    fsR,
+    D && cjs && tab === "payments"
+      ? (() => {
+          const bs: Record<string, Record<string, number>> = {};
+          D.funding.forEach((r) => {
+            if (!bs[r.source]) bs[r.source] = {};
+            bs[r.source][r.site] = r.sum;
+          });
+          return {
+            type: "bar",
+            data: {
+              labels: pods,
+              datasets: ["DEBIT", "CREDIT", "PREPAID"].map((f) => ({
+                label: f,
+                data: pods.map((s) => bs[f]?.[s] || 0),
+                backgroundColor: FUND_COLORS[f],
+                borderRadius: 3,
+              })),
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: true,
+                  labels: { color: "#8892A4", boxWidth: 12 },
+                },
+              },
+              scales: {
+                x: { grid: { color: GRID }, stacked: true },
+                y: { grid: { color: GRID }, beginAtZero: true, stacked: true },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab, pods],
+  );
+  useChart(
+    csR,
+    D && cjs && tab === "payments"
+      ? (() => {
+          const bs: Record<string, Record<string, number>> = {};
+          D.cards.forEach((r) => {
+            if (!bs[r.method]) bs[r.method] = {};
+            bs[r.method][r.site] = r.sum;
+          });
+          return {
+            type: "bar",
+            data: {
+              labels: pods,
+              datasets: ["Visa", "Mastercard"].map((c) => ({
+                label: c,
+                data: pods.map((s) => bs[c]?.[s] || 0),
+                backgroundColor: CARD_COLORS[c],
+                borderRadius: 3,
+              })),
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: true,
+                  labels: { color: "#8892A4", boxWidth: 12 },
+                },
+              },
+              scales: {
+                x: { grid: { color: GRID } },
+                y: { grid: { color: GRID }, beginAtZero: true },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, tab, pods],
+  );
 
-  const { hourlyAgg, maxHourly } = useMemo(() => {
-    if (!data)
-      return {
-        hourlyAgg: [] as { hour: number; amount: number }[],
-        maxHourly: 1,
-      };
-    const map = new Map<number, number>();
-    for (const d of data.hourly)
-      map.set(d.hour, (map.get(d.hour) ?? 0) + d.amount);
-    const agg = Array.from({ length: 24 }, (_, h) => ({
-      hour: h,
-      amount: map.get(h) ?? 0,
-    }));
-    return {
-      hourlyAgg: agg,
-      maxHourly: Math.max(...agg.map((d) => d.amount), 1),
-    };
-  }, [data]);
-
-  const { dowAgg, maxDow } = useMemo(() => {
-    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    if (!data)
-      return { dowAgg: labels.map((dow) => ({ dow, amount: 0 })), maxDow: 1 };
-    const map = new Map<number, number>();
-    for (const d of data.dow)
-      map.set(d.dow_n, (map.get(d.dow_n) ?? 0) + d.amount);
-    const agg = labels.map((dow, i) => ({ dow, amount: map.get(i) ?? 0 }));
-    return { dowAgg: agg, maxDow: Math.max(...agg.map((d) => d.amount), 1) };
-  }, [data]);
-
-  // ── Render ────────────────────────────────────────────────────────────────
+  const ft = D
+    ? D.transactions.filter((t) => {
+        if (tsf !== "all" && t.site !== tsf) return false;
+        if (tff !== "all" && t.funding.toUpperCase() !== tff) return false;
+        if (tq && !JSON.stringify(t).toLowerCase().includes(tq.toLowerCase()))
+          return false;
+        return true;
+      })
+    : [];
+  const tabs = [
+    { id: "overview", l: "Overview" },
+    { id: "sites", l: "Sites & Machines" },
+    { id: "products", l: "Products" },
+    { id: "eid", l: "Eid Analysis" },
+    { id: "payments", l: "Payments" },
+    { id: "transactions", l: "Transactions" },
+  ];
 
   return (
-    <div className="min-h-full bg-gray-50">
-      {/* ── Dark header ────────────────────────────────────────────────────── */}
-      <div className="bg-zinc-900 text-white px-6 py-5">
-        <div className="max-w-6xl mx-auto flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              VOX Consumer Analytics
-            </h1>
-            <p className="text-xs text-zinc-400 mt-0.5">
-              {s
-                ? `${s.num_machines} machine${s.num_machines !== 1 ? "s" : ""} · ${formatDateLabel(startDate)} — ${formatDateLabel(endDate)}`
-                : "Loading…"}
-            </p>
+    <>
+      <Script
+        src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"
+        onLoad={() => setCjs(true)}
+      />
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <div className="vr">
+        <nav>
+          <div className="nb">
+            VOX<span style={{ color: MERC }}>MCC</span> /{" "}
+            <span style={{ color: MIRD }}>VOXMM</span>
           </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Pod selector */}
-            <div className="flex rounded-lg overflow-hidden border border-zinc-700">
-              {(["Mercato", "Mirdif"] as Pod[]).map((pod) => (
-                <button
-                  key={pod}
-                  onClick={() => togglePod(pod)}
-                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                    pods.includes(pod)
-                      ? "bg-teal-600 text-white"
-                      : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                  }`}
-                >
-                  {pod}
-                </button>
-              ))}
+          {tabs.map((t) => (
+            <div
+              key={t.id}
+              className={`nt ${tab === t.id ? "a" : ""}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.l}
             </div>
-
-            {/* Consolidated toggle */}
+          ))}
+          <div className="nm">
+            <span className="sb sbm">Mercato</span>
+            <span className="sb sbi">Mirdif</span>
+            {D?.meta?.generated_at && (
+              <span>
+                {new Date(D.meta.generated_at).toLocaleDateString("en-GB", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+            )}
+          </div>
+        </nav>
+        <div className="cb">
+          <span className="cbl">Pods</span>
+          {Object.entries(VOX_PODS).map(([n, p]) => (
             <button
-              onClick={() => setConsolidated((c) => !c)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                consolidated
-                  ? "bg-zinc-700 text-white border-zinc-600"
-                  : "bg-zinc-800 text-zinc-400 border-zinc-700 hover:bg-zinc-700"
-              }`}
+              key={n}
+              className="cbb"
+              style={
+                pods.includes(n)
+                  ? {
+                      borderColor: p.color,
+                      color: p.color,
+                      background: `${p.color}18`,
+                    }
+                  : {}
+              }
+              onClick={() => tog(n)}
             >
-              {consolidated ? "Consolidated" : "By Machine"}
-            </button>
-
-            <button
-              onClick={load}
-              disabled={loading}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700 disabled:opacity-40 transition-colors"
-            >
-              {loading ? "…" : "↺ Refresh"}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Banners ─────────────────────────────────────────────────────────── */}
-      {data && !s?.has_adyen_data && (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5">
-          <div className="max-w-6xl mx-auto text-xs text-amber-800">
-            <strong>⚠️ Payment data not yet imported</strong> — revenue figures
-            are Weimi POS only. Adyen fields show —.
-          </div>
-        </div>
-      )}
-      {data && s?.has_adyen_data && (s?.adyen_match_pct ?? 0) < 100 && (
-        <div className="bg-sky-50 border-b border-sky-100 px-6 py-2.5">
-          <div className="max-w-6xl mx-auto text-xs text-sky-700">
-            ℹ️ Adyen match rate: <strong>{s?.adyen_match_pct ?? 0}%</strong> of
-            transactions linked to payment data
-          </div>
-        </div>
-      )}
-
-      {/* ── Date range picker bar ───────────────────────────────────────────── */}
-      <div className="border-b border-gray-200 bg-white px-6 py-3">
-        <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-3">
-          {/* Preset buttons */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {presets.map(({ label, start, end }) => (
-              <button
-                key={label}
-                onClick={() => {
-                  setStartDate(start);
-                  setEndDate(end);
-                }}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                  startDate === start && endDate === end
-                    ? "bg-teal-600 text-white"
-                    : "bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Date inputs */}
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-gray-400 shrink-0">From</span>
-            <input
-              type="date"
-              value={startDate}
-              min="2026-02-06"
-              max={endDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
-            />
-            <span className="text-gray-400 shrink-0">To</span>
-            <input
-              type="date"
-              value={endDate}
-              min={startDate}
-              max={todayStr}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
-            />
-          </div>
-
-          {/* Current range label */}
-          <span className="ml-auto text-[10px] text-gray-400 shrink-0">
-            Showing: {formatDateLabel(startDate)} – {formatDateLabel(endDate)}
-          </span>
-        </div>
-      </div>
-
-      <div className="max-w-6xl mx-auto px-6 py-6">
-        {/* ── Tab bar ──────────────────────────────────────────────────────── */}
-        <div className="flex mb-6 border-b border-gray-200 overflow-x-auto">
-          {(
-            [
-              ["overview", "Overview"],
-              ["sites", "Sites & Machines"],
-              ["products", "Products"],
-              ["payments", "Payments"],
-              ["transactions", "Transactions"],
-            ] as [Tab, string][]
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                tab === id
-                  ? "text-teal-700 border-teal-600"
-                  : "text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300"
-              }`}
-            >
-              {label}
+              {pods.includes(n) ? "\u2713 " : ""}
+              {n} ({p.label})
             </button>
           ))}
+          <div className="csep" />
+          <span className="cbl">View</span>
+          {(["consolidated", "by-machine"] as const).map((m) => (
+            <button
+              key={m}
+              className="cbb"
+              style={
+                vm === m
+                  ? {
+                      borderColor: "#F59E0B",
+                      color: "#F59E0B",
+                      background: "rgba(245,158,11,0.12)",
+                    }
+                  : {}
+              }
+              onClick={() => setVm(m)}
+            >
+              {m === "consolidated" ? "Consolidated" : "By Machine"}
+            </button>
+          ))}
+          {loading && (
+            <span
+              style={{ fontSize: 10, color: "#F59E0B", marginLeft: "auto" }}
+            >
+              Loading&hellip;
+            </span>
+          )}
         </div>
-
-        {/* ── Loading / Error ───────────────────────────────────────────────── */}
-        {loading && (
-          <div className="flex items-center justify-center py-20 text-sm text-gray-400">
-            Loading VOX consumer data…
+        {D && !ha && (
+          <div
+            style={{
+              background: "rgba(245,158,11,0.06)",
+              borderBottom: "1px solid rgba(245,158,11,0.2)",
+              padding: "8px 24px",
+              fontSize: 11,
+              color: "#F59E0B",
+            }}
+          >
+            <strong>&#x26A0; Adyen not loaded</strong>{" "}
+            <span style={{ color: "#8892A4" }}>
+              &mdash; Payments &amp; payment columns show &ldquo;&mdash;&rdquo;
+              until adyen_transactions updated.
+            </span>
           </div>
         )}
-        {err && !loading && (
-          <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-sm text-red-700">
-            {err}
+        {D && ha && (
+          <div
+            style={{
+              background: "#0D1117",
+              borderBottom: "1px solid #1E2D42",
+              padding: "9px 24px",
+              display: "flex",
+              alignItems: "center",
+              gap: 24,
+              fontSize: 11,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                color: "#5A6A80",
+                textTransform: "uppercase",
+                letterSpacing: ".1em",
+                fontSize: 10,
+              }}
+            >
+              Payment Default
+            </span>
+            <span style={{ color: "#8892A4" }}>
+              Total <strong style={{ color: "#E8EDF5" }}>{aed(ts)}</strong>
+            </span>
+            <span style={{ color: "#2D3748" }}>|</span>
+            <span style={{ color: "#8892A4" }}>
+              Captured <strong style={{ color: "#10B981" }}>{aed(tc)}</strong>
+            </span>
+            <span style={{ color: "#2D3748" }}>|</span>
+            <span style={{ color: "#8892A4" }}>
+              Gap <strong style={{ color: "#EF4444" }}>{aed(gp)}</strong>
+            </span>
+            <span style={{ color: "#2D3748" }}>|</span>
+            <span style={{ color: "#8892A4" }}>
+              Default{" "}
+              <strong style={{ color: "#F59E0B", fontSize: 14 }}>{dp}%</strong>
+            </span>
           </div>
         )}
-
-        {/* ── Tab content ──────────────────────────────────────────────────── */}
-        {!loading && !err && data && s && (
+        {err && (
+          <div style={{ padding: 24, textAlign: "center", color: "#EF4444" }}>
+            Failed: {err}
+            <br />
+            <button
+              onClick={load}
+              style={{
+                marginTop: 8,
+                padding: "6px 16px",
+                background: "#1E2D42",
+                border: "1px solid #EF4444",
+                color: "#EF4444",
+                borderRadius: 4,
+                cursor: "pointer",
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {loading && !D && (
+          <div style={{ padding: 60, textAlign: "center", color: "#5A6A80" }}>
+            Loading&hellip;
+          </div>
+        )}
+        {D && (
           <>
-            {/* ══════════════════════════ OVERVIEW ══════════════════════════ */}
             {tab === "overview" && (
-              <div className="space-y-5">
-                {/* Date range confirmation */}
-                {s.date_range && (
-                  <p className="text-xs text-gray-400">
-                    <span className="font-medium text-gray-600">
-                      {formatDateLabel(s.date_range.start)}
-                    </span>
-                    {" — "}
-                    <span className="font-medium text-gray-600">
-                      {formatDateLabel(s.date_range.end)}
-                    </span>
-                    {" · "}
-                    {s.num_machines} machine
-                    {s.num_machines !== 1 ? "s" : ""}
-                  </p>
-                )}
-
-                {/* Primary KPIs */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <KpiCard
-                    label="Total Revenue"
-                    value={aed(s.total_sales)}
-                    sub="Weimi POS"
-                    accent
-                  />
-                  <KpiCard label="Transactions" value={fmt(s.total_txns)} />
-                  <KpiCard label="Units Sold" value={fmt(s.total_units)} />
-                  <KpiCard
-                    label="Avg Order"
-                    value={aed(avgOrder, 1)}
-                    sub={`across ${fmt(s.total_txns)} txns`}
-                  />
-                </div>
-
-                {/* Adyen KPIs (only when available) */}
-                {s.has_adyen_data && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                    <KpiCard
-                      label="Captured (Adyen)"
-                      value={aed(s.total_captured)}
-                      sub="Adyen settled amount"
-                    />
-                    <KpiCard
-                      label="Default Rate"
-                      value={defaultRate(s.total_sales, s.total_captured)}
-                      sub="(sales − captured) / sales"
-                    />
-                    <KpiCard
-                      label="Adyen Match"
-                      value={`${s.adyen_match_pct}%`}
-                      sub="transactions matched"
-                    />
+              <div className="pg">
+                <div style={{ marginBottom: 24 }}>
+                  <div className="sl">
+                    Inception to Date &middot; {pods.join(" + ")}
                   </div>
-                )}
-
-                {/* Daily revenue bar chart */}
-                {dailyAgg.length > 0 && (
-                  <SectionCard title="Daily Revenue">
-                    <div className="flex items-end gap-0.5 h-28 mb-2">
-                      {dailyAgg.map(([date, amount]) => {
-                        const h = Math.max(
-                          Math.round((amount / maxDaily) * 100),
-                          amount > 0 ? 2 : 0,
-                        );
-                        return (
+                  <h2>VOX Cinema Vending &mdash; Consumer Report</h2>
+                  <p
+                    style={{ color: "var(--grey)", fontSize: 12, marginTop: 4 }}
+                  >
+                    Mercato live since 06 Feb 2026 &middot; Mirdif live since 19
+                    Mar 2026
+                  </p>
+                </div>
+                <div className="sr">
+                  {[
+                    {
+                      l: "Total Revenue",
+                      v: aed(ts),
+                      c: "km",
+                      vc: "vm",
+                      s: `${S!.total_txns} txns`,
+                    },
+                    {
+                      l: "Mercato",
+                      v: aed(S!.mercato.total),
+                      c: "km",
+                      vc: "vm",
+                      s: `${S!.mercato.txns} txns`,
+                    },
+                    {
+                      l: "Mirdif",
+                      v: aed(S!.mirdif.total),
+                      c: "ki",
+                      vc: "vi",
+                      s: `${S!.mirdif.txns} txns`,
+                    },
+                    {
+                      l: "Units",
+                      v: String(S!.total_units),
+                      c: "ka",
+                      vc: "va",
+                      s: `${S!.num_machines} machines`,
+                    },
+                    {
+                      l: "Default",
+                      v: `${dp}%`,
+                      c: ha ? "kr" : "ka",
+                      vc: ha ? "vr2" : "va",
+                      s: ha ? `Gap ${aed(gp)}` : "Pending",
+                    },
+                    {
+                      l: "Adyen",
+                      v: `${S!.adyen_match_pct}%`,
+                      c: ha ? "ki" : "kr",
+                      vc: ha ? "vi" : "vr2",
+                      s: ha ? "Linked" : "Pending",
+                    },
+                  ].map((k, i) => (
+                    <div key={i} className={`kp ${k.c}`}>
+                      <div className="kl">{k.l}</div>
+                      <div className={`kv ${k.vc}`}>{k.v}</div>
+                      <div className="ks">{k.s}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="gr g2" style={{ marginBottom: 14 }}>
+                  <div className="cd">
+                    <div className="sl">Daily Revenue</div>
+                    <div className="lg">
+                      {pods.map((s) => (
+                        <div key={s} className="li">
                           <div
-                            key={date}
-                            className="flex-1 flex flex-col justify-end"
-                            title={`${date.slice(5)}: ${aed(amount, 0)}`}
-                          >
-                            <div
-                              className="w-full rounded-t bg-teal-500 hover:bg-teal-400 transition-colors cursor-default"
-                              style={{ height: `${h}%` }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>{dailyAgg[0]?.[0]?.slice(5) ?? ""}</span>
-                      <span className="text-gray-300">
-                        {dailyAgg.length} days
-                      </span>
-                      <span>
-                        {dailyAgg[dailyAgg.length - 1]?.[0]?.slice(5) ?? ""}
-                      </span>
-                    </div>
-                  </SectionCard>
-                )}
-
-                {/* Hourly + DoW side by side */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <SectionCard title="Peak Hours">
-                    <div className="flex items-end gap-0.5 h-16 mb-1">
-                      {hourlyAgg.map(({ hour, amount }) => {
-                        const h = Math.max(
-                          Math.round((amount / maxHourly) * 100),
-                          amount > 0 ? 3 : 0,
-                        );
-                        return (
-                          <div
-                            key={hour}
-                            className="flex-1 flex flex-col justify-end"
-                            title={`${hour}:00 — ${aed(amount, 0)}`}
-                          >
-                            <div
-                              className={`w-full rounded-t ${amount > 0 ? "bg-teal-400 hover:bg-teal-300" : "bg-gray-100"} transition-colors cursor-default`}
-                              style={{
-                                height: `${Math.max(h, amount > 0 ? 6 : 0)}%`,
-                              }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-400">
-                      <span>00:00</span>
-                      <span>23:00</span>
-                    </div>
-                  </SectionCard>
-
-                  <SectionCard title="Day of Week">
-                    <div className="space-y-2.5">
-                      {dowAgg.map(({ dow, amount }) => (
-                        <div key={dow} className="flex items-center gap-3">
-                          <span className="text-xs text-gray-500 w-7 shrink-0 font-medium">
-                            {dow}
-                          </span>
-                          <Bar value={amount} max={maxDow} />
-                          <span className="text-xs tabular-nums text-gray-600 w-20 text-right shrink-0">
-                            {aed(amount, 0)}
-                          </span>
+                            className="ld"
+                            style={{ background: VOX_PODS[s]?.color }}
+                          />
+                          {s}
                         </div>
                       ))}
                     </div>
-                  </SectionCard>
+                    <div className="cw" style={{ height: 200 }}>
+                      <canvas ref={dailyR} />
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Day of Week</div>
+                    <div className="cw" style={{ height: 220 }}>
+                      <canvas ref={dowR} />
+                    </div>
+                  </div>
                 </div>
+                <div className="gr g3">
+                  <div className="cd">
+                    <div className="sl">Hourly</div>
+                    <div className="cw" style={{ height: 170 }}>
+                      <canvas ref={hourlyR} />
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Site Split</div>
+                    <div className="cw" style={{ height: 170 }}>
+                      <canvas ref={splitR} />
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Data Coverage</div>
+                    <div style={{ padding: "20px 0" }}>
+                      <div className="pr">
+                        <span className="pl">Weimi (Sales)</span>
+                        <div className="pb">
+                          <div
+                            className="pf"
+                            style={{ width: "100%", background: MIRD }}
+                          />
+                        </div>
+                        <span className="pv" style={{ color: MIRD }}>
+                          Live
+                        </span>
+                      </div>
+                      <div className="pr">
+                        <span className="pl">Adyen (Payments)</span>
+                        <div className="pb">
+                          <div
+                            className="pf"
+                            style={{
+                              width: `${S!.adyen_match_pct}%`,
+                              background: ha ? MERC : "#EF4444",
+                            }}
+                          />
+                        </div>
+                        <span className="pv">{S!.adyen_match_pct}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
-                {/* Site split (only when both selected) */}
-                {pods.length === 2 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {[
-                      {
-                        label: "Mercato",
-                        site: s.mercato,
-                        accent: "text-violet-700",
-                      },
-                      {
-                        label: "Mirdif",
-                        site: s.mirdif,
-                        accent: "text-blue-700",
-                      },
-                    ].map(({ label, site, accent }) => (
+            {tab === "sites" && (
+              <div className="pg">
+                <div style={{ marginBottom: 20 }}>
+                  <div className="sl">By Location</div>
+                  <h2>Sites &amp; Machine Performance</h2>
+                </div>
+                <div className="ss">
+                  {pods.map((s) => {
+                    const sm = s === "Mercato" ? S!.mercato : S!.mirdif;
+                    const p = VOX_PODS[s];
+                    return (
                       <div
-                        key={label}
-                        className="bg-white rounded-xl border border-gray-100 shadow-sm p-5"
+                        key={s}
+                        className={`si ${s === "Mercato" ? "sm" : "sd"}`}
                       >
-                        <p className={`text-sm font-semibold mb-3 ${accent}`}>
-                          {label}
-                        </p>
-                        <div className="grid grid-cols-2 gap-3">
-                          {[
-                            ["Revenue", aed(site.total, 0)],
-                            ["Transactions", fmt(site.txns)],
-                            ["Units", fmt(site.units)],
-                            [
-                              "Avg Order",
-                              site.txns > 0
-                                ? aed(site.total / site.txns, 1)
-                                : "—",
-                            ],
-                          ].map(([lbl, val]) => (
-                            <div key={lbl}>
-                              <p className="text-[10px] text-gray-500 uppercase tracking-wide font-medium">
-                                {lbl}
-                              </p>
-                              <p className="text-xl font-bold text-gray-900 tabular-nums mt-0.5">
-                                {val}
-                              </p>
-                            </div>
-                          ))}
+                        <div>
+                          <div
+                            className={`sn ${s === "Mercato" ? "snm" : "sni"}`}
+                          >
+                            {s.toUpperCase()} &mdash; {p.label}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 10,
+                              color: "var(--grey)",
+                              marginTop: 2,
+                            }}
+                          >
+                            Since {p.inception}
+                          </div>
+                        </div>
+                        <div className="st">
+                          <span>
+                            Rev <strong>{aed(sm.total)}</strong>
+                          </span>
+                          <span>
+                            Txns <strong>{sm.txns}</strong>
+                          </span>
+                          <span>
+                            Units <strong>{sm.units}</strong>
+                          </span>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
+                <div className="gr g2" style={{ marginBottom: 14 }}>
+                  {pods.map((s) => {
+                    const ms = D.machines.filter((m) => m.site === s);
+                    const st2 = ms.reduce((a, m) => a + m.amount, 0);
+                    const p = VOX_PODS[s];
+                    const cr = s === "Mercato" ? mdR : miR;
+                    return (
+                      <div key={s} className="cd">
+                        <h3>{s} &mdash; Machine Breakdown</h3>
+                        {ms.map((m) => (
+                          <div key={m.machine} className="pr">
+                            <span className="pl">
+                              {MACHINE_LABELS[m.machine] || m.machine}
+                            </span>
+                            <div className="pb">
+                              <div
+                                className="pf"
+                                style={{
+                                  width: `${st2 > 0 ? (m.amount / st2) * 100 : 0}%`,
+                                  background: p.color,
+                                }}
+                              />
+                            </div>
+                            <span className="pv">{aed(m.amount)}</span>
+                            <span className="pp">{pct(m.amount, st2)}</span>
+                          </div>
+                        ))}
+                        <div style={{ marginTop: 16 }}>
+                          <div className="sl" style={{ marginBottom: 10 }}>
+                            Daily trend
+                          </div>
+                          <div className="cw" style={{ height: 130 }}>
+                            <canvas ref={cr} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
-            {/* ══════════════════════ SITES & MACHINES ══════════════════════ */}
-            {tab === "sites" && (
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                    {consolidated ? "Revenue by Site" : "Revenue by Machine"}
-                  </p>
-                  <span className="text-xs text-gray-400">
-                    {consolidated
-                      ? `${pods.length} site${pods.length !== 1 ? "s" : ""}`
-                      : `${data.machines.length} machine${data.machines.length !== 1 ? "s" : ""}`}
-                  </span>
+            {tab === "products" && (
+              <div className="pg">
+                <div style={{ marginBottom: 20 }}>
+                  <div className="sl">Catalogue Performance</div>
+                  <h2>Product Analysis</h2>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wider">
-                        <th className="px-5 py-3 text-left font-medium">
-                          {consolidated ? "Site" : "Machine"}
-                        </th>
-                        {!consolidated && (
-                          <th className="px-5 py-3 text-left font-medium">
-                            Site
-                          </th>
-                        )}
-                        <th className="px-5 py-3 text-right font-medium">
-                          Revenue
-                        </th>
-                        <th className="px-5 py-3 text-right font-medium">
-                          Share
-                        </th>
-                        <th className="px-5 py-3 w-36" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {(() => {
-                        const rows = consolidated
-                          ? Object.entries(
-                              data.machines.reduce<Record<string, number>>(
-                                (acc, m) => {
-                                  acc[m.site] = (acc[m.site] ?? 0) + m.amount;
-                                  return acc;
-                                },
-                                {},
-                              ),
-                            )
-                              .map(([site, amount]) => ({
-                                label: site,
-                                site,
-                                amount,
-                              }))
-                              .sort((a, b) => b.amount - a.amount)
-                          : [...data.machines]
-                              .sort((a, b) => b.amount - a.amount)
-                              .map((m) => ({
-                                label: m.machine,
-                                site: m.site,
-                                amount: m.amount,
-                              }));
-
-                        const total = rows.reduce(
-                          (acc, r) => acc + r.amount,
-                          0,
-                        );
-                        const maxAmt = Math.max(
-                          ...rows.map((r) => r.amount),
-                          1,
-                        );
-
-                        return rows.map((row) => (
-                          <tr key={row.label} className="hover:bg-gray-50">
-                            <td className="px-5 py-3 font-medium text-gray-900 tabular-nums">
-                              {row.label}
-                            </td>
-                            {!consolidated && (
-                              <td className="px-5 py-3 text-xs text-gray-400">
-                                {row.site}
+                <div className="it">
+                  {["both", "Mercato", "Mirdif"].map((t) => (
+                    <div
+                      key={t}
+                      className={`itb ${pt === t ? "a" : ""}`}
+                      onClick={() => setPt(t)}
+                    >
+                      {t === "both" ? "Combined" : t}
+                    </div>
+                  ))}
+                </div>
+                <div className="gr g2" style={{ marginBottom: 14 }}>
+                  <div className="cd">
+                    <div className="sl">Volume vs Value</div>
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "var(--grey)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Bubble = revenue &middot; X = units &middot; Y = avg price
+                    </p>
+                    <div className="cw" style={{ height: 300 }}>
+                      <canvas ref={bubR} />
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Revenue by Product</div>
+                    <div className="cw" style={{ height: 300 }}>
+                      <canvas ref={pbR} />
+                    </div>
+                  </div>
+                </div>
+                <div className="cd">
+                  <div className="sl">Product Detail</div>
+                  <div className="tw">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Product</th>
+                          <th>Site</th>
+                          <th className="r">Revenue</th>
+                          <th className="r">Units</th>
+                          <th className="r">Avg Price</th>
+                          <th>Share</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gpd().map((p) => {
+                          const tot = gpd().reduce((s, x) => s + x.revenue, 0);
+                          const sh =
+                            tot > 0
+                              ? ((p.revenue / tot) * 100).toFixed(0)
+                              : "0";
+                          return (
+                            <tr key={p.name}>
+                              <td style={{ fontWeight: 500 }}>{p.name}</td>
+                              <td>
+                                {[...new Set(p.sites)].map((s) => (
+                                  <span
+                                    key={s}
+                                    className={`sp ${s === "Mercato" ? "spm" : "spd"}`}
+                                    style={{ marginRight: 4 }}
+                                  >
+                                    {s}
+                                  </span>
+                                ))}
                               </td>
-                            )}
-                            <td className="px-5 py-3 text-right tabular-nums font-medium text-gray-900">
-                              {aed(row.amount, 0)}
-                            </td>
-                            <td className="px-5 py-3 text-right tabular-nums text-gray-500 text-xs">
-                              {total > 0
-                                ? `${((row.amount / total) * 100).toFixed(1)}%`
-                                : "—"}
-                            </td>
-                            <td className="px-5 py-3">
-                              <Bar value={row.amount} max={maxAmt} />
-                            </td>
-                          </tr>
+                              <td
+                                className="r"
+                                style={{ fontWeight: 600, color: "#E8EDF5" }}
+                              >
+                                {aed(p.revenue)}
+                              </td>
+                              <td className="r">{p.qty}</td>
+                              <td className="r">
+                                AED {(p.revenue / (p.qty || 1)).toFixed(0)}
+                              </td>
+                              <td>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      flex: 1,
+                                      height: 6,
+                                      background: "#1E2D42",
+                                      borderRadius: 2,
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: `${sh}%`,
+                                        height: "100%",
+                                        background: PROD_COLORS[0],
+                                        borderRadius: 2,
+                                      }}
+                                    />
+                                  </div>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: "#8892A4",
+                                      minWidth: 28,
+                                    }}
+                                  >
+                                    {sh}%
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {tab === "eid" && (
+              <div className="pg">
+                <div style={{ marginBottom: 20 }}>
+                  <div className="sl">Eid Al-Fitr 2026</div>
+                  <h2>Holiday Traffic Analysis</h2>
+                </div>
+                {(() => {
+                  const dm: Record<string, Record<string, number>> = {};
+                  D.daily.forEach((r) => {
+                    if (!dm[r.date]) dm[r.date] = {};
+                    dm[r.date][r.site] = r.amount;
+                  });
+                  const pk = ["2026-03-20", "2026-03-21", "2026-03-22"],
+                    po = ["2026-03-23", "2026-03-24", "2026-03-25"];
+                  const pM = pk.reduce((s, d) => s + (dm[d]?.Mercato || 0), 0),
+                    pMi = pk.reduce((s, d) => s + (dm[d]?.Mirdif || 0), 0),
+                    oM = po.reduce((s, d) => s + (dm[d]?.Mercato || 0), 0),
+                    oMi = po.reduce((s, d) => s + (dm[d]?.Mirdif || 0), 0);
+                  return (
+                    <>
+                      <div className="gr g2" style={{ marginBottom: 14 }}>
+                        <div className="kp km">
+                          <div className="kl">
+                            Mercato Peak (20&ndash;22 Mar)
+                          </div>
+                          <div className="kv vm">{aed(pM)}</div>
+                          <div className="ks">Post: {aed(oM)}</div>
+                        </div>
+                        <div className="kp ki">
+                          <div className="kl">
+                            Mirdif Peak (20&ndash;22 Mar)
+                          </div>
+                          <div className="kv vi">{aed(pMi)}</div>
+                          <div className="ks">Post: {aed(oMi)}</div>
+                        </div>
+                      </div>
+                      <div className="eb">
+                        <h4>&#x1F389; Eid Weekend Insight</h4>
+                        <p
+                          style={{
+                            fontSize: 12,
+                            color: "var(--grey2)",
+                            lineHeight: 1.7,
+                          }}
+                        >
+                          Combined peak:{" "}
+                          <strong style={{ color: "#E8EDF5" }}>
+                            {aed(pM + pMi)}
+                          </strong>
+                          . {pMi > pM ? "Mirdif led" : "Mercato led"}:{" "}
+                          <strong style={{ color: MIRD }}>{aed(pMi)}</strong> vs{" "}
+                          <strong style={{ color: MERC }}>{aed(pM)}</strong>.
+                          Drop:{" "}
+                          {pM + pMi > 0
+                            ? ((1 - (oM + oMi) / (pM + pMi)) * 100).toFixed(0)
+                            : 0}
+                          %.
+                        </p>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {tab === "payments" && (
+              <div className="pg">
+                <div style={{ marginBottom: 20 }}>
+                  <div className="sl">Payment Intelligence</div>
+                  <h2>Payment Method Breakdown</h2>
+                  {!ha && (
+                    <p style={{ color: "#F59E0B", fontSize: 11, marginTop: 8 }}>
+                      &#x26A0; Pending Adyen import
+                    </p>
+                  )}
+                </div>
+                <div className="gr g3" style={{ marginBottom: 14 }}>
+                  <div className="cd">
+                    <div className="sl">Funding Source</div>
+                    <div className="cw" style={{ height: 200 }}>
+                      <canvas ref={fuR} />
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      {(() => {
+                        const a: Record<string, { c: number; s: number }> = {};
+                        D.funding.forEach((f) => {
+                          if (!a[f.source]) a[f.source] = { c: 0, s: 0 };
+                          a[f.source].c += f.count;
+                          a[f.source].s += f.sum;
+                        });
+                        const ar = Object.entries(a).sort(
+                          (x, y) => y[1].s - x[1].s,
+                        );
+                        const t = ar.reduce((s, [, d]) => s + d.s, 0);
+                        return ar.map(([k, v]) => (
+                          <div key={k} className="pw">
+                            <div
+                              className="pd"
+                              style={{ background: FUND_COLORS[k] || "#555" }}
+                            />
+                            <div className="pn">{k}</div>
+                            <div className="pc">{v.c}&times;</div>
+                            <div className="pa">{aed(v.s)}</div>
+                            <div className="pe">{pct(v.s, t)}</div>
+                          </div>
                         ));
                       })()}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {/* ════════════════════════ PRODUCTS ════════════════════════════ */}
-            {tab === "products" && (
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                    Top Products by Revenue
-                  </p>
-                  <span className="text-xs text-gray-400">
-                    {data.products.length} products
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wider">
-                        <th className="px-5 py-3 text-left font-medium w-8">
-                          #
-                        </th>
-                        <th className="px-5 py-3 text-left font-medium">
-                          Product
-                        </th>
-                        <th className="px-5 py-3 text-left font-medium">
-                          Site
-                        </th>
-                        <th className="px-5 py-3 text-right font-medium">
-                          Revenue
-                        </th>
-                        <th className="px-5 py-3 text-right font-medium">
-                          Units
-                        </th>
-                        <th className="px-5 py-3 text-right font-medium">
-                          Avg
-                        </th>
-                        <th className="px-5 py-3 w-36" />
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {data.products.slice(0, 30).map((p, i) => {
-                        const maxRev = data.products[0]?.revenue ?? 1;
-                        const avgPrice = p.qty > 0 ? p.revenue / p.qty : 0;
-                        return (
-                          <tr
-                            key={`${p.site}-${p.name}`}
-                            className="hover:bg-gray-50"
-                          >
-                            <td className="px-5 py-2.5 text-gray-400 text-xs">
-                              {i + 1}
-                            </td>
-                            <td className="px-5 py-2.5 font-medium text-gray-900 max-w-[200px] truncate">
-                              {p.name}
-                            </td>
-                            <td className="px-5 py-2.5 text-xs text-gray-400">
-                              {p.site}
-                            </td>
-                            <td className="px-5 py-2.5 text-right tabular-nums font-medium text-gray-900">
-                              {aed(p.revenue, 0)}
-                            </td>
-                            <td className="px-5 py-2.5 text-right tabular-nums text-gray-500">
-                              {fmt(p.qty)}
-                            </td>
-                            <td className="px-5 py-2.5 text-right tabular-nums text-gray-400 text-xs">
-                              {aed(avgPrice, 1)}
-                            </td>
-                            <td className="px-5 py-2.5">
-                              <Bar value={p.revenue} max={maxRev} />
-                            </td>
-                          </tr>
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Card Network</div>
+                    <div className="cw" style={{ height: 200 }}>
+                      <canvas ref={caR} />
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      {(() => {
+                        const a: Record<string, { c: number; s: number }> = {};
+                        D.cards.forEach((c2) => {
+                          if (!a[c2.method]) a[c2.method] = { c: 0, s: 0 };
+                          a[c2.method].c += c2.count;
+                          a[c2.method].s += c2.sum;
+                        });
+                        const ar = Object.entries(a).sort(
+                          (x, y) => y[1].s - x[1].s,
                         );
-                      })}
-                    </tbody>
-                  </table>
+                        const t = ar.reduce((s, [, d]) => s + d.s, 0);
+                        return ar.map(([k, v]) => (
+                          <div key={k} className="pw">
+                            <div
+                              className="pd"
+                              style={{ background: CARD_COLORS[k] || "#555" }}
+                            />
+                            <div className="pn">{k}</div>
+                            <div className="pc">{v.c}&times;</div>
+                            <div className="pa">{aed(v.s)}</div>
+                            <div className="pe">{pct(v.s, t)}</div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Digital Wallet</div>
+                    <div className="cw" style={{ height: 200 }}>
+                      <canvas ref={waR} />
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      {[...D.wallets]
+                        .sort((a2, b) => b.sum - a2.sum)
+                        .map((w, i) => {
+                          const t = D.wallets.reduce((s, x) => s + x.sum, 0);
+                          return (
+                            <div key={w.variant} className="pw">
+                              <div
+                                className="pd"
+                                style={{ background: PROD_COLORS[i] }}
+                              />
+                              <div className="pn">
+                                {WALLET_NAMES[w.variant] || w.variant}
+                              </div>
+                              <div className="pc">{w.count}&times;</div>
+                              <div className="pa">{aed(w.sum)}</div>
+                              <div className="pe">{pct(w.sum, t)}</div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </div>
+                <div className="gr g2">
+                  <div className="cd">
+                    <div className="sl">Funding by Site</div>
+                    <div className="cw" style={{ height: 200 }}>
+                      <canvas ref={fsR} />
+                    </div>
+                  </div>
+                  <div className="cd">
+                    <div className="sl">Cards by Site</div>
+                    <div className="cw" style={{ height: 200 }}>
+                      <canvas ref={csR} />
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* ════════════════════════ PAYMENTS ════════════════════════════ */}
-            {tab === "payments" && (
-              <div className="space-y-5">
-                {!s.has_adyen_data ? (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-6 py-10 text-center">
-                    <p className="text-3xl mb-3">⚠️</p>
-                    <p className="font-semibold text-amber-900 text-base">
-                      Adyen data not yet imported
-                    </p>
-                    <p className="text-sm text-amber-700 mt-1.5 max-w-sm mx-auto">
-                      Payment breakdown (funding type, card brands, digital
-                      wallets) will appear here once Adyen transaction data is
-                      loaded into Supabase.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Funding sources */}
-                    <SectionCard title="Funding Type">
-                      <div className="space-y-3">
-                        {data.funding.length === 0 ? (
-                          <p className="text-sm text-gray-400">No data</p>
-                        ) : (
-                          (() => {
-                            const maxF = Math.max(
-                              ...data.funding.map((f) => f.sum),
-                              1,
-                            );
-                            return data.funding.map((f) => (
-                              <div key={`${f.site}-${f.source}`}>
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span className="text-gray-600 capitalize">
-                                    {f.source}
-                                    <span className="text-gray-400 ml-1">
-                                      · {f.site}
-                                    </span>
-                                  </span>
-                                  <span className="tabular-nums font-medium text-gray-900">
-                                    {aed(f.sum, 0)}
-                                  </span>
-                                </div>
-                                <Bar
-                                  value={f.sum}
-                                  max={maxF}
-                                  color="bg-violet-500"
-                                />
-                              </div>
-                            ));
-                          })()
-                        )}
-                      </div>
-                    </SectionCard>
-
-                    {/* Card brands */}
-                    <SectionCard title="Card Brands">
-                      <div className="space-y-3">
-                        {data.cards.length === 0 ? (
-                          <p className="text-sm text-gray-400">No data</p>
-                        ) : (
-                          (() => {
-                            const maxC = Math.max(
-                              ...data.cards.map((c) => c.sum),
-                              1,
-                            );
-                            return data.cards.map((c) => (
-                              <div key={`${c.site}-${c.method}`}>
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span className="text-gray-600 capitalize">
-                                    {c.method}
-                                    <span className="text-gray-400 ml-1">
-                                      · {c.site}
-                                    </span>
-                                  </span>
-                                  <span className="tabular-nums font-medium text-gray-900">
-                                    {fmt(c.count)}
-                                  </span>
-                                </div>
-                                <Bar
-                                  value={c.sum}
-                                  max={maxC}
-                                  color="bg-blue-500"
-                                />
-                              </div>
-                            ));
-                          })()
-                        )}
-                      </div>
-                    </SectionCard>
-
-                    {/* Digital wallets */}
-                    <SectionCard title="Digital Wallets">
-                      <div className="space-y-3">
-                        {data.wallets.length === 0 ? (
-                          <p className="text-sm text-gray-400">
-                            No wallet data
-                          </p>
-                        ) : (
-                          (() => {
-                            const maxW = Math.max(
-                              ...data.wallets.map((w) => w.sum),
-                              1,
-                            );
-                            return data.wallets.map((w) => (
-                              <div key={w.variant}>
-                                <div className="flex justify-between text-xs mb-1">
-                                  <span className="text-gray-600">
-                                    {formatWallet(w.variant)}
-                                  </span>
-                                  <span className="tabular-nums font-medium text-gray-900">
-                                    {fmt(w.count)}
-                                  </span>
-                                </div>
-                                <Bar
-                                  value={w.sum}
-                                  max={maxW}
-                                  color="bg-emerald-500"
-                                />
-                              </div>
-                            ));
-                          })()
-                        )}
-                      </div>
-                    </SectionCard>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ══════════════════════ TRANSACTIONS ══════════════════════════ */}
             {tab === "transactions" && (
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                    Transaction Ledger
+              <div className="pg">
+                <div style={{ marginBottom: 16 }}>
+                  <div className="sl">Full Ledger</div>
+                  <h2>Transaction Detail</h2>
+                  <p
+                    style={{ color: "var(--grey)", fontSize: 12, marginTop: 4 }}
+                  >
+                    {D.transactions.length} txns
+                    {!ha && " \u00B7 payment cols pending Adyen"}
                   </p>
-                  <div className="flex items-center gap-3">
-                    {data.transactions.some((t) => t.disc) && (
-                      <span className="text-[10px] text-amber-600 font-medium">
-                        ⚠️ discrepancies highlighted
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-400">
-                      Last {data.transactions.length}
+                </div>
+                {D.transactions.some((t2) => t2.disc) && (
+                  <div
+                    className="cd"
+                    style={{
+                      marginBottom: 14,
+                      background: "rgba(239,68,68,0.06)",
+                      borderColor: "rgba(239,68,68,0.3)",
+                    }}
+                  >
+                    <span style={{ color: "var(--red)", fontWeight: 600 }}>
+                      &#x26A0; {D.transactions.filter((t2) => t2.disc).length}{" "}
+                      Discrepancies
                     </span>
                   </div>
+                )}
+                <div className="fb">
+                  {["all", ...pods].map((s) => (
+                    <button
+                      key={s}
+                      className={`fn ${s === "Mirdif" ? "mb" : ""} ${tsf === s ? "a" : ""}`}
+                      onClick={() => setTsf(s)}
+                    >
+                      {s === "all" ? "All Sites" : s}
+                    </button>
+                  ))}
+                  {["all", "DEBIT", "CREDIT", "PREPAID"].map((f) => (
+                    <button
+                      key={f}
+                      className={`fn ${tff === f ? "a" : ""}`}
+                      onClick={() => setTff(f)}
+                    >
+                      {f === "all"
+                        ? "All Funding"
+                        : f.charAt(0) + f.slice(1).toLowerCase()}
+                    </button>
+                  ))}
+                  <div className="fs" />
+                  <input
+                    type="text"
+                    placeholder="Search&hellip;"
+                    value={tq}
+                    onChange={(e) => setTq(e.target.value)}
+                  />
+                  <span className="cl">
+                    {ft.length}/{D.transactions.length}
+                  </span>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
+                <div className="tw">
+                  <table>
                     <thead>
-                      <tr className="bg-gray-50 text-gray-500 text-[10px] uppercase tracking-wider">
-                        <th className="px-4 py-3 text-left font-medium">
-                          Date
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Time
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Machine
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Site
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">PSP</th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Funding
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Card
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Wallet
-                        </th>
-                        <th className="px-4 py-3 text-right font-medium">
-                          Total
-                        </th>
-                        <th className="px-4 py-3 text-right font-medium">
-                          Captured
-                        </th>
-                        <th className="px-4 py-3 text-right font-medium">
-                          Units
-                        </th>
-                        <th className="px-4 py-3 text-left font-medium">
-                          Items
-                        </th>
+                      <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Machine</th>
+                        <th>Site</th>
+                        <th>PSP</th>
+                        <th className="c">Fund</th>
+                        <th className="c">Card</th>
+                        <th className="c">Wallet</th>
+                        <th className="r">Total</th>
+                        <th className="r">Captured</th>
+                        <th className="c">Qty</th>
+                        <th>Items</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {data.transactions.map((t, i) => (
-                        <tr
-                          key={i}
-                          className={
-                            t.disc
-                              ? "bg-amber-50 border-l-2 border-amber-400"
-                              : "hover:bg-gray-50"
-                          }
-                        >
-                          <td className="px-4 py-2 text-gray-600 tabular-nums whitespace-nowrap">
-                            {t.date}
+                    <tbody>
+                      {ft.map((t2, i) => (
+                        <tr key={i} className={t2.disc ? "dc" : ""}>
+                          <td
+                            style={{
+                              fontSize: 11,
+                              color: "#8892A4",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {t2.date}
                           </td>
-                          <td className="px-4 py-2 text-gray-500 tabular-nums">
-                            {t.time}
-                          </td>
-                          <td className="px-4 py-2 font-medium text-gray-900 tabular-nums whitespace-nowrap">
-                            {t.machine}
-                          </td>
-                          <td className="px-4 py-2 text-gray-400">{t.site}</td>
-                          <td className="px-4 py-2 text-gray-400 tabular-nums">
-                            {t.psp}
-                          </td>
-                          <td className="px-4 py-2 text-gray-500 capitalize">
-                            {t.funding}
-                          </td>
-                          <td className="px-4 py-2 text-gray-500 capitalize">
-                            {t.card}
-                          </td>
-                          <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
-                            {t.wallet}
-                          </td>
-                          <td className="px-4 py-2 text-right tabular-nums font-medium text-gray-900 whitespace-nowrap">
-                            {aed(t.total, 2)}
+                          <td style={{ fontSize: 11, color: "#5A6A80" }}>
+                            {t2.time}
                           </td>
                           <td
-                            className={`px-4 py-2 text-right tabular-nums whitespace-nowrap ${
-                              t.disc
-                                ? "text-amber-700 font-semibold"
-                                : "text-gray-500"
-                            }`}
+                            className="tm"
+                            style={{
+                              color: t2.site === "Mercato" ? MERC : MIRD,
+                            }}
                           >
-                            {t.captured > 0 ? aed(t.captured, 2) : "—"}
+                            {MACHINE_LABELS[t2.machine] || t2.machine}
                           </td>
-                          <td className="px-4 py-2 text-right tabular-nums text-gray-500">
-                            {t.units}
+                          <td>
+                            <span
+                              className={`sp ${t2.site === "Mercato" ? "spm" : "spd"}`}
+                            >
+                              {t2.site}
+                            </span>
                           </td>
-                          <td className="px-4 py-2 text-gray-400 max-w-[180px] truncate">
-                            {t.items}
+                          <td className="tp">
+                            {t2.psp}
+                            {t2.disc && (
+                              <span className="db" style={{ marginLeft: 4 }}>
+                                &#x26A0;
+                              </span>
+                            )}
+                          </td>
+                          <td className="c">
+                            {t2.funding !== "\u2014" ? (
+                              <span
+                                className={`tf ${t2.funding === "DEBIT" ? "fd" : t2.funding === "CREDIT" ? "fc" : "fp"}`}
+                              >
+                                {t2.funding}
+                              </span>
+                            ) : (
+                              <span style={{ color: "#2D3748" }}>&mdash;</span>
+                            )}
+                          </td>
+                          <td
+                            className="c"
+                            style={{
+                              fontSize: 10,
+                              color:
+                                t2.card === "\u2014" ? "#2D3748" : "#8892A4",
+                            }}
+                          >
+                            {t2.card}
+                          </td>
+                          <td
+                            className="c"
+                            style={{
+                              fontSize: 10,
+                              color:
+                                t2.wallet === "\u2014" ? "#2D3748" : "#5A6A80",
+                            }}
+                          >
+                            {t2.wallet}
+                          </td>
+                          <td className="r">
+                            <span
+                              style={
+                                t2.disc
+                                  ? {
+                                      color: "#EF4444",
+                                      fontWeight: 700,
+                                      fontSize: 12,
+                                    }
+                                  : {
+                                      color: "#E8EDF5",
+                                      fontWeight: 500,
+                                      fontSize: 12,
+                                    }
+                              }
+                            >
+                              AED {t2.total}
+                            </span>
+                          </td>
+                          <td className="r">
+                            <span
+                              style={
+                                t2.disc
+                                  ? { color: "#F59E0B", fontWeight: 600 }
+                                  : { color: "#8892A4" }
+                              }
+                            >
+                              {ha && t2.captured > 0
+                                ? `AED ${t2.captured}`
+                                : "\u2014"}
+                            </span>
+                          </td>
+                          <td className="c" style={{ color: "#8892A4" }}>
+                            {t2.units}
+                          </td>
+                          <td
+                            style={{
+                              fontSize: 11,
+                              color: "#8892A4",
+                              maxWidth: 220,
+                            }}
+                          >
+                            {t2.items}
                           </td>
                         </tr>
                       ))}
@@ -996,7 +1655,11 @@ export default function VoxConsumersPage() {
             )}
           </>
         )}
+        <footer>
+          VOX Cinema Vending &middot; Consumer Report &middot; Boonz Smart
+          Vending &middot; Supabase (Weimi + Adyen)
+        </footer>
       </div>
-    </div>
+    </>
   );
 }

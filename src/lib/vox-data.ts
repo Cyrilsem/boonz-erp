@@ -1,89 +1,60 @@
-// ── VOX Consumer Report — Types, constants, and fetch helper ─────────────────
+// lib/vox-data.ts
+// TypeScript types for VOX Consumer Report data from Supabase
+// Source: get_vox_consumer_report(pods, consolidated) RPC function
 
-export const VOX_PODS = ["Mercato", "Mirdif"] as const;
-export type VoxPod = (typeof VOX_PODS)[number];
-
-// ── Summary ───────────────────────────────────────────────────────────────────
-
-export type SiteSummary = {
-  total: number;
-  txns: number;
-  units: number;
-  captured: number;
-};
-
-export type VoxSummary = {
-  total_sales: number;
-  total_txns: number;
-  total_units: number;
-  total_captured: number;
-  num_machines: number;
-  has_adyen_data: boolean;
-  adyen_match_pct: number;
-  date_range: { start: string; end: string };
-  mercato: SiteSummary;
-  mirdif: SiteSummary;
-};
-
-// ── Breakdown rows ────────────────────────────────────────────────────────────
-
-export type DailyRow = {
+export interface VoxDailyEntry {
   site: string;
-  date: string; // "YYYY-MM-DD"
+  date: string; // YYYY-MM-DD
   amount: number;
-};
+}
 
-export type MachineRow = {
+export interface VoxMachineEntry {
   site: string;
   machine: string;
   amount: number;
-};
+}
 
-export type ProductRow = {
+export interface VoxProductEntry {
   site: string;
   name: string;
   revenue: number;
   qty: number;
-};
+}
 
-export type HourlyRow = {
+export interface VoxHourlyEntry {
   site: string;
   hour: number;
   amount: number;
-};
+}
 
-export type DowRow = {
+export interface VoxDowEntry {
   site: string;
   dow_n: number;
   dow: string;
   amount: number;
-};
+}
 
-// ── Payment rows (Adyen-sourced) ──────────────────────────────────────────────
-
-export type FundingRow = {
+export interface VoxFundingEntry {
   site: string;
   source: string;
   count: number;
   sum: number;
-};
+}
 
-export type CardRow = {
+export interface VoxCardEntry {
   site: string;
   method: string;
   count: number;
   sum: number;
-};
+}
 
-export type WalletRow = {
+export interface VoxWalletEntry {
   variant: string;
   count: number;
   sum: number;
-};
+}
 
-// ── Transaction ledger ────────────────────────────────────────────────────────
-
-export type TxnRow = {
+export interface VoxTransaction {
   date: string;
   time: string;
   machine: string;
@@ -97,88 +68,141 @@ export type TxnRow = {
   units: number;
   items: string;
   disc: boolean;
-};
+}
 
-// ── Meta ──────────────────────────────────────────────────────────────────────
+export interface VoxSiteSummary {
+  total: number;
+  txns: number;
+  units: number;
+  captured: number;
+}
 
-export type VoxMeta = {
+export interface VoxSummary {
+  total_sales: number;
+  total_txns: number;
+  total_units: number;
+  total_captured: number;
+  num_machines: number;
+  has_adyen_data: boolean;
+  adyen_match_pct: number;
+  date_range: { start: string; end: string };
+  mercato: VoxSiteSummary;
+  mirdif: VoxSiteSummary;
+}
+
+export interface VoxMeta {
   generated_at: string;
   pods_selected: string[];
   consolidated: boolean;
   data_source: string;
   sales_source: string;
   payment_source: string;
-};
+}
 
-// ── Full report ───────────────────────────────────────────────────────────────
-
-export type VoxConsumerReport = {
+export interface VoxConsumerReport {
   summary: VoxSummary;
-  daily: DailyRow[];
-  machines: MachineRow[];
-  products: ProductRow[];
-  hourly: HourlyRow[];
-  dow: DowRow[];
-  funding: FundingRow[];
-  cards: CardRow[];
-  wallets: WalletRow[];
-  transactions: TxnRow[];
+  daily: VoxDailyEntry[];
+  machines: VoxMachineEntry[];
+  products: VoxProductEntry[];
+  hourly: VoxHourlyEntry[];
+  dow: VoxDowEntry[];
+  funding: VoxFundingEntry[];
+  cards: VoxCardEntry[];
+  wallets: VoxWalletEntry[];
+  transactions: VoxTransaction[];
   meta: VoxMeta;
+}
+
+// Pod configuration — maps site names to machine prefixes and display properties
+export const VOX_PODS: Record<
+  string,
+  { machines: string[]; color: string; label: string; inception: string }
+> = {
+  Mercato: {
+    machines: ["VOXMM-1009-0100-V0", "VOXMM-1013-0101-B0"],
+    color: "#3B82F6",
+    label: "VOXMM",
+    inception: "06 Feb 2026",
+  },
+  Mirdif: {
+    machines: [
+      "VOXMCC-1009-0201-B0",
+      "VOXMCC-1011-0101-B0",
+      "VOXMCC-1012-0100-V0",
+      "VOXMCC-1017-0200-V0",
+    ],
+    color: "#10B981",
+    label: "VOXMCC",
+    inception: "19 Mar 2026",
+  },
 };
 
-// ── Formatting helpers ────────────────────────────────────────────────────────
+// Friendly machine labels for display
+export const MACHINE_LABELS: Record<string, string> = {
+  "VOXMM-1009-0100-V0": "MRC M1 (VOX)",
+  "VOXMM-1013-0101-B0": "MRC M2 (Boonz)",
+  "VOXMCC-1009-0201-B0": "MRD M1 (Boonz)",
+  "VOXMCC-1011-0101-B0": "MRD M2 (Boonz)",
+  "VOXMCC-1012-0100-V0": "MRD M3 (VOX)",
+  "VOXMCC-1017-0200-V0": "MRD M4 (VOX)",
+};
 
-export function aed(n: number | null | undefined, decimals = 0): string {
-  if (n == null) return "—";
-  return `AED ${n.toLocaleString("en-AE", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  })}`;
-}
+// Wallet display names
+export const WALLET_NAMES: Record<string, string> = {
+  visa_applepay: "Apple Pay (Visa)",
+  mc_applepay: "Apple Pay (MC)",
+  visa_samsungpay: "Samsung Pay (Visa)",
+  visa_googlepay: "Google Pay (Visa)",
+  mc_googlepay: "Google Pay (MC)",
+  mc_samsungpay: "Samsung Pay (MC)",
+};
 
-export function fmt(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return n.toLocaleString("en-AE");
-}
+// Color constants
+export const FUND_COLORS: Record<string, string> = {
+  DEBIT: "#3B82F6",
+  CREDIT: "#10B981",
+  PREPAID: "#F59E0B",
+};
+export const CARD_COLORS: Record<string, string> = {
+  Visa: "#1D4ED8",
+  Mastercard: "#DC2626",
+};
+export const PROD_COLORS = [
+  "#3B82F6",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+  "#F97316",
+  "#6366F1",
+  "#84CC16",
+  "#06B6D4",
+  "#D946EF",
+];
 
-export function defaultRate(total: number, captured: number): string {
-  if (!total || !captured) return "—";
-  return `${(((total - captured) / total) * 100).toFixed(1)}%`;
-}
+// Formatting helpers
+export const aed = (v: number) =>
+  `AED ${v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-export function formatWallet(variant: string): string {
-  const map: Record<string, string> = {
-    visa_applepay: "Apple Pay (Visa)",
-    mc_applepay: "Apple Pay (MC)",
-    visa_googlepay: "Google Pay (Visa)",
-    mc_googlepay: "Google Pay (MC)",
-    visa_samsungpay: "Samsung Pay (V)",
-    mc_samsungpay: "Samsung Pay (MC)",
-  };
-  return map[variant] ?? variant;
-}
+export const pct = (v: number, t: number) =>
+  t > 0 ? `${((v / t) * 100).toFixed(1)}%` : "0%";
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
-
+// Fetch function
 export async function fetchVoxConsumerReport(
-  pods: VoxPod[],
-  consolidated: boolean,
+  pods: string[] = ["Mercato", "Mirdif"],
+  consolidated: boolean = true,
   startDate?: string | null,
   endDate?: string | null,
-): Promise<VoxConsumerReport | null> {
+): Promise<VoxConsumerReport> {
   const params = new URLSearchParams({
     pods: pods.join(","),
     consolidated: String(consolidated),
   });
   if (startDate) params.set("start_date", startDate);
   if (endDate) params.set("end_date", endDate);
-  try {
-    const res = await fetch(`/api/vox/consumers?${params}`, {
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    return res.json() as Promise<VoxConsumerReport>;
-  } catch {
-    return null;
-  }
+  const res = await fetch(`/api/vox/consumers?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
+  return res.json();
 }
