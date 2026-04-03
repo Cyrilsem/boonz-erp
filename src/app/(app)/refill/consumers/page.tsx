@@ -18,6 +18,7 @@ import {
 const GRID = "#1E2D42";
 const MERC = "#3B82F6";
 const MIRD = "#10B981";
+const COMBINED = "#8B5CF6";
 const PLUG = {
   legend: { display: false },
   tooltip: {
@@ -63,9 +64,9 @@ const CSS = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@
 .vr h2{font-family:var(--font-head);font-weight:700;font-size:22px;letter-spacing:-0.5px;margin-bottom:4px}.vr h3{font-family:var(--font-head);font-weight:600;font-size:15px;margin-bottom:12px}
 .gr{display:grid;gap:14px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
 .cd{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:18px 20px}
-.kp{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px 18px;position:relative;overflow:hidden}.kp::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.kp.km::before{background:var(--merc)}.kp.ki::before{background:var(--mird)}.kp.ka::before{background:var(--amber)}.kp.kr::before{background:var(--red)}
+.kp{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px 18px;position:relative;overflow:hidden}.kp::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.kp.km::before{background:var(--merc)}.kp.ki::before{background:var(--mird)}.kp.ka::before{background:var(--amber)}.kp.kr::before{background:var(--red)}.kp.kc::before{background:#8B5CF6}
 .kl{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--grey);margin-bottom:8px}.kv{font-family:var(--font-head);font-size:26px;font-weight:800;letter-spacing:-1px;line-height:1}.ks{font-size:10px;color:var(--grey);margin-top:6px}
-.kv.vm{color:var(--merc)}.kv.vi{color:var(--mird)}.kv.va{color:var(--amber)}.kv.vr2{color:var(--red)}
+.kv.vm{color:var(--merc)}.kv.vi{color:var(--mird)}.kv.va{color:var(--amber)}.kv.vr2{color:var(--red)}.kv.vc{color:#8B5CF6}
 .cw{position:relative}.cw canvas{width:100%!important}
 .sr{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px}@media(max-width:1000px){.sr{grid-template-columns:repeat(3,1fr)}}
 .ss{display:grid;grid-template-columns:1fr 1fr;border-radius:6px;overflow:hidden;margin-bottom:14px}
@@ -74,20 +75,21 @@ const CSS = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@
 .si .st{font-size:11px;color:var(--grey2);display:flex;gap:16px}.si .st strong{color:var(--white)}
 .pr{display:flex;align-items:center;gap:10px;margin-bottom:8px}.pl{font-size:11px;color:var(--grey2);width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}.pb{flex:1;height:6px;background:var(--border);border-radius:2px;overflow:hidden}.pf{height:100%;border-radius:2px;transition:width .8s ease}.pv{font-size:11px;color:var(--white);width:52px;text-align:right;font-weight:500;flex-shrink:0}.pp{font-size:10px;color:var(--grey);width:30px;text-align:right;flex-shrink:0}
 .lg{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--grey2)}.ld{width:10px;height:10px;border-radius:2px;flex-shrink:0}
-.it{display:flex;gap:0;border:1px solid var(--border);border-radius:5px;overflow:hidden;margin-bottom:14px;width:fit-content}.itb{padding:6px 16px;font-size:11px;font-family:var(--font-mono);color:var(--grey);cursor:pointer;background:var(--surface);border-right:1px solid var(--border);transition:all .15s}.itb:last-child{border-right:none}.itb.a,.itb:hover{background:var(--surface2);color:var(--white)}
-.tw{overflow-x:auto;border-radius:6px;border:1px solid var(--border)}.vr table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:900px}.vr thead th{background:var(--surface2);padding:10px 12px;text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);font-weight:500;white-space:nowrap;border-bottom:1px solid var(--border)}.vr thead th.r{text-align:right}.vr thead th.c{text-align:center}.vr tbody tr{border-bottom:1px solid var(--border);transition:background .15s}.vr tbody tr:hover{background:var(--surface2)}.vr tbody tr.dc{background:rgba(239,68,68,.06)}.vr tbody tr.dc:hover{background:rgba(239,68,68,.12)}.vr tbody td{padding:9px 12px;vertical-align:middle}.vr tbody td.r{text-align:right}.vr tbody td.c{text-align:center}
+.tw{overflow-x:auto;border-radius:6px;border:1px solid var(--border)}.vr table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:900px}.vr thead th{background:var(--surface2);padding:10px 12px;text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);font-weight:500;white-space:nowrap;border-bottom:1px solid var(--border)}.vr thead th.r{text-align:right}.vr thead th.c{text-align:center}.vr tbody tr{border-bottom:1px solid var(--border);transition:background .15s}.vr tbody tr:hover{background:var(--surface2)}.vr tbody tr.dc{background:rgba(239,68,68,.06)}.vr tbody td{padding:9px 12px;vertical-align:middle}.vr tbody td.r{text-align:right}.vr tbody td.c{text-align:center}
 .tm{font-size:11px;font-weight:500;white-space:nowrap}.tp{font-size:10px;color:rgba(96,165,250,.7);font-family:var(--font-mono)}.tf{font-size:10px;padding:2px 7px;border-radius:3px;display:inline-block;font-weight:500}.fd{background:rgba(59,130,246,.12);color:#60A5FA}.fc{background:rgba(16,185,129,.12);color:#34D399}.fp{background:rgba(245,158,11,.12);color:#FCD34D}
 .sp{font-size:9.5px;padding:2px 8px;border-radius:2px;font-weight:600;display:inline-block;letter-spacing:.05em;text-transform:uppercase}.spm{background:var(--merc-dim);color:var(--merc)}.spd{background:var(--mird-dim);color:var(--mird)}
 .db{font-size:9px;padding:2px 6px;background:rgba(239,68,68,.15);color:var(--red);border-radius:2px;display:inline-block}
 .fb{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.fn{padding:6px 14px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--grey2);font-size:11px;font-family:var(--font-mono);cursor:pointer;transition:all .15s}.fn:hover,.fn.a{border-color:var(--merc);color:var(--white);background:var(--merc-dim)}.fn.mb:hover,.fn.mb.a{border-color:var(--mird);color:var(--white);background:var(--mird-dim)}
 .fs{flex:1}.cl{font-size:11px;color:var(--grey)}
 .vr input[type=text]{padding:6px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--white);font-size:11px;font-family:var(--font-mono);outline:none;width:220px}.vr input[type=text]:focus{border-color:var(--merc)}.vr input::placeholder{color:var(--grey)}
+.vr input[type=date]{padding:5px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--white);font-size:11px;font-family:var(--font-mono);outline:none}.vr input[type=date]:focus{border-color:var(--merc)}.vr input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.7)}
 .pw{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:4px;margin-bottom:4px}.pd{width:8px;height:8px;border-radius:50%;flex-shrink:0}.pn{flex:1;font-size:11px;color:var(--grey2)}.pc{font-size:11px;color:var(--grey);width:30px;text-align:right}.pa{font-size:12px;color:var(--white);font-weight:500;width:75px;text-align:right}.pe{font-size:10px;color:var(--grey);width:35px;text-align:right}
 .eb{border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.05);border-radius:6px;padding:14px 18px}.eb h4{font-family:var(--font-head);font-size:13px;color:var(--amber);margin-bottom:6px}
-.cb{background:#0D1117;border-bottom:1px solid #1E2D42;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.cb{background:#0D1117;border-bottom:1px solid #1E2D42;padding:10px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .cbl{font-size:10px;color:#5A6A80;text-transform:uppercase;letter-spacing:.1em}
 .cbb{padding:5px 14px;border-radius:4px;font-size:11px;font-family:var(--font-mono);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--grey);transition:all .15s}
-.csep{width:1px;height:20px;background:#1E2D42;margin:0 8px}
+.csep{width:1px;height:20px;background:#1E2D42;margin:0 4px}
+.rbtn{padding:5px 12px;border-radius:4px;font-size:11px;font-family:var(--font-mono);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--grey2);transition:all .15s;display:flex;align-items:center;gap:6px}.rbtn:hover{border-color:var(--merc);color:var(--white)}
 .vr footer{text-align:center;padding:28px 24px;color:var(--grey);font-size:10px;letter-spacing:.05em;border-top:1px solid var(--border);margin-top:40px}`;
 
 export default function VOXConsumersPage() {
@@ -98,12 +100,17 @@ export default function VOXConsumersPage() {
   const [D, setD] = useState<VoxConsumerReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [pt, setPt] = useState("both");
   const [tsf, setTsf] = useState("all");
   const [tff, setTff] = useState("all");
   const [tq, setTq] = useState("");
+  const [dateFrom, setDateFrom] = useState("2026-02-06");
+  const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  const isC = vm === "consolidated" && pods.length > 1;
 
   const dailyR = useRef<HTMLCanvasElement>(null),
+    wowR = useRef<HTMLCanvasElement>(null),
     dowR = useRef<HTMLCanvasElement>(null),
     hourlyR = useRef<HTMLCanvasElement>(null),
     splitR = useRef<HTMLCanvasElement>(null);
@@ -121,13 +128,19 @@ export default function VOXConsumersPage() {
     setLoading(true);
     setErr(null);
     try {
-      setD(await fetchVoxConsumerReport(pods, vm === "consolidated"));
+      setD(await fetchVoxConsumerReport(pods, isC, dateFrom, dateTo));
+      setLastUpdated(
+        new Date().toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      );
     } catch (e: any) {
       setErr(e.message);
     } finally {
       setLoading(false);
     }
-  }, [pods, vm]);
+  }, [pods, vm, dateFrom, dateTo]);
   useEffect(() => {
     load();
   }, [load]);
@@ -147,111 +160,159 @@ export default function VOXConsumersPage() {
     gp = ts - tc,
     dp = ts > 0 ? ((gp / ts) * 100).toFixed(1) : "0";
 
+  const bds = useCallback(
+    (raw: any[], kf: string, vf: string, keys: any[]) => {
+      if (isC) {
+        const m: Record<string, number> = {};
+        raw.forEach((d) => {
+          m[d[kf]] = (m[d[kf]] || 0) + d[vf];
+        });
+        return [
+          {
+            label: "Total",
+            data: keys.map((k) => m[k] || 0),
+            backgroundColor: COMBINED,
+            borderColor: COMBINED,
+            borderRadius: 3,
+          },
+        ];
+      }
+      return pods.map((s) => ({
+        label: s,
+        data: keys.map((k) => {
+          const e = raw.find((d) => d[kf] === k && d.site === s);
+          return e ? e[vf] : 0;
+        }),
+        backgroundColor: VOX_PODS[s]?.color || "#555",
+        borderColor: VOX_PODS[s]?.color || "#555",
+        borderRadius: 3,
+      }));
+    },
+    [isC, pods],
+  );
+
   useChart(
     dailyR,
     D && cjs && tab === "overview"
-      ? {
-          type: "bar",
-          data: {
-            labels: [...new Set(D.daily.map((d) => d.date))]
-              .sort()
-              .map((d) => d.slice(5)),
-            datasets: pods.map((s) => ({
-              label: s,
-              data: [...new Set(D.daily.map((d) => d.date))]
-                .sort()
-                .map((dt) => {
-                  const e = D.daily.find((d) => d.date === dt && d.site === s);
-                  return e ? e.amount : 0;
-                }),
-              backgroundColor: VOX_PODS[s]?.color || "#555",
-              borderRadius: 3,
-            })),
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              ...PLUG,
-              legend: {
-                display: true,
-                labels: { color: "#8892A4", boxWidth: 12 },
+      ? (() => {
+          const dates = [...new Set(D.daily.map((d) => d.date))].sort();
+          return {
+            type: "bar",
+            data: {
+              labels: dates.map((d) => d.slice(5)),
+              datasets: bds(D.daily, "date", "amount", dates),
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: !isC,
+                  labels: { color: "#8892A4", boxWidth: 12 },
+                },
+              },
+              scales: {
+                x: { grid: { color: GRID } },
+                y: { grid: { color: GRID }, beginAtZero: true },
               },
             },
-            scales: {
-              x: { grid: { color: GRID } },
-              y: { grid: { color: GRID }, beginAtZero: true },
-            },
-          },
-        }
+          };
+        })()
       : null,
-    [D, cjs, pods, tab],
+    [D, cjs, pods, tab, vm],
   );
+
+  useChart(
+    wowR,
+    D && cjs && tab === "overview"
+      ? (() => {
+          const weeks = [
+            ...new Set((D.weekly || []).map((w) => w.week_start)),
+          ].sort();
+          const labels = weeks.map((w) => {
+            const d = new Date(w);
+            return `W${String(Math.ceil(((d.getTime() - new Date(d.getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7)).padStart(2, "0")}`;
+          });
+          return {
+            type: "bar",
+            data: {
+              labels,
+              datasets: bds(D.weekly || [], "week_start", "amount", weeks),
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                ...PLUG,
+                legend: {
+                  display: !isC,
+                  labels: { color: "#8892A4", boxWidth: 12 },
+                },
+              },
+              scales: {
+                x: { grid: { color: GRID } },
+                y: { grid: { color: GRID }, beginAtZero: true },
+              },
+            },
+          };
+        })()
+      : null,
+    [D, cjs, pods, tab, vm],
+  );
+
   useChart(
     hourlyR,
     D && cjs && tab === "overview"
-      ? {
-          type: "bar",
-          data: {
-            labels: Array.from({ length: 24 }, (_, i) => `${i}h`),
-            datasets: pods.map((s) => ({
-              label: s,
-              data: Array.from({ length: 24 }, (_, h) => {
-                const e = D.hourly.find((d) => d.hour === h && d.site === s);
-                return e ? e.amount : 0;
-              }),
-              backgroundColor: VOX_PODS[s]?.color || "#555",
-              borderRadius: 2,
-            })),
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: PLUG,
-            scales: {
-              x: { stacked: true, grid: { color: GRID } },
-              y: { stacked: true, grid: { color: GRID }, beginAtZero: true },
+      ? (() => {
+          const hrs = Array.from({ length: 24 }, (_, i) => i);
+          return {
+            type: "bar",
+            data: {
+              labels: hrs.map((h) => `${h}h`),
+              datasets: bds(D.hourly, "hour", "amount", hrs as any),
             },
-          },
-        }
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: PLUG,
+              scales: {
+                x: { stacked: true, grid: { color: GRID } },
+                y: { stacked: true, grid: { color: GRID }, beginAtZero: true },
+              },
+            },
+          };
+        })()
       : null,
-    [D, cjs, pods, tab],
+    [D, cjs, pods, tab, vm],
   );
+
   useChart(
     dowR,
     D && cjs && tab === "overview"
-      ? {
-          type: "bar",
-          data: {
-            labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-            datasets: pods.map((s) => ({
-              label: s,
-              data: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
-                (day) => {
-                  const e = D.dow.find((d) => d.dow === day && d.site === s);
-                  return e ? e.amount : 0;
-                },
-              ),
-              backgroundColor: VOX_PODS[s]?.color || "#555",
-              borderRadius: 3,
-            })),
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: PLUG,
-            scales: {
-              x: { stacked: true, grid: { color: GRID } },
-              y: { stacked: true, grid: { color: GRID }, beginAtZero: true },
+      ? (() => {
+          const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+          return {
+            type: "bar",
+            data: { labels: days, datasets: bds(D.dow, "dow", "amount", days) },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: PLUG,
+              scales: {
+                x: { stacked: true, grid: { color: GRID } },
+                y: { stacked: true, grid: { color: GRID }, beginAtZero: true },
+              },
             },
-          },
-        }
+          };
+        })()
       : null,
-    [D, cjs, pods, tab],
+    [D, cjs, pods, tab, vm],
   );
+
   useChart(
     splitR,
-    D && cjs && tab === "overview"
+    D && cjs && tab === "overview" && !isC
       ? {
           type: "doughnut",
           data: {
@@ -289,8 +350,9 @@ export default function VOXConsumersPage() {
           },
         }
       : null,
-    [D, cjs, pods, tab],
+    [D, cjs, pods, tab, vm],
   );
+
   useChart(
     mdR,
     D && cjs && tab === "sites"
@@ -368,21 +430,20 @@ export default function VOXConsumersPage() {
 
   const gpd = useCallback(() => {
     if (!D) return [];
-    let p = [...D.products];
-    if (pt !== "both") p = p.filter((x) => x.site === pt);
     const c: Record<
       string,
       { name: string; revenue: number; qty: number; sites: string[] }
     > = {};
-    p.forEach((x) => {
+    D.products.forEach((x) => {
       if (!c[x.name])
         c[x.name] = { name: x.name, revenue: 0, qty: 0, sites: [] };
       c[x.name].revenue += x.revenue;
       c[x.name].qty += x.qty;
-      c[x.name].sites.push(x.site);
+      if (!c[x.name].sites.includes(x.site)) c[x.name].sites.push(x.site);
     });
     return Object.values(c).sort((a, b) => b.revenue - a.revenue);
-  }, [D, pt]);
+  }, [D]);
+
   useChart(
     bubR,
     D && cjs && tab === "products"
@@ -449,7 +510,7 @@ export default function VOXConsumersPage() {
           };
         })()
       : null,
-    [D, cjs, tab, pt],
+    [D, cjs, tab],
   );
   useChart(
     pbR,
@@ -481,7 +542,7 @@ export default function VOXConsumersPage() {
           };
         })()
       : null,
-    [D, cjs, tab, pt],
+    [D, cjs, tab],
   );
 
   useChart(
@@ -506,7 +567,6 @@ export default function VOXConsumersPage() {
                   backgroundColor: ar.map(([k]) => FUND_COLORS[k] || "#555"),
                   borderColor: "#080C12",
                   borderWidth: 2,
-                  hoverOffset: 5,
                 },
               ],
             },
@@ -561,7 +621,6 @@ export default function VOXConsumersPage() {
                   backgroundColor: ar.map(([k]) => CARD_COLORS[k] || "#555"),
                   borderColor: "#080C12",
                   borderWidth: 2,
-                  hoverOffset: 5,
                 },
               ],
             },
@@ -610,7 +669,6 @@ export default function VOXConsumersPage() {
                   backgroundColor: PROD_COLORS.slice(0, ar.length),
                   borderColor: "#080C12",
                   borderWidth: 2,
-                  hoverOffset: 5,
                 },
               ],
             },
@@ -767,18 +825,25 @@ export default function VOXConsumersPage() {
           <div className="nm">
             <span className="sb sbm">Mercato</span>
             <span className="sb sbi">Mirdif</span>
-            {D?.meta?.generated_at && (
-              <span>
-                {new Date(D.meta.generated_at).toLocaleDateString("en-GB", {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric",
-                })}
-              </span>
-            )}
           </div>
         </nav>
+
         <div className="cb">
+          <span className="cbl">Period</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            max={dateTo}
+          />
+          <span style={{ color: "#5A6A80", fontSize: 11 }}>to</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            min={dateFrom}
+          />
+          <div className="csep" />
           <span className="cbl">Pods</span>
           {Object.entries(VOX_PODS).map(([n, p]) => (
             <button
@@ -796,7 +861,7 @@ export default function VOXConsumersPage() {
               onClick={() => tog(n)}
             >
               {pods.includes(n) ? "\u2713 " : ""}
-              {n} ({p.label})
+              {n}
             </button>
           ))}
           <div className="csep" />
@@ -819,6 +884,18 @@ export default function VOXConsumersPage() {
               {m === "consolidated" ? "Consolidated" : "By Machine"}
             </button>
           ))}
+          <div className="csep" />
+          <button className="rbtn" onClick={load} disabled={loading}>
+            <span style={{ fontSize: 14, lineHeight: 1 }}>
+              {loading ? "\u23F3" : "\u21BB"}
+            </span>
+            Refresh
+          </button>
+          {lastUpdated && (
+            <span style={{ fontSize: 10, color: "#5A6A80" }}>
+              Last: {lastUpdated}
+            </span>
+          )}
           {loading && (
             <span
               style={{ fontSize: 10, color: "#F59E0B", marginLeft: "auto" }}
@@ -827,6 +904,7 @@ export default function VOXConsumersPage() {
             </span>
           )}
         </div>
+
         {D && !ha && (
           <div
             style={{
@@ -837,10 +915,10 @@ export default function VOXConsumersPage() {
               color: "#F59E0B",
             }}
           >
-            <strong>&#x26A0; Adyen not loaded</strong>{" "}
+            <strong>{"\u26A0"} Adyen not loaded</strong>{" "}
             <span style={{ color: "#8892A4" }}>
-              &mdash; Payments &amp; payment columns show &ldquo;&mdash;&rdquo;
-              until adyen_transactions updated.
+              {"\u2014"} Payment columns show {"\u201C\u2014\u201D"} until
+              adyen_transactions updated.
             </span>
           </div>
         )}
@@ -885,6 +963,7 @@ export default function VOXConsumersPage() {
             </span>
           </div>
         )}
+
         {err && (
           <div style={{ padding: 24, textAlign: "center", color: "#EF4444" }}>
             Failed: {err}
@@ -910,67 +989,88 @@ export default function VOXConsumersPage() {
             Loading&hellip;
           </div>
         )}
+
         {D && (
           <>
             {tab === "overview" && (
               <div className="pg">
                 <div style={{ marginBottom: 24 }}>
                   <div className="sl">
-                    Inception to Date &middot; {pods.join(" + ")}
+                    {S!.date_from} to {S!.date_to} {"\u00B7"}{" "}
+                    {isC ? "Consolidated" : pods.join(" + ")}
                   </div>
-                  <h2>VOX Cinema Vending &mdash; Consumer Report</h2>
-                  <p
-                    style={{ color: "var(--grey)", fontSize: 12, marginTop: 4 }}
-                  >
-                    Mercato live since 06 Feb 2026 &middot; Mirdif live since 19
-                    Mar 2026
-                  </p>
+                  <h2>VOX Cinema Vending {"\u2014"} Consumer Report</h2>
                 </div>
                 <div className="sr">
-                  {[
-                    {
-                      l: "Total Revenue",
-                      v: aed(ts),
-                      c: "km",
-                      vc: "vm",
-                      s: `${S!.total_txns} txns`,
-                    },
-                    {
-                      l: "Mercato",
-                      v: aed(S!.mercato.total),
-                      c: "km",
-                      vc: "vm",
-                      s: `${S!.mercato.txns} txns`,
-                    },
-                    {
-                      l: "Mirdif",
-                      v: aed(S!.mirdif.total),
-                      c: "ki",
-                      vc: "vi",
-                      s: `${S!.mirdif.txns} txns`,
-                    },
-                    {
-                      l: "Units",
-                      v: String(S!.total_units),
-                      c: "ka",
-                      vc: "va",
-                      s: `${S!.num_machines} machines`,
-                    },
-                    {
-                      l: "Default",
-                      v: `${dp}%`,
-                      c: ha ? "kr" : "ka",
-                      vc: ha ? "vr2" : "va",
-                      s: ha ? `Gap ${aed(gp)}` : "Pending",
-                    },
-                    {
-                      l: "Adyen",
-                      v: `${S!.adyen_match_pct}%`,
-                      c: ha ? "ki" : "kr",
-                      vc: ha ? "vi" : "vr2",
-                      s: ha ? "Linked" : "Pending",
-                    },
-                  ].map((k, i) => (
+                  {(isC
+                    ? [
+                        {
+                          l: "Total Revenue",
+                          v: aed(ts),
+                          c: "kc",
+                          vc: "vc",
+                          s: `${S!.total_txns} txns \u00B7 ${S!.total_units} units`,
+                        },
+                        {
+                          l: "Machines",
+                          v: String(S!.num_machines),
+                          c: "ka",
+                          vc: "va",
+                          s: `${[...new Set(D.products.map((p) => p.name))].length} products`,
+                        },
+                        {
+                          l: "Default",
+                          v: `${dp}%`,
+                          c: ha ? "kr" : "ka",
+                          vc: ha ? "vr2" : "va",
+                          s: ha ? `Gap ${aed(gp)}` : "Pending Adyen",
+                        },
+                      ]
+                    : [
+                        {
+                          l: "Total Revenue",
+                          v: aed(ts),
+                          c: "kc",
+                          vc: "vc",
+                          s: `${S!.total_txns} txns`,
+                        },
+                        {
+                          l: "Mercato",
+                          v: aed(S!.mercato.total),
+                          c: "km",
+                          vc: "vm",
+                          s: `${S!.mercato.txns} txns \u00B7 ${S!.mercato.units} units`,
+                        },
+                        {
+                          l: "Mirdif",
+                          v: aed(S!.mirdif.total),
+                          c: "ki",
+                          vc: "vi",
+                          s: `${S!.mirdif.txns} txns \u00B7 ${S!.mirdif.units} units`,
+                        },
+                        {
+                          l: "Units",
+                          v: String(S!.total_units),
+                          c: "ka",
+                          vc: "va",
+                          s: `${S!.num_machines} machines`,
+                        },
+                        {
+                          l: "Default",
+                          v: `${dp}%`,
+                          c: ha ? "kr" : "ka",
+                          vc: ha ? "vr2" : "va",
+                          s: ha ? `Gap ${aed(gp)}` : "Pending",
+                        },
+                        {
+                          l: "Adyen",
+                          v: `${S!.adyen_match_pct}%`,
+                          c: ha ? "ki" : "kr",
+                          vc: ha ? "vi" : "vr2",
+                          s: ha ? "Linked" : "Pending",
+                        },
+                      ]
+                  ).map((k, i) => (
                     <div key={i} className={`kp ${k.c}`}>
                       <div className="kl">{k.l}</div>
                       <div className={`kv ${k.vc}`}>{k.v}</div>
@@ -981,25 +1081,27 @@ export default function VOXConsumersPage() {
                 <div className="gr g2" style={{ marginBottom: 14 }}>
                   <div className="cd">
                     <div className="sl">Daily Revenue</div>
-                    <div className="lg">
-                      {pods.map((s) => (
-                        <div key={s} className="li">
-                          <div
-                            className="ld"
-                            style={{ background: VOX_PODS[s]?.color }}
-                          />
-                          {s}
-                        </div>
-                      ))}
-                    </div>
+                    {!isC && (
+                      <div className="lg">
+                        {pods.map((s) => (
+                          <div key={s} className="li">
+                            <div
+                              className="ld"
+                              style={{ background: VOX_PODS[s]?.color }}
+                            />
+                            {s}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="cw" style={{ height: 200 }}>
                       <canvas ref={dailyR} />
                     </div>
                   </div>
                   <div className="cd">
-                    <div className="sl">Day of Week</div>
+                    <div className="sl">Week-on-Week Revenue</div>
                     <div className="cw" style={{ height: 220 }}>
-                      <canvas ref={dowR} />
+                      <canvas ref={wowR} />
                     </div>
                   </div>
                 </div>
@@ -1011,41 +1113,50 @@ export default function VOXConsumersPage() {
                     </div>
                   </div>
                   <div className="cd">
-                    <div className="sl">Site Split</div>
+                    <div className="sl">Day of Week</div>
                     <div className="cw" style={{ height: 170 }}>
-                      <canvas ref={splitR} />
+                      <canvas ref={dowR} />
                     </div>
                   </div>
-                  <div className="cd">
-                    <div className="sl">Data Coverage</div>
-                    <div style={{ padding: "20px 0" }}>
-                      <div className="pr">
-                        <span className="pl">Weimi (Sales)</span>
-                        <div className="pb">
-                          <div
-                            className="pf"
-                            style={{ width: "100%", background: MIRD }}
-                          />
-                        </div>
-                        <span className="pv" style={{ color: MIRD }}>
-                          Live
-                        </span>
-                      </div>
-                      <div className="pr">
-                        <span className="pl">Adyen (Payments)</span>
-                        <div className="pb">
-                          <div
-                            className="pf"
-                            style={{
-                              width: `${S!.adyen_match_pct}%`,
-                              background: ha ? MERC : "#EF4444",
-                            }}
-                          />
-                        </div>
-                        <span className="pv">{S!.adyen_match_pct}%</span>
+                  {!isC ? (
+                    <div className="cd">
+                      <div className="sl">Site Split</div>
+                      <div className="cw" style={{ height: 170 }}>
+                        <canvas ref={splitR} />
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="cd">
+                      <div className="sl">Data Coverage</div>
+                      <div style={{ padding: "20px 0" }}>
+                        <div className="pr">
+                          <span className="pl">Weimi (Sales)</span>
+                          <div className="pb">
+                            <div
+                              className="pf"
+                              style={{ width: "100%", background: MIRD }}
+                            />
+                          </div>
+                          <span className="pv" style={{ color: MIRD }}>
+                            Live
+                          </span>
+                        </div>
+                        <div className="pr">
+                          <span className="pl">Adyen (Payments)</span>
+                          <div className="pb">
+                            <div
+                              className="pf"
+                              style={{
+                                width: `${S!.adyen_match_pct}%`,
+                                background: ha ? MERC : "#EF4444",
+                              }}
+                            />
+                          </div>
+                          <span className="pv">{S!.adyen_match_pct}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1069,7 +1180,7 @@ export default function VOXConsumersPage() {
                           <div
                             className={`sn ${s === "Mercato" ? "snm" : "sni"}`}
                           >
-                            {s.toUpperCase()} &mdash; {p.label}
+                            {s.toUpperCase()} {"\u2014"} {p.label}
                           </div>
                           <div
                             style={{
@@ -1103,33 +1214,44 @@ export default function VOXConsumersPage() {
                     const p = VOX_PODS[s];
                     const cr = s === "Mercato" ? mdR : miR;
                     return (
-                      <div key={s} className="cd">
-                        <h3>{s} &mdash; Machine Breakdown</h3>
-                        {ms.map((m) => (
-                          <div key={m.machine} className="pr">
-                            <span className="pl">
-                              {MACHINE_LABELS[m.machine] || m.machine}
-                            </span>
-                            <div className="pb">
-                              <div
-                                className="pf"
-                                style={{
-                                  width: `${st2 > 0 ? (m.amount / st2) * 100 : 0}%`,
-                                  background: p.color,
-                                }}
-                              />
-                            </div>
-                            <span className="pv">{aed(m.amount)}</span>
-                            <span className="pp">{pct(m.amount, st2)}</span>
-                          </div>
-                        ))}
-                        <div style={{ marginTop: 16 }}>
+                      <div
+                        key={s}
+                        className="cd"
+                        style={{ display: "flex", flexDirection: "column" }}
+                      >
+                        <h3>
+                          {s} {"\u2014"} Performance
+                        </h3>
+                        <div style={{ marginBottom: 16 }}>
                           <div className="sl" style={{ marginBottom: 10 }}>
                             Daily trend
                           </div>
-                          <div className="cw" style={{ height: 130 }}>
+                          <div className="cw" style={{ height: 140 }}>
                             <canvas ref={cr} />
                           </div>
+                        </div>
+                        <div style={{ marginTop: "auto" }}>
+                          <div className="sl" style={{ marginBottom: 8 }}>
+                            Machine Breakdown
+                          </div>
+                          {ms.map((m) => (
+                            <div key={m.machine} className="pr">
+                              <span className="pl">
+                                {MACHINE_LABELS[m.machine] || m.machine}
+                              </span>
+                              <div className="pb">
+                                <div
+                                  className="pf"
+                                  style={{
+                                    width: `${st2 > 0 ? (m.amount / st2) * 100 : 0}%`,
+                                    background: p.color,
+                                  }}
+                                />
+                              </div>
+                              <span className="pv">{aed(m.amount)}</span>
+                              <span className="pp">{pct(m.amount, st2)}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );
@@ -1143,17 +1265,12 @@ export default function VOXConsumersPage() {
                 <div style={{ marginBottom: 20 }}>
                   <div className="sl">Catalogue Performance</div>
                   <h2>Product Analysis</h2>
-                </div>
-                <div className="it">
-                  {["both", "Mercato", "Mirdif"].map((t) => (
-                    <div
-                      key={t}
-                      className={`itb ${pt === t ? "a" : ""}`}
-                      onClick={() => setPt(t)}
-                    >
-                      {t === "both" ? "Combined" : t}
-                    </div>
-                  ))}
+                  <p
+                    style={{ color: "var(--grey)", fontSize: 11, marginTop: 4 }}
+                  >
+                    Filtered by:{" "}
+                    {isC ? "All pods (consolidated)" : pods.join(" + ")}
+                  </p>
                 </div>
                 <div className="gr g2" style={{ marginBottom: 14 }}>
                   <div className="cd">
@@ -1165,7 +1282,8 @@ export default function VOXConsumersPage() {
                         marginBottom: 8,
                       }}
                     >
-                      Bubble = revenue &middot; X = units &middot; Y = avg price
+                      Bubble = revenue {"\u00B7"} X = units {"\u00B7"} Y = avg
+                      price
                     </p>
                     <div className="cw" style={{ height: 300 }}>
                       <canvas ref={bubR} />
@@ -1293,21 +1411,21 @@ export default function VOXConsumersPage() {
                       <div className="gr g2" style={{ marginBottom: 14 }}>
                         <div className="kp km">
                           <div className="kl">
-                            Mercato Peak (20&ndash;22 Mar)
+                            Mercato Peak (20{"\u2013"}22 Mar)
                           </div>
                           <div className="kv vm">{aed(pM)}</div>
                           <div className="ks">Post: {aed(oM)}</div>
                         </div>
                         <div className="kp ki">
                           <div className="kl">
-                            Mirdif Peak (20&ndash;22 Mar)
+                            Mirdif Peak (20{"\u2013"}22 Mar)
                           </div>
                           <div className="kv vi">{aed(pMi)}</div>
                           <div className="ks">Post: {aed(oMi)}</div>
                         </div>
                       </div>
                       <div className="eb">
-                        <h4>&#x1F389; Eid Weekend Insight</h4>
+                        <h4>{"\uD83C\uDF89"} Eid Weekend Insight</h4>
                         <p
                           style={{
                             fontSize: 12,
@@ -1342,7 +1460,7 @@ export default function VOXConsumersPage() {
                   <h2>Payment Method Breakdown</h2>
                   {!ha && (
                     <p style={{ color: "#F59E0B", fontSize: 11, marginTop: 8 }}>
-                      &#x26A0; Pending Adyen import
+                      {"\u26A0"} Pending Adyen import
                     </p>
                   )}
                 </div>
@@ -1371,7 +1489,10 @@ export default function VOXConsumersPage() {
                               style={{ background: FUND_COLORS[k] || "#555" }}
                             />
                             <div className="pn">{k}</div>
-                            <div className="pc">{v.c}&times;</div>
+                            <div className="pc">
+                              {v.c}
+                              {"\u00D7"}
+                            </div>
                             <div className="pa">{aed(v.s)}</div>
                             <div className="pe">{pct(v.s, t)}</div>
                           </div>
@@ -1403,7 +1524,10 @@ export default function VOXConsumersPage() {
                               style={{ background: CARD_COLORS[k] || "#555" }}
                             />
                             <div className="pn">{k}</div>
-                            <div className="pc">{v.c}&times;</div>
+                            <div className="pc">
+                              {v.c}
+                              {"\u00D7"}
+                            </div>
                             <div className="pa">{aed(v.s)}</div>
                             <div className="pe">{pct(v.s, t)}</div>
                           </div>
@@ -1430,7 +1554,10 @@ export default function VOXConsumersPage() {
                               <div className="pn">
                                 {WALLET_NAMES[w.variant] || w.variant}
                               </div>
-                              <div className="pc">{w.count}&times;</div>
+                              <div className="pc">
+                                {w.count}
+                                {"\u00D7"}
+                              </div>
                               <div className="pa">{aed(w.sum)}</div>
                               <div className="pe">{pct(w.sum, t)}</div>
                             </div>
@@ -1478,7 +1605,7 @@ export default function VOXConsumersPage() {
                     }}
                   >
                     <span style={{ color: "var(--red)", fontWeight: 600 }}>
-                      &#x26A0; {D.transactions.filter((t2) => t2.disc).length}{" "}
+                      {"\u26A0"} {D.transactions.filter((t2) => t2.disc).length}{" "}
                       Discrepancies
                     </span>
                   </div>
@@ -1567,7 +1694,7 @@ export default function VOXConsumersPage() {
                             {t2.psp}
                             {t2.disc && (
                               <span className="db" style={{ marginLeft: 4 }}>
-                                &#x26A0;
+                                {"\u26A0"}
                               </span>
                             )}
                           </td>
@@ -1579,7 +1706,9 @@ export default function VOXConsumersPage() {
                                 {t2.funding}
                               </span>
                             ) : (
-                              <span style={{ color: "#2D3748" }}>&mdash;</span>
+                              <span style={{ color: "#2D3748" }}>
+                                {"\u2014"}
+                              </span>
                             )}
                           </td>
                           <td
@@ -1656,8 +1785,8 @@ export default function VOXConsumersPage() {
           </>
         )}
         <footer>
-          VOX Cinema Vending &middot; Consumer Report &middot; Boonz Smart
-          Vending &middot; Supabase (Weimi + Adyen)
+          VOX Cinema Vending {"\u00B7"} Consumer Report {"\u00B7"} Boonz Smart
+          Vending {"\u00B7"} Supabase (Weimi + Adyen)
         </footer>
       </div>
     </>

@@ -1,59 +1,55 @@
 // lib/vox-data.ts
-// TypeScript types for VOX Consumer Report data from Supabase
-// Source: get_vox_consumer_report(pods, consolidated) RPC function
 
 export interface VoxDailyEntry {
   site: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   amount: number;
 }
-
+export interface VoxWeeklyEntry {
+  site: string;
+  week_start: string;
+  week_label: string;
+  amount: number;
+}
 export interface VoxMachineEntry {
   site: string;
   machine: string;
   amount: number;
 }
-
 export interface VoxProductEntry {
   site: string;
   name: string;
   revenue: number;
   qty: number;
 }
-
 export interface VoxHourlyEntry {
   site: string;
   hour: number;
   amount: number;
 }
-
 export interface VoxDowEntry {
   site: string;
   dow_n: number;
   dow: string;
   amount: number;
 }
-
 export interface VoxFundingEntry {
   site: string;
   source: string;
   count: number;
   sum: number;
 }
-
 export interface VoxCardEntry {
   site: string;
   method: string;
   count: number;
   sum: number;
 }
-
 export interface VoxWalletEntry {
   variant: string;
   count: number;
   sum: number;
 }
-
 export interface VoxTransaction {
   date: string;
   time: string;
@@ -69,14 +65,12 @@ export interface VoxTransaction {
   items: string;
   disc: boolean;
 }
-
 export interface VoxSiteSummary {
   total: number;
   txns: number;
   units: number;
   captured: number;
 }
-
 export interface VoxSummary {
   total_sales: number;
   total_txns: number;
@@ -85,23 +79,23 @@ export interface VoxSummary {
   num_machines: number;
   has_adyen_data: boolean;
   adyen_match_pct: number;
-  date_range: { start: string; end: string };
+  date_from: string;
+  date_to: string;
   mercato: VoxSiteSummary;
   mirdif: VoxSiteSummary;
 }
-
 export interface VoxMeta {
   generated_at: string;
   pods_selected: string[];
   consolidated: boolean;
+  date_from: string;
+  date_to: string;
   data_source: string;
-  sales_source: string;
-  payment_source: string;
 }
-
 export interface VoxConsumerReport {
   summary: VoxSummary;
   daily: VoxDailyEntry[];
+  weekly: VoxWeeklyEntry[];
   machines: VoxMachineEntry[];
   products: VoxProductEntry[];
   hourly: VoxHourlyEntry[];
@@ -113,7 +107,6 @@ export interface VoxConsumerReport {
   meta: VoxMeta;
 }
 
-// Pod configuration — maps site names to machine prefixes and display properties
 export const VOX_PODS: Record<
   string,
   { machines: string[]; color: string; label: string; inception: string }
@@ -136,8 +129,6 @@ export const VOX_PODS: Record<
     inception: "19 Mar 2026",
   },
 };
-
-// Friendly machine labels for display
 export const MACHINE_LABELS: Record<string, string> = {
   "VOXMM-1009-0100-V0": "MRC M1 (VOX)",
   "VOXMM-1013-0101-B0": "MRC M2 (Boonz)",
@@ -146,8 +137,6 @@ export const MACHINE_LABELS: Record<string, string> = {
   "VOXMCC-1012-0100-V0": "MRD M3 (VOX)",
   "VOXMCC-1017-0200-V0": "MRD M4 (VOX)",
 };
-
-// Wallet display names
 export const WALLET_NAMES: Record<string, string> = {
   visa_applepay: "Apple Pay (Visa)",
   mc_applepay: "Apple Pay (MC)",
@@ -156,8 +145,6 @@ export const WALLET_NAMES: Record<string, string> = {
   mc_googlepay: "Google Pay (MC)",
   mc_samsungpay: "Samsung Pay (MC)",
 };
-
-// Color constants
 export const FUND_COLORS: Record<string, string> = {
   DEBIT: "#3B82F6",
   CREDIT: "#10B981",
@@ -182,26 +169,23 @@ export const PROD_COLORS = [
   "#D946EF",
 ];
 
-// Formatting helpers
 export const aed = (v: number) =>
   `AED ${v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-
 export const pct = (v: number, t: number) =>
   t > 0 ? `${((v / t) * 100).toFixed(1)}%` : "0%";
 
-// Fetch function
 export async function fetchVoxConsumerReport(
   pods: string[] = ["Mercato", "Mirdif"],
   consolidated: boolean = true,
-  startDate?: string | null,
-  endDate?: string | null,
+  dateFrom: string = "2026-02-06",
+  dateTo: string = new Date().toISOString().split("T")[0],
 ): Promise<VoxConsumerReport> {
   const params = new URLSearchParams({
     pods: pods.join(","),
     consolidated: String(consolidated),
+    date_from: dateFrom,
+    date_to: dateTo,
   });
-  if (startDate) params.set("start_date", startDate);
-  if (endDate) params.set("end_date", endDate);
   const res = await fetch(`/api/vox/consumers?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
   return res.json();
