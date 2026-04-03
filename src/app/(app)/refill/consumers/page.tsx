@@ -156,9 +156,9 @@ export default function VOXConsumersPage() {
   const S = D?.summary,
     ha = S?.has_adyen_data ?? false,
     ts = S?.total_sales ?? 0,
-    tc = S?.total_captured ?? 0,
-    gp = ts - tc,
-    dp = ts > 0 ? ((gp / ts) * 100).toFixed(1) : "0";
+    tc = S?.total_captured ?? 0;
+  const dp = ha ? (S?.default_rate?.toFixed(2) ?? "0") : "0";
+  const gp = ha ? (S?.default_gap ?? 0) : 0;
 
   const bds = useCallback(
     (raw: any[], kf: string, vf: string, keys: any[]) => {
@@ -950,7 +950,10 @@ export default function VOXConsumersPage() {
             </span>
             <span style={{ color: "#2D3748" }}>|</span>
             <span style={{ color: "#8892A4" }}>
-              Captured <strong style={{ color: "#10B981" }}>{aed(tc)}</strong>
+              Captured{" "}
+              <strong style={{ color: "#10B981" }}>
+                {aed(S?.matched_captured ?? 0)}
+              </strong>
             </span>
             <span style={{ color: "#2D3748" }}>|</span>
             <span style={{ color: "#8892A4" }}>
@@ -960,6 +963,11 @@ export default function VOXConsumersPage() {
             <span style={{ color: "#8892A4" }}>
               Default{" "}
               <strong style={{ color: "#F59E0B", fontSize: 14 }}>{dp}%</strong>
+            </span>
+            <span style={{ color: "#2D3748" }}>|</span>
+            <span style={{ color: "#5A6A80", fontSize: 10 }}>
+              {S?.disc_count ?? 0} discrepancies {"\u00B7"}{" "}
+              {S?.matched_txns ?? 0}/{S?.total_txns ?? 0} matched
             </span>
           </div>
         )}
@@ -1023,7 +1031,9 @@ export default function VOXConsumersPage() {
                           v: `${dp}%`,
                           c: ha ? "kr" : "ka",
                           vc: ha ? "vr2" : "va",
-                          s: ha ? `Gap ${aed(gp)}` : "Pending Adyen",
+                          s: ha
+                            ? `${S?.disc_count ?? 0} disc \u00B7 Gap ${aed(gp)}`
+                            : "Pending Adyen",
                         },
                       ]
                     : [
@@ -1060,7 +1070,9 @@ export default function VOXConsumersPage() {
                           v: `${dp}%`,
                           c: ha ? "kr" : "ka",
                           vc: ha ? "vr2" : "va",
-                          s: ha ? `Gap ${aed(gp)}` : "Pending",
+                          s: ha
+                            ? `${S?.disc_count ?? 0} disc \u00B7 Gap ${aed(gp)}`
+                            : "Pending",
                         },
                         {
                           l: "Adyen",

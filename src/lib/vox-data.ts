@@ -81,6 +81,15 @@ export interface VoxSummary {
   adyen_match_pct: number;
   date_from: string;
   date_to: string;
+  matched_txns: number;
+  unmatched_txns: number;
+  matched_total: number;
+  matched_captured: number;
+  default_rate: number;
+  default_gap: number;
+  disc_count: number;
+  adyen_txn_count: number;
+  total_paid: number;
   mercato: VoxSiteSummary;
   mirdif: VoxSiteSummary;
 }
