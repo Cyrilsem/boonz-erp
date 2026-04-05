@@ -105,6 +105,9 @@ export default function VOXConsumersPage() {
   const [tsf, setTsf] = useState("all");
   const [tff, setTff] = useState("all");
   const [tq, setTq] = useState("");
+  const [txnDefaultOnly, setTxnDefaultOnly] = useState(false);
+  const [txnPage, setTxnPage] = useState(0);
+  const PAGE_SIZE = 50;
   const [dateFrom, setDateFrom] = useState("2026-02-06");
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
@@ -1004,11 +1007,14 @@ export default function VOXConsumersPage() {
     ? D.transactions.filter((t) => {
         if (tsf !== "all" && t.site !== tsf) return false;
         if (tff !== "all" && t.funding.toUpperCase() !== tff) return false;
+        if (txnDefaultOnly && !t.disc) return false;
         if (tq && !JSON.stringify(t).toLowerCase().includes(tq.toLowerCase()))
           return false;
         return true;
       })
     : [];
+  const totalPages = Math.ceil(ft.length / PAGE_SIZE);
+  const pageRows = ft.slice(txnPage * PAGE_SIZE, (txnPage + 1) * PAGE_SIZE);
   const tabs = [
     { id: "overview", l: "Overview" },
     { id: "sites", l: "Sites & Machines" },
@@ -1759,7 +1765,7 @@ export default function VOXConsumersPage() {
                     {!ha && " \u00B7 payment cols pending Adyen"}
                   </p>
                 </div>
-                {D.transactions.some((t2) => t2.disc) && (
+                {(S?.disc_count ?? 0) > 0 && (
                   <div
                     className="cd"
                     style={{
@@ -1769,8 +1775,8 @@ export default function VOXConsumersPage() {
                     }}
                   >
                     <span style={{ color: "var(--red)", fontWeight: 600 }}>
-                      {"\u26A0"} {D.transactions.filter((t2) => t2.disc).length}{" "}
-                      Discrepancies
+                      {"\u26A0"} {S?.disc_count}{" "}
+                      {S?.disc_count === 1 ? "Discrepancy" : "Discrepancies"}
                     </span>
                   </div>
                 )}
@@ -1779,7 +1785,10 @@ export default function VOXConsumersPage() {
                     <button
                       key={s}
                       className={`fn ${s === "Mirdif" ? "mb" : ""} ${tsf === s ? "a" : ""}`}
-                      onClick={() => setTsf(s)}
+                      onClick={() => {
+                        setTsf(s);
+                        setTxnPage(0);
+                      }}
                     >
                       {s === "all" ? "All Sites" : s}
                     </button>
@@ -1787,23 +1796,42 @@ export default function VOXConsumersPage() {
                   {["all", "DEBIT", "CREDIT", "PREPAID"].map((f) => (
                     <button
                       key={f}
-                      className={`fn ${tff === f ? "a" : ""}`}
-                      onClick={() => setTff(f)}
+                      className={`fn ${tff === f && !txnDefaultOnly ? "a" : ""}`}
+                      onClick={() => {
+                        setTff(f);
+                        setTxnDefaultOnly(false);
+                        setTxnPage(0);
+                      }}
                     >
                       {f === "all"
                         ? "All Funding"
                         : f.charAt(0) + f.slice(1).toLowerCase()}
                     </button>
                   ))}
+                  <button
+                    className={`fn ${txnDefaultOnly ? "a" : ""}`}
+                    onClick={() => {
+                      setTxnDefaultOnly(!txnDefaultOnly);
+                      setTff("all");
+                      setTxnPage(0);
+                    }}
+                  >
+                    Default
+                  </button>
                   <div className="fs" />
                   <input
                     type="text"
                     placeholder="Search&hellip;"
                     value={tq}
-                    onChange={(e) => setTq(e.target.value)}
+                    onChange={(e) => {
+                      setTq(e.target.value);
+                      setTxnPage(0);
+                    }}
                   />
                   <span className="cl">
-                    {ft.length}/{D.transactions.length}
+                    Showing {ft.length > 0 ? txnPage * PAGE_SIZE + 1 : 0}&ndash;
+                    {Math.min((txnPage + 1) * PAGE_SIZE, ft.length)} of{" "}
+                    {ft.length}
                   </span>
                 </div>
                 <div className="tw">
@@ -1825,7 +1853,7 @@ export default function VOXConsumersPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {ft.map((t2, i) => (
+                      {pageRows.map((t2, i) => (
                         <tr key={i} className={t2.disc ? "dc" : ""}>
                           <td
                             style={{
@@ -1944,6 +1972,58 @@ export default function VOXConsumersPage() {
                     </tbody>
                   </table>
                 </div>
+                {totalPages > 1 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 12,
+                      padding: "12px 0",
+                      fontSize: 12,
+                      color: "#8892A4",
+                    }}
+                  >
+                    <button
+                      onClick={() => setTxnPage((p) => Math.max(0, p - 1))}
+                      disabled={txnPage === 0}
+                      style={{
+                        background: txnPage === 0 ? "#1E2D42" : "#253448",
+                        color: txnPage === 0 ? "#5A6A80" : "#E8EDF5",
+                        border: "1px solid #1E2D42",
+                        borderRadius: 6,
+                        padding: "6px 14px",
+                        cursor: txnPage === 0 ? "not-allowed" : "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      &larr; Prev
+                    </button>
+                    <span>
+                      Page {txnPage + 1} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setTxnPage((p) => Math.min(totalPages - 1, p + 1))
+                      }
+                      disabled={txnPage >= totalPages - 1}
+                      style={{
+                        background:
+                          txnPage >= totalPages - 1 ? "#1E2D42" : "#253448",
+                        color:
+                          txnPage >= totalPages - 1 ? "#5A6A80" : "#E8EDF5",
+                        border: "1px solid #1E2D42",
+                        borderRadius: 6,
+                        padding: "6px 14px",
+                        cursor:
+                          txnPage >= totalPages - 1 ? "not-allowed" : "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      Next &rarr;
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {tab === "commercial" && (
