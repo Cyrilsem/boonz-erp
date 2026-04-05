@@ -1013,7 +1013,6 @@ export default function VOXConsumersPage() {
     { id: "overview", l: "Overview" },
     { id: "sites", l: "Sites & Machines" },
     { id: "products", l: "Products" },
-    { id: "eid", l: "Eid Analysis" },
     { id: "payments", l: "Payments" },
     { id: "transactions", l: "Transactions" },
     { id: "commercial", l: "Commercial" },
@@ -1618,72 +1617,6 @@ export default function VOXConsumersPage() {
                 </div>
               </div>
             )}
-
-            {tab === "eid" && (
-              <div className="pg">
-                <div style={{ marginBottom: 20 }}>
-                  <div className="sl">Eid Al-Fitr 2026</div>
-                  <h2>Holiday Traffic Analysis</h2>
-                </div>
-                {(() => {
-                  const dm: Record<string, Record<string, number>> = {};
-                  D.daily.forEach((r) => {
-                    if (!dm[r.date]) dm[r.date] = {};
-                    dm[r.date][r.site] = r.amount;
-                  });
-                  const pk = ["2026-03-20", "2026-03-21", "2026-03-22"],
-                    po = ["2026-03-23", "2026-03-24", "2026-03-25"];
-                  const pM = pk.reduce((s, d) => s + (dm[d]?.Mercato || 0), 0),
-                    pMi = pk.reduce((s, d) => s + (dm[d]?.Mirdif || 0), 0),
-                    oM = po.reduce((s, d) => s + (dm[d]?.Mercato || 0), 0),
-                    oMi = po.reduce((s, d) => s + (dm[d]?.Mirdif || 0), 0);
-                  return (
-                    <>
-                      <div className="gr g2" style={{ marginBottom: 14 }}>
-                        <div className="kp km">
-                          <div className="kl">
-                            Mercato Peak (20{"\u2013"}22 Mar)
-                          </div>
-                          <div className="kv vm">{aed(pM)}</div>
-                          <div className="ks">Post: {aed(oM)}</div>
-                        </div>
-                        <div className="kp ki">
-                          <div className="kl">
-                            Mirdif Peak (20{"\u2013"}22 Mar)
-                          </div>
-                          <div className="kv vi">{aed(pMi)}</div>
-                          <div className="ks">Post: {aed(oMi)}</div>
-                        </div>
-                      </div>
-                      <div className="eb">
-                        <h4>{"\uD83C\uDF89"} Eid Weekend Insight</h4>
-                        <p
-                          style={{
-                            fontSize: 12,
-                            color: "var(--grey2)",
-                            lineHeight: 1.7,
-                          }}
-                        >
-                          Combined peak:{" "}
-                          <strong style={{ color: "#E8EDF5" }}>
-                            {aed(pM + pMi)}
-                          </strong>
-                          . {pMi > pM ? "Mirdif led" : "Mercato led"}:{" "}
-                          <strong style={{ color: MIRD }}>{aed(pMi)}</strong> vs{" "}
-                          <strong style={{ color: MERC }}>{aed(pM)}</strong>.
-                          Drop:{" "}
-                          {pM + pMi > 0
-                            ? ((1 - (oM + oMi) / (pM + pMi)) * 100).toFixed(0)
-                            : 0}
-                          %.
-                        </p>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            )}
-
             {tab === "payments" && (
               <div className="pg">
                 <div style={{ marginBottom: 20 }}>
