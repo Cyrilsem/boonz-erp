@@ -183,6 +183,99 @@ export const aed = (v: number) =>
 export const pct = (v: number, t: number) =>
   t > 0 ? `${((v / t) * 100).toFixed(1)}%` : "0%";
 
+export interface VoxCommercialReport {
+  params: {
+    date_from: string;
+    date_to: string;
+    pods: string[];
+    adyen_fixed_fee: number;
+    adyen_pct_fee: number;
+    boonz_share_pct: number;
+    vox_share_pct: number;
+  };
+  waterfall: {
+    total_amount: number;
+    default_amount: number;
+    captured_amount: number;
+    refund_amount: number;
+    adyen_fees: number;
+    net_revenue: number;
+    boonz_share: number;
+    vox_share: number;
+    boonz_cogs: number;
+    vox_net_dues: number;
+    boonz_receipts: number;
+    txn_count: number;
+    units_sold: number;
+    matched_txns: number;
+    unmatched_txns: number;
+    disc_count: number;
+    default_rate_pct: number;
+    adyen_fee_pct: number;
+    cogs_ratio_pct: number;
+  };
+  by_site: Array<{
+    site: string;
+    total_amount: number;
+    captured_amount: number;
+    default_amount: number;
+    adyen_fees: number;
+    net_revenue: number;
+    boonz_share: number;
+    vox_share: number;
+    boonz_cogs: number;
+    vox_net_dues: number;
+    txns: number;
+    units: number;
+  }>;
+  transactions: Array<{
+    txn_base: string;
+    txn_date: string;
+    site: string;
+    machine: string;
+    items: string;
+    units: number;
+    total_amount: number;
+    captured_amount: number;
+    default_amount: number;
+    refunded_amount: number;
+    adyen_fees: number;
+    net_revenue: number;
+    boonz_share: number;
+    vox_share: number;
+    boonz_cogs: number;
+    vox_net_dues: number;
+    matched_adyen: boolean;
+    psp_reference: string | null;
+    has_unknown_cost: boolean;
+  }>;
+  discrepancies: Array<{
+    psp: string;
+    date: string;
+    site: string;
+    machine: string;
+    items: string;
+    total: number;
+    captured: number;
+    gap: number;
+  }>;
+}
+
+export async function fetchVoxCommercialReport(
+  pods: string[] = ["Mercato", "Mirdif"],
+  dateFrom: string = "2026-02-06",
+  dateTo: string = new Date().toISOString().split("T")[0],
+): Promise<VoxCommercialReport> {
+  const params = new URLSearchParams({
+    pods: pods.join(","),
+    date_from: dateFrom,
+    date_to: dateTo,
+  });
+  const res = await fetch(`/api/vox/commercial?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch commercial: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchVoxConsumerReport(
   pods: string[] = ["Mercato", "Mirdif"],
   consolidated: boolean = true,

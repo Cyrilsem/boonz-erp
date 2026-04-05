@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Script from "next/script";
 import {
   type VoxConsumerReport,
+  type VoxCommercialReport,
   VOX_PODS,
   MACHINE_LABELS,
   WALLET_NAMES,
@@ -13,6 +14,7 @@ import {
   aed,
   pct,
   fetchVoxConsumerReport,
+  fetchVoxCommercialReport,
 } from "@/lib/vox-data";
 
 const GRID = "#1E2D42";
@@ -123,6 +125,11 @@ export default function VOXConsumersPage() {
     waR = useRef<HTMLCanvasElement>(null),
     fsR = useRef<HTMLCanvasElement>(null),
     csR = useRef<HTMLCanvasElement>(null);
+  const wfR = useRef<HTMLCanvasElement>(null),
+    brR = useRef<HTMLCanvasElement>(null);
+  const [C, setC] = useState<VoxCommercialReport | null>(null);
+  const [cLoading, setCLoading] = useState(false);
+  const [cErr, setCErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,6 +151,22 @@ export default function VOXConsumersPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadCommercial = useCallback(async () => {
+    setCLoading(true);
+    setCErr(null);
+    try {
+      setC(await fetchVoxCommercialReport(pods, dateFrom, dateTo));
+    } catch (e: any) {
+      setCErr(e.message);
+    } finally {
+      setCLoading(false);
+    }
+  }, [pods, dateFrom, dateTo]);
+  useEffect(() => {
+    if (tab === "commercial") loadCommercial();
+  }, [tab, loadCommercial]);
+
   const tog = (p: string) =>
     setPods((v) => {
       if (v.includes(p)) {
@@ -782,6 +805,201 @@ export default function VOXConsumersPage() {
     [D, cjs, tab, pods],
   );
 
+  // Commercial waterfall chart
+  useChart(
+    wfR,
+    C && cjs && tab === "commercial"
+      ? (() => {
+          const w = C.waterfall;
+          const num = (v: number) => (v == null || isNaN(v) ? 0 : Number(v));
+          const total = num(w.total_amount);
+          const captured = num(w.captured_amount);
+          const refund = num(w.refund_amount);
+          const adyenFees = num(w.adyen_fees);
+          const netRev = num(w.net_revenue);
+          const boonzShare = num(w.boonz_share);
+          const voxShare = num(w.vox_share);
+          const boonzCogs = num(w.boonz_cogs);
+          const voxNetDues = num(w.vox_net_dues);
+          const bars = [
+            {
+              label: ["Total", "Amount"],
+              base: 0,
+              top: total,
+              color: "#2A3547",
+              displayVal: total,
+            },
+            {
+              label: ["Default"],
+              base: captured,
+              top: total,
+              color: "#EF4444",
+              displayVal: num(w.default_amount),
+            },
+            {
+              label: ["Captured"],
+              base: 0,
+              top: captured,
+              color: "#0F4D3A",
+              displayVal: captured,
+            },
+            {
+              label: ["Refund"],
+              base: captured - refund,
+              top: captured,
+              color: "#EC4899",
+              displayVal: refund,
+            },
+            {
+              label: ["Adyen", "Fees"],
+              base: captured - refund - adyenFees,
+              top: captured - refund,
+              color: "#F97316",
+              displayVal: adyenFees,
+            },
+            {
+              label: ["Net", "Revenue"],
+              base: 0,
+              top: netRev,
+              color: "#0E3F4D",
+              displayVal: netRev,
+            },
+            {
+              label: ["Boonz", "20%"],
+              base: 0,
+              top: boonzShare,
+              color: "#F59E0B",
+              displayVal: boonzShare,
+            },
+            {
+              label: ["VOX", "80%"],
+              base: 0,
+              top: voxShare,
+              color: "#3D2F63",
+              displayVal: voxShare,
+            },
+            {
+              label: ["Boonz", "COGS"],
+              base: voxShare - boonzCogs,
+              top: voxShare,
+              color: "#EF4444",
+              displayVal: boonzCogs,
+            },
+            {
+              label: ["VOX", "Net Dues"],
+              base: 0,
+              top: voxNetDues,
+              color: "#8B5CF6",
+              displayVal: voxNetDues,
+            },
+          ];
+          const maxVal = Math.max(...bars.map((b) => b.top)) * 1.15;
+          return {
+            type: "bar",
+            data: {
+              labels: bars.map((b) => b.label),
+              datasets: [
+                {
+                  data: bars.map((b) => [b.base, b.top]),
+                  backgroundColor: bars.map((b) => b.color),
+                  borderWidth: 0,
+                  borderRadius: 4,
+                  barPercentage: 0.72,
+                  categoryPercentage: 0.85,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  ...PLUG.tooltip,
+                  callbacks: {
+                    title: (ctx: any) => {
+                      const l = bars[ctx[0].dataIndex].label;
+                      return Array.isArray(l) ? l.join(" ") : l;
+                    },
+                    label: (ctx: any) =>
+                      ` AED ${bars[ctx.dataIndex].displayVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  grid: { display: false },
+                  ticks: { color: "#8892A4", font: { size: 10 } },
+                },
+                y: {
+                  grid: { color: GRID },
+                  ticks: {
+                    color: "#5A6A80",
+                    font: { size: 10 },
+                    callback: (v: any) => `${(v / 1000).toFixed(1)}k`,
+                  },
+                  beginAtZero: true,
+                  max: maxVal,
+                },
+              },
+              animation: { duration: 500 },
+            },
+          };
+        })()
+      : null,
+    [C, cjs, tab],
+  );
+
+  // Boonz Receipts doughnut
+  useChart(
+    brR,
+    C && cjs && tab === "commercial"
+      ? {
+          type: "doughnut",
+          data: {
+            labels: ["Boonz 20% Share", "COGS Reimbursement"],
+            datasets: [
+              {
+                data: [
+                  Number(C.waterfall.boonz_share || 0),
+                  Number(C.waterfall.boonz_cogs || 0),
+                ],
+                backgroundColor: ["#F59E0B", "#EF4444"],
+                borderColor: "#080C12",
+                borderWidth: 3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: "62%",
+            plugins: {
+              ...PLUG,
+              legend: {
+                display: true,
+                position: "bottom",
+                labels: {
+                  color: "#8892A4",
+                  boxWidth: 10,
+                  padding: 10,
+                  font: { size: 10 },
+                },
+              },
+              tooltip: {
+                ...PLUG.tooltip,
+                callbacks: {
+                  label: (ctx: any) =>
+                    ` ${ctx.label}: AED ${ctx.parsed.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                },
+              },
+            },
+          },
+        }
+      : null,
+    [C, cjs, tab],
+  );
+
   const ft = D
     ? D.transactions.filter((t) => {
         if (tsf !== "all" && t.site !== tsf) return false;
@@ -798,6 +1016,7 @@ export default function VOXConsumersPage() {
     { id: "eid", l: "Eid Analysis" },
     { id: "payments", l: "Payments" },
     { id: "transactions", l: "Transactions" },
+    { id: "commercial", l: "Commercial" },
   ];
 
   return (
@@ -1792,6 +2011,666 @@ export default function VOXConsumersPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+            {tab === "commercial" && (
+              <div className="pg">
+                <div style={{ marginBottom: 16 }}>
+                  <div className="sl">Financial Reconciliation</div>
+                  <h2>VOX Commercial Reconciliation</h2>
+                </div>
+                {cLoading && (
+                  <div
+                    className="cd"
+                    style={{
+                      padding: 24,
+                      textAlign: "center",
+                      color: "var(--grey)",
+                    }}
+                  >
+                    Loading commercial report&hellip;
+                  </div>
+                )}
+                {cErr && (
+                  <div
+                    className="cd"
+                    style={{
+                      padding: 16,
+                      background: "rgba(239,68,68,0.08)",
+                      borderColor: "rgba(239,68,68,0.3)",
+                      color: "var(--red)",
+                    }}
+                  >
+                    Error: {cErr}
+                  </div>
+                )}
+                {C &&
+                  !cLoading &&
+                  !cErr &&
+                  (() => {
+                    const w = C.waterfall;
+                    const aed2 = (v: number) =>
+                      `AED ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    const fmtDate = (s: string) => {
+                      try {
+                        return new Date(s).toLocaleDateString("en-GB", {
+                          day: "2-digit",
+                          month: "short",
+                        });
+                      } catch {
+                        return s;
+                      }
+                    };
+                    const discTotal = (C.discrepancies || []).reduce(
+                      (a, d) => a + Number(d.gap || 0),
+                      0,
+                    );
+                    const kpis = [
+                      {
+                        l: "Total Amount",
+                        v: aed(w.total_amount),
+                        s: `${w.txn_count} txns \u00B7 ${w.units_sold} units`,
+                      },
+                      {
+                        l: "Captured",
+                        v: aed(w.captured_amount),
+                        s: `${w.default_rate_pct.toFixed(2)}% default`,
+                      },
+                      {
+                        l: "Net Revenue",
+                        v: aed(w.net_revenue),
+                        s: `after ${w.adyen_fee_pct.toFixed(2)}% Adyen fees`,
+                      },
+                      {
+                        l: "Boonz 20% Share",
+                        v: aed(w.boonz_share),
+                        s: "of net revenue",
+                      },
+                      {
+                        l: "Boonz COGS",
+                        v: aed(w.boonz_cogs),
+                        s: `${w.cogs_ratio_pct.toFixed(2)}% of captured`,
+                      },
+                      {
+                        l: "VOX Net Dues",
+                        v: aed(w.vox_net_dues),
+                        s: "VOX 80% - Boonz COGS",
+                      },
+                    ];
+                    const boonzReceipts =
+                      Number(w.boonz_share || 0) + Number(w.boonz_cogs || 0);
+                    const legendItems = [
+                      { c: "#2A3547", l: "Total Amount", v: w.total_amount },
+                      { c: "#EF4444", l: "Default", v: w.default_amount },
+                      { c: "#0F4D3A", l: "Captured", v: w.captured_amount },
+                      { c: "#EC4899", l: "Refund", v: w.refund_amount },
+                      { c: "#F97316", l: "Adyen Fees", v: w.adyen_fees },
+                      { c: "#0E3F4D", l: "Net Revenue", v: w.net_revenue },
+                      { c: "#F59E0B", l: "Boonz 20%", v: w.boonz_share },
+                      { c: "#3D2F63", l: "VOX 80%", v: w.vox_share },
+                      { c: "#EF4444", l: "Boonz COGS", v: w.boonz_cogs },
+                      { c: "#8B5CF6", l: "VOX Net Dues", v: w.vox_net_dues },
+                    ];
+                    return (
+                      <>
+                        <div
+                          className="cd"
+                          style={{
+                            marginBottom: 16,
+                            background: "rgba(6,182,212,0.06)",
+                            borderColor: "rgba(6,182,212,0.3)",
+                            padding: "12px 16px",
+                            fontSize: 12,
+                            color: "#67E8F9",
+                          }}
+                        >
+                          <strong style={{ color: "#A5F3FC" }}>
+                            {w.matched_txns}
+                          </strong>{" "}
+                          matched {"\u00B7"}{" "}
+                          <strong style={{ color: "#A5F3FC" }}>
+                            {w.unmatched_txns}
+                          </strong>{" "}
+                          unmatched {"\u00B7"}{" "}
+                          <strong style={{ color: "#A5F3FC" }}>
+                            {w.disc_count}
+                          </strong>{" "}
+                          discrepancies totaling{" "}
+                          <strong style={{ color: "#A5F3FC" }}>
+                            {aed(discTotal)}
+                          </strong>
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns:
+                              "repeat(auto-fit, minmax(180px, 1fr))",
+                            gap: 12,
+                            marginBottom: 16,
+                          }}
+                        >
+                          {kpis.map((k, i) => (
+                            <div key={i} className="cd" style={{ padding: 14 }}>
+                              <div
+                                style={{
+                                  fontSize: 10,
+                                  color: "var(--grey)",
+                                  textTransform: "uppercase",
+                                  letterSpacing: 1,
+                                  marginBottom: 6,
+                                }}
+                              >
+                                {k.l}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 20,
+                                  fontWeight: 700,
+                                  color: "#E8EDF5",
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {k.v}
+                              </div>
+                              <div style={{ fontSize: 10, color: "#5A6A80" }}>
+                                {k.s}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div
+                          className="cd"
+                          style={{ padding: 16, marginBottom: 16 }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--grey)",
+                              textTransform: "uppercase",
+                              letterSpacing: 1,
+                              marginBottom: 10,
+                            }}
+                          >
+                            Waterfall
+                          </div>
+                          <div style={{ position: "relative", height: 460 }}>
+                            <canvas ref={wfR} />
+                          </div>
+                        </div>
+                        <div
+                          className="cd"
+                          style={{ padding: 14, marginBottom: 16 }}
+                        >
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns:
+                                "repeat(auto-fit, minmax(180px, 1fr))",
+                              gap: 10,
+                            }}
+                          >
+                            {legendItems.map((it, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  fontSize: 11,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 12,
+                                    height: 12,
+                                    background: it.c,
+                                    borderRadius: 2,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span style={{ color: "#8892A4", flex: 1 }}>
+                                  {it.l}
+                                </span>
+                                <span
+                                  style={{ color: "#E8EDF5", fontWeight: 600 }}
+                                >
+                                  {aed(it.v)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: 16,
+                            marginBottom: 16,
+                          }}
+                        >
+                          <div className="cd" style={{ padding: 16 }}>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--grey)",
+                                textTransform: "uppercase",
+                                letterSpacing: 1,
+                                marginBottom: 12,
+                              }}
+                            >
+                              Waterfall By Site
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 12,
+                              }}
+                            >
+                              {C.by_site.map((s, i) => {
+                                const isMerc = s.site === "Mercato";
+                                return (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      borderLeft: `3px solid ${isMerc ? MERC : MIRD}`,
+                                      paddingLeft: 12,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        marginBottom: 6,
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          color: isMerc ? MERC : MIRD,
+                                          fontWeight: 600,
+                                          fontSize: 13,
+                                        }}
+                                      >
+                                        {s.site}
+                                      </span>
+                                      <span
+                                        style={{
+                                          color: "#8892A4",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {s.txns} txns {"\u00B7"} {s.units} units
+                                      </span>
+                                    </div>
+                                    <div
+                                      style={{
+                                        display: "grid",
+                                        gridTemplateColumns: "1fr 1fr",
+                                        gap: 6,
+                                        fontSize: 11,
+                                      }}
+                                    >
+                                      <div style={{ color: "#5A6A80" }}>
+                                        Total
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#E8EDF5",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {aed(s.total_amount)}
+                                      </div>
+                                      <div style={{ color: "#5A6A80" }}>
+                                        Captured
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#E8EDF5",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {aed(s.captured_amount)}
+                                      </div>
+                                      <div style={{ color: "#5A6A80" }}>
+                                        Net Revenue
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#E8EDF5",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {aed(s.net_revenue)}
+                                      </div>
+                                      <div style={{ color: "#5A6A80" }}>
+                                        Boonz 20%
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#F59E0B",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {aed(s.boonz_share)}
+                                      </div>
+                                      <div style={{ color: "#5A6A80" }}>
+                                        Boonz COGS
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#EF4444",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        {aed(s.boonz_cogs)}
+                                      </div>
+                                      <div style={{ color: "#5A6A80" }}>
+                                        VOX Net Dues
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#8B5CF6",
+                                          textAlign: "right",
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        {aed(s.vox_net_dues)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div className="cd" style={{ padding: 16 }}>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--grey)",
+                                textTransform: "uppercase",
+                                letterSpacing: 1,
+                                marginBottom: 12,
+                              }}
+                            >
+                              Boonz Receipts Breakdown
+                            </div>
+                            <div
+                              style={{
+                                position: "relative",
+                                height: 220,
+                                marginBottom: 12,
+                              }}
+                            >
+                              <canvas ref={brR} />
+                            </div>
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr auto",
+                                gap: 6,
+                                fontSize: 11,
+                                borderTop: "1px solid var(--border)",
+                                paddingTop: 10,
+                              }}
+                            >
+                              <div style={{ color: "#5A6A80" }}>
+                                Boonz 20% Share
+                              </div>
+                              <div
+                                style={{ color: "#F59E0B", fontWeight: 600 }}
+                              >
+                                {aed(w.boonz_share)}
+                              </div>
+                              <div style={{ color: "#5A6A80" }}>Boonz COGS</div>
+                              <div
+                                style={{ color: "#EF4444", fontWeight: 600 }}
+                              >
+                                {aed(w.boonz_cogs)}
+                              </div>
+                              <div
+                                style={{
+                                  color: "#E8EDF5",
+                                  fontWeight: 600,
+                                  borderTop: "1px solid var(--border)",
+                                  paddingTop: 6,
+                                }}
+                              >
+                                Total Receipts
+                              </div>
+                              <div
+                                style={{
+                                  color: "#E8EDF5",
+                                  fontWeight: 700,
+                                  borderTop: "1px solid var(--border)",
+                                  paddingTop: 6,
+                                }}
+                              >
+                                {aed(boonzReceipts)}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className="cd"
+                          style={{ padding: 0, overflow: "hidden" }}
+                        >
+                          <div
+                            style={{
+                              padding: "12px 16px",
+                              borderBottom: "1px solid var(--border)",
+                              fontSize: 11,
+                              color: "var(--grey)",
+                              textTransform: "uppercase",
+                              letterSpacing: 1,
+                            }}
+                          >
+                            Transaction Detail {"\u00B7"}{" "}
+                            {C.transactions.length} rows
+                          </div>
+                          <div
+                            className="tw"
+                            style={{ maxHeight: 640, overflow: "auto" }}
+                          >
+                            <table>
+                              <thead
+                                style={{
+                                  position: "sticky",
+                                  top: 0,
+                                  background: "var(--surface)",
+                                  zIndex: 1,
+                                }}
+                              >
+                                <tr>
+                                  <th>Date</th>
+                                  <th>Site</th>
+                                  <th>Machine</th>
+                                  <th>Items</th>
+                                  <th className="c">Qty</th>
+                                  <th className="r">Total</th>
+                                  <th className="r">Captured</th>
+                                  <th className="r">Default</th>
+                                  <th className="r">Refund</th>
+                                  <th className="r">Adyen Fees</th>
+                                  <th className="r">Net Rev</th>
+                                  <th className="r">Boonz 20%</th>
+                                  <th className="r">VOX 80%</th>
+                                  <th className="r">Boonz COGS</th>
+                                  <th className="c">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {C.transactions.map((t, i) => {
+                                  const isDisc =
+                                    Number(t.default_amount || 0) > 0;
+                                  const isUnmatched = !t.matched_adyen;
+                                  const rowStyle: React.CSSProperties = {
+                                    ...(isDisc
+                                      ? { background: "rgba(239,68,68,0.06)" }
+                                      : {}),
+                                    ...(isUnmatched ? { opacity: 0.6 } : {}),
+                                  };
+                                  const isMerc = t.site === "Mercato";
+                                  const status = isDisc
+                                    ? "DEFAULT"
+                                    : isUnmatched
+                                      ? "NO ADYEN"
+                                      : "OK";
+                                  const statusColor = isDisc
+                                    ? "#EF4444"
+                                    : isUnmatched
+                                      ? "#8892A4"
+                                      : "#10B981";
+                                  return (
+                                    <tr key={i} style={rowStyle}>
+                                      <td
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#8892A4",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {fmtDate(t.txn_date)}
+                                      </td>
+                                      <td>
+                                        <span
+                                          className={`sp ${isMerc ? "spm" : "spd"}`}
+                                        >
+                                          {t.site}
+                                        </span>
+                                      </td>
+                                      <td
+                                        className="tm"
+                                        style={{ color: isMerc ? MERC : MIRD }}
+                                      >
+                                        {MACHINE_LABELS[t.machine] || t.machine}
+                                      </td>
+                                      <td
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#8892A4",
+                                          maxWidth: 220,
+                                        }}
+                                      >
+                                        {t.items}
+                                      </td>
+                                      <td
+                                        className="c"
+                                        style={{ color: "#8892A4" }}
+                                      >
+                                        {t.units}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#E8EDF5",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.total_amount)}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#8892A4",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.captured_amount)}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: isDisc ? "#EF4444" : "#2D3748",
+                                          fontSize: 11,
+                                          fontWeight: isDisc ? 700 : 400,
+                                        }}
+                                      >
+                                        {isDisc
+                                          ? aed2(t.default_amount)
+                                          : "\u2014"}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color:
+                                            Number(t.refunded_amount) > 0
+                                              ? "#EC4899"
+                                              : "#2D3748",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {Number(t.refunded_amount) > 0
+                                          ? aed2(t.refunded_amount)
+                                          : "\u2014"}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#F97316",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.adyen_fees)}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#8892A4",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.net_revenue)}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#F59E0B",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.boonz_share)}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#8892A4",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.vox_share)}
+                                      </td>
+                                      <td
+                                        className="r"
+                                        style={{
+                                          color: "#EF4444",
+                                          fontSize: 11,
+                                        }}
+                                      >
+                                        {aed2(t.boonz_cogs)}
+                                      </td>
+                                      <td className="c">
+                                        <span
+                                          style={{
+                                            fontSize: 9,
+                                            color: statusColor,
+                                            fontWeight: 700,
+                                            letterSpacing: 0.5,
+                                          }}
+                                        >
+                                          {status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
               </div>
             )}
           </>
