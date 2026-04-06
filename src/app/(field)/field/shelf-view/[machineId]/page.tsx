@@ -1,0 +1,269 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { FieldHeader } from "../../../components/field-header";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface ShelfSlot {
+  shelf_id: string;
+  shelf_code: string;
+  row_label: string;
+  door_side: string;
+  pod_product_name: string;
+  target_qty: number;
+  current_stock: number;
+  refill_qty: number;
+  fill_pct: number;
+  last_snapshot_at: string | null;
+}
+
+interface MachineInfo {
+  official_name: string;
+  pod_location: string | null;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fillBarColor(pct: number): string {
+  if (pct >= 70) return "bg-green-500";
+  if (pct >= 30) return "bg-amber-400";
+  return "bg-red-500";
+}
+
+function fillBadgeClass(pct: number): string {
+  if (pct >= 70)
+    return "text-green-700 bg-green-50 dark:text-green-300 dark:bg-green-900/30";
+  if (pct >= 30)
+    return "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-900/30";
+  return "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-900/30";
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function ShelfViewPage() {
+  const params = useParams<{ machineId: string }>();
+  const machineId = params.machineId;
+
+  const [machine, setMachine] = useState<MachineInfo | null>(null);
+  const [slots, setSlots] = useState<ShelfSlot[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeDoor, setActiveDoor] = useState<"A" | "B">("A");
+
+  const fetchData = useCallback(async () => {
+    const supabase = createClient();
+
+    const [{ data: machineData }, { data: planData }] = await Promise.all([
+      supabase
+        .from("machines")
+        .select("official_name, pod_location")
+        .eq("machine_id", machineId)
+        .single(),
+      supabase
+        .from("v_machine_shelf_plan")
+        .select(
+          "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at",
+        )
+        .eq("machine_id", machineId)
+        .eq("plan_active", true)
+        .limit(500),
+    ]);
+
+    if (machineData) setMachine(machineData);
+
+    if (planData) {
+      const mapped: ShelfSlot[] = planData.map((r) => ({
+        shelf_id: r.shelf_id,
+        shelf_code: r.shelf_code,
+        row_label: r.row_label,
+        door_side: r.door_side,
+        pod_product_name: r.pod_product_name,
+        target_qty: r.target_qty ?? 0,
+        current_stock: Number(r.current_stock ?? 0),
+        refill_qty: r.refill_qty ?? 0,
+        fill_pct: Number(r.fill_pct ?? 0),
+        last_snapshot_at: r.last_snapshot_at ?? null,
+      }));
+      setSlots(mapped);
+
+      const hasBDoor = mapped.some((s) => s.door_side === "B");
+      if (!hasBDoor) setActiveDoor("A");
+    }
+
+    setLoading(false);
+  }, [machineId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  if (loading) {
+    return (
+      <>
+        <FieldHeader title="Shelf View" />
+        <div className="flex items-center justify-center p-8">
+          <p className="text-neutral-500">Loading shelf plan…</p>
+        </div>
+      </>
+    );
+  }
+
+  const hasBDoor = slots.some((s) => s.door_side === "B");
+  const visibleSlots = slots.filter((s) => s.door_side === activeDoor);
+
+  // All unique row labels, sorted
+  const allRowLabels = Array.from(
+    new Set(slots.map((s) => s.row_label)),
+  ).sort();
+
+  // Build row → slots map for active door
+  const rowMap = new Map<string, ShelfSlot[]>();
+  for (const slot of visibleSlots) {
+    const arr = rowMap.get(slot.row_label) ?? [];
+    arr.push(slot);
+    rowMap.set(slot.row_label, arr);
+  }
+  for (const [, arr] of rowMap) {
+    arr.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
+  }
+
+  // KPIs (across all doors)
+  const totalSlots = slots.length;
+  const needsRefill = slots.filter((s) => s.refill_qty > 0).length;
+  const empty = slots.filter((s) => s.current_stock === 0).length;
+  const avgFill =
+    totalSlots > 0
+      ? Math.round(slots.reduce((sum, s) => sum + s.fill_pct, 0) / totalSlots)
+      : 0;
+
+  return (
+    <div className="pb-32">
+      <FieldHeader title="Shelf View" />
+
+      <div className="px-4 pt-4">
+        {machine && (
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold">{machine.official_name}</h2>
+            {machine.pod_location && (
+              <p className="text-sm text-neutral-500">{machine.pod_location}</p>
+            )}
+          </div>
+        )}
+
+        {/* KPI bar */}
+        <div className="mb-4 grid grid-cols-4 gap-2">
+          {[
+            { label: "Slots", value: totalSlots, warn: false },
+            {
+              label: "Needs Refill",
+              value: needsRefill,
+              warn: needsRefill > 0,
+            },
+            { label: "Empty", value: empty, warn: empty > 0 },
+            { label: "Avg Fill", value: `${avgFill}%`, warn: false },
+          ].map((kpi) => (
+            <div
+              key={kpi.label}
+              className={`rounded-lg border p-2 text-center ${
+                kpi.warn
+                  ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20"
+                  : "border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/50"
+              }`}
+            >
+              <p
+                className={`text-lg font-bold ${kpi.warn ? "text-amber-700 dark:text-amber-300" : ""}`}
+              >
+                {kpi.value}
+              </p>
+              <p className="text-[10px] text-neutral-500">{kpi.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Door tabs */}
+        {hasBDoor && (
+          <div className="mb-3 flex gap-2">
+            {(["A", "B"] as const).map((door) => (
+              <button
+                key={door}
+                onClick={() => setActiveDoor(door)}
+                className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
+                  activeDoor === door
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "border border-neutral-300 text-neutral-600 dark:border-neutral-700 dark:text-neutral-400"
+                }`}
+              >
+                Door {door}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Planogram grid */}
+        {allRowLabels.map((row) => {
+          const rowSlots = rowMap.get(row) ?? [];
+          if (rowSlots.length === 0) return null;
+          return (
+            <div key={row} className="mb-3">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                {row}
+              </p>
+              <div
+                className="grid gap-2"
+                style={{
+                  gridTemplateColumns: `repeat(${rowSlots.length}, minmax(0, 1fr))`,
+                }}
+              >
+                {rowSlots.map((slot) => (
+                  <div
+                    key={slot.shelf_id}
+                    className="rounded-lg border border-neutral-200 bg-white p-2 dark:border-neutral-700 dark:bg-neutral-800"
+                  >
+                    <p className="text-[10px] font-medium text-neutral-400">
+                      {slot.shelf_code}
+                    </p>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] font-semibold leading-tight">
+                      {slot.pod_product_name}
+                    </p>
+                    {/* Fill bar */}
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+                      <div
+                        className={`h-full rounded-full ${fillBarColor(slot.fill_pct)}`}
+                        style={{ width: `${Math.min(slot.fill_pct, 100)}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center justify-between">
+                      <span
+                        className={`rounded px-1 py-0.5 text-[9px] font-medium ${fillBadgeClass(slot.fill_pct)}`}
+                      >
+                        {slot.fill_pct}%
+                      </span>
+                      <span className="text-[9px] text-neutral-500">
+                        {slot.current_stock}/{slot.target_qty}
+                      </span>
+                    </div>
+                    {slot.refill_qty > 0 && (
+                      <p className="mt-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">
+                        +{slot.refill_qty}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+
+        {slots.length === 0 && (
+          <div className="mt-8 text-center">
+            <p className="text-neutral-500">
+              No planogram data for this machine.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -139,7 +139,17 @@ export default function DispatchingPage() {
 
   return (
     <div className="px-4 py-4">
-      <FieldHeader title="Dispatching" />
+      <FieldHeader
+        title="Dispatching"
+        rightAction={
+          <Link
+            href="/field/dispatching/pick"
+            className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+          >
+            Pick List →
+          </Link>
+        }
+      />
 
       {toDispatch.length > 0 && (
         <div className="mb-6">

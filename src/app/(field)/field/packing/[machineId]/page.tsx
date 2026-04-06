@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
@@ -319,7 +320,17 @@ export default function PackingDetailPage() {
 
   return (
     <div className="px-4 py-4 pb-40">
-      <FieldHeader title="Machine Detail" />
+      <FieldHeader
+        title="Machine Detail"
+        rightAction={
+          <Link
+            href={`/field/shelf-view/${machineId}`}
+            className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+          >
+            Shelf View →
+          </Link>
+        }
+      />
 
       {machine && (
         <div className="mb-4">
