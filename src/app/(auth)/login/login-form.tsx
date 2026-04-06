@@ -34,6 +34,13 @@ export default function LoginForm() {
       return;
     }
 
+    const {
+      data: { user: loggedInUser },
+    } = await supabase.auth.getUser();
+    if (loggedInUser?.app_metadata?.role === "vox_admin") {
+      router.push("/consumers_vox");
+      return;
+    }
     const redirectTo = searchParams.get("redirectTo") || "/field";
     router.push(redirectTo);
   }

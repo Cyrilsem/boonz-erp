@@ -66,7 +66,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // ── Fetch role ───────────────────────────────────────────────────────────────
+  // ── vox_admin: role lives in app_metadata, no user_profiles row needed ───────
+  if (user.app_metadata?.role === "vox_admin") {
+    const allowed =
+      path === "/consumers_vox" ||
+      path.startsWith("/consumers_vox/") ||
+      path.startsWith("/api/vox/") ||
+      path.startsWith("/login");
+    if (!allowed) {
+      return NextResponse.redirect(new URL("/consumers_vox", request.url));
+    }
+    return supabaseResponse;
+  }
+
+  // ── Fetch role from user_profiles for all other users ────────────────────────
   const { data: profile } = await supabase
     .from("user_profiles")
     .select("role")
