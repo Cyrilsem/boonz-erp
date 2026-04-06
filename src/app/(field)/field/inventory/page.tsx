@@ -234,7 +234,7 @@ export default function InventoryPage() {
         edit_id, pod_inventory_id, machine_id, boonz_product_id,
         edit_type, quantity_update, notes, status, created_at, requested_by,
         destination_machine_id,
-        machines!inner(official_name),
+        machines!pod_inventory_edits_machine_id_fkey(official_name),
         boonz_products!inner(boonz_product_name),
         pod_inventory(current_stock),
         destination_machine:machines!pod_inventory_edits_destination_machine_id_fkey(official_name)
@@ -268,10 +268,10 @@ export default function InventoryPage() {
 
     setPendingEdits(
       data.map((r) => {
-        const m = r.machines as unknown as { official_name: string };
+        const m = r.machines as unknown as { official_name: string } | null;
         const bp = r.boonz_products as unknown as {
           boonz_product_name: string;
-        };
+        } | null;
         const reqBy = r.requested_by as string | null;
         return {
           edit_id: r.edit_id,
@@ -289,8 +289,8 @@ export default function InventoryPage() {
           quantity_update: r.quantity_update as number | null,
           notes: r.notes as string | null,
           created_at: r.created_at as string,
-          machine_name: m.official_name,
-          boonz_product_name: bp.boonz_product_name,
+          machine_name: m?.official_name ?? "",
+          boonz_product_name: bp?.boonz_product_name ?? "",
           submitted_by_name: reqBy ? (nameMap.get(reqBy) ?? null) : null,
           current_pod_stock:
             (r.pod_inventory as unknown as { current_stock: number } | null)
