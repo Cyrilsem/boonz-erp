@@ -56,6 +56,7 @@ interface ConfigCounts {
   podProducts: number;
   suppliers: number;
   productMappings: number;
+  machinesCount: number;
 }
 
 interface PodExpiryKpis {
@@ -480,6 +481,12 @@ function WarehouseHome({
               cardStyle={kpiCardStyle(0, "low")}
               href="/field/config/product-mapping"
             />
+            <StatCard
+              value={configCounts.machinesCount}
+              label="Machines"
+              cardStyle={kpiCardStyle(0, "low")}
+              href="/field/config/machines"
+            />
           </div>
         </SectionCard>
       )}
@@ -891,6 +898,12 @@ function OperatorAdminHome({
               cardStyle={kpiCardStyle(0, "low")}
               href="/field/config/product-mapping"
             />
+            <StatCard
+              value={configCounts.machinesCount}
+              label="Machines"
+              cardStyle={kpiCardStyle(0, "low")}
+              href="/field/config/machines"
+            />
           </div>
         </SectionCard>
       )}
@@ -1146,6 +1159,7 @@ export default function FieldPage() {
             { count: podCount },
             { count: supplierCount },
             { count: mappingCount },
+            { count: machineCount },
           ] = await Promise.all([
             supabase
               .from("boonz_products")
@@ -1161,12 +1175,16 @@ export default function FieldPage() {
               .from("product_mapping")
               .select("*", { count: "exact", head: true })
               .eq("status", "Active"),
+            supabase
+              .from("machines")
+              .select("*", { count: "exact", head: true }),
           ]);
           setConfigCounts({
             boonzProducts: boonzCount ?? 0,
             podProducts: podCount ?? 0,
             suppliers: supplierCount ?? 0,
             productMappings: mappingCount ?? 0,
+            machinesCount: machineCount ?? 0,
           });
         }
       } else {

@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../../components/field-header";
+import { ShelfGrid, type ShelfSlot } from "@/components/field/ShelfGrid";
 
 const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
 
@@ -243,11 +244,19 @@ function parseCsv(text: string): Record<string, string>[] {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = "machines" | "aliases";
+type TabId = "machines" | "aliases" | "layout";
 
 export default function MachinesPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>("machines");
+
+  // Restore tab from URL on mount (avoids useSearchParams Suspense requirement)
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get(
+      "tab",
+    ) as TabId | null;
+    if (tab === "aliases" || tab === "layout") setActiveTab(tab);
+  }, []);
 
   // Machines tab
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -289,6 +298,51 @@ export default function MachinesPage() {
   const [addingAlias, setAddingAlias] = useState(false);
 
   const [loading, setLoading] = useState(true);
+
+  // Layout tab
+  const [layoutMachineId, setLayoutMachineId] = useState<string>("");
+  const [layoutSlots, setLayoutSlots] = useState<ShelfSlot[]>([]);
+  const [layoutLoading, setLayoutLoading] = useState(false);
+
+  const fetchLayoutSlots = useCallback(async (machId: string) => {
+    if (!machId) return;
+    setLayoutLoading(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("v_machine_shelf_plan")
+      .select(
+        "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at",
+      )
+      .eq("machine_id", machId)
+      .eq("plan_active", true)
+      .limit(500);
+    if (data) {
+      setLayoutSlots(
+        data.map((r) => ({
+          shelf_id: r.shelf_id,
+          shelf_code: r.shelf_code,
+          row_label: r.row_label,
+          door_side: r.door_side,
+          pod_product_name: r.pod_product_name,
+          target_qty: r.target_qty ?? 0,
+          current_stock: Number(r.current_stock ?? 0),
+          refill_qty: r.refill_qty ?? 0,
+          fill_pct: Number(r.fill_pct ?? 0),
+          last_snapshot_at: r.last_snapshot_at ?? null,
+        })),
+      );
+    }
+    setLayoutLoading(false);
+  }, []);
+
+  // When Layout tab opens, auto-select first machine if none selected
+  useEffect(() => {
+    if (activeTab === "layout" && machines.length > 0 && !layoutMachineId) {
+      const firstId = machines[0].machine_id;
+      setLayoutMachineId(firstId);
+      fetchLayoutSlots(firstId);
+    }
+  }, [activeTab, machines, layoutMachineId, fetchLayoutSlots]);
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -612,10 +666,13 @@ export default function MachinesPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-neutral-200 dark:border-neutral-800">
-        {(["machines", "aliases"] as TabId[]).map((tab) => (
+        {(["machines", "aliases", "layout"] as TabId[]).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => {
+              setActiveTab(tab);
+              router.replace(`?tab=${tab}`, { scroll: false });
+            }}
             className={`flex-1 py-3 text-sm font-medium transition-colors capitalize ${
               activeTab === tab
                 ? "border-b-2 border-blue-600 text-blue-600"
@@ -872,6 +929,38 @@ export default function MachinesPage() {
               );
             })}
           </ul>
+        </div>
+      )}
+
+      {/* ── Layout tab ── */}
+      {activeTab === "layout" && (
+        <div className="px-4 py-4">
+          <div className="mb-4">
+            <label className="mb-1 block text-xs font-medium text-neutral-500">
+              Machine
+            </label>
+            <select
+              value={layoutMachineId}
+              onChange={(e) => {
+                setLayoutMachineId(e.target.value);
+                fetchLayoutSlots(e.target.value);
+              }}
+              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+            >
+              {machines.map((m) => (
+                <option key={m.machine_id} value={m.machine_id}>
+                  {m.official_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {layoutLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <p className="text-neutral-500">Loading shelf plan…</p>
+            </div>
+          ) : (
+            <ShelfGrid slots={layoutSlots} />
+          )}
         </div>
       )}
 
