@@ -39,7 +39,8 @@ type EditType =
   | "partial_sold"
   | "damaged"
   | "expired"
-  | "return_to_warehouse";
+  | "return_to_warehouse"
+  | "transfer";
 type SortField = "expiry" | "qty" | "product";
 type SortDir = "asc" | "desc";
 
@@ -262,6 +263,11 @@ export default function PodInventoryPage() {
   const [editPhotoUrl, setEditPhotoUrl] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const [availableMachines, setAvailableMachines] = useState<
+    { machine_id: string; official_name: string }[]
+  >([]);
+  const [transferDestMachineId, setTransferDestMachineId] =
+    useState<string>("");
 
   // Reset expiry filter changes
   function handleFilterChange(newFilter: PodFilter) {
@@ -280,6 +286,7 @@ export default function PodInventoryPage() {
     setEditPhotoUrl(null);
     setEditSubmitting(false);
     setEditError(null);
+    setTransferDestMachineId("");
   }
 
   const fetchPendingEdits = useCallback(async () => {
@@ -332,6 +339,16 @@ export default function PodInventoryPage() {
       );
     }
     setLoading(false);
+
+    const { data: mData } = await supabase
+      .from("machines")
+      .select("machine_id, official_name")
+      .eq("status", "Active")
+      .order("official_name");
+    if (mData)
+      setAvailableMachines(
+        mData as { machine_id: string; official_name: string }[],
+      );
   }, []);
 
   useEffect(() => {
@@ -362,12 +379,17 @@ export default function PodInventoryPage() {
       damaged: "",
       expired: String(selectedRow.current_stock),
       return_to_warehouse: String(selectedRow.current_stock),
+      transfer: String(selectedRow.current_stock),
     };
     setEditQty(autoQty[newType]);
   }
 
   async function submitEdit() {
     if (!selectedRow || !editType) return;
+    if (editType === "transfer" && !transferDestMachineId) {
+      setEditError("Select a destination machine");
+      return;
+    }
     setEditSubmitting(true);
     setEditError(null);
 
@@ -414,6 +436,9 @@ export default function PodInventoryPage() {
         photo_path: photoPath,
         notes: editNotes.trim() || null,
         recheck_source: "driver_visit",
+        ...(editType === "transfer" && {
+          destination_machine_id: transferDestMachineId,
+        }),
       });
 
     if (insertError) {
@@ -1074,6 +1099,58 @@ export default function PodInventoryPage() {
                   </p>
                 </div>
               )}
+
+              {/* 7. Transfer to machine */}
+              <button
+                onClick={() => handleEditTypeChange("transfer")}
+                className={`w-full rounded-xl border-2 p-3 text-left transition-colors ${
+                  editType === "transfer"
+                    ? "border-teal-500 bg-teal-50 dark:border-teal-600 dark:bg-teal-950"
+                    : "border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-800"
+                }`}
+              >
+                <p className="text-sm font-semibold">↔ Transfer to machine</p>
+                <p className="text-xs text-neutral-500">
+                  Move stock to another machine
+                </p>
+              </button>
+              {editType === "transfer" && (
+                <div className="ml-4 space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      Units to transfer
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={selectedRow.current_stock}
+                      value={editQty}
+                      onChange={(e) => setEditQty(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">
+                      Destination machine
+                    </label>
+                    <select
+                      value={transferDestMachineId}
+                      onChange={(e) => setTransferDestMachineId(e.target.value)}
+                      className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    >
+                      <option value="">Select machine…</option>
+                      {availableMachines
+                        .filter((m) => m.machine_id !== selectedRow?.machine_id)
+                        .map((m) => (
+                          <option key={m.machine_id} value={m.machine_id}>
+                            {m.official_name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Notes */}
@@ -1095,7 +1172,11 @@ export default function PodInventoryPage() {
             <div className="space-y-2">
               <button
                 onClick={submitEdit}
-                disabled={!editType || editSubmitting}
+                disabled={
+                  !editType ||
+                  editSubmitting ||
+                  (editType === "transfer" && !transferDestMachineId)
+                }
                 className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-semibold text-white disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900"
               >
                 {editSubmitting ? "Submitting…" : "Submit for review"}

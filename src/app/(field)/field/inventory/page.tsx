@@ -51,7 +51,10 @@ interface PendingEdit {
     | "damaged"
     | "expired"
     | "in_stock"
-    | "return_to_warehouse";
+    | "return_to_warehouse"
+    | "transfer";
+  destination_machine_id: string | null;
+  destination_machine_name: string | null;
   quantity_update: number | null;
   notes: string | null;
   created_at: string;
@@ -230,9 +233,11 @@ export default function InventoryPage() {
         `
         edit_id, pod_inventory_id, machine_id, boonz_product_id,
         edit_type, quantity_update, notes, status, created_at, requested_by,
+        destination_machine_id,
         machines!inner(official_name),
         boonz_products!inner(boonz_product_name),
-        pod_inventory(current_stock)
+        pod_inventory(current_stock),
+        destination_machine:machines!pod_inventory_edits_destination_machine_id_fkey(official_name)
       `,
       )
       .eq("status", "pending")
@@ -279,7 +284,8 @@ export default function InventoryPage() {
             | "damaged"
             | "expired"
             | "in_stock"
-            | "return_to_warehouse",
+            | "return_to_warehouse"
+            | "transfer",
           quantity_update: r.quantity_update as number | null,
           notes: r.notes as string | null,
           created_at: r.created_at as string,
@@ -289,6 +295,14 @@ export default function InventoryPage() {
           current_pod_stock:
             (r.pod_inventory as unknown as { current_stock: number } | null)
               ?.current_stock ?? null,
+          destination_machine_id:
+            (r.destination_machine_id as string | null) ?? null,
+          destination_machine_name:
+            (
+              r.destination_machine as unknown as {
+                official_name: string;
+              } | null
+            )?.official_name ?? null,
         };
       }),
     );
@@ -620,6 +634,59 @@ export default function InventoryPage() {
           console.error("[approve in_stock] return insert failed", e);
         }
       }
+    } else if (edit.edit_type === "transfer") {
+      // ── Transfer: deduct source pod + create dispatch line for destination ──
+      const today3 = new Date().toISOString().split("T")[0];
+      const qty = edit.quantity_update ?? 0;
+
+      // Step 1: fetch source pod row (current_stock + expiration_date)
+      let podExpiry: string | null = null;
+      let podCurrentStock = 0;
+      try {
+        const { data: podRow } = await supabase
+          .from("pod_inventory")
+          .select("current_stock, expiration_date")
+          .eq("pod_inventory_id", edit.pod_inventory_id)
+          .single();
+        podCurrentStock = (podRow?.current_stock as number) ?? 0;
+        podExpiry = (podRow?.expiration_date as string | null) ?? null;
+      } catch (e) {
+        console.error("[approve transfer] fetch pod row failed", e);
+      }
+
+      // Step 2: UPDATE source pod stock
+      try {
+        const newStock = Math.max(0, podCurrentStock - qty);
+        await supabase
+          .from("pod_inventory")
+          .update({
+            current_stock: newStock,
+            ...(newStock <= 0 ? { status: "Removed" } : {}),
+            snapshot_date: today3,
+          })
+          .eq("pod_inventory_id", edit.pod_inventory_id);
+      } catch (e) {
+        console.error("[approve transfer] update source pod failed", e);
+      }
+
+      // Step 3: INSERT dispatch line for destination machine
+      try {
+        await supabase.from("refill_dispatching").insert({
+          machine_id: edit.destination_machine_id,
+          boonz_product_id: edit.boonz_product_id,
+          dispatch_date: today3,
+          action: "Transfer",
+          quantity: qty,
+          expiry_date: podExpiry,
+          packed: true,
+          picked_up: false,
+          dispatched: false,
+          returned: false,
+          include: true,
+        });
+      } catch (e) {
+        console.error("[approve transfer] insert dispatch line failed", e);
+      }
     } else {
       // ── sold, partial_sold, damaged: deduct from pod ──────────────────────
       try {
@@ -895,10 +962,15 @@ export default function InventoryPage() {
                                     label: "Return to WH",
                                     cls: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300",
                                   }
-                                : {
-                                    label: "Stock update",
-                                    cls: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
-                                  };
+                                : edit.edit_type === "transfer"
+                                  ? {
+                                      label: "↔ Transfer",
+                                      cls: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300",
+                                    }
+                                  : {
+                                      label: "Stock update",
+                                      cls: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
+                                    };
 
                     return (
                       <li
@@ -918,8 +990,14 @@ export default function InventoryPage() {
                             >
                               {badge.label}
                             </span>
-                            {edit.edit_type === "in_stock" &&
-                            edit.quantity_update !== null ? (
+                            {edit.edit_type === "transfer" ? (
+                              <span className="text-xs text-neutral-500">
+                                {edit.quantity_update} units &middot;{" "}
+                                {edit.machine_name} &rarr;{" "}
+                                {edit.destination_machine_name ?? "Unknown"}
+                              </span>
+                            ) : edit.edit_type === "in_stock" &&
+                              edit.quantity_update !== null ? (
                               <span className="text-xs text-neutral-500">
                                 Pod stock: {edit.current_pod_stock ?? "?"}{" "}
                                 &rarr; {edit.quantity_update} (
