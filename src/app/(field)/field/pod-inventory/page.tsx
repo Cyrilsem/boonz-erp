@@ -413,6 +413,7 @@ export default function PodInventoryPage() {
         })(),
         photo_path: photoPath,
         notes: editNotes.trim() || null,
+        recheck_source: "driver_visit",
       });
 
     if (insertError) {

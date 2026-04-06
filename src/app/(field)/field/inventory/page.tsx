@@ -58,6 +58,7 @@ interface PendingEdit {
   machine_name: string;
   boonz_product_name: string;
   submitted_by_name: string | null;
+  current_pod_stock: number | null;
 }
 
 function formatTimeAgo(dateStr: string): string {
@@ -230,7 +231,8 @@ export default function InventoryPage() {
         edit_id, pod_inventory_id, machine_id, boonz_product_id,
         edit_type, quantity_update, notes, status, created_at, requested_by,
         machines!inner(official_name),
-        boonz_products!inner(boonz_product_name)
+        boonz_products!inner(boonz_product_name),
+        pod_inventory(current_stock)
       `,
       )
       .eq("status", "pending")
@@ -284,6 +286,9 @@ export default function InventoryPage() {
           machine_name: m.official_name,
           boonz_product_name: bp.boonz_product_name,
           submitted_by_name: reqBy ? (nameMap.get(reqBy) ?? null) : null,
+          current_pod_stock:
+            (r.pod_inventory as unknown as { current_stock: number } | null)
+              ?.current_stock ?? null,
         };
       }),
     );
@@ -552,33 +557,84 @@ export default function InventoryPage() {
       } catch (e) {
         console.error("[approve return_to_warehouse] step 3 failed", e);
       }
+    } else if (edit.edit_type === "in_stock") {
+      // ── in_stock: update pod + FIFO sync with warehouse ───────────────────
+      const today2 = new Date().toISOString().split("T")[0];
+      const qty = edit.quantity_update ?? 0;
+      let currentPodStock = 0;
+      try {
+        const { data: podRow } = await supabase
+          .from("pod_inventory")
+          .select("current_stock")
+          .eq("pod_inventory_id", edit.pod_inventory_id)
+          .single();
+        currentPodStock = (podRow?.current_stock as number) ?? 0;
+      } catch (e) {
+        console.error("[approve in_stock] fetch stock failed", e);
+      }
+      try {
+        await supabase
+          .from("pod_inventory")
+          .update({ current_stock: qty })
+          .eq("pod_inventory_id", edit.pod_inventory_id);
+      } catch (e) {
+        console.error("[approve in_stock] update pod failed", e);
+      }
+      const delta = qty - currentPodStock;
+      if (delta > 0) {
+        // Units added to pod — FIFO deduct from warehouse
+        try {
+          const { data: batches } = await supabase
+            .from("warehouse_inventory")
+            .select("wh_inventory_id, warehouse_stock")
+            .eq("boonz_product_id", edit.boonz_product_id)
+            .eq("status", "Active")
+            .gt("warehouse_stock", 0)
+            .order("expiration_date", { ascending: true, nullsFirst: false })
+            .limit(10000);
+          let remaining = delta;
+          for (const batch of batches ?? []) {
+            if (remaining <= 0) break;
+            const avail = (batch.warehouse_stock as number) ?? 0;
+            const take = Math.min(avail, remaining);
+            await supabase
+              .from("warehouse_inventory")
+              .update({ warehouse_stock: avail - take, snapshot_date: today2 })
+              .eq("wh_inventory_id", batch.wh_inventory_id);
+            remaining -= take;
+          }
+        } catch (e) {
+          console.error("[approve in_stock] FIFO deduction failed", e);
+        }
+      } else if (delta < 0) {
+        // Units removed from pod — return to warehouse as new Active batch
+        try {
+          await supabase.from("warehouse_inventory").insert({
+            boonz_product_id: edit.boonz_product_id,
+            warehouse_stock: Math.abs(delta),
+            batch_id: `RECHECK-RETURN-${today2}`,
+            status: "Active",
+            snapshot_date: today2,
+          });
+        } catch (e) {
+          console.error("[approve in_stock] return insert failed", e);
+        }
+      }
     } else {
-      // ── All other types: update pod_inventory ─────────────────────────────
+      // ── sold, partial_sold, damaged: deduct from pod ──────────────────────
       try {
         const qty = edit.quantity_update ?? 0;
-        if (
-          edit.edit_type === "sold" ||
-          edit.edit_type === "partial_sold" ||
-          edit.edit_type === "damaged"
-        ) {
-          const { data: podRow } = await supabase
-            .from("pod_inventory")
-            .select("current_stock")
-            .eq("pod_inventory_id", edit.pod_inventory_id)
-            .single();
-          if (podRow) {
-            await supabase
-              .from("pod_inventory")
-              .update({
-                current_stock: Math.max(0, (podRow.current_stock ?? 0) - qty),
-              })
-              .eq("pod_inventory_id", edit.pod_inventory_id);
-          }
-        } else {
-          // in_stock: set to the reported quantity
+        const { data: podRow } = await supabase
+          .from("pod_inventory")
+          .select("current_stock")
+          .eq("pod_inventory_id", edit.pod_inventory_id)
+          .single();
+        if (podRow) {
           await supabase
             .from("pod_inventory")
-            .update({ current_stock: qty })
+            .update({
+              current_stock: Math.max(0, (podRow.current_stock ?? 0) - qty),
+            })
             .eq("pod_inventory_id", edit.pod_inventory_id);
         }
       } catch {
@@ -862,11 +918,26 @@ export default function InventoryPage() {
                             >
                               {badge.label}
                             </span>
-                            {edit.quantity_update !== null && (
+                            {edit.edit_type === "in_stock" &&
+                            edit.quantity_update !== null ? (
+                              <span className="text-xs text-neutral-500">
+                                Pod stock: {edit.current_pod_stock ?? "?"}{" "}
+                                &rarr; {edit.quantity_update} (
+                                {edit.current_pod_stock !== null
+                                  ? (() => {
+                                      const d =
+                                        edit.quantity_update -
+                                        edit.current_pod_stock!;
+                                      return d >= 0 ? `+${d}` : `${d}`;
+                                    })()
+                                  : "Δ?"}
+                                )
+                              </span>
+                            ) : edit.quantity_update !== null ? (
                               <span className="text-xs text-neutral-500">
                                 Qty: {edit.quantity_update}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                           {edit.notes && (
                             <p className="mt-1 text-xs italic text-neutral-400">
