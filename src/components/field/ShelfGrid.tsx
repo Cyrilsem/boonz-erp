@@ -15,6 +15,9 @@ export interface ShelfSlot {
   refill_qty: number;
   fill_pct: number;
   last_snapshot_at: string | null;
+  // cabinet_count comes from machines.cabinet_count via v_machine_shelf_plan.
+  // 1 = single-door (A side only), 2 = double-door (A and B sides).
+  cabinet_count: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -38,7 +41,10 @@ function fillBadgeClass(pct: number): string {
 export function ShelfGrid({ slots }: { slots: ShelfSlot[] }) {
   const [activeDoor, setActiveDoor] = useState<"A" | "B">("A");
 
-  const hasBDoor = slots.some((s) => s.door_side === "B");
+  // Use cabinet_count from v_machine_shelf_plan — the authoritative source.
+  // Heuristic (checking for B-side rows) is unreliable because shelf_configurations
+  // contains B-side stubs for single-door machines. See machines.cabinet_count.
+  const isDoubleDoor = (slots[0]?.cabinet_count ?? 1) === 2;
   const visibleSlots = slots.filter((s) => s.door_side === activeDoor);
 
   // All unique row labels, sorted
@@ -103,7 +109,7 @@ export function ShelfGrid({ slots }: { slots: ShelfSlot[] }) {
       </div>
 
       {/* Door tabs */}
-      {hasBDoor && (
+      {isDoubleDoor && (
         <div className="mb-3 flex gap-2">
           {(["A", "B"] as const).map((door) => (
             <button

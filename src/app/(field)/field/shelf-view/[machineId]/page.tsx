@@ -31,7 +31,7 @@ export default function ShelfViewPage() {
       supabase
         .from("v_machine_shelf_plan")
         .select(
-          "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at",
+          "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at, cabinet_count",
         )
         .eq("machine_id", machineId)
         .eq("plan_active", true)
@@ -53,6 +53,7 @@ export default function ShelfViewPage() {
           refill_qty: r.refill_qty ?? 0,
           fill_pct: Number(r.fill_pct ?? 0),
           last_snapshot_at: r.last_snapshot_at ?? null,
+          cabinet_count: r.cabinet_count ?? 1,
         })),
       );
     }
