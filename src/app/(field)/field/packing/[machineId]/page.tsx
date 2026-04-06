@@ -367,8 +367,38 @@ export default function PackingDetailPage() {
                   className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                 >
                   {/* Product name + recommended qty */}
-                  <p className="mb-0.5 text-sm font-medium">
+                  <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
                     {line.pod_product_name}
+                    {(() => {
+                      const expiry = line.fifo_expiry;
+                      if (expiry === null) {
+                        return (
+                          <span className="rounded px-1 py-0.5 text-xs font-normal bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                            No expiry date
+                          </span>
+                        );
+                      }
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const exp = new Date(expiry + "T00:00:00");
+                      const soon = new Date(today);
+                      soon.setDate(soon.getDate() + 30);
+                      if (exp < today) {
+                        return (
+                          <span className="rounded px-1 py-0.5 text-xs font-normal bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                            ⚠ EXPIRED
+                          </span>
+                        );
+                      }
+                      if (exp <= soon) {
+                        return (
+                          <span className="rounded px-1 py-0.5 text-xs font-normal bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            ⚠ Expires soon
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
                   </p>
                   <p className="mb-2 text-xs text-neutral-400">
                     Recommended: {line.recommended_qty} units
