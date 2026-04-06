@@ -443,6 +443,17 @@ export default function InventoryPage() {
       })
       .eq("edit_id", editId);
 
+    // Guard: zero-qty edits are already marked approved above — skip all mutations
+    if ((edit.quantity_update ?? 0) <= 0) {
+      setPendingEdits((prev) => prev.filter((e) => e.edit_id !== editId));
+      setProcessingIds((prev) => {
+        const s = new Set(prev);
+        s.delete(editId);
+        return s;
+      });
+      return;
+    }
+
     if (edit.edit_type === "expired") {
       // ── Expired: 4-step flow, all steps non-blocking ──────────────────────
       const today = new Date().toISOString().split("T")[0];
