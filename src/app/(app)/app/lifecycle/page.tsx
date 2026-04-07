@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { jitter } from "@/lib/lifecycle/jitter";
 import {
   BarChart,
   Bar,
@@ -71,23 +72,47 @@ interface DQFlag {
 }
 
 interface ScatterPoint {
+  // xj/yj: jittered chart positions (visual only)
+  xj: number;
+  yj: number;
+  // x/y: real values shown in tooltip
   x: number;
   y: number;
-  z: number; // velocity_30d → dot size
+  z: number;
+  velocity_real: number;
   label: string;
   machine: string;
+  machine_id: string;
+  shelf_code: string | null;
   signal: string;
   family_id: string | null;
   location_type: string;
+  machine_count: number;
 }
 
 interface FamilyPoint {
+  xj: number;
+  yj: number;
   x: number;
   y: number;
   z: number;
   family_id: string;
   family_name: string;
   member_count: number;
+}
+
+/** Slot data when viewing a single machine */
+interface MachineSlotPoint {
+  xj: number;
+  yj: number;
+  x: number;
+  y: number;
+  z: number;
+  velocity_real: number;
+  shelf_id: string;
+  shelf_code: string;
+  pod_product_name: string;
+  signal: string;
 }
 
 interface ProductRow {
@@ -104,7 +129,30 @@ interface ProductRow {
   family_name: string | null;
 }
 
+interface MachineOption {
+  machine_id: string;
+  official_name: string;
+}
+
 type Tab = "overview" | "scatter" | "products";
+type ScatterView = "all" | "machine";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function bracketName(score: number): string {
+  if (score < 1.0) return "RETIRED";
+  if (score < 2.5) return "WIND DOWN";
+  if (score < 4.5) return "TRIAL";
+  if (score < 6.5) return "RAMP";
+  if (score < 8.5) return "CORE";
+  return "HERO";
+}
+
+function trendDirection(trend: number): string {
+  if (trend > 6.5) return "rising";
+  if (trend < 3.5) return "falling";
+  return "flat";
+}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -116,13 +164,52 @@ export default function LifecyclePage() {
   const [dqFlags, setDqFlags] = useState<DQFlag[]>([]);
   const [scatterPts, setScatterPts] = useState<ScatterPoint[]>([]);
   const [familyPts, setFamilyPts] = useState<FamilyPoint[]>([]);
+  const [scatterMachines, setScatterMachines] = useState<MachineOption[]>([]);
+  const [scatterView, setScatterView] = useState<ScatterView>("all");
+  const [scatterMachineId, setScatterMachineId] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const scatterLoaded = useRef(false);
   const productsLoaded = useRef(false);
+  const urlInitialized = useRef(false);
 
+  // ── URL sync (tab + scatter view) ────────────────────────────────────────
+  useEffect(() => {
+    if (urlInitialized.current) return;
+    urlInitialized.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get("tab") as Tab | null;
+    if (t && ["overview", "scatter", "products"].includes(t)) setTab(t);
+    const v = params.get("view") as ScatterView | null;
+    if (v === "machine") {
+      setScatterView("machine");
+      const mid = params.get("machine_id");
+      if (mid) setScatterMachineId(mid);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!urlInitialized.current) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("tab", tab);
+    if (tab === "scatter" && scatterView === "machine" && scatterMachineId) {
+      params.set("view", "machine");
+      params.set("machine_id", scatterMachineId);
+    } else {
+      params.delete("view");
+      params.delete("machine_id");
+    }
+    const qs = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      qs ? `?${qs}` : window.location.pathname,
+    );
+  }, [tab, scatterView, scatterMachineId]);
+
+  // ── Data fetches ─────────────────────────────────────────────────────────
   const fetchOverview = useCallback(async () => {
     const supabase = createClient();
 
@@ -231,13 +318,13 @@ export default function LifecyclePage() {
       supabase
         .from("slot_lifecycle")
         .select(
-          "score,trend_component,velocity_30d,signal,pod_product_id,machine_id",
+          "shelf_id,score,trend_component,velocity_30d,signal,pod_product_id,machine_id,shelf_code",
         )
         .eq("archived", false)
         .limit(10000),
       supabase
         .from("machines")
-        .select("machine_id,official_name,location_type")
+        .select("machine_id,official_name,location_type,include_in_refill")
         .limit(10000),
       supabase
         .from("pod_products")
@@ -258,18 +345,37 @@ export default function LifecyclePage() {
     const podMap = new Map(pods.map((p) => [p.pod_product_id, p]));
     const familyMap = new Map(families.map((f) => [f.product_family_id, f]));
 
+    // Compute machine_count per pod_product_id from slot data
+    const machineSetByPod = new Map<string, Set<string>>();
+    for (const s of slots) {
+      if (!s.pod_product_id || !s.machine_id) continue;
+      if (!machineSetByPod.has(s.pod_product_id))
+        machineSetByPod.set(s.pod_product_id, new Set());
+      machineSetByPod.get(s.pod_product_id)!.add(s.machine_id);
+    }
+
+    // Jitter is visual only — real values shown in tooltip
     const pts: ScatterPoint[] = slots.map((s) => {
       const m = machineMap.get(s.machine_id ?? "");
       const p = podMap.get(s.pod_product_id ?? "");
+      const jitterId = `${s.machine_id ?? ""}:${s.shelf_id ?? ""}`;
+      const realScore = Number(s.score);
+      const realTrend = Number(s.trend_component);
       return {
-        x: Number(s.score),
-        y: Number(s.trend_component),
+        x: realScore,
+        y: realTrend,
+        xj: Math.max(0, Math.min(10, realScore + jitter(jitterId, 0.15, "x"))),
+        yj: Math.max(0, Math.min(10, realTrend + jitter(jitterId, 0.15, "y"))),
         z: Math.max(1, Math.min(10, Number(s.velocity_30d) * 10)),
+        velocity_real: Number(s.velocity_30d),
         label: p?.pod_product_name ?? "Unknown",
         machine: m?.official_name ?? s.machine_id ?? "",
+        machine_id: s.machine_id ?? "",
+        shelf_code: s.shelf_code ?? null,
         signal: s.signal ?? "KEEP",
         family_id: p?.product_family_id ?? null,
         location_type: m?.location_type ?? "unknown",
+        machine_count: machineSetByPod.get(s.pod_product_id ?? "")?.size ?? 1,
       };
     });
     setScatterPts(pts);
@@ -281,7 +387,7 @@ export default function LifecyclePage() {
     >();
     for (const pt of pts) {
       if (!pt.family_id) continue;
-      const w = Math.max(pt.z / 10, 0.01);
+      const w = Math.max(pt.velocity_real, 0.01);
       const a = famAgg.get(pt.family_id) ?? {
         scoreSum: 0,
         trendSum: 0,
@@ -291,7 +397,7 @@ export default function LifecyclePage() {
       a.scoreSum += pt.x * w;
       a.trendSum += pt.y * w;
       a.wSum += w;
-      a.v30Sum += pt.z / 10;
+      a.v30Sum += pt.velocity_real;
       famAgg.set(pt.family_id, a);
     }
 
@@ -299,16 +405,30 @@ export default function LifecyclePage() {
     for (const [fid, agg] of famAgg) {
       const fam = familyMap.get(fid);
       if (!fam) continue;
+      const rx = Math.round((agg.scoreSum / agg.wSum) * 100) / 100;
+      const ry = Math.round((agg.trendSum / agg.wSum) * 100) / 100;
       famPts.push({
         family_id: fid,
         family_name: fam.family_name,
         member_count: fam.member_count,
-        x: Math.round((agg.scoreSum / agg.wSum) * 100) / 100,
-        y: Math.round((agg.trendSum / agg.wSum) * 100) / 100,
+        x: rx,
+        y: ry,
+        xj: Math.max(0, Math.min(10, rx + jitter(fid, 0.12, "x"))),
+        yj: Math.max(0, Math.min(10, ry + jitter(fid, 0.12, "y"))),
         z: Math.max(2, Math.min(12, agg.v30Sum)),
       });
     }
     setFamilyPts(famPts);
+
+    // Machine list for selector (include_in_refill only, sorted by name)
+    const machineOptions: MachineOption[] = machines
+      .filter((m) => m.include_in_refill)
+      .map((m) => ({
+        machine_id: m.machine_id,
+        official_name: m.official_name,
+      }))
+      .sort((a, b) => a.official_name.localeCompare(b.official_name));
+    setScatterMachines(machineOptions);
   }, []);
 
   const fetchProducts = useCallback(async () => {
@@ -465,7 +585,15 @@ export default function LifecyclePage() {
           />
         )}
         {tab === "scatter" && (
-          <ScatterTab points={scatterPts} familyPoints={familyPts} />
+          <ScatterTab
+            points={scatterPts}
+            familyPoints={familyPts}
+            machines={scatterMachines}
+            viewMode={scatterView}
+            selectedMachineId={scatterMachineId}
+            onViewModeChange={setScatterView}
+            onMachineChange={setScatterMachineId}
+          />
         )}
         {tab === "products" && <ProductsTab products={products} />}
       </div>
@@ -642,21 +770,92 @@ function OverviewTab({
 function ScatterTab({
   points,
   familyPoints,
+  machines,
+  viewMode,
+  selectedMachineId,
+  onViewModeChange,
+  onMachineChange,
 }: {
   points: ScatterPoint[];
   familyPoints: FamilyPoint[];
+  machines: MachineOption[];
+  viewMode: ScatterView;
+  selectedMachineId: string | null;
+  onViewModeChange: (v: ScatterView) => void;
+  onMachineChange: (id: string | null) => void;
 }) {
   const [locFilter, setLocFilter] = useState("all");
   const [familyMode, setFamilyMode] = useState(false);
-  const [hovered, setHovered] = useState<ScatterPoint | FamilyPoint | null>(
-    null,
-  );
+  const [machineSlots, setMachineSlots] = useState<MachineSlotPoint[]>([]);
+  const [machineLoading, setMachineLoading] = useState(false);
 
-  const filtered = familyMode
+  // Fetch slots for the selected machine
+  useEffect(() => {
+    if (viewMode !== "machine" || !selectedMachineId) {
+      setMachineSlots([]);
+      return;
+    }
+    setMachineLoading(true);
+    const supabase = createClient();
+
+    Promise.all([
+      supabase
+        .from("slot_lifecycle")
+        .select(
+          "shelf_id,shelf_code,score,trend_component,velocity_30d,signal,pod_product_id",
+        )
+        .eq("machine_id", selectedMachineId)
+        .eq("archived", false)
+        .limit(10000),
+      supabase
+        .from("pod_products")
+        .select("pod_product_id,pod_product_name")
+        .limit(10000),
+    ]).then(([slotsRes, podsRes]) => {
+      const slots = slotsRes.data ?? [];
+      const pods = podsRes.data ?? [];
+      const podMap = new Map(
+        pods.map((p) => [p.pod_product_id, p.pod_product_name]),
+      );
+
+      // Jitter is visual only — real values shown in tooltip
+      const pts: MachineSlotPoint[] = slots.map((s) => {
+        const jid = `${selectedMachineId}:${s.shelf_id ?? ""}`;
+        const rx = Number(s.score);
+        const ry = Number(s.trend_component);
+        return {
+          x: rx,
+          y: ry,
+          xj: Math.max(0, Math.min(10, rx + jitter(jid, 0.15, "x"))),
+          yj: Math.max(0, Math.min(10, ry + jitter(jid, 0.15, "y"))),
+          z: Math.max(1, Math.min(10, Number(s.velocity_30d) * 10)),
+          velocity_real: Number(s.velocity_30d),
+          shelf_id: s.shelf_id ?? "",
+          shelf_code: s.shelf_code ?? "—",
+          pod_product_name: podMap.get(s.pod_product_id ?? "") ?? "Unknown",
+          signal: s.signal ?? "KEEP",
+        };
+      });
+      setMachineSlots(pts);
+      setMachineLoading(false);
+    });
+  }, [viewMode, selectedMachineId]);
+
+  const isMachineView = viewMode === "machine";
+
+  const globalFiltered = familyMode
     ? familyPoints
     : points.filter(
         (p) => locFilter === "all" || p.location_type === locFilter,
       );
+
+  const activeData = isMachineView ? machineSlots : globalFiltered;
+
+  const dotCount = isMachineView
+    ? `${machineSlots.length} slots`
+    : familyMode
+      ? `${familyPoints.length} families`
+      : `${globalFiltered.length} slots`;
 
   const QUADRANT_LABELS = [
     { x: 7.5, y: 8, text: "Stars", color: "#16a34a" },
@@ -665,49 +864,88 @@ function ScatterTab({
     { x: 1.5, y: 1.5, text: "Dogs", color: "#f87171" },
   ];
 
-  type HoveredSlot = ScatterPoint & {
-    family_id: string | null;
-    location_type: string;
-  };
-  type HoveredFamily = FamilyPoint;
-
-  function isScatterPoint(p: ScatterPoint | FamilyPoint): p is ScatterPoint {
-    return "signal" in p;
+  function getSignalColor(
+    d: ScatterPoint | FamilyPoint | MachineSlotPoint,
+  ): string {
+    if ("signal" in d)
+      return (
+        SIGNAL_COLORS[(d as ScatterPoint | MachineSlotPoint).signal] ??
+        "#a3a3a3"
+      );
+    return "#6366f1";
   }
 
   return (
     <div className="space-y-4">
-      {/* Controls */}
+      {/* Controls row */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex gap-1 rounded-lg border border-neutral-200 p-1 dark:border-neutral-700">
-          {LOC_TYPES.map((lt) => (
-            <button
-              key={lt}
-              onClick={() => setLocFilter(lt)}
-              disabled={familyMode}
-              className={`rounded px-2.5 py-1 text-xs font-medium capitalize transition-colors disabled:opacity-40 ${
-                locFilter === lt && !familyMode
-                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
-              }`}
-            >
-              {lt}
-            </button>
-          ))}
+        {/* View selector */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-neutral-500">View</label>
+          <select
+            value={viewMode}
+            onChange={(e) => {
+              onViewModeChange(e.target.value as ScatterView);
+              if (e.target.value === "all") onMachineChange(null);
+            }}
+            className="rounded border border-neutral-300 px-2 py-1 text-xs focus:outline-none dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+          >
+            <option value="all">All machines (overall)</option>
+            <option value="machine">By machine</option>
+          </select>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={familyMode}
-            onChange={(e) => setFamilyMode(e.target.checked)}
-            className="h-4 w-4 rounded"
-          />
-          <span className="text-neutral-700 dark:text-neutral-300">
-            Family view
-          </span>
-        </label>
+
+        {/* Machine picker — only shown in machine view */}
+        {isMachineView && (
+          <select
+            value={selectedMachineId ?? ""}
+            onChange={(e) => onMachineChange(e.target.value || null)}
+            className="rounded border border-neutral-300 px-2 py-1 text-xs focus:outline-none dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100"
+          >
+            <option value="">— pick a machine —</option>
+            {machines.map((m) => (
+              <option key={m.machine_id} value={m.machine_id}>
+                {m.official_name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {/* Location + family filters — only in global view */}
+        {!isMachineView && (
+          <>
+            <div className="flex gap-1 rounded-lg border border-neutral-200 p-1 dark:border-neutral-700">
+              {LOC_TYPES.map((lt) => (
+                <button
+                  key={lt}
+                  onClick={() => setLocFilter(lt)}
+                  disabled={familyMode}
+                  className={`rounded px-2.5 py-1 text-xs font-medium capitalize transition-colors disabled:opacity-40 ${
+                    locFilter === lt && !familyMode
+                      ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                      : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {lt}
+                </button>
+              ))}
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={familyMode}
+                onChange={(e) => setFamilyMode(e.target.checked)}
+                className="h-4 w-4 rounded"
+              />
+              <span className="text-neutral-700 dark:text-neutral-300">
+                Family view
+              </span>
+            </label>
+          </>
+        )}
+
         <span className="text-xs text-neutral-500">
-          {filtered.length} {familyMode ? "families" : "slots"}
+          {isMachineView && machineLoading ? "Loading…" : dotCount}
         </span>
       </div>
 
@@ -736,9 +974,10 @@ function ScatterTab({
         <ResponsiveContainer width="100%" height={420}>
           <ScatterChart margin={{ top: 16, right: 16, bottom: 24, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+            {/* xj/yj are jittered positions; real x/y preserved for tooltip */}
             <XAxis
               type="number"
-              dataKey="x"
+              dataKey="xj"
               domain={[0, 10]}
               name="Score"
               label={{
@@ -751,7 +990,7 @@ function ScatterTab({
             />
             <YAxis
               type="number"
-              dataKey="y"
+              dataKey="yj"
               domain={[0, 10]}
               name="Trend"
               label={{
@@ -769,51 +1008,94 @@ function ScatterTab({
               cursor={false}
               content={({ payload }) => {
                 if (!payload?.length) return null;
-                const d = payload[0].payload as ScatterPoint | FamilyPoint;
+                const d = payload[0].payload as
+                  | ScatterPoint
+                  | FamilyPoint
+                  | MachineSlotPoint;
+                const isFam = "family_id" in d && !("signal" in d);
+                const isMachineSlot = isMachineView;
+
+                // Tooltip always uses real x/y (not jittered xj/yj)
+                const scoreStr = `${d.x.toFixed(2)} (${bracketName(d.x)})`;
+                const trendStr = `${d.y.toFixed(2)} (${trendDirection(d.y)})`;
+                const velStr = `${("velocity_real" in d ? (d as ScatterPoint | MachineSlotPoint).velocity_real : 0).toFixed(2)} units/day`;
+                const sig =
+                  "signal" in d
+                    ? (d as ScatterPoint | MachineSlotPoint).signal
+                    : null;
+
                 return (
-                  <div className="rounded border border-neutral-200 bg-white p-2 text-xs shadow dark:border-neutral-700 dark:bg-neutral-900">
-                    {isScatterPoint(d) ? (
+                  <div className="rounded border border-neutral-200 bg-white p-3 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900 min-w-[190px]">
+                    {isMachineSlot ? (
                       <>
-                        <p className="font-semibold">{d.label}</p>
-                        <p className="text-neutral-500">{d.machine}</p>
-                        <p>
-                          Score: {d.x.toFixed(2)} · Trend: {d.y.toFixed(2)}
+                        <p className="font-semibold text-sm">
+                          {(d as MachineSlotPoint).shelf_code}
                         </p>
-                        <p
-                          style={{
-                            color: SIGNAL_COLORS[d.signal] ?? "#a3a3a3",
-                          }}
-                        >
-                          {d.signal}
+                        <p className="text-neutral-500 mb-1.5">
+                          {(d as MachineSlotPoint).pod_product_name}
+                        </p>
+                      </>
+                    ) : isFam ? (
+                      <>
+                        <p className="font-semibold text-sm">
+                          {(d as FamilyPoint).family_name}
+                        </p>
+                        <p className="text-neutral-500 mb-1.5">
+                          {(d as FamilyPoint).member_count} products
                         </p>
                       </>
                     ) : (
                       <>
-                        <p className="font-semibold">
-                          {(d as FamilyPoint).family_name}
+                        <p className="font-semibold text-sm truncate max-w-[220px]">
+                          {(d as ScatterPoint).label}
                         </p>
-                        <p className="text-neutral-500">
-                          {(d as FamilyPoint).member_count} products
-                        </p>
-                        <p>
-                          Score: {d.x.toFixed(2)} · Trend: {d.y.toFixed(2)}
+                        <p className="text-neutral-500 mb-1.5">
+                          {(d as ScatterPoint).machine}
                         </p>
                       </>
+                    )}
+                    <div className="space-y-0.5 text-neutral-700 dark:text-neutral-300">
+                      <p>Score: {scoreStr}</p>
+                      <p>Trend: {trendStr}</p>
+                      <p>Velocity: {velStr}</p>
+                    </div>
+                    {sig && (
+                      <p
+                        className="mt-1.5 inline-block rounded px-1.5 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor:
+                            (SIGNAL_COLORS[sig] ?? "#a3a3a3") + "33",
+                          color: SIGNAL_COLORS[sig] ?? "#a3a3a3",
+                        }}
+                      >
+                        {sig}
+                      </p>
+                    )}
+                    {!isMachineSlot && !isFam && (
+                      <p className="mt-1 text-neutral-400">
+                        {(d as ScatterPoint).machine_count} machine
+                        {(d as ScatterPoint).machine_count !== 1 ? "s" : ""}
+                      </p>
                     )}
                   </div>
                 );
               }}
             />
-            {familyMode ? (
+            {isMachineView ? (
+              <Scatter data={machineSlots} fillOpacity={0.7}>
+                {machineSlots.map((pt, i) => (
+                  <Cell key={i} fill={SIGNAL_COLORS[pt.signal] ?? "#a3a3a3"} />
+                ))}
+              </Scatter>
+            ) : familyMode ? (
               <Scatter data={familyPoints} fill="#6366f1" fillOpacity={0.7} />
             ) : (
-              <Scatter data={filtered} fillOpacity={0.65}>
-                {filtered.map((pt, i) => (
+              <Scatter data={globalFiltered} fillOpacity={0.65}>
+                {globalFiltered.map((pt, i) => (
                   <Cell
                     key={i}
                     fill={
-                      SIGNAL_COLORS[(pt as ScatterPoint).signal ?? ""] ??
-                      "#a3a3a3"
+                      SIGNAL_COLORS[(pt as ScatterPoint).signal] ?? "#a3a3a3"
                     }
                   />
                 ))}
@@ -1027,7 +1309,7 @@ function ProductsTab({ products }: { products: ProductRow[] }) {
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── KpiCard ───────────────────────────────────────────────────────────────────
 
 function KpiCard({
   label,
