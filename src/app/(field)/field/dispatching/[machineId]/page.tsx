@@ -334,15 +334,18 @@ export default function DispatchingDetailPage() {
 
     // ── STEP 2: Pod inventory update ─────────────────────────────
     try {
-      const { data: rows, error: selectErr } = await supabase
+      let podQuery = supabase
         .from("pod_inventory")
         .select("pod_inventory_id, current_stock")
         .eq("machine_id", line.machine_id)
         .eq("boonz_product_id", line.boonz_product_id)
-        .eq("status", "Active")
-        .order("snapshot_date", { ascending: false })
-        .order("current_stock", { ascending: false })
-        .limit(1);
+        .eq("status", "Active");
+      if (line.expiry_date) {
+        podQuery = podQuery.eq("expiration_date", line.expiry_date);
+      } else {
+        podQuery = podQuery.is("expiration_date", null);
+      }
+      const { data: rows, error: selectErr } = await podQuery.limit(1);
 
       if (selectErr) throw selectErr;
 
@@ -353,7 +356,6 @@ export default function DispatchingDetailPage() {
           .from("pod_inventory")
           .update({
             current_stock: (rows[0].current_stock ?? 0) + qty,
-            expiration_date: line.expiry_date ?? null,
             snapshot_date: today,
           })
           .eq("pod_inventory_id", rows[0].pod_inventory_id);
