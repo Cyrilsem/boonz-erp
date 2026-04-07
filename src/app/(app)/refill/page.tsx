@@ -249,6 +249,13 @@ export default function RefillPage() {
   const [reviewingAll, setReviewingAll] = useState(false);
   const [reviewAllProgress, setReviewAllProgress] = useState<ProgressMsg[]>([]);
 
+  const [stockRefreshing, setStockRefreshing] = useState(false);
+  const [stockRefreshMsg, setStockRefreshMsg] = useState<
+    | { ok: true; slots: number; ts: string }
+    | { ok: false; error: string }
+    | null
+  >(null);
+
   const getSupabase = useCallback(() => {
     return createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -334,6 +341,7 @@ export default function RefillPage() {
     setModalSort("slot");
     setReviewing(false);
     setReviewProgress([]);
+    setStockRefreshMsg(null);
     if (!selectedMachine) {
       setMachineSlots([]);
       return;
@@ -455,6 +463,44 @@ export default function RefillPage() {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setRefreshing(false);
+    }
+  }
+
+  // ── Per-machine stock refresh ─────────────────────────────────────────────────
+  async function handleStockRefresh(machineId: string) {
+    setStockRefreshing(true);
+    setStockRefreshMsg(null);
+    try {
+      const res = await fetch("/api/refill/stock-refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ machine_id: machineId }),
+      });
+      const data = (await res.json()) as {
+        slots_inserted?: number;
+        report_timestamp?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error) {
+        setStockRefreshMsg({
+          ok: false,
+          error: data.error ?? `HTTP ${res.status}`,
+        });
+      } else {
+        setStockRefreshMsg({
+          ok: true,
+          slots: data.slots_inserted ?? 0,
+          ts: data.report_timestamp ?? new Date().toISOString(),
+        });
+        await loadData();
+      }
+    } catch (e: unknown) {
+      setStockRefreshMsg({
+        ok: false,
+        error: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setStockRefreshing(false);
     }
   }
 
@@ -1404,6 +1450,38 @@ export default function RefillPage() {
                       "🤖 Review with Claude"
                     )}
                   </button>
+
+                  {/* Refresh stock button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const machId = machineHealth.find(
+                        (m) => m.machine_name === selectedMachine,
+                      )?.machine_id;
+                      if (machId) handleStockRefresh(machId);
+                    }}
+                    disabled={stockRefreshing}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      stockRefreshing
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    }`}
+                  >
+                    {stockRefreshing ? "Refreshing…" : "Refresh stock"}
+                  </button>
+
+                  {/* Stock refresh result */}
+                  {stockRefreshMsg && (
+                    <span
+                      className={`text-xs ${
+                        stockRefreshMsg.ok ? "text-green-600" : "text-red-600"
+                      }`}
+                    >
+                      {stockRefreshMsg.ok
+                        ? `${stockRefreshMsg.slots} slots updated · ${timeAgo(stockRefreshMsg.ts)}`
+                        : stockRefreshMsg.error}
+                    </span>
+                  )}
                 </div>
               </div>
               <button

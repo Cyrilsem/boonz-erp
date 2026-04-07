@@ -37,7 +37,19 @@
       "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/boonz 2.0 \\(marco\\)/boonz/output/refill_instructions.csv\")",
       "Bash(node -e \"require\\(''''csv-parse''''\\)\")",
       "Bash(npx tsx:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(grep -n \"pod_inventory\\\\|runInventory\\\\|upsert\\\\|INSERT.*pod\\\\|shelf_id\\\\|pod_product_id\\\\|boonz_product_id\" src/app/\\\\\\(field\\\\\\)/field/dispatching/[machineId]/page.tsx)",
+      "Bash(wc -l src/app/\\\\\\(field\\\\\\)/field/page.tsx)",
+      "Bash(python3:*)",
+      "Bash(sed -i '' '1620,1685d' 'src/app/\\(app\\)/refill/consumers/page.tsx')",
+      "Bash(sed -n '1618,1624p' 'src/app/\\(app\\)/refill/consumers/page.tsx')",
+      "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/page.tsx\")",
+      "Bash(find '/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill' -name *.tsx -o -name *.ts)",
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(field\\)/field/\")",
+      "Bash(grep -n \"inner\\\\|shelf_code\\\\|pod_product_name\\\\|pod_products\\\\|boonz_product_name\" src/app/\\\\\\(field\\\\\\)/field/dispatching/[machineId]/page.tsx)",
+      "Bash(grep -n \"shelfCode\\\\|shelves\\\\.\\\\|shelf_code\\\\|shelfLines\" src/app/\\\\\\(field\\\\\\)/field/dispatching/[machineId]/page.tsx)",
+      "Bash(ls src/app/\\\\\\(app\\\\\\)/)",
+      "Bash(cat src/app/\\\\\\(app\\\\\\)/layout.tsx)"
     ]
   }
 }

@@ -303,6 +303,9 @@ export default function MachinesPage() {
   const [layoutMachineId, setLayoutMachineId] = useState<string>("");
   const [layoutSlots, setLayoutSlots] = useState<ShelfSlot[]>([]);
   const [layoutLoading, setLayoutLoading] = useState(false);
+  const [layoutLastRefresh, setLayoutLastRefresh] = useState<string | null>(
+    null,
+  );
 
   const fetchLayoutSlots = useCallback(async (machId: string) => {
     if (!machId) return;
@@ -311,12 +314,16 @@ export default function MachinesPage() {
     const { data } = await supabase
       .from("v_machine_shelf_plan")
       .select(
-        "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at, cabinet_count",
+        "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at, cabinet_count, last_stock_refresh",
       )
       .eq("machine_id", machId)
       .eq("plan_active", true)
       .limit(500);
     if (data) {
+      setLayoutLastRefresh(
+        (data[0] as { last_stock_refresh?: string | null })
+          ?.last_stock_refresh ?? null,
+      );
       setLayoutSlots(
         data.map((r) => ({
           shelf_id: r.shelf_id,
@@ -955,6 +962,30 @@ export default function MachinesPage() {
               ))}
             </select>
           </div>
+          {/* Stock freshness indicator */}
+          {!layoutLoading &&
+            layoutLastRefresh &&
+            (() => {
+              const ageMs = Date.now() - new Date(layoutLastRefresh).getTime();
+              const ageH = ageMs / 3600000;
+              const color =
+                ageH < 24
+                  ? "text-green-600"
+                  : ageH < 72
+                    ? "text-amber-600"
+                    : "text-red-600";
+              const label =
+                ageH < 1
+                  ? "just now"
+                  : ageH < 24
+                    ? `${Math.floor(ageH)}h ago`
+                    : `${Math.floor(ageH / 24)}d ago`;
+              return (
+                <p className={`mb-2 text-xs ${color}`}>
+                  Last stock refresh: {label}
+                </p>
+              );
+            })()}
           {layoutLoading ? (
             <div className="flex items-center justify-center py-8">
               <p className="text-neutral-500">Loading shelf plan…</p>
