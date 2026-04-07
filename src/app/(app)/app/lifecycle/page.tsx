@@ -16,6 +16,7 @@ import {
   ZAxis,
   ReferenceLine,
   CartesianGrid,
+  LabelList,
 } from "recharts";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -77,6 +78,8 @@ interface OverallPoint {
   z: number;
   pod_product_id: string;
   product_name: string;
+  product_family_id: string | null;
+  family_name: string | null;
   signal: string;
   velocity_real: number;
   machine_count: number;
@@ -112,9 +115,25 @@ interface ProductSlotPoint {
   signal: string;
 }
 
+/** One dot per product family — Cluster mode */
+interface ClusterPoint {
+  xj: number;
+  yj: number;
+  x: number;
+  y: number;
+  z: number;
+  family_id: string;
+  family_name: string;
+  member_count: number;
+  member_names: string;
+  velocity_real: number;
+  signal: string;
+}
+
 /** Deviation table row */
 interface DeviationRow {
   product_name: string;
+  family_name: string | null;
   machine_name: string;
   machine_id: string;
   pod_product_id: string;
@@ -151,7 +170,7 @@ interface ProductRow {
 }
 
 type Tab = "overview" | "scatter" | "products";
-type ScatterView = "overall" | "machine" | "product";
+type ScatterView = "overall" | "machine" | "product" | "cluster";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -168,6 +187,48 @@ function trendDirection(trend: number): string {
   if (trend > 6.5) return "rising";
   if (trend < 3.5) return "falling";
   return "flat";
+}
+
+/** Signal derived from score + trend (used for computed cluster signal). */
+function signalFromScore(score: number, trend: number): string {
+  if (score >= 8.5) return trend >= 5 ? "DOUBLE DOWN" : "KEEP GROWING";
+  if (score >= 6.5)
+    return trend >= 6.5 ? "DOUBLE DOWN" : trend >= 4 ? "KEEP GROWING" : "KEEP";
+  if (score >= 4.5) return trend >= 6.5 ? "WATCH" : "KEEP";
+  if (score >= 2.5) return trend >= 5 ? "WATCH" : "WIND DOWN";
+  if (score >= 1.0) return "ROTATE OUT";
+  return "DEAD — SWAP NOW";
+}
+
+/** Velocity-weighted average score + trend across a group of OverallPoints. */
+function computeFamilyScore(members: OverallPoint[]): {
+  score: number;
+  trend: number;
+  total_velocity: number;
+} {
+  if (members.length === 0) return { score: 5, trend: 5, total_velocity: 0 };
+  let wScore = 0,
+    wV = 0,
+    trendSum = 0,
+    totalV = 0;
+  for (const m of members) {
+    const w = Math.max(m.velocity_real, 0.01);
+    wScore += m.x * w;
+    wV += w;
+    trendSum += m.y;
+    totalV += m.velocity_real;
+  }
+  return {
+    score: Number((wScore / wV).toFixed(2)),
+    trend: Number((trendSum / members.length).toFixed(2)),
+    total_velocity: Number(totalV.toFixed(2)),
+  };
+}
+
+/** Truncate a label string to max chars, adding ellipsis if needed. */
+function truncateLabel(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.substring(0, max - 1) + "…";
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -187,6 +248,7 @@ export default function LifecyclePage() {
   const [scatterView, setScatterView] = useState<ScatterView>("overall");
   const [scatterMachineId, setScatterMachineId] = useState<string | null>(null);
   const [scatterProductId, setScatterProductId] = useState<string | null>(null);
+  const [showSingletons, setShowSingletons] = useState(false);
 
   // Tab 3 data
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -214,6 +276,9 @@ export default function LifecyclePage() {
       setScatterView("product");
       const pid = p.get("pod_product_id");
       if (pid) setScatterProductId(pid);
+    } else if (v === "cluster") {
+      setScatterView("cluster");
+      setShowSingletons(p.get("singletons") === "1");
     }
   }, []);
 
@@ -226,19 +291,29 @@ export default function LifecyclePage() {
         p.set("view", "machine");
         p.set("machine_id", scatterMachineId);
         p.delete("pod_product_id");
+        p.delete("singletons");
       } else if (scatterView === "product" && scatterProductId) {
         p.set("view", "product");
         p.set("pod_product_id", scatterProductId);
         p.delete("machine_id");
+        p.delete("singletons");
+      } else if (scatterView === "cluster") {
+        p.set("view", "cluster");
+        p.delete("machine_id");
+        p.delete("pod_product_id");
+        if (showSingletons) p.set("singletons", "1");
+        else p.delete("singletons");
       } else {
         p.set("view", "overall");
         p.delete("machine_id");
         p.delete("pod_product_id");
+        p.delete("singletons");
       }
     } else {
       p.delete("view");
       p.delete("machine_id");
       p.delete("pod_product_id");
+      p.delete("singletons");
     }
     const qs = p.toString();
     window.history.replaceState(
@@ -246,7 +321,7 @@ export default function LifecyclePage() {
       "",
       qs ? `?${qs}` : window.location.pathname,
     );
-  }, [tab, scatterView, scatterMachineId, scatterProductId]);
+  }, [tab, scatterView, scatterMachineId, scatterProductId, showSingletons]);
 
   // ── Data fetches ──────────────────────────────────────────────────────────
   const fetchOverview = useCallback(async () => {
@@ -347,38 +422,45 @@ export default function LifecyclePage() {
     scatterLoaded.current = true;
     const supabase = createClient();
 
-    const [globRes, slotsRes, machinesRes, podsRes] = await Promise.all([
-      supabase
-        .from("product_lifecycle_global")
-        .select(
-          "pod_product_id,score,trend_component,total_velocity_30d,machine_count,signal,best_location_type,worst_location_type",
-        )
-        .limit(10000),
-      supabase
-        .from("slot_lifecycle")
-        .select(
-          "machine_id,pod_product_id,shelf_code,score,signal,velocity_30d",
-        )
-        .eq("archived", false)
-        .limit(10000),
-      supabase
-        .from("machines")
-        .select("machine_id,official_name,location_type,include_in_refill")
-        .limit(10000),
-      supabase
-        .from("pod_products")
-        .select("pod_product_id,pod_product_name")
-        .limit(10000),
-    ]);
+    const [globRes, slotsRes, machinesRes, podsRes, familiesRes] =
+      await Promise.all([
+        supabase
+          .from("product_lifecycle_global")
+          .select(
+            "pod_product_id,score,trend_component,total_velocity_30d,machine_count,signal,best_location_type,worst_location_type",
+          )
+          .limit(10000),
+        supabase
+          .from("slot_lifecycle")
+          .select(
+            "machine_id,pod_product_id,shelf_code,score,signal,velocity_30d",
+          )
+          .eq("archived", false)
+          .limit(10000),
+        supabase
+          .from("machines")
+          .select("machine_id,official_name,location_type,include_in_refill")
+          .limit(10000),
+        supabase
+          .from("pod_products")
+          .select("pod_product_id,pod_product_name,product_family_id")
+          .limit(10000),
+        supabase
+          .from("product_families")
+          .select("product_family_id,family_name")
+          .limit(10000),
+      ]);
 
     const globs = globRes.data ?? [];
     const slots = slotsRes.data ?? [];
     const machines = machinesRes.data ?? [];
     const pods = podsRes.data ?? [];
+    const families = familiesRes.data ?? [];
 
     const machineMap = new Map(machines.map((m) => [m.machine_id, m]));
     const podMap = new Map(pods.map((p) => [p.pod_product_id, p]));
     const globMap = new Map(globs.map((g) => [g.pod_product_id, g]));
+    const familyMap = new Map(families.map((f) => [f.product_family_id, f]));
 
     // Overall mode: one dot per product (from product_lifecycle_global)
     // Jitter is visual only — real values shown in tooltip
@@ -386,11 +468,15 @@ export default function LifecyclePage() {
       .filter((g) => (g.machine_count ?? 0) > 0)
       .map((g) => {
         const pod = podMap.get(g.pod_product_id);
+        const fid = pod?.product_family_id ?? null;
+        const fam = fid ? familyMap.get(fid) : null;
         const rx = Number(g.score);
         const ry = Number(g.trend_component);
         return {
           pod_product_id: g.pod_product_id,
           product_name: pod?.pod_product_name ?? g.pod_product_id,
+          product_family_id: fid ?? null,
+          family_name: fam?.family_name ?? null,
           x: rx,
           y: ry,
           xj: Math.max(
@@ -417,11 +503,14 @@ export default function LifecyclePage() {
       if (!glob) return [];
       const machine = machineMap.get(s.machine_id ?? "");
       const pod = podMap.get(s.pod_product_id ?? "");
+      const fid = pod?.product_family_id ?? null;
+      const fam = fid ? familyMap.get(fid) : null;
       const localScore = Number(s.score);
       const globalScore = Number(glob.score);
       return [
         {
           product_name: pod?.pod_product_name ?? "Unknown",
+          family_name: fam?.family_name ?? null,
           machine_name: machine?.official_name ?? "Unknown",
           machine_id: s.machine_id ?? "",
           pod_product_id: s.pod_product_id ?? "",
@@ -621,13 +710,16 @@ export default function LifecyclePage() {
             viewMode={scatterView}
             selectedMachineId={scatterMachineId}
             selectedProductId={scatterProductId}
+            showSingletons={showSingletons}
             onViewModeChange={(v) => {
               setScatterView(v);
               if (v !== "machine") setScatterMachineId(null);
               if (v !== "product") setScatterProductId(null);
+              if (v !== "cluster") setShowSingletons(false);
             }}
             onMachineChange={setScatterMachineId}
             onProductChange={setScatterProductId}
+            onShowSingletonsChange={setShowSingletons}
           />
         )}
         {tab === "products" && <ProductsTab products={products} />}
@@ -800,6 +892,13 @@ function OverviewTab({
 
 // ── Scatter Tab ───────────────────────────────────────────────────────────────
 
+// Union type for items that can appear in the chart
+type AnyChartPoint =
+  | OverallPoint
+  | MachineSlotPoint
+  | ProductSlotPoint
+  | ClusterPoint;
+
 function ScatterTab({
   overallPts,
   machines,
@@ -808,9 +907,11 @@ function ScatterTab({
   viewMode,
   selectedMachineId,
   selectedProductId,
+  showSingletons,
   onViewModeChange,
   onMachineChange,
   onProductChange,
+  onShowSingletonsChange,
 }: {
   overallPts: OverallPoint[];
   machines: MachineOption[];
@@ -819,13 +920,13 @@ function ScatterTab({
   viewMode: ScatterView;
   selectedMachineId: string | null;
   selectedProductId: string | null;
+  showSingletons: boolean;
   onViewModeChange: (v: ScatterView) => void;
   onMachineChange: (id: string | null) => void;
   onProductChange: (id: string | null) => void;
+  onShowSingletonsChange: (v: boolean) => void;
 }) {
-  const [locFilter, setLocFilter] = useState("all");
-
-  // Lazy slot fetches inside the tab
+  // Lazy slot fetches
   const [machineSlots, setMachineSlots] = useState<MachineSlotPoint[]>([]);
   const [productSlots, setProductSlots] = useState<ProductSlotPoint[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -835,6 +936,55 @@ function ScatterTab({
   const [devSortCol, setDevSortCol] = useState<keyof DeviationRow>("deviation");
   const [devSortDir, setDevSortDir] = useState<"asc" | "desc">("desc");
   const [devPage, setDevPage] = useState(0);
+
+  // ── Cluster points (derived from overallPts, no extra fetch) ────────────
+  const clusterPts = useMemo((): ClusterPoint[] => {
+    if (viewMode !== "cluster") return [];
+    let overrides: Record<string, string> = {};
+    try {
+      overrides = JSON.parse(
+        localStorage.getItem(FAMILY_OVERRIDES_KEY) ?? "{}",
+      );
+    } catch {}
+
+    // Group overallPts by product_family_id
+    const byFamily = new Map<string, OverallPoint[]>();
+    for (const p of overallPts) {
+      const fid = p.product_family_id;
+      if (!fid) continue;
+      if (!byFamily.has(fid)) byFamily.set(fid, []);
+      byFamily.get(fid)!.push(p);
+    }
+
+    const pts: ClusterPoint[] = [];
+    for (const [fid, members] of byFamily) {
+      if (!showSingletons && members.length < 2) continue;
+      const computed = computeFamilyScore(members);
+      const familyName = members[0].family_name ?? "Unknown family";
+      // Apply localStorage signal overrides; otherwise derive from score+trend
+      const signal =
+        overrides[fid] ?? signalFromScore(computed.score, computed.trend);
+      const allNames = members.map((m) => m.product_name).join(", ");
+      const memberNames =
+        allNames.length > 80 ? allNames.substring(0, 79) + "…" : allNames;
+      const rx = computed.score,
+        ry = computed.trend;
+      pts.push({
+        family_id: fid,
+        family_name: familyName,
+        member_count: members.length,
+        member_names: memberNames,
+        x: rx,
+        y: ry,
+        xj: Math.max(0, Math.min(10, rx + jitter(fid, 0.2, "x"))),
+        yj: Math.max(0, Math.min(10, ry + jitter(fid, 0.2, "y"))),
+        z: Math.max(1, Math.min(12, computed.total_velocity)),
+        velocity_real: computed.total_velocity,
+        signal,
+      });
+    }
+    return pts;
+  }, [overallPts, viewMode, showSingletons]);
 
   // Fetch machine slots
   useEffect(() => {
@@ -937,23 +1087,53 @@ function ScatterTab({
     });
   }, [viewMode, selectedProductId]);
 
-  // Chart data for active mode
-  const overallFiltered =
-    viewMode === "overall"
-      ? overallPts.filter(
-          (p) => locFilter === "all" /* loc filter N/A for global pts */,
-        )
-      : [];
-  // For overall mode we don't have per-slot location, so loc filter is hidden
-
-  const chartData: (OverallPoint | MachineSlotPoint | ProductSlotPoint)[] =
+  // Active chart data for current mode
+  const chartData: AnyChartPoint[] =
     viewMode === "overall"
       ? overallPts
       : viewMode === "machine"
         ? machineSlots
-        : productSlots;
+        : viewMode === "product"
+          ? productSlots
+          : clusterPts;
 
-  // Deviation table filtered data
+  // ── Labeled dot IDs (Overall + Cluster modes only) ───────────────────────
+  const labeledIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (viewMode === "overall") {
+      for (const d of overallPts) {
+        if (d.x >= 8.5 || d.x < 1.0) ids.add(d.pod_product_id);
+      }
+      const top5 = [...overallPts]
+        .sort((a, b) => b.velocity_real - a.velocity_real)
+        .slice(0, 5);
+      for (const d of top5) ids.add(d.pod_product_id);
+    } else if (viewMode === "cluster") {
+      for (const d of clusterPts) {
+        if (d.x >= 8.5 || d.x < 1.0) ids.add(d.family_id);
+      }
+      const top5 = [...clusterPts]
+        .sort((a, b) => b.velocity_real - a.velocity_real)
+        .slice(0, 5);
+      for (const d of top5) ids.add(d.family_id);
+    }
+    return ids;
+  }, [viewMode, overallPts, clusterPts]);
+
+  // ── Deviation table ──────────────────────────────────────────────────────
+  const DEV_COLS: (keyof DeviationRow)[] = [
+    "product_name",
+    "family_name",
+    "machine_name",
+    "shelf_code",
+    "location_type",
+    "velocity",
+    "local_score",
+    "global_score",
+    "deviation",
+    "signal",
+  ];
+
   const filteredDevRows = useMemo(() => {
     let rows = deviationRows;
     if (viewMode === "machine" && selectedMachineId) {
@@ -966,12 +1146,13 @@ function ScatterTab({
       rows = rows.filter(
         (r) =>
           r.product_name.toLowerCase().includes(q) ||
-          r.machine_name.toLowerCase().includes(q),
+          r.machine_name.toLowerCase().includes(q) ||
+          (r.family_name ?? "").toLowerCase().includes(q),
       );
     }
     return [...rows].sort((a, b) => {
-      const va = a[devSortCol],
-        vb = b[devSortCol];
+      const va = a[devSortCol] ?? "",
+        vb = b[devSortCol] ?? "";
       if (typeof va === "number" && typeof vb === "number")
         return devSortDir === "asc" ? va - vb : vb - va;
       return devSortDir === "asc"
@@ -994,7 +1175,6 @@ function ScatterTab({
     (devPage + 1) * DEV_PAGE_SIZE,
   );
 
-  // Reset to page 0 when filter changes
   useEffect(() => {
     setDevPage(0);
   }, [viewMode, selectedMachineId, selectedProductId, devSearch]);
@@ -1023,14 +1203,63 @@ function ScatterTab({
     if (slotsLoading) return "Loading…";
     if (viewMode === "overall") return `${overallPts.length} products`;
     if (viewMode === "machine") return `${machineSlots.length} slots`;
-    return `${productSlots.length} slots`;
+    if (viewMode === "product") return `${productSlots.length} slots`;
+    return `${clusterPts.length} clusters`;
+  }
+
+  // ── LabelList content renderer ───────────────────────────────────────────
+  function renderBubbleLabel(
+    props: Record<string, unknown>,
+  ): React.ReactElement {
+    const x = props.x as number | undefined;
+    const y = props.y as number | undefined;
+    const index = props.index as number | undefined;
+    if (x == null || y == null || index == null || index >= chartData.length) {
+      return <g />;
+    }
+    const item = chartData[index];
+
+    let shouldLabel = true;
+    let labelText = "";
+
+    if (viewMode === "overall") {
+      const p = item as OverallPoint;
+      shouldLabel = labeledIds.has(p.pod_product_id);
+      labelText = truncateLabel(p.product_name, 20);
+    } else if (viewMode === "machine") {
+      const p = item as MachineSlotPoint;
+      labelText = truncateLabel(p.shelf_code, 4);
+    } else if (viewMode === "product") {
+      const p = item as ProductSlotPoint;
+      labelText = truncateLabel(p.machine_name, 12);
+    } else if (viewMode === "cluster") {
+      const p = item as ClusterPoint;
+      shouldLabel = labeledIds.has(p.family_id);
+      labelText = truncateLabel(p.family_name, 20);
+    }
+
+    if (!shouldLabel || !labelText) return <g />;
+
+    return (
+      <text
+        x={x}
+        y={y}
+        dy={-8}
+        fontSize={10}
+        fontWeight={500}
+        fill="#6b7280"
+        textAnchor="middle"
+        pointerEvents="none"
+      >
+        {labelText}
+      </text>
+    );
   }
 
   return (
     <div className="space-y-4">
       {/* ── Controls ── */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* View mode */}
         <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-neutral-500">View</label>
           <select
@@ -1041,10 +1270,10 @@ function ScatterTab({
             <option value="overall">Overall (one dot per product)</option>
             <option value="machine">By machine</option>
             <option value="product">By product</option>
+            <option value="cluster">By cluster</option>
           </select>
         </div>
 
-        {/* Machine picker */}
         {viewMode === "machine" && (
           <select
             value={selectedMachineId ?? ""}
@@ -1060,7 +1289,6 @@ function ScatterTab({
           </select>
         )}
 
-        {/* Product picker */}
         {viewMode === "product" && (
           <select
             value={selectedProductId ?? ""}
@@ -1074,6 +1302,18 @@ function ScatterTab({
               </option>
             ))}
           </select>
+        )}
+
+        {viewMode === "cluster" && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
+            <input
+              type="checkbox"
+              checked={showSingletons}
+              onChange={(e) => onShowSingletonsChange(e.target.checked)}
+              className="h-3.5 w-3.5 rounded"
+            />
+            Show singleton families
+          </label>
         )}
 
         <span className="text-xs text-neutral-500">{dotLabel()}</span>
@@ -1101,116 +1341,160 @@ function ScatterTab({
           </div>
         </div>
 
-        <ResponsiveContainer width="100%" height={420}>
-          <ScatterChart margin={{ top: 16, right: 16, bottom: 24, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-            {/* xj/yj are jittered chart positions; real x/y preserved for tooltip */}
-            <XAxis
-              type="number"
-              dataKey="xj"
-              domain={[0, 10]}
-              name="Score"
-              label={{
-                value: "Score",
-                position: "insideBottomRight",
-                offset: -4,
-                fontSize: 11,
-              }}
-              tick={{ fontSize: 11 }}
-            />
-            <YAxis
-              type="number"
-              dataKey="yj"
-              domain={[0, 10]}
-              name="Trend"
-              label={{
-                value: "Trend",
-                angle: -90,
-                position: "insideLeft",
-                fontSize: 11,
-              }}
-              tick={{ fontSize: 11 }}
-            />
-            <ZAxis type="number" dataKey="z" range={[20, 200]} />
-            <ReferenceLine x={5} stroke="#a3a3a3" strokeDasharray="4 2" />
-            <ReferenceLine y={5} stroke="#a3a3a3" strokeDasharray="4 2" />
-            <Tooltip
-              cursor={false}
-              content={({ payload }) => {
-                if (!payload?.length) return null;
-                const d = payload[0].payload as OverallPoint &
-                  MachineSlotPoint &
-                  ProductSlotPoint;
-                const sig = d.signal ?? "KEEP";
-                // d.x and d.y are the real (un-jittered) values
-                const scoreStr = `${d.x.toFixed(2)} (${bracketName(d.x)})`;
-                const trendStr = `${d.y.toFixed(2)} (${trendDirection(d.y)})`;
-                return (
-                  <div className="rounded border border-neutral-200 bg-white p-3 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900 min-w-[200px]">
-                    {viewMode === "overall" ? (
-                      <>
-                        <p className="font-semibold text-sm truncate max-w-[220px]">
-                          {d.product_name}
-                        </p>
-                        <p className="text-neutral-500 mb-1.5">
-                          {d.machine_count} machine
-                          {d.machine_count !== 1 ? "s" : ""}
-                        </p>
-                      </>
-                    ) : viewMode === "machine" ? (
-                      <>
-                        <p className="font-semibold text-sm">{d.shelf_code}</p>
-                        <p className="text-neutral-500 mb-1.5">
-                          {d.pod_product_name}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-semibold text-sm truncate max-w-[220px]">
-                          {d.machine_name}
-                        </p>
-                        <p className="text-neutral-500 mb-1.5">
-                          {d.location_type} · {d.shelf_code}
-                        </p>
-                      </>
-                    )}
-                    <div className="space-y-0.5 text-neutral-700 dark:text-neutral-300">
-                      <p>Score: {scoreStr}</p>
-                      <p>Trend: {trendStr}</p>
-                      <p>Velocity: {d.velocity_real.toFixed(2)} units/day</p>
-                      {viewMode === "overall" && d.best_location_type && (
-                        <p className="text-neutral-500">
-                          Best: {d.best_location_type}
-                        </p>
+        {/* Cluster empty state */}
+        {viewMode === "cluster" && clusterPts.length === 0 && (
+          <div className="flex items-center justify-center h-[420px]">
+            <p className="max-w-md text-center text-sm text-neutral-500 leading-relaxed">
+              No multi-member clusters yet. Most products are still singleton
+              families. Use the Products tab to review signal overrides, or wait
+              for the auto-clustering algorithm to identify more groups as more
+              products are mapped.
+            </p>
+          </div>
+        )}
+
+        {(viewMode !== "cluster" || clusterPts.length > 0) && (
+          <ResponsiveContainer width="100%" height={420}>
+            <ScatterChart margin={{ top: 20, right: 16, bottom: 24, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+              {/* xj/yj are jittered chart positions; real x/y preserved for tooltip */}
+              <XAxis
+                type="number"
+                dataKey="xj"
+                domain={[0, 10]}
+                name="Score"
+                label={{
+                  value: "Score",
+                  position: "insideBottomRight",
+                  offset: -4,
+                  fontSize: 11,
+                }}
+                tick={{ fontSize: 11 }}
+              />
+              <YAxis
+                type="number"
+                dataKey="yj"
+                domain={[0, 10]}
+                name="Trend"
+                label={{
+                  value: "Trend",
+                  angle: -90,
+                  position: "insideLeft",
+                  fontSize: 11,
+                }}
+                tick={{ fontSize: 11 }}
+              />
+              <ZAxis type="number" dataKey="z" range={[20, 200]} />
+              <ReferenceLine x={5} stroke="#a3a3a3" strokeDasharray="4 2" />
+              <ReferenceLine y={5} stroke="#a3a3a3" strokeDasharray="4 2" />
+              <Tooltip
+                cursor={false}
+                content={({ payload }) => {
+                  if (!payload?.length) return null;
+                  const d = payload[0].payload as OverallPoint &
+                    MachineSlotPoint &
+                    ProductSlotPoint &
+                    ClusterPoint;
+                  const sig = d.signal ?? "KEEP";
+                  // d.x and d.y are real (un-jittered) values
+                  const scoreStr = `${d.x.toFixed(2)} (${bracketName(d.x)})`;
+                  const trendStr = `${d.y.toFixed(2)} (${trendDirection(d.y)})`;
+                  return (
+                    <div className="rounded border border-neutral-200 bg-white p-3 text-xs shadow-lg dark:border-neutral-700 dark:bg-neutral-900 min-w-[200px]">
+                      {viewMode === "overall" && (
+                        <>
+                          <p className="font-semibold text-sm truncate max-w-[220px]">
+                            {d.product_name}
+                          </p>
+                          <p className="text-neutral-500 mb-1.5">
+                            {d.machine_count} machine
+                            {d.machine_count !== 1 ? "s" : ""}
+                          </p>
+                        </>
                       )}
+                      {viewMode === "machine" && (
+                        <>
+                          <p className="font-semibold text-sm">
+                            {d.shelf_code}
+                          </p>
+                          <p className="text-neutral-500 mb-1.5">
+                            {d.pod_product_name}
+                          </p>
+                        </>
+                      )}
+                      {viewMode === "product" && (
+                        <>
+                          <p className="font-semibold text-sm truncate max-w-[220px]">
+                            {d.machine_name}
+                          </p>
+                          <p className="text-neutral-500 mb-1.5">
+                            {d.location_type} · {d.shelf_code}
+                          </p>
+                        </>
+                      )}
+                      {viewMode === "cluster" && (
+                        <>
+                          <p className="font-semibold text-sm">
+                            {d.family_name}
+                          </p>
+                          <p className="text-neutral-500 mb-1">
+                            {d.member_count} product
+                            {d.member_count !== 1 ? "s" : ""}
+                          </p>
+                          <p className="text-neutral-400 mb-1.5 leading-relaxed">
+                            {d.member_names}
+                          </p>
+                        </>
+                      )}
+                      <div className="space-y-0.5 text-neutral-700 dark:text-neutral-300">
+                        <p>Score: {scoreStr}</p>
+                        <p>Trend: {trendStr}</p>
+                        <p>
+                          Velocity: {d.velocity_real.toFixed(2)} units/day
+                          {viewMode === "cluster" ? " across all members" : ""}
+                        </p>
+                        {viewMode === "overall" && d.best_location_type && (
+                          <p className="text-neutral-500">
+                            Best: {d.best_location_type}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className="mt-1.5 inline-block rounded px-1.5 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor: getSignalColor(sig) + "33",
+                          color: getSignalColor(sig),
+                        }}
+                      >
+                        {sig}
+                      </span>
                     </div>
-                    <span
-                      className="mt-1.5 inline-block rounded px-1.5 py-0.5 text-xs font-medium"
-                      style={{
-                        backgroundColor: getSignalColor(sig) + "33",
-                        color: getSignalColor(sig),
-                      }}
-                    >
-                      {sig}
-                    </span>
-                  </div>
-                );
-              }}
-            />
-            <Scatter data={chartData} fillOpacity={0.7}>
-              {(chartData as Array<{ signal?: string }>).map((pt, i) => (
-                <Cell key={i} fill={getSignalColor(pt.signal ?? "KEEP")} />
-              ))}
-            </Scatter>
-          </ScatterChart>
-        </ResponsiveContainer>
+                  );
+                }}
+              />
+              <Scatter data={chartData} fillOpacity={0.7}>
+                {(chartData as Array<{ signal?: string }>).map((pt, i) => (
+                  <Cell key={i} fill={getSignalColor(pt.signal ?? "KEEP")} />
+                ))}
+                {/* Subtle bubble labels — tracks jittered dot positions */}
+                <LabelList
+                  dataKey="xj"
+                  content={
+                    renderBubbleLabel as unknown as (
+                      props: object,
+                    ) => React.ReactElement
+                  }
+                />
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        )}
 
         <p className="mt-1 text-xs text-neutral-400 text-center">
           Dot positions are slightly jittered for visibility — exact values
           shown in tooltip.
         </p>
 
-        {/* Legend */}
         <div className="mt-2 flex flex-wrap gap-3">
           {Object.entries(SIGNAL_COLORS).map(([sig, color]) => (
             <span key={sig} className="flex items-center gap-1 text-xs">
@@ -1243,10 +1527,10 @@ function ScatterTab({
           </div>
           <input
             type="text"
-            placeholder="Search product or machine…"
+            placeholder="Search product, machine or family…"
             value={devSearch}
             onChange={(e) => setDevSearch(e.target.value)}
-            className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs focus:outline-none dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 w-52"
+            className="rounded border border-neutral-300 px-2.5 py-1.5 text-xs focus:outline-none dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-100 w-56"
           />
         </div>
 
@@ -1254,19 +1538,7 @@ function ScatterTab({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-neutral-100 bg-neutral-50 text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
-                {(
-                  [
-                    "product_name",
-                    "machine_name",
-                    "shelf_code",
-                    "location_type",
-                    "velocity",
-                    "local_score",
-                    "global_score",
-                    "deviation",
-                    "signal",
-                  ] as (keyof DeviationRow)[]
-                ).map((col) => (
+                {DEV_COLS.map((col) => (
                   <th
                     key={col}
                     onClick={() => toggleSort(col)}
@@ -1274,21 +1546,23 @@ function ScatterTab({
                   >
                     {col === "product_name"
                       ? "Product"
-                      : col === "machine_name"
-                        ? "Machine"
-                        : col === "shelf_code"
-                          ? "Shelf"
-                          : col === "location_type"
-                            ? "Location"
-                            : col === "velocity"
-                              ? "Vel/day"
-                              : col === "local_score"
-                                ? "Local"
-                                : col === "global_score"
-                                  ? "Global"
-                                  : col === "deviation"
-                                    ? "Deviation"
-                                    : "Signal"}
+                      : col === "family_name"
+                        ? "Family"
+                        : col === "machine_name"
+                          ? "Machine"
+                          : col === "shelf_code"
+                            ? "Shelf"
+                            : col === "location_type"
+                              ? "Location"
+                              : col === "velocity"
+                                ? "Vel/day"
+                                : col === "local_score"
+                                  ? "Local"
+                                  : col === "global_score"
+                                    ? "Global"
+                                    : col === "deviation"
+                                      ? "Deviation"
+                                      : "Signal"}
                     {devSortCol === col && (
                       <span className="ml-1">
                         {devSortDir === "asc" ? "↑" : "↓"}
@@ -1323,10 +1597,17 @@ function ScatterTab({
                     }}
                     className={`${viewMode === "overall" ? "cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-900" : ""} ${devBg}`}
                   >
-                    <td className="max-w-[160px] truncate px-3 py-2 font-medium text-neutral-800 dark:text-neutral-200">
+                    <td className="max-w-[140px] truncate px-3 py-2 font-medium text-neutral-800 dark:text-neutral-200">
                       {row.product_name}
                     </td>
-                    <td className="max-w-[140px] truncate px-3 py-2 text-neutral-600 dark:text-neutral-400">
+                    <td className="max-w-[120px] truncate px-3 py-2 text-neutral-500">
+                      {row.family_name ?? (
+                        <span className="text-neutral-300 dark:text-neutral-600">
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td className="max-w-[130px] truncate px-3 py-2 text-neutral-600 dark:text-neutral-400">
                       {row.machine_name}
                     </td>
                     <td className="px-3 py-2 font-mono text-neutral-500">
@@ -1374,7 +1655,7 @@ function ScatterTab({
               {pagedDevRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={DEV_COLS.length}
                     className="px-4 py-6 text-center text-neutral-400"
                   >
                     No rows match
@@ -1385,7 +1666,6 @@ function ScatterTab({
           </table>
         </div>
 
-        {/* Pagination */}
         {totalDevPages > 1 && (
           <div className="flex items-center justify-between border-t border-neutral-100 px-4 py-2 dark:border-neutral-800">
             <button
