@@ -421,12 +421,24 @@ export default function PodInventoryPage() {
       }
     }
 
+    // Look up pod_product_id for this machine + product combo
+    const { data: pmRow } = await supabase
+      .from("product_mapping")
+      .select("pod_product_id")
+      .eq("machine_id", selectedRow.machine_id)
+      .eq("boonz_product_id", selectedRow.boonz_product_id)
+      .eq("status", "Active")
+      .order("split_pct", { ascending: false })
+      .limit(1)
+      .single();
+
     const { error: insertError } = await supabase
       .from("pod_inventory_edits")
       .insert({
         pod_inventory_id: selectedRow.pod_inventory_id,
         machine_id: selectedRow.machine_id,
         boonz_product_id: selectedRow.boonz_product_id,
+        pod_product_id: pmRow?.pod_product_id ?? null,
         requested_by: user.id,
         edit_type: editType,
         quantity_update: (() => {

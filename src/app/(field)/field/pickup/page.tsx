@@ -6,7 +6,7 @@ import { FieldHeader } from "../../components/field-header";
 
 interface PickupLine {
   dispatch_id: string;
-  shelf_code: string;
+  shelf_code: string | null;
   pod_product_name: string;
   quantity: number;
 }
@@ -39,8 +39,8 @@ export default function PickupPage() {
         `
         dispatch_id, machine_id, packed, picked_up, quantity,
         machines!inner(official_name),
-        shelf_configurations!inner(shelf_code),
-        pod_products!inner(pod_product_name)
+        shelf_configurations(shelf_code),
+        pod_products(pod_product_name)
       `,
       )
       .gte("dispatch_date", yesterday)
@@ -69,16 +69,16 @@ export default function PickupPage() {
       const m = line.machines as unknown as { official_name: string };
       const shelf = line.shelf_configurations as unknown as {
         shelf_code: string;
-      };
+      } | null;
       const product = line.pod_products as unknown as {
         pod_product_name: string;
-      };
+      } | null;
 
       const existing = grouped.get(line.machine_id);
       const pickupLine: PickupLine = {
         dispatch_id: line.dispatch_id,
-        shelf_code: shelf.shelf_code,
-        pod_product_name: product.pod_product_name,
+        shelf_code: shelf?.shelf_code ?? null,
+        pod_product_name: product?.pod_product_name ?? "Transfer",
         quantity: line.quantity ?? 0,
       };
 
@@ -107,7 +107,9 @@ export default function PickupPage() {
         official_name: m.official_name,
         line_count: m.total,
         all_picked_up: m.picked_up_count === m.total,
-        lines: m.lines.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code)),
+        lines: m.lines.sort((a, b) =>
+          (a.shelf_code ?? "").localeCompare(b.shelf_code ?? ""),
+        ),
       }))
       .sort((a, b) => a.official_name.localeCompare(b.official_name));
 
@@ -252,7 +254,7 @@ export default function PickupPage() {
                             className="flex items-center justify-between rounded bg-neutral-50 px-3 py-2 text-sm dark:bg-neutral-900"
                           >
                             <span className="font-mono text-xs text-neutral-400 mr-2">
-                              {line.shelf_code}
+                              {line.shelf_code ?? "—"}
                             </span>
                             <span className="flex-1 truncate">
                               {line.pod_product_name}

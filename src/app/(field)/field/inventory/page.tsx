@@ -62,6 +62,7 @@ interface PendingEdit {
   boonz_product_name: string;
   submitted_by_name: string | null;
   current_pod_stock: number | null;
+  pod_product_id: string | null;
 }
 
 function formatTimeAgo(dateStr: string): string {
@@ -231,7 +232,7 @@ export default function InventoryPage() {
       .from("pod_inventory_edits")
       .select(
         `
-        edit_id, pod_inventory_id, machine_id, boonz_product_id,
+        edit_id, pod_inventory_id, machine_id, boonz_product_id, pod_product_id,
         edit_type, quantity_update, notes, status, created_at, requested_by,
         destination_machine_id,
         machines!pod_inventory_edits_machine_id_fkey(official_name),
@@ -303,6 +304,7 @@ export default function InventoryPage() {
                 official_name: string;
               } | null
             )?.official_name ?? null,
+          pod_product_id: (r.pod_product_id as string | null) ?? null,
         };
       }),
     );
@@ -693,10 +695,12 @@ export default function InventoryPage() {
       }
 
       // Step 3: INSERT dispatch line for destination machine
-      try {
-        await supabase.from("refill_dispatching").insert({
+      const { error: rdError } = await supabase
+        .from("refill_dispatching")
+        .insert({
           machine_id: edit.destination_machine_id,
           boonz_product_id: edit.boonz_product_id,
+          pod_product_id: edit.pod_product_id ?? null,
           dispatch_date: today3,
           action: "Transfer",
           quantity: qty,
@@ -707,8 +711,17 @@ export default function InventoryPage() {
           returned: false,
           include: true,
         });
-      } catch (e) {
-        console.error("[approve transfer] insert dispatch line failed", e);
+      if (rdError) {
+        console.error("[approve transfer] dispatch INSERT failed:", rdError);
+        showReviewToast(
+          `Transfer approved but dispatch line failed: ${rdError.message}`,
+        );
+        setProcessingIds((prev) => {
+          const s = new Set(prev);
+          s.delete(editId);
+          return s;
+        });
+        return;
       }
     } else {
       // ── sold, partial_sold, damaged: deduct from pod ──────────────────────
