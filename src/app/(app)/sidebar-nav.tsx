@@ -19,12 +19,13 @@ const allNavItems: NavItem[] = [
   { label: "Financials", href: "/app/financials", icon: "$" },
   { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
+  { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
 const hiddenByRole: Record<string, string[]> = {
-  finance: ["Pods", "Refill & Dispatch", "Consumers"],
-  manager: ["Settings"],
+  finance: ["Pods", "Refill & Dispatch", "Consumers", "Lifecycle"],
+  manager: ["Settings", "Lifecycle"],
 };
 
 export default function SidebarNav({ role }: { role: string }) {
