@@ -26,8 +26,9 @@ interface DispatchLine {
   dispatch_id: string;
   boonz_product_id: string | null;
   shelf_id: string | null;
-  shelf_code: string;
-  pod_product_name: string;
+  shelf_code: string | null;
+  pod_product_name: string | null;
+  boonz_product_name: string;
   quantity: number;
   filled_qty: number;
   dispatched: boolean;
@@ -110,8 +111,9 @@ export default function DispatchingDetailPage() {
         return_reason,
         expiry_date,
         comment,
-        shelf_configurations!inner(shelf_code),
-        pod_products!inner(pod_product_name)
+        shelf_configurations(shelf_code),
+        pod_products(pod_product_name),
+        boonz_products!inner(boonz_product_name)
       `,
       )
       .gte("dispatch_date", yesterday)
@@ -124,9 +126,12 @@ export default function DispatchingDetailPage() {
       const mapped: DispatchLine[] = dispatchLines.map((line) => {
         const shelf = line.shelf_configurations as unknown as {
           shelf_code: string;
-        };
+        } | null;
         const product = line.pod_products as unknown as {
           pod_product_name: string;
+        } | null;
+        const bp = line.boonz_products as unknown as {
+          boonz_product_name: string;
         };
         const isDispatched = !!line.dispatched;
         const isReturned = !!(line.returned as boolean | null);
@@ -137,8 +142,9 @@ export default function DispatchingDetailPage() {
           dispatch_id: line.dispatch_id,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
           shelf_id: (line.shelf_id as string | null) ?? null,
-          shelf_code: shelf.shelf_code,
-          pod_product_name: product.pod_product_name,
+          shelf_code: shelf?.shelf_code ?? null,
+          pod_product_name: product?.pod_product_name ?? null,
+          boonz_product_name: bp.boonz_product_name,
           quantity: line.quantity ?? 0,
           filled_qty: line.filled_quantity ?? line.quantity ?? 0,
           dispatched: isDispatched,
@@ -149,7 +155,9 @@ export default function DispatchingDetailPage() {
           action,
         };
       });
-      mapped.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
+      mapped.sort((a, b) =>
+        (a.shelf_code ?? "").localeCompare(b.shelf_code ?? ""),
+      );
       setLines(mapped);
 
       // If all lines already resolved on load, show read-only
@@ -510,9 +518,10 @@ export default function DispatchingDetailPage() {
 
   const grouped = new Map<string, DispatchLine[]>();
   for (const line of lines) {
-    const existing = grouped.get(line.shelf_code) ?? [];
+    const key = line.shelf_code ?? "—";
+    const existing = grouped.get(key) ?? [];
     existing.push(line);
-    grouped.set(line.shelf_code, existing);
+    grouped.set(key, existing);
   }
   const shelves = Array.from(grouped.entries()).sort((a, b) =>
     a[0].localeCompare(b[0]),
@@ -663,7 +672,7 @@ export default function DispatchingDetailPage() {
                   {/* Product name + expiry */}
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <p className="text-sm font-medium">
-                      {line.pod_product_name}
+                      {line.pod_product_name ?? line.boonz_product_name}
                     </p>
                     {line.expiry_date && (
                       <span
