@@ -694,13 +694,58 @@ export default function InventoryPage() {
         console.error("[approve transfer] update source pod failed", e);
       }
 
+      // Step 2b: resolve shelf_id at destination (A→B→null)
+      let resolvedShelfId: string | null = null;
+      let resolvedPodProductId: string | null = edit.pod_product_id ?? null;
+
+      // Step A: product already occupies a shelf at destination?
+      const { data: existingPod } = await supabase
+        .from("pod_inventory")
+        .select("shelf_id")
+        .eq("machine_id", edit.destination_machine_id!)
+        .eq("boonz_product_id", edit.boonz_product_id)
+        .eq("status", "Active")
+        .gt("current_stock", 0)
+        .limit(1)
+        .maybeSingle();
+      if (existingPod?.shelf_id) {
+        resolvedShelfId = existingPod.shelf_id as string;
+      } else {
+        // Step B: look up pod_product_id at destination, then dispatch history
+        const { data: destMapping } = await supabase
+          .from("product_mapping")
+          .select("pod_product_id")
+          .eq("machine_id", edit.destination_machine_id!)
+          .eq("boonz_product_id", edit.boonz_product_id)
+          .eq("status", "Active")
+          .order("split_pct", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (destMapping?.pod_product_id) {
+          resolvedPodProductId = destMapping.pod_product_id as string;
+          const { data: lastDispatch } = await supabase
+            .from("refill_dispatching")
+            .select("shelf_id")
+            .eq("machine_id", edit.destination_machine_id!)
+            .eq("pod_product_id", destMapping.pod_product_id)
+            .not("shelf_id", "is", null)
+            .order("dispatch_date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (lastDispatch?.shelf_id) {
+            resolvedShelfId = lastDispatch.shelf_id as string;
+          }
+        }
+      }
+
       // Step 3: INSERT dispatch line for destination machine
       const { error: rdError } = await supabase
         .from("refill_dispatching")
         .insert({
           machine_id: edit.destination_machine_id,
           boonz_product_id: edit.boonz_product_id,
-          pod_product_id: edit.pod_product_id ?? null,
+          pod_product_id: resolvedPodProductId,
+          shelf_id: resolvedShelfId,
           dispatch_date: today3,
           action: "Transfer",
           quantity: qty,
