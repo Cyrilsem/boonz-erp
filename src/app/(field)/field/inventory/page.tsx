@@ -458,27 +458,31 @@ export default function InventoryPage() {
       // ── Expired: 4-step flow, all steps non-blocking ──────────────────────
       const today = new Date().toISOString().split("T")[0];
 
-      // Step 1: get expiration_date from pod_inventory
+      // Step 1: get expiration_date + current_stock from pod_inventory
       let podExpiryDate: string | null = null;
+      let podCurrentStockExp = 0;
       try {
         const { data: podRow } = await supabase
           .from("pod_inventory")
-          .select("expiration_date")
+          .select("expiration_date, current_stock")
           .eq("pod_inventory_id", edit.pod_inventory_id)
           .limit(1)
           .single();
         podExpiryDate = podRow?.expiration_date ?? null;
+        podCurrentStockExp = (podRow?.current_stock as number) ?? 0;
       } catch (e) {
         console.error("[approve expired] step 1 failed", e);
       }
 
-      // Step 2: zero-out pod_inventory and mark removed
+      // Step 2: deduct qty from pod_inventory
       try {
+        const expiredQty = edit.quantity_update ?? 0;
+        const newStockExp = Math.max(0, podCurrentStockExp - expiredQty);
         await supabase
           .from("pod_inventory")
           .update({
-            current_stock: 0,
-            status: "Removed / Expired",
+            current_stock: newStockExp,
+            status: newStockExp <= 0 ? "Removed / Expired" : "Active",
             snapshot_date: today,
           })
           .eq("pod_inventory_id", edit.pod_inventory_id);
@@ -545,25 +549,33 @@ export default function InventoryPage() {
       // ── Return to warehouse: zero pod + insert active WH row ─────────────
       const today = new Date().toISOString().split("T")[0];
 
-      // Step 1: get expiration_date from pod_inventory
+      // Step 1: get expiration_date + current_stock from pod_inventory
       let podExpiryDate: string | null = null;
+      let podCurrentStockRtw = 0;
       try {
         const { data: podRow } = await supabase
           .from("pod_inventory")
-          .select("expiration_date")
+          .select("expiration_date, current_stock")
           .eq("pod_inventory_id", edit.pod_inventory_id)
           .limit(1)
           .single();
         podExpiryDate = podRow?.expiration_date ?? null;
+        podCurrentStockRtw = (podRow?.current_stock as number) ?? 0;
       } catch (e) {
         console.error("[approve return_to_warehouse] step 1 failed", e);
       }
 
-      // Step 2: zero-out pod_inventory and mark Removed
+      // Step 2: deduct qty from pod_inventory
       try {
+        const rtwQty = edit.quantity_update ?? 0;
+        const newStockRtw = Math.max(0, podCurrentStockRtw - rtwQty);
         await supabase
           .from("pod_inventory")
-          .update({ current_stock: 0, status: "Removed", snapshot_date: today })
+          .update({
+            current_stock: newStockRtw,
+            status: newStockRtw <= 0 ? "Removed" : "Active",
+            snapshot_date: today,
+          })
           .eq("pod_inventory_id", edit.pod_inventory_id);
       } catch (e) {
         console.error("[approve return_to_warehouse] step 2 failed", e);
