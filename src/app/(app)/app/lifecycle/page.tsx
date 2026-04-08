@@ -146,6 +146,7 @@ interface DeviationRow {
   location_type: string;
   shelf_code: string;
   velocity: number;
+  trend_component: number;
   local_score: number;
   global_score: number;
   deviation: number;
@@ -308,6 +309,10 @@ export default function LifecyclePage() {
   const [showSingletons, setShowSingletons] = useState(false);
   /** Top-of-tab search — filters both chart dots and deviation table */
   const [searchQuery, setSearchQuery] = useState("");
+  /** Score range filter [min, max] — default [0, 10] means no filter */
+  const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
+  /** Trend range filter [min, max] — default [0, 10] means no filter */
+  const [trendRange, setTrendRange] = useState<[number, number]>([0, 10]);
 
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -342,6 +347,15 @@ export default function LifecyclePage() {
     const q = p.get("q");
     if (q) setSearchQuery(q);
 
+    const sMin = p.get("scoreMin");
+    const sMax = p.get("scoreMax");
+    if (sMin || sMax)
+      setScoreRange([sMin ? Number(sMin) : 0, sMax ? Number(sMax) : 10]);
+    const tMin = p.get("trendMin");
+    const tMax = p.get("trendMax");
+    if (tMin || tMax)
+      setTrendRange([tMin ? Number(tMin) : 0, tMax ? Number(tMax) : 10]);
+
     // Migrate old ?view= params (from even earlier builds)
     if (!ta && !tb) {
       const v = p.get("view") ?? p.get("group");
@@ -369,6 +383,10 @@ export default function LifecyclePage() {
       if (toggleB === "machine" && machineId) p.set("machine", machineId);
       if (toggleA === "cluster" && showSingletons) p.set("singletons", "1");
       if (searchQuery) p.set("q", searchQuery);
+      if (scoreRange[0] !== 0) p.set("scoreMin", scoreRange[0].toString());
+      if (scoreRange[1] !== 10) p.set("scoreMax", scoreRange[1].toString());
+      if (trendRange[0] !== 0) p.set("trendMin", trendRange[0].toString());
+      if (trendRange[1] !== 10) p.set("trendMax", trendRange[1].toString());
     }
     const qs = p.toString();
     window.history.replaceState(
@@ -385,6 +403,8 @@ export default function LifecyclePage() {
     machineId,
     showSingletons,
     searchQuery,
+    scoreRange,
+    trendRange,
   ]);
 
   // ── Data fetches ──────────────────────────────────────────────────────────
@@ -643,6 +663,7 @@ export default function LifecyclePage() {
           location_type: machine?.location_type ?? "unknown",
           shelf_code: s.shelf_code ?? "—",
           velocity: Number(s.velocity_30d),
+          trend_component: Number(s.trend_component),
           local_score: localScore,
           global_score: globalScore,
           deviation: Math.round((localScore - globalScore) * 100) / 100,
@@ -801,6 +822,10 @@ export default function LifecyclePage() {
             onMachineChange={setMachineId}
             onShowSingletonsChange={setShowSingletons}
             onSearchQueryChange={setSearchQuery}
+            scoreRange={scoreRange}
+            trendRange={trendRange}
+            onScoreRangeChange={setScoreRange}
+            onTrendRangeChange={setTrendRange}
           />
         )}
       </div>
@@ -1108,6 +1133,10 @@ function ScatterTab({
   onMachineChange,
   onShowSingletonsChange,
   onSearchQueryChange,
+  scoreRange,
+  trendRange,
+  onScoreRangeChange,
+  onTrendRangeChange,
 }: {
   overallPts: OverallPoint[];
   allSlots: SlotPoint[];
@@ -1122,6 +1151,8 @@ function ScatterTab({
   machineId: string | null;
   showSingletons: boolean;
   searchQuery: string;
+  scoreRange: [number, number];
+  trendRange: [number, number];
   onToggleAChange: (a: ToggleA) => void;
   onToggleBChange: (b: ToggleB) => void;
   onProductChange: (id: string | null) => void;
@@ -1129,6 +1160,8 @@ function ScatterTab({
   onMachineChange: (id: string | null) => void;
   onShowSingletonsChange: (v: boolean) => void;
   onSearchQueryChange: (q: string) => void;
+  onScoreRangeChange: (v: [number, number]) => void;
+  onTrendRangeChange: (v: [number, number]) => void;
 }) {
   // Deviation table local state
   const [devSortCol, setDevSortCol] = useState<keyof DeviationRow>("deviation");
@@ -1307,6 +1340,34 @@ function ScatterTab({
   // ── Determine if we're in cluster-coloring mode ───────────────────────
   const isClusterColorMode = toggleA === "cluster" && toggleB === "machine";
 
+  // ── Range-filtered chart data (score/trend sliders) ───────────────────
+  // Selected dots always bypass the range filter (intentional selection).
+  const visibleChartData = useMemo(() => {
+    const [scoreMin, scoreMax] = scoreRange;
+    const [trendMin, trendMax] = trendRange;
+    const rangeDefault =
+      scoreMin === 0 && scoreMax === 10 && trendMin === 0 && trendMax === 10;
+    if (rangeDefault) return chartData;
+    return chartData.filter((pt) => {
+      let id: string;
+      if (toggleB === "overall") {
+        id =
+          toggleA === "product"
+            ? (pt as OverallPoint).pod_product_id
+            : (pt as ClusterPoint).family_id;
+      } else {
+        id = (pt as SlotPoint).id;
+      }
+      if (selectedIds.has(id)) return true; // selected → always visible
+      return (
+        pt.x >= scoreMin &&
+        pt.x <= scoreMax &&
+        pt.y >= trendMin &&
+        pt.y <= trendMax
+      );
+    });
+  }, [chartData, scoreRange, trendRange, selectedIds, toggleA, toggleB]);
+
   // ── Labeled dot IDs ───────────────────────────────────────────────────
   const labeledIds = useMemo(() => {
     const ids = new Set<string>();
@@ -1402,6 +1463,28 @@ function ScatterTab({
           (r.family_name ?? "").toLowerCase().includes(q),
       );
     }
+    // Score / trend range filter (selected rows bypass, same as chart)
+    const [scoreMin, scoreMax] = scoreRange;
+    const [trendMin, trendMax] = trendRange;
+    const rangeDefault =
+      scoreMin === 0 && scoreMax === 10 && trendMin === 0 && trendMax === 10;
+    if (!rangeDefault) {
+      rows = rows.filter((r) => {
+        const rSelId =
+          toggleB === "overall"
+            ? toggleA === "product"
+              ? r.pod_product_id
+              : (r.family_id ?? "")
+            : `${r.machine_id}:${r.pod_product_id}`;
+        if (selectedIds.has(rSelId)) return true; // selected rows bypass range
+        return (
+          r.local_score >= scoreMin &&
+          r.local_score <= scoreMax &&
+          r.trend_component >= trendMin &&
+          r.trend_component <= trendMax
+        );
+      });
+    }
     // Selection filter — if dots are selected, only show matching rows
     if (selectedIds.size > 0) {
       rows = rows.filter((r) => {
@@ -1431,6 +1514,8 @@ function ScatterTab({
     productId,
     familyMemberIds,
     debouncedSearch,
+    scoreRange,
+    trendRange,
     devSortCol,
     devSortDir,
     selectedIds,
@@ -1468,12 +1553,15 @@ function ScatterTab({
   }
 
   function dotCount(): string {
-    const n = chartData.length;
+    const n = visibleChartData.length;
+    const total = chartData.length;
+    const suffix = n !== total ? ` of ${total}` : "";
     if (toggleB === "overall") {
-      if (toggleA === "product") return `${n} product${n !== 1 ? "s" : ""}`;
-      return `${n} cluster${n !== 1 ? "s" : ""}`;
+      if (toggleA === "product")
+        return `${n}${suffix} product${n !== 1 ? "s" : ""}`;
+      return `${n}${suffix} cluster${n !== 1 ? "s" : ""}`;
     }
-    return `${n} product${n !== 1 ? "s" : ""}`;
+    return `${n}${suffix} product${n !== 1 ? "s" : ""}`;
   }
 
   // ── Dot colour per cell ───────────────────────────────────────────────
@@ -1491,11 +1579,16 @@ function ScatterTab({
     const x = props.x as number | undefined;
     const y = props.y as number | undefined;
     const index = props.index as number | undefined;
-    if (x == null || y == null || index == null || index >= chartData.length)
+    if (
+      x == null ||
+      y == null ||
+      index == null ||
+      index >= visibleChartData.length
+    )
       return <g />;
-    const item = chartData[index];
+    const item = visibleChartData[index];
 
-    const useSelective = chartData.length > 50 && labeledIds.size > 0;
+    const useSelective = visibleChartData.length > 50 && labeledIds.size > 0;
     let shouldLabel = !useSelective;
     let labelText = "";
 
@@ -1550,7 +1643,8 @@ function ScatterTab({
   );
 
   // Z axis range — shrink dots for dense datasets
-  const zRange: [number, number] = chartData.length > 100 ? [6, 80] : [20, 200];
+  const zRange: [number, number] =
+    visibleChartData.length > 100 ? [6, 80] : [20, 200];
 
   return (
     <div className="space-y-4">
@@ -1574,6 +1668,50 @@ function ScatterTab({
           >
             ×
           </button>
+        )}
+      </div>
+
+      {/* ── Score + trend range sliders ── */}
+      <div className="rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <div className="grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2">
+          <DualRangeSlider
+            label="Score range"
+            value={scoreRange}
+            onChange={onScoreRangeChange}
+            brackets={[
+              { value: 0, label: "0" },
+              { value: 1, label: "Dead" },
+              { value: 2.5, label: "Rot." },
+              { value: 4.5, label: "Wind" },
+              { value: 6.5, label: "Keep" },
+              { value: 8.5, label: "Hero" },
+              { value: 10, label: "10" },
+            ]}
+          />
+          <DualRangeSlider
+            label="Trend range"
+            value={trendRange}
+            onChange={onTrendRangeChange}
+          />
+        </div>
+        {(searchQuery ||
+          scoreRange[0] !== 0 ||
+          scoreRange[1] !== 10 ||
+          trendRange[0] !== 0 ||
+          trendRange[1] !== 10) && (
+          <div className="mt-2 flex justify-end">
+            <button
+              onClick={() => {
+                onSearchQueryChange("");
+                onScoreRangeChange([0, 10]);
+                onTrendRangeChange([0, 10]);
+                setSelectedIds(new Set());
+              }}
+              className="text-xs text-neutral-500 hover:text-neutral-700 hover:underline dark:text-neutral-400 dark:hover:text-neutral-200"
+            >
+              Reset filters
+            </button>
+          </div>
         )}
       </div>
 
@@ -1688,12 +1826,14 @@ function ScatterTab({
           </div>
         </div>
 
-        {chartData.length === 0 ? (
+        {visibleChartData.length === 0 ? (
           <div className="flex h-[420px] items-center justify-center">
             <p className="max-w-sm text-center text-sm text-neutral-400 leading-relaxed">
               {toggleA === "cluster" && toggleB === "overall" && !showSingletons
                 ? 'No multi-member clusters yet. Enable "Show singleton families" or wait for auto-clustering to find more groups.'
-                : "No data for this combination."}
+                : chartData.length > 0
+                  ? "No dots match the current score or trend range. Widen the sliders."
+                  : "No data for this combination."}
             </p>
           </div>
         ) : (
@@ -1780,26 +1920,33 @@ function ScatterTab({
                             </p>
                           </>
                         )}
-                        {/* machine mode — product name as title, shelf codes in sub */}
+                        {/* machine mode — product name as title */}
                         {toggleB === "machine" && (
                           <>
                             <p className="max-w-[220px] truncate font-semibold text-sm">
                               {d.pod_product_name}
                             </p>
+                            {toggleA === "cluster" && d.family_name && (
+                              <p className="mb-0.5 text-xs font-medium text-neutral-600 dark:text-neutral-400">
+                                {d.family_name}
+                              </p>
+                            )}
+                            <p className="mb-0.5 text-neutral-500">
+                              {d.machine_name} · {d.location_type}
+                              {toggleA !== "cluster" && d.family_name
+                                ? ` · ${d.family_name}`
+                                : ""}
+                            </p>
                             {d.slot_count > 1 ? (
-                              <p className="mb-0.5 text-xs text-neutral-400">
+                              <p className="mb-1 text-xs text-neutral-400">
                                 {d.slot_count} shelves:{" "}
                                 {(d.shelf_codes ?? [d.shelf_code]).join(", ")}
                               </p>
                             ) : (
-                              <p className="mb-0.5 text-xs text-neutral-400">
+                              <p className="mb-1 text-xs text-neutral-400">
                                 Shelf: {d.shelf_code}
                               </p>
                             )}
-                            <p className="mb-1.5 text-neutral-500">
-                              {d.machine_name} · {d.location_type}
-                              {d.family_name ? ` · ${d.family_name}` : ""}
-                            </p>
                           </>
                         )}
                         <div className="space-y-0.5 text-neutral-700 dark:text-neutral-300">
@@ -1833,7 +1980,7 @@ function ScatterTab({
                   }}
                 />
                 <Scatter
-                  data={chartData}
+                  data={visibleChartData}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   shape={
                     ((props: any): React.ReactElement => {
@@ -2138,6 +2285,133 @@ function ScatterTab({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Dual Range Slider ─────────────────────────────────────────────────────────
+
+const SLIDER_MIN = 0;
+const SLIDER_MAX = 10;
+const SLIDER_STEP = 0.1;
+
+function DualRangeSlider({
+  label,
+  value,
+  onChange,
+  brackets,
+}: {
+  label: string;
+  value: [number, number];
+  onChange: (v: [number, number]) => void;
+  brackets?: Array<{ value: number; label: string }>;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef<"lo" | "hi" | null>(null);
+  const [lo, hi] = value;
+
+  const loPercent = ((lo - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
+  const hiPercent = ((hi - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100;
+
+  function snap(v: number): number {
+    const clamped = Math.max(SLIDER_MIN, Math.min(SLIDER_MAX, v));
+    return Math.round(clamped / SLIDER_STEP) * SLIDER_STEP;
+  }
+
+  function getVal(
+    e: React.PointerEvent<HTMLDivElement> | PointerEvent,
+  ): number {
+    const rect = trackRef.current!.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    return snap(SLIDER_MIN + pct * (SLIDER_MAX - SLIDER_MIN));
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    const v = getVal(e);
+    const dLo = Math.abs(v - lo);
+    const dHi = Math.abs(v - hi);
+    if (dLo <= dHi) {
+      dragging.current = "lo";
+      onChange([Math.min(v, hi), hi]);
+    } else {
+      dragging.current = "hi";
+      onChange([lo, Math.max(v, lo)]);
+    }
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragging.current) return;
+    const v = getVal(e);
+    if (dragging.current === "lo") onChange([Math.min(v, hi), hi]);
+    else onChange([lo, Math.max(v, lo)]);
+  }
+
+  function onPointerUp() {
+    dragging.current = null;
+  }
+
+  return (
+    <div className="select-none">
+      <p className="mb-3 text-xs font-medium text-neutral-500">{label}</p>
+      {/* Track + handles */}
+      <div
+        ref={trackRef}
+        className="relative h-5 cursor-pointer"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        {/* Track background */}
+        <div className="absolute inset-x-0 top-1.5 h-2 rounded-full bg-neutral-200 dark:bg-neutral-700" />
+        {/* Active range */}
+        <div
+          className="absolute top-1.5 h-2 rounded-full bg-neutral-700 dark:bg-neutral-300"
+          style={{ left: `${loPercent}%`, width: `${hiPercent - loPercent}%` }}
+        />
+        {/* Lo handle */}
+        <div
+          className="absolute top-0 h-5 w-5 -translate-x-1/2 cursor-grab rounded-full border-2 border-neutral-700 bg-white shadow-sm active:cursor-grabbing dark:border-neutral-300 dark:bg-neutral-900"
+          style={{ left: `${loPercent}%` }}
+        />
+        {/* Hi handle */}
+        <div
+          className="absolute top-0 h-5 w-5 -translate-x-1/2 cursor-grab rounded-full border-2 border-neutral-700 bg-white shadow-sm active:cursor-grabbing dark:border-neutral-300 dark:bg-neutral-900"
+          style={{ left: `${hiPercent}%` }}
+        />
+      </div>
+      {/* Value labels */}
+      <div className="relative mt-1 h-4">
+        <span
+          className="absolute -translate-x-1/2 text-[10px] tabular-nums text-neutral-600 dark:text-neutral-400"
+          style={{ left: `${loPercent}%` }}
+        >
+          {lo.toFixed(1)}
+        </span>
+        <span
+          className="absolute -translate-x-1/2 text-[10px] tabular-nums text-neutral-600 dark:text-neutral-400"
+          style={{ left: `${hiPercent}%` }}
+        >
+          {hi.toFixed(1)}
+        </span>
+      </div>
+      {/* Optional bracket labels */}
+      {brackets && (
+        <div className="relative mt-0.5 h-4">
+          {brackets.map((b) => (
+            <span
+              key={b.label}
+              className="absolute -translate-x-1/2 text-[9px] text-neutral-400 dark:text-neutral-600"
+              style={{
+                left: `${((b.value - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * 100}%`,
+              }}
+            >
+              {b.label}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
