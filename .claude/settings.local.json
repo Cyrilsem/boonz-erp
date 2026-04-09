@@ -49,7 +49,10 @@
       "Bash(grep -n \"inner\\\\|shelf_code\\\\|pod_product_name\\\\|pod_products\\\\|boonz_product_name\" src/app/\\\\\\(field\\\\\\)/field/dispatching/[machineId]/page.tsx)",
       "Bash(grep -n \"shelfCode\\\\|shelves\\\\.\\\\|shelf_code\\\\|shelfLines\" src/app/\\\\\\(field\\\\\\)/field/dispatching/[machineId]/page.tsx)",
       "Bash(ls src/app/\\\\\\(app\\\\\\)/)",
-      "Bash(cat src/app/\\\\\\(app\\\\\\)/layout.tsx)"
+      "Bash(cat src/app/\\\\\\(app\\\\\\)/layout.tsx)",
+      "mcp__9317327f-7b25-403a-addf-077dcb3de768__get_project_url",
+      "Bash(curl -s -X POST \"https://eizcexopcuoycuosittm.supabase.co/functions/v1/evaluate-lifecycle\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpemNleG9wY3VveWN1b3NpdHRtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzIyOTQ3NiwiZXhwIjoyMDg4ODA1NDc2fQ.q37vg0kV8m9VxgPjHLIanHD7jBSv9NYPmCnCAlQfauY\" -H \"Content-Type: application/json\" -d '{}' --max-time 120)",
+      "Bash(grep '\"\"recharts\"\"' package.json)"
     ]
   }
 }
