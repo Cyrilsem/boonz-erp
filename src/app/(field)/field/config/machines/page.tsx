@@ -299,6 +299,31 @@ export default function MachinesPage() {
 
   const [loading, setLoading] = useState(true);
 
+  // User role (for operator_admin-only actions)
+  const [userRole, setUserRole] = useState<string | null>(null);
+
+  // Repurpose machine modal state
+  const [repurposeMachineId, setRepurposeMachineId] = useState<string | null>(
+    null,
+  );
+  const [repurposeStep, setRepurposeStep] = useState<
+    "form" | "confirm" | "done"
+  >("form");
+  const [repurposeValues, setRepurposeValues] = useState({
+    official_name: "",
+    pod_location: "",
+    location_type: "coworking",
+    building_id: "",
+    source_of_supply: "BOONZ",
+  });
+  const [repurposing, setRepurposing] = useState(false);
+  const [repurposeResult, setRepurposeResult] = useState<{
+    old_machine_id: string;
+    new_machine_id: string;
+    slots_archived: number;
+  } | null>(null);
+  const [repurposeError, setRepurposeError] = useState<string | null>(null);
+
   // Layout tab
   const [layoutMachineId, setLayoutMachineId] = useState<string>("");
   const [layoutSlots, setLayoutSlots] = useState<ShelfSlot[]>([]);
@@ -370,6 +395,7 @@ export default function MachinesPage() {
       router.push("/field");
       return;
     }
+    setUserRole(profile.role);
 
     const [{ data: machineData }, { data: aliasData }] = await Promise.all([
       supabase
@@ -494,9 +520,52 @@ export default function MachinesPage() {
     setMachineSaving((p) => ({ ...p, [id]: false }));
   }
 
+  // CC-08: Repurpose machine — calls repurpose_machine() RPC (service_role only via Supabase)
+  async function handleRepurposeMachine() {
+    if (!repurposeMachineId || !repurposeValues.official_name.trim()) return;
+    setRepurposing(true);
+    setRepurposeError(null);
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("repurpose_machine", {
+      p_old_machine_id: repurposeMachineId,
+      p_new_official_name: repurposeValues.official_name.trim(),
+      p_new_pod_location: repurposeValues.pod_location.trim() || null,
+      p_new_location_type: repurposeValues.location_type,
+      p_new_building_id: repurposeValues.building_id.trim() || null,
+      p_new_source_of_supply: repurposeValues.source_of_supply || null,
+    });
+    if (error) {
+      setRepurposeError(error.message);
+      setRepurposing(false);
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    setRepurposeResult(
+      row as {
+        old_machine_id: string;
+        new_machine_id: string;
+        slots_archived: number;
+      },
+    );
+    setRepurposeStep("done");
+    await fetchData();
+    setRepurposing(false);
+  }
+
   async function handleAddMachine() {
     if (!newMachine.official_name.trim()) {
       setAddMachineError("Official name is required");
+      return;
+    }
+    // CC-09c: Guard against duplicate official_name (belt-and-suspenders on top of DB index)
+    const trimmedName = newMachine.official_name.trim().toLowerCase();
+    const existing = machines.find(
+      (m) => m.official_name.trim().toLowerCase() === trimmedName,
+    );
+    if (existing) {
+      setAddMachineError(
+        `A machine named "${existing.official_name}" already exists. Edit that machine instead of creating a new one.`,
+      );
       return;
     }
     setAddingMachine(true);
@@ -808,6 +877,27 @@ export default function MachinesPage() {
                           Cancel
                         </button>
                       </div>
+                      {/* CC-08: Repurpose — operator_admin only */}
+                      {userRole === "operator_admin" && (
+                        <button
+                          onClick={() => {
+                            setRepurposeMachineId(row.machine_id);
+                            setRepurposeStep("form");
+                            setRepurposeValues({
+                              official_name: "",
+                              pod_location: "",
+                              location_type: "coworking",
+                              building_id: "",
+                              source_of_supply: "BOONZ",
+                            });
+                            setRepurposeResult(null);
+                            setRepurposeError(null);
+                          }}
+                          className="mt-2 w-full rounded-lg border border-amber-300 py-2 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/20"
+                        >
+                          Repurpose machine…
+                        </button>
+                      )}
                     </div>
                   )}
                 </li>
@@ -1103,6 +1193,222 @@ export default function MachinesPage() {
                   {importingCsv
                     ? "Importing…"
                     : `Import ${csvPreview.length} machines`}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── CC-08: Repurpose machine bottom sheet (operator_admin only) ── */}
+      {repurposeMachineId && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => {
+              if (!repurposing) setRepurposeMachineId(null);
+            }}
+          />
+          <div className="relative z-10 max-h-[90vh] overflow-y-auto rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
+            {repurposeStep === "done" && repurposeResult ? (
+              <>
+                <h3 className="mb-3 text-center text-base font-bold text-green-600">
+                  Repurpose complete ✓
+                </h3>
+                <p className="mb-1 text-sm text-neutral-600 dark:text-neutral-400">
+                  Old machine archived:{" "}
+                  <span className="font-mono text-xs">
+                    {repurposeResult.old_machine_id}
+                  </span>
+                </p>
+                <p className="mb-1 text-sm text-neutral-600 dark:text-neutral-400">
+                  New machine created:{" "}
+                  <span className="font-mono text-xs">
+                    {repurposeResult.new_machine_id}
+                  </span>
+                </p>
+                <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
+                  Slot lifecycle rows archived:{" "}
+                  <strong>{repurposeResult.slots_archived}</strong>
+                </p>
+                <button
+                  onClick={() => setRepurposeMachineId(null)}
+                  className="w-full rounded-2xl bg-neutral-900 py-3 text-sm font-semibold text-white dark:bg-neutral-100 dark:text-neutral-900"
+                >
+                  Done
+                </button>
+              </>
+            ) : repurposeStep === "confirm" ? (
+              <>
+                <h3 className="mb-3 text-center text-base font-bold">
+                  Confirm repurpose
+                </h3>
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                  <p className="font-semibold mb-1">
+                    This action is irreversible.
+                  </p>
+                  <p>
+                    The current machine will be archived (include_in_refill =
+                    false, adyen_status = &ldquo;Switched off&rdquo;) and all
+                    its slot lifecycle scores will be archived. A fresh machine
+                    row will be created as{" "}
+                    <strong>{repurposeValues.official_name}</strong>.
+                  </p>
+                </div>
+                {repurposeError && (
+                  <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                    {repurposeError}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleRepurposeMachine}
+                    disabled={repurposing}
+                    className="flex-1 rounded-2xl bg-amber-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {repurposing ? "Repurposing…" : "Confirm repurpose"}
+                  </button>
+                  <button
+                    onClick={() => setRepurposeStep("form")}
+                    disabled={repurposing}
+                    className="rounded-2xl border border-neutral-300 px-5 py-3 text-sm font-medium text-neutral-600 disabled:opacity-50"
+                  >
+                    Back
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="mb-1 text-center text-base font-bold">
+                  Repurpose machine
+                </h3>
+                <p className="mb-4 text-center text-xs text-neutral-500">
+                  New identity for{" "}
+                  <strong>
+                    {
+                      machines.find((m) => m.machine_id === repurposeMachineId)
+                        ?.official_name
+                    }
+                  </strong>
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      New official name *
+                    </label>
+                    <input
+                      type="text"
+                      value={repurposeValues.official_name}
+                      onChange={(e) =>
+                        setRepurposeValues((p) => ({
+                          ...p,
+                          official_name: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. JET-1016-0000-O1"
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      New location (pod_location)
+                    </label>
+                    <input
+                      type="text"
+                      value={repurposeValues.pod_location}
+                      onChange={(e) =>
+                        setRepurposeValues((p) => ({
+                          ...p,
+                          pod_location: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. JET-1016-0000-O1"
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      Location type
+                    </label>
+                    <select
+                      value={repurposeValues.location_type}
+                      onChange={(e) =>
+                        setRepurposeValues((p) => ({
+                          ...p,
+                          location_type: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    >
+                      {[
+                        "coworking",
+                        "office",
+                        "entertainment",
+                        "retail",
+                        "airport",
+                        "hotel",
+                        "warehouse",
+                        "other",
+                      ].map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      Building ID (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={repurposeValues.building_id}
+                      onChange={(e) =>
+                        setRepurposeValues((p) => ({
+                          ...p,
+                          building_id: e.target.value,
+                        }))
+                      }
+                      placeholder="Free-text building identifier"
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      Source of supply
+                    </label>
+                    <select
+                      value={repurposeValues.source_of_supply}
+                      onChange={(e) =>
+                        setRepurposeValues((p) => ({
+                          ...p,
+                          source_of_supply: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    >
+                      <option value="BOONZ">BOONZ</option>
+                      <option value="VOX">VOX</option>
+                      <option value="LLFP">LLFP</option>
+                    </select>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (!repurposeValues.official_name.trim()) return;
+                    setRepurposeStep("confirm");
+                    setRepurposeError(null);
+                  }}
+                  disabled={!repurposeValues.official_name.trim()}
+                  className="mt-4 w-full rounded-2xl bg-amber-600 py-3 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-40"
+                >
+                  Review &amp; confirm
+                </button>
+                <button
+                  onClick={() => setRepurposeMachineId(null)}
+                  className="mt-2 w-full py-2 text-sm text-neutral-500"
+                >
+                  Cancel
                 </button>
               </>
             )}
