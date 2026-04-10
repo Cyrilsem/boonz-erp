@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Boonz Refill Engine — The Bible v5</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --ink: #1a1a1a;
+    --muted: #6b7280;
+    --border: #d4d4d8;
+    --product: #ecfdf5;
+    --product-border: #10b981;
+    --product-ink: #047857;
+    --machine: #eff6ff;
+    --machine-border: #3b82f6;
+    --machine-ink: #1e40af;
+    --decision: #fef3c7;
+    --decision-border: #f59e0b;
+    --decision-ink: #92400e;
+    --output: #fce7f3;
+    --output-border: #ec4899;
+    --output-ink: #9f1239;
+    --data: #f3f4f6;
+    --data-border: #9ca3af;
+    --data-ink: #374151;
+    --calc: #f5f3ff;
+    --calc-border: #8b5cf6;
+    --calc-ink: #5b21b6;
+    --guardrail: #fff7ed;
+    --guardrail-border: #ea580c;
+    --guardrail-ink: #9a3412;
+    --future: #f9fafb;
+    --future-border: #d1d5db;
+    --future-ink: #6b7280;
+    --have: #d1fae5;
+    --have-border: #059669;
+    --have-ink: #064e3b;
+    --build: #fee2e2;
+    --build-border: #dc2626;
+    --build-ink: #7f1d1d;
+    --done: #dcfce7;
+    --done-border: #16a34a;
+    --done-ink: #14532d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    margin: 0;
+    padding: 40px 20px;
+    line-height: 1.5;
+  }
+  .container { max-width: 1320px; margin: 0 auto; }
+  h1 { font-size: 32px; margin: 0 0 8px 0; font-weight: 600; }
+  h2 {
+    font-size: 22px;
+    margin: 48px 0 16px 0;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  h3 { font-size: 16px; margin: 24px 0 12px 0; font-weight: 600; }
+  .subtitle { color: var(--muted); margin-bottom: 32px; font-size: 15px; }
+  .toc {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 32px;
+  }
+  .toc h3 { margin-top: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+  .toc ol { margin: 0; padding-left: 20px; font-size: 14px; columns: 2; column-gap: 32px; }
+  .toc li { margin-bottom: 4px; break-inside: avoid; }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; color: var(--machine-ink); }
+
+  .progress-banner {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    border: 2px solid var(--have-border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 32px;
+  }
+  .progress-banner h2 {
+    margin: 0 0 12px 0;
+    border: none;
+    padding: 0;
+    color: var(--have-ink);
+    font-size: 18px;
+  }
+  .progress-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .stat-box {
+    background: white;
+    border: 1px solid var(--have-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+  .stat-value { font-size: 24px; font-weight: 600; color: var(--have-ink); margin-top: 4px; }
+  .stat-detail { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  .changelog {
+    background: #fef3c7;
+    border: 1px solid var(--decision-border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 24px 0;
+  }
+  .changelog h3 { margin: 0 0 8px 0; font-size: 13px; color: var(--decision-ink); text-transform: uppercase; letter-spacing: 0.8px; }
+  .changelog ul { margin: 0; padding-left: 20px; font-size: 13px; color: #78350f; }
+  .changelog li { margin-bottom: 4px; }
+
+  .summary-callout {
+    background: #eff6ff;
+    border-left: 4px solid var(--machine-border);
+    padding: 16px 20px;
+    margin: 24px 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .summary-callout p { margin: 4px 0; font-size: 14px; }
+
+  .data-layer {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .data-layer h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--muted);
+  }
+  .data-oracle {
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    border-left: 4px solid;
+  }
+  .oracle-stock { background: #eff6ff; border-left-color: var(--machine-border); }
+  .oracle-expiry { background: #fef3c7; border-left-color: var(--decision-border); }
+  .oracle-sales { background: #ecfdf5; border-left-color: var(--product-border); }
+  .oracle-outcome { background: #fce7f3; border-left-color: var(--output-border); }
+  .oracle-legacy { background: #f3f4f6; border-left-color: var(--data-border); opacity: 0.8; }
+  .oracle-dead { background: #fee2e2; border-left-color: var(--build-border); opacity: 0.7; }
+  .oracle-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+  .oracle-subtitle { font-size: 12px; color: var(--muted); font-style: italic; margin-bottom: 8px; }
+  .oracle-body { font-size: 12px; }
+  .oracle-body code { background: white; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+
+  .task-section {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .task-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 12px;
+  }
+  .task-table th {
+    text-align: left;
+    padding: 10px;
+    background: #f3f4f6;
+    border-bottom: 2px solid var(--border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+  }
+  .task-table td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .task-table tr:last-child td { border-bottom: none; }
+  .task-table tr.task-done { background: #f0fdf4; }
+  .task-table tr.task-done td { color: var(--have-ink); }
+  .task-table .col-done { width: 60px; text-align: center; }
+  .task-table .col-id { width: 80px; }
+  .task-table .col-pri { width: 50px; }
+  .check {
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 2px solid var(--border);
+    background: white;
+    line-height: 18px;
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+  }
+  .check.done {
+    background: var(--have-border);
+    border-color: var(--have-border);
+    color: white;
+  }
+  .check.in-progress {
+    background: #fef3c7;
+    border-color: var(--decision-border);
+    color: var(--decision-ink);
+  }
+  .check.blocked {
+    background: #fee2e2;
+    border-color: var(--build-border);
+    color: var(--build-ink);
+  }
+  .task-id {
+    font-family: "SF Mono", Monaco, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .priority { font-size: 11px; font-weight: 700; }
+  .pri-p0 { color: #991b1b; }
+  .pri-p1 { color: #92400e; }
+  .pri-p2 { color: #166534; }
+  .pri-done { color: var(--have-ink); }
+
+  .oracle-stock { background: #eff6ff; border-left-color: var(--machine-border); }
+  .legend {
+    display: flex; gap: 16px; flex-wrap: wrap;
+    margin-bottom: 24px; padding: 16px;
+    background: white; border: 1px solid var(--border); border-radius: 8px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px; border: 2px solid; }
+  .stage { margin-bottom: 8px; }
+  .stage-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; color: var(--muted);
+    margin-bottom: 12px; padding-left: 8px;
+  }
+  .stage-row { display: flex; gap: 12px; margin-bottom: 8px; }
+  .box {
+    flex: 1; padding: 16px; border-radius: 8px;
+    border: 2px solid; background: white; min-width: 0;
+    position: relative;
+  }
+  .box-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+  .box-subtitle { font-size: 12px; color: var(--muted); margin-bottom: 8px; font-style: italic; }
+  .box-bullets { font-size: 12px; color: var(--ink); padding-left: 16px; margin: 4px 0 0 0; }
+  .box-bullets li { margin-bottom: 3px; }
+  .product-box { background: var(--product); border-color: var(--product-border); }
+  .product-box .box-title { color: var(--product-ink); }
+  .machine-box { background: var(--machine); border-color: var(--machine-border); }
+  .machine-box .box-title { color: var(--machine-ink); }
+  .decision-box { background: var(--decision); border-color: var(--decision-border); }
+  .decision-box .box-title { color: var(--decision-ink); }
+  .output-box { background: var(--output); border-color: var(--output-border); }
+  .output-box .box-title { color: var(--output-ink); }
+  .calc-box { background: var(--calc); border-color: var(--calc-border); }
+  .calc-box .box-title { color: var(--calc-ink); }
+  .future-box { background: var(--future); border-color: var(--future-border); border-style: dashed; }
+  .future-box .box-title { color: var(--future-ink); }
+  .arrow { text-align: center; color: var(--muted); font-size: 24px; margin: 4px 0; font-weight: 300; }
+
+  .findings, .lessons, .runbook, .open-issues {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .finding-item, .lesson-item, .issue-item, .runbook-item {
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    background: #f9fafb;
+    border-left: 3px solid var(--decision-border);
+    border-radius: 0 6px 6px 0;
+  }
+  .lesson-item { border-left-color: var(--build-border); background: #fef2f2; }
+  .runbook-item { border-left-color: var(--machine-border); background: #eff6ff; }
+  .issue-item { border-left-color: var(--decision-border); background: #fefce8; }
+  .item-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+  .item-body { font-size: 12px; line-height: 1.6; }
+  .item-body code { background: white; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+  .item-body pre { background: white; padding: 8px 12px; border-radius: 4px; font-size: 11px; overflow-x: auto; border: 1px solid var(--border); }
+
+  .principles { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+  .principles ol { margin: 0; padding-left: 20px; font-size: 13px; }
+  .principles li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>Boonz refill engine — the bible v5</h1>
+  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-09 after Phase 0 Round 1 fully verified, autonomy loop proven end-to-end, guardrail interview produced first 2 files, Round 2 in flight at Claude Code.</p>
+
+  <div class="progress-banner">
+    <h2>🎯 Where we are right now</h2>
+    <p style="margin: 0 0 8px 0; font-size: 14px;">Phase 0 Round 1 is <b>complete and verified</b>. The autonomy loop works: Claude can refresh fleet data without human intervention. The data layer is fully wired with three live oracles. Round 2 is in flight at Claude Code (machine identity cleanup + venue groups + first 2 guardrails). After Round 2 lands, we pivot to Phase 1 (skill scaffold) or finish remaining CS interviews (CS-01 portfolio, CS-04 layout, CS-05 vitrine, CS-06 buildings, CS-07 source_of_supply).</p>
+    <div class="progress-stats">
+      <div class="stat-box">
+        <div class="stat-label">Round 1 tasks</div>
+        <div class="stat-value">6 / 6 ✅</div>
+        <div class="stat-detail">All verified clean</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Round 2 tasks</div>
+        <div class="stat-value">0 / 8 🔄</div>
+        <div class="stat-detail">In flight at CC</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">CS interviews</div>
+        <div class="stat-value">1 / 7</div>
+        <div class="stat-detail">Coexistence done; portfolio next</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Guardrail files</div>
+        <div class="stat-value">2 written</div>
+        <div class="stat-detail">coexistence, travel-scope</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Autonomy loop</div>
+        <div class="stat-value">✅ Live</div>
+        <div class="stat-detail">refresh_fleet_data() proven</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="changelog">
+    <h3>📝 What changed in v5 (from v4)</h3>
+    <ul>
+      <li><b>Phase 0 Round 1 marked complete and verified.</b> CC-00, CC-00b, CC-00c, CC-01, CC-05, CC-06 all done. Autonomy loop proven end-to-end via successful <code>refresh_fleet_data(90)</code> call.</li>
+      <li><b>Vault secret pattern documented and locked.</b> Service role JWT lives in <code>supabase_vault</code>, accessed by SECURITY DEFINER wrapper functions. Never hardcoded. Three regression cases captured in lessons learned section.</li>
+      <li><b>NOOK ground truth verified.</b> 16 slots, A12 G&H Popped Chips empty (refilled in same-day operator visit), avg ~62% fill. Match resolution 87% direct, 6% conventions, 1% case-insensitive, 6% unmatched (only 1 real test product).</li>
+      <li><b>Three-oracles model refined.</b> Stock = <code>weimi_device_status.door_statuses</code> JSONB → <code>v_live_shelf_stock</code> view. Expiry = <code>pod_inventory</code>. Sales = <code>sales_history</code>. New: outcomes oracle = <code>refill_dispatching</code>.</li>
+      <li><b>weimi_aisle_snapshots officially abandoned.</b> Empty schema, never wired, drop from architecture references.</li>
+      <li><b>Round 2 prompt written and in flight.</b> CC-08 repurpose flow, CC-09 ALHQ split, CC-09b VOXMCC-1009 merge, CC-09c upsert fix, CC-09d duplicate audit, CC-01b/02b venue groups, CC-13 guardrail commit.</li>
+      <li><b>First 2 guardrail files committed.</b> <code>engines/refill/guardrails/coexistence.md</code> (Coca-Cola exclusion at ADDMIND/VOX), <code>engines/refill/guardrails/travel-scope.md</code> (8 VOX-locked products + 3 explicit exclusions).</li>
+      <li><b>Venue group taxonomy finalized.</b> 6 values: ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT. Stored in <code>machines.venue_group</code> column (added in CC-01b).</li>
+      <li><b>New "Open issues found during implementation" section.</b> Captures things we discovered but haven't fixed yet: A8 over-stocked 9/8, wait_for_request timeout with long-running Edge Functions, JET-1016 placeholder fields, product swap detection at slot level.</li>
+      <li><b>New "Lessons learned" section.</b> JWT-in-migration regression, CREATE OR REPLACE preserves ACLs gotcha, door_statuses cabinet selector bug, prompt-must-forbid-redesign pattern.</li>
+      <li><b>New "Operational runbook" section.</b> How to refresh data, rotate vault secret, add a guardrail, handle a duplicate machine row.</li>
+      <li><b>Bible update protocol:</b> v5 commits to memory that the bible MUST be updated at every checkpoint (end of CC round, end of CS interview, end of significant decision). No more drift between reality and the doc.</li>
+    </ul>
+  </div>
+
+  <div class="toc">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#summary">Where we are right now</a></li>
+      <li><a href="#data">Data layer — the four oracles</a></li>
+      <li><a href="#venue-groups">Venue group taxonomy</a></li>
+      <li><a href="#guardrails-status">Guardrail files status</a></li>
+      <li><a href="#diagram">Pipeline diagram</a></li>
+      <li><a href="#tasks-cs">Task list — operator (CS)</a></li>
+      <li><a href="#tasks-cc">Task list — Claude Code</a></li>
+      <li><a href="#open-issues">Open issues found during implementation</a></li>
+      <li><a href="#lessons">Lessons learned</a></li>
+      <li><a href="#runbook">Operational runbook</a></li>
+      <li><a href="#whats-next">What's next (immediate)</a></li>
+      <li><a href="#principles">Design principles</a></li>
+    </ol>
+  </div>
+
+  <h2 id="summary">Where we are right now</h2>
+  <div class="summary-callout">
+    <p><b>Phase 0 Round 1 is complete and verified.</b> Six tasks landed cleanly: live shelf stock view, decision_log table, warehouse reservation columns, machines extension columns, pg_net wrapper functions with vault-backed auth, nightly cron at 23:59 Dubai.</p>
+    <p><b>The autonomy loop works.</b> <code>SELECT public.refresh_fleet_data(90)</code> from this chat invokes <code>refresh-stage1</code> Edge Function, which runs the full Weimi sync (device-info → sales history → today orders → product scores → FIFO decrement → daily summary), and the data lands in the database in 60-90 seconds. No human button press required. Verified end-to-end with a real refresh on 2026-04-09 13:52 UTC.</p>
+    <p><b>The data layer is fully wired.</b> Live shelf stock per machine via <code>v_live_shelf_stock</code>. Live sales via <code>sales_history</code>. Expiry tracking via <code>pod_inventory</code>. Outcomes via <code>refill_dispatching</code>. All four trustworthy.</p>
+    <p><b>First 2 guardrail files committed.</b> Coexistence (Coca-Cola exclusion at ADDMIND/VOX) and Travel-scope (VOX-locked product list).</p>
+    <p><b>Round 2 is in flight at Claude Code.</b> When it lands, machine identity contamination is cleaned (ALHQ → JET-1016 split, VOXMCC-1009 duplicate merged), the upstream upsert bug is fixed, and venue groups are tagged on every machine.</p>
+    <p><b>What we have NOT done yet:</b> No engine code written. No skill scaffold. CS-01 portfolio strategy interview not yet started. CS-04, CS-05, CS-06, CS-07 interviews not yet started. CC-V1 frontend migration deferred. CC-07 reason code UI deferred.</p>
+  </div>
+
+  <h2 id="data">Data layer — the four oracles</h2>
+  <div class="data-layer">
+    <h4>Four different questions, four different sources. Never confuse them.</h4>
+    <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px;">Each oracle answers exactly one question about the fleet. The refill engine must query the right one for the right question — mixing them is the #1 source of bad decisions.</p>
+
+    <div class="data-oracle oracle-stock">
+      <div class="oracle-title">📦 Stock oracle — "What's physically on the shelf right now?"</div>
+      <div class="oracle-subtitle">Source: <code>v_live_shelf_stock</code> view, flattening <code>weimi_device_status.door_statuses</code> JSONB</div>
+      <div class="oracle-body">
+        <b>Status:</b> ✅ Live. CC-00 complete. View created Round 1, hotfixed for cabinet selector bug. Verified against NOOK ground truth.
+        <br><br>
+        <b>How it works:</b> The <code>refresh-stage1</code> Edge Function calls Weimi's <code>/ext/device-info</code> endpoint and stores the response as JSONB in <code>weimi_device_status.door_statuses</code>. Structure is array-of-cabinets, each cabinet has layers, each layer has aisles. The view does <code>DISTINCT ON (machine_id) ORDER BY snapshot_at DESC</code> to get only the latest snapshot per machine, then flattens via <code>jsonb_array_elements</code> down to one row per slot.
+        <br><br>
+        <b>Columns exposed:</b> machine_id, machine_name, weimi_device_id, cabinet_index, layer_label, aisle_code, slot_name, goods_name_raw, pod_product_id (4-tier match), match_method, current_stock (clamped to ≥0), max_stock, fill_pct, is_broken, is_enabled, price_aed, snapshot_at, is_eligible_machine.
+        <br><br>
+        <b>Match resolution:</b> 4-tier pipeline. Direct exact match → case-insensitive match → product_name_conventions alias lookup → unmatched (NULL pod_product_id). Current stats: 87% direct, 6% conventions, 1% case-insensitive, 6% unmatched (only 1 real test product on non-eligible machines).
+        <br><br>
+        <b>Refresh cadence:</b> nightly at 23:59 Dubai via cron, plus on-demand via <code>SELECT refresh_fleet_data(90)</code>.
+      </div>
+    </div>
+
+    <div class="data-oracle oracle-expiry">
+      <div class="oracle-title">⏳ Expiry oracle — "What's about to go bad in the pods?"</div>
+      <div class="oracle-subtitle">Source: <code>pod_inventory</code>, driver-maintained + FIFO sales decrement</div>
+      <div class="oracle-body">
+        <b>Status:</b> ✅ Live. Pre-existing, not modified in Round 1.
+        <br><br>
+        <b>How it works:</b> Driver does monthly audit, writes batch + expiration_date rows. <code>refresh-stage1</code> calls <code>run_pod_inventory_decrement()</code> which subtracts new sales from the oldest-expiring matching batch. So <code>current_stock</code> in this table reflects "what's left in the pod by batch and expiry," not "what's on the shelf."
+        <br><br>
+        <b>Consumers:</b> Engine 1 (catalog-level expiry-at-risk list), Engine B (expiry-aware quantity sizing), Engine 2 (rescue move prioritization for batches near expiry).
+        <br><br>
+        <b>NOT used for:</b> "how much is in the machine right now" — that's the stock oracle. Confusing these two was the original bug we hit on day 1.
+      </div>
+    </div>
+
+    <div class="data-oracle oracle-sales">
+      <div class="oracle-title">💰 Sales oracle — "What sold, when, and for how much?"</div>
+      <div class="oracle-subtitle">Source: <code>sales_history</code>, live from Weimi via <code>refresh-stage1</code></div>
+      <div class="oracle-body">
+        <b>Status:</b> ✅ Live. 16,661 rows as of 2026-04-09. Latest transaction within 1 minute of every refresh.
+        <br><br>
+        <b>How it works:</b> Weimi's <code>/ext/history-order-page</code> (90 days default lookback) and <code>/ext/today-order-page</code> endpoints. Pulled, deduplicated by tradeNoIn, upserted via <code>upsert_sales_lines</code> RPC.
+        <br><br>
+        <b>Consumers:</b> Lifecycle scoring (evaluate-lifecycle nightly), velocity calculation, demand forecasting, correlation matrix.
+      </div>
+    </div>
+
+    <div class="data-oracle oracle-outcome">
+      <div class="oracle-title">🎯 Outcome oracle — "Did the refill plan match reality?"</div>
+      <div class="oracle-subtitle">Source: <code>refill_dispatching</code>, populated by field team</div>
+      <div class="oracle-body">
+        <b>Status:</b> ✅ Live. Pre-existing. NEW in v5: explicitly recognized as the learning loop's outcome source.
+        <br><br>
+        <b>How it works:</b> When the operator approves a refill plan on <code>/refill</code>, lines flow into <code>refill_dispatching</code>. Driver picks them up via <code>/field/Daily Refill</code>, marks each as packed/picked_up/filled_quantity/returned/return_reason. Engine D's learning loop reads these outcomes via the <code>decision_log.outcome_dispatch_id</code> FK to know whether its quantity sizing, swap candidates, and clubbing decisions actually worked on-site.
+        <br><br>
+        <b>Consumers:</b> Engine B (learn from filled_quantity vs sent_quantity gap), Engine C (learn from returned items + return_reason), Engine D (overall learning loop).
+      </div>
+    </div>
+
+    <div class="data-oracle oracle-legacy">
+      <div class="oracle-title">⚠️ Legacy: <code>v_machine_shelf_plan</code> + <code>refill_instructions</code></div>
+      <div class="oracle-subtitle">To be deprecated in CC-V1 (frontend migration, separate prompt)</div>
+      <div class="oracle-body">
+        Reads <code>current_stock</code> from <code>refill_instructions</code>, a legacy AI-generated table written only twice (Jan 19 and Mar 31, 2026). Stale by design.
+        <br><br>
+        <b>Still consumed by 3 frontend files:</b>
+        <ul>
+          <li><code>src/app/(field)/field/config/machines/page.tsx</code></li>
+          <li><code>src/app/(field)/field/shelf-view/[machineId]/page.tsx</code></li>
+          <li><code>src/components/field/ShelfGrid.tsx</code> (comment references only)</li>
+        </ul>
+        Migration to <code>v_live_shelf_stock</code> tracked as CC-V1 in the task list.
+      </div>
+    </div>
+
+    <div class="data-oracle oracle-dead">
+      <div class="oracle-title">❌ Dead: <code>weimi_aisle_snapshots</code> + <code>v_current_aisle_inventory</code></div>
+      <div class="oracle-subtitle">Empty schema, never wired, ignore.</div>
+      <div class="oracle-body">
+        Schema exists from a stillborn integration effort. <code>refresh-stage1</code> never calls the endpoint that would populate it. Do NOT reference from any new code. Considered for deletion in a future cleanup round.
+      </div>
+    </div>
+  </div>
+
+  <h2 id="venue-groups">Venue group taxonomy</h2>
+  <div class="data-layer">
+    <p style="font-size: 14px; margin-top: 0;">Every machine belongs to exactly one venue group, stored in <code>machines.venue_group</code> (added in CC-01b, backfilled in CC-02b). Determines which coexistence and travel-scope guardrails apply.</p>
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>Members (eligible fleet)</th>
+          <th>Future members</th>
+          <th>Coca-Cola allowed?</th>
+          <th>VOX-locked products allowed?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>ADDMIND</b></td>
+          <td>ADDMIND-1007, USH-1008</td>
+          <td>IRIS (when deployed)</td>
+          <td>❌ No (Pepsi exclusivity)</td>
+          <td>No (not VOX group)</td>
+        </tr>
+        <tr>
+          <td><b>VOX</b></td>
+          <td>VOXMCC-1009, VOXMCC-1011, VOXMCC-1012, VOXMCC-1017, VOXMM-1009, VOXMM-1013</td>
+          <td>ACTIVATEMCC-*, MPMCC-*, IFLYMCC-*, SKYMCC-*</td>
+          <td>❌ No (Pepsi exclusivity)</td>
+          <td>✅ Yes (this is the only group where they go)</td>
+        </tr>
+        <tr>
+          <td><b>VML</b></td>
+          <td>VML-1003, VML-1004</td>
+          <td>—</td>
+          <td>✅ Yes</td>
+          <td>No</td>
+        </tr>
+        <tr>
+          <td><b>WPP</b></td>
+          <td>WPP-1002, MINDSHARE-1009, WAVEMAKER-1006</td>
+          <td>—</td>
+          <td>✅ Yes</td>
+          <td>No</td>
+        </tr>
+        <tr>
+          <td><b>OHMYDESK</b></td>
+          <td>OMDBB-1020, OMDCW-1021</td>
+          <td>—</td>
+          <td>✅ Yes</td>
+          <td>No</td>
+        </tr>
+        <tr>
+          <td><b>INDEPENDENT</b></td>
+          <td>ALJLT-1014, ALJLT-1015, GRIT-1022, HUAWEI-2003, JET-1016, MC-2004, NOOK-1019</td>
+          <td>—</td>
+          <td>✅ Yes</td>
+          <td>No</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="font-size: 13px; color: var(--muted);"><b>Tagging rule:</b> A machine gets a family group name if it belongs to a multi-machine family. Otherwise it's <code>INDEPENDENT</code>. Never NULL. Tagged once on creation, persists permanently.</p>
+  </div>
+
+  <h2 id="guardrails-status">Guardrail files status</h2>
+  <div class="data-layer">
+    <p style="font-size: 14px; margin-top: 0;">All guardrail markdown files live under <code>engines/refill/guardrails/</code> in the repo (matches the existing P1-S1 scaffold convention of <code>engines/refill/</code>).</p>
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th class="col-done">Done</th>
+          <th>File</th>
+          <th>Type</th>
+          <th>Owner</th>
+          <th>Rules captured</th>
+          <th>CS task</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td><code>engines/refill/guardrails/coexistence.md</code></td>
+          <td>Coexistence</td>
+          <td>CS</td>
+          <td>2 (Coca-Cola exclusion at ADDMIND/VOX, same-family soft-block within machine)</td>
+          <td>CS-02 ✅</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td><code>engines/refill/guardrails/travel-scope.md</code></td>
+          <td>Travel scope</td>
+          <td>CS</td>
+          <td>3 (8 VOX-locked products, 3 explicit exclusions, no other-group restrictions)</td>
+          <td>CS-03 ✅</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td><code>engines/refill/guardrails/layout.md</code></td>
+          <td>Layout</td>
+          <td>CS</td>
+          <td>—</td>
+          <td>CS-04 (pending interview)</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td><code>engines/refill/guardrails/refill_rules.md</code></td>
+          <td>Quantity</td>
+          <td>CS</td>
+          <td>—</td>
+          <td>CS-05 (pending interview)</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td><code>engines/refill/guardrails/portfolio_strategy.md</code></td>
+          <td>Catalog</td>
+          <td>CS</td>
+          <td>—</td>
+          <td>CS-01 (pending interview)</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td><code>engines/refill/guardrails/seasonality_global.md</code></td>
+          <td>Calendar</td>
+          <td>CS</td>
+          <td>—</td>
+          <td>CS-09 (low priority)</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td><code>engines/refill/guardrails/vitrine_machines.md</code></td>
+          <td>Vitrine cap overrides</td>
+          <td>CS</td>
+          <td>—</td>
+          <td>CS-08 (low priority, can start empty)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="diagram">Pipeline diagram</h2>
+  <p style="font-size: 14px; color: var(--muted);">Architecture unchanged from v4. The pipeline below describes the eventual refill engine. Phase 0 builds the foundations (data layer, identity, guardrails) — none of these engines are coded yet. Phase 1 starts engine implementation.</p>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background: var(--product); border-color: var(--product-border);"></div>Product axis</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: var(--calc); border-color: var(--calc-border);"></div>Stage 0 calculators</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: var(--machine); border-color: var(--machine-border);"></div>Machine axis</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: var(--decision); border-color: var(--decision-border);"></div>Decision / orchestration</div>
+    <div class="legend-item"><div class="legend-swatch" style="background: var(--output); border-color: var(--output-border);"></div>Output</div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-label">Stage 0a — Product portfolio pass</div>
+    <div class="stage-row">
+      <div class="box product-box">
+        <div class="box-title">Engine 1 — Portfolio manager</div>
+        <div class="box-subtitle">Catalog-level: keep / monitor / double-down / discontinue</div>
+      </div>
+      <div class="box product-box">
+        <div class="box-title">Engine 2 — Relocation planner</div>
+        <div class="box-subtitle">Reads guardrails: travel-scope, coexistence</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="stage-label">Stage 0b — Fleet-wide calculators (weekly cache)</div>
+    <div class="stage-row">
+      <div class="box calc-box"><div class="box-title">Product correlation matrix</div></div>
+      <div class="box calc-box"><div class="box-title">Machine similarity matrix</div></div>
+      <div class="box calc-box"><div class="box-title">Demand forecast</div></div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div class="stage">
+    <div class="stage-label">Layer 1 — Per-machine priority scoring</div>
+    <div class="stage-row">
+      <div class="box machine-box">
+        <div class="box-title">Priority score per eligible machine</div>
+        <div class="box-subtitle">Reads: v_live_shelf_stock, slot_lifecycle, refill_dispatching history, pod_inventory expiry. Filters: machine eligibility (adyen_status / repurposed_at).</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div class="stage">
+    <div class="stage-label">Step 2 — Daily selection (with clubbing via building_id)</div>
+    <div class="stage-row">
+      <div class="box decision-box">
+        <div class="box-title">Lock today's machine set</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div class="stage">
+    <div class="stage-label">Stage 3 — Per-machine planning (for each locked machine)</div>
+    <div class="stage-row">
+      <div class="box machine-box"><div class="box-title">Engine A — Layout</div><div class="box-subtitle">keep / double-down / demote / remove</div></div>
+      <div class="box machine-box"><div class="box-title">Engine C — Swap</div><div class="box-subtitle">Reads guardrails: travel-scope, coexistence</div></div>
+      <div class="box machine-box"><div class="box-title">Engine B — Quantity</div><div class="box-subtitle">Reads guardrail: refill_rules</div></div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div class="stage">
+    <div class="stage-label">Stage 4 — Engine D the decider (sole writer to refill_plan_output)</div>
+    <div class="stage-row">
+      <div class="box decision-box"><div class="box-title">Bond pairs, resolve conflicts, write decision_log</div></div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div class="stage">
+    <div class="stage-label">Stage 5 — Engine E (TSP router)</div>
+    <div class="stage-row">
+      <div class="box decision-box"><div class="box-title">Order locked stops by drive time</div></div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div class="stage">
+    <div class="stage-label">Output (existing pipeline, unchanged)</div>
+    <div class="stage-row">
+      <div class="box output-box">
+        <div class="box-title">refill_plan_output → /refill review → refill_dispatching → /field/Daily Refill</div>
+        <div class="box-subtitle">Outcomes flow back into decision_log for learning</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 id="tasks-cs">Task list — operator (CS)</h2>
+  <div class="task-section">
+    <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px 0;">Tasks only the operator can do. Updated through 2026-04-09 session.</p>
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th class="col-done">Status</th>
+          <th class="col-id">ID</th>
+          <th>Task</th>
+          <th class="col-pri">Pri</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-01</td>
+          <td>Dictate <b>portfolio_strategy.md</b>. Protected, pushed, phased-out products for non-data reasons.</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Interview-style, 30-45 min. Next CS interview to run.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-02</td>
+          <td>Dictate <b>guardrails/coexistence.md</b>. Coca-Cola/Pepsi at ADDMIND/VOX.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>2026-04-09. Coexistence rule + same-family soft-block. File at <code>engines/refill/guardrails/coexistence.md</code>.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-03</td>
+          <td>Dictate <b>guardrails/travel-scope.md</b>. VOX-locked products.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>2026-04-09. 8 locked + 3 explicit exclusions. File at <code>engines/refill/guardrails/travel-scope.md</code>.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-04</td>
+          <td>Dictate <b>guardrails/layout.md</b>. 70/30 rule, VOX hard-locks, anchor slots.</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Pending interview.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-05</td>
+          <td>Dictate <b>refill_rules.md</b>. Vitrine minimums, min facings per signal tier.</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Pending interview.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-06</td>
+          <td>List <b>building_id</b> groupings for clubbing.</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Pending. Used by Step 2 selector.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-07</td>
+          <td>List machine <b>source_of_supply</b> (VOX/BOONZ/LLFP).</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Pending. Backfills CC-01 columns.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-08</td>
+          <td>Provide <b>vitrine_machines.md</b> 10-day cap overrides.</td>
+          <td class="priority pri-p2">P2</td>
+          <td>Can start empty.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-09</td>
+          <td>Sign off on <b>seasonality_global.md</b> (UAE calendar).</td>
+          <td class="priority pri-p2">P2</td>
+          <td>Can be drafted from public sources first.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-10</td>
+          <td>Validate reason code list for <b>decision_log</b>.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>6 codes locked: disagree_with_logic, stock_unavailable, logistics_constraint, test_override, one_off_business_reason, other.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-11</td>
+          <td>Choose where the skill lives (Claude.ai project vs Cowork). Confirm advisor-only.</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Lean Cowork long-term.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-12</td>
+          <td>Confirm dashboard freeze at <b>b0ef2c7</b>.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Confirmed. No more lifecycle dashboard changes.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CS-13</td>
+          <td>List historically-repurposed machines beyond ALHQ→JET-1016 and VOXMCC-1009.</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Round 2 handles ALHQ + VOXMCC-1009. There are 5 OTHER machines with <code>repurposed_at IS NOT NULL</code> in the DB — to be audited after Round 2 lands.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-14</td>
+          <td>Confirm Weimi aisle endpoint.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Resolved: <code>/ext/device-info</code>, already wired via <code>refresh-stage1</code>.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-15</td>
+          <td>Auto-refresh frequency.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Decided: nightly 23:59 Dubai cron + on-demand via Claude.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CS-16</td>
+          <td>Activate vault secret for autonomy wrapper.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>2026-04-09. Service role JWT stored in supabase_vault under name <code>edge_function_service_key</code>. Smoke-tested end-to-end.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CS-17</td>
+          <td>Answer <b>/refill override mechanic</b> questions for CC-07.</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Two questions: (1) does <code>/refill</code> have an explicit override action or just inline edit? (2) do reason codes apply to manual-add lines?</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="tasks-cc">Task list — Claude Code</h2>
+  <div class="task-section">
+    <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px 0;">Tasks Claude Code executes. Updated through 2026-04-09 session.</p>
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th class="col-done">Status</th>
+          <th class="col-id">ID</th>
+          <th>Task</th>
+          <th class="col-pri">Pri</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--have-ink);">Phase 0 Round 1 — Data layer foundations ✅ COMPLETE</td></tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-00</td>
+          <td><b>v_live_shelf_stock</b> view + cabinet selector hotfix</td>
+          <td class="priority pri-done">DONE</td>
+          <td>NOOK ground truth verified. 4-tier match. 87% direct.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-00b</td>
+          <td><b>pg_net wrapper functions</b> (refresh_fleet_data, trigger_lifecycle_eval, wait_for_request, check_edge_function_service_key)</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Vault-backed. Service-role only. Multiple revert/fix iterations: 747612c (regression) → 220af7e (revert) → 0da2861 (grant cleanup) → cea5aee (Authorization header drop). End-to-end smoke test passed.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-00c</td>
+          <td><b>Nightly cron</b> at 23:59 Dubai (19:59 UTC)</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Active. First run tonight.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-01</td>
+          <td>Add <b>building_id, source_of_supply</b> columns to machines</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Backfill deferred to CC-02 (after CS-06, CS-07).</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-05</td>
+          <td>Create <b>decision_log</b> table + reason enum + RLS</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Insert/delete smoke-tested. RLS service_role-only writes.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-06</td>
+          <td>Add <b>warehouse_inventory.reserved_for_machine_id</b> + reservation_priority + reserved_at</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Plus partial index. warehouse_inventory has 1646 rows.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">R1-FU1</td>
+          <td>Product name convention aliases (Chewing Gum→Extra Gum, Eviron Wellness→Eviron Health Drink)</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Round 1 follow-up. Unmatched dropped from 3 → 1 (test product only).</td>
+        </tr>
+
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--decision-ink);">Phase 0 Round 2 — Machine identity, venue groups, guardrails commit 🔄 IN FLIGHT</td></tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-01b</td>
+          <td>Add <b>venue_group</b> column to machines</td>
+          <td class="priority pri-p0">P0</td>
+          <td>In flight at CC. Default 'INDEPENDENT', NOT NULL, CHECK constraint on 6 values.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-02b</td>
+          <td>Backfill venue_group from prefix mapping</td>
+          <td class="priority pri-p0">P0</td>
+          <td>In flight at CC. ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-08</td>
+          <td><b>repurpose_machine()</b> function + admin UI flow</td>
+          <td class="priority pri-p0">P0</td>
+          <td>In flight at CC. Atomic archive + recreate.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-09</td>
+          <td>Retroactive ALHQ → JET-1016 split</td>
+          <td class="priority pri-p0">P0</td>
+          <td>In flight at CC. Uses repurpose_machine(). JET-1016 fields are placeholders, need CS follow-up after.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-09b</td>
+          <td>Merge VOXMCC-1009 duplicate rows</td>
+          <td class="priority pri-p0">P0</td>
+          <td>In flight at CC. Surviving machine_id: 148c4fcf... (the older row with all the data). Updates pulled from ac9022a3...</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-09c</td>
+          <td>Fix admin UI insert→upsert for machine edits</td>
+          <td class="priority pri-p0">P0</td>
+          <td>In flight at CC. Plus partial unique index on official_name where repurposed_at IS NULL.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="task-id">CC-09d</td>
+          <td>Daily duplicate audit (cron 02:00 UTC = 06:00 Dubai)</td>
+          <td class="priority pri-p1">P1</td>
+          <td>In flight at CC. <code>audit_machine_duplicates()</code> function + scheduled cron.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-13</td>
+          <td>Commit guardrail files to <code>engines/refill/guardrails/</code></td>
+          <td class="priority pri-done">DONE</td>
+          <td>Operator created files manually before Round 2 push. CC-13 step removed from prompt.</td>
+        </tr>
+
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--muted);">Deferred — separate prompts later</td></tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-V1</td>
+          <td>Migrate 3 frontend files from <code>v_machine_shelf_plan</code> to <code>v_live_shelf_stock</code></td>
+          <td class="priority pri-p1">P1</td>
+          <td>Field PWA. Deserves its own prompt with role-based testing. Files: <code>(field)/field/config/machines/page.tsx</code>, <code>(field)/field/shelf-view/[machineId]/page.tsx</code>, <code>components/field/ShelfGrid.tsx</code>.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-07</td>
+          <td>Reason code dropdown on <code>/refill</code> override</td>
+          <td class="priority pri-p1">P1</td>
+          <td>Blocked on CS-17 (operator must answer override mechanic question).</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-02</td>
+          <td>Backfill <code>building_id</code> and <code>source_of_supply</code></td>
+          <td class="priority pri-p1">P1</td>
+          <td>Blocked on CS-06 (building groupings) and CS-07 (source_of_supply list).</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-03</td>
+          <td>Backfill <code>guardrail_products</code> (28 missing)</td>
+          <td class="priority pri-p2">P2</td>
+          <td>Less urgent. Can run after Phase 1 starts.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-04</td>
+          <td>Backfill <code>vox_product_mapping</code> (84 missing)</td>
+          <td class="priority pri-p2">P2</td>
+          <td>Less urgent now that travel-scope.md is the source of truth.</td>
+        </tr>
+
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--muted);">Phase 1+ — Skill scaffold & engines (not yet started)</td></tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-10</td>
+          <td>Scaffold Refill Brain skill bundle</td>
+          <td class="priority pri-p0">P0</td>
+          <td>SKILL.md, /guardrails/, /knowledge/. After all CS-* dictations land.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-11</td>
+          <td>fetch-fleet-state subskill</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Single source of truth for reads.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-12</td>
+          <td>Shared machine-product fit scorer</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Used by Engine C and Engine 2.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-20</td>
+          <td>Engine 1 — Portfolio manager</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Blocked on CS-01 portfolio_strategy.md.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-21</td>
+          <td>Engine 2 — Relocation planner</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Reads coexistence + travel-scope.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-22</td>
+          <td>Product correlation matrix calculator (weekly)</td>
+          <td class="priority pri-p1">P1</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-23</td>
+          <td>Machine similarity matrix calculator (weekly)</td>
+          <td class="priority pri-p1">P1</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-24</td>
+          <td>Demand forecast calculator (daily)</td>
+          <td class="priority pri-p1">P1</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-30</td>
+          <td>Layer 1 priority scorer</td>
+          <td class="priority pri-p0">P0</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-31</td>
+          <td>Step 2 selector with clubbing</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Uses building_id from CC-02.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-32</td>
+          <td>Engine A — Layout decisions</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Blocked on CS-04 layout.md.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-33</td>
+          <td>Engine C — Swap with shared fit scorer</td>
+          <td class="priority pri-p0">P0</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-34</td>
+          <td>Engine B — Quantity</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Blocked on CS-05 refill_rules.md.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-40</td>
+          <td>Engine D — The decider + decision_log writer</td>
+          <td class="priority pri-p0">P0</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-41</td>
+          <td>Engine E — Router (TSP)</td>
+          <td class="priority pri-p1">P1</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-42</td>
+          <td>Wire orchestrator SKILL.md</td>
+          <td class="priority pri-p0">P0</td>
+          <td></td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-43</td>
+          <td>Dry-run mode for end-to-end testing</td>
+          <td class="priority pri-p1">P1</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="open-issues">Open issues found during implementation</h2>
+  <div class="open-issues">
+    <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px 0;">Things we discovered while building Round 1 but haven't fully fixed yet. Each one tracked here so we don't lose them.</p>
+
+    <div class="issue-item">
+      <div class="item-title">A8 over-stocked at NOOK (9/8 = 112%)</div>
+      <div class="item-body">
+        After today's refill, NOOK A8 was swapped from "Caprice" to "SF Pancake" but the new product's <code>maxStock</code> wasn't updated to match the actual physical capacity. Result: <code>current_stock</code> exceeds <code>max_stock</code>, fill_pct &gt; 100%. Not a view bug — this is real data from Weimi.
+        <br><br>
+        <b>Implication:</b> Engine B (quantity sizing) must handle <code>fill_pct &gt; 100</code> as a valid state meaning "max_stock is out of date, flag for operator review, don't try to refill." The view returns the over-stocked state honestly; downstream consumers must not crash or wrap around.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title">Product swap detection at slot level</div>
+      <div class="item-body">
+        NOOK A8 went from "Caprice" → "SF Pancake" between snapshots. <code>slot_lifecycle</code> is keyed on (machine_id, shelf_code), not product, so the Caprice lifecycle history silently carries over to SF Pancake. This is contamination analogous to ALHQ → JET-1016 but at the slot level.
+        <br><br>
+        <b>Fix needed:</b> evaluate-lifecycle (or a new pre-step) should detect <code>goods_name_raw</code> changes between snapshots and reset the slot's lifecycle score for the new product (with grace period). Add to Phase 1 backlog.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title"><code>wait_for_request()</code> times out for long-running Edge Functions</div>
+      <div class="item-body">
+        <code>refresh-stage1</code> takes 60-90 seconds. <code>pg_net</code>'s default request timeout is shorter (~10s), so <code>net._http_response.status_code</code> stays NULL even though the Edge Function actually completed successfully (visible in <code>get_logs</code>). The function still works (data lands in DB), but our <code>wait_for_request()</code> helper can't programmatically detect completion.
+        <br><br>
+        <b>Workaround in use:</b> poll the actual data freshness (e.g., <code>MAX(weimi_device_status.snapshot_at)</code>) instead of <code>net._http_response</code>.
+        <br><br>
+        <b>Proper fix later:</b> rewrite <code>wait_for_request()</code> to take a "freshness signal" parameter — a SQL fragment that returns a timestamp — and poll that instead. Low priority. Current workaround is fine.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title">JET-1016 placeholder fields after Round 2 split</div>
+      <div class="item-body">
+        Round 2 CC-09 will split ALHQ → JET-1016 using the <code>repurpose_machine()</code> function. CC doesn't know the real values for JET-1016's <code>location_name</code>, <code>location_type</code>, <code>source_of_supply</code>, so it uses placeholders ("JET location (operator to confirm)", "coworking", "BOONZ").
+        <br><br>
+        <b>Action after Round 2 lands:</b> CS to update these fields with real values via the admin UI.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title">5 other already-repurposed machines never investigated</div>
+      <div class="item-body">
+        Earlier query found 5 machines with <code>repurposed_at IS NOT NULL</code> in the DB (besides the ALHQ → JET-1016 case being handled in Round 2). They're all <code>Switched off</code> + <code>repurposed_at</code> set, which is a healthy state, but we never checked whether any of them have lingering data contamination on their old <code>machine_id</code>s. Audit needed after Round 2.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title">"Product for testing only" still in v_live_shelf_stock</div>
+      <div class="item-body">
+        35 slot rows on ACTIVATEMCC-1024 and WH1-2002 (both non-eligible machines). Product is intentional test placeholder, not a real SKU. Currently quarantined by <code>is_eligible_machine = false</code> filter, so it can't leak into refill decisions.
+        <br><br>
+        <b>Action:</b> none needed for refill engine. CS may want to clean up the test placeholder in Weimi at some point but it's not blocking anything.
+      </div>
+    </div>
+  </div>
+
+  <h2 id="lessons">Lessons learned</h2>
+  <div class="lessons">
+    <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px 0;">Engineering lessons from Phase 0. Each one is a personal-rulebook addition for future prompts.</p>
+
+    <div class="lesson-item">
+      <div class="item-title">JWT-in-migration regression (commits 747612c → 220af7e → 0da2861 → cea5aee)</div>
+      <div class="item-body">
+        CC, when given an ambiguous prompt about Edge Function auth, "helpfully" hardcoded the anon key into the SQL function body and granted EXECUTE to <code>authenticated</code>. Took 3 follow-up commits to clean up: revert function body to vault read, REVOKE authenticated grants explicitly (because <code>CREATE OR REPLACE FUNCTION</code> preserves ACLs), drop the <code>Authorization: Bearer</code> header (which <code>refresh-stage1</code> validates as a user token, not a service role token).
+        <br><br>
+        <b>Personal rulebook addition:</b> for any prompt that involves credentials, secrets, or auth design, include an explicit "DO NOT alter the following design choices under any circumstances, even if it would simplify the implementation" section listing the load-bearing design decisions.
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title"><code>CREATE OR REPLACE FUNCTION</code> does not reset ACLs</div>
+      <div class="item-body">
+        The function body changes, but pre-existing GRANT/REVOKE rules persist. So if a previous migration granted EXECUTE to a role and a new migration replaces the function body without explicitly revoking that grant, the role still has access.
+        <br><br>
+        <b>Personal rulebook addition:</b> any migration that uses <code>CREATE OR REPLACE FUNCTION</code> on a security-sensitive function MUST follow it with explicit <code>REVOKE</code> statements for every role that should not have access, plus the <code>GRANT</code>s for the roles that should.
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title">JSONB structure assumptions (door_statuses cabinet selector bug)</div>
+      <div class="item-body">
+        I told CC the <code>door_statuses</code> structure was "cabinets → layers → aisles" in shorthand. CC interpreted that as <code>door_statuses.cabinets[]</code> when actually <code>door_statuses</code> IS the cabinets array (no wrapper key). Result: empty view on first build.
+        <br><br>
+        <b>Personal rulebook addition:</b> when describing JSONB structure in prompts, always specify the literal top-level type explicitly. Use phrases like "<code>door_statuses</code> is an array of cabinet objects, length N, where each element is...". Never use the conceptual shorthand "X → Y → Z" without specifying the JSON literal at each level.
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title">Verify capabilities before promising to handle a task</div>
+      <div class="item-body">
+        I told you "I'll fetch the service role key via my Supabase MCP tools" and then discovered my MCP tools only expose publishable keys (anon + sb_publishable_*), not service_role. By design — which is good security. But I made the promise without checking the tool catalog first, costing us a round-trip.
+        <br><br>
+        <b>Personal rulebook addition:</b> before offering to do a step that requires a specific tool capability, verify the tool can actually do it. Especially for security-sensitive operations where the answer might be "no, by design."
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title">Match the existing codebase's calling convention</div>
+      <div class="item-body">
+        <code>refresh-stage1</code> is called by the n8n operational-signals workflow with <code>apikey</code>-only headers, no <code>Authorization</code>. When I wrote the SQL wrapper, I added a "belt-and-suspenders" <code>Authorization: Bearer</code> header that turned out to be the cause of the 401 (because <code>refresh-stage1</code>'s auth code path validates Authorization as a user JWT). The fix was to remove the header and match n8n's pattern.
+        <br><br>
+        <b>Personal rulebook addition:</b> when writing a new caller for an existing function, replicate the exact calling convention used by other working callers. Don't add headers, parameters, or auth fields that the existing callers don't send. The function's auth logic was designed around the existing caller pattern.
+      </div>
+    </div>
+  </div>
+
+  <h2 id="runbook">Operational runbook</h2>
+  <div class="runbook">
+    <p style="font-size: 13px; color: var(--muted); margin: 0 0 16px 0;">Common operations and how to perform them. Add new entries as we discover them.</p>
+
+    <div class="runbook-item">
+      <div class="item-title">How to refresh fleet data on demand</div>
+      <div class="item-body">
+        From Claude chat (or any service_role SQL session):
+        <pre>SELECT public.refresh_fleet_data(90) AS request_id;
+-- Returns a request_id (bigint)
+
+-- Wait ~90 seconds, then verify by checking data freshness:
+SELECT MAX(snapshot_at) FROM weimi_device_status;
+-- Should be within last 60 seconds
+
+-- Or check the Edge Function logs directly:
+-- (via Supabase MCP get_logs tool, service='edge-function')</pre>
+        Do NOT use <code>wait_for_request()</code> for refresh-stage1 — pg_net's request timeout truncates the response tracking even though the function completes. Poll <code>weimi_device_status.snapshot_at</code> instead.
+      </div>
+    </div>
+
+    <div class="runbook-item">
+      <div class="item-title">How to rotate the vault secret</div>
+      <div class="item-body">
+        If the Supabase service_role key gets rotated (or compromised):
+        <pre>-- 1. Rotate in Dashboard → Project Settings → API Keys
+-- 2. Update the vault entry with the new key:
+SELECT vault.update_secret(
+  (SELECT id FROM vault.secrets WHERE name = 'edge_function_service_key'),
+  '&lt;new service_role JWT&gt;'
+);
+-- 3. Verify:
+SELECT * FROM public.check_edge_function_service_key();
+-- Should still say 'present'
+-- 4. Smoke test:
+SELECT public.refresh_fleet_data(90);</pre>
+        No code changes needed. The wrapper functions read from the vault on every call.
+      </div>
+    </div>
+
+    <div class="runbook-item">
+      <div class="item-title">How to add a new product alias</div>
+      <div class="item-body">
+        When the operator confirms that a product appearing in <code>v_live_shelf_stock</code> with <code>match_method='unmatched'</code> is actually an existing pod_product under a different name:
+        <pre>INSERT INTO public.product_name_conventions (original_name, official_name, mapped_at)
+VALUES ('&lt;Weimi name&gt;', '&lt;pod_products.pod_product_name&gt;', CURRENT_DATE);
+
+-- Verify the alias resolves on next query of v_live_shelf_stock</pre>
+        Through Claude Code as a committed migration, not ad-hoc, to keep repo and DB in sync.
+      </div>
+    </div>
+
+    <div class="runbook-item">
+      <div class="item-title">How to add a new venue group member</div>
+      <div class="item-body">
+        When a new machine joins an existing family (e.g., a new VOX-group machine):
+        <pre>UPDATE public.machines
+SET venue_group = 'VOX'  -- or ADDMIND, VML, WPP, OHMYDESK, INDEPENDENT
+WHERE machine_id = '&lt;uuid&gt;';</pre>
+        If the new machine matches the prefix pattern in CC-02b (e.g., starts with VOXMCC, MPMCC, IFLYMCC), the backfill logic is already correct — but new naming conventions need to be added to the backfill function. Open a follow-up CC prompt to extend the prefix pattern.
+      </div>
+    </div>
+
+    <div class="runbook-item">
+      <div class="item-title">How to repurpose a machine cleanly (post-CC-08)</div>
+      <div class="item-body">
+        After Round 2 lands, never rename a machine in place. Instead:
+        <pre>-- Via SQL (or via the admin UI button when CC-08 lands):
+SELECT * FROM public.repurpose_machine(
+  p_old_machine_id := '&lt;current machine_id&gt;',
+  p_new_official_name := 'NEW-NAME-XXXX-Y0',
+  p_new_location_name := 'New venue name',
+  p_new_pod_location := 'NEW-NAME-XXXX-Y0',
+  p_new_location_type := 'cinema',  -- or coworking, office, retail, etc.
+  p_new_building_id := 'optional building tag',
+  p_new_source_of_supply := 'BOONZ',  -- or VOX, LLFP
+  p_new_venue_group := 'INDEPENDENT'  -- or ADDMIND, VOX, etc.
+);
+-- Returns: old_machine_id, new_machine_id, slots_archived, result</pre>
+        This atomically marks the old row as repurposed (<code>repurposed_at</code> set, adyen Switched off, weimi_device_id detached), archives old slot_lifecycle rows, and creates a fresh machine row with the new identity inheriting the same physical Weimi device.
+      </div>
+    </div>
+
+    <div class="runbook-item">
+      <div class="item-title">How to update the bible</div>
+      <div class="item-body">
+        Update protocol going forward:
+        <ol>
+          <li>At the end of each CC round verification, claude updates the bible with task checkboxes and any new findings.</li>
+          <li>At the end of each CS interview, claude updates the bible with the new guardrail file status and any decisions made.</li>
+          <li>At the end of each significant decision (architecture change, scope change, design pivot), claude updates the bible immediately.</li>
+          <li>The bible HTML is given to the operator as a downloadable file. Operator commits to <code>docs/refill_engine_bible_v&lt;N&gt;.html</code> in the repo, replacing or alongside the previous version.</li>
+          <li>Each new version gets a changelog section at the top describing what changed.</li>
+        </ol>
+        <b>This protocol is the antidote to bible drift.</b> Without it, every new chat session would start from scratch trying to figure out where we are.
+      </div>
+    </div>
+  </div>
+
+  <h2 id="whats-next">What's next (immediate)</h2>
+  <div class="data-layer">
+    <p style="font-size: 14px; margin-top: 0;"><b>The next 3 things to do, in priority order:</b></p>
+
+    <ol style="font-size: 14px; line-height: 1.8;">
+      <li><b>Wait for Round 2 to land at CC.</b> Operator pushes "Round 2 pushed" and Claude verifies all 8 task IDs (CC-01b, CC-02b, CC-08, CC-09, CC-09b, CC-09c, CC-09d, CC-13). Specifically: venue_group column populated correctly, VOXMCC-1009 down to single row, JET-1016 created as fresh row with placeholder fields, ALHQ row marked repurposed, unique index in place, repurpose_machine function callable, audit_machine_duplicates returns no rows.</li>
+      
+      <li><b>Operator updates JET-1016 placeholder fields</b> with real values via admin UI. Then Claude updates bible v5 → v5.1 with Round 2 marked complete.</li>
+      
+      <li><b>Pivot to CS interviews in priority order:</b>
+        <ul style="margin-top: 8px;">
+          <li><b>CS-01 portfolio_strategy.md</b> (P0) — interview-style, the most strategic content of the entire bible</li>
+          <li><b>CS-07 source_of_supply</b> (P0) — short list, unblocks CC-02 backfill</li>
+          <li><b>CS-04 layout.md</b> (P1) — 70/30 rule definition, VOX hard-locks</li>
+          <li><b>CS-05 refill_rules.md</b> (P1) — vitrine minimums</li>
+          <li><b>CS-06 building_id groupings</b> (P1) — short list, enables clubbing in Step 2</li>
+          <li><b>CS-17 /refill override mechanic</b> (P1) — answers needed before CC-07 prompt</li>
+        </ul>
+      </li>
+    </ol>
+
+    <p style="font-size: 14px;"><b>What can run in parallel:</b> CS interviews + CC-V1 frontend migration + Phase 1 skill scaffold prep. None of these block each other.</p>
+
+    <p style="font-size: 14px;"><b>Phase 1 starts when:</b> at minimum CS-01, CS-04, CS-05 are dictated, and CC-V1 frontend migration is done. That gives Engine 1, A, B enough operator intent to start coding.</p>
+  </div>
+
+  <h2 id="principles">Design principles</h2>
+  <div class="principles">
+    <ol>
+      <li><b>One direction, top to bottom.</b> No loops within a run. Engine 1 → 2 → Layer 1 → Step 2 → Stage 3 (A, C, B) → Engine D → Engine E.</li>
+      <li><b>Four oracles, four questions.</b> Stock = v_live_shelf_stock. Expiry = pod_inventory. Sales = sales_history. Outcomes = refill_dispatching. Never confuse them.</li>
+      <li><b>Engine 1 is portfolio-only.</b> Catalog decisions, not slot decisions.</li>
+      <li><b>Layer 1 stays pure.</b> Per-machine priority only. Geography enters at Step 2.</li>
+      <li><b>Guardrails apply at every engine.</b> Each engine reads only the types relevant to its decision.</li>
+      <li><b>Engine D is the only writer.</b> No other engine commits to refill_plan_output.</li>
+      <li><b>Shared fit scorer.</b> Engine C and Engine 2 share the same scoring function for consistency.</li>
+      <li><b>Stage 0 calculators are reference data, not decisions.</b></li>
+      <li><b>Learning loop is across runs only.</b> Deterministic, debuggable.</li>
+      <li><b>Reason codes are mandatory.</b> Every override tagged. Engine D's learning ignores operational reasons (stock_unavailable, logistics_constraint).</li>
+      <li><b>Advisor-only forever.</b> Skill never bypasses /refill review.</li>
+      <li><b>Downstream pipeline unchanged.</b> Skill writes to refill_plan_output, that's it.</li>
+      <li><b>Machine eligibility is a precondition.</b> Decommissioned, repurposed, and non-live machines are filtered out before Layer 1 even runs.</li>
+      <li><b>Vault for all secrets.</b> Never embed JWTs in any migration or function body.</li>
+      <li><b>Bible updates at every checkpoint.</b> Bible drift is the failure mode we cannot afford.</li>
+    </ol>
+  </div>
+
+</div>
+</body>
+</html>
