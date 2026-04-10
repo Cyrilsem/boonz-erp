@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Boonz Refill Engine — The Bible v5</title>
+<title>Boonz Refill Engine — The Bible v5.1</title>
 <style>
   :root {
     --bg: #fafaf9;
@@ -298,12 +298,12 @@
 <body>
 <div class="container">
 
-  <h1>Boonz refill engine — the bible v5</h1>
-  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-09 after Phase 0 Round 1 fully verified, autonomy loop proven end-to-end, guardrail interview produced first 2 files, Round 2 in flight at Claude Code.</p>
+  <h1>Boonz refill engine — the bible v5.1</h1>
+  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-09 after Phase 0 Round 2 verified. 6 of 8 Round 2 tasks landed cleanly. CC-01b/02b (venue_group column + backfill) silently dropped from execution — needs Round 2.5. Architectural foot-gun discovered: two functions named <code>repurpose_machine</code> with different signatures coexist.</p>
 
   <div class="progress-banner">
     <h2>🎯 Where we are right now</h2>
-    <p style="margin: 0 0 8px 0; font-size: 14px;">Phase 0 Round 1 is <b>complete and verified</b>. The autonomy loop works: Claude can refresh fleet data without human intervention. The data layer is fully wired with three live oracles. Round 2 is in flight at Claude Code (machine identity cleanup + venue groups + first 2 guardrails). After Round 2 lands, we pivot to Phase 1 (skill scaffold) or finish remaining CS interviews (CS-01 portfolio, CS-04 layout, CS-05 vitrine, CS-06 buildings, CS-07 source_of_supply).</p>
+    <p style="margin: 0 0 8px 0; font-size: 14px;">Phase 0 Round 1 is <b>complete and verified</b>. Phase 0 Round 2 is <b>6 of 8 tasks complete</b> — machine identity cleanup landed, but venue_group additions were silently dropped from execution and need a small follow-up Round 2.5 prompt. The autonomy loop works. The data layer is fully wired with four oracles. Next up: Round 2.5 to finish venue_group, then pivot to CS-01 portfolio interview (P0).</p>
     <div class="progress-stats">
       <div class="stat-box">
         <div class="stat-label">Round 1 tasks</div>
@@ -312,8 +312,8 @@
       </div>
       <div class="stat-box">
         <div class="stat-label">Round 2 tasks</div>
-        <div class="stat-value">0 / 8 🔄</div>
-        <div class="stat-detail">In flight at CC</div>
+        <div class="stat-value">6 / 8 ⚠️</div>
+        <div class="stat-detail">CC-01b/02b dropped, need Round 2.5</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">CS interviews</div>
@@ -334,20 +334,24 @@
   </div>
 
   <div class="changelog">
-    <h3>📝 What changed in v5 (from v4)</h3>
+    <h3>📝 What changed in v5.1 (from v5)</h3>
     <ul>
-      <li><b>Phase 0 Round 1 marked complete and verified.</b> CC-00, CC-00b, CC-00c, CC-01, CC-05, CC-06 all done. Autonomy loop proven end-to-end via successful <code>refresh_fleet_data(90)</code> call.</li>
-      <li><b>Vault secret pattern documented and locked.</b> Service role JWT lives in <code>supabase_vault</code>, accessed by SECURITY DEFINER wrapper functions. Never hardcoded. Three regression cases captured in lessons learned section.</li>
-      <li><b>NOOK ground truth verified.</b> 16 slots, A12 G&H Popped Chips empty (refilled in same-day operator visit), avg ~62% fill. Match resolution 87% direct, 6% conventions, 1% case-insensitive, 6% unmatched (only 1 real test product).</li>
-      <li><b>Three-oracles model refined.</b> Stock = <code>weimi_device_status.door_statuses</code> JSONB → <code>v_live_shelf_stock</code> view. Expiry = <code>pod_inventory</code>. Sales = <code>sales_history</code>. New: outcomes oracle = <code>refill_dispatching</code>.</li>
-      <li><b>weimi_aisle_snapshots officially abandoned.</b> Empty schema, never wired, drop from architecture references.</li>
-      <li><b>Round 2 prompt written and in flight.</b> CC-08 repurpose flow, CC-09 ALHQ split, CC-09b VOXMCC-1009 merge, CC-09c upsert fix, CC-09d duplicate audit, CC-01b/02b venue groups, CC-13 guardrail commit.</li>
-      <li><b>First 2 guardrail files committed.</b> <code>engines/refill/guardrails/coexistence.md</code> (Coca-Cola exclusion at ADDMIND/VOX), <code>engines/refill/guardrails/travel-scope.md</code> (8 VOX-locked products + 3 explicit exclusions).</li>
-      <li><b>Venue group taxonomy finalized.</b> 6 values: ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT. Stored in <code>machines.venue_group</code> column (added in CC-01b).</li>
-      <li><b>New "Open issues found during implementation" section.</b> Captures things we discovered but haven't fixed yet: A8 over-stocked 9/8, wait_for_request timeout with long-running Edge Functions, JET-1016 placeholder fields, product swap detection at slot level.</li>
-      <li><b>New "Lessons learned" section.</b> JWT-in-migration regression, CREATE OR REPLACE preserves ACLs gotcha, door_statuses cabinet selector bug, prompt-must-forbid-redesign pattern.</li>
-      <li><b>New "Operational runbook" section.</b> How to refresh data, rotate vault secret, add a guardrail, handle a duplicate machine row.</li>
-      <li><b>Bible update protocol:</b> v5 commits to memory that the bible MUST be updated at every checkpoint (end of CC round, end of CS interview, end of significant decision). No more drift between reality and the doc.</li>
+      <li><b>Round 2 verified.</b> 6 of 8 tasks landed cleanly: CC-08 (repurpose function + UI), CC-09 (ALHQ→JET-1016 split), CC-09b (VOXMCC-1009 merge), CC-09c (upsert fix + unique index), CC-09d (audit cron). All checked against the database.</li>
+      <li><b>VOXMCC-1009 is no longer a phantom machine.</b> Surviving row (148c4fcf...) now has 16 shelf slots in v_live_shelf_stock, 12 snapshots, 437 sales rows, 85 dispatching rows, 16 lifecycle rows. The merge worked end-to-end. Ghost row gone.</li>
+      <li><b>JET-1016 created as fresh machine row</b> (a75f6648...). ALHQ-1016 marked repurposed_at=2026-04-09, Switched off, previous_location set. Identity contamination cleaned.</li>
+      <li><b>⚠️ Two Round 2 tasks silently dropped:</b> CC-01b (add venue_group column) and CC-02b (backfill venue_group) were not executed. CC's PR summary doesn't even mention them. The column doesn't exist in the machines table. Needs Round 2.5 (small targeted prompt).</li>
+      <li><b>⚠️ Architectural foot-gun discovered:</b> two functions named <code>repurpose_machine</code> coexist with different signatures. The OLDER one (oid 44668) is a rename-in-place pattern from a previous field PWA phase. The NEW one (oid 47660) is the atomic split. They cannot live under the same name long-term. Round 2.5 must rename one to disambiguate.</li>
+      <li><b>⚠️ VOXMCC-1009 stale field data preserved by merge.</b> The COALESCE-based merge preserved the older row's <code>location_type='warehouse'</code> and <code>pod_location='MINDSHARE-1009-4500-O1'</code> because they were non-NULL. Both are wrong (it's a cinema concession machine in a different location). Operator follow-up needed via admin UI Edit Machine.</li>
+      <li><b>JET-1016 placeholder fields confirmed:</b> location_type='coworking', source_of_supply='BOONZ', pod_location='JET-1016-0000-O1', building_id=NULL. CS to update via admin UI.</li>
+      <li><b>Lessons learned section updated</b> with two new entries: "Don't fold unrelated tasks into one CC prompt" (the venue_group drop) and "Check for existing functions before creating new ones with the same name" (the repurpose_machine overload).</li>
+      <li><b>Bible update protocol exercised for the first time.</b> v5 → v5.1 produced automatically after Round 2 verification, no operator prompt needed. Next: v5.2 after Round 2.5 lands, then v5.3 after CS-01 interview.</li>
+    </ul>
+  </div>
+
+  <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
+    <h3 style="color: var(--muted);">📝 Previous version: v5 (2026-04-09)</h3>
+    <ul style="color: var(--muted);">
+      <li>Initial v5 — Phase 0 Round 1 complete and verified, autonomy loop live, four oracles model, venue group taxonomy locked, Round 2 in flight at CC. Full v5 changelog preserved in git history.</li>
     </ul>
   </div>
 
@@ -465,7 +469,8 @@
 
   <h2 id="venue-groups">Venue group taxonomy</h2>
   <div class="data-layer">
-    <p style="font-size: 14px; margin-top: 0;">Every machine belongs to exactly one venue group, stored in <code>machines.venue_group</code> (added in CC-01b, backfilled in CC-02b). Determines which coexistence and travel-scope guardrails apply.</p>
+    <p style="background: #fee2e2; border: 1px solid var(--build-border); border-radius: 6px; padding: 12px 16px; font-size: 13px; margin: 0 0 16px 0;"><b>⚠️ Status as of 2026-04-09:</b> the taxonomy below is decided and locked in policy, but the <code>machines.venue_group</code> column does NOT YET exist in the database. Round 2 was supposed to add it (CC-01b) and backfill it (CC-02b) but those tasks were silently dropped from CC's execution. <b>Round 2.5 (a small targeted prompt)</b> will add the column and run the backfill. Until then, treat this table as the source of truth at the policy level — all guardrail rules in <code>engines/refill/guardrails/coexistence.md</code> and <code>engines/refill/guardrails/travel-scope.md</code> already reference these group names as if the column existed.</p>
+    <p style="font-size: 14px; margin-top: 0;">Every machine belongs to exactly one venue group, stored in <code>machines.venue_group</code> (to be added in Round 2.5). Determines which coexistence and travel-scope guardrails apply.</p>
     <table class="task-table">
       <thead>
         <tr>
@@ -899,55 +904,55 @@
           <td>Round 1 follow-up. Unmatched dropped from 3 → 1 (test product only).</td>
         </tr>
 
-        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--decision-ink);">Phase 0 Round 2 — Machine identity, venue groups, guardrails commit 🔄 IN FLIGHT</td></tr>
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--have-ink);">Phase 0 Round 2 — Machine identity cleanup ✅ 6/8 COMPLETE</td></tr>
         <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="col-done"><span class="check blocked">✗</span></td>
           <td class="task-id">CC-01b</td>
           <td>Add <b>venue_group</b> column to machines</td>
           <td class="priority pri-p0">P0</td>
-          <td>In flight at CC. Default 'INDEPENDENT', NOT NULL, CHECK constraint on 6 values.</td>
+          <td><b>SILENTLY DROPPED.</b> CC focused on machine identity work and ignored the venue_group additions in the prompt. PR summary doesn't mention it. Column does not exist. Re-queue in Round 2.5.</td>
         </tr>
         <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+          <td class="col-done"><span class="check blocked">✗</span></td>
           <td class="task-id">CC-02b</td>
           <td>Backfill venue_group from prefix mapping</td>
           <td class="priority pri-p0">P0</td>
-          <td>In flight at CC. ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT.</td>
+          <td><b>SILENTLY DROPPED.</b> Depends on CC-01b. Re-queue in Round 2.5.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-08</td>
           <td><b>repurpose_machine()</b> function + admin UI flow</td>
-          <td class="priority pri-p0">P0</td>
-          <td>In flight at CC. Atomic archive + recreate.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Atomic archive + recreate. Function oid 47660. <b>⚠️ FOOT-GUN:</b> An OLDER function (oid 44668) with the same name but different signature also exists from a previous field PWA phase. Round 2.5 must rename it. Admin UI button works correctly.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-09</td>
           <td>Retroactive ALHQ → JET-1016 split</td>
-          <td class="priority pri-p0">P0</td>
-          <td>In flight at CC. Uses repurpose_machine(). JET-1016 fields are placeholders, need CS follow-up after.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>ALHQ-1016 marked repurposed_at=2026-04-09, Switched off. JET-1016 fresh row created (a75f6648...) with placeholder location_type='coworking', source_of_supply='BOONZ'. Operator follow-up via admin UI Edit Machine to update placeholders.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-09b</td>
           <td>Merge VOXMCC-1009 duplicate rows</td>
-          <td class="priority pri-p0">P0</td>
-          <td>In flight at CC. Surviving machine_id: 148c4fcf... (the older row with all the data). Updates pulled from ac9022a3...</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Surviving machine_id: 148c4fcf... All 25 FK tables handled. Now has 16 shelf slots, 12 snapshots, 437 sales, 85 dispatching rows. Phantom machine resolved. <b>⚠️ Two stale fields preserved by COALESCE merge:</b> location_type='warehouse' and pod_location='MINDSHARE-1009-4500-O1' — operator follow-up via admin UI.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-09c</td>
-          <td>Fix admin UI insert→upsert for machine edits</td>
-          <td class="priority pri-p0">P0</td>
-          <td>In flight at CC. Plus partial unique index on official_name where repurposed_at IS NULL.</td>
+          <td>Fix admin UI insert→upsert + unique index</td>
+          <td class="priority pri-done">DONE</td>
+          <td>handleAddMachine duplicate-name guard added. saveMachine already used proper update. Partial unique index <code>machines_official_name_unique_active</code> in place WHERE repurposed_at IS NULL.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check in-progress">●</span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-09d</td>
           <td>Daily duplicate audit (cron 02:00 UTC = 06:00 Dubai)</td>
-          <td class="priority pri-p1">P1</td>
-          <td>In flight at CC. <code>audit_machine_duplicates()</code> function + scheduled cron.</td>
+          <td class="priority pri-done">DONE</td>
+          <td><code>audit_machine_duplicates()</code> function callable, returns 0 rows. Cron job <code>daily-machine-duplicate-audit</code> active.</td>
         </tr>
         <tr class="task-done">
           <td class="col-done"><span class="check done">✓</span></td>
@@ -955,6 +960,29 @@
           <td>Commit guardrail files to <code>engines/refill/guardrails/</code></td>
           <td class="priority pri-done">DONE</td>
           <td>Operator created files manually before Round 2 push. CC-13 step removed from prompt.</td>
+        </tr>
+
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--decision-ink);">Phase 0 Round 2.5 — venue_group + foot-gun cleanup 🔄 NEEDS PROMPT</td></tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-01b'</td>
+          <td>(retry) Add <b>venue_group</b> column to machines</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Single-task migration. Column with CHECK constraint, default 'INDEPENDENT', NOT NULL.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-02b'</td>
+          <td>(retry) Backfill venue_group + extend repurpose_machine signature</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Backfill via prefix CASE. Also add p_new_venue_group parameter to repurpose_machine.</td>
+        </tr>
+        <tr>
+          <td class="col-done"><span class="check"></span></td>
+          <td class="task-id">CC-14</td>
+          <td>Disambiguate <b>repurpose_machine</b> overloads</td>
+          <td class="priority pri-p0">P0</td>
+          <td>Rename OLDER function (oid 44668, 8-param rename-in-place) to <code>rename_machine_in_place_legacy</code>. Grep all callers and update them. Document in CLAUDE.md.</td>
         </tr>
 
         <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--muted);">Deferred — separate prompts later</td></tr>
@@ -1168,11 +1196,38 @@
     </div>
 
     <div class="issue-item">
-      <div class="item-title">"Product for testing only" still in v_live_shelf_stock</div>
+      <div class="item-title">VOXMCC-1009 stale field data preserved by merge</div>
       <div class="item-body">
-        35 slot rows on ACTIVATEMCC-1024 and WH1-2002 (both non-eligible machines). Product is intentional test placeholder, not a real SKU. Currently quarantined by <code>is_eligible_machine = false</code> filter, so it can't leak into refill decisions.
+        After Round 2's CC-09b merge, the surviving VOXMCC-1009 row (machine_id <code>148c4fcf...</code>) has two wrong field values: <code>location_type='warehouse'</code> (should be cinema/concession) and <code>pod_location='MINDSHARE-1009-4500-O1'</code> (totally different machine). These were pre-existing bad data on the older row before the merge. The merge logic used <code>COALESCE(new.field, old.field)</code> for these columns, which preserves the old value if it's non-NULL. The values were non-NULL but wrong.
         <br><br>
-        <b>Action:</b> none needed for refill engine. CS may want to clean up the test placeholder in Weimi at some point but it's not blocking anything.
+        <b>Action:</b> CS to update via admin UI Edit Machine (NOT Repurpose flow). Quick manual fix.
+        <br><br>
+        <b>Lesson for future merges:</b> COALESCE preserves the old value if non-NULL, even when wrong. For one-time merges, prefer "new value wins for known-fresh fields" rather than COALESCE.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title">Two <code>repurpose_machine</code> functions coexist with different semantics</div>
+      <div class="item-body">
+        After Round 2 landed, the database has TWO functions named <code>repurpose_machine</code>:
+        <ul>
+          <li><b>oid 44668 (older, pre-Round 2):</b> 8 params (<code>p_machine_id, p_new_official_name, p_new_location_type, p_new_pod_location, p_new_status, p_include_in_refill, p_cutover_date, p_previous_location</code>). RETURNS machines. Pattern: <b>rename in place</b> — UPDATEs the existing row with new identity, preserves the old name as an alias in <code>machine_name_aliases</code>, sets <code>repurposed_at</code> to the cutover date. Same machine_id throughout.</li>
+          <li><b>oid 47660 (new, from Round 2 CC-08):</b> 6 params (<code>p_old_machine_id, p_new_official_name, p_new_pod_location, p_new_location_type, p_new_building_id, p_new_source_of_supply</code>). RETURNS TABLE. Pattern: <b>atomic split</b> — archives old row (sets repurposed_at, switches off), archives slot_lifecycle, creates a fresh machine_id with new identity. Different machine_id before/after.</li>
+        </ul>
+        These are semantically incompatible. PostgreSQL allows the overload because signatures differ, but it's a serious foot-gun: any caller has to disambiguate by parameter name, and a slightly-wrong call can hit the wrong function with no error.
+        <br><br>
+        <b>Action:</b> Round 2.5 prompt will rename the OLDER function to <code>rename_machine_in_place_legacy</code>, grep for callers and update them. The newer atomic-split function keeps the canonical name <code>repurpose_machine</code>.
+      </div>
+    </div>
+
+    <div class="issue-item">
+      <div class="item-title">venue_group column does not exist in machines table</div>
+      <div class="item-body">
+        Round 2 was supposed to add the <code>venue_group</code> column (CC-01b) and backfill it (CC-02b). Both tasks were silently dropped from CC's execution. CC's PR summary doesn't mention them. The machines table has no <code>venue_group</code> column.
+        <br><br>
+        <b>Impact:</b> the venue group taxonomy in <code>guardrails/coexistence.md</code> and <code>guardrails/travel-scope.md</code> is locked in policy but not yet enforceable in SQL. No engine has been written that depends on it yet, so this is not blocking anything operational. But it's blocking the next Phase 1 step (when engines start reading guardrails, they'll need to filter by venue_group).
+        <br><br>
+        <b>Action:</b> Round 2.5 prompt will retry CC-01b and CC-02b as a single-theme migration with no other tasks alongside. Keep the prompt narrow.
       </div>
     </div>
   </div>
@@ -1218,11 +1273,26 @@
     </div>
 
     <div class="lesson-item">
-      <div class="item-title">Match the existing codebase's calling convention</div>
+      <div class="item-title">Don't fold unrelated tasks into one CC prompt</div>
       <div class="item-body">
-        <code>refresh-stage1</code> is called by the n8n operational-signals workflow with <code>apikey</code>-only headers, no <code>Authorization</code>. When I wrote the SQL wrapper, I added a "belt-and-suspenders" <code>Authorization: Bearer</code> header that turned out to be the cause of the 401 (because <code>refresh-stage1</code>'s auth code path validates Authorization as a user JWT). The fix was to remove the header and match n8n's pattern.
+        Round 2 had two themes: machine identity cleanup (CC-08, CC-09, CC-09b, CC-09c, CC-09d) and venue group taxonomy (CC-01b, CC-02b). I folded both into a single 11-task prompt to avoid a round-trip. CC focused on the primary theme (identity cleanup), executed all 6 of those tasks correctly, and silently dropped both venue_group tasks. CC's PR summary doesn't even acknowledge they existed. No error, no warning — they just didn't happen.
         <br><br>
-        <b>Personal rulebook addition:</b> when writing a new caller for an existing function, replicate the exact calling convention used by other working callers. Don't add headers, parameters, or auth fields that the existing callers don't send. The function's auth logic was designed around the existing caller pattern.
+        <b>Personal rulebook addition:</b> one theme per CC prompt. If I have a cleanup task and a feature-add task, those are two prompts. The token cost of an extra round-trip is small. The cost of a silently-dropped task is large because you only catch it during verification, by which point the prompt is no longer in the working set and re-running it requires reconstructing context.
+        <br><br>
+        <b>Specifically:</b> when I write a CC prompt with a numbered task list, the failure mode is that CC mentally bins them by theme and then drops the smaller bin. So the rule is: <i>if I cannot summarize the prompt's purpose in one sentence, it's two prompts</i>. "Phase 0 Round 2: machine identity, venue groups, guardrails commit" was three things in one sentence — that was the warning sign I missed.
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title">Check for existing functions before creating new ones with the same name</div>
+      <div class="item-body">
+        I wrote the CC-08 prompt asking CC to <code>CREATE OR REPLACE FUNCTION public.repurpose_machine(...)</code> with a specific 6-parameter signature. I assumed no function with that name existed. There was an older 8-parameter <code>repurpose_machine</code> from a previous field PWA phase. PostgreSQL's overloading rules meant the new function was created as a separate overload alongside the old one, instead of replacing it. Both now coexist with incompatible semantics (rename-in-place vs atomic-split).
+        <br><br>
+        <b>Personal rulebook addition:</b> before writing a CREATE OR REPLACE FUNCTION prompt, query <code>pg_proc</code> to check if anything with that name already exists. If yes, decide explicitly: replace it (drop the old one first), rename it (add a suffix), or use a different name for the new one. Never assume the namespace is empty.
+        <br><br>
+        <b>SQL pattern to add to my mental checklist:</b><br>
+        <code>SELECT proname, pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname = '&lt;name&gt;';</code><br>
+        Run this before writing any function-creating migration prompt.
       </div>
     </div>
   </div>
@@ -1328,12 +1398,19 @@ SELECT * FROM public.repurpose_machine(
 
   <h2 id="whats-next">What's next (immediate)</h2>
   <div class="data-layer">
-    <p style="font-size: 14px; margin-top: 0;"><b>The next 3 things to do, in priority order:</b></p>
+    <p style="font-size: 14px; margin-top: 0;"><b>The next 4 things to do, in priority order:</b></p>
 
     <ol style="font-size: 14px; line-height: 1.8;">
-      <li><b>Wait for Round 2 to land at CC.</b> Operator pushes "Round 2 pushed" and Claude verifies all 8 task IDs (CC-01b, CC-02b, CC-08, CC-09, CC-09b, CC-09c, CC-09d, CC-13). Specifically: venue_group column populated correctly, VOXMCC-1009 down to single row, JET-1016 created as fresh row with placeholder fields, ALHQ row marked repurposed, unique index in place, repurpose_machine function callable, audit_machine_duplicates returns no rows.</li>
+      <li><b>Run Phase 0 Round 2.5 at Claude Code</b> — narrowly scoped, single-theme prompt covering: (a) CC-01b retry: add venue_group column to machines, (b) CC-02b retry: backfill via prefix CASE, extend repurpose_machine signature with new venue_group parameter, (c) CC-14: rename the older repurpose_machine to rename_machine_in_place_legacy and update all callers, (d) document the rename in CLAUDE.md so future-CC doesn't recreate the foot-gun. <b>Prompt is at the bottom of this v5.1 release.</b></li>
       
-      <li><b>Operator updates JET-1016 placeholder fields</b> with real values via admin UI. Then Claude updates bible v5 → v5.1 with Round 2 marked complete.</li>
+      <li><b>Operator follow-ups via admin UI</b>:
+        <ul style="margin-top: 8px;">
+          <li>JET-1016 fields: location_type, source_of_supply, pod_location, building_id (use Edit Machine, NOT Repurpose flow)</li>
+          <li>VOXMCC-1009 stale fields: location_type='warehouse' → cinema/concession; pod_location='MINDSHARE-1009-4500-O1' → real value</li>
+        </ul>
+      </li>
+      
+      <li><b>Audit the 5 other repurposed machines</b> (CS-13 follow-up). Run a query to find any contamination patterns we missed in Round 2.</li>
       
       <li><b>Pivot to CS interviews in priority order:</b>
         <ul style="margin-top: 8px;">
@@ -1347,9 +1424,9 @@ SELECT * FROM public.repurpose_machine(
       </li>
     </ol>
 
-    <p style="font-size: 14px;"><b>What can run in parallel:</b> CS interviews + CC-V1 frontend migration + Phase 1 skill scaffold prep. None of these block each other.</p>
+    <p style="font-size: 14px;"><b>What can run in parallel:</b> CS interviews + CC-V1 frontend migration + Round 2.5. None of these block each other.</p>
 
-    <p style="font-size: 14px;"><b>Phase 1 starts when:</b> at minimum CS-01, CS-04, CS-05 are dictated, and CC-V1 frontend migration is done. That gives Engine 1, A, B enough operator intent to start coding.</p>
+    <p style="font-size: 14px;"><b>Phase 1 starts when:</b> Round 2.5 lands (so venue_group is queryable), and at minimum CS-01, CS-04, CS-05 are dictated, and CC-V1 frontend migration is done. That gives Engine 1, A, B enough operator intent to start coding.</p>
   </div>
 
   <h2 id="principles">Design principles</h2>
