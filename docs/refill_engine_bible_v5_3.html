@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Boonz Refill Engine — The Bible v5.1</title>
+<title>Boonz Refill Engine — The Bible v5.3</title>
 <style>
   :root {
     --bg: #fafaf9;
@@ -298,27 +298,27 @@
 <body>
 <div class="container">
 
-  <h1>Boonz refill engine — the bible v5.1</h1>
-  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-09 after Phase 0 Round 2 verified. 6 of 8 Round 2 tasks landed cleanly. CC-01b/02b (venue_group column + backfill) silently dropped from execution — needs Round 2.5. Architectural foot-gun discovered: two functions named <code>repurpose_machine</code> with different signatures coexist.</p>
+  <h1>Boonz refill engine — the bible v5.3</h1>
+  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-10. <b>Phase 0 fully closed out.</b> Repo and DB timestamps aligned (commit <code>58efb67</code>). JET-1016 and VOXMCC-1009 operator updates landed. doc-coauthoring skill loaded for CS-01 portfolio interview. Next: CS-01 portfolio strategy interview begins.</p>
 
   <div class="progress-banner">
     <h2>🎯 Where we are right now</h2>
-    <p style="margin: 0 0 8px 0; font-size: 14px;">Phase 0 Round 1 is <b>complete and verified</b>. Phase 0 Round 2 is <b>6 of 8 tasks complete</b> — machine identity cleanup landed, but venue_group additions were silently dropped from execution and need a small follow-up Round 2.5 prompt. The autonomy loop works. The data layer is fully wired with four oracles. Next up: Round 2.5 to finish venue_group, then pivot to CS-01 portfolio interview (P0).</p>
+    <p style="margin: 0 0 8px 0; font-size: 14px;"><b>Phase 0 is fully closed out.</b> Round 1 (data foundations) + Round 2 (machine identity cleanup) + Round 2.5 (venue groups + foot-gun fix) + Round 2.6 (timestamp alignment) all verified clean in production. Repo and DB timestamps now match exactly. JET-1016 and VOXMCC-1009 operator follow-ups complete. The autonomy loop works. Four oracles wired. 22 eligible machines tagged with venue_group. <b>The next move is CS-01 portfolio strategy interview</b> using the doc-coauthoring three-stage workflow.</p>
     <div class="progress-stats">
       <div class="stat-box">
-        <div class="stat-label">Round 1 tasks</div>
-        <div class="stat-value">6 / 6 ✅</div>
-        <div class="stat-detail">All verified clean</div>
+        <div class="stat-label">Phase 0 — total</div>
+        <div class="stat-value">22 / 22 ✅</div>
+        <div class="stat-detail">Round 1 + 2 + 2.5 + 2.6, all verified</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Round 2 tasks</div>
-        <div class="stat-value">6 / 8 ⚠️</div>
-        <div class="stat-detail">CC-01b/02b dropped, need Round 2.5</div>
+        <div class="stat-label">Eligible machines tagged</div>
+        <div class="stat-value">22 / 22 ✅</div>
+        <div class="stat-detail">venue_group live across the fleet</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">CS interviews</div>
         <div class="stat-value">1 / 7</div>
-        <div class="stat-detail">Coexistence done; portfolio next</div>
+        <div class="stat-detail">Coexistence done; portfolio next (CS-01)</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">Guardrail files</div>
@@ -326,30 +326,42 @@
         <div class="stat-detail">coexistence, travel-scope</div>
       </div>
       <div class="stat-box">
-        <div class="stat-label">Autonomy loop</div>
-        <div class="stat-value">✅ Live</div>
-        <div class="stat-detail">refresh_fleet_data() proven</div>
+        <div class="stat-label">Skill workflow</div>
+        <div class="stat-value">doc-coauthoring</div>
+        <div class="stat-detail">Loaded for CS-01 interview pattern</div>
       </div>
     </div>
   </div>
 
   <div class="changelog">
-    <h3>📝 What changed in v5.1 (from v5)</h3>
+    <h3>📝 What changed in v5.3 (from v5.2)</h3>
     <ul>
-      <li><b>Round 2 verified.</b> 6 of 8 tasks landed cleanly: CC-08 (repurpose function + UI), CC-09 (ALHQ→JET-1016 split), CC-09b (VOXMCC-1009 merge), CC-09c (upsert fix + unique index), CC-09d (audit cron). All checked against the database.</li>
-      <li><b>VOXMCC-1009 is no longer a phantom machine.</b> Surviving row (148c4fcf...) now has 16 shelf slots in v_live_shelf_stock, 12 snapshots, 437 sales rows, 85 dispatching rows, 16 lifecycle rows. The merge worked end-to-end. Ghost row gone.</li>
-      <li><b>JET-1016 created as fresh machine row</b> (a75f6648...). ALHQ-1016 marked repurposed_at=2026-04-09, Switched off, previous_location set. Identity contamination cleaned.</li>
-      <li><b>⚠️ Two Round 2 tasks silently dropped:</b> CC-01b (add venue_group column) and CC-02b (backfill venue_group) were not executed. CC's PR summary doesn't even mention them. The column doesn't exist in the machines table. Needs Round 2.5 (small targeted prompt).</li>
-      <li><b>⚠️ Architectural foot-gun discovered:</b> two functions named <code>repurpose_machine</code> coexist with different signatures. The OLDER one (oid 44668) is a rename-in-place pattern from a previous field PWA phase. The NEW one (oid 47660) is the atomic split. They cannot live under the same name long-term. Round 2.5 must rename one to disambiguate.</li>
-      <li><b>⚠️ VOXMCC-1009 stale field data preserved by merge.</b> The COALESCE-based merge preserved the older row's <code>location_type='warehouse'</code> and <code>pod_location='MINDSHARE-1009-4500-O1'</code> because they were non-NULL. Both are wrong (it's a cinema concession machine in a different location). Operator follow-up needed via admin UI Edit Machine.</li>
-      <li><b>JET-1016 placeholder fields confirmed:</b> location_type='coworking', source_of_supply='BOONZ', pod_location='JET-1016-0000-O1', building_id=NULL. CS to update via admin UI.</li>
-      <li><b>Lessons learned section updated</b> with two new entries: "Don't fold unrelated tasks into one CC prompt" (the venue_group drop) and "Check for existing functions before creating new ones with the same name" (the repurpose_machine overload).</li>
-      <li><b>Bible update protocol exercised for the first time.</b> v5 → v5.1 produced automatically after Round 2 verification, no operator prompt needed. Next: v5.2 after Round 2.5 lands, then v5.3 after CS-01 interview.</li>
+      <li><b>Phase 0 fully closed out.</b> No loose ends remaining. Repo and DB timestamps now match (commit <code>58efb67</code> renamed the four Round 2.5 files from <code>20260410090001-090004</code> to <code>20260410104527/104542/104554/104614</code> to match what was actually applied via Supabase MCP).</li>
+      <li><b>Round 2.6 (timestamp re-alignment) added to the historical record.</b> Pure file rename, no SQL. Eliminated the latent landmine where <code>supabase db push</code> would have tried to re-apply the migrations as new because repo timestamps differed from DB timestamps.</li>
+      <li><b>Sharper diagnosis of the original migration delivery failure.</b> CC's <code>c651638</code> commit used filenames like <code>20260409107500_*.sql</code> where <code>107500</code> parsed as <code>10:75:00</code> — invalid (minute 75). Supabase rejected them as malformed timestamps. CC understood the format requirement but had an arithmetic bug. This is more nuanced than the earlier "wrong format entirely" diagnosis. Lesson refined accordingly.</li>
+      <li><b>Operator follow-ups complete.</b> JET-1016 settled (venue_group=INDEPENDENT, location_type=coworking, source_of_supply=BOONZ). VOXMCC-1009 settled (pod_location='Mirdif City Centre', venue_group=VOX). location_type='warehouse' on VOXMCC-1009 was confirmed acceptable by operator (it sits in a back-of-house area). No outstanding manual fixes.</li>
+      <li><b>doc-coauthoring skill loaded.</b> The skill at <code>/mnt/skills/examples/doc-coauthoring/SKILL.md</code> describes a three-stage workflow (Context Gathering → Refinement & Structure → Reader Testing) that maps cleanly onto the guardrail interview pattern. Adopting it for CS-01 portfolio strategy interview. Adds: brainstorm 5-20 options before drafting, explicit keep/remove curation with justification, Reader Testing with a fresh Claude after the doc is drafted.</li>
+      <li><b>CLAUDE.md updated</b> with the new "Migration filename format" warning section in commit <code>5872ae2</code>. Future CC prompts that create migrations have a documented rule to follow.</li>
+      <li><b>Operational state confirmed:</b> 22 eligible machines, 6 venue groups, autonomy loop healthy, no orphan migrations, no schema drift, no foot-guns left.</li>
     </ul>
   </div>
 
   <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
-    <h3 style="color: var(--muted);">📝 Previous version: v5 (2026-04-09)</h3>
+    <h3 style="color: var(--muted);">📝 Previous version: v5.2 (2026-04-10)</h3>
+    <ul style="color: var(--muted);">
+      <li>Phase 0 Round 2.5 verified. venue_group column live, all machines tagged, repurpose_machine foot-gun resolved. Critical migration delivery failure caught and chat-applied. Latent landmine identified: repo timestamps didn't match DB timestamps (resolved in v5.3).</li>
+    </ul>
+  </div>
+
+  <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
+    <h3 style="color: var(--muted);">📝 Previous version: v5.1 (2026-04-09)</h3>
+    <ul style="color: var(--muted);">
+      <li>Round 2 verified: 6 of 8 tasks landed. CC-01b/02b silently dropped. <code>repurpose_machine</code> foot-gun discovered. v5 → v5.1 changelog preserved in git history.</li>
+    </ul>
+  </div>
+
+  <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
+    <h3 style="color: var(--muted);">📝 Original v5 (2026-04-09)</h3>
     <ul style="color: var(--muted);">
       <li>Initial v5 — Phase 0 Round 1 complete and verified, autonomy loop live, four oracles model, venue group taxonomy locked, Round 2 in flight at CC. Full v5 changelog preserved in git history.</li>
     </ul>
@@ -469,8 +481,8 @@
 
   <h2 id="venue-groups">Venue group taxonomy</h2>
   <div class="data-layer">
-    <p style="background: #fee2e2; border: 1px solid var(--build-border); border-radius: 6px; padding: 12px 16px; font-size: 13px; margin: 0 0 16px 0;"><b>⚠️ Status as of 2026-04-09:</b> the taxonomy below is decided and locked in policy, but the <code>machines.venue_group</code> column does NOT YET exist in the database. Round 2 was supposed to add it (CC-01b) and backfill it (CC-02b) but those tasks were silently dropped from CC's execution. <b>Round 2.5 (a small targeted prompt)</b> will add the column and run the backfill. Until then, treat this table as the source of truth at the policy level — all guardrail rules in <code>engines/refill/guardrails/coexistence.md</code> and <code>engines/refill/guardrails/travel-scope.md</code> already reference these group names as if the column existed.</p>
-    <p style="font-size: 14px; margin-top: 0;">Every machine belongs to exactly one venue group, stored in <code>machines.venue_group</code> (to be added in Round 2.5). Determines which coexistence and travel-scope guardrails apply.</p>
+    <p style="background: #d1fae5; border: 1px solid var(--have-border); border-radius: 6px; padding: 12px 16px; font-size: 13px; margin: 0 0 16px 0;"><b>✅ Status as of 2026-04-10:</b> Column <code>machines.venue_group</code> is live in production. All 95 machines tagged. Backfill verified. CHECK constraint enforces the 6 allowed values. <code>repurpose_machine()</code> accepts <code>p_new_venue_group</code> as the 7th parameter (default <code>'INDEPENDENT'</code>). Admin UI dropdown wired in Add/Edit/Repurpose forms.</p>
+    <p style="font-size: 14px; margin-top: 0;">Every machine belongs to exactly one venue group, stored in <code>machines.venue_group</code>. Determines which coexistence and travel-scope guardrails apply.</p>
     <table class="task-table">
       <thead>
         <tr>
@@ -904,27 +916,27 @@
           <td>Round 1 follow-up. Unmatched dropped from 3 → 1 (test product only).</td>
         </tr>
 
-        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--have-ink);">Phase 0 Round 2 — Machine identity cleanup ✅ 6/8 COMPLETE</td></tr>
-        <tr>
-          <td class="col-done"><span class="check blocked">✗</span></td>
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--have-ink);">Phase 0 Round 2 — Machine identity cleanup ✅ 8/8 COMPLETE (after Round 2.5 recovery)</td></tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-01b</td>
           <td>Add <b>venue_group</b> column to machines</td>
-          <td class="priority pri-p0">P0</td>
-          <td><b>SILENTLY DROPPED.</b> CC focused on machine identity work and ignored the venue_group additions in the prompt. PR summary doesn't mention it. Column does not exist. Re-queue in Round 2.5.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Initially dropped in Round 2 commit <code>2db04ef</code> (CC focused on identity cleanup, ignored venue_group). Recovered in Round 2.5: applied via Supabase MCP after CC's migration delivery failure. Column live, CHECK constraint active.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check blocked">✗</span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-02b</td>
           <td>Backfill venue_group from prefix mapping</td>
-          <td class="priority pri-p0">P0</td>
-          <td><b>SILENTLY DROPPED.</b> Depends on CC-01b. Re-queue in Round 2.5.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Initially dropped in Round 2. Recovered in Round 2.5. All 95 machines tagged. Verified: ADDMIND 2/2, VOX 6/6 eligible, VML 2/2, WPP 3/3, OHMYDESK 2/2, INDEPENDENT 7/7 eligible.</td>
         </tr>
         <tr class="task-done">
           <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CC-08</td>
           <td><b>repurpose_machine()</b> function + admin UI flow</td>
           <td class="priority pri-done">DONE</td>
-          <td>Atomic archive + recreate. Function oid 47660. <b>⚠️ FOOT-GUN:</b> An OLDER function (oid 44668) with the same name but different signature also exists from a previous field PWA phase. Round 2.5 must rename it. Admin UI button works correctly.</td>
+          <td>Round 2 created the function. Round 2.5 disambiguated it from the older legacy function (which was renamed to <code>rename_machine_in_place_legacy</code>) and added <code>p_new_venue_group</code> parameter. Admin UI button works correctly with all 7 parameters.</td>
         </tr>
         <tr class="task-done">
           <td class="col-done"><span class="check done">✓</span></td>
@@ -962,27 +974,57 @@
           <td>Operator created files manually before Round 2 push. CC-13 step removed from prompt.</td>
         </tr>
 
-        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--decision-ink);">Phase 0 Round 2.5 — venue_group + foot-gun cleanup 🔄 NEEDS PROMPT</td></tr>
-        <tr>
-          <td class="col-done"><span class="check"></span></td>
-          <td class="task-id">CC-01b'</td>
-          <td>(retry) Add <b>venue_group</b> column to machines</td>
-          <td class="priority pri-p0">P0</td>
-          <td>Single-task migration. Column with CHECK constraint, default 'INDEPENDENT', NOT NULL.</td>
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--have-ink);">Phase 0 Round 2.5 — venue_group + foot-gun cleanup ✅ 8/8 COMPLETE</td></tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-14a</td>
+          <td>Investigate legacy <code>repurpose_machine</code> callers</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Zero legacy callers found. Only <code>src/app/api/machines/repurpose/route.ts</code> uses it, and it calls the new <code>p_old_machine_id</code> signature. Task 3 (update callers) was a no-op.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check"></span></td>
-          <td class="task-id">CC-02b'</td>
-          <td>(retry) Backfill venue_group + extend repurpose_machine signature</td>
-          <td class="priority pri-p0">P0</td>
-          <td>Backfill via prefix CASE. Also add p_new_venue_group parameter to repurpose_machine.</td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-14b</td>
+          <td>Rename legacy function to <code>rename_machine_in_place_legacy</code></td>
+          <td class="priority pri-done">DONE</td>
+          <td>SQL written by CC, applied via Supabase MCP from chat after CC's migration delivery failure. Both pre/post DO $$ guards passed.</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check"></span></td>
-          <td class="task-id">CC-14</td>
-          <td>Disambiguate <b>repurpose_machine</b> overloads</td>
-          <td class="priority pri-p0">P0</td>
-          <td>Rename OLDER function (oid 44668, 8-param rename-in-place) to <code>rename_machine_in_place_legacy</code>. Grep all callers and update them. Document in CLAUDE.md.</td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">CC-08'</td>
+          <td>Frontend venue_group dropdown in Add/Edit/Repurpose forms</td>
+          <td class="priority pri-done">DONE</td>
+          <td>MachineDraft interface, MachineFormFields, saveMachine, handleAddMachine, handleRepurposeMachine all wired in commit <code>c651638</code>. <code>p_new_venue_group</code> param name corrected (was <code>p_venue_group</code>) in both UI and API route.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">DOC-1</td>
+          <td>CLAUDE.md "Function naming gotcha" section</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Added in commit <code>c651638</code>. Documents the pg_proc check pattern.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">DOC-2</td>
+          <td>CLAUDE.md "Migration filename format" section</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Added in commit <code>5872ae2</code>. Documents the YYYYMMDDHHMMSS format requirement.</td>
+        </tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">REPO-1</td>
+          <td>Rename <code>107xxx_*.sql</code> migration files to timestamp format</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Commit <code>5872ae2</code>. <b>Note:</b> initial rename used <code>20260410090001-090004</code> which didn't match the actual DB-recorded versions. Caught and re-aligned in REPO-2.</td>
+        </tr>
+
+        <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--have-ink);">Phase 0 Round 2.6 — timestamp re-alignment ✅ 1/1 COMPLETE</td></tr>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
+          <td class="task-id">REPO-2</td>
+          <td>Re-rename Round 2.5 migration files to match DB-recorded timestamps</td>
+          <td class="priority pri-done">DONE</td>
+          <td>Commit <code>58efb67</code>. Pure file rename. Repo timestamps now match production exactly: <code>20260410104527_rename_legacy_repurpose_machine</code>, <code>20260410104542_add_machines_venue_group</code>, <code>20260410104554_backfill_machines_venue_group</code>, <code>20260410104614_add_venue_group_to_repurpose_machine</code>. <code>supabase db push</code> will recognize them as already-applied and skip them. Latent landmine eliminated. <b>Phase 0 fully closed out at this point.</b></td>
         </tr>
 
         <tr><td colspan="5" style="background: #f9fafb; font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--muted);">Deferred — separate prompts later</td></tr>
@@ -1205,31 +1247,6 @@
         <b>Lesson for future merges:</b> COALESCE preserves the old value if non-NULL, even when wrong. For one-time merges, prefer "new value wins for known-fresh fields" rather than COALESCE.
       </div>
     </div>
-
-    <div class="issue-item">
-      <div class="item-title">Two <code>repurpose_machine</code> functions coexist with different semantics</div>
-      <div class="item-body">
-        After Round 2 landed, the database has TWO functions named <code>repurpose_machine</code>:
-        <ul>
-          <li><b>oid 44668 (older, pre-Round 2):</b> 8 params (<code>p_machine_id, p_new_official_name, p_new_location_type, p_new_pod_location, p_new_status, p_include_in_refill, p_cutover_date, p_previous_location</code>). RETURNS machines. Pattern: <b>rename in place</b> — UPDATEs the existing row with new identity, preserves the old name as an alias in <code>machine_name_aliases</code>, sets <code>repurposed_at</code> to the cutover date. Same machine_id throughout.</li>
-          <li><b>oid 47660 (new, from Round 2 CC-08):</b> 6 params (<code>p_old_machine_id, p_new_official_name, p_new_pod_location, p_new_location_type, p_new_building_id, p_new_source_of_supply</code>). RETURNS TABLE. Pattern: <b>atomic split</b> — archives old row (sets repurposed_at, switches off), archives slot_lifecycle, creates a fresh machine_id with new identity. Different machine_id before/after.</li>
-        </ul>
-        These are semantically incompatible. PostgreSQL allows the overload because signatures differ, but it's a serious foot-gun: any caller has to disambiguate by parameter name, and a slightly-wrong call can hit the wrong function with no error.
-        <br><br>
-        <b>Action:</b> Round 2.5 prompt will rename the OLDER function to <code>rename_machine_in_place_legacy</code>, grep for callers and update them. The newer atomic-split function keeps the canonical name <code>repurpose_machine</code>.
-      </div>
-    </div>
-
-    <div class="issue-item">
-      <div class="item-title">venue_group column does not exist in machines table</div>
-      <div class="item-body">
-        Round 2 was supposed to add the <code>venue_group</code> column (CC-01b) and backfill it (CC-02b). Both tasks were silently dropped from CC's execution. CC's PR summary doesn't mention them. The machines table has no <code>venue_group</code> column.
-        <br><br>
-        <b>Impact:</b> the venue group taxonomy in <code>guardrails/coexistence.md</code> and <code>guardrails/travel-scope.md</code> is locked in policy but not yet enforceable in SQL. No engine has been written that depends on it yet, so this is not blocking anything operational. But it's blocking the next Phase 1 step (when engines start reading guardrails, they'll need to filter by venue_group).
-        <br><br>
-        <b>Action:</b> Round 2.5 prompt will retry CC-01b and CC-02b as a single-theme migration with no other tasks alongside. Keep the prompt narrow.
-      </div>
-    </div>
   </div>
 
   <h2 id="lessons">Lessons learned</h2>
@@ -1269,6 +1286,34 @@
         I told you "I'll fetch the service role key via my Supabase MCP tools" and then discovered my MCP tools only expose publishable keys (anon + sb_publishable_*), not service_role. By design — which is good security. But I made the promise without checking the tool catalog first, costing us a round-trip.
         <br><br>
         <b>Personal rulebook addition:</b> before offering to do a step that requires a specific tool capability, verify the tool can actually do it. Especially for security-sensitive operations where the answer might be "no, by design."
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title">Migration filename format matters more than you think (sharpened diagnosis)</div>
+      <div class="item-body">
+        Round 2.5 commit <code>c651638</code> created four migration files. CC's commit summary listed all 8 tasks as complete. <b>None of the SQL was applied to production.</b> Detected during verification: every check returned the pre-Round-2.5 state.
+        <br><br>
+        <b>Original (incomplete) diagnosis:</b> "CC used 6-digit integer prefixes instead of timestamps." This was wrong.
+        <br><br>
+        <b>Sharper actual diagnosis</b> (operator caught this): CC understood the format requirement and tried to use timestamps. The filenames were like <code>20260409107500_*.sql</code> where <code>107500</code> would parse as <code>10:75:00</code> — invalid (minute 75 doesn't exist). Supabase's migration runner rejected them silently as malformed timestamps. The format was right; the time arithmetic was wrong.
+        <br><br>
+        <b>Recovery:</b> all four migrations re-applied via Supabase MCP <code>apply_migration</code> from chat. Database state now matches the intended outcome. Files in repo were renamed via <code>git mv</code> to valid timestamps in commit <code>5872ae2</code>, then re-aligned to match the actual DB-recorded versions (<code>20260410104527/104542/104554/104614</code>) in commit <code>58efb67</code>.
+        <br><br>
+        <b>Personal rulebook addition:</b> every CC prompt creating a migration must include explicit reference to the existing filename format AND a sanity check that the time portion is valid (HH ≤ 23, MM ≤ 59, SS ≤ 59). Sample wording: "Use the same filename version format as existing migrations in <code>supabase/migrations/</code>. Run <code>ls supabase/migrations/ | tail -3</code> first to verify the format. For Boonz that's <code>YYYYMMDDHHMMSS_snake_case_name.sql</code>, where HHMMSS is a real clock time."
+        <br><br>
+        <b>Two-step landmine pattern:</b> the bug had a follow-up landmine — even after the files were renamed to valid timestamps in <code>5872ae2</code>, the new repo timestamps (<code>20260410090001-090004</code>) didn't match the actual DB-recorded versions (<code>20260410104527/104542/104554/104614</code>) from the chat-applied migrations. <code>supabase db push</code> would have tried to re-apply the repo files as new migrations and failed. Caught during verification, fixed in <code>58efb67</code>. <b>Personal rulebook addition:</b> after any migration filename rename, query <code>schema_migrations</code> and verify the new filenames match the version recorded there, not just that the new filenames are technically valid.
+      </div>
+    </div>
+
+    <div class="lesson-item">
+      <div class="item-title">When CC delivers something that should have been live but isn't, verify the delivery mechanism, not just the deliverable</div>
+      <div class="item-body">
+        CC's Round 2.5 PR summary said all 8 tasks complete. The git diff showed migration files committed. The frontend changes were correct. Without verification queries against the database, I would have moved on assuming success.
+        <br><br>
+        The bridge between "files exist in the repo" and "changes are live in production" is the migration runner. That bridge can fail silently when the input doesn't match the runner's expectations.
+        <br><br>
+        <b>Personal rulebook addition:</b> after every CC migration commit, my verification step is not just "does the SQL look right" but "is the schema actually changed in the live database." For DB schema changes specifically, the verification query is: <code>SELECT version, name FROM supabase_migrations.schema_migrations WHERE version &gt;= '&lt;round-start-timestamp&gt;' ORDER BY version</code>. If the expected migrations don't appear in the table, they weren't applied — regardless of what the commit summary says.
       </div>
     </div>
 
@@ -1398,35 +1443,35 @@ SELECT * FROM public.repurpose_machine(
 
   <h2 id="whats-next">What's next (immediate)</h2>
   <div class="data-layer">
-    <p style="font-size: 14px; margin-top: 0;"><b>The next 4 things to do, in priority order:</b></p>
+    <p style="font-size: 14px; margin-top: 0;"><b>Phase 0 is closed. The next move is CS-01.</b></p>
 
     <ol style="font-size: 14px; line-height: 1.8;">
-      <li><b>Run Phase 0 Round 2.5 at Claude Code</b> — narrowly scoped, single-theme prompt covering: (a) CC-01b retry: add venue_group column to machines, (b) CC-02b retry: backfill via prefix CASE, extend repurpose_machine signature with new venue_group parameter, (c) CC-14: rename the older repurpose_machine to rename_machine_in_place_legacy and update all callers, (d) document the rename in CLAUDE.md so future-CC doesn't recreate the foot-gun. <b>Prompt is at the bottom of this v5.1 release.</b></li>
-      
-      <li><b>Operator follow-ups via admin UI</b>:
+      <li><b>CS-01 portfolio strategy interview — START NOW.</b> Using the doc-coauthoring three-stage workflow:
         <ul style="margin-top: 8px;">
-          <li>JET-1016 fields: location_type, source_of_supply, pod_location, building_id (use Edit Machine, NOT Repurpose flow)</li>
-          <li>VOXMCC-1009 stale fields: location_type='warehouse' → cinema/concession; pod_location='MINDSHARE-1009-4500-O1' → real value</li>
+          <li><b>Stage 1 — Context Gathering:</b> Claude asks meta-questions about the document (audience, impact, constraints), then operator info-dumps everything they know about portfolio strategy. Claude tracks gaps and asks 5-10 clarifying questions.</li>
+          <li><b>Stage 2 — Refinement & Structure:</b> section by section, Claude brainstorms 5-20 options per section, operator picks keep/remove/combine, Claude drafts, iteratively refines.</li>
+          <li><b>Stage 3 — Reader Testing:</b> Claude predicts 5-10 questions a fresh Claude would ask when reading <code>portfolio_strategy.md</code>, operator pastes the doc into a fresh chat, asks the questions, reports back what broke, fixes it.</li>
         </ul>
       </li>
-      
-      <li><b>Audit the 5 other repurposed machines</b> (CS-13 follow-up). Run a query to find any contamination patterns we missed in Round 2.</li>
-      
-      <li><b>Pivot to CS interviews in priority order:</b>
+
+      <li><b>After CS-01, in priority order:</b>
         <ul style="margin-top: 8px;">
-          <li><b>CS-01 portfolio_strategy.md</b> (P0) — interview-style, the most strategic content of the entire bible</li>
           <li><b>CS-07 source_of_supply</b> (P0) — short list, unblocks CC-02 backfill</li>
-          <li><b>CS-04 layout.md</b> (P1) — 70/30 rule definition, VOX hard-locks</li>
-          <li><b>CS-05 refill_rules.md</b> (P1) — vitrine minimums</li>
+          <li><b>CS-04 layout.md</b> (P1) — 70/30 rule, VOX hard-locks, anchor slots</li>
+          <li><b>CS-05 refill_rules.md</b> (P1) — vitrine minimums, min facings per signal tier</li>
           <li><b>CS-06 building_id groupings</b> (P1) — short list, enables clubbing in Step 2</li>
           <li><b>CS-17 /refill override mechanic</b> (P1) — answers needed before CC-07 prompt</li>
         </ul>
       </li>
+
+      <li><b>Audit the 5 other repurposed machines</b> (CS-13 follow-up). Run a query to find any contamination patterns we missed. Can run any time.</li>
+
+      <li><b>CC-V1 frontend migration</b> from <code>v_machine_shelf_plan</code> to <code>v_live_shelf_stock</code> in the 3 field PWA files. Can run in parallel with CS interviews.</li>
     </ol>
 
-    <p style="font-size: 14px;"><b>What can run in parallel:</b> CS interviews + CC-V1 frontend migration + Round 2.5. None of these block each other.</p>
+    <p style="font-size: 14px;"><b>What can run in parallel:</b> CS interviews + CC-V1 + audit of repurposed machines. None block each other.</p>
 
-    <p style="font-size: 14px;"><b>Phase 1 starts when:</b> Round 2.5 lands (so venue_group is queryable), and at minimum CS-01, CS-04, CS-05 are dictated, and CC-V1 frontend migration is done. That gives Engine 1, A, B enough operator intent to start coding.</p>
+    <p style="font-size: 14px;"><b>Phase 1 starts when:</b> at minimum CS-01, CS-04, CS-05 are dictated, AND CC-V1 frontend migration is done. That gives Engine 1, A, B enough operator intent to start coding.</p>
   </div>
 
   <h2 id="principles">Design principles</h2>
