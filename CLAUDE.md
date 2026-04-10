@@ -41,6 +41,19 @@ Conventional: feat: / fix: / chore:
 One logical change per commit.
 never commit .env in github
 
+## Function naming gotcha — repurpose_machine vs rename_machine_in_place_legacy
+
+There are two functions for changing a machine's identity:
+
+- **`repurpose_machine(p_old_machine_id, ...)`** — CANONICAL. Atomic split: archives the old row (sets repurposed_at), creates a fresh machine_id with the new identity, archives slot_lifecycle. Use this for any new identity transition.
+- **`rename_machine_in_place_legacy(p_machine_id, ...)`** — DEPRECATED. Older rename-in-place pattern: updates the existing row, preserves the same machine_id, creates an alias in machine_name_aliases. Used by older field PWA flows. Do NOT call this from new code.
+
+Do not create another function named `repurpose_machine` with a different signature — PostgreSQL will allow the overload but it creates a serious foot-gun. Always check `pg_proc` before adding any function:
+
+```sql
+SELECT proname, pg_get_function_identity_arguments(oid) FROM pg_proc WHERE proname = '<name>';
+```
+
 ## On /compact
 
 Preserve: modified files list, test status, pending tasks, any SQL migrations written.

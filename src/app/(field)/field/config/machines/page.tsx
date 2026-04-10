@@ -21,6 +21,15 @@ const DEFAULT_STATUS_OPTIONS = [
   "Scheduled",
 ];
 
+const VENUE_GROUP_OPTIONS = [
+  "ADDMIND",
+  "VOX",
+  "VML",
+  "WPP",
+  "OHMYDESK",
+  "INDEPENDENT",
+] as const;
+
 // ─── Machine types ─────────────────────────────────────────────────────────────
 
 interface Machine {
@@ -34,6 +43,7 @@ interface Machine {
   contact_email: string | null;
   contact_phone: string | null;
   notes: string | null;
+  venue_group: string | null;
 }
 
 interface MachineDraft {
@@ -46,6 +56,7 @@ interface MachineDraft {
   contact_email: string;
   contact_phone: string;
   notes: string;
+  venue_group: string;
 }
 
 function emptyMachineDraft(): MachineDraft {
@@ -59,6 +70,7 @@ function emptyMachineDraft(): MachineDraft {
     contact_email: "",
     contact_phone: "",
     notes: "",
+    venue_group: "INDEPENDENT",
   };
 }
 
@@ -73,6 +85,7 @@ function machineRowToDraft(r: Machine): MachineDraft {
     contact_email: r.contact_email ?? "",
     contact_phone: r.contact_phone ?? "",
     notes: r.notes ?? "",
+    venue_group: r.venue_group ?? "INDEPENDENT",
   };
 }
 
@@ -195,6 +208,22 @@ function MachineFormFields({
           className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
         />
       </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">
+          Venue group
+        </label>
+        <select
+          value={draft.venue_group}
+          onChange={(e) => onChange({ venue_group: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+        >
+          {VENUE_GROUP_OPTIONS.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
@@ -315,6 +344,7 @@ export default function MachinesPage() {
     location_type: "coworking",
     building_id: "",
     source_of_supply: "BOONZ",
+    venue_group: "INDEPENDENT",
   });
   const [repurposing, setRepurposing] = useState(false);
   const [repurposeResult, setRepurposeResult] = useState<{
@@ -401,7 +431,7 @@ export default function MachinesPage() {
       supabase
         .from("machines")
         .select(
-          "machine_id, official_name, pod_number, pod_location, pod_address, status, contact_person, contact_email, contact_phone, notes",
+          "machine_id, official_name, pod_number, pod_location, pod_address, status, contact_person, contact_email, contact_phone, notes, venue_group",
         )
         .order("official_name"),
       supabase
@@ -506,6 +536,7 @@ export default function MachinesPage() {
         contact_email: draft.contact_email.trim() || null,
         contact_phone: draft.contact_phone.trim() || null,
         notes: draft.notes.trim() || null,
+        venue_group: draft.venue_group,
         updated_at: new Date().toISOString(),
       })
       .eq("machine_id", id);
@@ -520,35 +551,44 @@ export default function MachinesPage() {
     setMachineSaving((p) => ({ ...p, [id]: false }));
   }
 
-  // CC-08: Repurpose machine — calls repurpose_machine() RPC (service_role only via Supabase)
+  // CC-08: Repurpose machine — routed through /api/machines/repurpose (service_role)
   async function handleRepurposeMachine() {
     if (!repurposeMachineId || !repurposeValues.official_name.trim()) return;
     setRepurposing(true);
     setRepurposeError(null);
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc("repurpose_machine", {
-      p_old_machine_id: repurposeMachineId,
-      p_new_official_name: repurposeValues.official_name.trim(),
-      p_new_pod_location: repurposeValues.pod_location.trim() || null,
-      p_new_location_type: repurposeValues.location_type,
-      p_new_building_id: repurposeValues.building_id.trim() || null,
-      p_new_source_of_supply: repurposeValues.source_of_supply || null,
-    });
-    if (error) {
-      setRepurposeError(error.message);
-      setRepurposing(false);
-      return;
+    try {
+      const res = await fetch("/api/machines/repurpose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          p_old_machine_id: repurposeMachineId,
+          p_new_official_name: repurposeValues.official_name.trim(),
+          p_new_pod_location: repurposeValues.pod_location.trim() || null,
+          p_new_location_type: repurposeValues.location_type,
+          p_new_building_id: repurposeValues.building_id.trim() || null,
+          p_new_source_of_supply: repurposeValues.source_of_supply || null,
+          p_new_venue_group: repurposeValues.venue_group,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setRepurposeError(json.error ?? "Unknown error");
+        setRepurposing(false);
+        return;
+      }
+      const row = Array.isArray(json) ? json[0] : json;
+      setRepurposeResult(
+        row as {
+          old_machine_id: string;
+          new_machine_id: string;
+          slots_archived: number;
+        },
+      );
+      setRepurposeStep("done");
+      await fetchData();
+    } catch (err: unknown) {
+      setRepurposeError(err instanceof Error ? err.message : "Network error");
     }
-    const row = Array.isArray(data) ? data[0] : data;
-    setRepurposeResult(
-      row as {
-        old_machine_id: string;
-        new_machine_id: string;
-        slots_archived: number;
-      },
-    );
-    setRepurposeStep("done");
-    await fetchData();
     setRepurposing(false);
   }
 
@@ -581,6 +621,7 @@ export default function MachinesPage() {
       contact_email: newMachine.contact_email.trim() || null,
       contact_phone: newMachine.contact_phone.trim() || null,
       notes: newMachine.notes.trim() || null,
+      venue_group: newMachine.venue_group,
     });
     if (error) {
       setAddMachineError(error.message);
@@ -889,6 +930,7 @@ export default function MachinesPage() {
                               location_type: "coworking",
                               building_id: "",
                               source_of_supply: "BOONZ",
+                              venue_group: row.venue_group ?? "INDEPENDENT",
                             });
                             setRepurposeResult(null);
                             setRepurposeError(null);
@@ -1390,6 +1432,27 @@ export default function MachinesPage() {
                       <option value="BOONZ">BOONZ</option>
                       <option value="VOX">VOX</option>
                       <option value="LLFP">LLFP</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-500">
+                      Venue group
+                    </label>
+                    <select
+                      value={repurposeValues.venue_group}
+                      onChange={(e) =>
+                        setRepurposeValues((p) => ({
+                          ...p,
+                          venue_group: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    >
+                      {VENUE_GROUP_OPTIONS.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
