@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Boonz Refill Engine — The Bible v5.3</title>
+<title>Boonz Refill Engine — The Bible v5.4</title>
 <style>
   :root {
     --bg: #fafaf9;
@@ -298,8 +298,8 @@
 <body>
 <div class="container">
 
-  <h1>Boonz refill engine — the bible v5.3</h1>
-  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-10. <b>Phase 0 fully closed out.</b> Repo and DB timestamps aligned (commit <code>58efb67</code>). JET-1016 and VOXMCC-1009 operator updates landed. doc-coauthoring skill loaded for CS-01 portfolio interview. Next: CS-01 portfolio strategy interview begins.</p>
+  <h1>Boonz refill engine — the bible v5.4</h1>
+  <p class="subtitle">The single source of truth. Last meaningful update: 2026-04-10. CS-01 portfolio strategy interview <b>complete</b> — <code>portfolio_strategy.md</code> drafted in full (714 lines, 11 sections). Interview-pattern efficiency rule adopted for remaining CS interviews (CS-04 through CS-09). Phase 2 chapter added covering mode system, top-20 by profit, AI product discovery, operational quality scoring.</p>
 
   <div class="progress-banner">
     <h2>🎯 Where we are right now</h2>
@@ -317,13 +317,13 @@
       </div>
       <div class="stat-box">
         <div class="stat-label">CS interviews</div>
-        <div class="stat-value">1 / 7</div>
-        <div class="stat-detail">Coexistence done; portfolio next (CS-01)</div>
+        <div class="stat-value">2 / 7</div>
+        <div class="stat-detail">Coexistence + Portfolio done; layout/refill_rules next (fast path)</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">Guardrail files</div>
-        <div class="stat-value">2 written</div>
-        <div class="stat-detail">coexistence, travel-scope</div>
+        <div class="stat-value">3 written</div>
+        <div class="stat-detail">coexistence, travel-scope, portfolio_strategy</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">Skill workflow</div>
@@ -334,36 +334,35 @@
   </div>
 
   <div class="changelog">
-    <h3>📝 What changed in v5.3 (from v5.2)</h3>
+    <h3>📝 What changed in v5.4 (from v5.3)</h3>
     <ul>
-      <li><b>Phase 0 fully closed out.</b> No loose ends remaining. Repo and DB timestamps now match (commit <code>58efb67</code> renamed the four Round 2.5 files from <code>20260410090001-090004</code> to <code>20260410104527/104542/104554/104614</code> to match what was actually applied via Supabase MCP).</li>
-      <li><b>Round 2.6 (timestamp re-alignment) added to the historical record.</b> Pure file rename, no SQL. Eliminated the latent landmine where <code>supabase db push</code> would have tried to re-apply the migrations as new because repo timestamps differed from DB timestamps.</li>
-      <li><b>Sharper diagnosis of the original migration delivery failure.</b> CC's <code>c651638</code> commit used filenames like <code>20260409107500_*.sql</code> where <code>107500</code> parsed as <code>10:75:00</code> — invalid (minute 75). Supabase rejected them as malformed timestamps. CC understood the format requirement but had an arithmetic bug. This is more nuanced than the earlier "wrong format entirely" diagnosis. Lesson refined accordingly.</li>
-      <li><b>Operator follow-ups complete.</b> JET-1016 settled (venue_group=INDEPENDENT, location_type=coworking, source_of_supply=BOONZ). VOXMCC-1009 settled (pod_location='Mirdif City Centre', venue_group=VOX). location_type='warehouse' on VOXMCC-1009 was confirmed acceptable by operator (it sits in a back-of-house area). No outstanding manual fixes.</li>
-      <li><b>doc-coauthoring skill loaded.</b> The skill at <code>/mnt/skills/examples/doc-coauthoring/SKILL.md</code> describes a three-stage workflow (Context Gathering → Refinement & Structure → Reader Testing) that maps cleanly onto the guardrail interview pattern. Adopting it for CS-01 portfolio strategy interview. Adds: brainstorm 5-20 options before drafting, explicit keep/remove curation with justification, Reader Testing with a fresh Claude after the doc is drafted.</li>
-      <li><b>CLAUDE.md updated</b> with the new "Migration filename format" warning section in commit <code>5872ae2</code>. Future CC prompts that create migrations have a documented rule to follow.</li>
-      <li><b>Operational state confirmed:</b> 22 eligible machines, 6 venue groups, autonomy loop healthy, no orphan migrations, no schema drift, no foot-guns left.</li>
+      <li><b>CS-01 portfolio strategy interview complete.</b> <code>engines/refill/guardrails/portfolio_strategy.md</code> drafted in full — 714 lines, 11 sections. Contains: purpose + Engine 1 parser design, three universality categories (global / industry / machine-focused), four lifecycle archetypes (HYPE / ALWAYS-ON / SEASONAL / TRIAL) with 11 structured fields each, partnership vocabulary + empty table, 5 protection levels, 3 phase-out candidates (7days / Sabahoo / YoPro), trial protocol with 60-day window, establishment criteria with top-20 revenue rule, transition rate limits (max 10 changes per day fleet-wide), VOX Lollies worked example, cross-reference map to other guardrail files.</li>
+      <li><b>Interview-pattern efficiency rule adopted.</b> CS-01 used the full doc-coauthoring 3-stage workflow (correct for strategic content). CS-04 through CS-09 will use a faster "draft-first" pattern: Claude drafts from data + minimal input, operator corrects, file ships. The pattern choice is made at interview open based on whether Claude can predict 80% of the answer from existing data. Remaining 5 interviews estimated at ~90 minutes total (vs ~5-6 hours if each used the slow path). See Section "Interview pattern rule" in Principles for the permanent doctrine.</li>
+      <li><b>Phase 2 chapter added.</b> New section at end of the bible capturing deferred enhancements: (1) Mode system — conservative/balanced/aggressive mode switching with gradual transitions, (2) Top-20 ranking by gross profit instead of revenue once cost data is reliable, (3) AI product discovery subsystem scanning web/social/ecom for trial suggestions, (4) Operational quality scoring as a new product attribute (breakage, shelf appeal, load difficulty), (5) Mode auto-detection from macro signals (revenue trend, news, weather, calendar, building closures). None of these are Phase 1 scope.</li>
+      <li><b>New principle added:</b> "Human-led operation rate limit" — the single most important design constraint on Engine 1's output volume. Max 10 slot changes per day fleet-wide, max 2 per machine per cycle, 14 days stability between consecutive changes at the same slot. Captured in portfolio_strategy.md Section 9 and added to the bible's Design Principles section.</li>
+      <li><b>Open issue resolved:</b> The "operational quality scoring" item from v5.2 open issues is now tracked as a Phase 2 product attribute (scheduled, not implemented). Not blocking anything.</li>
+      <li><b>Reader testing deferred.</b> CS-01 produced a 714-line file. Reader testing it rigorously would add another 20-30 min. Operator elected to ship v1 and Reader Test later if issues surface in actual Engine 1 usage. Risk accepted: if Reader Test reveals structural issues, portfolio_strategy.md gets a v2 pass. The file is thorough enough that this risk is low.</li>
+    </ul>
+  </div>
+
+  <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
+    <h3 style="color: var(--muted);">📝 Previous version: v5.3 (2026-04-10)</h3>
+    <ul style="color: var(--muted);">
+      <li>Phase 0 fully closed out. Repo and DB timestamps aligned (commit 58efb67). JET-1016 and VOXMCC-1009 operator updates landed. doc-coauthoring skill loaded. CS-01 not yet started.</li>
     </ul>
   </div>
 
   <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
     <h3 style="color: var(--muted);">📝 Previous version: v5.2 (2026-04-10)</h3>
     <ul style="color: var(--muted);">
-      <li>Phase 0 Round 2.5 verified. venue_group column live, all machines tagged, repurpose_machine foot-gun resolved. Critical migration delivery failure caught and chat-applied. Latent landmine identified: repo timestamps didn't match DB timestamps (resolved in v5.3).</li>
+      <li>Phase 0 Round 2.5 verified. venue_group column live, repurpose_machine foot-gun resolved. Migration delivery failure chat-applied. Latent landmine identified (resolved in v5.3).</li>
     </ul>
   </div>
 
   <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
-    <h3 style="color: var(--muted);">📝 Previous version: v5.1 (2026-04-09)</h3>
+    <h3 style="color: var(--muted);">📝 Earlier versions in git history</h3>
     <ul style="color: var(--muted);">
-      <li>Round 2 verified: 6 of 8 tasks landed. CC-01b/02b silently dropped. <code>repurpose_machine</code> foot-gun discovered. v5 → v5.1 changelog preserved in git history.</li>
-    </ul>
-  </div>
-
-  <div class="changelog" style="background: #f3f4f6; border-color: var(--border);">
-    <h3 style="color: var(--muted);">📝 Original v5 (2026-04-09)</h3>
-    <ul style="color: var(--muted);">
-      <li>Initial v5 — Phase 0 Round 1 complete and verified, autonomy loop live, four oracles model, venue group taxonomy locked, Round 2 in flight at CC. Full v5 changelog preserved in git history.</li>
+      <li>v5.1, v5, v4 — full changelogs preserved in git history.</li>
     </ul>
   </div>
 
@@ -382,6 +381,7 @@
       <li><a href="#runbook">Operational runbook</a></li>
       <li><a href="#whats-next">What's next (immediate)</a></li>
       <li><a href="#principles">Design principles</a></li>
+      <li><a href="#phase-2">Phase 2 chapter — deferred enhancements</a></li>
     </ol>
   </div>
 
@@ -588,13 +588,13 @@
           <td>—</td>
           <td>CS-05 (pending interview)</td>
         </tr>
-        <tr>
-          <td class="col-done"><span class="check"></span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td><code>engines/refill/guardrails/portfolio_strategy.md</code></td>
           <td>Catalog</td>
           <td>CS</td>
-          <td>—</td>
-          <td>CS-01 (pending interview)</td>
+          <td>11 sections: purpose, 3 universalities, 4 lifecycle archetypes, partnerships, protection, phase-out, trial, establishment, rate limits, VOX Lollies example, cross-refs</td>
+          <td>CS-01 ✅</td>
         </tr>
         <tr>
           <td class="col-done"><span class="check"></span></td>
@@ -728,12 +728,12 @@
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td class="col-done"><span class="check"></span></td>
+        <tr class="task-done">
+          <td class="col-done"><span class="check done">✓</span></td>
           <td class="task-id">CS-01</td>
           <td>Dictate <b>portfolio_strategy.md</b>. Protected, pushed, phased-out products for non-data reasons.</td>
-          <td class="priority pri-p0">P0</td>
-          <td>Interview-style, 30-45 min. Next CS interview to run.</td>
+          <td class="priority pri-done">DONE</td>
+          <td>2026-04-10. 714-line file at <code>engines/refill/guardrails/portfolio_strategy.md</code>. 11 sections: purpose, universalities, 4 lifecycle archetypes, partnerships, protected products, phase-out candidates (7days/Sabahoo/YoPro SOFT), trial protocol, establishment criteria (top-20 by revenue), rate limits (10/day fleet-wide), VOX Lollies worked example, cross-references.</td>
         </tr>
         <tr class="task-done">
           <td class="col-done"><span class="check done">✓</span></td>
@@ -1443,35 +1443,40 @@ SELECT * FROM public.repurpose_machine(
 
   <h2 id="whats-next">What's next (immediate)</h2>
   <div class="data-layer">
-    <p style="font-size: 14px; margin-top: 0;"><b>Phase 0 is closed. The next move is CS-01.</b></p>
+    <p style="font-size: 14px; margin-top: 0;"><b>CS-01 is done. The next move is a combined fast-path session covering all remaining CS interviews.</b></p>
 
     <ol style="font-size: 14px; line-height: 1.8;">
-      <li><b>CS-01 portfolio strategy interview — START NOW.</b> Using the doc-coauthoring three-stage workflow:
+      <li><b>Commit portfolio_strategy.md + bible v5.4 to the repo.</b> Small CC prompt — single commit with both files. No SQL, no code, just docs.</li>
+
+      <li><b>Fast-path CS session (~90 min total) covering 5 files:</b>
         <ul style="margin-top: 8px;">
-          <li><b>Stage 1 — Context Gathering:</b> Claude asks meta-questions about the document (audience, impact, constraints), then operator info-dumps everything they know about portfolio strategy. Claude tracks gaps and asks 5-10 clarifying questions.</li>
-          <li><b>Stage 2 — Refinement & Structure:</b> section by section, Claude brainstorms 5-20 options per section, operator picks keep/remove/combine, Claude drafts, iteratively refines.</li>
-          <li><b>Stage 3 — Reader Testing:</b> Claude predicts 5-10 questions a fresh Claude would ask when reading <code>portfolio_strategy.md</code>, operator pastes the doc into a fresh chat, asks the questions, reports back what broke, fixes it.</li>
+          <li><b>Warmup batch (15 min):</b> CS-06 (building_id) + CS-07 (source_of_supply) + CS-17 (/refill override mechanic) — three small data dumps in one message, three tiny file drafts in reply.</li>
+          <li><b>CS-04 layout.md (25 min):</b> Claude queries current planogram, drafts full file based on 70/30 rule + observed data, operator corrects in one iteration.</li>
+          <li><b>CS-05 refill_rules.md (20 min):</b> Claude drafts from existing portfolio_strategy.md Section 9 rate limits + archetype refill frequencies + vitrine data. Operator corrects.</li>
+          <li><b>CS-09 seasonality_global.md (15 min):</b> Claude drafts full UAE calendar from public knowledge. Operator approves or adjusts specific months.</li>
+          <li><b>CS-08 vitrine_machines.md:</b> Ship empty with structure only. Populate later as data emerges.</li>
+          <li><b>Batch reader testing (15 min):</b> One combined reader test covering all 5 new files instead of 5 separate tests.</li>
         </ul>
       </li>
 
-      <li><b>After CS-01, in priority order:</b>
+      <li><b>After fast-path session, Phase 1 engine work can start:</b>
         <ul style="margin-top: 8px;">
-          <li><b>CS-07 source_of_supply</b> (P0) — short list, unblocks CC-02 backfill</li>
-          <li><b>CS-04 layout.md</b> (P1) — 70/30 rule, VOX hard-locks, anchor slots</li>
-          <li><b>CS-05 refill_rules.md</b> (P1) — vitrine minimums, min facings per signal tier</li>
-          <li><b>CS-06 building_id groupings</b> (P1) — short list, enables clubbing in Step 2</li>
-          <li><b>CS-17 /refill override mechanic</b> (P1) — answers needed before CC-07 prompt</li>
+          <li><b>CC-V1 frontend migration</b> from <code>v_machine_shelf_plan</code> to <code>v_live_shelf_stock</code> — field PWA, 3 files, can run in parallel with anything else</li>
+          <li><b>CC-10 skill scaffold</b> — Refill Brain skill bundle with SKILL.md, /guardrails/ reference, /knowledge/ folder</li>
+          <li><b>CC-11 fetch-fleet-state subskill</b> — single source of truth for reads</li>
+          <li><b>CC-20 Engine 1 portfolio manager</b> — the first real engine, reads portfolio_strategy.md + product_lifecycle_global, produces keep/monitor/double-down/discontinue classifications</li>
         </ul>
       </li>
 
-      <li><b>Audit the 5 other repurposed machines</b> (CS-13 follow-up). Run a query to find any contamination patterns we missed. Can run any time.</li>
-
-      <li><b>CC-V1 frontend migration</b> from <code>v_machine_shelf_plan</code> to <code>v_live_shelf_stock</code> in the 3 field PWA files. Can run in parallel with CS interviews.</li>
+      <li><b>Parallel housekeeping</b> (no blocking):
+        <ul style="margin-top: 8px;">
+          <li>Audit the 5 other repurposed machines (CS-13 follow-up)</li>
+          <li>Phase 2 chapter items — queue for later, do not start now</li>
+        </ul>
+      </li>
     </ol>
 
-    <p style="font-size: 14px;"><b>What can run in parallel:</b> CS interviews + CC-V1 + audit of repurposed machines. None block each other.</p>
-
-    <p style="font-size: 14px;"><b>Phase 1 starts when:</b> at minimum CS-01, CS-04, CS-05 are dictated, AND CC-V1 frontend migration is done. That gives Engine 1, A, B enough operator intent to start coding.</p>
+    <p style="font-size: 14px;"><b>Timeline to "Definition A" (minimum viable refill brain):</b> ~3-5 weeks from today. See Phase 1 task list for the full breakdown.</p>
   </div>
 
   <h2 id="principles">Design principles</h2>
@@ -1492,7 +1497,42 @@ SELECT * FROM public.repurpose_machine(
       <li><b>Machine eligibility is a precondition.</b> Decommissioned, repurposed, and non-live machines are filtered out before Layer 1 even runs.</li>
       <li><b>Vault for all secrets.</b> Never embed JWTs in any migration or function body.</li>
       <li><b>Bible updates at every checkpoint.</b> Bible drift is the failure mode we cannot afford.</li>
+      <li><b>Human-led operation rate limit.</b> Max 10 slot changes per day fleet-wide, max 2 per machine per cycle, 14 days stability between consecutive changes at the same slot. The engine is a co-pilot, not an autopilot. See <code>portfolio_strategy.md</code> Section 9.</li>
+      <li><b>Data facts + operator intent, combined.</b> Data layer dominates unless operator intent field explicitly overrides. Engine 1 reads <code>portfolio_strategy.md</code> as priors and overrides on top of lifecycle scoring.</li>
+      <li><b>Interview pattern rule.</b> Strategic interviews (tacit operator knowledge data can't see) use doc-coauthoring 3-stage workflow. Mechanical interviews (rule-based, data-derivable) use draft-first: Claude drafts from data + minimal input, operator corrects. Pattern choice made at interview open based on whether Claude can predict 80% of the answer from existing data.</li>
     </ol>
+  </div>
+
+  <h2 id="phase-2">Phase 2 chapter — deferred enhancements</h2>
+  <div class="data-layer">
+    <p style="font-size: 14px; margin-top: 0;">This section lists features and capabilities explicitly deferred out of Phase 1 scope. They are captured here so future-Claude (and future-operator) know they exist in the roadmap without polluting Phase 1 task lists.</p>
+
+    <h3>Mode system (Conservative / Balanced / Aggressive)</h3>
+    <p style="font-size: 13px;">Phase 1 runs in BALANCED mode only — Engine 1 treats <code>portfolio_strategy.md</code> as priors, overrides on strong data signals. Phase 2 adds:</p>
+    <ul style="font-size: 13px;">
+      <li><b>Conservative mode</b> — triggered by war, boycotts, supply chain disruption, force majeure, revenue crisis. Rate limits tighter, phase-outs paused, new trials frozen, extended protection on current placements. Ramp-down period 3-7 days when entering this mode.</li>
+      <li><b>Aggressive mode</b> — triggered by strong revenue growth, expansion phase, operational slack. Rate limits loosened, more aggressive phase-outs, more experimentation in trial slots. Ramp-up period 3-7 days.</li>
+      <li><b>Mode transitions</b> are gradual, not binary. When flipping modes, the engine ramps behavior over N days rather than switching instantly. Prevents whipsawing operations team.</li>
+      <li><b>Mode is operator-set in Phase 2.</b> Future (Phase 3+) may add auto-detection from macro signals: revenue trend over 30 days, news feeds, weather, building closures, vacation calendars, recession indicators.</li>
+    </ul>
+
+    <h3>Top-20 ranking by gross profit</h3>
+    <p style="font-size: 13px;">Phase 1 uses top-20 by revenue (price × units) as the stable-stage threshold. Revenue is a proxy. Phase 2 switches to <b>top-20 by gross profit</b> (revenue − product_cost) once cost data is reliable across the full catalog. Requires: complete <code>supplier_product_mapping</code> data, validated cost entries in <code>sales_history.product_cost</code>, and operator confirmation that the cost data is clean.</p>
+
+    <h3>AI product discovery subsystem</h3>
+    <p style="font-size: 13px;">Phase 1 trial entry is manual and reactive — operator discovers new products via personal research, supplier calls, grocery store visits. Phase 2+ vision: AI subsystem scans web, social media, ecom platforms for emerging product ideas and surfaces trial suggestions to the operator with rationale (why this product, which venues, projected archetype). Operator still approves every trial entry. Discovery automated, decision remains human.</p>
+
+    <h3>Operational quality scoring</h3>
+    <p style="font-size: 13px;">Schema change: add <code>boonz_products.operational_quality_score</code> column plus subfields for breakage rate, shelf appeal, load difficulty, driver complaint count. Captures physical/operational attributes that are phase-out drivers independent of sales performance. When the schema change lands, Engine 1 reads the operational quality score as an additional input to phase-out decisions. Can also influence trial criteria (a product that sells well but breaks easily and frustrates drivers may not graduate even with strong data signal).</p>
+
+    <h3>Mode auto-detection from macro signals</h3>
+    <p style="font-size: 13px;">Phase 2 mode is operator-set. Phase 3+ adds optional auto-detection from: rolling 30-day fleet revenue trend, external news feeds (crisis indicators), weather (extreme heat / cold / sandstorm affecting foot traffic), calendar events (Ramadan, Eid, UAE National Day, school holidays), building closure notifications, regional travel/tourism indicators. Each signal contributes a weighted vote for mode classification. Operator can always override.</p>
+
+    <h3>Full learning loop (Engine D intelligence)</h3>
+    <p style="font-size: 13px;">Phase 1 Engine D is a decider + writer, but has no learning loop — it doesn't adjust its own scoring weights based on outcome data. Phase 2 adds the learning loop: reads <code>refill_dispatching.filled_quantity</code> / <code>returned</code> / <code>return_reason</code> and <code>decision_log.operator_action</code> / <code>operator_reason</code> to tune engine weights over time. Excluded reasons from learning: <code>stock_unavailable</code>, <code>logistics_constraint</code>, <code>one_off_business_reason</code> (these are operational, not strategic).</p>
+
+    <h3>Engine 2 relocation planner (full)</h3>
+    <p style="font-size: 13px;">Phase 1 Engine 2 handles simple relocations (move product from machine A to machine B when clearly justified). Phase 2 expands to full cross-machine optimization: multi-hop relocations, load balancing across venue groups, travel-scope-respecting reshuffles, seasonal calendar-aware redistributions.</p>
   </div>
 
 </div>
