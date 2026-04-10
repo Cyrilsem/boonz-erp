@@ -41,6 +41,17 @@ Conventional: feat: / fix: / chore:
 One logical change per commit.
 never commit .env in github
 
+## Migration filename format — must match existing pattern
+
+Every migration file in `supabase/migrations/` MUST use the timestamp prefix format `YYYYMMDDHHMMSS_snake_case_name.sql`. Other formats (six-digit integers, semantic versioning, anything else) will be silently ignored by `supabase db push` and the migration will not be applied.
+
+To check the current convention before adding new migrations:
+```bash
+ls supabase/migrations/ | tail -5
+```
+
+Always pattern-match the most recent existing files. Round 2.5 hit this exact bug: filenames like `20260409107500_*.sql` used an invalid time component (minute 75 doesn't exist), so migrations were committed but not applied by the runner. They had to be re-applied directly via the Supabase MCP and the files renamed retroactively.
+
 ## Function naming gotcha — repurpose_machine vs rename_machine_in_place_legacy
 
 There are two functions for changing a machine's identity:
