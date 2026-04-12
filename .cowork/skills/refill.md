@@ -31,20 +31,32 @@ writes the plan to Supabase, and opens the /refill page.
 1. Parse the user's message to extract date and filter:
    - If message contains a date (YYYY-MM-DD or "tomorrow" or "today"):
      extract it as --date argument
-   - If message contains a filter keyword: extract as --filter argument
+   - If message contains a filter keyword (office, coworking, vox, wpp,
+     addmind, vml, ohmydesk, entertainment, or a machine name):
+     extract as --filter argument
    - Default: --date tomorrow --filter all
 
-2. Run the engine:
+2. Fetch latest data from Weimi API (always runs first):
    cd <repo_root>
+   python -m engines.refill.fetch_weimi_data
+
+   This refreshes:
+   - sales_history (today's transactions)
+   - weimi_device_status (live slot stock levels)
+
+   The engine plans off this fresh data. If this step fails,
+   stop and report the error — do not run the engine on stale data.
+
+3. Run the refill engine:
    python -m engines.refill.engine_d_decider --live \
     --date <date> \
     --filter <filter>
 
-3. On success, open this URL in the browser:
+4. On success, open this URL in the browser:
    https://boonz-erp.vercel.app/refill
 
-4. Respond with a summary:
-   ✅ Refill plan generated
+5. Respond with a summary:
+   ✅ Data refreshed + Refill plan generated
    📅 Date: <plan_date>
    🏭 Filter: <filter>
    📋 Lines: <N> (<refill_count> refills + <swap_count> swaps)
@@ -53,10 +65,19 @@ writes the plan to Supabase, and opens the /refill page.
 
 ## Error handling
 
+If fetch_weimi_data fails:
+❌ Data fetch failed — engine not run (would plan off stale data).
+Check Weimi API credentials in .env and network connectivity.
+Common causes:
+
+- .env missing WEIMI_APP_ID or WEIMI_SECRET_KEY
+- Network error reaching micron.weimi24.com
+
 If the engine exits with non-zero:
-❌ Engine failed — check the output above for details.
+❌ Engine failed — data was refreshed successfully.
+Check the output above for details.
 Common causes:
 
 - .env missing SUPABASE_URL or SUPABASE_SERVICE_KEY
 - Python dependencies not installed (pip install -r requirements.txt)
-- Network error fetching fleet state from Weimi/Supabase
+- Network error fetching fleet state from Supabase
