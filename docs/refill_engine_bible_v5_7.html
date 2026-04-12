@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Boonz Refill Engine — The Bible v5.6</title>
+    <title>Boonz Refill Engine — The Bible v5.7</title>
     <style>
       :root {
         --bg: #fafaf9;
@@ -557,10 +557,10 @@
   </head>
   <body>
     <div class="container">
-      <h1>Boonz refill engine — the bible v5.6</h1>
+      <h1>Boonz refill engine — the bible v5.7</h1>
       <p class="subtitle">
-        The single source of truth. Last meaningful update: 2026-04-12.
-        Definition A complete — all 4 engines live, first plan ready.
+        The single source of truth. Last meaningful update: 2026-04-13. First
+        live plan written — 66 lines, 179 units, pending operator review.
       </p>
 
       <div class="progress-banner">
@@ -602,16 +602,46 @@
           </div>
           <div class="stat-box">
             <div class="stat-label">Phase 1 engines</div>
-            <div class="stat-value">4/4 ✅</div>
+            <div class="stat-value">4/4 ✅ · First live plan 2026-04-13 ✅</div>
             <div class="stat-detail">Engine 1 → B → C → D (all shipped)</div>
           </div>
         </div>
       </div>
 
       <div class="changelog">
-        <h3>📝 What changed in v5.6 (from v5.5)</h3>
+        <h3>📝 What changed in v5.7 (from v5.6)</h3>
         <p style="font-size: 13px; color: var(--muted); margin: 0 0 8px 0">
-          2026-04-12 — commits 73b8a3d · 7432b3d · 060e0a1 · 7aad336
+          2026-04-13 — commits 107c709 · 6b3d402
+        </p>
+        <ul>
+          <li>
+            <strong>2026-04-13 (107c709 · 6b3d402)</strong> — v5.6 → v5.7. First
+            live plan written to <code>refill_plan_output</code>. Engine D
+            <code>--live</code> CLI flag wired (<code>dry_run=False</code> when
+            <code>--live</code> passed, dry run remains default). Plan:
+            2026-04-13 · 14 machines · 46 REFILL + 10 SWAP pairs = 66 lines ·
+            179 units · all <code>pending</code>. Rate limiter confirmed in
+            production: 97 slots truncated, 10 swaps accepted (all
+            DISCONTINUE+HIGH priority). Plan visible in
+            <code>/refill</code> amber banner — operator review UI live. Docs
+            commit: guardrail files + CLAUDE.md formatting cleanup.
+          </li>
+        </ul>
+      </div>
+
+      <div
+        class="changelog"
+        style="background: #f3f4f6; border-color: var(--border)"
+      >
+        <h3 style="color: var(--muted)">
+          📝 Previous version: v5.6 (<strong style="color: #64748b"
+            >2026-04-12 — commits 73b8a3d · 7432b3d · 060e0a1 · 7aad336</strong
+          >)
+        </h3>
+        <p style="font-size: 13px; color: var(--muted); margin: 0 0 8px 0">
+          <strong style="color: #64748b"
+            >2026-04-12 (73b8a3d · 7432b3d · 060e0a1 · 7aad336)</strong
+          >
         </p>
         <ul>
           <li>
@@ -2670,44 +2700,55 @@ SELECT * FROM public.repurpose_machine(
         </div>
       </div>
 
-      <h2 id="whats-next">What's Next — Definition A shipped, wiring to UI</h2>
+      <h2 id="whats-next">What's Next — Dispatch wiring</h2>
       <div class="data-layer">
         <p style="font-size: 14px; margin-top: 0">
-          The refill brain (Engines 1 → B → C → D) is complete and producing
-          real plans. <code>run_pipeline(dry_run=False)</code> writes to
-          <code>refill_plan_output</code>. The operator can now run the brain
-          and see pending plans in the DB.
+          The first live plan is in <code>refill_plan_output</code> with
+          <code>operator_status='pending'</code>. The operator review UI is live
+          at <code>/refill</code>. The next step is converting approved lines
+          into dispatch rows the drivers see in the field app.
         </p>
 
         <h3 style="font-size: 14px; margin: 16px 0 8px 0">
-          Immediate priorities
+          Immediate priorities (in order)
         </h3>
         <ol style="font-size: 14px; line-height: 1.8">
           <li>
+            <b>Approve the 2026-04-13 plan in /refill</b><br />
+            Operator reviews 66 pending lines, approves/rejects per line or in
+            bulk. This is the first real operator-brain interaction. No code
+            needed — the UI is built.
+          </li>
+          <li>
             <b
-              >Wire <code>/refill</code> page to
-              <code>refill_plan_output</code></b
+              ><code>push_plan_to_dispatch</code> — approved lines → dispatch
+              queue</b
             ><br />
-            The page currently shows live stock from
-            <code>v_live_shelf_stock</code>. Add a "Run Plan" button that calls
-            <code>run_pipeline()</code> and surfaces the resulting
-            <code>pending</code> rows for operator review and approval. Operator
-            approves/rejects per line. Approved lines trigger dispatch creation.
+            RPC already exists in Supabase. Wire it: when operator approves a
+            plan (or all lines for a machine), call
+            <code>push_plan_to_dispatch(p_plan_date, p_machine_name)</code>
+            to create <code>refill_dispatching</code> rows. Drivers then see the
+            plan in <code>/field/dispatching</code>. This is the last missing
+            link between the brain and the field app.
           </li>
           <li>
             <b>Engine C v2 — MONITOR slot upgrades</b><br />
-            See scope callout in CS task table. Unlocks upgrade proposals for
-            the 151 MONITOR slots currently getting no swap attention.
+            Score upgrade candidates for 151 MONITOR slots. See v5.6 callout for
+            full scope. Unlocks upgrade proposals for slots currently getting no
+            swap attention.
           </li>
           <li>
             <b>Fix attr_drink product_mapping join (tech debt)</b><br />
             Engine B keyword fallback is functional but not permanent. Repair
-            the join so <code>boonz_products.attr_drink</code> is the source.
+            the join so <code>boonz_products.attr_drink</code> is the
+            authoritative source.
           </li>
           <li>
-            <b>CC-11 velocity: add 7-day window to FleetState</b><br />
-            Engine B makes a separate 7d query for dead machine detection. Fold
-            this into <code>fetch_fleet_state()</code> so it's one fetch.
+            <b>Fold 7d velocity into <code>fetch_fleet_state()</code></b
+            ><br />
+            Engine B currently makes a separate 7-day query for dead machine
+            detection. Move it into <code>FleetState</code> so it's one parallel
+            fetch at startup.
           </li>
         </ol>
 
