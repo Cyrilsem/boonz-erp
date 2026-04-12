@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Boonz Refill Engine — The Bible v5.5</title>
+    <title>Boonz Refill Engine — The Bible v5.6</title>
     <style>
       :root {
         --bg: #fafaf9;
@@ -557,28 +557,23 @@
   </head>
   <body>
     <div class="container">
-      <h1>Boonz refill engine — the bible v5.5</h1>
+      <h1>Boonz refill engine — the bible v5.6</h1>
       <p class="subtitle">
         The single source of truth. Last meaningful update: 2026-04-12.
-        Guardrail layer <b>complete</b> — all 9 guardrail files committed
-        (coexistence, travel-scope, portfolio_strategy, layout, refill_rules,
-        seasonality_global, vitrine_machines, source_of_supply,
-        refill_overrides). CS interviews CS-04 through CS-09 and CS-17 done.
-        <b>Phase 1 engine build active</b> — Engine 1 → B → C → D.
+        Definition A complete — all 4 engines live, first plan ready.
       </p>
 
       <div class="progress-banner">
         <h2>🎯 Where we are right now</h2>
         <p style="margin: 0 0 8px 0; font-size: 14px">
+          <b>Definition A complete. All 4 Phase 1 engines shipped.</b>
+          Engine 1 → B → C → D live and smoke-tested. First dry-run plan: 14
+          machines, 46 refill lines, 10 swaps, 179 units.
           <b
-            >Phase 0 fully closed. Guardrail layer complete. Phase 1 engine
-            build is active.</b
+            >Next move: wire <code>/refill</code> page to
+            <code>refill_plan_output</code></b
           >
-          All 9 guardrail files committed. CS-01 through CS-09 and CS-17 done.
-          The autonomy loop works. Four oracles wired. 22 eligible machines
-          tagged with venue_group.
-          <b>Next move: Engine 1 portfolio module</b> (CS-20 /
-          <code>engine_1_portfolio.py</code>), which unblocks Engine B and C.
+          so operators can run the brain and approve plans from the UI.
         </p>
         <div class="progress-stats">
           <div class="stat-box">
@@ -607,51 +602,60 @@
           </div>
           <div class="stat-box">
             <div class="stat-label">Phase 1 engines</div>
-            <div class="stat-value">0 / 4</div>
-            <div class="stat-detail">Engine 1 → B → C → D (build order)</div>
+            <div class="stat-value">4/4 ✅</div>
+            <div class="stat-detail">Engine 1 → B → C → D (all shipped)</div>
           </div>
         </div>
       </div>
 
       <div class="changelog">
-        <h3>📝 What changed in v5.5 (from v5.4)</h3>
+        <h3>📝 What changed in v5.6 (from v5.5)</h3>
         <p style="font-size: 13px; color: var(--muted); margin: 0 0 8px 0">
-          2026-04-12 — commits fd87506 (v5.4) → 409ee7c (v5.5 batch)
+          2026-04-12 — commits 73b8a3d · 7432b3d · 060e0a1 · 7aad336
         </p>
         <ul>
           <li>
-            <b>Guardrail layer complete (CS-04/05/06/07/08/09/17 → DONE).</b>
-            Six guardrail files committed in fast-path batch (409ee7c):
-            <code>layout.md</code> (70/30 rule, VOX hard-locks, anchor slots,
-            capacity table for 15 physical types),
-            <code>refill_rules.md</code> (fill factor 0.85, frequency by
-            archetype, expiry-aware reduction, dead stock flag),
-            <code>seasonality_global.md</code> (UAE public holiday calendar +
-            Ramadan / summer / tourism windows),
-            <code>vitrine_machines.md</code> (stub — no vitrine machines yet),
-            <code>source_of_supply.md</code> (column abandoned, per-SKU model
-            decided — follow-up CS-18), <code>refill_overrides.md</code> (5
-            override actions, 10 reason codes, 7 feed learning).
+            <strong
+              >Definition A complete. All 4 Phase 1 engines shipped and
+              smoke-tested.</strong
+            >
+            Engine 1 (portfolio, guardrail reconciler), Engine B (quantity
+            calculator, canonical formula), Engine C (swap scorer v1,
+            DISCONTINUE + swap-minimum slots), Engine D (decider + rate limiter,
+            sole writer to
+            <code>refill_plan_output</code>). First dry-run plan: 14 machines,
+            46 refill lines, 10 swaps, 179 units. Rate limits confirmed working
+            (§9.2).
           </li>
           <li>
-            <b>CS-18, CS-19, CS-20 added to task list.</b> Phase 1 engine build
-            tasks: Engine 1 portfolio module (CS-20), Engine B quantity
-            calculator (CS-18), Engine C swap scorer (CS-19). Full specs in CS
-            task table.
+            <strong>Two new principles added:</strong> MONITOR→70% cap doctrine,
+            attr_drink keyword fallback (tech debt). Engine C v2 scope
+            documented. Bible upsert pattern active.
           </li>
           <li>
-            <b>Two new design principles added.</b> "Max capacity ≠ target
-            quantity" — slot_max_capacity is the physical ceiling, target_qty is
-            the velocity-derived goal; Engine B logs both separately, conflating
-            them causes blind fill-to-max. "Bible upsert pattern" — surgical
-            str_replace patches in order, never full regeneration; preserves git
-            diff legibility and auditability.
+            <strong>What's Next rewritten.</strong> Phase 1 complete — section
+            now covers UI wiring (<code>/refill</code> page →
+            <code>refill_plan_output</code>), Engine C v2 (MONITOR upgrades),
+            attr_drink fix, 7d velocity fold-in.
           </li>
+        </ul>
+      </div>
+
+      <div
+        class="changelog"
+        style="background: #f3f4f6; border-color: var(--border)"
+      >
+        <h3 style="color: var(--muted)">
+          📝 Previous version: v5.5 (<strong style="color: #64748b"
+            >2026-04-12 — 409ee7c</strong
+          >)
+        </h3>
+        <ul style="color: var(--muted)">
           <li>
-            <b>What's Next rewritten.</b> Previous section described the
-            fast-path CS session (now complete). Replaced with Phase 1 engine
-            build focus: Engine 1 → Engine B → Engine C → Engine D dependency
-            chain, plus explicit out-of-scope list for Phase 2.
+            Guardrail layer complete (CS-04/05/06/07/08/09/17 → DONE). Six
+            guardrail files committed in fast-path batch. CS-18, CS-19, CS-20
+            added to task list. Two new design principles added. What's Next
+            rewritten to Phase 1 engine build focus.
           </li>
         </ul>
       </div>
@@ -1533,8 +1537,8 @@
                 lines.
               </td>
             </tr>
-            <tr>
-              <td class="col-done"><span class="check"></span></td>
+            <tr class="task-done">
+              <td class="col-done"><span class="check done">✓</span></td>
               <td class="task-id">CS-18</td>
               <td>
                 Engine B — quantity calculator Python module. Implement
@@ -1547,11 +1551,11 @@
                 Must log target_qty and slot_max_capacity as separate fields —
                 they are NOT the same value.
               </td>
-              <td class="priority pri-p1">P1</td>
-              <td>Pending.</td>
+              <td class="priority pri-done">DONE</td>
+              <td>Done — 7432b3d</td>
             </tr>
-            <tr>
-              <td class="col-done"><span class="check"></span></td>
+            <tr class="task-done">
+              <td class="col-done"><span class="check done">✓</span></td>
               <td class="task-id">CS-19</td>
               <td>
                 Engine C — swap candidate scorer Python module. Implement
@@ -1563,11 +1567,11 @@
                 (candidate_product_id, confidence_score, reason). Respects
                 travel-scope and coexistence guardrails via Engine 1 lookups.
               </td>
-              <td class="priority pri-p1">P1</td>
-              <td>Pending. Depends on CS-20 (Engine 1).</td>
+              <td class="priority pri-done">DONE</td>
+              <td>Done — 060e0a1</td>
             </tr>
-            <tr>
-              <td class="col-done"><span class="check"></span></td>
+            <tr class="task-done">
+              <td class="col-done"><span class="check done">✓</span></td>
               <td class="task-id">CS-20</td>
               <td>
                 Engine 1 — portfolio manager Python module. Implement
@@ -1578,11 +1582,46 @@
                 pod_product_id. Raises on parse failure — never silently ignore.
                 Called by Engine B and C before finalising output.
               </td>
-              <td class="priority pri-p0">P0</td>
-              <td>Pending. Unblocks CS-18 and CS-19.</td>
+              <td class="priority pri-done">DONE</td>
+              <td>Done — 73b8a3d</td>
+            </tr>
+            <tr class="task-done">
+              <td class="col-done"><span class="check done">✓</span></td>
+              <td class="task-id">CS-21</td>
+              <td>
+                Engine D — decider + rate limiter. Bonds Engine B + C output.
+                Enforces §9.2 rate limits (max 2 slot changes/machine, max 5
+                machines/day, max 10 total/day, 14-day slot stability). Priority
+                ordering: DOUBLE_DOWN → KEEP → DISCONTINUE HIGH → SWAP_MINIMUM
+                HIGH → MEDIUM → LOW. Sole writer to
+                <code>refill_plan_output</code>. Writes truncated lines to
+                <code>decision_log</code>. Default <code>dry_run=True</code> —
+                never writes without explicit flag.
+                <code>run_pipeline()</code> is the single entry point for the
+                complete refill brain.
+              </td>
+              <td class="priority pri-done">DONE</td>
+              <td>Done — 7aad336</td>
             </tr>
           </tbody>
         </table>
+
+        <div class="summary-callout" style="margin-top: 16px">
+          <strong
+            >Engine C v2 — MONITOR slot upgrades (out of scope Phase 1)</strong
+          ><br />
+          Score upgrade candidates for MONITOR slots where a better-performing
+          product exists in warehouse inventory. Criteria: candidate
+          <code>global_score</code> &gt; current product
+          <code>global_score</code>
+          by ≥1.5 points · warehouse stock ≥3 units · expiry &gt;14 days · not
+          already on this machine · respects travel-scope and coexistence
+          guardrails. Produces ranked
+          <code>(candidate_pod_product_id, confidence_score, reason)</code> —
+          same output shape as v1. Engine D consumes v2 output alongside v1 with
+          lower priority weighting (MONITOR upgrades truncated before
+          DISCONTINUE swaps when rate limits are hit).
+        </div>
       </div>
 
       <h2 id="tasks-cc">Task list — Claude Code</h2>
@@ -2631,57 +2670,46 @@ SELECT * FROM public.repurpose_machine(
         </div>
       </div>
 
-      <h2 id="whats-next">What's next (immediate)</h2>
+      <h2 id="whats-next">What's Next — Definition A shipped, wiring to UI</h2>
       <div class="data-layer">
         <p style="font-size: 14px; margin-top: 0">
-          <b>Phase 1 engine build — active focus.</b> Guardrail layer is
-          complete. All CS interviews (CS-04 through CS-09, CS-17) done.
-          Immediate priority is the engine code in dependency order.
+          The refill brain (Engines 1 → B → C → D) is complete and producing
+          real plans. <code>run_pipeline(dry_run=False)</code> writes to
+          <code>refill_plan_output</code>. The operator can now run the brain
+          and see pending plans in the DB.
         </p>
 
         <h3 style="font-size: 14px; margin: 16px 0 8px 0">
-          Immediate priorities (dependency order)
+          Immediate priorities
         </h3>
         <ol style="font-size: 14px; line-height: 1.8">
           <li>
-            <b>CC-20 / CS-20 — Engine 1 portfolio module</b> (unblocks B and
-            C)<br />
-            File: <code>engines/refill/engine_1_portfolio.py</code><br />
-            Parses all guardrail files at startup. Typed lookup functions:
-            get_archetype(), is_protected(), get_phase_out_bias(),
-            get_partnership_status(). Raises on parse failure — never silently
-            ignore.
-          </li>
-          <li>
-            <b>CC-V1 / CS-18 — Engine B quantity calculator</b><br />
-            File: <code>engines/refill/engine_b_quantity.py</code><br />
-            Pure function: slot + mode + velocity → refill_qty + target_qty +
-            skip_reason. Key: log target_qty and slot_max_capacity as separate
-            fields.
-          </li>
-          <li>
-            <b>CC-10 / CS-19 — Engine C swap scorer</b><br />
-            File: <code>engines/refill/engine_c_swap.py</code><br />
-            Eligibility → scoring → ranked output. Depends on Engine 1.
-          </li>
-          <li>
             <b
-              >Engine D (decider + rate limiter) — define scope in next
-              session</b
+              >Wire <code>/refill</code> page to
+              <code>refill_plan_output</code></b
             ><br />
-            Bonds B+C output, enforces §9 rate limits, sole writer to
-            refill_plan_output.
+            The page currently shows live stock from
+            <code>v_live_shelf_stock</code>. Add a "Run Plan" button that calls
+            <code>run_pipeline()</code> and surfaces the resulting
+            <code>pending</code> rows for operator review and approval. Operator
+            approves/rejects per line. Approved lines trigger dispatch creation.
+          </li>
+          <li>
+            <b>Engine C v2 — MONITOR slot upgrades</b><br />
+            See scope callout in CS task table. Unlocks upgrade proposals for
+            the 151 MONITOR slots currently getting no swap attention.
+          </li>
+          <li>
+            <b>Fix attr_drink product_mapping join (tech debt)</b><br />
+            Engine B keyword fallback is functional but not permanent. Repair
+            the join so <code>boonz_products.attr_drink</code> is the source.
+          </li>
+          <li>
+            <b>CC-11 velocity: add 7-day window to FleetState</b><br />
+            Engine B makes a separate 7d query for dead machine detection. Fold
+            this into <code>fetch_fleet_state()</code> so it's one fetch.
           </li>
         </ol>
-
-        <h3 style="font-size: 14px; margin: 16px 0 8px 0">
-          Completed in 409ee7c (fast-path batch)
-        </h3>
-        <p style="font-size: 13px; color: var(--muted)">
-          CS-04 layout.md · CS-05 refill_rules.md · CS-06 seasonality_global.md
-          · CS-07 vitrine_machines.md · CS-08 source_of_supply.md · CS-09
-          refill_overrides.md · CS-17 /refill override mechanic
-        </p>
 
         <h3 style="font-size: 14px; margin: 16px 0 8px 0">
           Not in Phase 1 scope
@@ -2689,12 +2717,11 @@ SELECT * FROM public.repurpose_machine(
         <ul style="font-size: 13px; color: var(--muted)">
           <li>Mode system (Conservative / Balanced / Aggressive) — Phase 2</li>
           <li>AI product discovery — Phase 2+</li>
-          <li>
-            Correlation matrix / machine similarity — Stage 0, after engine
-            layer stable
-          </li>
-          <li>VOX analytics 13-table migration — blocked on engine layer</li>
+          <li>VOX analytics 13-table migration — separate workstream</li>
           <li>Management ERP /app/* — Phase 3</li>
+          <li>
+            Correlation matrix / machine similarity — Stage 0, post-engine
+          </li>
         </ul>
       </div>
 
@@ -2797,6 +2824,27 @@ SELECT * FROM public.repurpose_machine(
             preserves git diff legibility, prevents drift, and makes every
             change auditable. Full regeneration is banned — it destroys diff
             history.
+          </li>
+          <li>
+            <b>MONITOR slots get 70% capacity cap.</b>
+            Engine B applies a hard cap of
+            <code>floor(0.70 × effective_max_stock)</code>
+            to any slot classified MONITOR by Engine 1. This is confirmed
+            doctrine — not a parameter to tune in Phase 1. The intent: hold the
+            slot, don't grow it, don't starve it. If the product recovers
+            (signal upgrades to KEEP), the cap lifts automatically on the next
+            run.
+          </li>
+          <li>
+            <b>attr_drink keyword fallback (tech debt).</b>
+            Engine B determines drink vs snack category using a keyword match on
+            <code>goods_name_raw</code> because the
+            <code>product_mapping</code> DB join returns &lt;50 results in the
+            current environment (mapping gap). The keyword list covers all known
+            drink products. Fix in a future session: repair the product_mapping
+            join so attr_drink reads from
+            <code>boonz_products.attr_drink</code> directly. Flagged — do not
+            treat keyword fallback as permanent architecture.
           </li>
         </ol>
       </div>
