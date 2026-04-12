@@ -60,18 +60,17 @@ This vector is combined with the data-layer signal to produce Engine 1's final c
 
 **Phase 1 runs in BALANCED mode only.** Conservative and aggressive modes are Phase 2 enhancements — see Section 11 cross-references and the bible's Phase 2 chapter. In balanced mode, Engine 1 uses this file as priors and overrides on top of data signals, with the combination rule described in 1.4.
 
-
 ## 2. The three product universalities
 
 Every product has a **reach profile** that describes where it works. Some products sell broadly across all location types. Some sell only in specific venue categories. Some sell only in one or two specific machines. Engine 1 must know the reach profile to evaluate whether a product is "failing" (it should be doing better than this) or "succeeding within its natural scope" (it's not a failure, it's just a niche product with a niche audience).
 
 ### 2.1 The three categories
 
-| Category | Definition | Example (from live data) |
-|---|---|---|
-| **Global** | Sells across ≥ 3 different `location_type` categories with consistent velocity in each. Broad-spectrum appeal. | Vitamin Well — 11 machines across office (4), coworking (4), entertainment (2). Chocolate Bar — 13 machines, widest spread in top 25. |
-| **Industry-focused** | Concentrated in 1-2 `location_type` categories. Works in a specific professional or venue context. | Snack Bar — 9 machines, only office (5) and coworking (4), zero entertainment. Organic Larder Rice Cake — only office and coworking. |
-| **Machine-focused** | Concentrated in ≤ 3 specific machines, typically of the same venue group or with a specific operator relationship. Narrow but often high-revenue. | Aquafina — 3 entertainment machines only, but #1 revenue in the fleet (AED 3,535/30d). VOX Popcorn × 3, VOX Lollies, Maltesers, Skittles — all 3-machine VOX-locked. |
+| Category             | Definition                                                                                                                                        | Example (from live data)                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Global**           | Sells across ≥ 3 different `location_type` categories with consistent velocity in each. Broad-spectrum appeal.                                    | Vitamin Well — 11 machines across office (4), coworking (4), entertainment (2). Chocolate Bar — 13 machines, widest spread in top 25.                                |
+| **Industry-focused** | Concentrated in 1-2 `location_type` categories. Works in a specific professional or venue context.                                                | Snack Bar — 9 machines, only office (5) and coworking (4), zero entertainment. Organic Larder Rice Cake — only office and coworking.                                 |
+| **Machine-focused**  | Concentrated in ≤ 3 specific machines, typically of the same venue group or with a specific operator relationship. Narrow but often high-revenue. | Aquafina — 3 entertainment machines only, but #1 revenue in the fleet (AED 3,535/30d). VOX Popcorn × 3, VOX Lollies, Maltesers, Skittles — all 3-machine VOX-locked. |
 
 ### 2.2 How the category is determined
 
@@ -81,7 +80,7 @@ Engine 1 **derives** the category automatically from sales data and venue distri
 For each product with ≥ 30 days of data:
   count_location_types = COUNT(DISTINCT location_type) WHERE sales > 0
   count_machines = COUNT(DISTINCT machine_id) WHERE sales > 0
-  
+
   IF count_location_types >= 3 AND min_velocity_per_type > threshold:
     category = GLOBAL
   ELIF count_machines <= 3 AND max_venue_group_concentration >= 0.8:
@@ -104,9 +103,9 @@ Three scenarios where the operator must override Engine 1's derived category:
 
 Products whose derived category does not match reality. Most of the catalog has no entry here — the data derivation is correct for ~90% of products.
 
-| `pod_product_name` | Derived category | Override category | Rationale |
-|---|---|---|---|
-| _(none at time of first draft)_ | — | — | — |
+| `pod_product_name`              | Derived category | Override category | Rationale |
+| ------------------------------- | ---------------- | ----------------- | --------- |
+| _(none at time of first draft)_ | —                | —                 | —         |
 
 **Maintenance rule:** add a row here only when the operator finds Engine 1's derivation actively misleading its decisions. Do not populate preemptively. Each override is a bug report against the derivation rule — consider whether the rule itself should be tightened instead.
 
@@ -115,7 +114,6 @@ Products whose derived category does not match reality. Most of the catalog has 
 - **Global products** declining in one location_type is not a failure — it may mean one venue shifted. Evaluate against the global trend.
 - **Industry-focused products** declining outside their focus type is noise — don't react.
 - **Machine-focused products** are evaluated only against their own machines, not fleet-wide averages. A machine-focused product with 3 KEEP slots and 0 other deployments is a success, not a failure to scale.
-
 
 ## 3. The four lifecycle archetypes
 
@@ -131,19 +129,19 @@ Hype products live on social media attention, novelty, and impulse. Examples: Ti
 
 **Structured fields:**
 
-| Field | Value |
-|---|---|
-| `archetype_name` | HYPE |
-| `typical_lifespan_days` | 60–120 |
-| `ramp_up_window_days` | 14 |
-| `success_threshold_score` | ≥ 8 within ramp-up window (if it doesn't hit 8 in 2 weeks, this hype isn't for this machine) |
-| `exit_trigger` | Velocity drops ≥ 40% from peak for 14 consecutive days, OR lifecycle score falls below 5 |
-| `min_data_window_before_judgment_days` | 7 (don't kill a hype in the first week) |
-| `decline_alarm_level` | QUIET (decline is expected, no operator alert) |
-| `protected_during_decline` | NO |
-| `engine_1_default_signal_bias` | AGGRESSIVE — lean toward action, don't over-protect |
-| `decline_tolerance_pct` | 40% from peak |
-| `narrative_description` | Hype products are bets on cultural timing. Know when to enter and, more importantly, when to exit. A hype that doesn't hit score 8+ in 14 days is not a hype for that machine — pull it and try the next one. |
+| Field                                  | Value                                                                                                                                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `archetype_name`                       | HYPE                                                                                                                                                                                                          |
+| `typical_lifespan_days`                | 60–120                                                                                                                                                                                                        |
+| `ramp_up_window_days`                  | 14                                                                                                                                                                                                            |
+| `success_threshold_score`              | ≥ 8 within ramp-up window (if it doesn't hit 8 in 2 weeks, this hype isn't for this machine)                                                                                                                  |
+| `exit_trigger`                         | Velocity drops ≥ 40% from peak for 14 consecutive days, OR lifecycle score falls below 5                                                                                                                      |
+| `min_data_window_before_judgment_days` | 7 (don't kill a hype in the first week)                                                                                                                                                                       |
+| `decline_alarm_level`                  | QUIET (decline is expected, no operator alert)                                                                                                                                                                |
+| `protected_during_decline`             | NO                                                                                                                                                                                                            |
+| `engine_1_default_signal_bias`         | AGGRESSIVE — lean toward action, don't over-protect                                                                                                                                                           |
+| `decline_tolerance_pct`                | 40% from peak                                                                                                                                                                                                 |
+| `narrative_description`                | Hype products are bets on cultural timing. Know when to enter and, more importantly, when to exit. A hype that doesn't hit score 8+ in 14 days is not a hype for that machine — pull it and try the next one. |
 
 ### 3.2 ALWAYS-ON ⚓
 
@@ -153,19 +151,19 @@ Always-on products are the backbone of the catalog. Examples: water, gum, Pringl
 
 **Structured fields:**
 
-| Field | Value |
-|---|---|
-| `archetype_name` | ALWAYS-ON |
-| `typical_lifespan_days` | Indefinite (∞) |
-| `ramp_up_window_days` | 30 |
-| `success_threshold_score` | ≥ 5 sustained for 30 days (doesn't need to be a star, needs to be reliable) |
-| `exit_trigger` | Velocity drops ≥ 25% from rolling 90-day average for ≥ 30 consecutive days, AND investigation concluded (no equipment issue, no competitor shift, no SKU confusion) |
-| `min_data_window_before_judgment_days` | 21 (don't react to a bad week) |
-| `decline_alarm_level` | LOUD (decline is anomalous, flag to operator immediately) |
-| `protected_during_decline` | YES — always ask operator before phase-out |
-| `engine_1_default_signal_bias` | PROTECTIVE — lean toward keep, require strong signal to remove |
-| `decline_tolerance_pct` | 25% from rolling 90-day average |
-| `narrative_description` | Always-on products are the foundation of every machine. They don't need to be spectacular — they need to be present and reliable. If an always-on is declining, something is wrong in the world, not in the product. Investigate before you remove. |
+| Field                                  | Value                                                                                                                                                                                                                                               |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `archetype_name`                       | ALWAYS-ON                                                                                                                                                                                                                                           |
+| `typical_lifespan_days`                | Indefinite (∞)                                                                                                                                                                                                                                      |
+| `ramp_up_window_days`                  | 30                                                                                                                                                                                                                                                  |
+| `success_threshold_score`              | ≥ 5 sustained for 30 days (doesn't need to be a star, needs to be reliable)                                                                                                                                                                         |
+| `exit_trigger`                         | Velocity drops ≥ 25% from rolling 90-day average for ≥ 30 consecutive days, AND investigation concluded (no equipment issue, no competitor shift, no SKU confusion)                                                                                 |
+| `min_data_window_before_judgment_days` | 21 (don't react to a bad week)                                                                                                                                                                                                                      |
+| `decline_alarm_level`                  | LOUD (decline is anomalous, flag to operator immediately)                                                                                                                                                                                           |
+| `protected_during_decline`             | YES — always ask operator before phase-out                                                                                                                                                                                                          |
+| `engine_1_default_signal_bias`         | PROTECTIVE — lean toward keep, require strong signal to remove                                                                                                                                                                                      |
+| `decline_tolerance_pct`                | 25% from rolling 90-day average                                                                                                                                                                                                                     |
+| `narrative_description`                | Always-on products are the foundation of every machine. They don't need to be spectacular — they need to be present and reliable. If an always-on is declining, something is wrong in the world, not in the product. Investigate before you remove. |
 
 ### 3.3 SEASONAL 📅
 
@@ -175,19 +173,19 @@ Seasonal products are driven by external cyclical forces: weather, religious/cul
 
 **Structured fields:**
 
-| Field | Value |
-|---|---|
-| `archetype_name` | SEASONAL |
-| `typical_lifespan_days` | Indefinite, with recurring active/dormant windows each year |
-| `ramp_up_window_days` | 14 (within the active season window only) |
-| `success_threshold_score` | ≥ 6 during peak season window |
-| `exit_trigger` | Peak season score < 6 for 2 consecutive peak seasons (i.e., 2 years of failing its own cycle) |
-| `min_data_window_before_judgment_days` | One full season cycle minimum before any phase-out decision |
-| `decline_alarm_level` | SILENT during expected trough, LOUD during expected peak |
-| `protected_during_decline` | YES during trough, NO during peak failure |
-| `engine_1_default_signal_bias` | CALENDAR-AWARE — never judge a seasonal product outside its active window |
-| `decline_tolerance_pct` | N/A during trough, 30% from prior peak during active season |
-| `narrative_description` | Seasonal products must be evaluated on their own cycle, not on the last 30 days. A hot chocolate selling zero in August is not a failure — it's August. The test is whether it sells during its active window, year over year. |
+| Field                                  | Value                                                                                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `archetype_name`                       | SEASONAL                                                                                                                                                                                                                       |
+| `typical_lifespan_days`                | Indefinite, with recurring active/dormant windows each year                                                                                                                                                                    |
+| `ramp_up_window_days`                  | 14 (within the active season window only)                                                                                                                                                                                      |
+| `success_threshold_score`              | ≥ 6 during peak season window                                                                                                                                                                                                  |
+| `exit_trigger`                         | Peak season score < 6 for 2 consecutive peak seasons (i.e., 2 years of failing its own cycle)                                                                                                                                  |
+| `min_data_window_before_judgment_days` | One full season cycle minimum before any phase-out decision                                                                                                                                                                    |
+| `decline_alarm_level`                  | SILENT during expected trough, LOUD during expected peak                                                                                                                                                                       |
+| `protected_during_decline`             | YES during trough, NO during peak failure                                                                                                                                                                                      |
+| `engine_1_default_signal_bias`         | CALENDAR-AWARE — never judge a seasonal product outside its active window                                                                                                                                                      |
+| `decline_tolerance_pct`                | N/A during trough, 30% from prior peak during active season                                                                                                                                                                    |
+| `narrative_description`                | Seasonal products must be evaluated on their own cycle, not on the last 30 days. A hot chocolate selling zero in August is not a failure — it's August. The test is whether it sells during its active window, year over year. |
 
 ### 3.4 TRIAL 🧪
 
@@ -197,19 +195,19 @@ Trial is the entry state for every new product added to the catalog. Trial produ
 
 **Structured fields:**
 
-| Field | Value |
-|---|---|
-| `archetype_name` | TRIAL |
-| `typical_lifespan_days` | 60 (fixed window, then forced decision) |
-| `ramp_up_window_days` | 30 |
-| `success_threshold_score` | ≥ 5 by day 30 AND ≥ 0.5 transactions/day for ≥ 14 consecutive days |
-| `exit_trigger` | Day 60 forced decision: promote or wash out. No extensions unless operator override. |
-| `min_data_window_before_judgment_days` | 30 (the entire ramp-up window is protected) |
-| `decline_alarm_level` | QUIET (trial products are expected to fail) |
-| `protected_during_decline` | YES during trial window (60 days), NO after |
-| `engine_1_default_signal_bias` | PATIENT — give the trial its full window, don't prematurely conclude |
-| `decline_tolerance_pct` | N/A during trial window |
-| `narrative_description` | Trial is the entry state for every new product. The trial window protects new products from premature phase-out, but forces a decision at day 60 so the catalog doesn't drift into perpetual-trial limbo. After day 60, the product either promotes to HYPE / ALWAYS-ON / SEASONAL, or it washes out. |
+| Field                                  | Value                                                                                                                                                                                                                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `archetype_name`                       | TRIAL                                                                                                                                                                                                                                                                                                 |
+| `typical_lifespan_days`                | 60 (fixed window, then forced decision)                                                                                                                                                                                                                                                               |
+| `ramp_up_window_days`                  | 30                                                                                                                                                                                                                                                                                                    |
+| `success_threshold_score`              | ≥ 5 by day 30 AND ≥ 0.5 transactions/day for ≥ 14 consecutive days                                                                                                                                                                                                                                    |
+| `exit_trigger`                         | Day 60 forced decision: promote or wash out. No extensions unless operator override.                                                                                                                                                                                                                  |
+| `min_data_window_before_judgment_days` | 30 (the entire ramp-up window is protected)                                                                                                                                                                                                                                                           |
+| `decline_alarm_level`                  | QUIET (trial products are expected to fail)                                                                                                                                                                                                                                                           |
+| `protected_during_decline`             | YES during trial window (60 days), NO after                                                                                                                                                                                                                                                           |
+| `engine_1_default_signal_bias`         | PATIENT — give the trial its full window, don't prematurely conclude                                                                                                                                                                                                                                  |
+| `decline_tolerance_pct`                | N/A during trial window                                                                                                                                                                                                                                                                               |
+| `narrative_description`                | Trial is the entry state for every new product. The trial window protects new products from premature phase-out, but forces a decision at day 60 so the catalog doesn't drift into perpetual-trial limbo. After day 60, the product either promotes to HYPE / ALWAYS-ON / SEASONAL, or it washes out. |
 
 ### 3.5 How Engine 1 uses archetypes
 
@@ -243,21 +241,21 @@ This section captures commercial relationships between Boonz and brands/supplier
 
 The following partnership types are recognized by Engine 1. If a new type is needed, add it here and update Engine 1's parser.
 
-| Type | Definition | Effect on Engine 1 behavior |
-|---|---|---|
-| `none` | No special arrangement. Product sourced through normal supplier channel, no obligation. | No bias. Engine 1 follows data layer decisions. |
-| `paid_placement` | Brand pays Boonz for shelf access (flat fee, per-machine fee, or per-month). | HIGH push intensity. Protected from phase-out during contract window. Operator must be alerted before any removal proposal. |
-| `consignment` | Brand provides product, Boonz pays only for units sold. | Reduced phase-out urgency (no inventory risk). Engine 1 can experiment more freely with placement. |
-| `volume_deal` | Preferential wholesale pricing in exchange for a minimum order commitment. | NORMAL push intensity, but Engine 1 must track total fleet velocity against the volume commitment to avoid underperformance penalties. |
-| `marketing_fund` | Brand provides co-marketing budget alongside placement. | HIGH push intensity. Specific machine visibility requirements may apply — check rationale field per product. |
-| `exclusive` | Boonz is the only UAE vending operator for this SKU. | HIGH push intensity. Strategic value beyond sales — exclusivity is the asset. Never propose phase-out without operator review. |
-| `supermarket` | No relationship, Boonz buys from grocery retail. Highest cost, no obligations. | Zero bias. Normal data-layer decisions. May be biased toward phase-out in favor of better-sourced alternatives. |
+| Type             | Definition                                                                              | Effect on Engine 1 behavior                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `none`           | No special arrangement. Product sourced through normal supplier channel, no obligation. | No bias. Engine 1 follows data layer decisions.                                                                                        |
+| `paid_placement` | Brand pays Boonz for shelf access (flat fee, per-machine fee, or per-month).            | HIGH push intensity. Protected from phase-out during contract window. Operator must be alerted before any removal proposal.            |
+| `consignment`    | Brand provides product, Boonz pays only for units sold.                                 | Reduced phase-out urgency (no inventory risk). Engine 1 can experiment more freely with placement.                                     |
+| `volume_deal`    | Preferential wholesale pricing in exchange for a minimum order commitment.              | NORMAL push intensity, but Engine 1 must track total fleet velocity against the volume commitment to avoid underperformance penalties. |
+| `marketing_fund` | Brand provides co-marketing budget alongside placement.                                 | HIGH push intensity. Specific machine visibility requirements may apply — check rationale field per product.                           |
+| `exclusive`      | Boonz is the only UAE vending operator for this SKU.                                    | HIGH push intensity. Strategic value beyond sales — exclusivity is the asset. Never propose phase-out without operator review.         |
+| `supermarket`    | No relationship, Boonz buys from grocery retail. Highest cost, no obligations.          | Zero bias. Normal data-layer decisions. May be biased toward phase-out in favor of better-sourced alternatives.                        |
 
 ### 4.3 Active partnerships table
 
-| `pod_product_name` | Partnership type | Contract start | Contract end | Push intensity | Rationale |
-|---|---|---|---|---|---|
-| _(none at time of first draft — populate as commercial deals are signed)_ | — | — | — | — | — |
+| `pod_product_name`                                                        | Partnership type | Contract start | Contract end | Push intensity | Rationale |
+| ------------------------------------------------------------------------- | ---------------- | -------------- | ------------ | -------------- | --------- |
+| _(none at time of first draft — populate as commercial deals are signed)_ | —                | —              | —            | —              | —         |
 
 **Maintenance rule:** this table is updated whenever a partnership is signed, modified, or expires. Partnership changes are the most time-sensitive updates this file receives. The file's quarterly review pass should verify every active partnership row has an accurate contract end date.
 
@@ -274,7 +272,6 @@ When Engine 1 evaluates a product with an active partnership:
 
 No partnerships are active at the time of first drafting this file. All products are currently sourced through normal supplier channels (`none` or `supermarket`). The structure is in place for when commercial deals are signed. First real partnership entry will exercise and validate the Engine 1 parser.
 
-
 ## 5. Protected products
 
 ### 5.1 Purpose and posture
@@ -285,21 +282,21 @@ Protected products are NOT immune from phase-out. They receive **grace periods**
 
 ### 5.2 Protection levels
 
-| Level | Meaning | Engine 1 behavior |
-|---|---|---|
-| `NONE` | Default. No protection. | Normal data-driven decisions. |
-| `CLIENT_REQUEST` | A specific client asked for this product at a specific machine. Must stay for a defined window. | Engine 1 cannot propose removal of this product from the named machine(s) until `protected_until` date. After expiry, normal behavior resumes. |
-| `OPERATOR_WATCH` | Operator is keeping an eye on this product for non-data reasons (testing a sourcing change, monitoring quality, etc). | Engine 1 may propose changes but must flag the protection status so the operator can veto quickly. |
-| `PARTNERSHIP` | Product is protected because of a partnership (see Section 4). | Inherited from Section 4. Engine 1 must not propose removal without operator review. |
-| `CONTRACTUAL` | Product is contractually required at specific venues (see `travel-scope.md` VOX lock list). | Engine 1 must not propose removal at the contractually-required venues. May propose changes at other venues. |
+| Level            | Meaning                                                                                                               | Engine 1 behavior                                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NONE`           | Default. No protection.                                                                                               | Normal data-driven decisions.                                                                                                                  |
+| `CLIENT_REQUEST` | A specific client asked for this product at a specific machine. Must stay for a defined window.                       | Engine 1 cannot propose removal of this product from the named machine(s) until `protected_until` date. After expiry, normal behavior resumes. |
+| `OPERATOR_WATCH` | Operator is keeping an eye on this product for non-data reasons (testing a sourcing change, monitoring quality, etc). | Engine 1 may propose changes but must flag the protection status so the operator can veto quickly.                                             |
+| `PARTNERSHIP`    | Product is protected because of a partnership (see Section 4).                                                        | Inherited from Section 4. Engine 1 must not propose removal without operator review.                                                           |
+| `CONTRACTUAL`    | Product is contractually required at specific venues (see `travel-scope.md` VOX lock list).                           | Engine 1 must not propose removal at the contractually-required venues. May propose changes at other venues.                                   |
 
 ### 5.3 Active protections table
 
 Each row locks a single product at a single venue (or venue group) until a specific date or condition.
 
-| `pod_product_name` | Scope | Level | Protected until | Rationale |
-|---|---|---|---|---|
-| _(VOX-locked 8 products)_ | VOX venue group | `CONTRACTUAL` | Indefinite | See `engines/refill/guardrails/travel-scope.md` — these are the 8 products contractually locked to VOX cinemas: Aquafina, Maltesers Chocolate Bag, Skittles Bag, VOX Cotton Candy, VOX Lollies, VOX Popcorn Caramel/Cheese/Salt. |
+| `pod_product_name`        | Scope           | Level         | Protected until | Rationale                                                                                                                                                                                                                        |
+| ------------------------- | --------------- | ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(VOX-locked 8 products)_ | VOX venue group | `CONTRACTUAL` | Indefinite      | See `engines/refill/guardrails/travel-scope.md` — these are the 8 products contractually locked to VOX cinemas: Aquafina, Maltesers Chocolate Bag, Skittles Bag, VOX Cotton Candy, VOX Lollies, VOX Popcorn Caramel/Cheese/Salt. |
 
 **Note:** the 8 VOX-locked products already have a pointer from `travel-scope.md`. They appear here only as a cross-reference so Engine 1 has a single lookup path for protection status. The source of truth for the list is `travel-scope.md`.
 
@@ -320,7 +317,6 @@ Full worked example in Section 10.
 
 Client-request protections must have an explicit `protected_until` date. No open-ended client-request protections — they drift into permanent entries and pollute the file. When a client-request expires, delete the row (or archive it to a comment) rather than letting it linger.
 
-
 ## 6. Phase-out candidates
 
 ### 6.1 Purpose
@@ -331,23 +327,23 @@ Phase-out bias does NOT force immediate removal. It biases Engine 1 toward propo
 
 ### 6.2 Phase-out bias levels
 
-| Level | Meaning | Engine 1 behavior |
-|---|---|---|
-| `NONE` | Default. No phase-out bias. | Normal data-driven decisions. |
-| `SOFT` | Operator prefers to reduce exposure to this product over time, but current placements are fine until data says otherwise. | Engine 1 will NOT propose expansion of this product to new machines. Engine 1 WILL propose phase-out on any data decline, even small ones. |
-| `HARD` | Operator wants this product out of the catalog. Timeline is weeks, not months. | Engine 1 proactively proposes phase-out regardless of data signal. Exception: hard protections (Section 5) override hard phase-out bias at specific venues. |
+| Level  | Meaning                                                                                                                   | Engine 1 behavior                                                                                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NONE` | Default. No phase-out bias.                                                                                               | Normal data-driven decisions.                                                                                                                               |
+| `SOFT` | Operator prefers to reduce exposure to this product over time, but current placements are fine until data says otherwise. | Engine 1 will NOT propose expansion of this product to new machines. Engine 1 WILL propose phase-out on any data decline, even small ones.                  |
+| `HARD` | Operator wants this product out of the catalog. Timeline is weeks, not months.                                            | Engine 1 proactively proposes phase-out regardless of data signal. Exception: hard protections (Section 5) override hard phase-out bias at specific venues. |
 
 ### 6.3 Phase-out reason vocabulary
 
-| Reason code | Meaning |
-|---|---|
-| `supplier_unreliable` | Sourcing has been difficult, stockouts common, supplier responsiveness poor |
-| `margin_erosion` | Product is still selling but profitability has dropped below acceptable threshold |
-| `brand_misalignment` | Brand no longer fits Boonz strategic direction (quality perception, positioning) |
-| `operational_friction` | Product breaks easily, doesn't display well on shelves, hard to load, driver complaints |
-| `better_alternative_exists` | A newer product does the same job better |
-| `commercial_dispute` | Ongoing issue with the supplier (pricing, payment terms, contract dispute) |
-| `quality_decline` | Product quality itself has dropped (taste, shelf life, complaints from end customers) |
+| Reason code                 | Meaning                                                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `supplier_unreliable`       | Sourcing has been difficult, stockouts common, supplier responsiveness poor             |
+| `margin_erosion`            | Product is still selling but profitability has dropped below acceptable threshold       |
+| `brand_misalignment`        | Brand no longer fits Boonz strategic direction (quality perception, positioning)        |
+| `operational_friction`      | Product breaks easily, doesn't display well on shelves, hard to load, driver complaints |
+| `better_alternative_exists` | A newer product does the same job better                                                |
+| `commercial_dispute`        | Ongoing issue with the supplier (pricing, payment terms, contract dispute)              |
+| `quality_decline`           | Product quality itself has dropped (taste, shelf life, complaints from end customers)   |
 
 Multiple reasons can apply to a single phase-out entry. The rationale field should name the reason codes and expand on them in prose.
 
@@ -355,11 +351,11 @@ Multiple reasons can apply to a single phase-out entry. The rationale field shou
 
 Based on operator dump on 2026-04-10, the following brands/products are candidates for phase-out. Each entry is **soft** unless explicitly marked hard, because the operator noted "in some locations it makes sense to keep" for most of them.
 
-| `pod_product_name` or brand | Level | Reason codes | Rationale |
-|---|---|---|---|
-| 7days (brand, all SKUs) | `SOFT` | `margin_erosion`, `commercial_dispute` | Operator flagged 7days as challenging on profit and sourcing. Historically worked only at ADDMIND/IRIS venues — so soft bias, not hard. If ADDMIND/IRIS placements decline, phase out without hesitation. Non-ADDMIND placements should not be expanded. |
-| Sabahoo (brand, all SKUs) | `SOFT` | `margin_erosion`, `supplier_unreliable` | Operator flagged as challenging, not moving in the right direction. Keep existing placements until data decline, then phase out. Do not expand. |
-| YoPro (brand, all SKUs) | `SOFT` | `margin_erosion`, `commercial_dispute` | Same pattern — operator wants to reduce exposure. Soft bias to allow remaining placements to run their course. |
+| `pod_product_name` or brand | Level  | Reason codes                            | Rationale                                                                                                                                                                                                                                                |
+| --------------------------- | ------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 7days (brand, all SKUs)     | `SOFT` | `margin_erosion`, `commercial_dispute`  | Operator flagged 7days as challenging on profit and sourcing. Historically worked only at ADDMIND/IRIS venues — so soft bias, not hard. If ADDMIND/IRIS placements decline, phase out without hesitation. Non-ADDMIND placements should not be expanded. |
+| Sabahoo (brand, all SKUs)   | `SOFT` | `margin_erosion`, `supplier_unreliable` | Operator flagged as challenging, not moving in the right direction. Keep existing placements until data decline, then phase out. Do not expand.                                                                                                          |
+| YoPro (brand, all SKUs)     | `SOFT` | `margin_erosion`, `commercial_dispute`  | Same pattern — operator wants to reduce exposure. Soft bias to allow remaining placements to run their course.                                                                                                                                           |
 
 **Maintenance rule:** populate this table as the operator identifies specific products or brands to reduce. Phase-out entries should be reviewed quarterly to decide if `SOFT` should escalate to `HARD` or if the situation has improved and the entry should be removed.
 
@@ -380,7 +376,6 @@ When Engine 1 evaluates a product listed here:
 3. If `HARD`: propose phase-out proactively regardless of current data signal, unless protected by Section 5 at specific venues.
 4. Never expand a phase-out candidate to new machines regardless of bias level.
 
-
 ## 7. Trial protocol
 
 ### 7.1 Why trials need explicit protocol
@@ -393,14 +388,14 @@ Every new product enters the catalog as an entry in `boonz_products` with `lifec
 
 **Trial configuration (per trial):**
 
-| Field | Default | Notes |
-|---|---|---|
-| `trial_start_date` | Today | Set when the product is first placed in a machine |
-| `trial_window_days` | 60 | Fixed window, non-extendable without operator override |
-| `trial_machines` | 1-3 | Which machines will host the trial. Chosen by operator based on venue relevance. |
-| `trial_success_score` | ≥ 5 by day 30 | Lifecycle score threshold |
-| `trial_success_transactions` | ≥ 0.5/day for ≥ 14 consecutive days | Minimum steady-turnover criterion |
-| `intended_archetype` | Any of HYPE / ALWAYS-ON / SEASONAL | Operator's initial guess about which archetype this product is. Used for early-promotion evaluation (see 7.4). |
+| Field                        | Default                             | Notes                                                                                                          |
+| ---------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `trial_start_date`           | Today                               | Set when the product is first placed in a machine                                                              |
+| `trial_window_days`          | 60                                  | Fixed window, non-extendable without operator override                                                         |
+| `trial_machines`             | 1-3                                 | Which machines will host the trial. Chosen by operator based on venue relevance.                               |
+| `trial_success_score`        | ≥ 5 by day 30                       | Lifecycle score threshold                                                                                      |
+| `trial_success_transactions` | ≥ 0.5/day for ≥ 14 consecutive days | Minimum steady-turnover criterion                                                                              |
+| `intended_archetype`         | Any of HYPE / ALWAYS-ON / SEASONAL  | Operator's initial guess about which archetype this product is. Used for early-promotion evaluation (see 7.4). |
 
 ### 7.3 Trial protection window
 
@@ -415,13 +410,13 @@ During the first 30 days (the `ramp_up_window_days` for the TRIAL archetype per 
 
 At day 30 (mid-trial checkpoint) OR day 60 (forced decision), Engine 1 evaluates the trial against the success criteria and proposes one of five outcomes:
 
-| Outcome | Trigger | Next step |
-|---|---|---|
-| **Early promotion to ALWAYS-ON** | Score ≥ 6 AND ≥ 0.5 txn/day for 21 days AND operator's `intended_archetype` was ALWAYS-ON | Operator confirms, archetype flips, normal scoring begins |
-| **Early promotion to HYPE** | Score ≥ 8 within 14 days (the HYPE success threshold from Section 3.1) AND operator's `intended_archetype` was HYPE | Operator confirms, archetype flips, HYPE exit_trigger rules apply |
-| **Promotion to SEASONAL** | Score ≥ 6 during peak of its season AND operator's `intended_archetype` was SEASONAL | Operator confirms, archetype flips, calendar rules apply |
-| **Continue trial** | Day 30 checkpoint only: score trending positive but not at threshold | No action, re-evaluate at day 60 |
-| **Wash out** | Day 60: score < 5 OR transactions < 0.5/day for 14 consecutive days | Engine 1 proposes phase-out from trial machines. Operator confirms. Row marked phased-out with reason code `trial_failure`. |
+| Outcome                          | Trigger                                                                                                             | Next step                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Early promotion to ALWAYS-ON** | Score ≥ 6 AND ≥ 0.5 txn/day for 21 days AND operator's `intended_archetype` was ALWAYS-ON                           | Operator confirms, archetype flips, normal scoring begins                                                                   |
+| **Early promotion to HYPE**      | Score ≥ 8 within 14 days (the HYPE success threshold from Section 3.1) AND operator's `intended_archetype` was HYPE | Operator confirms, archetype flips, HYPE exit_trigger rules apply                                                           |
+| **Promotion to SEASONAL**        | Score ≥ 6 during peak of its season AND operator's `intended_archetype` was SEASONAL                                | Operator confirms, archetype flips, calendar rules apply                                                                    |
+| **Continue trial**               | Day 30 checkpoint only: score trending positive but not at threshold                                                | No action, re-evaluate at day 60                                                                                            |
+| **Wash out**                     | Day 60: score < 5 OR transactions < 0.5/day for 14 consecutive days                                                 | Engine 1 proposes phase-out from trial machines. Operator confirms. Row marked phased-out with reason code `trial_failure`. |
 
 ### 7.5 Fast-track early promotion
 
@@ -445,44 +440,48 @@ Trial selection today is reactive and manual: the operator discovers new product
 
 This future work is captured in the bible's Phase 2+ chapter. No Phase 1 engine will implement discovery automation.
 
-
 ## 8. Establishment criteria
 
 ### 8.1 Product lifecycle stages (separate from archetype)
 
-A product moves through stages over time, independent of its archetype. The archetype describes *how* a product is expected to behave. The stage describes *where it is in its journey.* Both matter, and together they determine Engine 1's behavior.
+A product moves through stages over time, independent of its archetype. The archetype describes _how_ a product is expected to behave. The stage describes _where it is in its journey._ Both matter, and together they determine Engine 1's behavior.
 
 Three stages:
 
-| Stage | Definition | Engine 1 treatment |
-|---|---|---|
-| **Trial** | New product, inside the 60-day trial window. See Section 7. | Protected from phase-out, evaluated on trial criteria only. |
-| **Expansion** | Graduated from trial. Proven at ≥ 1 machine. Being considered for additional machine placements. | Normal data-driven scoring. Engine 2 may propose relocations to similar venues. Growth is the main question. |
-| **Stable** | Established at multiple machines with sustained performance. In the top 20 SKUs by revenue (see Section 8.4). | Normal data-driven scoring with ALWAYS-ON bias toward preservation. Growth is no longer the question — reliability is. |
+| Stage         | Definition                                                                                                    | Engine 1 treatment                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Trial**     | New product, inside the 60-day trial window. See Section 7.                                                   | Protected from phase-out, evaluated on trial criteria only.                                                            |
+| **Expansion** | Graduated from trial. Proven at ≥ 1 machine. Being considered for additional machine placements.              | Normal data-driven scoring. Engine 2 may propose relocations to similar venues. Growth is the main question.           |
+| **Stable**    | Established at multiple machines with sustained performance. In the top 20 SKUs by revenue (see Section 8.4). | Normal data-driven scoring with ALWAYS-ON bias toward preservation. Growth is no longer the question — reliability is. |
 
 ### 8.2 Stage transitions
 
 **Trial → Expansion** (the trial graduation described in Section 7.4):
+
 - Day 30 or day 60 checkpoint
 - Score ≥ 5 sustained
 - ≥ 0.5 transactions/day for ≥ 14 consecutive days
 - Operator confirms archetype classification
 
 **Expansion → Stable:**
+
 - Product has been in the catalog for ≥ 90 days post-trial
 - Deployed in ≥ 3 machines (or the operationally maximum number for its `universality` category — machine-focused products can become stable with only their locked machines)
 - Has appeared in the top 20 revenue ranking for ≥ 14 consecutive days (see Section 8.4)
 
 **Stable → Expansion** (demotion):
+
 - Product drops out of the top 20 revenue ranking for ≥ 30 consecutive days
 - OR is removed from ≥ 1 machine due to data decline
 - Returns to Expansion stage for re-evaluation of growth potential
 
 **Stable → Phase-out:**
+
 - Meets the archetype-specific exit trigger from Section 3
 - AND operator review confirms (ALWAYS-ON products always require review before phase-out per Section 3.2)
 
 **Expansion → Phase-out (without reaching Stable):**
+
 - Meets the archetype-specific exit trigger
 - No operator review required for TRIAL or HYPE archetypes
 - Required for ALWAYS-ON (even in Expansion stage)
@@ -492,6 +491,7 @@ Three stages:
 Per the operator's dump: "For establishing a product it has to reach a steady turnover at the machine level, then we expand it into other relevant locations."
 
 Computable definition:
+
 - **Steady turnover** = ≥ 0.5 transactions/day for ≥ 14 consecutive days at a single machine, with week-over-week variance < 50%
 - **Machine-level** = measured per (machine_id, pod_product_id) pair, not aggregated across the fleet
 - **Relevant locations** = expansion targets are machines with similar `location_type` and similar existing product mix (Engine 2 relocation planner makes the concrete recommendations)
@@ -522,28 +522,27 @@ A product is "in the top 20" on a given day if `pod_product_id` is in the above 
 
 For reference, the current top 15 products by 30-day revenue:
 
-| Rank | Product | Units 30d | Revenue (AED) | Machine spread | Lifecycle signal |
-|---|---|---|---|---|---|
-| 1 | Aquafina | 387 | 3,535 | 3 (entertainment) | KEEP GROWING |
-| 2 | Vitamin Well | 83 | 1,627 | 11 (broad) | KEEP |
-| 3 | Maltesers Chocolate Bag | 47 | 1,354 | 3 (entertainment) | KEEP GROWING |
-| 4 | VOX Popcorn Caramel | 52 | 1,352 | 3 (entertainment) | KEEP |
-| 5 | VOX Popcorn Cheese | 47 | 1,222 | 3 (entertainment) | KEEP GROWING |
-| 6 | VOX Lollies | 32 | 1,184 | 3 (entertainment) | WIND DOWN |
-| 7 | Chocolate Bar | 145 | 1,169 | 13 (broad) | KEEP |
-| 8 | VOX Popcorn Salt | 43 | 1,134 | 3 (entertainment) | KEEP |
-| 9 | Barebells | 57 | 1,092 | 11 (broad) | KEEP |
-| 10 | Pepsi Regular | 56 | 945 | 3 (entertainment) | KEEP GROWING |
-| 11 | Pepsi Black | 82 | 870 | 7 (broad) | KEEP |
-| 12 | M&M Chocolate Bag | 29 | 870 | 3 (entertainment) | KEEP |
-| 13 | Skittles Bag | 28 | 824 | 3 (entertainment) | KEEP |
-| 14 | Nutella Biscuits T12 | 31 | 787 | 7 (broad) | KEEP |
-| 15 | Ice Tea | 52 | 724 | 8 (broad) | KEEP GROWING |
+| Rank | Product                 | Units 30d | Revenue (AED) | Machine spread    | Lifecycle signal |
+| ---- | ----------------------- | --------- | ------------- | ----------------- | ---------------- |
+| 1    | Aquafina                | 387       | 3,535         | 3 (entertainment) | KEEP GROWING     |
+| 2    | Vitamin Well            | 83        | 1,627         | 11 (broad)        | KEEP             |
+| 3    | Maltesers Chocolate Bag | 47        | 1,354         | 3 (entertainment) | KEEP GROWING     |
+| 4    | VOX Popcorn Caramel     | 52        | 1,352         | 3 (entertainment) | KEEP             |
+| 5    | VOX Popcorn Cheese      | 47        | 1,222         | 3 (entertainment) | KEEP GROWING     |
+| 6    | VOX Lollies             | 32        | 1,184         | 3 (entertainment) | WIND DOWN        |
+| 7    | Chocolate Bar           | 145       | 1,169         | 13 (broad)        | KEEP             |
+| 8    | VOX Popcorn Salt        | 43        | 1,134         | 3 (entertainment) | KEEP             |
+| 9    | Barebells               | 57        | 1,092         | 11 (broad)        | KEEP             |
+| 10   | Pepsi Regular           | 56        | 945           | 3 (entertainment) | KEEP GROWING     |
+| 11   | Pepsi Black             | 82        | 870           | 7 (broad)         | KEEP             |
+| 12   | M&M Chocolate Bag       | 29        | 870           | 3 (entertainment) | KEEP             |
+| 13   | Skittles Bag            | 28        | 824           | 3 (entertainment) | KEEP             |
+| 14   | Nutella Biscuits T12    | 31        | 787           | 7 (broad)         | KEEP             |
+| 15   | Ice Tea                 | 52        | 724           | 8 (broad)         | KEEP GROWING     |
 
 **Observation:** 10 of the top 15 revenue products are machine-focused (3 machines, entertainment-locked). This is the VOX cluster dominating the top of the catalog. The 5 broad products in the top 15 (Vitamin Well, Chocolate Bar, Barebells, Pepsi Black, Nutella Biscuits, Ice Tea) are the ALWAYS-ON backbone across office and coworking venues.
 
 This snapshot is a **point-in-time reference**, not a rule. Engine 1 computes top-20 fresh daily. The snapshot exists so future operators can see what "good" looked like when this file was first drafted.
-
 
 ## 9. Transition rate limits
 
@@ -557,14 +556,14 @@ This principle is a hard constraint on Engine 1's output volume. It is NOT an op
 
 ### 9.2 Rate limits
 
-| Limit | Value | Rationale |
-|---|---|---|
-| **Max slot changes per machine per refill cycle** | 2 | Drivers can absorb a handful of swaps per visit without losing the main refill workflow. More than 2 at once means the driver spends as much time reconfiguring as refilling. |
-| **Max machines with any slot change per day** | 5 | Even across the fleet, the operator and dispatching team need to review and sanity-check each machine with changes. 5 is the ceiling for a single day's review cycle. |
-| **Max total slot changes per day (fleet-wide)** | 10 | Hard ceiling regardless of machine distribution. Engine D enforces this when bonding plan lines from Engine A/C across machines. |
-| **Min days between consecutive changes at the same slot** | 14 | Once a slot has been swapped, it gets 14 days of stability before Engine 1 is allowed to propose another change at the same (machine_id, shelf_code). Prevents ping-pong between alternatives. |
-| **Max phase-out proposals per product per 30 days** | 1 | If the operator rejects a phase-out proposal for product X, Engine 1 may not propose phase-out again for 30 days. Reduces noise when the operator has overruled Engine 1 for a specific reason. |
-| **Max archetype transition proposals per product per 90 days** | 1 | Archetype changes are rare and deliberate. Even if data strongly suggests a re-classification, Engine 1 gets one shot per 90 days. |
+| Limit                                                          | Value | Rationale                                                                                                                                                                                       |
+| -------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Max slot changes per machine per refill cycle**              | 2     | Drivers can absorb a handful of swaps per visit without losing the main refill workflow. More than 2 at once means the driver spends as much time reconfiguring as refilling.                   |
+| **Max machines with any slot change per day**                  | 5     | Even across the fleet, the operator and dispatching team need to review and sanity-check each machine with changes. 5 is the ceiling for a single day's review cycle.                           |
+| **Max total slot changes per day (fleet-wide)**                | 10    | Hard ceiling regardless of machine distribution. Engine D enforces this when bonding plan lines from Engine A/C across machines.                                                                |
+| **Min days between consecutive changes at the same slot**      | 14    | Once a slot has been swapped, it gets 14 days of stability before Engine 1 is allowed to propose another change at the same (machine_id, shelf_code). Prevents ping-pong between alternatives.  |
+| **Max phase-out proposals per product per 30 days**            | 1     | If the operator rejects a phase-out proposal for product X, Engine 1 may not propose phase-out again for 30 days. Reduces noise when the operator has overruled Engine 1 for a specific reason. |
+| **Max archetype transition proposals per product per 90 days** | 1     | Archetype changes are rare and deliberate. Even if data strongly suggests a re-classification, Engine 1 gets one shot per 90 days.                                                              |
 
 ### 9.3 How Engine D enforces rate limits
 
@@ -576,6 +575,7 @@ The engines upstream of Engine D (Engine 1 portfolio, Engine A layout, Engine C 
 4. **Logging truncated proposals** to `decision_log` with reason `rate_limit_exceeded` so the operator can see what Engine 1 wanted to do but was held back
 
 When truncation happens, Engine D prioritizes in this order:
+
 1. **Stockout prevention** (a slot that's empty or nearly empty) — always included, never truncated
 2. **Expiry rescue** (a slot with batches about to expire) — always included
 3. **Hard phase-out bias** (Section 6 `HARD` level) — included if the data also supports
@@ -586,6 +586,7 @@ When truncation happens, Engine D prioritizes in this order:
 ### 9.4 Override of rate limits
 
 Rate limits can be overridden manually by the operator on `/refill` with reason code `operator_escalation`. Useful cases:
+
 - Major venue launch — the operator knows about a new anchor tenant and wants to push many changes through before opening day
 - Crisis response — a supplier has gone down and multiple products need rapid substitution across the fleet
 - Seasonal transition — Ramadan starts, entire beverage section needs adjustment in 48 hours
@@ -596,7 +597,6 @@ Overrides are logged in `decision_log` with `operator_action = 'rate_limit_overr
 
 In the Phase 2 mode system (Conservative / Balanced / Aggressive), rate limits will vary by mode — Conservative mode tightens them, Aggressive mode loosens them. In Phase 1, rate limits are fixed at the Balanced mode values in the table above. See bible Phase 2 chapter for the full mode-mode parameter design.
 
-
 ## 10. Worked example — VOX Lollies
 
 ### 10.1 Why this example exists
@@ -605,16 +605,16 @@ VOX Lollies is the clearest case in the current live data of **a product where t
 
 ### 10.2 The facts (from live data, 2026-04-10)
 
-| Fact | Value |
-|---|---|
-| `pod_product_name` | VOX Lollies |
-| `venue_group` distribution | VOX-only (all 3 deployments in VOX entertainment venues) |
-| 30-day units | 32 |
-| 30-day revenue | AED 1,184 |
-| Fleet rank by revenue (30d) | #6 |
-| `product_lifecycle_global.signal` | WIND DOWN |
-| `product_lifecycle_global.score` | 4.8 |
-| `slot_lifecycle` signal (per slot) | Varies — mostly KEEP, one WIND DOWN |
+| Fact                               | Value                                                    |
+| ---------------------------------- | -------------------------------------------------------- |
+| `pod_product_name`                 | VOX Lollies                                              |
+| `venue_group` distribution         | VOX-only (all 3 deployments in VOX entertainment venues) |
+| 30-day units                       | 32                                                       |
+| 30-day revenue                     | AED 1,184                                                |
+| Fleet rank by revenue (30d)        | #6                                                       |
+| `product_lifecycle_global.signal`  | WIND DOWN                                                |
+| `product_lifecycle_global.score`   | 4.8                                                      |
+| `slot_lifecycle` signal (per slot) | Varies — mostly KEEP, one WIND DOWN                      |
 
 **The data layer's conclusion:** velocity is declining, score has dropped below 5, signal is WIND DOWN. Normal lifecycle logic would propose phase-out at the underperforming slot and flag the product for catalog-level review.
 
@@ -657,25 +657,24 @@ If the operator asks "why didn't you suggest changing VOX Lollies even though it
 
 Any product appearing in this file has a story that the data cannot fully tell. The file's job is to carry the story alongside the data so Engine 1 can make decisions that the data alone would get wrong. VOX Lollies is one instance; the pattern applies to any product with contractual, relational, operational, or strategic context that overrides the numbers.
 
-
 ## 11. What lives elsewhere
 
 ### 11.1 Cross-reference map
 
 This file is one of several guardrail and intelligence files the refill engine consumes. Each has a specific scope. When in doubt about where a rule should live, use this table:
 
-| Question | File | Scope |
-|---|---|---|
-| Which products are we willing to carry, in what stage, with what intent? | **`portfolio_strategy.md`** (this file) | Catalog-level product intelligence |
-| Which products can't be in the same machine as which? | `engines/refill/guardrails/coexistence.md` | Slot-level brand exclusivity rules |
-| Which products are locked to which venue groups? | `engines/refill/guardrails/travel-scope.md` | Machine-level travel restrictions |
-| How should a slot's facings, share, and physical layout be configured? | `engines/refill/guardrails/layout.md` (CS-04, pending) | Slot-level facing/share rules, anchor slots, 70/30 split |
-| How much of each product should go to a slot on a given refill? | `engines/refill/guardrails/refill_rules.md` (CS-05, pending) | Vitrine minimums, min facings per signal tier |
-| Which machines are in which building for same-day refill clubbing? | `machines.building_id` column + `engines/refill/guardrails/routing.md` (future) | Operational routing, not strategic |
-| Which machines supply from which source? | `machines.source_of_supply` column | Operational sourcing, not strategic |
-| What is a product's velocity, trend, score, signal right now? | `product_lifecycle_global`, `slot_lifecycle`, `sales_history` tables | Data layer, not strategic |
-| What are the venue group definitions (ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT)? | `engines/refill/guardrails/coexistence.md` Section "How venue groups work" | Cross-referenced here for convenience |
-| How are refill plan changes rate-limited? | **`portfolio_strategy.md` Section 9** | Change velocity ceiling |
+| Question                                                                              | File                                                                            | Scope                                                    |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Which products are we willing to carry, in what stage, with what intent?              | **`portfolio_strategy.md`** (this file)                                         | Catalog-level product intelligence                       |
+| Which products can't be in the same machine as which?                                 | `engines/refill/guardrails/coexistence.md`                                      | Slot-level brand exclusivity rules                       |
+| Which products are locked to which venue groups?                                      | `engines/refill/guardrails/travel-scope.md`                                     | Machine-level travel restrictions                        |
+| How should a slot's facings, share, and physical layout be configured?                | `engines/refill/guardrails/layout.md` (CS-04, pending)                          | Slot-level facing/share rules, anchor slots, 70/30 split |
+| How much of each product should go to a slot on a given refill?                       | `engines/refill/guardrails/refill_rules.md` (CS-05, pending)                    | Vitrine minimums, min facings per signal tier            |
+| Which machines are in which building for same-day refill clubbing?                    | `machines.building_id` column + `engines/refill/guardrails/routing.md` (future) | Operational routing, not strategic                       |
+| Which machines supply from which source?                                              | `machines.source_of_supply` column                                              | Operational sourcing, not strategic                      |
+| What is a product's velocity, trend, score, signal right now?                         | `product_lifecycle_global`, `slot_lifecycle`, `sales_history` tables            | Data layer, not strategic                                |
+| What are the venue group definitions (ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT)? | `engines/refill/guardrails/coexistence.md` Section "How venue groups work"      | Cross-referenced here for convenience                    |
+| How are refill plan changes rate-limited?                                             | **`portfolio_strategy.md` Section 9**                                           | Change velocity ceiling                                  |
 
 ### 11.2 Things that are NOT in this file (and where they go)
 
@@ -705,7 +704,6 @@ This file should be reviewed on a **quarterly cadence** plus **on partnership ch
 This file is committed to the repo at `engines/refill/guardrails/portfolio_strategy.md`. All changes go through git. Each edit should have a commit message describing what changed and why. Major structural changes (adding/removing sections, changing archetype definitions) should bump the bible version (v5.4 → v5.5 etc.) to capture the strategic pivot.
 
 ---
-
 
 ---
 

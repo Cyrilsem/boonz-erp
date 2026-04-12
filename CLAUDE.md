@@ -46,6 +46,7 @@ never commit .env in github
 Every migration file in `supabase/migrations/` MUST use the timestamp prefix format `YYYYMMDDHHMMSS_snake_case_name.sql`. Other formats (six-digit integers, semantic versioning, anything else) will be silently ignored by `supabase db push` and the migration will not be applied.
 
 To check the current convention before adding new migrations:
+
 ```bash
 ls supabase/migrations/ | tail -5
 ```
