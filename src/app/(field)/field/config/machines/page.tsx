@@ -367,31 +367,38 @@ export default function MachinesPage() {
     setLayoutLoading(true);
     const supabase = createClient();
     const { data } = await supabase
-      .from("v_machine_shelf_plan")
+      .from("v_live_shelf_stock")
       .select(
-        "shelf_id, shelf_code, row_label, door_side, pod_product_name, target_qty, current_stock, refill_qty, fill_pct, last_snapshot_at, cabinet_count, last_stock_refresh",
+        "aisle_code, layer_label, goods_name_raw, max_stock, current_stock, fill_pct, snapshot_at",
       )
       .eq("machine_id", machId)
-      .eq("plan_active", true)
-      .limit(500);
+      .eq("is_enabled", true)
+      .limit(10000);
     if (data) {
       setLayoutLastRefresh(
-        (data[0] as { last_stock_refresh?: string | null })
-          ?.last_stock_refresh ?? null,
+        (data[0] as { snapshot_at?: string | null })?.snapshot_at ?? null,
       );
+      const cabinetCount = data.some(
+        (r) => (r.aisle_code ?? "A").charAt(0) === "B",
+      )
+        ? 2
+        : 1;
       setLayoutSlots(
         data.map((r) => ({
-          shelf_id: r.shelf_id,
-          shelf_code: r.shelf_code,
-          row_label: r.row_label,
-          door_side: r.door_side,
-          pod_product_name: r.pod_product_name,
-          target_qty: r.target_qty ?? 0,
+          shelf_id: r.aisle_code ?? "",
+          shelf_code: r.aisle_code ?? "",
+          row_label: r.layer_label ?? "",
+          door_side: (r.aisle_code ?? "A").charAt(0),
+          pod_product_name: r.goods_name_raw ?? "",
+          target_qty: r.max_stock ?? 0,
           current_stock: Number(r.current_stock ?? 0),
-          refill_qty: r.refill_qty ?? 0,
+          refill_qty: Math.max(
+            (r.max_stock ?? 0) - Number(r.current_stock ?? 0),
+            0,
+          ),
           fill_pct: Number(r.fill_pct ?? 0),
-          last_snapshot_at: r.last_snapshot_at ?? null,
-          cabinet_count: r.cabinet_count ?? 1,
+          last_snapshot_at: r.snapshot_at ?? null,
+          cabinet_count: cabinetCount,
         })),
       );
     }
