@@ -1,7 +1,7 @@
 """
 fetch_fleet_state.py
 Single source of truth for fleet state reads.
-Called once at engine startup. Returns slots, velocity, machines.
+Called once at engine startup. Returns slots, velocity, machines, slot_lifecycle.
 """
 
 from __future__ import annotations
@@ -59,10 +59,25 @@ class MachineMetadata(TypedDict):
     days_active: int | None    # computed: today - installation_date
 
 
+class SlotLifecycleRecord(TypedDict):
+    machine_id: str
+    pod_product_id: str
+    shelf_code: str             # "A04" format (no cabinet prefix)
+    score: float
+    signal: str                 # KEEP | KEEP GROWING | WATCH | WIND DOWN | ROTATE OUT
+    velocity_30d: float
+    velocity_7d: float
+    trend_component: float
+    slot_age_days: int | None
+    recommended_pod_product_id: str | None
+    recommendation_reason: str | None
+
+
 class FleetState(TypedDict):
     slots: list[SlotState]
     velocity: dict[str, dict[str, VelocityRecord]]  # [machine_id][pod_product_name]
     machines: dict[str, MachineMetadata]             # [machine_id]
+    slot_lifecycle: dict[str, dict[str, SlotLifecycleRecord]]  # [machine_id][pod_product_id]
     fetched_at: str
     slot_count: int
     machine_count: int
@@ -228,11 +243,56 @@ def _fetch_machines(client: Client) -> dict[str, MachineMetadata]:
     return machines
 
 
+def _fetch_slot_lifecycle(client: Client) -> dict[str, dict[str, SlotLifecycleRecord]]:
+    """
+    Per-slot lifecycle signals keyed by [machine_id][pod_product_id].
+    Only active (archived=false) records. For machines with the same product
+    in multiple slots, retains the record with the highest score.
+    """
+    resp = (
+        client.table("slot_lifecycle")
+        .select(
+            "machine_id, pod_product_id, shelf_code, score, signal, "
+            "velocity_7d, velocity_14d, velocity_30d, trend_component, "
+            "slot_age_days, recommended_pod_product_id, recommendation_reason"
+        )
+        .eq("archived", False)
+        .limit(10000)
+        .execute()
+    )
+
+    result: dict[str, dict[str, SlotLifecycleRecord]] = {}
+    for r in resp.data:
+        mid = r["machine_id"]
+        ppid = r.get("pod_product_id")
+        if not ppid:
+            continue
+        new_score = float(r.get("score") or 0.0)
+        existing = result.get(mid, {}).get(ppid)
+        # Keep record with highest score when same product appears in multiple slots
+        if existing and existing["score"] >= new_score:
+            continue
+        result.setdefault(mid, {})[ppid] = SlotLifecycleRecord(
+            machine_id=mid,
+            pod_product_id=ppid,
+            shelf_code=r.get("shelf_code") or "",
+            score=new_score,
+            signal=(r.get("signal") or "KEEP").upper(),
+            velocity_30d=float(r.get("velocity_30d") or 0.0),
+            velocity_7d=float(r.get("velocity_7d") or 0.0),
+            trend_component=float(r.get("trend_component") or 0.0),
+            slot_age_days=r.get("slot_age_days"),
+            recommended_pod_product_id=r.get("recommended_pod_product_id"),
+            recommendation_reason=r.get("recommendation_reason"),
+        )
+    return result
+
+
 # ── Main entry point ───────────────────────────────────────────────────────
 
 def fetch_fleet_state() -> FleetState:
     """
-    Fetch complete fleet state in parallel (3 concurrent queries).
+    Fetch complete fleet state in parallel (4 concurrent queries).
     Returns typed FleetState dict ready for engine consumption.
 
     Raises EnvironmentError if credentials are missing.
@@ -246,9 +306,10 @@ def fetch_fleet_state() -> FleetState:
         "slots": _fetch_slots,
         "velocity": _fetch_velocity,
         "machines": _fetch_machines,
+        "slot_lifecycle": _fetch_slot_lifecycle,
     }
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
             executor.submit(fn, client): name
             for name, fn in fetchers.items()
@@ -265,14 +326,16 @@ def fetch_fleet_state() -> FleetState:
             f"fetch_fleet_state failed on: {'; '.join(errors)}"
         )
 
-    slots: list[SlotState] = results["slots"]      # type: ignore[assignment]
-    velocity = results["velocity"]                  # type: ignore[assignment]
-    machines = results["machines"]                  # type: ignore[assignment]
+    slots: list[SlotState] = results["slots"]              # type: ignore[assignment]
+    velocity = results["velocity"]                          # type: ignore[assignment]
+    machines = results["machines"]                          # type: ignore[assignment]
+    slot_lifecycle = results["slot_lifecycle"]              # type: ignore[assignment]
 
     return FleetState(
         slots=slots,
         velocity=velocity,
         machines=machines,
+        slot_lifecycle=slot_lifecycle,
         fetched_at=datetime.now(timezone.utc).isoformat(),
         slot_count=len(slots),
         machine_count=len(machines),
@@ -299,6 +362,8 @@ if __name__ == "__main__":
     print(f"   Machines : {state['machine_count']}")
     print(f"   Slots    : {state['slot_count']}")
     print(f"   Velocity records: {sum(len(v) for v in state['velocity'].values())}")
+    lc_total = sum(len(v) for v in state["slot_lifecycle"].values())
+    print(f"   Slot lifecycle records: {lc_total}")
     print()
 
     # Sample: first machine's slots

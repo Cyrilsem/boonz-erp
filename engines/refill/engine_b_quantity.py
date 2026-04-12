@@ -100,6 +100,12 @@ class SlotRefillLine(TypedDict):
     is_swap_minimum: bool
     explanation: str            # 1 sentence for operator
 
+    # Relative velocity + local signal flags
+    relative_velocity: float    # daily_avg / machine_avg, or 0.0 if no avg
+    is_local_hero: bool         # sells ≥ 1.5x machine avg AND slot score ≥ 4.5
+    local_hero_reason: str | None  # e.g. "3.2x machine avg velocity"
+    is_local_dead: bool         # WIND DOWN/ROTATE OUT + velocity_30d < 0.1
+
 
 class RefillPlan(TypedDict):
     lines: list[SlotRefillLine]
@@ -110,6 +116,8 @@ class RefillPlan(TypedDict):
     skip_count: int             # refill_qty == 0
     dead_machine_count: int     # distinct machines flagged dead
     swap_minimum_count: int
+    local_hero_count: int       # slots detected as local heroes
+    local_dead_count: int       # slots capped as local dead
 
 
 # ── DB client ────────────────────────────────────────────────────────────────
@@ -315,6 +323,12 @@ def run_engine_b(
         machine_mode[mid] = assign_mode(machine, s30)
         machine_dead[mid] = is_dead_machine(s7, s30)
 
+    # ── Pre-compute machine average daily velocity ─────────────────────────
+    machine_avg_velocity: dict[str, float] = {}
+    for mid, products in fleet["velocity"].items():
+        avgs = [v["daily_avg"] for v in products.values() if v["daily_avg"] > 0]
+        machine_avg_velocity[mid] = sum(avgs) / len(avgs) if avgs else 0.0
+
     # ── Slot processing ────────────────────────────────────────────────────
     lines: list[SlotRefillLine] = []
 
@@ -340,6 +354,48 @@ def run_engine_b(
         dead = machine_dead.get(machine_id, False)
         if dead and final_action == "DOUBLE_DOWN":
             final_action = "KEEP"
+
+        # 4. Pre-compute velocity and lifecycle signals for ALL slots
+        vel = fleet["velocity"].get(machine_id, {}).get(goods_name)
+        daily_avg_raw = vel["daily_avg"] if vel else 0.0
+        machine_avg = machine_avg_velocity.get(machine_id, 0.0)
+        relative_velocity = (
+            round(daily_avg_raw / machine_avg, 3)
+            if machine_avg > 0 and daily_avg_raw > 0
+            else 0.0
+        )
+
+        # 5. Slot lifecycle lookup
+        lc_rec = (
+            fleet["slot_lifecycle"].get(machine_id, {}).get(pod_pid)
+            if pod_pid else None
+        )
+        lc_signal = lc_rec["signal"] if lc_rec else None
+        lc_score = lc_rec["score"] if lc_rec else 0.0
+
+        # 6. Local hero detection
+        is_local_hero = (
+            relative_velocity >= 1.5
+            and lc_signal in ("KEEP", "KEEP GROWING", "WATCH")
+            and lc_score >= 4.5
+        )
+        local_hero_reason: str | None = (
+            f"{relative_velocity:.1f}x machine avg velocity"
+            if is_local_hero else None
+        )
+
+        # 7. Local dead detection
+        is_local_dead = bool(
+            lc_rec
+            and lc_signal in ("WIND DOWN", "ROTATE OUT")
+            and lc_rec["velocity_30d"] < 0.1
+            and not is_local_hero
+        )
+
+        # 8. Local hero DISCONTINUE override
+        if final_action == "DISCONTINUE" and is_local_hero:
+            final_action = "MONITOR"
+            guardrail_override = "LOCAL_HERO_PROTECTED"
 
         # ── Path A: DISCONTINUE — always include, always skip ─────────────
         if final_action == "DISCONTINUE":
@@ -368,13 +424,16 @@ def run_engine_b(
                 dead_machine=dead,
                 is_swap_minimum=False,
                 explanation=reason + ".",
+                relative_velocity=relative_velocity,
+                is_local_hero=False,
+                local_hero_reason=None,
+                is_local_dead=False,
             ))
             continue
 
         # ── Path B: Dead machine ───────────────────────────────────────────
         if dead:
             if current_stock >= floor_qty:
-                # Stock sufficient — no refill on dead machine
                 lines.append(SlotRefillLine(
                     machine_id=machine_id,
                     machine_name=slot["machine_name"],
@@ -396,9 +455,12 @@ def run_engine_b(
                     dead_machine=True,
                     is_swap_minimum=False,
                     explanation="Dead machine — stock sufficient, no refill.",
+                    relative_velocity=relative_velocity,
+                    is_local_hero=False,
+                    local_hero_reason=None,
+                    is_local_dead=False,
                 ))
             else:
-                # Below floor — fill to floor only
                 target_qty = floor_qty
                 refill_qty = max(target_qty - current_stock, 0)
                 lines.append(SlotRefillLine(
@@ -425,16 +487,19 @@ def run_engine_b(
                         f"Dead machine — floor fill only: "
                         f"{current_stock} → {target_qty}."
                     ),
+                    relative_velocity=relative_velocity,
+                    is_local_hero=False,
+                    local_hero_reason=None,
+                    is_local_dead=False,
                 ))
             continue
 
         # ── Path C: Normal slots ───────────────────────────────────────────
 
-        # 4. Velocity lookup
-        vel = fleet["velocity"].get(machine_id, {}).get(goods_name)
-        daily_avg = vel["daily_avg"] if vel else 0.0
+        # 9. Velocity (already computed as daily_avg_raw above)
+        daily_avg = daily_avg_raw
 
-        # 5a. Determine attr_drink (needed for swap minimum)
+        # 10. Determine attr_drink (needed for swap minimum)
         if pod_pid and pod_pid in product_attrs:
             attr_drink = product_attrs[pod_pid]
         elif use_keyword_fallback or pod_pid is None:
@@ -442,7 +507,44 @@ def run_engine_b(
         else:
             attr_drink = False
 
-        # 5b. Swap minimum (no velocity history)
+        # 11. Local dead cap — no new stock added, include for operator visibility
+        if is_local_dead:
+            target_qty = current_stock
+            refill_qty = 0
+            vel_str = f"{lc_rec['velocity_30d']:.2f}" if lc_rec else "0.00"
+            skip_reason_c: str | None = (
+                f"LOCAL_DEAD — slot signal {lc_signal}, vel {vel_str}/day"
+            )
+            explanation = skip_reason_c
+            lines.append(SlotRefillLine(
+                machine_id=machine_id,
+                machine_name=slot["machine_name"],
+                aisle_code=aisle_code,
+                slot_name=slot["slot_name"],
+                pod_product_name=goods_name,
+                pod_product_id=pod_pid,
+                current_stock=current_stock,
+                effective_max_stock=effective_max,
+                live_max_stock=live_max,
+                final_action=final_action,
+                guardrail_override=guardrail_override,
+                target_qty=target_qty,
+                refill_qty=0,
+                daily_avg=daily_avg,
+                days_cover=days_cover,
+                mode=mode,
+                skip_reason=skip_reason_c,
+                dead_machine=False,
+                is_swap_minimum=False,
+                explanation=explanation,
+                relative_velocity=relative_velocity,
+                is_local_hero=False,
+                local_hero_reason=None,
+                is_local_dead=True,
+            ))
+            continue
+
+        # 12. Swap minimum (no velocity history)
         is_swap_min = False
         if daily_avg == 0.0:
             swap_min = 6 if attr_drink else 4
@@ -454,10 +556,21 @@ def run_engine_b(
                 f"{current_stock} → {target_qty}."
             )
         else:
-            # 6. Action cap (MONITOR → 70%)
-            action_cap: int | None = (
-                int(effective_max * 0.70) if final_action == "MONITOR" else None
-            )
+            # 13. Action cap logic
+            action_cap: int | None = None
+            cap_note = ""
+            if final_action == "MONITOR":
+                if is_local_hero:
+                    # Local hero: override MONITOR cap to 100%
+                    action_cap = None
+                    cap_note = (
+                        f" (Local Hero override — {relative_velocity:.1f}x machine avg."
+                        " Global MONITOR signal overridden by local performance)"
+                    )
+                else:
+                    action_cap = int(effective_max * 0.70)
+                    cap_note = " (capped 70%)"
+
             target_qty, refill_qty = calculate_slot_qty(
                 daily_avg=daily_avg,
                 days_cover=days_cover,
@@ -466,7 +579,6 @@ def run_engine_b(
                 current_stock=current_stock,
                 action_cap=action_cap,
             )
-            cap_note = " (capped 70%)" if final_action == "MONITOR" else ""
             explanation = (
                 f"{final_action} — daily_avg={daily_avg:.2f}, "
                 f"{days_cover}d cover{cap_note}: "
@@ -499,6 +611,10 @@ def run_engine_b(
             dead_machine=False,
             is_swap_minimum=is_swap_min,
             explanation=explanation,
+            relative_velocity=relative_velocity,
+            is_local_hero=is_local_hero,
+            local_hero_reason=local_hero_reason,
+            is_local_dead=False,
         ))
 
     # ── Aggregate ──────────────────────────────────────────────────────────
@@ -513,6 +629,8 @@ def run_engine_b(
         skip_count=sum(1 for line in lines if line["refill_qty"] == 0),
         dead_machine_count=len(dead_mids),
         swap_minimum_count=sum(1 for line in lines if line["is_swap_minimum"]),
+        local_hero_count=sum(1 for line in lines if line["is_local_hero"]),
+        local_dead_count=sum(1 for line in lines if line["is_local_dead"]),
     )
 
 

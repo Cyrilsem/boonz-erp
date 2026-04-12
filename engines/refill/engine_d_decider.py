@@ -45,12 +45,16 @@ RATE_LIMITS: dict[str, int] = {
 
 # ── Priority tiers for swap truncation (§9.3) ────────────────────────────────
 # Higher = higher priority = keep first when limits are hit.
+# REFILL lines (incl. local heroes) are never subject to swap rate limits.
 _SWAP_PRIORITY: dict[tuple[str, str], int] = {
-    ("DISCONTINUE",  "HIGH"):   4,
+    ("DISCONTINUE",  "HIGH"):   5,
+    ("LOCAL_DEAD",   "HIGH"):   4,
     ("SWAP_MINIMUM", "HIGH"):   3,
     ("DISCONTINUE",  "MEDIUM"): 2,
+    ("LOCAL_DEAD",   "MEDIUM"): 2,
     ("SWAP_MINIMUM", "MEDIUM"): 2,
     ("DISCONTINUE",  "LOW"):    1,
+    ("LOCAL_DEAD",   "LOW"):    1,
     ("SWAP_MINIMUM", "LOW"):    1,
 }
 
@@ -93,6 +97,8 @@ class DeciderResult(TypedDict):
     swap_lines: int
     truncated_count: int
     total_units: int
+    local_hero_count: int       # REFILL slots protected as local heroes
+    local_dead_swap_count: int  # LOCAL_DEAD swaps accepted in plan
 
 
 # ── DB client ────────────────────────────────────────────────────────────────
@@ -174,11 +180,16 @@ def _apply_machine_filter(
         mid: v for mid, v in fleet["velocity"].items()
         if mid in matching_ids
     }
+    filtered_slot_lifecycle = {
+        mid: v for mid, v in fleet["slot_lifecycle"].items()
+        if mid in matching_ids
+    }
 
     return FleetState(
         slots=filtered_slots,
         velocity=filtered_velocity,
         machines=filtered_machines,
+        slot_lifecycle=filtered_slot_lifecycle,
         fetched_at=fleet["fetched_at"],
         slot_count=len(filtered_slots),
         machine_count=len(filtered_machines),
@@ -284,7 +295,11 @@ class _SwapCandidate:
         self.shelf_code = shelf
         self.was_recent = (line["machine_name"], shelf) in recent_changes
 
-        trigger = line["final_action"] if line["final_action"] == "DISCONTINUE" else "SWAP_MINIMUM"
+        trigger = (
+            "DISCONTINUE" if line["final_action"] == "DISCONTINUE"
+            else "LOCAL_DEAD" if line.get("is_local_dead", False)
+            else "SWAP_MINIMUM"
+        )
         conf = (
             proposal["top_candidate"]["confidence_label"]
             if proposal and proposal["top_candidate"]
@@ -745,6 +760,12 @@ def run_engine_d(
 
     total_units = sum(line["quantity"] for line in final_lines)
     refill_count = sum(1 for line in final_lines if line["action"] == "REFILL")
+    local_hero_count = sum(
+        1 for line in refill_b_lines if line.get("is_local_hero", False)
+    )
+    local_dead_swap_count = sum(
+        1 for cand in accepted_swaps if cand.line.get("is_local_dead", False)
+    )
 
     result = DeciderResult(
         plan_lines=final_lines,
@@ -757,6 +778,8 @@ def run_engine_d(
         swap_lines=swap_line_count,
         truncated_count=len(rejected_swaps),
         total_units=total_units,
+        local_hero_count=local_hero_count,
+        local_dead_swap_count=local_dead_swap_count,
     )
 
     # ── DB writes (only if not dry_run) ───────────────────────────────────
@@ -866,7 +889,11 @@ if __name__ == "__main__":
     _refill_plan = run_engine_b(_fleet, _portfolio)
     total_b = sum(l["refill_qty"] for l in _refill_plan["lines"])
     to_refill_b = sum(1 for l in _refill_plan["lines"] if l["refill_qty"] > 0)
-    print(f"✓ {total_b} units across {to_refill_b} slots")
+    print(
+        f"✓ {total_b} units across {to_refill_b} slots "
+        f"({_refill_plan['local_hero_count']} local heroes, "
+        f"{_refill_plan['local_dead_count']} local dead)"
+    )
 
     print("Running Engine C...", end="          ", flush=True)
     _swap_plan = run_engine_c(_fleet, _portfolio, _refill_plan)
@@ -922,6 +949,8 @@ if __name__ == "__main__":
     print(f"SWAP      : {swap_pairs} pairs (REMOVE + ADD NEW)")
     print(f"REMOVE    : {lone_removes} lines (no candidate)")
     print(f"Total units: {_result['total_units']}")
+    print(f"Local heroes: {_result['local_hero_count']} (REFILL slots protected)")
+    print(f"Local dead swaps: {_result['local_dead_swap_count']}")
 
     # By machine, sorted by total units
     print()

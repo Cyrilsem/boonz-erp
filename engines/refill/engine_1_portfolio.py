@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import re
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,6 +121,7 @@ class ProductClassification(TypedDict):
     guardrail_override: str | None  # reason code if overridden, else None
     confidence: str             # HIGH | MEDIUM | LOW
     explanation: str            # 1-sentence plain English for operator
+    relative_velocity: float | None  # daily_avg / machine_avg; None if no velocity data
 
 
 class PortfolioResult(TypedDict):
@@ -274,57 +274,21 @@ def _get_client() -> Client:
 
 # ── Lifecycle data fetcher ─────────────────────────────────────────────────
 
-def _fetch_lifecycle_data(client: Client) -> tuple[
-    dict[str, dict],   # plg: pod_product_id → row
-    dict[tuple[str, str], dict],  # slot_lc: (machine_id, shelf_code) → row
-]:
+def _fetch_plg(client: Client) -> dict[str, dict]:
     """
-    Fetch product_lifecycle_global and slot_lifecycle in parallel.
-    slot_lc keyed by (machine_id, shelf_code) — note: shelf_code format is "A04",
-    while v_live_shelf_stock.aisle_code is "0-A04". Strip leading "N-" before joining.
+    Fetch product_lifecycle_global only.
+    slot_lifecycle now comes from FleetState (fetched once in fetch_fleet_state).
     """
-    def _plg() -> dict[str, dict]:
-        resp = (
-            client.table("product_lifecycle_global")
-            .select(
-                "pod_product_id, score, signal, trend_component, "
-                "machine_count, total_velocity_30d, last_evaluated_at"
-            )
-            .limit(10000)
-            .execute()
+    resp = (
+        client.table("product_lifecycle_global")
+        .select(
+            "pod_product_id, score, signal, trend_component, "
+            "machine_count, total_velocity_30d, last_evaluated_at"
         )
-        return {r["pod_product_id"]: r for r in resp.data}
-
-    def _slot_lc() -> dict[tuple[str, str], dict]:
-        resp = (
-            client.table("slot_lifecycle")
-            .select(
-                "machine_id, shelf_code, pod_product_id, score, signal, "
-                "velocity_30d, slot_age_days, recommended_pod_product_id, "
-                "recommendation_reason"
-            )
-            .eq("archived", False)
-            .limit(10000)
-            .execute()
-        )
-        return {(r["machine_id"], r["shelf_code"]): r for r in resp.data}
-
-    results: dict[str, object] = {}
-    errors: list[str] = []
-
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        futures = {ex.submit(_plg): "plg", ex.submit(_slot_lc): "slot_lc"}
-        for fut in as_completed(futures):
-            name = futures[fut]
-            try:
-                results[name] = fut.result()
-            except Exception as exc:
-                errors.append(f"{name}: {exc}")
-
-    if errors:
-        raise RuntimeError(f"_fetch_lifecycle_data failed: {'; '.join(errors)}")
-
-    return results["plg"], results["slot_lc"]  # type: ignore[return-value]
+        .limit(10000)
+        .execute()
+    )
+    return {r["pod_product_id"]: r for r in resp.data}
 
 
 # ── Signal mapping ─────────────────────────────────────────────────────────
@@ -514,18 +478,28 @@ def run_engine_1(fleet_state: FleetState) -> PortfolioResult:
     Takes FleetState from fetch_fleet_state().
     Returns PortfolioResult with classification for every slot.
 
+    slot_lifecycle is read from FleetState (no duplicate DB query).
     Raises FileNotFoundError if portfolio_strategy.md is missing.
     Raises RuntimeError if DB reads fail.
     """
     client = _get_client()
     gd = _parse_guardrails()
-    plg, slot_lc = _fetch_lifecycle_data(client)
+    plg = _fetch_plg(client)
+
+    # slot_lifecycle comes from FleetState — keyed [machine_id][pod_product_id]
+    slot_lifecycle = fleet_state["slot_lifecycle"]
 
     # Build machine venue_group lookup from fleet_state
     machine_venue: dict[str, str | None] = {
         mid: meta.get("venue_group")
         for mid, meta in fleet_state["machines"].items()
     }
+
+    # Pre-compute machine average daily velocity (for relative_velocity)
+    machine_avg_vel: dict[str, float] = {}
+    for mid, products in fleet_state["velocity"].items():
+        avgs = [v["daily_avg"] for v in products.values() if v["daily_avg"] > 0]
+        machine_avg_vel[mid] = sum(avgs) / len(avgs) if avgs else 0.0
 
     classifications: list[ProductClassification] = []
 
@@ -541,12 +515,21 @@ def run_engine_1(fleet_state: FleetState) -> PortfolioResult:
         global_signal = (plg_row or {}).get("signal") or "KEEP"
         global_score = float((plg_row or {}).get("score") or 0.0)
 
-        # shelf_code join: strip "N-" prefix from aisle_code → "A04"
-        shelf_code = aisle_code.split("-", 1)[1] if "-" in aisle_code else aisle_code
-        slot_lc_row = slot_lc.get((machine_id, shelf_code))
-        slot_signal = (slot_lc_row or {}).get("signal") or None
-        slot_score: float | None = (
-            float(slot_lc_row["score"]) if slot_lc_row and slot_lc_row.get("score") is not None
+        # slot_lifecycle keyed by pod_product_id (no shelf_code join needed)
+        lc_record = (
+            slot_lifecycle.get(machine_id, {}).get(pod_product_id)
+            if pod_product_id else None
+        )
+        slot_signal = lc_record["signal"] if lc_record else None
+        slot_score: float | None = lc_record["score"] if lc_record else None
+
+        # ── Relative velocity ──────────────────────────────────────────────
+        vel = fleet_state["velocity"].get(machine_id, {}).get(product_name)
+        daily_avg = vel["daily_avg"] if vel else 0.0
+        machine_avg = machine_avg_vel.get(machine_id, 0.0)
+        relative_velocity: float | None = (
+            round(daily_avg / machine_avg, 2)
+            if machine_avg > 0 and daily_avg > 0
             else None
         )
 
@@ -568,6 +551,16 @@ def run_engine_1(fleet_state: FleetState) -> PortfolioResult:
             global_score, final_action, guardrail_override
         )
 
+        # Prepend relative performance context to explanation
+        if relative_velocity is not None and relative_velocity >= 2.0:
+            explanation = f"[Local Hero {relative_velocity:.1f}x avg] " + explanation
+        elif (
+            relative_velocity is not None
+            and relative_velocity <= 0.3
+            and slot_signal in ("WIND DOWN", "ROTATE OUT")
+        ):
+            explanation = f"[Local Dead {relative_velocity:.1f}x avg] " + explanation
+
         classifications.append(
             ProductClassification(
                 machine_id=machine_id,
@@ -583,6 +576,7 @@ def run_engine_1(fleet_state: FleetState) -> PortfolioResult:
                 guardrail_override=guardrail_override,
                 confidence=confidence,
                 explanation=explanation,
+                relative_velocity=relative_velocity,
             )
         )
 

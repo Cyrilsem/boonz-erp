@@ -152,7 +152,7 @@ class SlotSwapProposal(TypedDict):
     slot_name: str
     current_product: str            # goods_name_raw being replaced
     current_pod_product_id: str | None
-    swap_trigger: str               # 'DISCONTINUE' or 'SWAP_MINIMUM'
+    swap_trigger: str               # 'DISCONTINUE' | 'SWAP_MINIMUM' | 'LOCAL_DEAD'
     candidates: list[SwapCandidate] # ranked best-first, max 3
     top_candidate: SwapCandidate | None
     no_candidate_reason: str | None
@@ -505,10 +505,25 @@ def run_engine_c(
     }
 
     # ── Identify eligible lines ────────────────────────────────────────────
-    eligible_lines: list[SlotRefillLine] = [
-        line for line in refill_plan["lines"]
-        if line["final_action"] == "DISCONTINUE" or line["is_swap_minimum"]
-    ]
+    # Include DISCONTINUE, swap-minimum, and LOCAL_DEAD slots.
+    # LOCAL_DEAD eligibility: is_local_dead AND slot_age_days >= 21
+    # AND current_stock <= 80% of effective_max (don't swap when nearly full).
+    eligible_lines: list[SlotRefillLine] = []
+    for _line in refill_plan["lines"]:
+        if _line["final_action"] == "DISCONTINUE" or _line["is_swap_minimum"]:
+            eligible_lines.append(_line)
+        elif _line.get("is_local_dead", False):
+            # Check slot_age_days from fleet slot_lifecycle
+            _ppid = _line.get("pod_product_id")
+            _lc = (
+                fleet["slot_lifecycle"].get(_line["machine_id"], {}).get(_ppid)
+                if _ppid else None
+            )
+            _age = _lc["slot_age_days"] if _lc else None
+            _age_ok = _age is None or _age >= 21
+            _stock_ok = _line["current_stock"] <= _line["effective_max_stock"] * 0.8
+            if _age_ok and _stock_ok:
+                eligible_lines.append(_line)
 
     proposals: list[SlotSwapProposal] = []
     total_scored = 0
@@ -520,6 +535,7 @@ def run_engine_c(
         goods_name = line["pod_product_name"]
         swap_trigger = (
             "DISCONTINUE" if line["final_action"] == "DISCONTINUE"
+            else "LOCAL_DEAD" if line.get("is_local_dead", False)
             else "SWAP_MINIMUM"
         )
 
@@ -573,13 +589,22 @@ def run_engine_c(
             # Category match
             cat_match = _same_category(current_category, cand["product_category"])
 
-            # Score (slot_age_days_of_best_performer not used in v1 formula)
+            # Score — same formula for all triggers
             conf_score = score_candidate(
                 candidate_global_score=cand["global_score"],
                 is_same_category=cat_match,
                 warehouse_stock=cand["total_stock"],
                 slot_age_days_of_best_performer=0,
             )
+            # LOCAL_DEAD: slight penalty if current product placed < 60 days ago
+            if swap_trigger == "LOCAL_DEAD":
+                _slot_lc_cur = (
+                    fleet["slot_lifecycle"].get(machine_id, {}).get(current_ppid)
+                    if current_ppid else None
+                )
+                _cur_age = _slot_lc_cur["slot_age_days"] if _slot_lc_cur else None
+                if _cur_age is not None and _cur_age < 60:
+                    conf_score = round(conf_score * 0.9, 3)
             conf_label = _confidence_label(conf_score)
 
             # Reason sentence
