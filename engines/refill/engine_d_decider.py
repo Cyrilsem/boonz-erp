@@ -752,9 +752,12 @@ if __name__ == "__main__":
         f"{_swap_plan['slots_without_candidates']} without candidates"
     )
 
-    print("Running Engine D...")
+    import sys
+    _dry = "--live" not in sys.argv
 
-    _result = run_engine_d(_fleet, _portfolio, _refill_plan, _swap_plan, dry_run=True)
+    print(f"Running Engine D ({'DRY RUN' if _dry else 'LIVE — writing to Supabase'})...")
+
+    _result = run_engine_d(_fleet, _portfolio, _refill_plan, _swap_plan, dry_run=_dry)
 
     # Rate limit summary
     print()
@@ -776,7 +779,7 @@ if __name__ == "__main__":
 
     print()
     plan_date_display = _result["plan_date"]
-    print(f"=== FINAL PLAN [DRY RUN — NOT WRITTEN] ===")
+    print(f"=== FINAL PLAN [{'DRY RUN — NOT WRITTEN' if _dry else 'LIVE — WRITTEN TO SUPABASE'}] ===")
     print(f"Plan date : {plan_date_display}")
 
     # Count by machine
@@ -828,4 +831,7 @@ if __name__ == "__main__":
             )
 
     print()
-    print(f"[DRY RUN] Pass dry_run=False to write to Supabase.")
+    if _dry:
+        print(f"[DRY RUN] Pass --live flag to write to Supabase.")
+    else:
+        print(f"[LIVE] Plan written to refill_plan_output — operator_status='pending'.")
