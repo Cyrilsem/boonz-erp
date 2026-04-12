@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
-from typing import TypedDict
+from typing import TypedDict, Optional
 
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -165,6 +165,8 @@ class SwapPlan(TypedDict):
     slots_with_candidates: int
     slots_without_candidates: int
     total_candidates_scored: int
+    skipped_recent_dispatch_count: int
+    skipped_recent_dispatch: list[str]  # "machine_id:pod_product_id" strings for logging
 
 
 # ── DB client ────────────────────────────────────────────────────────────────
@@ -471,6 +473,41 @@ def _build_product_category_map(client: Client) -> dict[str, str | None]:
     }
 
 
+# ── Recent dispatch block ─────────────────────────────────────────────────────
+
+def _fetch_recent_dispatches(
+    client: Client,
+    machine_ids: list[str],
+    lookback_days: int = 30,
+) -> set[tuple[str, str]]:
+    """
+    Returns a set of (machine_id, pod_product_id) tuples that have had a
+    confirmed dispatch at the given machines within lookback_days.
+    Used to block ADD NEW proposals for recently-placed products.
+
+    A dispatch is "confirmed" if dispatched=true OR filled_quantity IS NOT NULL.
+    """
+    if not machine_ids:
+        return set()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).date().isoformat()
+    resp = (
+        client.table("refill_dispatching")
+        .select("machine_id, pod_product_id, dispatch_date, dispatched, filled_quantity")
+        .in_("machine_id", machine_ids)
+        .gte("dispatch_date", cutoff)
+        .limit(10000)
+        .execute()
+    )
+    recent: set[tuple[str, str]] = set()
+    for row in (resp.data or []):
+        ppid = row.get("pod_product_id")
+        if not ppid:
+            continue
+        if row.get("dispatched") or row.get("filled_quantity") is not None:
+            recent.add((row["machine_id"], ppid))
+    return recent
+
+
 # ── Main entry point ─────────────────────────────────────────────────────────
 
 def run_engine_c(
@@ -497,6 +534,21 @@ def run_engine_c(
     candidates_pool = _fetch_candidates_pool(client)
     product_category_map = _build_product_category_map(client)
     machine_products = _build_machine_products(fleet)
+
+    # Recent dispatch block: fetch confirmed dispatches in last 30 days
+    # for all machines that have eligible swap lines.
+    all_machine_ids = list({line["machine_id"] for line in refill_plan["lines"]})
+    recent_dispatches: set[tuple[str, str]] = _fetch_recent_dispatches(client, all_machine_ids)
+
+    # Build set of (machine_id, pod_product_id) that have an explicit REMOVE
+    # line in this plan cycle (block is lifted when we're pulling the product out).
+    remove_pairs: set[tuple[str, str]] = {
+        (line["machine_id"], line["pod_product_id"])
+        for line in refill_plan["lines"]
+        if line["final_action"] == "REMOVE" and line.get("pod_product_id")
+    }
+
+    skipped_recent_dispatch: list[str] = []
 
     # Machine venue_group lookup
     machine_venue: dict[str, str] = {
@@ -566,6 +618,16 @@ def run_engine_c(
             # Rule 2: not already on this machine
             if ppid in on_machine:
                 continue
+
+            # Recent Dispatch Block (bible v5.8): skip ADD NEW proposals for
+            # products confirmed dispatched to this machine within 30 days,
+            # unless an explicit REMOVE for that product is in this cycle.
+            if (machine_id, ppid) in recent_dispatches:
+                if (machine_id, ppid) not in remove_pairs:
+                    skipped_recent_dispatch.append(
+                        f"{machine_id}:{ppid}:{cand['pod_product_name']}"
+                    )
+                    continue
 
             # Rule 3: VOX restriction
             cand_name = cand["pod_product_name"]
@@ -683,6 +745,8 @@ def run_engine_c(
         slots_with_candidates=slots_with,
         slots_without_candidates=slots_without,
         total_candidates_scored=total_scored,
+        skipped_recent_dispatch_count=len(skipped_recent_dispatch),
+        skipped_recent_dispatch=skipped_recent_dispatch,
     )
 
 
@@ -713,6 +777,7 @@ if __name__ == "__main__":
     print(f"With candidates   : {swap_plan['slots_with_candidates']}")
     print(f"Without candidates: {swap_plan['slots_without_candidates']}")
     print(f"Total scored      : {swap_plan['total_candidates_scored']}")
+    print(f"Blocked (recent dispatch): {swap_plan['skipped_recent_dispatch_count']}")
 
     print()
     print("Sample proposals (first 10):")
