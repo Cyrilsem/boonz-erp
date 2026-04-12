@@ -33,6 +33,52 @@ except ImportError:
 load_dotenv()
 
 
+# ── Coexistence rules ─────────────────────────────────────────────────────────
+# Bidirectional pairs that cannot share a machine.
+# Source: engines/refill/guardrails/coexistence.md (operator-approved 2026-04-12)
+
+COEXISTENCE_EXCLUSIONS: list[tuple[str, str]] = [
+    # Group 1 — Soft Drinks Mix
+    ("7up And Sprite Lime", "Soft Drinks Mix"),
+    ("Coca Cola Mix", "Soft Drinks Mix"),
+    ("Coca Cola Regular", "Soft Drinks Mix"),
+    ("Coca Cola Zero", "Soft Drinks Mix"),
+    ("Mountain Dew", "Soft Drinks Mix"),
+    ("Pepsi Black", "Soft Drinks Mix"),
+    ("Pepsi Mix", "Soft Drinks Mix"),
+    # Group 2 — Coca Cola variants
+    ("Coca Cola Mix", "Coca Cola Regular"),
+    ("Coca Cola Mix", "Coca Cola Zero"),
+    ("Coca Cola Regular", "Coca Cola Zero"),
+    # Group 3 — Pepsi variants
+    ("Pepsi Black", "Pepsi Mix"),
+    # Group 4 — Almarai Juice
+    ("Almarai Farm Select Juice Mix", "Almarai Farm Select Juice Orange"),
+    ("Almarai Farm Select Juice Mix", "Almarai Farm Select Juice Pomegranate"),
+    ("Almarai Farm Select Juice Orange", "Almarai Farm Select Juice Pomegranate"),
+    # Group 5 — Sparkling water
+    ("Evian Sparkling", "Perrier Regular"),
+    ("Evian Sparkling", "Perrier Sparking Water Regular and Flavored"),
+    # Group 6 — Krambals family
+    ("Krambals", "Krambals & Zigi"),
+    ("Krambals & Zigi", "Zigi"),
+    # Group 7 — Loacker family
+    ("Loacker", "Loacker Quadratini"),
+]
+
+
+def _build_exclusion_map() -> dict[str, set[str]]:
+    """Build a fast lookup: product_name → set of products it cannot coexist with."""
+    m: dict[str, set[str]] = {}
+    for a, b in COEXISTENCE_EXCLUSIONS:
+        m.setdefault(a, set()).add(b)
+        m.setdefault(b, set()).add(a)
+    return m
+
+
+EXCLUSION_MAP: dict[str, set[str]] = _build_exclusion_map()
+
+
 # ── Constants ────────────────────────────────────────────────────────────────
 
 VOX_RESTRICTED: frozenset[str] = frozenset({
@@ -486,6 +532,13 @@ def run_engine_c(
             product_category_map.get(current_ppid) if current_ppid else None
         )
 
+        # Pre-compute goods_name_raw set for this machine (Rule 7 coexistence)
+        machine_product_names: set[str] = {
+            slot["goods_name_raw"]
+            for slot in fleet["slots"]
+            if slot["machine_id"] == machine_id
+        }
+
         # ── Filter and score candidates ────────────────────────────────────
         scored: list[SwapCandidate] = []
 
@@ -505,6 +558,13 @@ def run_engine_c(
                 for vr in VOX_RESTRICTED
             )
             if is_vox_product and not is_vox_machine:
+                continue
+
+            # Rule 7 — Coexistence: candidate must not conflict with any product
+            # already on this machine (bidirectional pairs from coexistence.md)
+            excluded_by = EXCLUSION_MAP.get(cand_name, set())
+            if excluded_by & machine_product_names:
+                # Candidate conflicts with an existing machine product — skip
                 continue
 
             # Rules 1, 5, 6 already enforced in _fetch_candidates_pool
@@ -563,6 +623,15 @@ def run_engine_c(
                 if ppid != current_ppid and ppid not in on_machine
             ):
                 no_reason = "No warehouse stock meeting criteria for this venue_group"
+            elif any(
+                bool(EXCLUSION_MAP.get(c["pod_product_name"], set()) & machine_product_names)
+                for ppid, c in candidates_pool.items()
+                if ppid != current_ppid and ppid not in on_machine
+            ):
+                no_reason = (
+                    "Coexistence rules eliminated all candidates — "
+                    "existing products conflict with available warehouse stock"
+                )
             else:
                 no_reason = "No eligible candidates after applying all filters"
 

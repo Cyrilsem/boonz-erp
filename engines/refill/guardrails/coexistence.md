@@ -62,15 +62,81 @@ This is a soft-block, not a hard-block — there are times when the operator int
 
 **Note:** `product_family` is defined in `product_families` (102 families today). Refill engine should use this table as the source of truth for family membership, not brand name inference.
 
-## Rule 3 — (reserved for future additions)
+## Coexistence rules (machine-level exclusions)
 
-Open. This section will be populated as new coexistence rules are discovered during operations.
+Rules derived from operator-approved matrix (2026-04-12).
+All rules are bidirectional. Engine C enforces these at candidate
+scoring time — any candidate that violates a rule for a product
+already on the machine is filtered out before scoring.
 
-Candidate rules to investigate later but not currently active:
+### Group 1 — Soft Drinks Mix exclusions
 
-- Whether any VML-group or INDEPENDENT venues acquire brand exclusivities over time
-- Whether any product category (e.g., energy drinks) gets age-gated at specific venues
-- Whether any halal certification requirements emerge at specific venues
+Soft Drinks Mix is a catch-all CSD slot. It cannot coexist with any
+specific CSD because it duplicates them. If a machine already has any
+of the following, Soft Drinks Mix must not be proposed (and vice versa):
+
+| Product A           | Product B       |
+| ------------------- | --------------- |
+| 7up And Sprite Lime | Soft Drinks Mix |
+| Coca Cola Mix       | Soft Drinks Mix |
+| Coca Cola Regular   | Soft Drinks Mix |
+| Coca Cola Zero      | Soft Drinks Mix |
+| Mountain Dew        | Soft Drinks Mix |
+| Pepsi Black         | Soft Drinks Mix |
+| Pepsi Mix           | Soft Drinks Mix |
+
+### Group 2 — Coca Cola variants (max 1 per machine)
+
+Only one Coca Cola variant per machine. Having both Mix and Zero,
+or Regular and Zero, etc., is duplication.
+
+| Product A         | Product B         |
+| ----------------- | ----------------- |
+| Coca Cola Mix     | Coca Cola Regular |
+| Coca Cola Mix     | Coca Cola Zero    |
+| Coca Cola Regular | Coca Cola Zero    |
+
+Note: Coca Cola and Pepsi CAN coexist on the same machine.
+
+### Group 3 — Pepsi variants (max 1 per machine)
+
+Only one Pepsi variant per machine.
+
+| Product A   | Product B |
+| ----------- | --------- |
+| Pepsi Black | Pepsi Mix |
+
+### Group 4 — Almarai Juice flavours (max 1 per machine)
+
+Only one Almarai Farm Select Juice flavour per machine.
+
+| Product A                        | Product B                             |
+| -------------------------------- | ------------------------------------- |
+| Almarai Farm Select Juice Mix    | Almarai Farm Select Juice Orange      |
+| Almarai Farm Select Juice Mix    | Almarai Farm Select Juice Pomegranate |
+| Almarai Farm Select Juice Orange | Almarai Farm Select Juice Pomegranate |
+
+### Group 5 — Sparkling water (max 1 brand per machine)
+
+Only one sparkling water brand per machine.
+
+| Product A       | Product B                                   |
+| --------------- | ------------------------------------------- |
+| Evian Sparkling | Perrier Regular                             |
+| Evian Sparkling | Perrier Sparking Water Regular and Flavored |
+
+### Group 6 — Krambals family (max 1 variant per machine)
+
+| Product A       | Product B       |
+| --------------- | --------------- |
+| Krambals        | Krambals & Zigi |
+| Krambals & Zigi | Zigi            |
+
+### Group 7 — Loacker family (max 1 variant per machine)
+
+| Product A | Product B          |
+| --------- | ------------------ |
+| Loacker   | Loacker Quadratini |
 
 ## Override protocol
 
@@ -86,4 +152,5 @@ When an operator overrides a rule on `/refill`:
 
 ## Change log
 
+- **2026-04-13** — Rule 3 (reserved) replaced with 19-pair product-level coexistence matrix (Groups 1–7). Engine C v1 enforces these as Rule 7 at candidate scoring time. Source: operator-approved matrix 2026-04-12.
 - **2026-04-09** — File created during Phase 0 guardrail interview. Coca-Cola exclusion rule formalized. Venue group taxonomy (ADDMIND, VOX, VML, WPP, OHMYDESK, INDEPENDENT) defined. Same-family soft-block added as Rule 2.
