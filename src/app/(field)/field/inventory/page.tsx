@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
@@ -458,7 +459,7 @@ export default function InventoryPage() {
 
     if (edit.edit_type === "expired") {
       // ── Expired: 4-step flow, all steps non-blocking ──────────────────────
-      const today = new Date().toISOString().split("T")[0];
+      const today = getDubaiDate();
 
       // Step 1: get expiration_date + current_stock from pod_inventory
       let podExpiryDate: string | null = null;
@@ -549,7 +550,7 @@ export default function InventoryPage() {
       }
     } else if (edit.edit_type === "return_to_warehouse") {
       // ── Return to warehouse: zero pod + insert active WH row ─────────────
-      const today = new Date().toISOString().split("T")[0];
+      const today = getDubaiDate();
 
       // Step 1: get expiration_date + current_stock from pod_inventory
       let podExpiryDate: string | null = null;
@@ -598,7 +599,7 @@ export default function InventoryPage() {
       }
     } else if (edit.edit_type === "in_stock") {
       // ── in_stock: update pod + FIFO sync with warehouse ───────────────────
-      const today2 = new Date().toISOString().split("T")[0];
+      const today2 = getDubaiDate();
       const qty = edit.quantity_update ?? 0;
       let currentPodStock = 0;
       try {
@@ -661,7 +662,7 @@ export default function InventoryPage() {
       }
     } else if (edit.edit_type === "transfer") {
       // ── Transfer: deduct source pod + create dispatch line for destination ──
-      const today3 = new Date().toISOString().split("T")[0];
+      const today3 = getDubaiDate();
       const qty = edit.quantity_update ?? 0;
 
       // Step 1: fetch source pod row (current_stock + expiration_date)

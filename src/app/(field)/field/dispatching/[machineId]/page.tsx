@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 import { usePageTour } from "../../../components/onboarding/use-page-tour";
 import Tour from "../../../components/onboarding/tour";
@@ -84,7 +85,7 @@ export default function DispatchingDetailPage() {
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
     const yesterday = new Date(Date.now() - 86400000)
       .toISOString()
       .split("T")[0];
@@ -240,7 +241,7 @@ export default function DispatchingDetailPage() {
 
     try {
       const compressed = await compressImage(file);
-      const today = new Date().toISOString().split("T")[0];
+      const today = getDubaiDate();
       const timestamp = Date.now();
       const path = `${machineId}/${today}/${type}-${timestamp}.jpg`;
 
@@ -295,7 +296,7 @@ export default function DispatchingDetailPage() {
       console.log("[Dispatch]", msg);
     };
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
 
     log("qty=" + qty);
 
@@ -438,7 +439,7 @@ export default function DispatchingDetailPage() {
   async function handleSave() {
     setSaving(true);
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
 
     for (const line of lines) {
       if (line.action === "added") {

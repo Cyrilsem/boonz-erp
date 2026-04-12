@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
 
 interface DispatchMachine {
@@ -20,7 +21,7 @@ export default function DispatchingPage() {
 
   const fetchMachines = useCallback(async () => {
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
     const yesterday = new Date(Date.now() - 86400000)
       .toISOString()
       .split("T")[0];

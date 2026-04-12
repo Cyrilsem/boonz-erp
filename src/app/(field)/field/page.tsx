@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import {
   type Language,
   translations,
@@ -93,7 +94,7 @@ function formatToday(): string {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  return getDubaiDate();
 }
 
 function addDays(dateStr: string, days: number): string {

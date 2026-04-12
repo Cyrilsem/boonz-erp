@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 
 interface MachineInfo {
@@ -40,7 +41,7 @@ export default function MachineRefillPage() {
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
     const yesterday = new Date(Date.now() - 86400000)
       .toISOString()
       .split("T")[0];
@@ -158,7 +159,7 @@ export default function MachineRefillPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const today = new Date().toISOString().split("T")[0];
+      const today = getDubaiDate();
 
       if (user) {
         await supabase.from("trip_events").upsert(
@@ -182,7 +183,7 @@ export default function MachineRefillPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const today = new Date().toISOString().split("T")[0];
+      const today = getDubaiDate();
 
       if (user) {
         await supabase.from("trip_events").upsert(

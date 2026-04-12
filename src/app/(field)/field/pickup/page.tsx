@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
 
 interface PickupLine {
@@ -27,7 +28,7 @@ export default function PickupPage() {
 
   const fetchMachines = useCallback(async () => {
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
     const yesterday = new Date(Date.now() - 86400000)
       .toISOString()
       .split("T")[0];
@@ -136,7 +137,7 @@ export default function PickupPage() {
   async function handleConfirmPickup(machineId: string) {
     setConfirming(machineId);
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
     const yesterday = new Date(Date.now() - 86400000)
       .toISOString()
       .split("T")[0];

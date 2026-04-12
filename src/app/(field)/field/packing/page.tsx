@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
 import Tour from "../../components/onboarding/tour";
@@ -21,7 +22,7 @@ export default function PackingPage() {
 
   const fetchMachines = useCallback(async () => {
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
 
     const { data: lines } = await supabase
       .from("refill_dispatching")
