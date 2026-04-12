@@ -127,6 +127,64 @@ def _swap_min_for_candidate(candidate: SwapCandidate) -> int:
     return 6 if candidate["attr_drink"] else 4
 
 
+# ── Machine filter ────────────────────────────────────────────────────────────
+
+def _apply_machine_filter(
+    fleet: FleetState,
+    machine_filter: str,
+) -> FleetState:
+    """
+    Returns a new FleetState restricted to machines matching machine_filter.
+
+    machine_filter values:
+      'all'                → no-op, return fleet unchanged
+      location_type value  → e.g. 'office', 'coworking', 'entertainment'
+      venue_group value    → e.g. 'vox', 'wpp', 'addmind', 'vml', 'ohmydesk'
+      exact machine name   → e.g. 'ADDMIND-1007-0000-W0'
+    Matching is case-insensitive. Exact name takes priority over type/group.
+    """
+    if machine_filter == "all":
+        return fleet
+
+    filter_lower = machine_filter.lower()
+
+    # Try exact machine name match first
+    matching_ids: set[str] = {
+        mid for mid, m in fleet["machines"].items()
+        if m["official_name"].lower() == filter_lower
+    }
+
+    # Fall back to location_type or venue_group
+    if not matching_ids:
+        matching_ids = {
+            mid for mid, m in fleet["machines"].items()
+            if (m.get("location_type") or "").lower() == filter_lower
+            or (m.get("venue_group") or "").lower() == filter_lower
+        }
+
+    filtered_machines = {
+        mid: m for mid, m in fleet["machines"].items()
+        if mid in matching_ids
+    }
+    filtered_slots = [
+        s for s in fleet["slots"]
+        if s["machine_id"] in matching_ids
+    ]
+    filtered_velocity = {
+        mid: v for mid, v in fleet["velocity"].items()
+        if mid in matching_ids
+    }
+
+    return FleetState(
+        slots=filtered_slots,
+        velocity=filtered_velocity,
+        machines=filtered_machines,
+        fetched_at=fleet["fetched_at"],
+        slot_count=len(filtered_slots),
+        machine_count=len(filtered_machines),
+    )
+
+
 # ── Startup fetches ──────────────────────────────────────────────────────────
 
 def _fetch_recent_changes(client: Client) -> set[tuple[str, str]]:
@@ -597,16 +655,26 @@ def run_engine_d(
     refill_plan: RefillPlan,
     swap_plan: SwapPlan,
     dry_run: bool = True,
+    plan_date: str | None = None,
+    machine_filter: str = "all",
 ) -> DeciderResult:
     """
     Compute final refill plan, apply rate limits, optionally write to DB.
 
     dry_run=True (default): build and return plan, do NOT write to Supabase.
     dry_run=False: write to refill_plan_output and decision_log.
+    plan_date: ISO date string override (default: tomorrow).
+    machine_filter: scope filter — 'all' | location_type | venue_group | exact name.
     """
     client = _get_client()
     run_id = str(uuid.uuid4())
-    plan_date = (date.today() + timedelta(days=1)).isoformat()
+
+    # Plan date: use provided override or default to tomorrow
+    _plan_date = plan_date if plan_date else (date.today() + timedelta(days=1)).isoformat()
+
+    # Apply machine filter (no-op when 'all')
+    filtered_fleet = _apply_machine_filter(fleet, machine_filter)
+    included_machine_ids = set(filtered_fleet["machines"].keys())
 
     # ── Startup fetches ────────────────────────────────────────────────────
     recent_changes = _fetch_recent_changes(client)
@@ -624,10 +692,13 @@ def run_engine_d(
     }
 
     # ── Separate lines into REFILL vs swap-eligible ────────────────────────
+    # Only include lines for machines that passed the machine_filter.
     refill_b_lines: list[SlotRefillLine] = []
     swap_b_lines: list[SlotRefillLine] = []
 
     for line in refill_plan["lines"]:
+        if line["machine_id"] not in included_machine_ids:
+            continue
         is_swap_eligible = (
             line["final_action"] == "DISCONTINUE" or line["is_swap_minimum"]
         )
@@ -648,13 +719,13 @@ def run_engine_d(
     final_lines: list[FinalPlanLine] = []
     for line in refill_b_lines:
         final_lines.append(
-            _build_refill_line(line, boonz_name_map, cls_map, plan_date)
+            _build_refill_line(line, boonz_name_map, cls_map, _plan_date)
         )
 
     # ── Build SWAP final plan lines ────────────────────────────────────────
     swap_line_count = 0  # count of REMOVE+ADD NEW pairs / lone REMOVEs
     for cand in accepted_swaps:
-        rows = _build_swap_lines(cand, boonz_name_map, cls_map, plan_date)
+        rows = _build_swap_lines(cand, boonz_name_map, cls_map, _plan_date)
         final_lines.extend(rows)
         # Count as swap only if we actually wrote a REMOVE or ADD NEW
         if any(r["action"] in ("REMOVE", "ADD NEW") for r in rows):
@@ -663,7 +734,7 @@ def run_engine_d(
     # ── Build truncated list ───────────────────────────────────────────────
     truncated_lines: list[FinalPlanLine] = []
     for cand, reason in rejected_swaps:
-        rows = _build_swap_lines(cand, boonz_name_map, cls_map, plan_date)
+        rows = _build_swap_lines(cand, boonz_name_map, cls_map, _plan_date)
         for r in rows:
             r["rate_limit_truncated"] = True
             r["truncation_reason"] = reason
@@ -679,7 +750,7 @@ def run_engine_d(
         plan_lines=final_lines,
         truncated_lines=truncated_lines,
         run_id=run_id,
-        plan_date=plan_date,
+        plan_date=_plan_date,
         written_to_db=False,
         total_lines=len(final_lines),
         refill_lines=refill_count,
@@ -690,8 +761,8 @@ def run_engine_d(
 
     # ── DB writes (only if not dry_run) ───────────────────────────────────
     if not dry_run:
-        _write_plan(client, plan_date, final_lines)
-        _write_decision_log(client, run_id, result, rejected_swaps, fleet)
+        _write_plan(client, _plan_date, final_lines)
+        _write_decision_log(client, run_id, result, rejected_swaps, filtered_fleet)
         result["written_to_db"] = True
 
     return result
@@ -699,13 +770,26 @@ def run_engine_d(
 
 # ── Full pipeline entry point ─────────────────────────────────────────────────
 
-def run_pipeline(dry_run: bool = True) -> DeciderResult:
+def run_pipeline(
+    dry_run: bool = True,
+    plan_date: str | None = None,
+    machine_filter: str = "all",
+) -> DeciderResult:
     """
     Full pipeline: fetch → Engine 1 → B → C → D.
     Single entry point for the complete refill brain.
+
+    plan_date:      ISO date override (default: tomorrow).
+    machine_filter: 'all' | location_type | venue_group | exact machine name.
     """
     print("Fetching fleet state...")
     fleet = fetch_fleet_state()
+
+    # Apply machine filter immediately after fetch so all engines see only
+    # the scoped fleet (no-op when machine_filter='all').
+    fleet = _apply_machine_filter(fleet, machine_filter)
+    if machine_filter != "all":
+        print(f"  Filter '{machine_filter}': {fleet['machine_count']} machines, {fleet['slot_count']} slots")
 
     print("Running Engine 1 (portfolio)...")
     portfolio = run_engine_1(fleet)
@@ -717,17 +801,56 @@ def run_pipeline(dry_run: bool = True) -> DeciderResult:
     swap_plan = run_engine_c(fleet, portfolio, refill_plan)
 
     print("Running Engine D (decider)...")
-    return run_engine_d(fleet, portfolio, refill_plan, swap_plan, dry_run=dry_run)
+    # Fleet is already filtered — pass machine_filter='all' to avoid double-filtering.
+    return run_engine_d(
+        fleet, portfolio, refill_plan, swap_plan,
+        dry_run=dry_run,
+        plan_date=plan_date,
+        machine_filter="all",
+    )
 
 
 # ── CLI smoke test (dry_run=True — never writes) ──────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
+
+    _parser = argparse.ArgumentParser(description="Boonz Refill Brain — Full Pipeline")
+    _parser.add_argument(
+        "--live", action="store_true",
+        help="Write plan to Supabase (default: dry run)",
+    )
+    _parser.add_argument(
+        "--date", metavar="YYYY-MM-DD", default=None,
+        help="Plan date override (default: tomorrow)",
+    )
+    _parser.add_argument(
+        "--filter", dest="filter", default="all",
+        metavar="FILTER",
+        help=(
+            "Scope filter: all | office | coworking | entertainment | "
+            "vox | wpp | addmind | vml | ohmydesk | <exact machine name>"
+        ),
+    )
+    _args = _parser.parse_args()
+    _dry = not _args.live
+    _plan_date_arg: str | None = _args.date
+    _filter_arg: str = _args.filter
+
     print("=== BOONZ REFILL BRAIN — Full Pipeline ===")
+    if _filter_arg != "all":
+        print(f"  Filter   : {_filter_arg}")
+    if _plan_date_arg:
+        print(f"  Plan date: {_plan_date_arg}")
 
     print("Fetching fleet state...", end="      ", flush=True)
     _fleet = fetch_fleet_state()
     print(f"✓ {_fleet['machine_count']} machines, {_fleet['slot_count']} slots")
+
+    # Apply machine filter immediately after fetch
+    if _filter_arg != "all":
+        _fleet = _apply_machine_filter(_fleet, _filter_arg)
+        print(f"  → Filter applied: {_fleet['machine_count']} machines, {_fleet['slot_count']} slots")
 
     print("Running Engine 1...", end="          ", flush=True)
     _portfolio = run_engine_1(_fleet)
@@ -752,12 +875,15 @@ if __name__ == "__main__":
         f"{_swap_plan['slots_without_candidates']} without candidates"
     )
 
-    import sys
-    _dry = "--live" not in sys.argv
-
     print(f"Running Engine D ({'DRY RUN' if _dry else 'LIVE — writing to Supabase'})...")
 
-    _result = run_engine_d(_fleet, _portfolio, _refill_plan, _swap_plan, dry_run=_dry)
+    # Fleet is already filtered above — pass machine_filter='all' to avoid double-filtering.
+    _result = run_engine_d(
+        _fleet, _portfolio, _refill_plan, _swap_plan,
+        dry_run=_dry,
+        plan_date=_plan_date_arg,
+        machine_filter="all",
+    )
 
     # Rate limit summary
     print()
