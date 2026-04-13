@@ -23,6 +23,8 @@ interface VariantStock {
   /** Short display name: boonz_product_name with pod prefix stripped */
   name: string;
   stock: number;
+  /** How many units of this variant to pack (computed from split_pct) */
+  packQty: number;
 }
 
 interface PackLine {
@@ -72,13 +74,49 @@ function stockColor(stock: number, planned: number): string {
 /**
  * Strip the pod product name prefix from a boonz SKU name.
  * "Krambals - Forest Mushroom & Butter" → "Forest Mushroom & Butter"
- * Falls back to the full name if the prefix isn't present.
  */
 function stripPodPrefix(boonzName: string, podName: string): string {
   const prefix = podName + " - ";
   return boonzName.startsWith(prefix)
     ? boonzName.slice(prefix.length)
     : boonzName;
+}
+
+/**
+ * Distribute totalQty among variants using split percentages.
+ * - Only distributes among variants that have stock AND splitPct > 0.
+ * - Falls back to equal distribution among in-stock variants if no splits.
+ * - Uses floor + highest-fraction-first remainder to sum exactly to totalQty.
+ */
+function computeVariantQtys(
+  totalQty: number,
+  variants: { boonzId: string; splitPct: number; inStock: boolean }[],
+): { boonzId: string; qty: number }[] {
+  // Eligible: in-stock and has a split percentage
+  let eligible = variants.filter((v) => v.inStock && v.splitPct > 0);
+
+  // Fallback: equal distribution among all in-stock variants
+  if (eligible.length === 0) {
+    const inStock = variants.filter((v) => v.inStock);
+    if (inStock.length === 0) return [];
+    eligible = inStock.map((v) => ({ ...v, splitPct: 100 / inStock.length }));
+  }
+
+  const totalPct = eligible.reduce((s, v) => s + v.splitPct, 0);
+
+  const raw = eligible.map((v) => ({
+    boonzId: v.boonzId,
+    raw: (v.splitPct / totalPct) * totalQty,
+  }));
+
+  const floored = raw.map((v) => ({ ...v, qty: Math.floor(v.raw) }));
+  const remainder = totalQty - floored.reduce((s, v) => s + v.qty, 0);
+
+  // Distribute remainder to variants with highest fractional parts
+  const sorted = [...floored].sort((a, b) => b.raw - b.qty - (a.raw - a.qty));
+  for (let i = 0; i < remainder; i++) sorted[i].qty += 1;
+
+  return sorted.filter((v) => v.qty > 0);
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -131,9 +169,7 @@ export default function PackingDetailPage() {
     }
 
     // ── Step 1: Discover variant boonz IDs + names via product_mapping FK join
-    // Fetching boonz_product_name via FK join here (instead of a separate
-    // boonz_products query) ensures names are available regardless of RLS on
-    // boonz_products for field_staff users.
+    // boonz_product_name fetched via FK join (bypasses direct RLS on boonz_products).
     const podProductIds = [
       ...new Set(
         dispatchLines
@@ -142,13 +178,16 @@ export default function PackingDetailPage() {
       ),
     ];
 
-    // pod_product_id → [boonz_product_id, ...]
+    // pod_product_id → [boonz_product_id, ...]  (global defaults only for variant discovery)
     const podToVariants = new Map<string, string[]>();
-    // boonz_product_id → boonz_product_name (populated via FK join below)
+    // boonz_product_id → boonz_product_name
     const boonzIdToName = new Map<string, string>();
+    // pod_product_id → (boonz_product_id → split_pct)  (machine-specific overrides global)
+    const splitMap = new Map<string, Map<string, number>>();
 
     if (podProductIds.length > 0) {
-      const { data: mappings } = await supabase
+      // 1a. Global defaults — variant discovery + names
+      const { data: globalMappings } = await supabase
         .from("product_mapping")
         .select(
           "pod_product_id, boonz_product_id, boonz_products(boonz_product_name)",
@@ -159,23 +198,42 @@ export default function PackingDetailPage() {
         .eq("status", "Active")
         .limit(1000);
 
-      for (const m of mappings ?? []) {
+      for (const m of globalMappings ?? []) {
         if (!m.pod_product_id || !m.boonz_product_id) continue;
 
-        // Build podToVariants
         const list = podToVariants.get(m.pod_product_id) ?? [];
         list.push(m.boonz_product_id);
         podToVariants.set(m.pod_product_id, list);
 
-        // Build boonzIdToName via the FK-joined boonz_products row.
-        // Supabase infers the join as an array; cast via unknown to access the object.
         const bpRaw = m.boonz_products as unknown;
         const bp = (Array.isArray(bpRaw) ? bpRaw[0] : bpRaw) as {
           boonz_product_name: string | null;
         } | null;
         const bpName = bp?.boonz_product_name ?? null;
-        if (bpName) {
-          boonzIdToName.set(m.boonz_product_id, bpName);
+        if (bpName) boonzIdToName.set(m.boonz_product_id, bpName);
+      }
+
+      // 1b. Split percentages — machine-specific rows take priority over global.
+      // Query both in one pass; ORDER BY machine_id NULLS LAST so non-null rows
+      // are processed first and win when both exist for the same variant.
+      const { data: splitRows } = await supabase
+        .from("product_mapping")
+        .select("pod_product_id, boonz_product_id, split_pct, machine_id")
+        .in("pod_product_id", podProductIds)
+        .or(`machine_id.eq.${machineId},machine_id.is.null`)
+        .gt("split_pct", 0)
+        .eq("status", "Active")
+        .order("machine_id", { ascending: true, nullsFirst: false })
+        .limit(1000);
+
+      for (const row of splitRows ?? []) {
+        if (!row.pod_product_id || !row.boonz_product_id) continue;
+        if (!splitMap.has(row.pod_product_id))
+          splitMap.set(row.pod_product_id, new Map());
+        const podSplits = splitMap.get(row.pod_product_id)!;
+        // First occurrence wins — machine-specific rows come first due to ORDER BY
+        if (!podSplits.has(row.boonz_product_id)) {
+          podSplits.set(row.boonz_product_id, row.split_pct ?? 0);
         }
       }
     }
@@ -244,10 +302,8 @@ export default function PackingDetailPage() {
       );
     }
 
-    // ── Step 3: Build variantMap for mix products ────────────────────────────
-    // boonzIdToName is now populated from the FK join in Step 1, so names are
-    // always available here — no UUID fallback possible unless the boonz_products
-    // row genuinely doesn't exist in the DB.
+    // ── Step 3: Build variantMap for mix products (packQty = 0 initially) ────
+    // packQty is computed per dispatch line in Step 5 using the actual quantity.
     const variantMap = new Map<string, VariantStock[]>();
 
     for (const podId of mixPodIdSet) {
@@ -265,11 +321,12 @@ export default function PackingDetailPage() {
           const fullName = boonzIdToName.get(boonzId) ?? "";
           const shortName = fullName
             ? stripPodPrefix(fullName, podName)
-            : fullName; // empty string if genuinely missing — never a UUID
+            : fullName;
           return {
             boonzProductId: boonzId,
-            name: shortName || fullName || boonzId, // last resort: UUID only if no name at all
+            name: shortName || fullName || boonzId,
             stock: stockMap.get(boonzId) ?? 0,
+            packQty: 0, // filled per dispatch line in Step 5
           };
         }),
       );
@@ -319,7 +376,7 @@ export default function PackingDetailPage() {
       };
     }
 
-    // Map lines
+    // ── Step 5: Map lines ─────────────────────────────────────────────────────
     const mapped: PackLine[] = dispatchLines.map((line) => {
       const shelf = line.shelf_configurations as unknown as {
         shelf_code: string;
@@ -335,15 +392,32 @@ export default function PackingDetailPage() {
       const podId = line.pod_product_id ?? "";
       const isMix = mixPodIdSet.has(podId);
 
-      // display_name: boonz SKU for single-variant ("Pepsi - Black"),
-      // pod name for mix header ("Krambals") and REMOVE lines.
+      // display_name: boonz SKU for single-variant, pod name for mix header / REMOVE
       let displayName = product.pod_product_name;
       if (!isMix) {
-        // Resolve the boonz ID: use dispatch line value, else the single mapping
         const boonzId =
           line.boonz_product_id ?? podToVariants.get(podId)?.[0] ?? "";
         const boonzName = boonzIdToName.get(boonzId);
         if (boonzName) displayName = boonzName;
+      }
+
+      // For mix lines, compute per-variant pack quantities from split percentages.
+      // Create a new array per line (don't mutate the shared variantMap entry).
+      let variantStocks: VariantStock[] | null = variantMap.get(podId) ?? null;
+
+      if (variantStocks && (line.quantity ?? 0) > 0) {
+        const podSplits = splitMap.get(podId) ?? new Map<string, number>();
+        const input = variantStocks.map((v) => ({
+          boonzId: v.boonzProductId,
+          splitPct: podSplits.get(v.boonzProductId) ?? 0,
+          inStock: v.stock > 0,
+        }));
+        const qtys = computeVariantQtys(line.quantity ?? 0, input);
+        const qtyByBoonzId = new Map(qtys.map((q) => [q.boonzId, q.qty]));
+        variantStocks = variantStocks.map((v) => ({
+          ...v,
+          packQty: qtyByBoonzId.get(v.boonzProductId) ?? 0,
+        }));
       }
 
       return {
@@ -360,7 +434,7 @@ export default function PackingDetailPage() {
         fifo_expiry: fifo.primary_expiry,
         allocations: fifo.allocations,
         warehouse_stock: stockMap.get(line.boonz_product_id ?? "") ?? 0,
-        variantStocks: variantMap.get(podId) ?? null,
+        variantStocks,
       };
     });
 
@@ -527,7 +601,7 @@ export default function PackingDetailPage() {
                   key={line.dispatch_id}
                   className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                 >
-                  {/* Primary label (boonz SKU for single; pod name for mix header) */}
+                  {/* Primary label */}
                   <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
                     {line.display_name}
                     {!isRemove &&
@@ -567,41 +641,41 @@ export default function PackingDetailPage() {
                     Recommended: {line.recommended_qty} units
                   </p>
 
-                  {/* Stock / FIFO / Remove info ─────────────────────────── */}
+                  {/* Stock / FIFO / Remove / Mix breakdown ───────────────── */}
                   {isRemove ? (
                     <p className="mb-2 inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                       Remove from machine
                     </p>
                   ) : isMix ? (
-                    /* Mix product — per-variant stock breakdown (in-stock only) */
+                    /* Mix product — per-variant rows with split quantities */
                     <div className="mb-2">
-                      {line.variantStocks!.every((v) => v.stock === 0) ? (
+                      {line.variantStocks!.every((v) => v.packQty === 0) ? (
                         <p className="text-xs font-medium text-red-600 dark:text-red-400">
                           Out of stock
                         </p>
                       ) : (
-                        <p className="text-xs leading-relaxed text-neutral-500">
+                        <div className="space-y-0.5 rounded-md border border-neutral-100 bg-neutral-50 px-2 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
                           {line
-                            .variantStocks!.filter((v) => v.stock > 0)
-                            .map((v, i) => (
-                              <span key={v.boonzProductId}>
-                                {i > 0 && (
-                                  <span className="mx-1 text-neutral-300 dark:text-neutral-600">
-                                    |
-                                  </span>
-                                )}
-                                <span
-                                  className={
-                                    v.stock < line.recommended_qty
-                                      ? "text-amber-600 dark:text-amber-400"
-                                      : "text-green-600 dark:text-green-400"
-                                  }
-                                >
-                                  {v.name}: {v.stock}
+                            .variantStocks!.filter((v) => v.packQty > 0)
+                            .map((v) => (
+                              <div
+                                key={v.boonzProductId}
+                                className="flex items-center gap-2 text-xs"
+                              >
+                                <span className="flex-1 truncate text-neutral-700 dark:text-neutral-300">
+                                  {v.name}
                                 </span>
-                              </span>
+                                <span className="shrink-0 font-medium text-neutral-600 dark:text-neutral-400">
+                                  Pack: {v.packQty}
+                                </span>
+                                <span
+                                  className={`shrink-0 ${stockColor(v.stock, v.packQty)}`}
+                                >
+                                  Stock: {v.stock}
+                                </span>
+                              </div>
                             ))}
-                        </p>
+                        </div>
                       )}
                     </div>
                   ) : (
@@ -657,10 +731,10 @@ export default function PackingDetailPage() {
                     </>
                   )}
 
-                  {/* Packed qty input */}
+                  {/* Packed qty input (total for mix lines) */}
                   <div className="mb-2 flex items-center gap-2">
                     <label className="text-xs text-neutral-500">
-                      Packed qty:
+                      {isMix ? "Total packed:" : "Packed qty:"}
                     </label>
                     <input
                       type="number"
