@@ -28,7 +28,7 @@ interface VariantStock {
   /** Earliest expiry date across all in-stock batches (FIFO first), null if no expiry recorded */
   earliestExpiry: string | null;
   /** Individual warehouse_inventory batch rows for this variant, ordered expiry ASC */
-  batches: { expiry: string | null; stock: number }[];
+  batches: { wh_inventory_id: string; expiry: string | null; stock: number }[];
 }
 
 interface PackLine {
@@ -82,16 +82,6 @@ function formatExpiry(dateStr: string): string {
     month: "short",
     year: "2-digit",
   });
-}
-
-/** Colour class for expiry badge based on days remaining */
-function expiryColour(dateStr: string): string {
-  const days = Math.ceil(
-    (new Date(dateStr + "T00:00:00").getTime() - Date.now()) / 86400000,
-  );
-  if (days <= 30) return "text-red-500 dark:text-red-400";
-  if (days <= 60) return "text-amber-500 dark:text-amber-400";
-  return "text-neutral-400 dark:text-neutral-500";
 }
 
 /**
@@ -156,11 +146,11 @@ export default function PackingDetailPage() {
   const [editingAfterSave, setEditingAfterSave] = useState(false);
 
   /**
-   * Per-variant qty overrides for mix lines.
-   * Shape: { [dispatch_id]: { [boonzProductId]: qty } }
-   * Initialized from computed packQty values; user can edit each independently.
+   * Per-batch pick quantities for mix lines.
+   * Shape: { [dispatch_id]: { [wh_inventory_id]: qty } }
+   * Initialized via FIFO from packQty; user edits batch inputs directly.
    */
-  const [variantQtys, setVariantQtys] = useState<
+  const [batchPickQtys, setBatchPickQtys] = useState<
     Record<string, Record<string, number>>
   >({});
 
@@ -331,7 +321,7 @@ export default function PackingDetailPage() {
     // batchMap: boonz_product_id → ordered batch list for FIFO picking guide
     const batchMap = new Map<
       string,
-      { expiry: string | null; stock: number }[]
+      { wh_inventory_id: string; expiry: string | null; stock: number }[]
     >();
 
     for (const b of rawBatches) {
@@ -357,6 +347,7 @@ export default function PackingDetailPage() {
       if (!batchMap.has(b.boonz_product_id))
         batchMap.set(b.boonz_product_id, []);
       batchMap.get(b.boonz_product_id)!.push({
+        wh_inventory_id: b.wh_inventory_id,
         expiry: b.expiration_date,
         stock: b.warehouse_stock ?? 0,
       });
@@ -503,16 +494,29 @@ export default function PackingDetailPage() {
     mapped.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
     setLines(mapped);
 
-    // Initialise variantQtys from computed packQty values for every mix line
-    const initVariantQtys: Record<string, Record<string, number>> = {};
+    // Initialise batchPickQtys: FIFO distribute each variant's packQty across its batches
+    const initBatchPickQtys: Record<string, Record<string, number>> = {};
     for (const line of mapped) {
-      if (line.variantStocks) {
-        initVariantQtys[line.dispatch_id] = Object.fromEntries(
-          line.variantStocks.map((v) => [v.boonzProductId, v.packQty]),
-        );
+      if (!line.variantStocks) continue;
+      if (!initBatchPickQtys[line.dispatch_id])
+        initBatchPickQtys[line.dispatch_id] = {};
+      for (const v of line.variantStocks) {
+        let remaining = v.packQty;
+        for (const batch of v.batches) {
+          const take = Math.min(batch.stock, remaining);
+          initBatchPickQtys[line.dispatch_id][batch.wh_inventory_id] = take;
+          remaining -= take;
+          if (remaining <= 0) break;
+        }
+        // Batches not yet written default to 0
+        for (const batch of v.batches) {
+          if (!(batch.wh_inventory_id in initBatchPickQtys[line.dispatch_id])) {
+            initBatchPickQtys[line.dispatch_id][batch.wh_inventory_id] = 0;
+          }
+        }
       }
     }
-    setVariantQtys(initVariantQtys);
+    setBatchPickQtys(initBatchPickQtys);
 
     const allResolved =
       mapped.length > 0 && mapped.every((l) => l.action !== null);
@@ -543,30 +547,8 @@ export default function PackingDetailPage() {
     );
   }
 
-  function updateVariantQty(
-    dispatchId: string,
-    boonzId: string,
-    value: number,
-  ) {
-    const val = Math.max(0, value);
-    setVariantQtys((prev) => ({
-      ...prev,
-      [dispatchId]: {
-        ...(prev[dispatchId] ?? {}),
-        [boonzId]: val,
-      },
-    }));
-    // Clear zero-qty warning for this line when user edits
-    setZeroQtyWarnings((prev) => {
-      if (!prev.has(dispatchId)) return prev;
-      const next = new Set(prev);
-      next.delete(dispatchId);
-      return next;
-    });
-  }
-
   function variantTotal(dispatchId: string): number {
-    return Object.values(variantQtys[dispatchId] ?? {}).reduce(
+    return Object.values(batchPickQtys[dispatchId] ?? {}).reduce(
       (s, n) => s + n,
       0,
     );
@@ -773,80 +755,129 @@ export default function PackingDetailPage() {
                           Out of stock
                         </p>
                       ) : (
-                        <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50 px-2 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+                        <div className="space-y-2">
                           {line
                             .variantStocks!.filter(
                               (v) => v.packQty > 0 || v.stock > 0,
                             )
                             .map((v) => {
-                              const qty =
-                                variantQtys[line.dispatch_id]?.[
-                                  v.boonzProductId
-                                ] ?? v.packQty;
+                              const variantPickTotal = v.batches.reduce(
+                                (sum, b) =>
+                                  sum +
+                                  (batchPickQtys[line.dispatch_id]?.[
+                                    b.wh_inventory_id
+                                  ] ?? 0),
+                                0,
+                              );
                               return (
-                                <div key={v.boonzProductId} className="py-0.5">
-                                  <div className="flex items-center justify-between">
-                                    <span className="flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
-                                      {v.name}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        value={qty}
-                                        disabled={isReadOnly}
-                                        onChange={(e) =>
-                                          updateVariantQty(
-                                            line.dispatch_id,
-                                            v.boonzProductId,
-                                            parseInt(e.target.value) || 0,
-                                          )
-                                        }
-                                        className="w-14 rounded border border-neutral-300 px-2 py-1 text-center text-xs disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800"
-                                      />
-                                      <span
-                                        className={`shrink-0 text-xs font-medium ${stockColor(v.stock, qty)}`}
-                                      >
-                                        Stock: {v.stock}
-                                      </span>
-                                      {v.earliestExpiry && (
-                                        <span
-                                          className={`shrink-0 text-xs ${expiryColour(v.earliestExpiry)}`}
-                                        >
-                                          Exp: {formatExpiry(v.earliestExpiry)}
-                                        </span>
-                                      )}
-                                    </div>
+                                <div key={v.boonzProductId}>
+                                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300">
+                                    {v.name}
                                   </div>
-                                  {/* FIFO batch picking guide */}
-                                  {v.batches.length > 0 && (
-                                    <div className="ml-2 mt-0.5 space-y-0.5">
-                                      {v.batches.map((b, bi) => (
+                                  <div className="w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
+                                    {/* Header row */}
+                                    <div className="grid grid-cols-4 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+                                      <span>Expiry</span>
+                                      <span>In Stock</span>
+                                      <span>Pick Qty</span>
+                                      <span>Age</span>
+                                    </div>
+                                    {/* Batch rows */}
+                                    {v.batches.map((b) => {
+                                      const pickQty =
+                                        batchPickQtys[line.dispatch_id]?.[
+                                          b.wh_inventory_id
+                                        ] ?? 0;
+                                      const days = b.expiry
+                                        ? Math.ceil(
+                                            (new Date(
+                                              b.expiry + "T00:00:00",
+                                            ).getTime() -
+                                              Date.now()) /
+                                              86400000,
+                                          )
+                                        : null;
+                                      const urgencyColor =
+                                        days === null
+                                          ? "text-neutral-400 dark:text-neutral-500"
+                                          : days <= 30
+                                            ? "text-red-500 font-medium dark:text-red-400"
+                                            : days <= 60
+                                              ? "text-amber-500 dark:text-amber-400"
+                                              : "text-neutral-400 dark:text-neutral-500";
+                                      return (
                                         <div
-                                          key={bi}
-                                          className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500"
+                                          key={b.wh_inventory_id}
+                                          className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
                                         >
-                                          <span>↳</span>
-                                          <span>
+                                          <span
+                                            className={`font-mono text-xs ${urgencyColor}`}
+                                          >
                                             {b.expiry
                                               ? formatExpiry(b.expiry)
-                                              : "No expiry"}
+                                              : "—"}
                                           </span>
-                                          <span>—</span>
-                                          <span>
-                                            {b.stock}{" "}
-                                            {b.stock === 1 ? "unit" : "units"}
+                                          <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                            {b.stock}u
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            max={b.stock}
+                                            value={pickQty}
+                                            disabled={isReadOnly}
+                                            onChange={(e) => {
+                                              const val = Math.min(
+                                                b.stock,
+                                                Math.max(
+                                                  0,
+                                                  parseInt(e.target.value) || 0,
+                                                ),
+                                              );
+                                              setBatchPickQtys((prev) => ({
+                                                ...prev,
+                                                [line.dispatch_id]: {
+                                                  ...(prev[line.dispatch_id] ??
+                                                    {}),
+                                                  [b.wh_inventory_id]: val,
+                                                },
+                                              }));
+                                              setZeroQtyWarnings((prev) => {
+                                                if (!prev.has(line.dispatch_id))
+                                                  return prev;
+                                                const next = new Set(prev);
+                                                next.delete(line.dispatch_id);
+                                                return next;
+                                              });
+                                            }}
+                                            className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                              pickQty >= b.stock && b.stock > 0
+                                                ? "border-amber-400"
+                                                : "border-neutral-300 dark:border-neutral-600"
+                                            }`}
+                                          />
+                                          <span
+                                            className={`text-xs ${urgencyColor}`}
+                                          >
+                                            {days !== null ? `${days}d` : "—"}
                                           </span>
                                         </div>
-                                      ))}
+                                      );
+                                    })}
+                                    {/* Total row */}
+                                    <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+                                      <span className="col-span-2 text-xs text-neutral-500">
+                                        Total picked
+                                      </span>
+                                      <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                                        {variantPickTotal}
+                                      </span>
+                                      <span />
                                     </div>
-                                  )}
+                                  </div>
                                 </div>
                               );
                             })}
-                          <p className="pt-0.5 text-right text-xs text-neutral-400">
-                            Total: {variantTotal(line.dispatch_id)} units
-                          </p>
                         </div>
                       )}
                       {/* Zero-qty warning */}
