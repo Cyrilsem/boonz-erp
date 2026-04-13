@@ -342,31 +342,33 @@ export default function InventoryDetailPage() {
       </div>
 
       {/* Expiry date */}
-      <div className="mb-4 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
-        <p className="text-xs uppercase tracking-wide text-neutral-500 mb-2">
-          Expiry Date
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={expiryDate}
-            onChange={(e) => setExpiryDate(e.target.value)}
-            className="flex-1 rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-          />
-          <button
-            onClick={handleSaveExpiry}
-            disabled={savingExpiry}
-            className="shrink-0 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-          >
-            {savingExpiry ? "Saving…" : "Save"}
-          </button>
-        </div>
-        {expirySaved && (
-          <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">
-            Expiry date updated ✓
+      {item && (
+        <div className="mb-4 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+          <p className="text-xs uppercase tracking-wide text-neutral-500 mb-2">
+            Expiry Date
           </p>
-        )}
-      </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="flex-1 rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+            />
+            <button
+              onClick={handleSaveExpiry}
+              disabled={savingExpiry}
+              className="shrink-0 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+            >
+              {savingExpiry ? "Saving…" : "Save"}
+            </button>
+          </div>
+          {expirySaved && (
+            <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">
+              Expiry date updated ✓
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Refill status */}
       <div className="mb-4 flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
