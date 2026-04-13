@@ -29,7 +29,7 @@ interface DispatchLine {
   shelf_id: string | null;
   shelf_code: string | null;
   pod_product_name: string | null;
-  boonz_product_name: string;
+  boonz_product_name: string | null;
   quantity: number;
   filled_qty: number;
   dispatched: boolean;
@@ -113,8 +113,7 @@ export default function DispatchingDetailPage() {
         expiry_date,
         comment,
         shelf_configurations(shelf_code),
-        pod_products(pod_product_name),
-        boonz_products!inner(boonz_product_name)
+        pod_products(pod_product_name)
       `,
       )
       .gte("dispatch_date", yesterday)
@@ -131,9 +130,6 @@ export default function DispatchingDetailPage() {
         const product = line.pod_products as unknown as {
           pod_product_name: string;
         } | null;
-        const bp = line.boonz_products as unknown as {
-          boonz_product_name: string;
-        };
         const isDispatched = !!line.dispatched;
         const isReturned = !!(line.returned as boolean | null);
         let action: LineAction = null;
@@ -145,7 +141,7 @@ export default function DispatchingDetailPage() {
           shelf_id: (line.shelf_id as string | null) ?? null,
           shelf_code: shelf?.shelf_code ?? null,
           pod_product_name: product?.pod_product_name ?? null,
-          boonz_product_name: bp.boonz_product_name,
+          boonz_product_name: null,
           quantity: line.quantity ?? 0,
           filled_qty: line.filled_quantity ?? line.quantity ?? 0,
           dispatched: isDispatched,

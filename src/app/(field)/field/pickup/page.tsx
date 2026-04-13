@@ -10,6 +10,9 @@ interface PickupLine {
   shelf_code: string | null;
   pod_product_name: string;
   quantity: number;
+  filled_quantity: number;
+  dispatched: boolean;
+  returned: boolean;
 }
 
 interface PickupMachine {
@@ -39,6 +42,7 @@ export default function PickupPage() {
       .select(
         `
         dispatch_id, machine_id, packed, picked_up, quantity,
+        filled_quantity, dispatched, returned,
         machines!inner(official_name),
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
@@ -81,6 +85,10 @@ export default function PickupPage() {
         shelf_code: shelf?.shelf_code ?? null,
         pod_product_name: product?.pod_product_name ?? "Transfer",
         quantity: line.quantity ?? 0,
+        filled_quantity:
+          (line.filled_quantity as number | null) ?? line.quantity ?? 0,
+        dispatched: !!(line.dispatched as boolean | null),
+        returned: !!(line.returned as boolean | null),
       };
 
       if (existing) {
@@ -290,24 +298,72 @@ export default function PickupPage() {
             Collected
           </h2>
           <ul className="space-y-2">
-            {collectedMachines.map((machine) => (
-              <li
-                key={machine.machine_id}
-                className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 opacity-60 dark:border-neutral-800 dark:bg-neutral-950"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-semibold truncate">
-                    {machine.official_name}
-                  </p>
-                  <p className="text-sm text-neutral-500">
-                    {machine.line_count} items
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
-                  Collected ✓
-                </span>
-              </li>
-            ))}
+            {collectedMachines.map((machine) => {
+              const isExpanded = expanded === machine.machine_id;
+              return (
+                <li
+                  key={machine.machine_id}
+                  className="rounded-lg border border-neutral-200 bg-white opacity-70 dark:border-neutral-800 dark:bg-neutral-950"
+                >
+                  <button
+                    onClick={() => toggleExpanded(machine.machine_id)}
+                    className="flex w-full items-center gap-3 p-4 text-left"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-base font-semibold truncate">
+                        {machine.official_name}
+                      </p>
+                      <p className="text-sm text-neutral-500">
+                        {machine.line_count} items
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                      Collected ✓
+                    </span>
+                    <span className="shrink-0 text-neutral-400 ml-1">
+                      {isExpanded ? "▲" : "▼"}
+                    </span>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-neutral-200 px-4 pb-4 dark:border-neutral-800">
+                      <ul className="mt-3 space-y-1">
+                        {machine.lines.map((line) => {
+                          const actionLabel = line.dispatched
+                            ? "Added"
+                            : line.returned
+                              ? "Returned"
+                              : "Pending";
+                          const actionClass = line.dispatched
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                            : line.returned
+                              ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                              : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400";
+                          return (
+                            <li
+                              key={line.dispatch_id}
+                              className="flex items-center gap-2 rounded bg-neutral-50 px-3 py-2 text-sm dark:bg-neutral-900"
+                            >
+                              <span
+                                className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${actionClass}`}
+                              >
+                                {actionLabel}
+                              </span>
+                              <span className="flex-1 truncate">
+                                {line.pod_product_name}
+                              </span>
+                              <span className="shrink-0 text-xs text-neutral-400">
+                                {line.quantity}→{line.filled_quantity}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
