@@ -132,6 +132,20 @@ export default function PackingDetailPage() {
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
 
+  /**
+   * Per-variant qty overrides for mix lines.
+   * Shape: { [dispatch_id]: { [boonzProductId]: qty } }
+   * Initialized from computed packQty values; user can edit each independently.
+   */
+  const [variantQtys, setVariantQtys] = useState<
+    Record<string, Record<string, number>>
+  >({});
+
+  /** dispatch_ids that showed zero-total warning when Packed was clicked */
+  const [zeroQtyWarnings, setZeroQtyWarnings] = useState<Set<string>>(
+    new Set(),
+  );
+
   const fetchData = useCallback(async () => {
     const supabase = createClient();
     const today = getDubaiDate();
@@ -441,6 +455,17 @@ export default function PackingDetailPage() {
     mapped.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
     setLines(mapped);
 
+    // Initialise variantQtys from computed packQty values for every mix line
+    const initVariantQtys: Record<string, Record<string, number>> = {};
+    for (const line of mapped) {
+      if (line.variantStocks) {
+        initVariantQtys[line.dispatch_id] = Object.fromEntries(
+          line.variantStocks.map((v) => [v.boonzProductId, v.packQty]),
+        );
+      }
+    }
+    setVariantQtys(initVariantQtys);
+
     const allResolved =
       mapped.length > 0 && mapped.every((l) => l.action !== null);
     if (allResolved) setSaved(true);
@@ -470,12 +495,42 @@ export default function PackingDetailPage() {
     );
   }
 
+  function updateVariantQty(
+    dispatchId: string,
+    boonzId: string,
+    value: number,
+  ) {
+    const val = Math.max(0, value);
+    setVariantQtys((prev) => ({
+      ...prev,
+      [dispatchId]: {
+        ...(prev[dispatchId] ?? {}),
+        [boonzId]: val,
+      },
+    }));
+    // Clear zero-qty warning for this line when user edits
+    setZeroQtyWarnings((prev) => {
+      if (!prev.has(dispatchId)) return prev;
+      const next = new Set(prev);
+      next.delete(dispatchId);
+      return next;
+    });
+  }
+
+  function variantTotal(dispatchId: string): number {
+    return Object.values(variantQtys[dispatchId] ?? {}).reduce(
+      (s, n) => s + n,
+      0,
+    );
+  }
+
   function handleMarkAllPacked() {
     setLines((prev) =>
       prev.map((l) => ({
         ...l,
         action: "packed" as LineAction,
-        packed_qty: l.recommended_qty,
+        // For single-variant lines keep recommended_qty; mix lines use variantQtys
+        packed_qty: l.variantStocks ? l.packed_qty : l.recommended_qty,
       })),
     );
   }
@@ -488,11 +543,16 @@ export default function PackingDetailPage() {
 
     for (const line of lines) {
       if (line.action === "packed") {
+        const isMix = line.variantStocks !== null;
+        const filledQty = isMix
+          ? variantTotal(line.dispatch_id)
+          : line.packed_qty;
+
         await supabase
           .from("refill_dispatching")
           .update({
             packed: true,
-            filled_quantity: line.packed_qty,
+            filled_quantity: filledQty,
             expiry_date: line.fifo_expiry ?? null,
           })
           .eq("dispatch_id", line.dispatch_id);
@@ -511,6 +571,15 @@ export default function PackingDetailPage() {
     setSaving(false);
     setSaved(true);
     setEditingAfterSave(false);
+  }
+
+  // Intercept Packed button for mix lines: show warning if total = 0
+  function handlePackedClick(line: PackLine) {
+    const isMix = line.variantStocks !== null;
+    if (isMix && variantTotal(line.dispatch_id) === 0) {
+      setZeroQtyWarnings((prev) => new Set([...prev, line.dispatch_id]));
+    }
+    updateAction(line.dispatch_id, "packed");
   }
 
   if (loading) {
@@ -647,35 +716,67 @@ export default function PackingDetailPage() {
                       Remove from machine
                     </p>
                   ) : isMix ? (
-                    /* Mix product — per-variant rows with split quantities */
+                    /* Mix product — per-variant editable qty inputs */
                     <div className="mb-2">
-                      {line.variantStocks!.every((v) => v.packQty === 0) ? (
+                      {line.variantStocks!.every(
+                        (v) => v.packQty === 0 && v.stock === 0,
+                      ) ? (
                         <p className="text-xs font-medium text-red-600 dark:text-red-400">
                           Out of stock
                         </p>
                       ) : (
-                        <div className="space-y-0.5 rounded-md border border-neutral-100 bg-neutral-50 px-2 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+                        <div className="space-y-1 rounded-md border border-neutral-100 bg-neutral-50 px-2 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
                           {line
-                            .variantStocks!.filter((v) => v.packQty > 0)
-                            .map((v) => (
-                              <div
-                                key={v.boonzProductId}
-                                className="flex items-center gap-2 text-xs"
-                              >
-                                <span className="flex-1 truncate text-neutral-700 dark:text-neutral-300">
-                                  {v.name}
-                                </span>
-                                <span className="shrink-0 font-medium text-neutral-600 dark:text-neutral-400">
-                                  Pack: {v.packQty}
-                                </span>
-                                <span
-                                  className={`shrink-0 ${stockColor(v.stock, v.packQty)}`}
+                            .variantStocks!.filter(
+                              (v) => v.packQty > 0 || v.stock > 0,
+                            )
+                            .map((v) => {
+                              const qty =
+                                variantQtys[line.dispatch_id]?.[
+                                  v.boonzProductId
+                                ] ?? v.packQty;
+                              return (
+                                <div
+                                  key={v.boonzProductId}
+                                  className="flex items-center justify-between py-0.5"
                                 >
-                                  Stock: {v.stock}
-                                </span>
-                              </div>
-                            ))}
+                                  <span className="flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
+                                    {v.name}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      value={qty}
+                                      disabled={isReadOnly}
+                                      onChange={(e) =>
+                                        updateVariantQty(
+                                          line.dispatch_id,
+                                          v.boonzProductId,
+                                          parseInt(e.target.value) || 0,
+                                        )
+                                      }
+                                      className="w-14 rounded border border-neutral-300 px-2 py-1 text-center text-xs disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800"
+                                    />
+                                    <span
+                                      className={`shrink-0 text-xs font-medium ${stockColor(v.stock, qty)}`}
+                                    >
+                                      Stock: {v.stock}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          <p className="pt-0.5 text-right text-xs text-neutral-400">
+                            Total: {variantTotal(line.dispatch_id)} units
+                          </p>
                         </div>
+                      )}
+                      {/* Zero-qty warning */}
+                      {zeroQtyWarnings.has(line.dispatch_id) && (
+                        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                          Enter at least 1 unit across variants
+                        </p>
                       )}
                     </div>
                   ) : (
@@ -731,31 +832,33 @@ export default function PackingDetailPage() {
                     </>
                   )}
 
-                  {/* Packed qty input (total for mix lines) */}
-                  <div className="mb-2 flex items-center gap-2">
-                    <label className="text-xs text-neutral-500">
-                      {isMix ? "Total packed:" : "Packed qty:"}
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={line.packed_qty}
-                      onChange={(e) =>
-                        updatePackedQty(
-                          line.dispatch_id,
-                          parseFloat(e.target.value) || 0,
-                        )
-                      }
-                      disabled={isReadOnly || isRemove}
-                      className="w-20 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
-                    />
-                  </div>
+                  {/* Packed qty input — single-variant lines only */}
+                  {!isMix && (
+                    <div className="mb-2 flex items-center gap-2">
+                      <label className="text-xs text-neutral-500">
+                        Packed qty:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={line.packed_qty}
+                        onChange={(e) =>
+                          updatePackedQty(
+                            line.dispatch_id,
+                            parseFloat(e.target.value) || 0,
+                          )
+                        }
+                        disabled={isReadOnly || isRemove}
+                        className="w-20 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                      />
+                    </div>
+                  )}
 
                   {/* Action toggle */}
                   {!isReadOnly && (
                     <div className="flex gap-2">
                       <button
-                        onClick={() => updateAction(line.dispatch_id, "packed")}
+                        onClick={() => handlePackedClick(line)}
                         className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
                           line.action === "packed"
                             ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
