@@ -9,10 +9,12 @@ Two parallel operations:
 
 Usage:
   python -m engines.refill.fetch_weimi_data
+  python -m engines.refill.fetch_weimi_data --machine ADDMIND-1007-0000-W0
 """
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -20,7 +22,7 @@ import random
 import string
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -230,10 +232,75 @@ def _calc_total_stock(door_statuses: list) -> int:
     return total
 
 
-def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict:
+def _extract_slot_codes(door_statuses: list) -> list[str]:
+    """
+    Return a flat list of aisle codes from the full cabinets→layers→aisles
+    hierarchy.  Used for per-machine logging (slot count, first/last code).
+    """
+    codes: list[str] = []
+    for cabinet in door_statuses or []:
+        for layer in (cabinet.get("layers") or []):
+            for aisle in (layer.get("aisles") or []):
+                code = str(aisle.get("code") or aisle.get("showName") or "").strip()
+                if code:
+                    codes.append(code)
+    return codes
+
+
+def _check_staleness_post_upsert(client: Client, rows: list[dict]) -> None:
+    """
+    Post-upsert staleness check.
+
+    For every device that resolved to a known machine_id, query the last 2
+    distinct snapshot_date rows from weimi_device_status.  If total_curr_stock
+    is identical across both days, emit a WARNING so operators can investigate
+    whether the Weimi device is actually reporting live data.
+    """
+    named_rows = [r for r in rows if r.get("machine_id")]
+    if not named_rows:
+        return
+
+    for row in named_rows:
+        resp = (
+            client.table("weimi_device_status")
+            .select("snapshot_date, total_curr_stock")
+            .eq("weimi_device_id", row["weimi_device_id"])
+            .order("snapshot_date", desc=True)
+            .limit(2)
+            .execute()
+        )
+        records = resp.data or []
+        if len(records) < 2:
+            continue
+        stocks = [r["total_curr_stock"] for r in records]
+        if stocks[0] == stocks[1]:
+            print(
+                f"  ⚠  WARNING: STALE DATA DETECTED for {row['device_name']} "
+                f"(device_code={row['device_code']}) — "
+                f"total_curr_stock unchanged for 2+ days "
+                f"(stock={stocks[0]}, "
+                f"dates: {records[1]['snapshot_date']} → {records[0]['snapshot_date']})"
+            )
+
+
+def _fetch_device_snapshot(
+    app_id: str,
+    secret_key: str,
+    client: Client,
+    *,
+    machine_filter: str | None = None,
+    verbose: bool = False,
+) -> dict:
     """
     Fetch all devices from Weimi /device-info (GET), upsert to weimi_device_status.
     Resolves machine_id by matching device_name against machines.official_name.
+
+    Args:
+        machine_filter: if set, only process the device whose deviceName matches
+                        this string (exact match against official_name).
+        verbose:        if True, print the full raw API response before processing.
+                        Automatically enabled when machine_filter is set.
+
     Returns summary dict: {slots, devices, upserted}.
     """
     headers = _sign_get(app_id, secret_key)
@@ -244,6 +311,11 @@ def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict
     )
     resp.raise_for_status()
     body = resp.json()
+
+    if verbose:
+        print("\n[RAW API RESPONSE — GET /ext/device-info]")
+        print(json.dumps(body, indent=2, ensure_ascii=False))
+        print()
 
     # Device list can be at data.list, data.records, or data directly
     data = body.get("data") or {}
@@ -256,6 +328,18 @@ def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict
     if not devices:
         return {"slots": 0, "devices": 0, "upserted": 0}
 
+    # ── Apply machine filter ──────────────────────────────────────────────────
+    if machine_filter:
+        all_names = sorted(str(d.get("deviceName") or "") for d in devices)
+        devices = [
+            d for d in devices
+            if str(d.get("deviceName") or "") == machine_filter
+        ]
+        if not devices:
+            print(f"  WARNING: no Weimi device found with deviceName='{machine_filter}'")
+            print(f"  Known device names ({len(all_names)}): {all_names}")
+            return {"slots": 0, "devices": 0, "upserted": 0}
+
     # Resolve machine_id: fetch all machines once, build name→id map
     machines_resp = (
         client.table("machines")
@@ -266,6 +350,25 @@ def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict
     name_to_id: dict[str, str] = {
         r["official_name"]: r["machine_id"]
         for r in (machines_resp.data or [])
+    }
+
+    # Pre-fetch yesterday's device stocks for same-as-yesterday comparison
+    yesterday_date = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    device_codes_list = [
+        str(d.get("deviceCode") or "") for d in devices if d.get("deviceCode")
+    ]
+    prev_resp = (
+        client.table("weimi_device_status")
+        .select("device_code, total_curr_stock")
+        .eq("snapshot_date", yesterday_date)
+        .in_("device_code", device_codes_list)
+        .limit(10000)
+        .execute()
+    )
+    prev_stocks: dict[str, int] = {
+        r["device_code"]: r["total_curr_stock"]
+        for r in (prev_resp.data or [])
+        if r.get("device_code") is not None
     }
 
     now_ts = datetime.now(timezone.utc).isoformat()
@@ -306,6 +409,37 @@ def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict
         cabinet_count = len(door_statuses) if isinstance(door_statuses, list) else 1
         machine_id = name_to_id.get(device_name)
 
+        # ── Per-machine slot logging ──────────────────────────────────────────
+        slot_codes = _extract_slot_codes(door_statuses)
+        slot_count = len(slot_codes)
+        first_code = slot_codes[0] if slot_codes else "—"
+        last_code = slot_codes[-1] if slot_codes else "—"
+        resolved_label = (
+            f"machine_id={machine_id}" if machine_id else "machine_id=UNRESOLVED"
+        )
+
+        print(
+            f"  [{device_name}] device_code={device_code} "
+            f"slots={slot_count} first={first_code} last={last_code} "
+            f"curr_stock={curr_stock} {resolved_label} snapshot_at={now_ts}"
+        )
+
+        if slot_count == 0:
+            print(
+                f"  ⚠  WARNING: [{device_name}] device_code={device_code} "
+                f"returned 0 slots — door_statuses may be empty or malformed"
+            )
+
+        prev_stock = prev_stocks.get(device_code)
+        if prev_stock is not None and curr_stock == prev_stock:
+            print(
+                f"  ⚠  WARNING: [{device_name}] device_code={device_code} "
+                f"stock identical to previous day "
+                f"(curr_stock={curr_stock}, yesterday_stock={prev_stock}) "
+                f"— data may be stale"
+            )
+        # ─────────────────────────────────────────────────────────────────────
+
         rows.append({
             "weimi_device_id": weimi_device_id,
             "device_code":     device_code,
@@ -329,6 +463,9 @@ def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict
         on_conflict="weimi_device_id,snapshot_date",
     ).execute()
 
+    # Post-upsert staleness check (last 2 days identical → WARNING)
+    _check_staleness_post_upsert(client, rows)
+
     return {
         "slots": total_slots,
         "devices": len(rows),
@@ -339,33 +476,66 @@ def _fetch_device_snapshot(app_id: str, secret_key: str, client: Client) -> dict
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Fetch live data from Weimi API and write to Supabase."
+    )
+    parser.add_argument(
+        "--machine",
+        metavar="OFFICIAL_NAME",
+        default=None,
+        help=(
+            "Filter device fetch to a single machine by official_name "
+            "(e.g. 'ADDMIND-1007-0000-W0'). Prints the full raw API response "
+            "for inspection. Sales fetch is skipped in this mode."
+        ),
+    )
+    args = parser.parse_args()
+    machine_filter: str | None = args.machine
+
     app_id, secret_key, client = _get_env()
 
     started_at = datetime.now(timezone.utc)
     print(f"\n=== BOONZ DATA FETCH — {started_at.strftime('%Y-%m-%d %H:%M:%S')} ===")
+    if machine_filter:
+        print(f"    [FILTER] machine={machine_filter} (single-machine inspection mode)")
 
     results: dict[str, object] = {}
     errors: dict[str, str] = {}
 
-    def run_sales() -> dict:
-        print("Fetching today's sales from Weimi...")
-        return _fetch_today_sales(app_id, secret_key, client)
+    if machine_filter:
+        # Single-machine inspection: skip sales, run device fetch synchronously
+        # with verbose=True so the full raw API response is printed.
+        print("Fetching live slot snapshot from Weimi (single-machine mode)...")
+        try:
+            results["devices"] = _fetch_device_snapshot(
+                app_id,
+                secret_key,
+                client,
+                machine_filter=machine_filter,
+                verbose=True,
+            )
+        except Exception as exc:
+            errors["devices"] = str(exc)
+    else:
+        def run_sales() -> dict:
+            print("Fetching today's sales from Weimi...")
+            return _fetch_today_sales(app_id, secret_key, client)
 
-    def run_devices() -> dict:
-        print("Fetching live slot snapshot from Weimi...")
-        return _fetch_device_snapshot(app_id, secret_key, client)
+        def run_devices() -> dict:
+            print("Fetching live slot snapshot from Weimi...")
+            return _fetch_device_snapshot(app_id, secret_key, client)
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            executor.submit(run_sales): "sales",
-            executor.submit(run_devices): "devices",
-        }
-        for future in as_completed(futures):
-            name = futures[future]
-            try:
-                results[name] = future.result()
-            except Exception as exc:
-                errors[name] = str(exc)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(run_sales): "sales",
+                executor.submit(run_devices): "devices",
+            }
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as exc:
+                    errors[name] = str(exc)
 
     # Print results
     if "sales" in results:
