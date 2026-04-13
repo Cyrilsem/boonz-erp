@@ -106,6 +106,10 @@ class SlotRefillLine(TypedDict):
     local_hero_reason: str | None  # e.g. "3.2x machine avg velocity"
     is_local_dead: bool         # WIND DOWN/ROTATE OUT + velocity_30d < 0.1
 
+    # Multi-variant floor
+    variant_count: int          # number of boonz variants for this pod product
+    variant_floor: int          # minimum target based on variant count
+
 
 class RefillPlan(TypedDict):
     lines: list[SlotRefillLine]
@@ -173,10 +177,13 @@ def calculate_slot_qty(
     effective_max_stock: int,
     current_stock: int,
     action_cap: int | None,     # None = no cap; int = hard ceiling
+    variant_floor: int = 1,     # minimum units based on variant count
 ) -> tuple[int, int]:
     """Returns (target_qty, refill_qty)."""
     velocity_target = ceil(daily_avg * days_cover)
-    target_qty = max(velocity_target, floor_qty)
+    # Effective floor = max of mode floor, variant floor
+    effective_floor = max(floor_qty, variant_floor)
+    target_qty = max(velocity_target, effective_floor)
     target_qty = min(target_qty, effective_max_stock)
     if action_cap is not None:
         target_qty = min(target_qty, action_cap)
@@ -242,6 +249,30 @@ def _fetch_product_attrs(client: Client) -> dict[str, bool]:
         return {}  # Fall through to per-slot keyword fallback
 
 
+def _fetch_variant_counts(client: Client) -> dict[str, int]:
+    """
+    Returns dict: pod_product_id → number of boonz variants
+    (via is_global_default=True product_mapping rows).
+    Falls back to empty dict on error (engine uses floor=1 fallback).
+    """
+    try:
+        resp = (
+            client.table("product_mapping")
+            .select("pod_product_id, boonz_product_id")
+            .eq("is_global_default", True)
+            .limit(10000)
+            .execute()
+        )
+        counts: dict[str, int] = {}
+        for r in (resp.data or []):
+            ppid = r.get("pod_product_id")
+            if ppid:
+                counts[ppid] = counts.get(ppid, 0) + 1
+        return counts
+    except Exception:
+        return {}
+
+
 # ── Machine sales aggregation ────────────────────────────────────────────────
 
 def _machine_sales_totals(
@@ -305,6 +336,7 @@ def run_engine_b(
     # ── Startup fetches ────────────────────────────────────────────────────
     product_attrs = _fetch_product_attrs(client)
     use_keyword_fallback = len(product_attrs) < 50
+    variant_counts = _fetch_variant_counts(client)
 
     machine_sales = _machine_sales_totals(fleet, client)
 
@@ -428,6 +460,8 @@ def run_engine_b(
                 is_local_hero=False,
                 local_hero_reason=None,
                 is_local_dead=False,
+                variant_count=variant_counts.get(pod_pid, 1) if pod_pid else 1,
+                variant_floor=0,
             ))
             continue
 
@@ -459,6 +493,8 @@ def run_engine_b(
                     is_local_hero=False,
                     local_hero_reason=None,
                     is_local_dead=False,
+                    variant_count=variant_counts.get(pod_pid, 1) if pod_pid else 1,
+                    variant_floor=0,
                 ))
             else:
                 target_qty = floor_qty
@@ -491,6 +527,8 @@ def run_engine_b(
                     is_local_hero=False,
                     local_hero_reason=None,
                     is_local_dead=False,
+                    variant_count=variant_counts.get(pod_pid, 1) if pod_pid else 1,
+                    variant_floor=0,
                 ))
             continue
 
@@ -541,10 +579,23 @@ def run_engine_b(
                 is_local_hero=False,
                 local_hero_reason=None,
                 is_local_dead=True,
+                variant_count=variant_counts.get(pod_pid, 1) if pod_pid else 1,
+                variant_floor=0,
             ))
             continue
 
-        # 12. Swap minimum (no velocity history)
+        # 12. Variant floor — each variant should have at least 1-3 units represented
+        variant_count = variant_counts.get(pod_pid, 1) if pod_pid else 1
+        if attr_drink:
+            # Drinks: 3 units per variant (e.g. Popit 3 flavours → 9 min)
+            variant_floor = variant_count * 3
+        else:
+            # Snacks: 1 unit per variant (e.g. Chocolate Bar 7 variants → 7 min)
+            variant_floor = variant_count * 1
+        # Hard cap: variant_floor never exceeds 80% of effective_max_stock
+        variant_floor = min(variant_floor, int(effective_max * 0.8))
+
+        # 13. Swap minimum (no velocity history)
         is_swap_min = False
         if daily_avg == 0.0:
             swap_min = 6 if attr_drink else 4
@@ -578,10 +629,15 @@ def run_engine_b(
                 effective_max_stock=effective_max,
                 current_stock=current_stock,
                 action_cap=action_cap,
+                variant_floor=variant_floor,
+            )
+            variant_note = (
+                f", {variant_count} variants → floor {variant_floor}"
+                if variant_floor > floor_qty else ""
             )
             explanation = (
                 f"{final_action} — daily_avg={daily_avg:.2f}, "
-                f"{days_cover}d cover{cap_note}: "
+                f"{days_cover}d cover{cap_note}{variant_note}: "
                 f"{current_stock} → {target_qty}."
             )
 
@@ -615,6 +671,8 @@ def run_engine_b(
             is_local_hero=is_local_hero,
             local_hero_reason=local_hero_reason,
             is_local_dead=False,
+            variant_count=variant_count,
+            variant_floor=variant_floor,
         ))
 
     # ── Aggregate ──────────────────────────────────────────────────────────

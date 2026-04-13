@@ -76,3 +76,22 @@ Filter: <filter> | Date: <date>
 ## STEP 3 — Open refill page
 
 Navigate to https://boonz-erp.vercel.app/refill
+
+---
+
+## Engine logic notes
+
+### Multi-variant floor
+
+For products with multiple boonz variants, the floor is:
+
+- Drinks: variant_count × 3 (e.g. Popit Mix 3 flavours → 9 minimum)
+- Snacks: variant_count × 1 (e.g. Chocolate Bar 7 variants → 7 minimum)
+- Cap at 80% of max_stock
+- Final target = MAX(velocity_target, mode_floor, variant_floor)
+
+### Swap rate limit (updated)
+
+First 2 swap pairs per machine per cycle: cooldown check skipped (always allowed).
+From swap 3 onwards: 14-day cooldown applies as before.
+Max 2 swap pairs per machine per cycle still enforced regardless.

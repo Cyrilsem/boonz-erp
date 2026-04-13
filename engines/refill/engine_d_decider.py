@@ -314,28 +314,33 @@ def _apply_rate_limits(
     """
     Returns (accepted, [(rejected, reason)]).
     Accepted list is in priority order (best first).
+
+    Cooldown rule (§9 updated):
+    - First 2 swap pairs per machine per cycle: cooldown check skipped (always
+      allowed regardless of recent_changes).
+    - From swap pair 3 onwards: 14-day cooldown applies as before.
+    - Max 2 swap pairs per machine per cycle still enforced regardless.
     """
-    # Sort: highest priority first, then by machine to group them
+    # Sort: highest priority first
     sorted_cands = sorted(swap_candidates, key=lambda c: c.priority, reverse=True)
 
     accepted: list[_SwapCandidate] = []
     rejected: list[tuple[_SwapCandidate, str]] = []
 
-    # First pass: filter out recent changes (hard block)
-    after_recent: list[_SwapCandidate] = []
-    for cand in sorted_cands:
-        if cand.was_recent:
-            rejected.append((cand, "min_days_not_elapsed"))
-        else:
-            after_recent.append(cand)
-
-    # Second pass: apply count limits greedily
     machines_with_changes: set[str] = set()
     changes_per_machine: dict[str, int] = {}
     total_changes = 0
 
-    for cand in after_recent:
+    for cand in sorted_cands:
         mid = cand.line["machine_id"]
+        swaps_so_far = changes_per_machine.get(mid, 0)
+
+        # Cooldown: first 2 swap pairs at this machine are free;
+        # from pair 3 onwards, the 14-day cooldown applies.
+        cooldown_applies = swaps_so_far >= 2
+        if cooldown_applies and cand.was_recent:
+            rejected.append((cand, "min_days_not_elapsed"))
+            continue
 
         # Limit 1: max_total_slot_changes_per_day
         if total_changes >= RATE_LIMITS["max_total_slot_changes_per_day"]:
@@ -343,8 +348,7 @@ def _apply_rate_limits(
             continue
 
         # Limit 2: max_slot_changes_per_machine
-        machine_count = changes_per_machine.get(mid, 0)
-        if machine_count >= RATE_LIMITS["max_slot_changes_per_machine"]:
+        if swaps_so_far >= RATE_LIMITS["max_slot_changes_per_machine"]:
             rejected.append((cand, "max_slot_changes_per_machine"))
             continue
 
@@ -359,7 +363,7 @@ def _apply_rate_limits(
         # Accept
         accepted.append(cand)
         machines_with_changes.add(mid)
-        changes_per_machine[mid] = machine_count + 1
+        changes_per_machine[mid] = swaps_so_far + 1
         total_changes += 1
 
     return accepted, rejected
