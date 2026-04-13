@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  Dispatch,
+  SetStateAction,
+} from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
@@ -81,6 +88,29 @@ interface InventoryGroup {
   totalUnits: number;
 }
 
+interface BatchRow {
+  wh_inventory_id: string;
+  warehouse_stock: number;
+  expiration_date: string | null;
+  status: string;
+  wh_location: string | null;
+  batch_id: string;
+}
+
+interface ProductGroup {
+  boonz_product_id: string;
+  boonz_product_name: string;
+  product_category: string | null;
+  batches: BatchRow[];
+  totalStock: number;
+  earliestExpiry: string | null;
+}
+
+type SaveFeedback = {
+  qty?: "saved" | "error";
+  location?: "saved" | "error";
+};
+
 const expiryFilters: { label: string; value: ExpiryFilter }[] = [
   { label: "All", value: "all" },
   { label: "Expired", value: "expired" },
@@ -107,6 +137,15 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+/** Format YYYY-MM-DD as "12 Jul 26" */
+function formatExpiryBatch(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+  });
+}
+
 function ExpiryBadge({ expiryDate }: { expiryDate: string | null }) {
   const style = getExpiryStyle(expiryDate);
   if (!style.label) return null;
@@ -116,6 +155,34 @@ function ExpiryBadge({ expiryDate }: { expiryDate: string | null }) {
     >
       {style.label}
     </span>
+  );
+}
+
+function DaysBadge({ expiryDate }: { expiryDate: string | null }) {
+  if (!expiryDate) {
+    return (
+      <span className="shrink-0 rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        No expiry
+      </span>
+    );
+  }
+  const days = daysUntilExpiry(expiryDate);
+  if (days === null) return null;
+  if (days <= 0) {
+    return (
+      <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+        Expired
+      </span>
+    );
+  }
+  const cls =
+    days <= 7
+      ? "text-red-600 dark:text-red-400"
+      : days <= 30
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-green-600 dark:text-green-400";
+  return (
+    <span className={`shrink-0 text-xs font-medium ${cls}`}>{days}d left</span>
   );
 }
 
@@ -143,6 +210,213 @@ function SectionHeader({
   );
 }
 
+// ─── ProductCard component ─────────────────────────────────────────────────
+
+interface ProductCardProps {
+  pg: ProductGroup;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
+  controlMode: boolean;
+  controlEdits: Map<string, ControlEdit>;
+  updateControlEdit: (
+    id: string,
+    field: keyof ControlEdit,
+    value: string | number,
+  ) => void;
+  inlineQtys: Record<string, number>;
+  inlineLocations: Record<string, string>;
+  saveFeedback: Record<string, SaveFeedback>;
+  setInlineQtys: Dispatch<SetStateAction<Record<string, number>>>;
+  setInlineLocations: Dispatch<SetStateAction<Record<string, string>>>;
+  onSaveQty: (id: string, qty: number) => Promise<void>;
+  onSaveLocation: (id: string, location: string) => Promise<void>;
+  onToggleStatus: (id: string, currentStatus: string) => Promise<void>;
+}
+
+function ProductCard({
+  pg,
+  isCollapsed,
+  onToggleCollapse,
+  controlMode,
+  controlEdits,
+  updateControlEdit,
+  inlineQtys,
+  inlineLocations,
+  saveFeedback,
+  setInlineQtys,
+  setInlineLocations,
+  onSaveQty,
+  onSaveLocation,
+  onToggleStatus,
+}: ProductCardProps) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+      {/* Card header */}
+      <button
+        onClick={onToggleCollapse}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-neutral-50 dark:hover:bg-neutral-900"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold">{pg.boonz_product_name}</p>
+          {pg.product_category && (
+            <p className="text-xs text-neutral-500">{pg.product_category}</p>
+          )}
+        </div>
+        <span className="shrink-0 text-sm font-bold text-neutral-700 dark:text-neutral-300">
+          {pg.totalStock} units
+        </span>
+        {isCollapsed && pg.earliestExpiry && (
+          <span className="shrink-0 text-xs text-neutral-500">
+            {formatExpiryBatch(pg.earliestExpiry)}
+          </span>
+        )}
+        <span className="shrink-0 text-xs text-neutral-400">
+          {isCollapsed ? "▶" : "▼"}
+        </span>
+      </button>
+
+      {/* Batch rows */}
+      {!isCollapsed && (
+        <div className="border-t border-neutral-100 dark:border-neutral-800">
+          {pg.batches.map((batch) => {
+            const edit = controlEdits.get(batch.wh_inventory_id);
+            const batchQty =
+              controlMode && edit
+                ? edit.qty
+                : (inlineQtys[batch.wh_inventory_id] ?? batch.warehouse_stock);
+            const batchLocation =
+              controlMode && edit
+                ? edit.location
+                : (inlineLocations[batch.wh_inventory_id] ??
+                  batch.wh_location ??
+                  "");
+            const fb = saveFeedback[batch.wh_inventory_id];
+            return (
+              <div
+                key={batch.wh_inventory_id}
+                className="flex flex-wrap items-center gap-2 border-b border-neutral-50 px-4 py-2.5 last:border-b-0 dark:border-neutral-800/50"
+              >
+                {/* Expiry date */}
+                <span className="w-20 shrink-0 text-xs text-neutral-600 dark:text-neutral-400">
+                  {batch.expiration_date
+                    ? formatExpiryBatch(batch.expiration_date)
+                    : "—"}
+                </span>
+                {/* Days badge */}
+                <DaysBadge expiryDate={batch.expiration_date} />
+                {/* Qty input */}
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    value={batchQty}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10) || 0;
+                      if (controlMode) {
+                        updateControlEdit(batch.wh_inventory_id, "qty", val);
+                      } else {
+                        setInlineQtys((prev) => ({
+                          ...prev,
+                          [batch.wh_inventory_id]: Math.max(0, val),
+                        }));
+                      }
+                    }}
+                    onBlur={(e) => {
+                      if (!controlMode) {
+                        void onSaveQty(
+                          batch.wh_inventory_id,
+                          parseInt(e.target.value, 10) || 0,
+                        );
+                      }
+                    }}
+                    className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                  />
+                  {fb?.qty && (
+                    <span
+                      className={`text-xs ${fb.qty === "saved" ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}
+                    >
+                      {fb.qty === "saved" ? "✓" : "✗"}
+                    </span>
+                  )}
+                </div>
+                {/* Location input */}
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <input
+                    type="text"
+                    value={batchLocation}
+                    placeholder="Unassigned"
+                    onChange={(e) => {
+                      if (controlMode) {
+                        updateControlEdit(
+                          batch.wh_inventory_id,
+                          "location",
+                          e.target.value,
+                        );
+                      } else {
+                        setInlineLocations((prev) => ({
+                          ...prev,
+                          [batch.wh_inventory_id]: e.target.value,
+                        }));
+                      }
+                    }}
+                    onBlur={(e) => {
+                      if (!controlMode) {
+                        void onSaveLocation(
+                          batch.wh_inventory_id,
+                          e.target.value,
+                        );
+                      }
+                    }}
+                    className="w-full min-w-0 rounded border border-neutral-200 px-2 py-1 text-xs placeholder:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
+                  />
+                  {fb?.location && (
+                    <span
+                      className={`shrink-0 text-xs ${fb.location === "saved" ? "text-green-600 dark:text-green-400" : "text-red-500 dark:text-red-400"}`}
+                    >
+                      {fb.location === "saved" ? "✓" : "✗"}
+                    </span>
+                  )}
+                </div>
+                {/* Status pill */}
+                <button
+                  onClick={() => {
+                    if (!controlMode) {
+                      void onToggleStatus(batch.wh_inventory_id, batch.status);
+                    } else if (edit) {
+                      updateControlEdit(
+                        batch.wh_inventory_id,
+                        "status",
+                        edit.status === "Active" ? "Inactive" : "Active",
+                      );
+                    }
+                  }}
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                    batch.status === "Active"
+                      ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                      : batch.status === "Expired"
+                        ? "cursor-default bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                        : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400"
+                  }`}
+                >
+                  {controlMode && edit ? edit.status : batch.status}
+                </button>
+                {/* Link to detail page */}
+                <Link
+                  href={`/field/inventory/${batch.wh_inventory_id}`}
+                  className="shrink-0 text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  →
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function InventoryPage() {
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,6 +427,21 @@ export default function InventoryPage() {
   const [hideEmpty, setHideEmpty] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
+
+  /** Products collapsed to header-only (default: all expanded) */
+  const [collapsedProducts, setCollapsedProducts] = useState<Set<string>>(
+    new Set(),
+  );
+  /** Per-batch qty values for inline edits (normal mode) */
+  const [inlineQtys, setInlineQtys] = useState<Record<string, number>>({});
+  /** Per-batch location values for inline edits (normal mode) */
+  const [inlineLocations, setInlineLocations] = useState<
+    Record<string, string>
+  >({});
+  /** Per-batch save feedback ("✓ Saved" / "✗ Error") */
+  const [saveFeedback, setSaveFeedback] = useState<
+    Record<string, SaveFeedback>
+  >({});
 
   // Pending reviews
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -335,6 +624,18 @@ export default function InventoryPage() {
       window.removeEventListener("focus", handleFocus);
     };
   }, [fetchData, fetchPendingEdits]);
+
+  // Initialise inline edit values whenever rows reload
+  useEffect(() => {
+    const qtys: Record<string, number> = {};
+    const locs: Record<string, string> = {};
+    for (const row of rows) {
+      qtys[row.wh_inventory_id] = row.warehouse_stock;
+      locs[row.wh_inventory_id] = row.wh_location ?? "";
+    }
+    setInlineQtys(qtys);
+    setInlineLocations(locs);
+  }, [rows]);
 
   // Enter control mode: initialize edits from current rows
   function enterControlMode() {
@@ -825,6 +1126,95 @@ export default function InventoryPage() {
     showReviewToast("Edit rejected");
   }
 
+  // ─── Inline save helpers ────────────────────────────────────────────────────
+
+  function clearFeedbackField(id: string, field: keyof SaveFeedback) {
+    setTimeout(() => {
+      setSaveFeedback((prev) => {
+        if (!prev[id]) return prev;
+        const updated: SaveFeedback = { ...prev[id] };
+        delete updated[field];
+        return { ...prev, [id]: updated };
+      });
+    }, 1500);
+  }
+
+  async function saveInlineQty(id: string, qty: number) {
+    const safeQty = Math.max(0, qty);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("warehouse_inventory")
+      .update({ warehouse_stock: safeQty })
+      .eq("wh_inventory_id", id);
+
+    const status = error ? ("error" as const) : ("saved" as const);
+    setSaveFeedback((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], qty: status },
+    }));
+    if (!error) {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.wh_inventory_id === id ? { ...r, warehouse_stock: safeQty } : r,
+        ),
+      );
+    }
+    clearFeedbackField(id, "qty");
+  }
+
+  async function saveInlineLocation(id: string, location: string) {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("warehouse_inventory")
+      .update({ wh_location: location.trim() || null })
+      .eq("wh_inventory_id", id);
+
+    const status = error ? ("error" as const) : ("saved" as const);
+    setSaveFeedback((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], location: status },
+    }));
+    if (!error) {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.wh_inventory_id === id
+            ? { ...r, wh_location: location.trim() || null }
+            : r,
+        ),
+      );
+    }
+    clearFeedbackField(id, "location");
+  }
+
+  async function toggleBatchStatus(id: string, currentStatus: string) {
+    if (currentStatus === "Expired") return;
+    const newStatus = currentStatus === "Active" ? "Inactive" : "Active";
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("warehouse_inventory")
+      .update({ status: newStatus })
+      .eq("wh_inventory_id", id);
+    if (!error) {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.wh_inventory_id === id ? { ...r, status: newStatus } : r,
+        ),
+      );
+    }
+  }
+
+  function toggleCollapse(boonzProductId: string) {
+    setCollapsedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(boonzProductId)) {
+        next.delete(boonzProductId);
+      } else {
+        next.add(boonzProductId);
+      }
+      return next;
+    });
+  }
+
   const processed: InventoryRow[] = useMemo(() => {
     let filtered = rows;
 
@@ -941,6 +1331,96 @@ export default function InventoryPage() {
 
     return result;
   }, [processed, groupBy]);
+
+  /** Batch rows grouped by product, sorted for the current sortBy */
+  const productGroups: ProductGroup[] = useMemo(() => {
+    const map = new Map<string, ProductGroup>();
+    const order: string[] = [];
+
+    for (const row of processed) {
+      if (!map.has(row.boonz_product_id)) {
+        order.push(row.boonz_product_id);
+        map.set(row.boonz_product_id, {
+          boonz_product_id: row.boonz_product_id,
+          boonz_product_name: row.boonz_product_name,
+          product_category: row.product_category,
+          batches: [],
+          totalStock: 0,
+          earliestExpiry: null,
+        });
+      }
+      const pg = map.get(row.boonz_product_id)!;
+      pg.batches.push({
+        wh_inventory_id: row.wh_inventory_id,
+        warehouse_stock: row.warehouse_stock,
+        expiration_date: row.expiration_date,
+        status: row.status,
+        wh_location: row.wh_location,
+        batch_id: row.batch_id,
+      });
+      pg.totalStock += row.warehouse_stock;
+      if (
+        row.expiration_date &&
+        (!pg.earliestExpiry || row.expiration_date < pg.earliestExpiry)
+      ) {
+        pg.earliestExpiry = row.expiration_date;
+      }
+    }
+
+    // Sort batches within each product by expiry ASC NULLS LAST
+    for (const pg of map.values()) {
+      pg.batches.sort((a, b) => {
+        if (!a.expiration_date && !b.expiration_date) return 0;
+        if (!a.expiration_date) return 1;
+        if (!b.expiration_date) return -1;
+        return a.expiration_date.localeCompare(b.expiration_date);
+      });
+    }
+
+    // Build result in first-occurrence order (inherits row-level sort from `processed`)
+    let result = order.map((id) => map.get(id)!);
+
+    // For qty sorts, re-sort products by total stock after grouping
+    if (sortBy === "qty_high") {
+      result = [...result].sort((a, b) => b.totalStock - a.totalStock);
+    } else if (sortBy === "qty_low") {
+      result = [...result].sort((a, b) => a.totalStock - b.totalStock);
+    }
+
+    return result;
+  }, [processed, sortBy]);
+
+  /** ProductGroups sectioned for category/location groupBy views */
+  const sectionGroups: {
+    key: string;
+    productGroups: ProductGroup[];
+    totalUnits: number;
+  }[] = useMemo(() => {
+    if (groupBy === "none" || groupBy === "product") return [];
+
+    const map = new Map<string, ProductGroup[]>();
+    for (const pg of productGroups) {
+      const key =
+        groupBy === "category"
+          ? (pg.product_category ?? "Uncategorised")
+          : (pg.batches[0]?.wh_location ?? "No location");
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(pg);
+    }
+
+    const sections = Array.from(map.entries()).map(([key, pgs]) => ({
+      key,
+      productGroups: pgs,
+      totalUnits: pgs.reduce((s, pg) => s + pg.totalStock, 0),
+    }));
+
+    if (groupBy === "location") {
+      sections.sort((a, b) => a.key.localeCompare(b.key));
+    } else {
+      sections.sort((a, b) => b.totalUnits - a.totalUnits);
+    }
+    return sections;
+  }, [productGroups, groupBy]);
 
   if (loading) {
     return (
@@ -1256,7 +1736,7 @@ export default function InventoryPage() {
 
         {/* Results */}
         <div data-tour="inventory-list">
-          {processed.length === 0 ? (
+          {productGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center">
               <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
                 No items match this filter
@@ -1267,402 +1747,66 @@ export default function InventoryPage() {
                   : "Try a different expiry range"}
               </p>
             </div>
-          ) : groupBy !== "none" ? (
-            /* ── Grouped view ── */
+          ) : groupBy !== "none" && groupBy !== "product" ? (
+            /* ── Sectioned product-card view (category / location groupBy) ── */
             <div>
-              {groups.map((group) => (
-                <div key={group.key}>
+              {sectionGroups.map((section) => (
+                <div key={section.key}>
                   <SectionHeader
-                    label={group.key}
-                    itemCount={
-                      groupBy === "product"
-                        ? group.items.length
-                        : group.items.length
-                    }
-                    countLabel={groupBy === "product" ? "batches" : "items"}
-                    totalUnits={group.totalUnits}
+                    label={section.key}
+                    itemCount={section.productGroups.length}
+                    countLabel="products"
+                    totalUnits={section.totalUnits}
                   />
-                  <ul className="space-y-2">
-                    {group.items.map((row) => {
-                      const edit = controlEdits.get(row.wh_inventory_id);
-
-                      if (controlMode && edit) {
-                        return (
-                          <li
-                            key={row.wh_inventory_id}
-                            className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/30"
-                          >
-                            <p className="truncate text-sm font-bold">
-                              {row.boonz_product_name}
-                            </p>
-                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                              {groupBy !== "location" && (
-                                <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                                  {row.wh_location || "Unassigned"}
-                                </span>
-                              )}
-                              {groupBy !== "category" &&
-                                row.product_category && (
-                                  <>
-                                    <span className="text-neutral-300 dark:text-neutral-600">
-                                      &middot;
-                                    </span>
-                                    <span className="text-neutral-500">
-                                      {row.product_category}
-                                    </span>
-                                  </>
-                                )}
-                              <span className="text-neutral-300 dark:text-neutral-600">
-                                &middot;
-                              </span>
-                              <span className="text-neutral-400">
-                                {row.batch_id || "No batch"}
-                              </span>
-                            </div>
-                            <div className="mt-3 grid grid-cols-3 gap-2">
-                              <div>
-                                <label className="mb-1 block text-xs text-neutral-500">
-                                  Qty
-                                </label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={edit.qty}
-                                  onChange={(e) =>
-                                    updateControlEdit(
-                                      row.wh_inventory_id,
-                                      "qty",
-                                      parseInt(e.target.value, 10) || 0,
-                                    )
-                                  }
-                                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs text-neutral-500">
-                                  Location
-                                </label>
-                                <input
-                                  type="text"
-                                  value={edit.location}
-                                  onChange={(e) =>
-                                    updateControlEdit(
-                                      row.wh_inventory_id,
-                                      "location",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs text-neutral-500">
-                                  Status
-                                </label>
-                                <button
-                                  onClick={() =>
-                                    updateControlEdit(
-                                      row.wh_inventory_id,
-                                      "status",
-                                      edit.status === "Active"
-                                        ? "Inactive"
-                                        : "Active",
-                                    )
-                                  }
-                                  className={`w-full rounded px-2 py-1.5 text-sm font-medium ${
-                                    edit.status === "Active"
-                                      ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                                      : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400"
-                                  }`}
-                                >
-                                  {edit.status}
-                                </button>
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      }
-
-                      return (
-                        <li key={row.wh_inventory_id}>
-                          <Link
-                            href={`/field/inventory/${row.wh_inventory_id}`}
-                            className={`flex items-start rounded-lg border p-4 transition-colors ${
-                              row.status === "Expired"
-                                ? "border-l-4 border-l-red-400 border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
-                                : "border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
-                            }`}
-                          >
-                            <div className="min-w-0 flex-1 pr-3">
-                              {/* Line 1: location badge (product groupBy) or product name */}
-                              {groupBy === "product" ? (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                                    {row.wh_location || "Unassigned"}
-                                  </span>
-                                  {row.product_category && (
-                                    <span className="text-xs text-neutral-500">
-                                      {row.product_category}
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="truncate text-sm font-bold">
-                                  {row.boonz_product_name}
-                                </p>
-                              )}
-
-                              {/* Line 2: meta badges */}
-                              {groupBy !== "product" && (
-                                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                                  {groupBy !== "location" && (
-                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                                      {row.wh_location || "Unassigned"}
-                                    </span>
-                                  )}
-                                  {groupBy !== "category" &&
-                                    row.product_category && (
-                                      <>
-                                        <span className="text-neutral-300 dark:text-neutral-600">
-                                          &middot;
-                                        </span>
-                                        <span className="text-neutral-500">
-                                          {row.product_category}
-                                        </span>
-                                      </>
-                                    )}
-                                  <span className="text-neutral-300 dark:text-neutral-600">
-                                    &middot;
-                                  </span>
-                                  <span className="text-neutral-400">
-                                    {row.batch_id || "No batch"}
-                                  </span>
-                                </div>
-                              )}
-
-                              {/* Batch line for product groupBy */}
-                              {groupBy === "product" && (
-                                <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                                  <span className="text-neutral-400">
-                                    {row.batch_id || "No batch"}
-                                  </span>
-                                </div>
-                              )}
-
-                              {/* Expiry row */}
-                              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                                <span className="text-neutral-500">
-                                  {formatDate(row.expiration_date)}
-                                </span>
-                                <ExpiryBadge expiryDate={row.expiration_date} />
-                                {row.status === "Expired" && (
-                                  <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
-                                    Expired
-                                  </span>
-                                )}
-                                {row.status === "Inactive" && (
-                                  <span className="rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">
-                                    Inactive
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div
-                              className={`flex shrink-0 flex-col items-end ${getExpiryStyle(row.expiration_date).qtyColor}`}
-                            >
-                              <p className="text-xl font-bold leading-none">
-                                {row.warehouse_stock}
-                              </p>
-                              <p className="mt-0.5 text-xs opacity-60">units</p>
-                            </div>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div className="space-y-3">
+                    {section.productGroups.map((pg) => (
+                      <ProductCard
+                        key={pg.boonz_product_id}
+                        pg={pg}
+                        isCollapsed={collapsedProducts.has(pg.boonz_product_id)}
+                        onToggleCollapse={() =>
+                          toggleCollapse(pg.boonz_product_id)
+                        }
+                        controlMode={controlMode}
+                        controlEdits={controlEdits}
+                        updateControlEdit={updateControlEdit}
+                        inlineQtys={inlineQtys}
+                        inlineLocations={inlineLocations}
+                        saveFeedback={saveFeedback}
+                        setInlineQtys={setInlineQtys}
+                        setInlineLocations={setInlineLocations}
+                        onSaveQty={saveInlineQty}
+                        onSaveLocation={saveInlineLocation}
+                        onToggleStatus={toggleBatchStatus}
+                      />
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
           ) : (
-            /* ── Flat view ── */
-            <ul className="space-y-2">
-              {processed.map((row) => {
-                const edit = controlEdits.get(row.wh_inventory_id);
-
-                if (controlMode && edit) {
-                  return (
-                    <li
-                      key={row.wh_inventory_id}
-                      className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900 dark:bg-blue-950/30"
-                    >
-                      {/* Line 1: Product name */}
-                      <p className="truncate text-sm font-bold">
-                        {row.boonz_product_name}
-                      </p>
-
-                      {/* Line 2: Location badge + category + batch */}
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                          {row.wh_location || "Unassigned"}
-                        </span>
-                        {row.product_category && (
-                          <>
-                            <span className="text-neutral-300 dark:text-neutral-600">
-                              &middot;
-                            </span>
-                            <span className="text-neutral-500">
-                              {row.product_category}
-                            </span>
-                          </>
-                        )}
-                        <span className="text-neutral-300 dark:text-neutral-600">
-                          &middot;
-                        </span>
-                        <span className="text-neutral-400">
-                          {row.batch_id || "No batch"}
-                        </span>
-                      </div>
-
-                      {/* Editable fields */}
-                      <div className="mt-3 grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="mb-1 block text-xs text-neutral-500">
-                            Qty
-                          </label>
-                          <input
-                            type="number"
-                            min={0}
-                            value={edit.qty}
-                            onChange={(e) =>
-                              updateControlEdit(
-                                row.wh_inventory_id,
-                                "qty",
-                                parseInt(e.target.value, 10) || 0,
-                              )
-                            }
-                            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs text-neutral-500">
-                            Location
-                          </label>
-                          <input
-                            type="text"
-                            value={edit.location}
-                            onChange={(e) =>
-                              updateControlEdit(
-                                row.wh_inventory_id,
-                                "location",
-                                e.target.value,
-                              )
-                            }
-                            className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                          />
-                        </div>
-                        <div>
-                          <label className="mb-1 block text-xs text-neutral-500">
-                            Status
-                          </label>
-                          <button
-                            onClick={() =>
-                              updateControlEdit(
-                                row.wh_inventory_id,
-                                "status",
-                                edit.status === "Active"
-                                  ? "Inactive"
-                                  : "Active",
-                              )
-                            }
-                            className={`w-full rounded px-2 py-1.5 text-sm font-medium ${
-                              edit.status === "Active"
-                                ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                                : "bg-neutral-200 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400"
-                            }`}
-                          >
-                            {edit.status}
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                }
-
-                // Normal (non-control) row
-                return (
-                  <li key={row.wh_inventory_id}>
-                    <Link
-                      href={`/field/inventory/${row.wh_inventory_id}`}
-                      className={`flex items-start rounded-lg border p-4 transition-colors ${
-                        row.status === "Expired"
-                          ? "border-l-4 border-l-red-400 border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
-                          : "border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
-                      }`}
-                    >
-                      {/* Left side */}
-                      <div className="min-w-0 flex-1 pr-3">
-                        {/* Line 1: Product name */}
-                        <p className="truncate text-sm font-bold">
-                          {row.boonz_product_name}
-                        </p>
-
-                        {/* Line 2: Location badge + category + batch */}
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs">
-                          <span className="rounded-full bg-blue-100 px-2 py-0.5 font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                            {row.wh_location || "Unassigned"}
-                          </span>
-                          {row.product_category && (
-                            <>
-                              <span className="text-neutral-300 dark:text-neutral-600">
-                                &middot;
-                              </span>
-                              <span className="text-neutral-500">
-                                {row.product_category}
-                              </span>
-                            </>
-                          )}
-                          <span className="text-neutral-300 dark:text-neutral-600">
-                            &middot;
-                          </span>
-                          <span className="text-neutral-400">
-                            {row.batch_id || "No batch"}
-                          </span>
-                        </div>
-
-                        {/* Line 3: Expiry + badges */}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                          <span className="text-neutral-500">
-                            {formatDate(row.expiration_date)}
-                          </span>
-                          <ExpiryBadge expiryDate={row.expiration_date} />
-                          {row.status === "Expired" && (
-                            <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
-                              Expired
-                            </span>
-                          )}
-                          {row.status === "Inactive" && (
-                            <span className="rounded-full bg-neutral-200 px-2 py-0.5 font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400">
-                              Inactive
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right side: qty */}
-                      <div
-                        className={`flex shrink-0 flex-col items-end ${getExpiryStyle(row.expiration_date).qtyColor}`}
-                      >
-                        <p className="text-xl font-bold leading-none">
-                          {row.warehouse_stock}
-                        </p>
-                        <p className="mt-0.5 text-xs opacity-60">units</p>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+            /* ── Flat product cards ── */
+            <div className="space-y-3">
+              {productGroups.map((pg) => (
+                <ProductCard
+                  key={pg.boonz_product_id}
+                  pg={pg}
+                  isCollapsed={collapsedProducts.has(pg.boonz_product_id)}
+                  onToggleCollapse={() => toggleCollapse(pg.boonz_product_id)}
+                  controlMode={controlMode}
+                  controlEdits={controlEdits}
+                  updateControlEdit={updateControlEdit}
+                  inlineQtys={inlineQtys}
+                  inlineLocations={inlineLocations}
+                  saveFeedback={saveFeedback}
+                  setInlineQtys={setInlineQtys}
+                  setInlineLocations={setInlineLocations}
+                  onSaveQty={saveInlineQty}
+                  onSaveLocation={saveInlineLocation}
+                  onToggleStatus={toggleBatchStatus}
+                />
+              ))}
+            </div>
           )}
         </div>
       </div>
