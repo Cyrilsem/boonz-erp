@@ -25,6 +25,8 @@ interface VariantStock {
   stock: number;
   /** How many units of this variant to pack (computed from split_pct) */
   packQty: number;
+  /** Earliest expiry date across all in-stock batches (FIFO first), null if no expiry recorded */
+  earliestExpiry: string | null;
 }
 
 interface PackLine {
@@ -69,6 +71,25 @@ function stockColor(stock: number, planned: number): string {
   if (stock === 0) return "text-red-600 dark:text-red-400";
   if (stock < planned) return "text-amber-600 dark:text-amber-400";
   return "text-green-600 dark:text-green-400";
+}
+
+/** Format a YYYY-MM-DD date string as "12 Jul 26" */
+function formatExpiry(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+  });
+}
+
+/** Colour class for expiry badge based on days remaining */
+function expiryColour(dateStr: string): string {
+  const days = Math.ceil(
+    (new Date(dateStr + "T00:00:00").getTime() - Date.now()) / 86400000,
+  );
+  if (days <= 30) return "text-red-500 dark:text-red-400";
+  if (days <= 60) return "text-amber-500 dark:text-amber-400";
+  return "text-neutral-400 dark:text-neutral-500";
 }
 
 /**
@@ -302,6 +323,9 @@ export default function PackingDetailPage() {
     >();
     const stockMap = new Map<string, number>();
 
+    // earliestExpiry: boonz_product_id → earliest non-null expiration_date
+    const earliestExpiryMap = new Map<string, string>();
+
     for (const b of rawBatches) {
       if (!batchPool.has(b.boonz_product_id))
         batchPool.set(b.boonz_product_id, []);
@@ -314,6 +338,13 @@ export default function PackingDetailPage() {
         b.boonz_product_id,
         (stockMap.get(b.boonz_product_id) ?? 0) + (b.warehouse_stock ?? 0),
       );
+      // Track earliest expiry (rows are already ordered ASC NULLS LAST)
+      if (b.expiration_date) {
+        const existing = earliestExpiryMap.get(b.boonz_product_id);
+        if (!existing || b.expiration_date < existing) {
+          earliestExpiryMap.set(b.boonz_product_id, b.expiration_date);
+        }
+      }
     }
 
     // ── Step 3: Build variantMap for mix products (packQty = 0 initially) ────
@@ -341,6 +372,7 @@ export default function PackingDetailPage() {
             name: shortName || fullName || boonzId,
             stock: stockMap.get(boonzId) ?? 0,
             packQty: 0, // filled per dispatch line in Step 5
+            earliestExpiry: earliestExpiryMap.get(boonzId) ?? null,
           };
         }),
       );
@@ -763,6 +795,13 @@ export default function PackingDetailPage() {
                                     >
                                       Stock: {v.stock}
                                     </span>
+                                    {v.earliestExpiry && (
+                                      <span
+                                        className={`shrink-0 text-xs ${expiryColour(v.earliestExpiry)}`}
+                                      >
+                                        Exp: {formatExpiry(v.earliestExpiry)}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               );
