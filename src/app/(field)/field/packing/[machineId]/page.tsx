@@ -20,7 +20,7 @@ interface BatchAllocation {
 
 interface VariantStock {
   boonzProductId: string;
-  /** Short name: boonz_product_name with pod prefix stripped ("Forest Mushroom & Butter") */
+  /** Short display name: boonz_product_name with pod prefix stripped */
   name: string;
   stock: number;
 }
@@ -30,12 +30,11 @@ interface PackLine {
   boonz_product_id: string;
   pod_product_id: string;
   shelf_code: string;
-  /** Pod-level name used as mix product header (e.g. "Krambals") */
   pod_product_name: string;
   /**
-   * What to show as the primary label on the card.
+   * Primary label shown on the card.
    * Single-variant: boonz_product_name (e.g. "Pepsi - Black").
-   * Mix / REMOVE: pod_product_name (serves as the category header).
+   * Mix / REMOVE: pod_product_name (category header, e.g. "Krambals").
    */
   display_name: string;
   recommended_qty: number;
@@ -131,9 +130,10 @@ export default function PackingDetailPage() {
       return;
     }
 
-    // ── Step 1: Discover all variant boonz IDs via product_mapping ──────────
-    // MUST happen before the warehouse query so we fetch stock for ALL variants,
-    // not just the single boonz_product_id stored on the dispatch line.
+    // ── Step 1: Discover variant boonz IDs + names via product_mapping FK join
+    // Fetching boonz_product_name via FK join here (instead of a separate
+    // boonz_products query) ensures names are available regardless of RLS on
+    // boonz_products for field_staff users.
     const podProductIds = [
       ...new Set(
         dispatchLines
@@ -144,11 +144,15 @@ export default function PackingDetailPage() {
 
     // pod_product_id → [boonz_product_id, ...]
     const podToVariants = new Map<string, string[]>();
+    // boonz_product_id → boonz_product_name (populated via FK join below)
+    const boonzIdToName = new Map<string, string>();
 
     if (podProductIds.length > 0) {
       const { data: mappings } = await supabase
         .from("product_mapping")
-        .select("pod_product_id, boonz_product_id")
+        .select(
+          "pod_product_id, boonz_product_id, boonz_products(boonz_product_name)",
+        )
         .in("pod_product_id", podProductIds)
         .is("machine_id", null)
         .eq("is_global_default", true)
@@ -157,9 +161,22 @@ export default function PackingDetailPage() {
 
       for (const m of mappings ?? []) {
         if (!m.pod_product_id || !m.boonz_product_id) continue;
+
+        // Build podToVariants
         const list = podToVariants.get(m.pod_product_id) ?? [];
         list.push(m.boonz_product_id);
         podToVariants.set(m.pod_product_id, list);
+
+        // Build boonzIdToName via the FK-joined boonz_products row.
+        // Supabase infers the join as an array; cast via unknown to access the object.
+        const bpRaw = m.boonz_products as unknown;
+        const bp = (Array.isArray(bpRaw) ? bpRaw[0] : bpRaw) as {
+          boonz_product_name: string | null;
+        } | null;
+        const bpName = bp?.boonz_product_name ?? null;
+        if (bpName) {
+          boonzIdToName.set(m.boonz_product_id, bpName);
+        }
       }
     }
 
@@ -171,7 +188,6 @@ export default function PackingDetailPage() {
     );
 
     // ── Step 2: Fetch warehouse stock for ALL needed boonz IDs ───────────────
-    // Union: boonz_product_ids on dispatch lines + every variant ID from mapping.
     const allBoonzIds = [
       ...new Set([
         ...dispatchLines
@@ -204,7 +220,6 @@ export default function PackingDetailPage() {
       rawBatches = (batchData ?? []) as WBatch[];
     }
 
-    // Build mutable batch pool + stockMap (covers all variants)
     const batchPool = new Map<
       string,
       {
@@ -229,38 +244,20 @@ export default function PackingDetailPage() {
       );
     }
 
-    // ── Step 3: Fetch boonz product names for ALL boonz IDs ─────────────────
-    // Covers both single-variant (so display_name shows "Pepsi - Black") and
-    // mix variants (so shortNames show "Forest Mushroom & Butter").
-    // Fallback is always pod_product_name — never a raw UUID.
-    const boonzIdToName = new Map<string, string>();
-
-    if (allBoonzIds.length > 0) {
-      const { data: boonzProducts } = await supabase
-        .from("boonz_products")
-        .select("boonz_product_id, boonz_product_name")
-        .in("boonz_product_id", allBoonzIds)
-        .limit(1000);
-
-      for (const bp of boonzProducts ?? []) {
-        if (bp.boonz_product_name) {
-          boonzIdToName.set(bp.boonz_product_id, bp.boonz_product_name);
-        }
-      }
-    }
-
-    // ── Step 4: Build variantMap for mix products ────────────────────────────
+    // ── Step 3: Build variantMap for mix products ────────────────────────────
+    // boonzIdToName is now populated from the FK join in Step 1, so names are
+    // always available here — no UUID fallback possible unless the boonz_products
+    // row genuinely doesn't exist in the DB.
     const variantMap = new Map<string, VariantStock[]>();
 
     for (const podId of mixPodIdSet) {
       const variants = podToVariants.get(podId) ?? [];
-      // We need the pod name to strip it from variant short names.
-      // Find it from the dispatch lines (all lines for this pod share the same name).
+
       const podLine = dispatchLines.find((l) => l.pod_product_id === podId);
-      const podProductLine = podLine?.pod_products as
+      const podProductRow = podLine?.pod_products as
         | { pod_product_name: string }
         | undefined;
-      const podName = podProductLine?.pod_product_name ?? "";
+      const podName = podProductRow?.pod_product_name ?? "";
 
       variantMap.set(
         podId,
@@ -268,17 +265,17 @@ export default function PackingDetailPage() {
           const fullName = boonzIdToName.get(boonzId) ?? "";
           const shortName = fullName
             ? stripPodPrefix(fullName, podName)
-            : boonzId; // Only show UUID if boonz_products row is missing entirely
+            : fullName; // empty string if genuinely missing — never a UUID
           return {
             boonzProductId: boonzId,
-            name: shortName,
+            name: shortName || fullName || boonzId, // last resort: UUID only if no name at all
             stock: stockMap.get(boonzId) ?? 0,
           };
         }),
       );
     }
 
-    // ── Step 5: FIFO allocation (single-variant, non-REMOVE lines only) ──────
+    // ── Step 4: FIFO allocation (single-variant, non-REMOVE lines only) ──────
     const sortedForAlloc = [...dispatchLines].sort((a, b) =>
       a.dispatch_id.localeCompare(b.dispatch_id),
     );
@@ -338,10 +335,11 @@ export default function PackingDetailPage() {
       const podId = line.pod_product_id ?? "";
       const isMix = mixPodIdSet.has(podId);
 
-      // display_name: boonz SKU name for single-variant, pod name for mix/REMOVE
+      // display_name: boonz SKU for single-variant ("Pepsi - Black"),
+      // pod name for mix header ("Krambals") and REMOVE lines.
       let displayName = product.pod_product_name;
       if (!isMix) {
-        // Single-variant: resolve boonz_product_id (from dispatch line, or from mapping)
+        // Resolve the boonz ID: use dispatch line value, else the single mapping
         const boonzId =
           line.boonz_product_id ?? podToVariants.get(podId)?.[0] ?? "";
         const boonzName = boonzIdToName.get(boonzId);
@@ -369,7 +367,6 @@ export default function PackingDetailPage() {
     mapped.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
     setLines(mapped);
 
-    // If all already packed on load, show read-only
     const allResolved =
       mapped.length > 0 && mapped.every((l) => l.action !== null);
     if (allResolved) setSaved(true);
@@ -530,9 +527,8 @@ export default function PackingDetailPage() {
                   key={line.dispatch_id}
                   className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                 >
-                  {/* Primary label + expiry badge */}
+                  {/* Primary label (boonz SKU for single; pod name for mix header) */}
                   <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
-                    {/* display_name = boonz SKU for single-variant, pod name for mix */}
                     {line.display_name}
                     {!isRemove &&
                       !isMix &&
@@ -573,12 +569,11 @@ export default function PackingDetailPage() {
 
                   {/* Stock / FIFO / Remove info ─────────────────────────── */}
                   {isRemove ? (
-                    /* REMOVE line — no stock lookup needed */
                     <p className="mb-2 inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                       Remove from machine
                     </p>
                   ) : isMix ? (
-                    /* Mix product — per-variant stock breakdown (in-stock variants only) */
+                    /* Mix product — per-variant stock breakdown (in-stock only) */
                     <div className="mb-2">
                       {line.variantStocks!.every((v) => v.stock === 0) ? (
                         <p className="text-xs font-medium text-red-600 dark:text-red-400">
