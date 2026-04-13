@@ -1,51 +1,78 @@
-# Boonz Refill Brain — Skill Entry Point
+---
+name: Refill Engine
+description: Run the Boonz refill brain. Fetches fresh Weimi data then
+  generates a refill plan. Usage: /refill-engine [filter] [date].
+  Filters: all (default), addmind (group=ADDMIND+USH), vml, vox,
+  ohmydesk, wpp, office, coworking, or exact machine name like
+  ADDMIND-1007-0000-W0 (single machine only).
+  Date: tomorrow (default), today, YYYY-MM-DD.
+trigger: /refill-engine
+---
 
-**Version:** Phase 1 (Engine 1 in development)
-**Stack:** Python · Supabase (eizcexopcuoycuosittm, ap-south-1)
-**Last updated:** 2026-04-12
+# Refill Engine
 
-## What this skill does
+## How it works
 
-The refill brain reads live machine state, applies operator guardrails,
-and produces a per-slot refill plan (quantity + swap decisions).
-This skill file is the entry point for any Claude session working on
-refill engine code.
+Calls the Boonz local server at http://localhost:8765.
+The server runs on your Mac with full network + .env access.
+It fetches Weimi data then runs the full engine pipeline.
 
-## Always read first
+## STEP 0 — Always verify server is running first
 
-Before writing any engine code, read these files in order:
+GET http://localhost:8765/health
 
-1. `engines/refill/knowledge/refill_formula.md` — the canonical formula
-2. `engines/refill/knowledge/machine_modes.md` — mode parameters
-3. `engines/refill/knowledge/db_views.md` — available data sources
-4. `engines/refill/guardrails/portfolio_strategy.md` — operator intent layer
-5. `engines/refill/guardrails/refill_rules.md` — vitrine minimums + signal rules
-6. `engines/refill/guardrails/layout.md` — slot facing rules
+If {"status": "ok"} → proceed to Step 1.
+If connection refused → tell user:
 
-## Engine dependency order (Phase 1)
+❌ Local server not running. Start it with:
+cd /Users/cyrilsemaan/BOONZ\ BRAIN/boonz-erp
+python -m engines.refill.local_server
 
-Engine 1 (portfolio) → Engine B (quantity) → Engine C (swap) → Engine D (decider)
-Do not implement a downstream engine before its upstream dependency exists.
+Then stop. Do not proceed without the server.
 
-## Critical rules
+## Argument parsing
 
-- max_stock from v_live_shelf_stock IS the slot capacity ceiling. Do not hardcode.
-- target_qty and max_stock are distinct values — always log both separately.
-- Never blindly fill to max_stock. Always apply the velocity formula first.
-- All Supabase queries: .limit(10000) on any query returning >100 rows.
-- Credentials: always from .env, never hardcoded.
-- delivery_status filter: WHERE delivery_status IN ('Success','Successful')
+Extract from user message:
 
-## Supabase key views
+filter:
+"all" or nothing → all
+"addmind" → addmind (venue group: ADDMIND-1007 + USH-1008)
+"ADDMIND-1007-0000-W0" → ADDMIND-1007-0000-W0 (single machine)
+"USH-1008-0000-W1" → USH-1008-0000-W1 (single machine)
+"vml" → vml
+"vox" → vox
+"ohmydesk" → ohmydesk
+"wpp" → wpp
+"office" → office
+"coworking" → coworking
 
-| View                       | Purpose                                                    |
-| -------------------------- | ---------------------------------------------------------- |
-| v_live_shelf_stock         | Live slot state — current_stock, max_stock, pod_product_id |
-| v_sales_history_attributed | Transaction history for velocity calculation               |
-| v_pod_inventory_latest     | Latest pod inventory snapshot                              |
+date:
+"today" → today
+"tomorrow" or nothing → tomorrow
+"2026-04-14" → 2026-04-14
 
-## Guardrail files (engines/refill/guardrails/)
+## STEP 1 — Call the server
 
-portfolio_strategy.md · refill_rules.md · layout.md · coexistence.md ·
-travel-scope.md · seasonality_global.md · source_of_supply.md ·
-vitrine_machines.md · refill_overrides.md
+GET http://localhost:8765/run-refill?filter=<filter>&date=<date>
+
+Wait up to 4 minutes. The fetch + engine takes 60-120 seconds normally.
+
+On error response (status != 200):
+Report: ❌ [step] failed
+Show the error field
+Stop.
+
+## STEP 2 — Report output
+
+Report exactly this format:
+
+✅ Data refreshed + Plan generated
+Filter: <filter> | Date: <date>
+
+[paste engine_output verbatim — do not summarise]
+
+🔗 https://boonz-erp.vercel.app/refill
+
+## STEP 3 — Open refill page
+
+Navigate to https://boonz-erp.vercel.app/refill
