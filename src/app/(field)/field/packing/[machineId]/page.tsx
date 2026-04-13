@@ -18,9 +18,16 @@ interface BatchAllocation {
   qty: number;
 }
 
+interface VariantStock {
+  boonzProductId: string;
+  name: string;
+  stock: number;
+}
+
 interface PackLine {
   dispatch_id: string;
   boonz_product_id: string;
+  pod_product_id: string;
   shelf_code: string;
   pod_product_name: string;
   recommended_qty: number;
@@ -29,6 +36,8 @@ interface PackLine {
   fifo_expiry: string | null;
   allocations: BatchAllocation[];
   warehouse_stock: number;
+  /** Non-null only for mix products (pod_product maps to >1 boonz variant) */
+  variantStocks: VariantStock[] | null;
 }
 
 interface MachineInfo {
@@ -84,6 +93,7 @@ export default function PackingDetailPage() {
         `
         dispatch_id,
         boonz_product_id,
+        pod_product_id,
         quantity,
         filled_quantity,
         packed,
@@ -154,6 +164,76 @@ export default function PackingDetailPage() {
       );
     }
 
+    // ── Mix-product variant stock breakdown ─────────────────────────────────
+    // For pod products that map to multiple boonz variants (mix products), build
+    // a variant stock map so the packer can see all variant stocks at once.
+    const variantMap = new Map<string, VariantStock[]>();
+
+    const podProductIds = [
+      ...new Set(
+        dispatchLines
+          .map((l) => l.pod_product_id)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+
+    if (podProductIds.length > 0) {
+      const { data: mappings } = await supabase
+        .from("product_mapping")
+        .select("pod_product_id, boonz_product_id")
+        .in("pod_product_id", podProductIds)
+        .is("machine_id", null)
+        .eq("is_global_default", true)
+        .eq("status", "Active")
+        .limit(10000);
+
+      // Group boonz variants per pod product
+      const podToVariants = new Map<string, string[]>();
+      for (const m of mappings ?? []) {
+        if (!m.pod_product_id || !m.boonz_product_id) continue;
+        const list = podToVariants.get(m.pod_product_id) ?? [];
+        list.push(m.boonz_product_id);
+        podToVariants.set(m.pod_product_id, list);
+      }
+
+      // Only mix products (>1 variant) need the breakdown
+      const mixPodIds = [...podToVariants.entries()]
+        .filter(([, v]) => v.length > 1)
+        .map(([pid]) => pid);
+
+      if (mixPodIds.length > 0) {
+        const allMixBoonzIds = [
+          ...new Set(mixPodIds.flatMap((pid) => podToVariants.get(pid) ?? [])),
+        ];
+
+        const { data: boonzProducts } = await supabase
+          .from("boonz_products")
+          .select("boonz_product_id, boonz_product_name")
+          .in("boonz_product_id", allMixBoonzIds)
+          .limit(10000);
+
+        const boonzNameMap = new Map<string, string>();
+        for (const bp of boonzProducts ?? []) {
+          boonzNameMap.set(
+            bp.boonz_product_id,
+            bp.boonz_product_name ?? bp.boonz_product_id,
+          );
+        }
+
+        for (const podId of mixPodIds) {
+          const variants = podToVariants.get(podId) ?? [];
+          variantMap.set(
+            podId,
+            variants.map((boonzId) => ({
+              boonzProductId: boonzId,
+              name: boonzNameMap.get(boonzId) ?? boonzId,
+              stock: stockMap.get(boonzId) ?? 0,
+            })),
+          );
+        }
+      }
+    }
+
     // FIFO allocation — sort by dispatch_id for determinism
     const sortedForAlloc = [...dispatchLines].sort((a, b) =>
       a.dispatch_id.localeCompare(b.dispatch_id),
@@ -204,6 +284,7 @@ export default function PackingDetailPage() {
       return {
         dispatch_id: line.dispatch_id,
         boonz_product_id: line.boonz_product_id ?? "",
+        pod_product_id: line.pod_product_id ?? "",
         shelf_code: shelf.shelf_code,
         pod_product_name: product.pod_product_name,
         recommended_qty: line.quantity ?? 0,
@@ -213,6 +294,7 @@ export default function PackingDetailPage() {
         fifo_expiry: fifo.primary_expiry,
         allocations: fifo.allocations,
         warehouse_stock: stockMap.get(line.boonz_product_id ?? "") ?? 0,
+        variantStocks: variantMap.get(line.pod_product_id ?? "") ?? null,
       };
     });
 
@@ -455,16 +537,50 @@ export default function PackingDetailPage() {
                     </p>
                   )}
 
-                  <p className="mb-2 text-xs">
-                    <span
-                      className={stockColor(
-                        line.warehouse_stock,
-                        line.recommended_qty,
+                  {/* Stock display — per-variant for mix products, flat for singles */}
+                  {line.variantStocks ? (
+                    <div className="mb-2">
+                      {line.variantStocks.every((v) => v.stock === 0) ? (
+                        <p className="text-xs font-medium text-red-600 dark:text-red-400">
+                          Out of stock
+                        </p>
+                      ) : (
+                        <p className="text-xs text-neutral-500 leading-relaxed">
+                          {line.variantStocks.map((v, i) => (
+                            <span key={v.boonzProductId}>
+                              {i > 0 && (
+                                <span className="mx-1 text-neutral-300 dark:text-neutral-600">
+                                  |
+                                </span>
+                              )}
+                              <span
+                                className={
+                                  v.stock === 0
+                                    ? "text-red-500 dark:text-red-400"
+                                    : v.stock < line.recommended_qty
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-green-600 dark:text-green-400"
+                                }
+                              >
+                                {v.name}: {v.stock}
+                              </span>
+                            </span>
+                          ))}
+                        </p>
                       )}
-                    >
-                      {line.warehouse_stock} in stock
-                    </span>
-                  </p>
+                    </div>
+                  ) : (
+                    <p className="mb-2 text-xs">
+                      <span
+                        className={stockColor(
+                          line.warehouse_stock,
+                          line.recommended_qty,
+                        )}
+                      >
+                        {line.warehouse_stock} in stock
+                      </span>
+                    </p>
+                  )}
 
                   {/* Packed qty input */}
                   <div className="mb-2 flex items-center gap-2">
