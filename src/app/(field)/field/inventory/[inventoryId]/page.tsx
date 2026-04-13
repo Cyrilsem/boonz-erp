@@ -70,6 +70,11 @@ export default function InventoryDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Expiry edit
+  const [expiryDate, setExpiryDate] = useState("");
+  const [savingExpiry, setSavingExpiry] = useState(false);
+  const [expirySaved, setExpirySaved] = useState(false);
+
   // Status toggle
   const [showStatusConfirm, setShowStatusConfirm] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
@@ -112,6 +117,7 @@ export default function InventoryDetailPage() {
       setItem(detail);
       setEditQty(detail.warehouse_stock);
       setEditLocation(detail.wh_location ?? "");
+      setExpiryDate(detail.expiration_date ?? "");
     }
 
     // Fetch audit log
@@ -230,6 +236,22 @@ export default function InventoryDetailPage() {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  async function handleSaveExpiry() {
+    if (!item) return;
+    setSavingExpiry(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("warehouse_inventory")
+      .update({ expiration_date: expiryDate || null })
+      .eq("wh_inventory_id", inventoryId);
+    if (!error) {
+      setItem({ ...item, expiration_date: expiryDate || null });
+      setExpirySaved(true);
+      setTimeout(() => setExpirySaved(false), 2000);
+    }
+    setSavingExpiry(false);
+  }
+
   async function handleStatusToggle(newStatus: "Active" | "Inactive") {
     if (!item) return;
     setStatusUpdating(true);
@@ -315,6 +337,33 @@ export default function InventoryDetailPage() {
         {saved && (
           <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">
             Saved ✓
+          </p>
+        )}
+      </div>
+
+      {/* Expiry date */}
+      <div className="mb-4 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
+        <p className="text-xs uppercase tracking-wide text-neutral-500 mb-2">
+          Expiry Date
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={expiryDate}
+            onChange={(e) => setExpiryDate(e.target.value)}
+            className="flex-1 rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+          />
+          <button
+            onClick={handleSaveExpiry}
+            disabled={savingExpiry}
+            className="shrink-0 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+          >
+            {savingExpiry ? "Saving…" : "Save"}
+          </button>
+        </div>
+        {expirySaved && (
+          <p className="mt-2 text-sm font-medium text-green-600 dark:text-green-400">
+            Expiry date updated ✓
           </p>
         )}
       </div>
