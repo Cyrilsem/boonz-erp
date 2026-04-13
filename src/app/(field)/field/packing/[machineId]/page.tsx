@@ -111,10 +111,57 @@ export default function PackingDetailPage() {
       return;
     }
 
-    // ── FIFO batch fetch ────────────────────────────────────────────────────
-    const boonzProductIds = dispatchLines
-      .map((l) => l.boonz_product_id)
-      .filter((id): id is string => id !== null);
+    // ── Step 1: Discover all variant boonz IDs via product_mapping ──────────
+    // MUST happen before the warehouse query so we fetch stock for ALL variants,
+    // not just the single boonz_product_id stored on the dispatch line.
+    const podProductIds = [
+      ...new Set(
+        dispatchLines
+          .map((l) => l.pod_product_id)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+
+    // pod_product_id → [boonz_product_id, ...]
+    const podToVariants = new Map<string, string[]>();
+
+    if (podProductIds.length > 0) {
+      const { data: mappings } = await supabase
+        .from("product_mapping")
+        .select("pod_product_id, boonz_product_id")
+        .in("pod_product_id", podProductIds)
+        .is("machine_id", null)
+        .eq("is_global_default", true)
+        .eq("status", "Active")
+        .limit(1000);
+
+      for (const m of mappings ?? []) {
+        if (!m.pod_product_id || !m.boonz_product_id) continue;
+        const list = podToVariants.get(m.pod_product_id) ?? [];
+        list.push(m.boonz_product_id);
+        podToVariants.set(m.pod_product_id, list);
+      }
+    }
+
+    // Identify mix products (pod → >1 boonz variant)
+    const mixPodIdSet = new Set(
+      [...podToVariants.entries()]
+        .filter(([, v]) => v.length > 1)
+        .map(([pid]) => pid),
+    );
+
+    // ── Step 2: Fetch warehouse stock for ALL needed boonz IDs ───────────────
+    // Union: boonz_product_ids on dispatch lines + every variant ID from mapping.
+    // This ensures mix-product variants with stock are found even if the dispatch
+    // line's boonz_product_id points to a 0-stock variant.
+    const allBoonzIds = [
+      ...new Set([
+        ...dispatchLines
+          .map((l) => l.boonz_product_id)
+          .filter((id): id is string => id !== null),
+        ...[...podToVariants.values()].flat(),
+      ]),
+    ];
 
     interface WBatch {
       wh_inventory_id: string;
@@ -125,13 +172,13 @@ export default function PackingDetailPage() {
 
     let rawBatches: WBatch[] = [];
 
-    if (boonzProductIds.length > 0) {
+    if (allBoonzIds.length > 0) {
       const { data: batchData } = await supabase
         .from("warehouse_inventory")
         .select(
           "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
         )
-        .in("boonz_product_id", boonzProductIds)
+        .in("boonz_product_id", allBoonzIds)
         .eq("status", "Active")
         .gt("warehouse_stock", 0)
         .order("expiration_date", { ascending: true, nullsFirst: false });
@@ -139,7 +186,7 @@ export default function PackingDetailPage() {
       rawBatches = (batchData ?? []) as WBatch[];
     }
 
-    // Build mutable batch pool per product (already FIFO-ordered from DB)
+    // Build mutable batch pool + stockMap (now covers all variants)
     const batchPool = new Map<
       string,
       {
@@ -164,77 +211,46 @@ export default function PackingDetailPage() {
       );
     }
 
-    // ── Mix-product variant stock breakdown ─────────────────────────────────
-    // For pod products that map to multiple boonz variants (mix products), build
-    // a variant stock map so the packer can see all variant stocks at once.
+    // ── Step 3: Build variantMap for mix products ────────────────────────────
+    // stockMap is now fully populated — all variant stocks will be correct.
     const variantMap = new Map<string, VariantStock[]>();
+    const mixPodIds = [...mixPodIdSet];
 
-    const podProductIds = [
-      ...new Set(
-        dispatchLines
-          .map((l) => l.pod_product_id)
-          .filter((id): id is string => id !== null),
-      ),
-    ];
+    if (mixPodIds.length > 0) {
+      const allMixBoonzIds = [
+        ...new Set(mixPodIds.flatMap((pid) => podToVariants.get(pid) ?? [])),
+      ];
 
-    if (podProductIds.length > 0) {
-      const { data: mappings } = await supabase
-        .from("product_mapping")
-        .select("pod_product_id, boonz_product_id")
-        .in("pod_product_id", podProductIds)
-        .is("machine_id", null)
-        .eq("is_global_default", true)
-        .eq("status", "Active")
-        .limit(10000);
+      const { data: boonzProducts } = await supabase
+        .from("boonz_products")
+        .select("boonz_product_id, boonz_product_name")
+        .in("boonz_product_id", allMixBoonzIds)
+        .limit(1000);
 
-      // Group boonz variants per pod product
-      const podToVariants = new Map<string, string[]>();
-      for (const m of mappings ?? []) {
-        if (!m.pod_product_id || !m.boonz_product_id) continue;
-        const list = podToVariants.get(m.pod_product_id) ?? [];
-        list.push(m.boonz_product_id);
-        podToVariants.set(m.pod_product_id, list);
+      const boonzNameMap = new Map<string, string>();
+      for (const bp of boonzProducts ?? []) {
+        boonzNameMap.set(
+          bp.boonz_product_id,
+          bp.boonz_product_name ?? bp.boonz_product_id,
+        );
       }
 
-      // Only mix products (>1 variant) need the breakdown
-      const mixPodIds = [...podToVariants.entries()]
-        .filter(([, v]) => v.length > 1)
-        .map(([pid]) => pid);
-
-      if (mixPodIds.length > 0) {
-        const allMixBoonzIds = [
-          ...new Set(mixPodIds.flatMap((pid) => podToVariants.get(pid) ?? [])),
-        ];
-
-        const { data: boonzProducts } = await supabase
-          .from("boonz_products")
-          .select("boonz_product_id, boonz_product_name")
-          .in("boonz_product_id", allMixBoonzIds)
-          .limit(10000);
-
-        const boonzNameMap = new Map<string, string>();
-        for (const bp of boonzProducts ?? []) {
-          boonzNameMap.set(
-            bp.boonz_product_id,
-            bp.boonz_product_name ?? bp.boonz_product_id,
-          );
-        }
-
-        for (const podId of mixPodIds) {
-          const variants = podToVariants.get(podId) ?? [];
-          variantMap.set(
-            podId,
-            variants.map((boonzId) => ({
-              boonzProductId: boonzId,
-              name: boonzNameMap.get(boonzId) ?? boonzId,
-              stock: stockMap.get(boonzId) ?? 0,
-            })),
-          );
-        }
+      for (const podId of mixPodIds) {
+        const variants = podToVariants.get(podId) ?? [];
+        variantMap.set(
+          podId,
+          variants.map((boonzId) => ({
+            boonzProductId: boonzId,
+            name: boonzNameMap.get(boonzId) ?? boonzId,
+            stock: stockMap.get(boonzId) ?? 0,
+          })),
+        );
       }
     }
 
-    // FIFO allocation — sort by dispatch_id for determinism
+    // ── Step 4: FIFO allocation (single-variant, non-REMOVE lines only) ──────
+    // Mix lines and REMOVE lines (quantity=0) skip FIFO — the packer chooses
+    // the variant at pack time, and removes don't need stock allocation.
     const sortedForAlloc = [...dispatchLines].sort((a, b) =>
       a.dispatch_id.localeCompare(b.dispatch_id),
     );
@@ -244,6 +260,16 @@ export default function PackingDetailPage() {
     > = {};
 
     for (const line of sortedForAlloc) {
+      const isMixLine = line.pod_product_id
+        ? mixPodIdSet.has(line.pod_product_id)
+        : false;
+      const isRemoveLine = (line.quantity ?? 0) === 0;
+
+      if (isMixLine || isRemoveLine) {
+        fifoMap[line.dispatch_id] = { allocations: [], primary_expiry: null };
+        continue;
+      }
+
       const productId = line.boonz_product_id ?? "";
       const batches = batchPool.get(productId) ?? [];
       let remaining = line.quantity ?? 0;
@@ -445,6 +471,8 @@ export default function PackingDetailPage() {
           </h2>
           <ul className="space-y-2">
             {shelfLines.map((line) => {
+              const isRemove = line.recommended_qty === 0;
+              const isMix = line.variantStocks !== null;
               const hasStock = line.allocations.length > 0;
               const isMultiBatch = line.allocations.length > 1;
 
@@ -460,126 +488,135 @@ export default function PackingDetailPage() {
                   key={line.dispatch_id}
                   className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                 >
-                  {/* Product name + recommended qty */}
+                  {/* Product name + expiry badge (single-variant only) */}
                   <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
                     {line.pod_product_name}
-                    {(() => {
-                      const expiry = line.fifo_expiry;
-                      if (expiry === null) {
-                        return (
-                          <span className="rounded px-1 py-0.5 text-xs font-normal bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                            No expiry date
-                          </span>
-                        );
-                      }
-                      const today = new Date();
-                      today.setHours(0, 0, 0, 0);
-                      const exp = new Date(expiry + "T00:00:00");
-                      const soon = new Date(today);
-                      soon.setDate(soon.getDate() + 30);
-                      if (exp < today) {
-                        return (
-                          <span className="rounded px-1 py-0.5 text-xs font-normal bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                            ⚠ EXPIRED
-                          </span>
-                        );
-                      }
-                      if (exp <= soon) {
-                        return (
-                          <span className="rounded px-1 py-0.5 text-xs font-normal bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                            ⚠ Expires soon
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {!isRemove &&
+                      !isMix &&
+                      (() => {
+                        const expiry = line.fifo_expiry;
+                        if (expiry === null) {
+                          return (
+                            <span className="rounded px-1 py-0.5 text-xs font-normal bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                              No expiry date
+                            </span>
+                          );
+                        }
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const exp = new Date(expiry + "T00:00:00");
+                        const soon = new Date(today);
+                        soon.setDate(soon.getDate() + 30);
+                        if (exp < today) {
+                          return (
+                            <span className="rounded px-1 py-0.5 text-xs font-normal bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                              ⚠ EXPIRED
+                            </span>
+                          );
+                        }
+                        if (exp <= soon) {
+                          return (
+                            <span className="rounded px-1 py-0.5 text-xs font-normal bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                              ⚠ Expires soon
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                   </p>
                   <p className="mb-2 text-xs text-neutral-400">
                     Recommended: {line.recommended_qty} units
                   </p>
 
-                  {/* FIFO expiry display (unchanged logic) */}
-                  {!hasStock ? (
-                    <p className="mb-2 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                      ⚠ No stock found in warehouse
+                  {/* Stock / FIFO / Remove info ─────────────────────────── */}
+                  {isRemove ? (
+                    /* REMOVE line — no stock lookup needed */
+                    <p className="mb-2 inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                      Remove from machine
                     </p>
-                  ) : isMultiBatch ? (
-                    <div className="mb-2 space-y-0.5 rounded bg-amber-50 px-2 py-1 dark:bg-amber-900/20">
-                      {line.allocations.map((a, i) => {
-                        const style = getExpiryStyle(a.expiry_date);
-                        return (
-                          <p key={i} className="text-xs">
-                            <span className="font-bold">Qty: {a.qty}</span>
-                            {"  "}
-                            <span className="font-bold">Expiry:</span>{" "}
-                            <span className={style.qtyColor}>
-                              {formatDMY(a.expiry_date)}
-                            </span>
-                          </p>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="mb-2 text-xs">
-                      <span className="font-bold">
-                        Qty: {line.allocations[0].qty}
-                      </span>
-                      {"  "}
-                      <span className="font-bold">Expiry:</span>{" "}
-                      <span
-                        className={
-                          getExpiryStyle(line.allocations[0].expiry_date)
-                            .qtyColor
-                        }
-                      >
-                        {formatDMY(line.allocations[0].expiry_date)}
-                      </span>
-                    </p>
-                  )}
-
-                  {/* Stock display — per-variant for mix products, flat for singles */}
-                  {line.variantStocks ? (
+                  ) : isMix ? (
+                    /* Mix product — per-variant stock breakdown (in-stock only) */
                     <div className="mb-2">
-                      {line.variantStocks.every((v) => v.stock === 0) ? (
+                      {line.variantStocks!.every((v) => v.stock === 0) ? (
                         <p className="text-xs font-medium text-red-600 dark:text-red-400">
                           Out of stock
                         </p>
                       ) : (
-                        <p className="text-xs text-neutral-500 leading-relaxed">
-                          {line.variantStocks.map((v, i) => (
-                            <span key={v.boonzProductId}>
-                              {i > 0 && (
-                                <span className="mx-1 text-neutral-300 dark:text-neutral-600">
-                                  |
-                                </span>
-                              )}
-                              <span
-                                className={
-                                  v.stock === 0
-                                    ? "text-red-500 dark:text-red-400"
-                                    : v.stock < line.recommended_qty
+                        <p className="text-xs leading-relaxed text-neutral-500">
+                          {line
+                            .variantStocks!.filter((v) => v.stock > 0)
+                            .map((v, i) => (
+                              <span key={v.boonzProductId}>
+                                {i > 0 && (
+                                  <span className="mx-1 text-neutral-300 dark:text-neutral-600">
+                                    |
+                                  </span>
+                                )}
+                                <span
+                                  className={
+                                    v.stock < line.recommended_qty
                                       ? "text-amber-600 dark:text-amber-400"
                                       : "text-green-600 dark:text-green-400"
-                                }
-                              >
-                                {v.name}: {v.stock}
+                                  }
+                                >
+                                  {v.name}: {v.stock}
+                                </span>
                               </span>
-                            </span>
-                          ))}
+                            ))}
                         </p>
                       )}
                     </div>
                   ) : (
-                    <p className="mb-2 text-xs">
-                      <span
-                        className={stockColor(
-                          line.warehouse_stock,
-                          line.recommended_qty,
-                        )}
-                      >
-                        {line.warehouse_stock} in stock
-                      </span>
-                    </p>
+                    /* Single-variant — FIFO expiry + flat stock count */
+                    <>
+                      {!hasStock ? (
+                        <p className="mb-2 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                          ⚠ No stock found in warehouse
+                        </p>
+                      ) : isMultiBatch ? (
+                        <div className="mb-2 space-y-0.5 rounded bg-amber-50 px-2 py-1 dark:bg-amber-900/20">
+                          {line.allocations.map((a, i) => {
+                            const style = getExpiryStyle(a.expiry_date);
+                            return (
+                              <p key={i} className="text-xs">
+                                <span className="font-bold">Qty: {a.qty}</span>
+                                {"  "}
+                                <span className="font-bold">Expiry:</span>{" "}
+                                <span className={style.qtyColor}>
+                                  {formatDMY(a.expiry_date)}
+                                </span>
+                              </p>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="mb-2 text-xs">
+                          <span className="font-bold">
+                            Qty: {line.allocations[0].qty}
+                          </span>
+                          {"  "}
+                          <span className="font-bold">Expiry:</span>{" "}
+                          <span
+                            className={
+                              getExpiryStyle(line.allocations[0].expiry_date)
+                                .qtyColor
+                            }
+                          >
+                            {formatDMY(line.allocations[0].expiry_date)}
+                          </span>
+                        </p>
+                      )}
+                      <p className="mb-2 text-xs">
+                        <span
+                          className={stockColor(
+                            line.warehouse_stock,
+                            line.recommended_qty,
+                          )}
+                        >
+                          {line.warehouse_stock} in stock
+                        </span>
+                      </p>
+                    </>
                   )}
 
                   {/* Packed qty input */}
@@ -597,7 +634,7 @@ export default function PackingDetailPage() {
                           parseFloat(e.target.value) || 0,
                         )
                       }
-                      disabled={isReadOnly}
+                      disabled={isReadOnly || isRemove}
                       className="w-20 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
                     />
                   </div>
