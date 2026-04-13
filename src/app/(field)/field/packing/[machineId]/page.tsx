@@ -27,6 +27,8 @@ interface VariantStock {
   packQty: number;
   /** Earliest expiry date across all in-stock batches (FIFO first), null if no expiry recorded */
   earliestExpiry: string | null;
+  /** Individual warehouse_inventory batch rows for this variant, ordered expiry ASC */
+  batches: { expiry: string | null; stock: number }[];
 }
 
 interface PackLine {
@@ -326,6 +328,12 @@ export default function PackingDetailPage() {
     // earliestExpiry: boonz_product_id → earliest non-null expiration_date
     const earliestExpiryMap = new Map<string, string>();
 
+    // batchMap: boonz_product_id → ordered batch list for FIFO picking guide
+    const batchMap = new Map<
+      string,
+      { expiry: string | null; stock: number }[]
+    >();
+
     for (const b of rawBatches) {
       if (!batchPool.has(b.boonz_product_id))
         batchPool.set(b.boonz_product_id, []);
@@ -345,6 +353,13 @@ export default function PackingDetailPage() {
           earliestExpiryMap.set(b.boonz_product_id, b.expiration_date);
         }
       }
+      // Accumulate per-batch rows for the picking guide (order preserved from query)
+      if (!batchMap.has(b.boonz_product_id))
+        batchMap.set(b.boonz_product_id, []);
+      batchMap.get(b.boonz_product_id)!.push({
+        expiry: b.expiration_date,
+        stock: b.warehouse_stock ?? 0,
+      });
     }
 
     // ── Step 3: Build variantMap for mix products (packQty = 0 initially) ────
@@ -373,6 +388,7 @@ export default function PackingDetailPage() {
             stock: stockMap.get(boonzId) ?? 0,
             packQty: 0, // filled per dispatch line in Step 5
             earliestExpiry: earliestExpiryMap.get(boonzId) ?? null,
+            batches: batchMap.get(boonzId) ?? [],
           };
         }),
       );
@@ -768,41 +784,63 @@ export default function PackingDetailPage() {
                                   v.boonzProductId
                                 ] ?? v.packQty;
                               return (
-                                <div
-                                  key={v.boonzProductId}
-                                  className="flex items-center justify-between py-0.5"
-                                >
-                                  <span className="flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
-                                    {v.name}
-                                  </span>
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      value={qty}
-                                      disabled={isReadOnly}
-                                      onChange={(e) =>
-                                        updateVariantQty(
-                                          line.dispatch_id,
-                                          v.boonzProductId,
-                                          parseInt(e.target.value) || 0,
-                                        )
-                                      }
-                                      className="w-14 rounded border border-neutral-300 px-2 py-1 text-center text-xs disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800"
-                                    />
-                                    <span
-                                      className={`shrink-0 text-xs font-medium ${stockColor(v.stock, qty)}`}
-                                    >
-                                      Stock: {v.stock}
+                                <div key={v.boonzProductId} className="py-0.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="flex-1 truncate text-xs text-neutral-700 dark:text-neutral-300">
+                                      {v.name}
                                     </span>
-                                    {v.earliestExpiry && (
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={qty}
+                                        disabled={isReadOnly}
+                                        onChange={(e) =>
+                                          updateVariantQty(
+                                            line.dispatch_id,
+                                            v.boonzProductId,
+                                            parseInt(e.target.value) || 0,
+                                          )
+                                        }
+                                        className="w-14 rounded border border-neutral-300 px-2 py-1 text-center text-xs disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-800"
+                                      />
                                       <span
-                                        className={`shrink-0 text-xs ${expiryColour(v.earliestExpiry)}`}
+                                        className={`shrink-0 text-xs font-medium ${stockColor(v.stock, qty)}`}
                                       >
-                                        Exp: {formatExpiry(v.earliestExpiry)}
+                                        Stock: {v.stock}
                                       </span>
-                                    )}
+                                      {v.earliestExpiry && (
+                                        <span
+                                          className={`shrink-0 text-xs ${expiryColour(v.earliestExpiry)}`}
+                                        >
+                                          Exp: {formatExpiry(v.earliestExpiry)}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
+                                  {/* FIFO batch picking guide */}
+                                  {v.batches.length > 0 && (
+                                    <div className="ml-2 mt-0.5 space-y-0.5">
+                                      {v.batches.map((b, bi) => (
+                                        <div
+                                          key={bi}
+                                          className="flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500"
+                                        >
+                                          <span>↳</span>
+                                          <span>
+                                            {b.expiry
+                                              ? formatExpiry(b.expiry)
+                                              : "No expiry"}
+                                          </span>
+                                          <span>—</span>
+                                          <span>
+                                            {b.stock}{" "}
+                                            {b.stock === 1 ? "unit" : "units"}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
