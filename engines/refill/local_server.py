@@ -143,6 +143,45 @@ def run_refill(
     }
 
 
+@app.get("/run-engine")
+def run_engine(
+    filter: str = Query(default="all"),
+    date: str = Query(default="tomorrow"),
+):
+    resolved_date = _resolve_date(date)
+    ts = lambda: datetime.now().strftime("%H:%M:%S")
+
+    print(f"\n[{ts()}] /run-engine filter={filter} date={resolved_date}")
+
+    engine_cmd = [
+        sys.executable, "-m", "engines.refill.engine_d_decider",
+        "--live",
+        "--filter", filter,
+        "--date", resolved_date,
+    ]
+
+    ok, engine_output = _run(engine_cmd, timeout=180)
+    print(engine_output)
+
+    if not ok:
+        return JSONResponse(status_code=500, content={
+            "step": "engine_d_decider",
+            "error": engine_output,
+            "message": "❌ Engine failed.",
+        })
+
+    print(f"[{ts()}] ✅ Engine complete")
+
+    return {
+        "status": "ok",
+        "filter": filter,
+        "date": resolved_date,
+        "engine_output": engine_output,
+        "refill_url": "https://boonz-erp.vercel.app/refill",
+        "message": "✅ Plan generated",
+    }
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("BOONZ_LOCAL_PORT", "8765"))
     print(f"\n🚀 Boonz Refill Local Server")
