@@ -52,7 +52,17 @@
       "Bash(cat src/app/\\\\\\(app\\\\\\)/layout.tsx)",
       "mcp__9317327f-7b25-403a-addf-077dcb3de768__get_project_url",
       "Bash(curl -s -X POST \"https://eizcexopcuoycuosittm.supabase.co/functions/v1/evaluate-lifecycle\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpemNleG9wY3VveWN1b3NpdHRtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzIyOTQ3NiwiZXhwIjoyMDg4ODA1NDc2fQ.q37vg0kV8m9VxgPjHLIanHD7jBSv9NYPmCnCAlQfauY\" -H \"Content-Type: application/json\" -d '{}' --max-time 120)",
-      "Bash(grep '\"\"recharts\"\"' package.json)"
+      "Bash(grep '\"\"recharts\"\"' package.json)",
+      "Bash(find '/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/engines' -name *.py -o -name *.txt -o -name *.toml)",
+      "Bash(pip install:*)",
+      "Bash(python -m engines.refill.subskills.fetch_fleet_state)",
+      "Bash(git -C \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp\" rm docs/refill_engine_bible_v5_6.html)",
+      "Bash(find '/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp' -maxdepth 3 -name *.md -path *cowork* -o -maxdepth 3 -name *.md -path *skill*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(python -m engines.refill.engine_d_decider)",
+      "Bash(pip3 install:*)",
+      "Bash(PYTHONPATH=\"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages\" python3 -m engines.refill.engine_d_decider)",
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/\")"
     ]
   }
 }

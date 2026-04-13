@@ -20,6 +20,8 @@ const allNavItems: NavItem[] = [
   { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
+  { label: "Machines", href: "/admin/machines", icon: "⊞" },
+  { label: "SIM Cards", href: "/admin/sim-cards", icon: "◈" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
