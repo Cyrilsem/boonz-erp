@@ -6,8 +6,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
-import { getExpiryStyle } from "@/app/(field)/utils/expiry";
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LineAction = "packed" | "skip" | null;
@@ -51,6 +49,10 @@ interface PackLine {
   warehouse_stock: number;
   /** Non-null only for mix products (pod_product maps to >1 boonz variant) */
   variantStocks: VariantStock[] | null;
+  /** Batch rows for single-variant non-remove lines — same shape as VariantStock.batches */
+  singleBatches:
+    | { wh_inventory_id: string; expiry: string | null; stock: number }[]
+    | null;
 }
 
 interface MachineInfo {
@@ -59,21 +61,6 @@ interface MachineInfo {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDMY(date: string | null): string {
-  if (!date) return "—";
-  return new Date(date + "T00:00:00").toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "2-digit",
-  });
-}
-
-function stockColor(stock: number, planned: number): string {
-  if (stock === 0) return "text-red-600 dark:text-red-400";
-  if (stock < planned) return "text-amber-600 dark:text-amber-400";
-  return "text-green-600 dark:text-green-400";
-}
 
 /** Format a YYYY-MM-DD date string as "12 Jul 26" */
 function formatExpiry(dateStr: string): string {
@@ -473,6 +460,12 @@ export default function PackingDetailPage() {
         }));
       }
 
+      const isRemoveLine = (line.quantity ?? 0) === 0;
+      const singleBatches =
+        !isMix && !isRemoveLine
+          ? (batchMap.get(line.boonz_product_id ?? "") ?? [])
+          : null;
+
       return {
         dispatch_id: line.dispatch_id,
         boonz_product_id: line.boonz_product_id ?? "",
@@ -488,6 +481,7 @@ export default function PackingDetailPage() {
         allocations: fifo.allocations,
         warehouse_stock: stockMap.get(line.boonz_product_id ?? "") ?? 0,
         variantStocks,
+        singleBatches,
       };
     });
 
@@ -495,25 +489,39 @@ export default function PackingDetailPage() {
     setLines(mapped);
 
     // Initialise batchPickQtys: FIFO distribute each variant's packQty across its batches
+    // Initialise batchPickQtys: FIFO-fill batches for both mix and single-variant lines
     const initBatchPickQtys: Record<string, Record<string, number>> = {};
+
+    const fillBatches = (
+      dispatchId: string,
+      batches: { wh_inventory_id: string; stock: number }[],
+      qty: number,
+    ) => {
+      if (!initBatchPickQtys[dispatchId]) initBatchPickQtys[dispatchId] = {};
+      let remaining = qty;
+      for (const batch of batches) {
+        const take = Math.min(batch.stock, remaining);
+        initBatchPickQtys[dispatchId][batch.wh_inventory_id] = take;
+        remaining -= take;
+        if (remaining <= 0) break;
+      }
+      // Remaining batches default to 0
+      for (const batch of batches) {
+        if (!(batch.wh_inventory_id in initBatchPickQtys[dispatchId])) {
+          initBatchPickQtys[dispatchId][batch.wh_inventory_id] = 0;
+        }
+      }
+    };
+
     for (const line of mapped) {
-      if (!line.variantStocks) continue;
-      if (!initBatchPickQtys[line.dispatch_id])
-        initBatchPickQtys[line.dispatch_id] = {};
-      for (const v of line.variantStocks) {
-        let remaining = v.packQty;
-        for (const batch of v.batches) {
-          const take = Math.min(batch.stock, remaining);
-          initBatchPickQtys[line.dispatch_id][batch.wh_inventory_id] = take;
-          remaining -= take;
-          if (remaining <= 0) break;
+      if (line.variantStocks) {
+        // Mix: distribute each variant's packQty across its own batches
+        for (const v of line.variantStocks) {
+          fillBatches(line.dispatch_id, v.batches, v.packQty);
         }
-        // Batches not yet written default to 0
-        for (const batch of v.batches) {
-          if (!(batch.wh_inventory_id in initBatchPickQtys[line.dispatch_id])) {
-            initBatchPickQtys[line.dispatch_id][batch.wh_inventory_id] = 0;
-          }
-        }
+      } else if (line.singleBatches !== null) {
+        // Single-variant: distribute recommended_qty across batches
+        fillBatches(line.dispatch_id, line.singleBatches, line.recommended_qty);
       }
     }
     setBatchPickQtys(initBatchPickQtys);
@@ -534,16 +542,6 @@ export default function PackingDetailPage() {
   function updateAction(dispatchId: string, action: LineAction) {
     setLines((prev) =>
       prev.map((l) => (l.dispatch_id === dispatchId ? { ...l, action } : l)),
-    );
-  }
-
-  function updatePackedQty(dispatchId: string, value: number) {
-    setLines((prev) =>
-      prev.map((l) =>
-        l.dispatch_id === dispatchId
-          ? { ...l, packed_qty: Math.max(0, value) }
-          : l,
-      ),
     );
   }
 
@@ -573,10 +571,10 @@ export default function PackingDetailPage() {
 
     for (const line of lines) {
       if (line.action === "packed") {
-        const isMix = line.variantStocks !== null;
-        const filledQty = isMix
-          ? variantTotal(line.dispatch_id)
-          : line.packed_qty;
+        const filledQty =
+          batchPickQtys[line.dispatch_id] !== undefined
+            ? variantTotal(line.dispatch_id)
+            : line.packed_qty;
 
         await supabase
           .from("refill_dispatching")
@@ -605,8 +603,8 @@ export default function PackingDetailPage() {
 
   // Intercept Packed button for mix lines: show warning if total = 0
   function handlePackedClick(line: PackLine) {
-    const isMix = line.variantStocks !== null;
-    if (isMix && variantTotal(line.dispatch_id) === 0) {
+    const hasTable = line.variantStocks !== null || line.singleBatches !== null;
+    if (hasTable && variantTotal(line.dispatch_id) === 0) {
       setZeroQtyWarnings((prev) => new Set([...prev, line.dispatch_id]));
     }
     updateAction(line.dispatch_id, "packed");
@@ -685,8 +683,6 @@ export default function PackingDetailPage() {
             {shelfLines.map((line) => {
               const isRemove = line.recommended_qty === 0;
               const isMix = line.variantStocks !== null;
-              const hasStock = line.allocations.length > 0;
-              const isMultiBatch = line.allocations.length > 1;
 
               const borderClass =
                 line.action === "packed"
@@ -888,77 +884,115 @@ export default function PackingDetailPage() {
                       )}
                     </div>
                   ) : (
-                    /* Single-variant — FIFO expiry + flat stock count */
-                    <>
-                      {!hasStock ? (
-                        <p className="mb-2 inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                    /* Single-variant — per-batch pick table (same layout as mix) */
+                    <div className="mb-2">
+                      {!line.singleBatches ||
+                      line.singleBatches.length === 0 ? (
+                        <p className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                           ⚠ No stock found in warehouse
                         </p>
-                      ) : isMultiBatch ? (
-                        <div className="mb-2 space-y-0.5 rounded bg-amber-50 px-2 py-1 dark:bg-amber-900/20">
-                          {line.allocations.map((a, i) => {
-                            const style = getExpiryStyle(a.expiry_date);
+                      ) : (
+                        <div className="w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
+                          {/* Header row */}
+                          <div className="grid grid-cols-4 bg-neutral-50 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-900 dark:text-neutral-400">
+                            <span>Expiry</span>
+                            <span>In Stock</span>
+                            <span>Pick Qty</span>
+                            <span>Age</span>
+                          </div>
+                          {/* Batch rows */}
+                          {line.singleBatches.map((b) => {
+                            const pickQty =
+                              batchPickQtys[line.dispatch_id]?.[
+                                b.wh_inventory_id
+                              ] ?? 0;
+                            const days = b.expiry
+                              ? Math.ceil(
+                                  (new Date(b.expiry + "T00:00:00").getTime() -
+                                    Date.now()) /
+                                    86400000,
+                                )
+                              : null;
+                            const urgencyColor =
+                              days === null
+                                ? "text-neutral-400 dark:text-neutral-500"
+                                : days <= 30
+                                  ? "text-red-500 font-medium dark:text-red-400"
+                                  : days <= 60
+                                    ? "text-amber-500 dark:text-amber-400"
+                                    : "text-neutral-400 dark:text-neutral-500";
                             return (
-                              <p key={i} className="text-xs">
-                                <span className="font-bold">Qty: {a.qty}</span>
-                                {"  "}
-                                <span className="font-bold">Expiry:</span>{" "}
-                                <span className={style.qtyColor}>
-                                  {formatDMY(a.expiry_date)}
+                              <div
+                                key={b.wh_inventory_id}
+                                className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                              >
+                                <span
+                                  className={`font-mono text-xs ${urgencyColor}`}
+                                >
+                                  {b.expiry ? formatExpiry(b.expiry) : "—"}
                                 </span>
-                              </p>
+                                <span className="text-xs text-neutral-600 dark:text-neutral-400">
+                                  {b.stock}u
+                                </span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={b.stock}
+                                  value={pickQty}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => {
+                                    const val = Math.min(
+                                      b.stock,
+                                      Math.max(
+                                        0,
+                                        parseInt(e.target.value) || 0,
+                                      ),
+                                    );
+                                    setBatchPickQtys((prev) => ({
+                                      ...prev,
+                                      [line.dispatch_id]: {
+                                        ...(prev[line.dispatch_id] ?? {}),
+                                        [b.wh_inventory_id]: val,
+                                      },
+                                    }));
+                                    setZeroQtyWarnings((prev) => {
+                                      if (!prev.has(line.dispatch_id))
+                                        return prev;
+                                      const next = new Set(prev);
+                                      next.delete(line.dispatch_id);
+                                      return next;
+                                    });
+                                  }}
+                                  className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                    pickQty >= b.stock && b.stock > 0
+                                      ? "border-amber-400"
+                                      : "border-neutral-300 dark:border-neutral-600"
+                                  }`}
+                                />
+                                <span className={`text-xs ${urgencyColor}`}>
+                                  {days !== null ? `${days}d` : "—"}
+                                </span>
+                              </div>
                             );
                           })}
+                          {/* Total row */}
+                          <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+                            <span className="col-span-2 text-xs text-neutral-500">
+                              Total picked
+                            </span>
+                            <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                              {variantTotal(line.dispatch_id)}
+                            </span>
+                            <span />
+                          </div>
                         </div>
-                      ) : (
-                        <p className="mb-2 text-xs">
-                          <span className="font-bold">
-                            Qty: {line.allocations[0].qty}
-                          </span>
-                          {"  "}
-                          <span className="font-bold">Expiry:</span>{" "}
-                          <span
-                            className={
-                              getExpiryStyle(line.allocations[0].expiry_date)
-                                .qtyColor
-                            }
-                          >
-                            {formatDMY(line.allocations[0].expiry_date)}
-                          </span>
+                      )}
+                      {/* Zero-qty warning */}
+                      {zeroQtyWarnings.has(line.dispatch_id) && (
+                        <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                          Enter at least 1 unit
                         </p>
                       )}
-                      <p className="mb-2 text-xs">
-                        <span
-                          className={stockColor(
-                            line.warehouse_stock,
-                            line.recommended_qty,
-                          )}
-                        >
-                          {line.warehouse_stock} in stock
-                        </span>
-                      </p>
-                    </>
-                  )}
-
-                  {/* Packed qty input — single-variant lines only */}
-                  {!isMix && (
-                    <div className="mb-2 flex items-center gap-2">
-                      <label className="text-xs text-neutral-500">
-                        Packed qty:
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={line.packed_qty}
-                        onChange={(e) =>
-                          updatePackedQty(
-                            line.dispatch_id,
-                            parseFloat(e.target.value) || 0,
-                          )
-                        }
-                        disabled={isReadOnly || isRemove}
-                        className="w-20 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
-                      />
                     </div>
                   )}
 
