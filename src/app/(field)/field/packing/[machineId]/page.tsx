@@ -145,6 +145,13 @@ export default function PackingDetailPage() {
   const [zeroQtyWarnings, setZeroQtyWarnings] = useState<Set<string>>(
     new Set(),
   );
+  /**
+   * boonz_product_id → total qty already packed to OTHER machines today
+   * (packed=true, dispatched=false). Used for double-allocation warnings.
+   */
+  const [committedByProduct, setCommittedByProduct] = useState<
+    Map<string, number>
+  >(new Map());
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -526,6 +533,31 @@ export default function PackingDetailPage() {
     }
     setBatchPickQtys(initBatchPickQtys);
 
+    // Fetch committed (packed=true, dispatched=false) for other machines today
+    const { data: committedRows } = await supabase
+      .from("refill_dispatching")
+      .select("boonz_product_id, filled_quantity, quantity")
+      .eq("dispatch_date", today)
+      .eq("packed", true)
+      .eq("dispatched", false)
+      .eq("include", true)
+      .neq("machine_id", machineId)
+      .limit(10000);
+
+    const committedMap = new Map<string, number>();
+    for (const row of committedRows ?? []) {
+      if (!row.boonz_product_id) continue;
+      const qty =
+        (row.filled_quantity as number | null) ??
+        (row.quantity as number | null) ??
+        0;
+      committedMap.set(
+        row.boonz_product_id,
+        (committedMap.get(row.boonz_product_id) ?? 0) + qty,
+      );
+    }
+    setCommittedByProduct(committedMap);
+
     const allResolved =
       mapped.length > 0 && mapped.every((l) => l.action !== null);
     if (allResolved) setSaved(true);
@@ -683,6 +715,15 @@ export default function PackingDetailPage() {
             {shelfLines.map((line) => {
               const isRemove = line.recommended_qty === 0;
               const isMix = line.variantStocks !== null;
+
+              // Committed stock from other machines today (single-variant only)
+              const lineCommitted =
+                !isRemove && !isMix
+                  ? (committedByProduct.get(line.boonz_product_id) ?? 0)
+                  : 0;
+              const lineAvailable = line.warehouse_stock - lineCommitted;
+              const fullyCommitted =
+                !isRemove && !isMix && lineCommitted > 0 && lineAvailable <= 0;
 
               const borderClass =
                 line.action === "packed"
@@ -870,6 +911,42 @@ export default function PackingDetailPage() {
                                       </span>
                                       <span />
                                     </div>
+                                    {/* Double-allocation warning for this variant */}
+                                    {(() => {
+                                      const vc =
+                                        committedByProduct.get(
+                                          v.boonzProductId,
+                                        ) ?? 0;
+                                      if (vc === 0) return null;
+                                      const va = v.stock - vc;
+                                      return (
+                                        <div className="border-t border-neutral-100 px-3 py-2 text-xs dark:border-neutral-800">
+                                          <span className="text-neutral-500">
+                                            WH: {v.stock}u
+                                          </span>
+                                          {" | "}
+                                          <span className="text-amber-600 dark:text-amber-400">
+                                            Committed: {vc}
+                                          </span>
+                                          {" | "}
+                                          <span
+                                            className={
+                                              va > 0
+                                                ? "text-green-700 dark:text-green-400"
+                                                : "text-red-600 dark:text-red-400"
+                                            }
+                                          >
+                                            Avail: {va}
+                                          </span>
+                                          {va <= 0 && (
+                                            <p className="mt-1 font-medium text-red-600 dark:text-red-400">
+                                              ✗ Fully committed to other
+                                              machines
+                                            </p>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 </div>
                               );
@@ -985,6 +1062,41 @@ export default function PackingDetailPage() {
                             </span>
                             <span />
                           </div>
+                          {/* Double-allocation warning */}
+                          {lineCommitted > 0 && (
+                            <div className="border-t border-neutral-100 px-3 py-2 text-xs dark:border-neutral-800">
+                              <span className="text-neutral-500">
+                                WH: {line.warehouse_stock}u
+                              </span>
+                              {" | "}
+                              <span className="text-amber-600 dark:text-amber-400">
+                                Committed: {lineCommitted}
+                              </span>
+                              {" | "}
+                              <span
+                                className={
+                                  lineAvailable > 0
+                                    ? "text-green-700 dark:text-green-400"
+                                    : "text-red-600 dark:text-red-400"
+                                }
+                              >
+                                Available: {lineAvailable}
+                              </span>
+                              {lineAvailable <= 0 && (
+                                <p className="mt-1 font-medium text-red-600 dark:text-red-400">
+                                  ✗ No stock available — fully committed to
+                                  other machines
+                                </p>
+                              )}
+                              {lineAvailable > 0 &&
+                                lineAvailable < line.recommended_qty && (
+                                  <p className="mt-1 text-red-600 dark:text-red-400">
+                                    ⚠ Only {lineAvailable} available —{" "}
+                                    {lineCommitted} committed to other machines
+                                  </p>
+                                )}
+                            </div>
+                          )}
                         </div>
                       )}
                       {/* Zero-qty warning */}
@@ -1001,13 +1113,14 @@ export default function PackingDetailPage() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => handlePackedClick(line)}
-                        className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
+                        disabled={fullyCommitted}
+                        className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                           line.action === "packed"
                             ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
                             : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
                         }`}
                       >
-                        ✓ Packed
+                        {fullyCommitted ? "✗ No stock" : "✓ Packed"}
                       </button>
                       <button
                         onClick={() => updateAction(line.dispatch_id, "skip")}
