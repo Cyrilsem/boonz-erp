@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { RefillPlanReview } from "@/components/RefillPlanReview";
+import { getDubaiDate } from "@/lib/utils/date";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -216,6 +217,16 @@ const tierColors: Record<string, { card: string; bar: string }> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RefillPage() {
+  const [showTomorrow, setShowTomorrow] = useState(true);
+
+  const dubaiToday = getDubaiDate();
+  const dubaiTomorrow = (() => {
+    const d = new Date(dubaiToday);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  })();
+  const selectedDate = showTomorrow ? dubaiTomorrow : dubaiToday;
+
   const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<RefreshResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -754,6 +765,30 @@ export default function RefillPage() {
           <p className="text-sm text-gray-500 mt-1">
             Pull latest sales, inventory, and machine status from Weimi API
           </p>
+          {/* Today / Tomorrow toggle */}
+          <div className="flex gap-2 items-center mt-3">
+            <button
+              onClick={() => setShowTomorrow(false)}
+              className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                !showTomorrow
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              Today
+            </button>
+            <button
+              onClick={() => setShowTomorrow(true)}
+              className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
+                showTomorrow
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              Tomorrow
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">{selectedDate}</p>
         </div>
         <a
           href="/refill/route"
@@ -763,7 +798,7 @@ export default function RefillPage() {
         </a>
       </div>
 
-      <RefillPlanReview />
+      <RefillPlanReview selectedDate={selectedDate} />
 
       {/* Controls card */}
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">

@@ -39,7 +39,7 @@ type RefillPlanGroup = {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function RefillPlanReview() {
+export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   const [planRows, setPlanRows] = useState<RefillPlanRow[]>([]);
   const [planDate, setPlanDate] = useState<string | null>(null);
   const [planExpanded, setPlanExpanded] = useState<string | null>(null);
@@ -50,13 +50,17 @@ export function RefillPlanReview() {
 
   const loadPlan = useCallback(async () => {
     const supabase = createClient();
-    const { data } = await supabase
+    let query = supabase
       .from("refill_plan_output")
       .select("*")
       .eq("operator_status", "pending")
       .order("machine_priority", { ascending: true })
       .order("shelf_code", { ascending: true })
       .limit(10000);
+    if (selectedDate) {
+      query = query.eq("plan_date", selectedDate);
+    }
+    const { data } = await query;
     if (data && data.length > 0) {
       setPlanRows(data as RefillPlanRow[]);
       setPlanDate((data[0] as RefillPlanRow).plan_date);
@@ -64,7 +68,7 @@ export function RefillPlanReview() {
       setPlanRows([]);
       setPlanDate(null);
     }
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     loadPlan();
