@@ -15,7 +15,7 @@ interface WHRowRaw {
   status: string;
   boonz_products: {
     boonz_product_name: string;
-    product_category: string | null;
+    physical_type: string | null;
   };
 }
 
@@ -23,7 +23,7 @@ interface WHRow {
   wh_inventory_id: string;
   boonz_product_id: string;
   boonz_product_name: string;
-  product_category: string | null;
+  physical_type: string | null;
   batch_id: string | null;
   wh_location: string | null;
   warehouse_stock: number;
@@ -68,20 +68,22 @@ export default function InventoryPage() {
   useEffect(() => {
     async function load() {
       const supabase = createClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("warehouse_inventory")
         .select(
-          "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, expiration_date, status, boonz_products!inner(boonz_product_name, product_category)",
+          "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, expiration_date, status, boonz_products!inner(boonz_product_name, physical_type)",
         )
         .order("expiration_date", { ascending: true, nullsFirst: false })
         .limit(10000);
+
+      if (error) console.error("warehouse_inventory fetch error:", error);
 
       const mapped: WHRow[] = ((data ?? []) as unknown as WHRowRaw[]).map(
         (r) => ({
           wh_inventory_id: r.wh_inventory_id,
           boonz_product_id: r.boonz_product_id,
           boonz_product_name: r.boonz_products.boonz_product_name,
-          product_category: r.boonz_products.product_category,
+          physical_type: r.boonz_products.physical_type,
           batch_id: r.batch_id,
           wh_location: r.wh_location,
           warehouse_stock: r.warehouse_stock,
@@ -97,7 +99,7 @@ export default function InventoryPage() {
 
   const categories = useMemo(() => {
     const set = new Set<string>();
-    for (const r of rows) if (r.product_category) set.add(r.product_category);
+    for (const r of rows) if (r.physical_type) set.add(r.physical_type);
     return ["All", ...Array.from(set).sort()];
   }, [rows]);
 
@@ -109,7 +111,7 @@ export default function InventoryPage() {
       )
         return false;
       if (statusFilter !== "All" && r.status !== statusFilter) return false;
-      if (categoryFilter !== "All" && r.product_category !== categoryFilter)
+      if (categoryFilter !== "All" && r.physical_type !== categoryFilter)
         return false;
       return true;
     });
@@ -209,7 +211,7 @@ export default function InventoryPage() {
         >
           {categories.map((c) => (
             <option key={c} value={c}>
-              {c === "All" ? "All categories" : c}
+              {c === "All" ? "All types" : c}
             </option>
           ))}
         </select>
@@ -234,7 +236,7 @@ export default function InventoryPage() {
             <tr style={{ borderBottom: "1px solid #e8e4de" }}>
               {[
                 "Product",
-                "Category",
+                "Type",
                 "Batch",
                 "Location",
                 "Stock",
@@ -302,7 +304,7 @@ export default function InventoryPage() {
                     {r.boonz_product_name}
                   </td>
                   <td className="px-4 py-3" style={{ color: "#6b6860" }}>
-                    {r.product_category ?? "—"}
+                    {r.physical_type ?? "—"}
                   </td>
                   <td
                     className="px-4 py-3"

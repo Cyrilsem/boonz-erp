@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -84,9 +85,7 @@ export default function ProcurementPage() {
   >([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [newSupplier, setNewSupplier] = useState("");
-  const [newDate, setNewDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
+  const [newDate, setNewDate] = useState(getDubaiDate());
   const [newLines, setNewLines] = useState<NewPOLine[]>([]);
   const [newSaving, setNewSaving] = useState(false);
 
@@ -139,6 +138,22 @@ export default function ProcurementPage() {
     fetchOrders();
   }, [fetchOrders]);
 
+  // ESC key handler
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (showNewPO) setShowNewPO(false);
+        else if (selectedPO) {
+          setSelectedPO(null);
+          setReceiveQtys({});
+          setReceiveLocations({});
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedPO, showNewPO]);
+
   // Fetch PO detail lines when a PO is selected
   const openPODrawer = useCallback(async (po: POGroup) => {
     setSelectedPO(po);
@@ -160,7 +175,7 @@ export default function ProcurementPage() {
     setShowNewPO(true);
     setNewLines([]);
     setNewSupplier("");
-    setNewDate(new Date().toISOString().split("T")[0]);
+    setNewDate(getDubaiDate());
     const supabase = createClient();
     const [suppRes, prodRes] = await Promise.all([
       supabase
@@ -209,7 +224,7 @@ export default function ProcurementPage() {
     if (!newSupplier || newLines.length === 0) return;
     setNewSaving(true);
     const supabase = createClient();
-    const poId = crypto.randomUUID();
+    const poId = `PO-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
     const rows = newLines.map((l) => ({
       po_id: poId,
       supplier_id: newSupplier,
@@ -231,13 +246,16 @@ export default function ProcurementPage() {
 
   // Receive delivery inline
   const [receiveQtys, setReceiveQtys] = useState<Record<string, number>>({});
+  const [receiveLocations, setReceiveLocations] = useState<
+    Record<string, string>
+  >({});
   const [receiving, setReceiving] = useState(false);
 
   const handleReceive = async () => {
     if (!selectedPO) return;
     setReceiving(true);
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
     for (const line of poLines) {
       const qty = receiveQtys[line.po_line_id];
       if (qty && qty > 0) {
@@ -246,10 +264,12 @@ export default function ProcurementPage() {
           .update({ received_date: today })
           .eq("po_line_id", line.po_line_id);
         // Add to warehouse inventory
+        const loc = receiveLocations[line.po_line_id] || null;
         await supabase.from("warehouse_inventory").insert({
           boonz_product_id: line.boonz_product_id,
           warehouse_stock: qty,
           expiration_date: line.expiry_date,
+          wh_location: loc,
           status: "Active",
           snapshot_date: today,
         });
@@ -258,6 +278,7 @@ export default function ProcurementPage() {
     setReceiving(false);
     setSelectedPO(null);
     setReceiveQtys({});
+    setReceiveLocations({});
     setLoading(true);
     await fetchOrders();
   };
@@ -543,6 +564,7 @@ export default function ProcurementPage() {
             onClick={() => {
               setSelectedPO(null);
               setReceiveQtys({});
+              setReceiveLocations({});
             }}
             style={{
               position: "fixed",
@@ -590,8 +612,10 @@ export default function ProcurementPage() {
                   {selectedPO.supplier_name}
                 </h2>
                 <p style={{ fontSize: 12, color: "#6b6860", marginTop: 4 }}>
-                  PO {selectedPO.po_id.slice(0, 8)}… ·{" "}
-                  {formatDate(selectedPO.purchase_date)}
+                  {poLines[0]?.po_number
+                    ? poLines[0].po_number
+                    : `PO ${selectedPO.po_id.slice(0, 8)}…`}{" "}
+                  · {formatDate(selectedPO.purchase_date)}
                 </p>
               </div>
               <button
@@ -638,23 +662,28 @@ export default function ProcurementPage() {
                 <table className="w-full text-sm" style={{ fontSize: 13 }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid #e8e4de" }}>
-                      {["Product", "Qty", "Price", "Expiry", "Receive"].map(
-                        (h) => (
-                          <th
-                            key={h}
-                            className="text-left py-2 px-2"
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 500,
-                              letterSpacing: "0.06em",
-                              textTransform: "uppercase",
-                              color: "#6b6860",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ),
-                      )}
+                      {[
+                        "Product",
+                        "Qty",
+                        "Price",
+                        "Expiry",
+                        "Receive",
+                        "WH Loc",
+                      ].map((h) => (
+                        <th
+                          key={h}
+                          className="text-left py-2 px-2"
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 500,
+                            letterSpacing: "0.06em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -702,6 +731,34 @@ export default function ProcurementPage() {
                                 setReceiveQtys((prev) => ({
                                   ...prev,
                                   [l.po_line_id]: Number(e.target.value),
+                                }))
+                              }
+                              style={{
+                                width: 64,
+                                border: "1px solid #e8e4de",
+                                borderRadius: 6,
+                                padding: "4px 8px",
+                                fontSize: 13,
+                                color: "#0a0a0a",
+                                outline: "none",
+                              }}
+                            />
+                          )}
+                        </td>
+                        <td className="py-2 px-2">
+                          {l.received_date ? (
+                            <span style={{ fontSize: 11, color: "#6b6860" }}>
+                              —
+                            </span>
+                          ) : (
+                            <input
+                              type="text"
+                              value={receiveLocations[l.po_line_id] ?? ""}
+                              placeholder="e.g. A1"
+                              onChange={(e) =>
+                                setReceiveLocations((prev) => ({
+                                  ...prev,
+                                  [l.po_line_id]: e.target.value,
                                 }))
                               }
                               style={{

@@ -16,6 +16,11 @@ interface Machine {
   pod_address: string | null;
   adyen_status: string | null;
   adyen_inventory_in_store: boolean | null;
+  adyen_unique_terminal_id: string | null;
+  adyen_permanent_terminal_id: string | null;
+  adyen_store_code: string | null;
+  adyen_fridge_assigned: boolean | null;
+  adyen_store_description: string | null;
   location_type: string | null;
   contact_person: string | null;
   contact_phone: string | null;
@@ -23,12 +28,23 @@ interface Machine {
   installation_date: string | null;
   notes: string | null;
   serial_number: string | null;
-  adyen_unique_terminal_id: string | null;
-  adyen_store_code: string | null;
+  shipment_batch_nbr: string | null;
   micron_app_id: string | null;
   app_version: string | null;
+  micron_version: string | null;
   wifi_network_name: string | null;
+  wifi_mac_address: string | null;
+  wifi_device_hostname: string | null;
   payment_terminal_installed: boolean | null;
+  payment_micron_bo_setup: boolean | null;
+  payment_adyen_store_created: boolean | null;
+  payment_connect_store_terminal: boolean | null;
+  payment_general_ui_updated: boolean | null;
+  payment_pos_hide_button: boolean | null;
+  payment_app_deployed: boolean | null;
+  payment_app_deployed_terminal: boolean | null;
+  payment_kiosk_mode: boolean | null;
+  payment_fan_test: boolean | null;
   hw_compressor_ok: boolean | null;
   hw_calibration_ok: boolean | null;
   hw_door_spring_ok: boolean | null;
@@ -37,9 +53,38 @@ interface Machine {
   source_of_supply: string | null;
 }
 
-type DrawerTab = "overview" | "setup";
+type DrawerTab = "overview" | "adyen" | "payment" | "hardware" | "wifi";
 
-// ─── Drawer Field component ──────────────────────────────────────────────────
+const DRAWER_TABS: { key: DrawerTab; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "adyen", label: "Adyen" },
+  { key: "payment", label: "Payment" },
+  { key: "hardware", label: "Hardware" },
+  { key: "wifi", label: "WiFi" },
+];
+
+const MACHINE_COLS =
+  "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, adyen_unique_terminal_id, adyen_permanent_terminal_id, adyen_store_code, adyen_fridge_assigned, adyen_store_description, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, shipment_batch_nbr, micron_app_id, app_version, micron_version, wifi_network_name, wifi_mac_address, wifi_device_hostname, payment_terminal_installed, payment_micron_bo_setup, payment_adyen_store_created, payment_connect_store_terminal, payment_general_ui_updated, payment_pos_hide_button, payment_app_deployed, payment_app_deployed_terminal, payment_kiosk_mode, payment_fan_test, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: 10,
+        fontWeight: 500,
+        letterSpacing: "0.1em",
+        textTransform: "uppercase",
+        color: "#6b6860",
+        marginBottom: 14,
+        marginTop: 24,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -56,7 +101,9 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
       >
         {label}
       </div>
-      <div style={{ fontSize: 14, color: "#0a0a0a" }}>{value ?? "—"}</div>
+      <div style={{ fontSize: 14, color: "#0a0a0a", fontWeight: 500 }}>
+        {value ?? "—"}
+      </div>
     </div>
   );
 }
@@ -67,11 +114,11 @@ function BoolField({ label, value }: { label: string; value: boolean | null }) {
       label={label}
       value={
         value === true ? (
-          <span style={{ color: "#24544a", fontWeight: 600 }}>Yes</span>
+          <span style={{ color: "#24544a", fontWeight: 700 }}>✓ Yes</span>
         ) : value === false ? (
-          <span style={{ color: "#6b6860" }}>No</span>
+          <span style={{ color: "#9ca3af" }}>— No</span>
         ) : (
-          "—"
+          <span style={{ color: "#9ca3af" }}>—</span>
         )
       }
     />
@@ -91,23 +138,30 @@ export default function PodsPage() {
   const [selected, setSelected] = useState<Machine | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
 
+  // ESC key to close drawer
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   useEffect(() => {
     async function load() {
       const supabase = createClient();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("machines")
-        .select(
-          "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, adyen_unique_terminal_id, adyen_store_code, micron_app_id, app_version, wifi_network_name, payment_terminal_installed, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply",
-        )
+        .select(MACHINE_COLS)
         .order("official_name")
         .limit(10000);
+      if (error) console.error("machines fetch error:", error);
       setMachines(data ?? []);
       setLoading(false);
     }
     load();
   }, []);
 
-  // ── Derived lists ────────────────────────────────────────────────────────────
   const groups = useMemo(() => {
     const set = new Set<string>();
     for (const m of machines) if (m.venue_group) set.add(m.venue_group);
@@ -130,6 +184,169 @@ export default function PodsPage() {
       return true;
     });
   }, [machines, search, statusFilter, groupFilter]);
+
+  // ── Drawer content renderer ─────────────────────────────────────────────────
+  function renderDrawerContent(m: Machine) {
+    const grid2 = {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "0 20px",
+    } as const;
+
+    switch (drawerTab) {
+      case "overview":
+        return (
+          <>
+            <SectionLabel>Machine Details</SectionLabel>
+            <div style={grid2}>
+              <Field label="Venue Group" value={m.venue_group} />
+              <Field label="Location Type" value={m.location_type} />
+              <Field label="Location" value={m.pod_location} />
+              <Field label="Address" value={m.pod_address} />
+              <Field label="Supply Source" value={m.source_of_supply} />
+              <Field label="Cabinets" value={m.cabinet_count?.toString()} />
+              <BoolField
+                label="Include in Refill"
+                value={m.include_in_refill}
+              />
+              <Field label="Installation Date" value={m.installation_date} />
+            </div>
+            <SectionLabel>Contact</SectionLabel>
+            <div style={grid2}>
+              <Field label="Person" value={m.contact_person} />
+              <Field label="Phone" value={m.contact_phone} />
+              <Field label="Email" value={m.contact_email} />
+            </div>
+            {m.notes && (
+              <>
+                <SectionLabel>Notes</SectionLabel>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#4a4845",
+                    background: "#faf9f7",
+                    borderRadius: 8,
+                    padding: "12px 14px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {m.notes}
+                </div>
+              </>
+            )}
+          </>
+        );
+
+      case "adyen":
+        return (
+          <>
+            <SectionLabel>Adyen Configuration</SectionLabel>
+            <div style={grid2}>
+              <Field label="Adyen Status" value={m.adyen_status} />
+              <BoolField
+                label="Inventory In-Store"
+                value={m.adyen_inventory_in_store}
+              />
+              <Field
+                label="Unique Terminal ID"
+                value={m.adyen_unique_terminal_id}
+              />
+              <Field
+                label="Permanent Terminal ID"
+                value={m.adyen_permanent_terminal_id}
+              />
+              <Field label="Store Code" value={m.adyen_store_code} />
+              <Field
+                label="Store Description"
+                value={m.adyen_store_description}
+              />
+              <BoolField
+                label="Fridge Assigned"
+                value={m.adyen_fridge_assigned}
+              />
+              <Field label="Shipment Batch" value={m.shipment_batch_nbr} />
+            </div>
+            <SectionLabel>Software</SectionLabel>
+            <div style={grid2}>
+              <Field label="Micron App ID" value={m.micron_app_id} />
+              <Field label="App Version" value={m.app_version} />
+              <Field label="Micron Version" value={m.micron_version} />
+            </div>
+          </>
+        );
+
+      case "payment":
+        return (
+          <>
+            <SectionLabel>Payment Setup Checklist</SectionLabel>
+            <div style={grid2}>
+              <BoolField
+                label="Terminal Installed"
+                value={m.payment_terminal_installed}
+              />
+              <BoolField
+                label="Micron BO Setup"
+                value={m.payment_micron_bo_setup}
+              />
+              <BoolField
+                label="Adyen Store Created"
+                value={m.payment_adyen_store_created}
+              />
+              <BoolField
+                label="Connect Store → Terminal"
+                value={m.payment_connect_store_terminal}
+              />
+              <BoolField
+                label="General UI Updated"
+                value={m.payment_general_ui_updated}
+              />
+              <BoolField
+                label="POS Hide Button"
+                value={m.payment_pos_hide_button}
+              />
+              <BoolField label="App Deployed" value={m.payment_app_deployed} />
+              <BoolField
+                label="App Deployed Terminal"
+                value={m.payment_app_deployed_terminal}
+              />
+              <BoolField label="Kiosk Mode" value={m.payment_kiosk_mode} />
+              <BoolField label="Fan Test" value={m.payment_fan_test} />
+            </div>
+          </>
+        );
+
+      case "hardware":
+        return (
+          <>
+            <SectionLabel>Hardware Checks</SectionLabel>
+            <div style={grid2}>
+              <BoolField label="Compressor OK" value={m.hw_compressor_ok} />
+              <BoolField label="Calibration OK" value={m.hw_calibration_ok} />
+              <BoolField label="Door Spring OK" value={m.hw_door_spring_ok} />
+              <BoolField label="Test Successful" value={m.hw_test_successful} />
+            </div>
+            <SectionLabel>Identity</SectionLabel>
+            <div style={grid2}>
+              <Field label="Serial Number" value={m.serial_number} />
+              <Field label="Shipment Batch" value={m.shipment_batch_nbr} />
+            </div>
+          </>
+        );
+
+      case "wifi":
+        return (
+          <>
+            <SectionLabel>WiFi Configuration</SectionLabel>
+            <div style={grid2}>
+              <Field label="Network Name" value={m.wifi_network_name} />
+              <Field label="MAC Address" value={m.wifi_mac_address} />
+              <Field label="Device Hostname" value={m.wifi_device_hostname} />
+              <Field label="Serial Number" value={m.serial_number} />
+            </div>
+          </>
+        );
+    }
+  }
 
   return (
     <div className="p-8 max-w-7xl">
@@ -300,29 +517,27 @@ export default function PodsPage() {
             ) : (
               filtered.map((m) => {
                 const isActive = m.status?.toLowerCase() === "active";
+                const isSelected = selected?.machine_id === m.machine_id;
                 return (
                   <tr
                     key={m.machine_id}
                     style={{
                       borderBottom: "1px solid #f5f2ee",
                       cursor: "pointer",
-                      background:
-                        selected?.machine_id === m.machine_id
-                          ? "#f0fdf4"
-                          : undefined,
+                      background: isSelected ? "#f0fdf4" : undefined,
                     }}
                     onClick={() => {
                       setSelected(m);
                       setDrawerTab("overview");
                     }}
                     onMouseEnter={(e) => {
-                      if (selected?.machine_id !== m.machine_id)
+                      if (!isSelected)
                         (
                           e.currentTarget as HTMLTableRowElement
                         ).style.background = "#faf9f7";
                     }}
                     onMouseLeave={(e) => {
-                      if (selected?.machine_id !== m.machine_id)
+                      if (!isSelected)
                         (
                           e.currentTarget as HTMLTableRowElement
                         ).style.background = "transparent";
@@ -353,7 +568,7 @@ export default function PodsPage() {
                           ✓
                         </span>
                       ) : (
-                        <span style={{ color: "#9a948e" }}>—</span>
+                        <span style={{ color: "#9ca3af" }}>—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -362,7 +577,7 @@ export default function PodsPage() {
                           ✓
                         </span>
                       ) : (
-                        <span style={{ color: "#9a948e" }}>—</span>
+                        <span style={{ color: "#9ca3af" }}>—</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -390,35 +605,27 @@ export default function PodsPage() {
 
       {/* ── Slide-over drawer ──────────────────────────────────────────────── */}
       {selected && (
-        <>
+        <div className="fixed inset-0 z-50 flex">
           {/* Backdrop */}
           <div
+            className="flex-1"
+            style={{ background: "rgba(0,0,0,0.3)" }}
             onClick={() => setSelected(null)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.25)",
-              zIndex: 40,
-            }}
           />
-          {/* Drawer */}
+          {/* Panel */}
           <div
             style={{
-              position: "fixed",
-              top: 0,
-              right: 0,
-              bottom: 0,
               width: 520,
               maxWidth: "100vw",
               background: "white",
-              zIndex: 50,
-              boxShadow: "-4px 0 24px rgba(0,0,0,0.08)",
+              height: "100%",
               display: "flex",
               flexDirection: "column",
+              boxShadow: "-4px 0 24px rgba(0,0,0,0.08)",
               fontFamily: "'Plus Jakarta Sans', sans-serif",
             }}
           >
-            {/* Drawer header */}
+            {/* Header */}
             <div
               style={{
                 padding: "20px 24px",
@@ -431,7 +638,7 @@ export default function PodsPage() {
               <div>
                 <h2
                   style={{
-                    fontSize: 18,
+                    fontSize: 20,
                     fontWeight: 800,
                     color: "#0a0a0a",
                     margin: 0,
@@ -440,290 +647,63 @@ export default function PodsPage() {
                 >
                   {selected.official_name}
                 </h2>
-                <span
-                  style={{
-                    display: "inline-block",
-                    marginTop: 4,
-                    padding: "2px 10px",
-                    borderRadius: 20,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    background:
-                      selected.status?.toLowerCase() === "active"
-                        ? "#f0fdf4"
-                        : "#f5f2ee",
-                    color:
-                      selected.status?.toLowerCase() === "active"
-                        ? "#065f46"
-                        : "#6b6860",
-                  }}
-                >
-                  {selected.status ?? "—"}
-                </span>
+                <p style={{ color: "#6b6860", fontSize: 13, marginTop: 2 }}>
+                  {selected.venue_group ?? "—"} · {selected.status ?? "—"}
+                </p>
               </div>
               <button
                 onClick={() => setSelected(null)}
                 style={{
+                  fontSize: 20,
+                  color: "#6b6860",
                   background: "none",
                   border: "none",
-                  fontSize: 22,
-                  color: "#6b6860",
                   cursor: "pointer",
-                  padding: 4,
-                  lineHeight: 1,
                 }}
               >
                 ✕
               </button>
             </div>
 
-            {/* Drawer tabs */}
+            {/* Tabs */}
             <div
               style={{
                 display: "flex",
                 borderBottom: "1px solid #e8e4de",
               }}
             >
-              {(["overview", "setup"] as const).map((t) => (
+              {DRAWER_TABS.map((t) => (
                 <button
-                  key={t}
-                  onClick={() => setDrawerTab(t)}
+                  key={t.key}
+                  onClick={() => setDrawerTab(t.key)}
                   style={{
                     flex: 1,
-                    padding: "10px 16px",
-                    fontSize: 13,
-                    fontWeight: drawerTab === t ? 700 : 400,
-                    color: drawerTab === t ? "#24544a" : "#6b6860",
+                    padding: "10px 8px",
+                    fontSize: 12,
+                    fontWeight: drawerTab === t.key ? 700 : 400,
+                    color: drawerTab === t.key ? "#24544a" : "#6b6860",
                     background: "none",
                     border: "none",
                     borderBottom:
-                      drawerTab === t
+                      drawerTab === t.key
                         ? "2px solid #24544a"
                         : "2px solid transparent",
                     cursor: "pointer",
                   }}
                 >
-                  {t === "overview" ? "Overview" : "Setup Config"}
+                  {t.label}
                 </button>
               ))}
             </div>
 
-            {/* Drawer content */}
-            <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-              {drawerTab === "overview" ? (
-                <>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 500,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#6b6860",
-                      marginBottom: 16,
-                    }}
-                  >
-                    Machine Details
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "0 20px",
-                    }}
-                  >
-                    <Field label="Venue Group" value={selected.venue_group} />
-                    <Field
-                      label="Location Type"
-                      value={selected.location_type}
-                    />
-                    <Field label="Location" value={selected.pod_location} />
-                    <Field label="Address" value={selected.pod_address} />
-                    <Field
-                      label="Supply Source"
-                      value={selected.source_of_supply}
-                    />
-                    <Field
-                      label="Cabinets"
-                      value={selected.cabinet_count?.toString()}
-                    />
-                    <BoolField
-                      label="Include in Refill"
-                      value={selected.include_in_refill}
-                    />
-                    <Field
-                      label="Installation Date"
-                      value={selected.installation_date}
-                    />
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 500,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#6b6860",
-                      margin: "24px 0 16px",
-                    }}
-                  >
-                    Contact
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "0 20px",
-                    }}
-                  >
-                    <Field label="Person" value={selected.contact_person} />
-                    <Field label="Phone" value={selected.contact_phone} />
-                    <Field label="Email" value={selected.contact_email} />
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 500,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#6b6860",
-                      margin: "24px 0 16px",
-                    }}
-                  >
-                    Adyen Payment
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "0 20px",
-                    }}
-                  >
-                    <Field label="Adyen Status" value={selected.adyen_status} />
-                    <BoolField
-                      label="Inventory In-Store"
-                      value={selected.adyen_inventory_in_store}
-                    />
-                    <Field
-                      label="Terminal ID"
-                      value={selected.adyen_unique_terminal_id}
-                    />
-                    <Field
-                      label="Store Code"
-                      value={selected.adyen_store_code}
-                    />
-                  </div>
-
-                  {selected.notes && (
-                    <>
-                      <div
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 500,
-                          letterSpacing: "0.1em",
-                          textTransform: "uppercase",
-                          color: "#6b6860",
-                          margin: "24px 0 8px",
-                        }}
-                      >
-                        Notes
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: "#4a4845",
-                          background: "#faf9f7",
-                          borderRadius: 8,
-                          padding: "12px 14px",
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        {selected.notes}
-                      </div>
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 500,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#6b6860",
-                      marginBottom: 16,
-                    }}
-                  >
-                    Hardware
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "0 20px",
-                    }}
-                  >
-                    <Field
-                      label="Serial Number"
-                      value={selected.serial_number}
-                    />
-                    <Field
-                      label="Micron App ID"
-                      value={selected.micron_app_id}
-                    />
-                    <Field label="App Version" value={selected.app_version} />
-                    <Field
-                      label="Wi-Fi Network"
-                      value={selected.wifi_network_name}
-                    />
-                    <BoolField
-                      label="Payment Terminal"
-                      value={selected.payment_terminal_installed}
-                    />
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 500,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#6b6860",
-                      margin: "24px 0 16px",
-                    }}
-                  >
-                    Hardware Checks
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "0 20px",
-                    }}
-                  >
-                    <BoolField
-                      label="Compressor OK"
-                      value={selected.hw_compressor_ok}
-                    />
-                    <BoolField
-                      label="Calibration OK"
-                      value={selected.hw_calibration_ok}
-                    />
-                    <BoolField
-                      label="Door Spring OK"
-                      value={selected.hw_door_spring_ok}
-                    />
-                    <BoolField
-                      label="Test Successful"
-                      value={selected.hw_test_successful}
-                    />
-                  </div>
-                </>
-              )}
+            {/* Content */}
+            <div
+              style={{ flex: 1, overflow: "auto", padding: "4px 24px 24px" }}
+            >
+              {renderDrawerContent(selected)}
             </div>
 
-            {/* Drawer footer */}
+            {/* Footer */}
             <div
               style={{
                 padding: "14px 24px",
@@ -738,18 +718,18 @@ export default function PodsPage() {
                   gap: 6,
                   background: "#24544a",
                   color: "white",
+                  padding: "10px 20px",
                   borderRadius: 8,
-                  padding: "8px 20px",
+                  textDecoration: "none",
                   fontSize: 14,
                   fontWeight: 600,
-                  textDecoration: "none",
                 }}
               >
-                Manage →
+                Open Full Editor →
               </Link>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
