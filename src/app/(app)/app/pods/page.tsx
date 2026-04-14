@@ -13,8 +13,69 @@ interface Machine {
   status: string | null;
   include_in_refill: boolean | null;
   pod_location: string | null;
+  pod_address: string | null;
   adyen_status: string | null;
   adyen_inventory_in_store: boolean | null;
+  location_type: string | null;
+  contact_person: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  installation_date: string | null;
+  notes: string | null;
+  serial_number: string | null;
+  adyen_unique_terminal_id: string | null;
+  adyen_store_code: string | null;
+  micron_app_id: string | null;
+  app_version: string | null;
+  wifi_network_name: string | null;
+  payment_terminal_installed: boolean | null;
+  hw_compressor_ok: boolean | null;
+  hw_calibration_ok: boolean | null;
+  hw_door_spring_ok: boolean | null;
+  hw_test_successful: boolean | null;
+  cabinet_count: number | null;
+  source_of_supply: string | null;
+}
+
+type DrawerTab = "overview" | "setup";
+
+// ─── Drawer Field component ──────────────────────────────────────────────────
+
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 500,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#6b6860",
+          marginBottom: 3,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 14, color: "#0a0a0a" }}>{value ?? "—"}</div>
+    </div>
+  );
+}
+
+function BoolField({ label, value }: { label: string; value: boolean | null }) {
+  return (
+    <Field
+      label={label}
+      value={
+        value === true ? (
+          <span style={{ color: "#24544a", fontWeight: 600 }}>Yes</span>
+        ) : value === false ? (
+          <span style={{ color: "#6b6860" }}>No</span>
+        ) : (
+          "—"
+        )
+      }
+    />
+  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -27,6 +88,8 @@ export default function PodsPage() {
     "All" | "Active" | "Inactive"
   >("All");
   const [groupFilter, setGroupFilter] = useState("All");
+  const [selected, setSelected] = useState<Machine | null>(null);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
 
   useEffect(() => {
     async function load() {
@@ -34,7 +97,7 @@ export default function PodsPage() {
       const { data } = await supabase
         .from("machines")
         .select(
-          "machine_id, official_name, venue_group, status, include_in_refill, pod_location, adyen_status, adyen_inventory_in_store",
+          "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, adyen_unique_terminal_id, adyen_store_code, micron_app_id, app_version, wifi_network_name, payment_terminal_installed, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply",
         )
         .order("official_name")
         .limit(10000);
@@ -243,20 +306,27 @@ export default function PodsPage() {
                     style={{
                       borderBottom: "1px solid #f5f2ee",
                       cursor: "pointer",
+                      background:
+                        selected?.machine_id === m.machine_id
+                          ? "#f0fdf4"
+                          : undefined,
                     }}
-                    onClick={() =>
-                      (window.location.href = "/field/config/machines")
-                    }
-                    onMouseEnter={(e) =>
-                      ((
-                        e.currentTarget as HTMLTableRowElement
-                      ).style.background = "#faf9f7")
-                    }
-                    onMouseLeave={(e) =>
-                      ((
-                        e.currentTarget as HTMLTableRowElement
-                      ).style.background = "transparent")
-                    }
+                    onClick={() => {
+                      setSelected(m);
+                      setDrawerTab("overview");
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selected?.machine_id !== m.machine_id)
+                        (
+                          e.currentTarget as HTMLTableRowElement
+                        ).style.background = "#faf9f7";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selected?.machine_id !== m.machine_id)
+                        (
+                          e.currentTarget as HTMLTableRowElement
+                        ).style.background = "transparent";
+                    }}
                   >
                     <td
                       className="px-4 py-3"
@@ -283,7 +353,7 @@ export default function PodsPage() {
                           ✓
                         </span>
                       ) : (
-                        <span style={{ color: "#d1ccc7" }}>—</span>
+                        <span style={{ color: "#9a948e" }}>—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -292,7 +362,7 @@ export default function PodsPage() {
                           ✓
                         </span>
                       ) : (
-                        <span style={{ color: "#d1ccc7" }}>—</span>
+                        <span style={{ color: "#9a948e" }}>—</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -317,6 +387,370 @@ export default function PodsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Slide-over drawer ──────────────────────────────────────────────── */}
+      {selected && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setSelected(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.25)",
+              zIndex: 40,
+            }}
+          />
+          {/* Drawer */}
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: 520,
+              maxWidth: "100vw",
+              background: "white",
+              zIndex: 50,
+              boxShadow: "-4px 0 24px rgba(0,0,0,0.08)",
+              display: "flex",
+              flexDirection: "column",
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+            }}
+          >
+            {/* Drawer header */}
+            <div
+              style={{
+                padding: "20px 24px",
+                borderBottom: "1px solid #e8e4de",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <div>
+                <h2
+                  style={{
+                    fontSize: 18,
+                    fontWeight: 800,
+                    color: "#0a0a0a",
+                    margin: 0,
+                    letterSpacing: "-0.02em",
+                  }}
+                >
+                  {selected.official_name}
+                </h2>
+                <span
+                  style={{
+                    display: "inline-block",
+                    marginTop: 4,
+                    padding: "2px 10px",
+                    borderRadius: 20,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    background:
+                      selected.status?.toLowerCase() === "active"
+                        ? "#f0fdf4"
+                        : "#f5f2ee",
+                    color:
+                      selected.status?.toLowerCase() === "active"
+                        ? "#065f46"
+                        : "#6b6860",
+                  }}
+                >
+                  {selected.status ?? "—"}
+                </span>
+              </div>
+              <button
+                onClick={() => setSelected(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  fontSize: 22,
+                  color: "#6b6860",
+                  cursor: "pointer",
+                  padding: 4,
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Drawer tabs */}
+            <div
+              style={{
+                display: "flex",
+                borderBottom: "1px solid #e8e4de",
+              }}
+            >
+              {(["overview", "setup"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setDrawerTab(t)}
+                  style={{
+                    flex: 1,
+                    padding: "10px 16px",
+                    fontSize: 13,
+                    fontWeight: drawerTab === t ? 700 : 400,
+                    color: drawerTab === t ? "#24544a" : "#6b6860",
+                    background: "none",
+                    border: "none",
+                    borderBottom:
+                      drawerTab === t
+                        ? "2px solid #24544a"
+                        : "2px solid transparent",
+                    cursor: "pointer",
+                  }}
+                >
+                  {t === "overview" ? "Overview" : "Setup Config"}
+                </button>
+              ))}
+            </div>
+
+            {/* Drawer content */}
+            <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+              {drawerTab === "overview" ? (
+                <>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
+                      marginBottom: 16,
+                    }}
+                  >
+                    Machine Details
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <Field label="Venue Group" value={selected.venue_group} />
+                    <Field
+                      label="Location Type"
+                      value={selected.location_type}
+                    />
+                    <Field label="Location" value={selected.pod_location} />
+                    <Field label="Address" value={selected.pod_address} />
+                    <Field
+                      label="Supply Source"
+                      value={selected.source_of_supply}
+                    />
+                    <Field
+                      label="Cabinets"
+                      value={selected.cabinet_count?.toString()}
+                    />
+                    <BoolField
+                      label="Include in Refill"
+                      value={selected.include_in_refill}
+                    />
+                    <Field
+                      label="Installation Date"
+                      value={selected.installation_date}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
+                      margin: "24px 0 16px",
+                    }}
+                  >
+                    Contact
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <Field label="Person" value={selected.contact_person} />
+                    <Field label="Phone" value={selected.contact_phone} />
+                    <Field label="Email" value={selected.contact_email} />
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
+                      margin: "24px 0 16px",
+                    }}
+                  >
+                    Adyen Payment
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <Field label="Adyen Status" value={selected.adyen_status} />
+                    <BoolField
+                      label="Inventory In-Store"
+                      value={selected.adyen_inventory_in_store}
+                    />
+                    <Field
+                      label="Terminal ID"
+                      value={selected.adyen_unique_terminal_id}
+                    />
+                    <Field
+                      label="Store Code"
+                      value={selected.adyen_store_code}
+                    />
+                  </div>
+
+                  {selected.notes && (
+                    <>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 500,
+                          letterSpacing: "0.1em",
+                          textTransform: "uppercase",
+                          color: "#6b6860",
+                          margin: "24px 0 8px",
+                        }}
+                      >
+                        Notes
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#4a4845",
+                          background: "#faf9f7",
+                          borderRadius: 8,
+                          padding: "12px 14px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {selected.notes}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
+                      marginBottom: 16,
+                    }}
+                  >
+                    Hardware
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <Field
+                      label="Serial Number"
+                      value={selected.serial_number}
+                    />
+                    <Field
+                      label="Micron App ID"
+                      value={selected.micron_app_id}
+                    />
+                    <Field label="App Version" value={selected.app_version} />
+                    <Field
+                      label="Wi-Fi Network"
+                      value={selected.wifi_network_name}
+                    />
+                    <BoolField
+                      label="Payment Terminal"
+                      value={selected.payment_terminal_installed}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
+                      margin: "24px 0 16px",
+                    }}
+                  >
+                    Hardware Checks
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <BoolField
+                      label="Compressor OK"
+                      value={selected.hw_compressor_ok}
+                    />
+                    <BoolField
+                      label="Calibration OK"
+                      value={selected.hw_calibration_ok}
+                    />
+                    <BoolField
+                      label="Door Spring OK"
+                      value={selected.hw_door_spring_ok}
+                    />
+                    <BoolField
+                      label="Test Successful"
+                      value={selected.hw_test_successful}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Drawer footer */}
+            <div
+              style={{
+                padding: "14px 24px",
+                borderTop: "1px solid #e8e4de",
+              }}
+            >
+              <Link
+                href="/field/config/machines"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "#24544a",
+                  color: "white",
+                  borderRadius: 8,
+                  padding: "8px 20px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                Manage →
+              </Link>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

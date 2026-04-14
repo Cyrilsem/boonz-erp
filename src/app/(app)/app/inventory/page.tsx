@@ -5,6 +5,20 @@ import { createClient } from "@/lib/supabase/client";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+interface WHRowRaw {
+  wh_inventory_id: string;
+  boonz_product_id: string;
+  batch_id: string | null;
+  wh_location: string | null;
+  warehouse_stock: number;
+  expiration_date: string | null;
+  status: string;
+  boonz_products: {
+    boonz_product_name: string;
+    product_category: string | null;
+  };
+}
+
 interface WHRow {
   wh_inventory_id: string;
   boonz_product_id: string;
@@ -57,11 +71,25 @@ export default function InventoryPage() {
       const { data } = await supabase
         .from("warehouse_inventory")
         .select(
-          "wh_inventory_id, boonz_product_id, boonz_product_name, product_category, batch_id, wh_location, warehouse_stock, expiration_date, status",
+          "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, expiration_date, status, boonz_products!inner(boonz_product_name, product_category)",
         )
         .order("expiration_date", { ascending: true, nullsFirst: false })
         .limit(10000);
-      setRows(data ?? []);
+
+      const mapped: WHRow[] = ((data ?? []) as unknown as WHRowRaw[]).map(
+        (r) => ({
+          wh_inventory_id: r.wh_inventory_id,
+          boonz_product_id: r.boonz_product_id,
+          boonz_product_name: r.boonz_products.boonz_product_name,
+          product_category: r.boonz_products.product_category,
+          batch_id: r.batch_id,
+          wh_location: r.wh_location,
+          warehouse_stock: r.warehouse_stock,
+          expiration_date: r.expiration_date,
+          status: r.status,
+        }),
+      );
+      setRows(mapped);
       setLoading(false);
     }
     load();
@@ -122,7 +150,7 @@ export default function InventoryPage() {
           <p style={{ color: "#6b6860", fontSize: 14, marginTop: 4 }}>
             {loading
               ? "Loading…"
-              : `${filtered.length} batches · ${totalStock.toLocaleString()} units${expiredCount > 0 ? ` · ⚠ ${expiredCount} expired` : ""}`}
+              : `${filtered.length} batches · ${totalStock.toLocaleString()} units${expiredCount > 0 ? ` · ${expiredCount} expired` : ""}`}
           </p>
         </div>
       </div>

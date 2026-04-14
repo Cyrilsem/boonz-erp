@@ -1156,8 +1156,8 @@ export default function ConsumerDashboardClient({
         {D && ha && (
           <div
             style={{
-              background: "#0D1117",
-              borderBottom: "1px solid #e8e4de",
+              background: "#24544a",
+              borderBottom: "1px solid #1d4439",
               padding: "9px 24px",
               display: "flex",
               alignItems: "center",
@@ -1168,7 +1168,7 @@ export default function ConsumerDashboardClient({
           >
             <span
               style={{
-                color: "#6b6860",
+                color: "rgba(255,255,255,0.7)",
                 textTransform: "uppercase",
                 letterSpacing: ".1em",
                 fontSize: 10,
@@ -1176,27 +1176,27 @@ export default function ConsumerDashboardClient({
             >
               Payment Default
             </span>
-            <span style={{ color: "#9a948e" }}>
-              Total <strong style={{ color: "#0a0a0a" }}>{aed(ts)}</strong>
+            <span style={{ color: "rgba(255,255,255,0.8)" }}>
+              Total <strong style={{ color: "#ffffff" }}>{aed(ts)}</strong>
             </span>
-            <span style={{ color: "#d1ccc7" }}>|</span>
-            <span style={{ color: "#9a948e" }}>
+            <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+            <span style={{ color: "rgba(255,255,255,0.8)" }}>
               Captured{" "}
-              <strong style={{ color: "#10B981" }}>
+              <strong style={{ color: "#a7f3d0" }}>
                 {aed(S?.matched_captured ?? 0)}
               </strong>
             </span>
-            <span style={{ color: "#d1ccc7" }}>|</span>
-            <span style={{ color: "#9a948e" }}>
-              Gap <strong style={{ color: "#EF4444" }}>{aed(gp)}</strong>
+            <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+            <span style={{ color: "rgba(255,255,255,0.8)" }}>
+              Gap <strong style={{ color: "#fca5a5" }}>{aed(gp)}</strong>
             </span>
-            <span style={{ color: "#d1ccc7" }}>|</span>
-            <span style={{ color: "#9a948e" }}>
+            <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+            <span style={{ color: "rgba(255,255,255,0.8)" }}>
               Default{" "}
-              <strong style={{ color: "#F59E0B", fontSize: 14 }}>{dp}%</strong>
+              <strong style={{ color: "#fde68a", fontSize: 14 }}>{dp}%</strong>
             </span>
-            <span style={{ color: "#d1ccc7" }}>|</span>
-            <span style={{ color: "#6b6860", fontSize: 10 }}>
+            <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+            <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}>
               {S?.disc_count ?? 0} discrepancies {"\u00B7"}{" "}
               {S?.matched_txns ?? 0}/{S?.total_txns ?? 0} matched
             </span>
@@ -1905,7 +1905,7 @@ export default function ConsumerDashboardClient({
                                 {t2.funding}
                               </span>
                             ) : (
-                              <span style={{ color: "#d1ccc7" }}>
+                              <span style={{ color: "#9a948e" }}>
                                 {"\u2014"}
                               </span>
                             )}
@@ -1915,7 +1915,7 @@ export default function ConsumerDashboardClient({
                             style={{
                               fontSize: 10,
                               color:
-                                t2.card === "\u2014" ? "#d1ccc7" : "#9a948e",
+                                t2.card === "\u2014" ? "#9a948e" : "#9a948e",
                             }}
                           >
                             {t2.card}
@@ -1925,7 +1925,7 @@ export default function ConsumerDashboardClient({
                             style={{
                               fontSize: 10,
                               color:
-                                t2.wallet === "\u2014" ? "#d1ccc7" : "#6b6860",
+                                t2.wallet === "\u2014" ? "#9a948e" : "#6b6860",
                             }}
                           >
                             {t2.wallet}
@@ -2601,7 +2601,7 @@ export default function ConsumerDashboardClient({
                                       <td
                                         className="r"
                                         style={{
-                                          color: isDisc ? "#EF4444" : "#d1ccc7",
+                                          color: isDisc ? "#EF4444" : "#9a948e",
                                           fontSize: 11,
                                           fontWeight: isDisc ? 700 : 400,
                                         }}
@@ -2616,7 +2616,7 @@ export default function ConsumerDashboardClient({
                                           color:
                                             Number(t.refunded_amount) > 0
                                               ? "#EC4899"
-                                              : "#d1ccc7",
+                                              : "#9a948e",
                                           fontSize: 11,
                                         }}
                                       >

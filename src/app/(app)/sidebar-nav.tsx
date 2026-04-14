@@ -22,6 +22,7 @@ const allNavItems: NavItem[] = [
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "SIM Cards", href: "/field/config/sims", icon: "◈" },
+  { label: "Machines", href: "/field/config/machines", icon: "▣" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
