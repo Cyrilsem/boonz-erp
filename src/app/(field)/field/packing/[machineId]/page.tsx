@@ -645,6 +645,7 @@ export default function PackingDetailPage() {
             packed: false,
             filled_quantity: 0,
             expiry_date: null,
+            include: false,
           })
           .eq("dispatch_id", line.dispatch_id);
       }
