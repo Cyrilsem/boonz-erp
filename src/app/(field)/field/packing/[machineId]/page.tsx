@@ -152,6 +152,10 @@ export default function PackingDetailPage() {
   const [committedByProduct, setCommittedByProduct] = useState<
     Map<string, number>
   >(new Map());
+  /** `${boonz_product_id}|||${expiry_date ?? 'null'}` → committed qty (per-batch FIFO key) */
+  const [committedByBatch, setCommittedByBatch] = useState<Map<string, number>>(
+    new Map(),
+  );
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -350,12 +354,23 @@ export default function PackingDetailPage() {
     // Used so a stale expiry_date on a dispatch line (from a prior refill cycle)
     // can still fall back to total Active stock when the exact batch is gone.
     const whStockMap = new Map<string, number>();
+    // whBatchInfoMap / whIdToStock: needed to cap initBatchPickQtys after committed fetch
+    const whBatchInfoMap = new Map<
+      string,
+      { boonz_product_id: string; expiry: string | null }
+    >();
+    const whIdToStock = new Map<string, number>();
     for (const b of rawBatches) {
       const key = `${b.boonz_product_id}|||${b.expiration_date ?? "null"}`;
       whStockMap.set(
         key,
         (whStockMap.get(key) ?? 0) + (b.warehouse_stock ?? 0),
       );
+      whBatchInfoMap.set(b.wh_inventory_id, {
+        boonz_product_id: b.boonz_product_id,
+        expiry: b.expiration_date,
+      });
+      whIdToStock.set(b.wh_inventory_id, b.warehouse_stock ?? 0);
     }
     // stockMap already serves as whTotalMap: boonz_product_id → total Active stock
 
@@ -553,12 +568,10 @@ export default function PackingDetailPage() {
         fillBatches(line.dispatch_id, line.singleBatches, line.recommended_qty);
       }
     }
-    setBatchPickQtys(initBatchPickQtys);
-
     // Fetch committed (packed=true, dispatched=false) for other machines today
     const { data: committedRows } = await supabase
       .from("refill_dispatching")
-      .select("boonz_product_id, filled_quantity, quantity")
+      .select("boonz_product_id, expiry_date, filled_quantity, quantity")
       .eq("dispatch_date", today)
       .eq("packed", true)
       .eq("dispatched", false)
@@ -567,6 +580,7 @@ export default function PackingDetailPage() {
       .limit(10000);
 
     const committedMap = new Map<string, number>();
+    const committedBatchMap = new Map<string, number>();
     for (const row of committedRows ?? []) {
       if (!row.boonz_product_id) continue;
       const qty =
@@ -577,8 +591,28 @@ export default function PackingDetailPage() {
         row.boonz_product_id,
         (committedMap.get(row.boonz_product_id) ?? 0) + qty,
       );
+      const bk = `${row.boonz_product_id}|||${(row.expiry_date as string | null) ?? "null"}`;
+      committedBatchMap.set(bk, (committedBatchMap.get(bk) ?? 0) + qty);
     }
     setCommittedByProduct(committedMap);
+    setCommittedByBatch(committedBatchMap);
+
+    // Cap initBatchPickQtys to batchAvailable (WH stock minus committed to other machines)
+    for (const dispatchId of Object.keys(initBatchPickQtys)) {
+      for (const whId of Object.keys(initBatchPickQtys[dispatchId])) {
+        const info = whBatchInfoMap.get(whId);
+        if (!info) continue;
+        const bk = `${info.boonz_product_id}|||${info.expiry ?? "null"}`;
+        const committed = committedBatchMap.get(bk) ?? 0;
+        const rawStock = whIdToStock.get(whId) ?? 0;
+        const available = Math.max(0, rawStock - committed);
+        initBatchPickQtys[dispatchId][whId] = Math.min(
+          initBatchPickQtys[dispatchId][whId],
+          available,
+        );
+      }
+    }
+    setBatchPickQtys(initBatchPickQtys);
 
     const allResolved =
       mapped.length > 0 && mapped.every((l) => l.action !== null);
@@ -745,8 +779,23 @@ export default function PackingDetailPage() {
                   ? (committedByProduct.get(line.boonz_product_id) ?? 0)
                   : 0;
               const lineAvailable = line.warehouse_stock - lineCommitted;
+              // Per-batch total available — used for hard cap on Packed button
+              const totalBatchAvailable =
+                !isRemove &&
+                !isMix &&
+                line.singleBatches &&
+                line.singleBatches.length > 0
+                  ? line.singleBatches.reduce((sum, b) => {
+                      const bk = `${line.boonz_product_id}|||${b.expiry ?? "null"}`;
+                      const bc = committedByBatch.get(bk) ?? 0;
+                      return sum + Math.max(0, b.stock - bc);
+                    }, 0)
+                  : lineAvailable;
               const fullyCommitted =
-                !isRemove && !isMix && lineCommitted > 0 && lineAvailable <= 0;
+                !isRemove &&
+                !isMix &&
+                lineCommitted > 0 &&
+                totalBatchAvailable <= 0;
 
               const borderClass =
                 line.action === "packed"
@@ -848,6 +897,13 @@ export default function PackingDetailPage() {
                                         batchPickQtys[line.dispatch_id]?.[
                                           b.wh_inventory_id
                                         ] ?? 0;
+                                      const batchKey = `${v.boonzProductId}|||${b.expiry ?? "null"}`;
+                                      const batchCommitted =
+                                        committedByBatch.get(batchKey) ?? 0;
+                                      const batchAvailable = Math.max(
+                                        0,
+                                        b.stock - batchCommitted,
+                                      );
                                       const days = b.expiry
                                         ? Math.ceil(
                                             (new Date(
@@ -883,12 +939,14 @@ export default function PackingDetailPage() {
                                           <input
                                             type="number"
                                             min={0}
-                                            max={b.stock}
+                                            max={batchAvailable}
                                             value={pickQty}
-                                            disabled={isReadOnly}
+                                            disabled={
+                                              isReadOnly || batchAvailable === 0
+                                            }
                                             onChange={(e) => {
                                               const val = Math.min(
-                                                b.stock,
+                                                batchAvailable,
                                                 Math.max(
                                                   0,
                                                   parseInt(e.target.value) || 0,
@@ -911,7 +969,8 @@ export default function PackingDetailPage() {
                                               });
                                             }}
                                             className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                              pickQty >= b.stock && b.stock > 0
+                                              pickQty >= batchAvailable &&
+                                              batchAvailable > 0
                                                 ? "border-amber-400"
                                                 : "border-neutral-300 dark:border-neutral-600"
                                             }`}
@@ -1015,6 +1074,13 @@ export default function PackingDetailPage() {
                               batchPickQtys[line.dispatch_id]?.[
                                 b.wh_inventory_id
                               ] ?? 0;
+                            const batchKey = `${line.boonz_product_id}|||${b.expiry ?? "null"}`;
+                            const batchCommitted =
+                              committedByBatch.get(batchKey) ?? 0;
+                            const batchAvailable = Math.max(
+                              0,
+                              b.stock - batchCommitted,
+                            );
                             const days = b.expiry
                               ? Math.ceil(
                                   (new Date(b.expiry + "T00:00:00").getTime() -
@@ -1046,12 +1112,12 @@ export default function PackingDetailPage() {
                                 <input
                                   type="number"
                                   min={0}
-                                  max={b.stock}
+                                  max={batchAvailable}
                                   value={pickQty}
-                                  disabled={isReadOnly}
+                                  disabled={isReadOnly || batchAvailable === 0}
                                   onChange={(e) => {
                                     const val = Math.min(
-                                      b.stock,
+                                      batchAvailable,
                                       Math.max(
                                         0,
                                         parseInt(e.target.value) || 0,
@@ -1073,7 +1139,8 @@ export default function PackingDetailPage() {
                                     });
                                   }}
                                   className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                    pickQty >= b.stock && b.stock > 0
+                                    pickQty >= batchAvailable &&
+                                    batchAvailable > 0
                                       ? "border-amber-400"
                                       : "border-neutral-300 dark:border-neutral-600"
                                   }`}
