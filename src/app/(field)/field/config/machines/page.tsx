@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../../components/field-header";
 import { ShelfGrid, type ShelfSlot } from "@/components/field/ShelfGrid";
+import { MachineSetupConfigTab } from "@/components/config/MachineSetupConfigTab";
 
 const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
 
@@ -273,7 +274,14 @@ function parseCsv(text: string): Record<string, string>[] {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type TabId = "machines" | "aliases" | "layout";
+type TabId = "machines" | "aliases" | "layout" | "setup";
+
+const TAB_LABELS: Record<TabId, string> = {
+  machines: "Machines",
+  aliases: "Aliases",
+  layout: "Layout",
+  setup: "Setup Config",
+};
 
 export default function MachinesPage() {
   const router = useRouter();
@@ -284,7 +292,8 @@ export default function MachinesPage() {
     const tab = new URLSearchParams(window.location.search).get(
       "tab",
     ) as TabId | null;
-    if (tab === "aliases" || tab === "layout") setActiveTab(tab);
+    if (tab === "aliases" || tab === "layout" || tab === "setup")
+      setActiveTab(tab);
   }, []);
 
   // Machines tab
@@ -791,20 +800,20 @@ export default function MachinesPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-neutral-200 dark:border-neutral-800">
-        {(["machines", "aliases", "layout"] as TabId[]).map((tab) => (
+        {(["machines", "aliases", "layout", "setup"] as TabId[]).map((tab) => (
           <button
             key={tab}
             onClick={() => {
               setActiveTab(tab);
               router.replace(`?tab=${tab}`, { scroll: false });
             }}
-            className={`flex-1 py-3 text-sm font-medium transition-colors capitalize ${
+            className={`flex-1 py-3 text-xs font-medium transition-colors ${
               activeTab === tab
                 ? "border-b-2 border-blue-600 text-blue-600"
                 : "text-neutral-500 hover:text-neutral-700"
             }`}
           >
-            {tab}
+            {TAB_LABELS[tab]}
           </button>
         ))}
       </div>
@@ -1134,6 +1143,9 @@ export default function MachinesPage() {
           )}
         </div>
       )}
+
+      {/* ── Setup Config tab ── */}
+      {activeTab === "setup" && <MachineSetupConfigTab machines={machines} />}
 
       {/* ── Add machine bottom sheet ── */}
       {showAddMachine && (

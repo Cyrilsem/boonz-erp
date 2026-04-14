@@ -17,6 +17,7 @@ interface HubCounts {
   machinesCount: number;
   aliasesCount: number;
   suppliers: number;
+  simCards: number;
 }
 
 interface NavCard {
@@ -64,6 +65,13 @@ const NAV_CARDS: NavCard[] = [
     href: "/field/config/suppliers",
     countLabel: (c) => `${c.suppliers} active suppliers`,
   },
+  {
+    title: "SIM Cards",
+    icon: "📡",
+    desc: "SIM card inventory and machine assignments",
+    href: "/field/config/sims",
+    countLabel: (c) => `${c.simCards} SIM cards`,
+  },
 ];
 
 export default function ConfigPage() {
@@ -99,6 +107,7 @@ export default function ConfigPage() {
       { count: machineCount },
       { count: aliasCount },
       { count: supplierCount },
+      { count: simCount },
     ] = await Promise.all([
       supabase
         .from("product_mapping")
@@ -120,6 +129,9 @@ export default function ConfigPage() {
         .from("suppliers")
         .select("supplier_id", { count: "exact", head: true })
         .eq("status", "Active"),
+      supabase
+        .from("sim_cards")
+        .select("sim_id", { count: "exact", head: true }),
     ]);
 
     setCounts({
@@ -129,6 +141,7 @@ export default function ConfigPage() {
       machinesCount: machineCount ?? 0,
       aliasesCount: aliasCount ?? 0,
       suppliers: supplierCount ?? 0,
+      simCards: simCount ?? 0,
     });
     setLoading(false);
   }, [router]);

@@ -73,6 +73,7 @@ export interface SimCard {
   machine_id: string | null;
   machine_name: string | null;
   is_active: boolean | null;
+  paid_by: string | null;
   notes: string | null;
   created_at: string | null;
   updated_at: string | null;
