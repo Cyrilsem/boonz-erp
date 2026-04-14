@@ -17,18 +17,18 @@ import {
   fetchVoxCommercialReport,
 } from "@/lib/vox-data";
 
-const GRID = "#1E2D42";
-const MERC = "#3B82F6";
-const MIRD = "#10B981";
-const COMBINED = "#8B5CF6";
+const GRID = "#e8e4de";
+const MERC = "#24544a";
+const MIRD = "#e1b460";
+const COMBINED = "#4a7a6d";
 const PLUG = {
   legend: { display: false },
   tooltip: {
-    backgroundColor: "#0F1520",
+    backgroundColor: "#ffffff",
     borderColor: GRID,
     borderWidth: 1,
-    titleColor: "#E8EDF5",
-    bodyColor: "#8892A4",
+    titleColor: "#0a0a0a",
+    bodyColor: "#6b6860",
     padding: 10,
   },
 };
@@ -53,10 +53,10 @@ function useChart(
   }, deps);
 }
 
-const CSS = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap');
-:root{--bg:#080C12;--surface:#0F1520;--surface2:#161F2E;--border:#1E2D42;--merc:#3B82F6;--merc-dim:rgba(59,130,246,0.12);--mird:#10B981;--mird-dim:rgba(16,185,129,0.12);--amber:#F59E0B;--red:#EF4444;--white:#E8EDF5;--grey:#5A6A80;--grey2:#8892A4;--font-head:'Syne',sans-serif;--font-mono:'DM Mono',monospace}
+const CSS = `@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+:root{--bg:#faf9f7;--surface:#ffffff;--surface2:#f5f2ee;--border:#e8e4de;--merc:#24544a;--merc-dim:rgba(36,84,74,0.10);--mird:#e1b460;--mird-dim:rgba(225,180,96,0.12);--amber:#d97706;--red:#dc2626;--white:#0a0a0a;--grey:#6b6860;--grey2:#9a948e;--font-head:'Plus Jakarta Sans',sans-serif;--font-mono:'Plus Jakarta Sans',sans-serif}
 .vr{background:var(--bg);color:var(--white);font-family:var(--font-mono);font-size:13px;line-height:1.5;min-height:100vh}.vr *{box-sizing:border-box}
-.vr nav{position:sticky;top:0;z-index:100;background:rgba(8,12,18,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;flex-wrap:wrap}
+.vr nav{position:sticky;top:0;z-index:100;background:rgba(250,249,247,0.97);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;flex-wrap:wrap}
 .nb{font-family:var(--font-head);font-weight:800;font-size:15px;padding:14px 24px 14px 0;border-right:1px solid var(--border);margin-right:8px;letter-spacing:-0.5px}
 .nt{padding:14px 18px;font-size:11px;font-family:var(--font-mono);letter-spacing:0.08em;text-transform:uppercase;color:var(--grey);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap}.nt:hover{color:var(--white)}.nt.a{color:var(--white);border-bottom-color:var(--merc)}
 .nm{margin-left:auto;font-size:10px;color:var(--grey);display:flex;gap:16px;align-items:center}
@@ -72,25 +72,25 @@ const CSS = `@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@
 .cw{position:relative}.cw canvas{width:100%!important}
 .sr{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px}@media(max-width:1000px){.sr{grid-template-columns:repeat(3,1fr)}}
 .ss{display:grid;grid-template-columns:1fr 1fr;border-radius:6px;overflow:hidden;margin-bottom:14px}
-.si{padding:10px 16px;display:flex;justify-content:space-between;align-items:center}.si.sm{background:var(--merc-dim);border:1px solid rgba(59,130,246,0.2)}.si.sd{background:var(--mird-dim);border:1px solid rgba(16,185,129,0.2);border-left:none}
+.si{padding:10px 16px;display:flex;justify-content:space-between;align-items:center}.si.sm{background:var(--merc-dim);border:1px solid rgba(36,84,74,0.2)}.si.sd{background:var(--mird-dim);border:1px solid rgba(225,180,96,0.2);border-left:none}
 .si .sn{font-family:var(--font-head);font-weight:700;font-size:13px}.sn.snm{color:var(--merc)}.sn.sni{color:var(--mird)}
 .si .st{font-size:11px;color:var(--grey2);display:flex;gap:16px}.si .st strong{color:var(--white)}
 .pr{display:flex;align-items:center;gap:10px;margin-bottom:8px}.pl{font-size:11px;color:var(--grey2);width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}.pb{flex:1;height:6px;background:var(--border);border-radius:2px;overflow:hidden}.pf{height:100%;border-radius:2px;transition:width .8s ease}.pv{font-size:11px;color:var(--white);width:52px;text-align:right;font-weight:500;flex-shrink:0}.pp{font-size:10px;color:var(--grey);width:30px;text-align:right;flex-shrink:0}
 .lg{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:12px}.li{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--grey2)}.ld{width:10px;height:10px;border-radius:2px;flex-shrink:0}
-.tw{overflow-x:auto;border-radius:6px;border:1px solid var(--border)}.vr table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:900px}.vr thead th{background:var(--surface2);padding:10px 12px;text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);font-weight:500;white-space:nowrap;border-bottom:1px solid var(--border)}.vr thead th.r{text-align:right}.vr thead th.c{text-align:center}.vr tbody tr{border-bottom:1px solid var(--border);transition:background .15s}.vr tbody tr:hover{background:var(--surface2)}.vr tbody tr.dc{background:rgba(239,68,68,.06)}.vr tbody td{padding:9px 12px;vertical-align:middle}.vr tbody td.r{text-align:right}.vr tbody td.c{text-align:center}
-.tm{font-size:11px;font-weight:500;white-space:nowrap}.tp{font-size:10px;color:rgba(96,165,250,.7);font-family:var(--font-mono)}.tf{font-size:10px;padding:2px 7px;border-radius:3px;display:inline-block;font-weight:500}.fd{background:rgba(59,130,246,.12);color:#60A5FA}.fc{background:rgba(16,185,129,.12);color:#34D399}.fp{background:rgba(245,158,11,.12);color:#FCD34D}
+.tw{overflow-x:auto;border-radius:6px;border:1px solid var(--border)}.vr table{width:100%;border-collapse:collapse;font-size:11.5px;min-width:900px}.vr thead th{background:var(--surface2);padding:10px 12px;text-align:left;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--grey);font-weight:500;white-space:nowrap;border-bottom:1px solid var(--border)}.vr thead th.r{text-align:right}.vr thead th.c{text-align:center}.vr tbody tr{border-bottom:1px solid var(--border);transition:background .15s}.vr tbody tr:hover{background:var(--surface2)}.vr tbody tr.dc{background:rgba(220,38,38,.05)}.vr tbody td{padding:9px 12px;vertical-align:middle}.vr tbody td.r{text-align:right}.vr tbody td.c{text-align:center}
+.tm{font-size:11px;font-weight:500;white-space:nowrap}.tp{font-size:10px;color:var(--grey);font-family:var(--font-mono)}.tf{font-size:10px;padding:2px 7px;border-radius:3px;display:inline-block;font-weight:500}.fd{background:var(--merc-dim);color:var(--merc)}.fc{background:var(--mird-dim);color:#b45309}.fp{background:rgba(217,119,6,.12);color:#d97706}
 .sp{font-size:9.5px;padding:2px 8px;border-radius:2px;font-weight:600;display:inline-block;letter-spacing:.05em;text-transform:uppercase}.spm{background:var(--merc-dim);color:var(--merc)}.spd{background:var(--mird-dim);color:var(--mird)}
-.db{font-size:9px;padding:2px 6px;background:rgba(239,68,68,.15);color:var(--red);border-radius:2px;display:inline-block}
+.db{font-size:9px;padding:2px 6px;background:rgba(220,38,38,.12);color:var(--red);border-radius:2px;display:inline-block}
 .fb{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.fn{padding:6px 14px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--grey2);font-size:11px;font-family:var(--font-mono);cursor:pointer;transition:all .15s}.fn:hover,.fn.a{border-color:var(--merc);color:var(--white);background:var(--merc-dim)}.fn.mb:hover,.fn.mb.a{border-color:var(--mird);color:var(--white);background:var(--mird-dim)}
 .fs{flex:1}.cl{font-size:11px;color:var(--grey)}
 .vr input[type=text]{padding:6px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--white);font-size:11px;font-family:var(--font-mono);outline:none;width:220px}.vr input[type=text]:focus{border-color:var(--merc)}.vr input::placeholder{color:var(--grey)}
 .vr input[type=date]{padding:5px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--white);font-size:11px;font-family:var(--font-mono);outline:none}.vr input[type=date]:focus{border-color:var(--merc)}.vr input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0.7)}
 .pw{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:4px;margin-bottom:4px}.pd{width:8px;height:8px;border-radius:50%;flex-shrink:0}.pn{flex:1;font-size:11px;color:var(--grey2)}.pc{font-size:11px;color:var(--grey);width:30px;text-align:right}.pa{font-size:12px;color:var(--white);font-weight:500;width:75px;text-align:right}.pe{font-size:10px;color:var(--grey);width:35px;text-align:right}
-.eb{border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.05);border-radius:6px;padding:14px 18px}.eb h4{font-family:var(--font-head);font-size:13px;color:var(--amber);margin-bottom:6px}
-.cb{background:#0D1117;border-bottom:1px solid #1E2D42;padding:10px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.cbl{font-size:10px;color:#5A6A80;text-transform:uppercase;letter-spacing:.1em}
+.eb{border:1px solid rgba(217,119,6,.3);background:rgba(217,119,6,.06);border-radius:6px;padding:14px 18px}.eb h4{font-family:var(--font-head);font-size:13px;color:var(--amber);margin-bottom:6px}
+.cb{background:var(--surface2);border-bottom:1px solid var(--border);padding:10px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.cbl{font-size:10px;color:var(--grey);text-transform:uppercase;letter-spacing:.1em}
 .cbb{padding:5px 14px;border-radius:4px;font-size:11px;font-family:var(--font-mono);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--grey);transition:all .15s}
-.csep{width:1px;height:20px;background:#1E2D42;margin:0 4px}
+.csep{width:1px;height:20px;background:var(--border);margin:0 4px}
 .rbtn{padding:5px 12px;border-radius:4px;font-size:11px;font-family:var(--font-mono);cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--grey2);transition:all .15s;display:flex;align-items:center;gap:6px}.rbtn:hover{border-color:var(--merc);color:var(--white)}
 .vr footer{text-align:center;padding:28px 24px;color:var(--grey);font-size:10px;letter-spacing:.05em;border-top:1px solid var(--border);margin-top:40px}`;
 
@@ -242,7 +242,7 @@ export default function ConsumerDashboardClient({
                 ...PLUG,
                 legend: {
                   display: !isC,
-                  labels: { color: "#8892A4", boxWidth: 12 },
+                  labels: { color: "#9a948e", boxWidth: 12 },
                 },
               },
               scales: {
@@ -280,7 +280,7 @@ export default function ConsumerDashboardClient({
                 ...PLUG,
                 legend: {
                   display: !isC,
-                  labels: { color: "#8892A4", boxWidth: 12 },
+                  labels: { color: "#9a948e", boxWidth: 12 },
                 },
               },
               scales: {
@@ -358,7 +358,7 @@ export default function ConsumerDashboardClient({
                     .reduce((a, m) => a + m.amount, 0),
                 ),
                 backgroundColor: pods.map((s) => VOX_PODS[s]?.color || "#555"),
-                borderColor: "#080C12",
+                borderColor: "#ffffff",
                 borderWidth: 2,
               },
             ],
@@ -373,7 +373,7 @@ export default function ConsumerDashboardClient({
                 display: true,
                 position: "bottom",
                 labels: {
-                  color: "#8892A4",
+                  color: "#9a948e",
                   boxWidth: 10,
                   padding: 10,
                   font: { size: 10 },
@@ -523,7 +523,7 @@ export default function ConsumerDashboardClient({
                   title: {
                     display: true,
                     text: "Units Sold \u2192",
-                    color: "#5A6A80",
+                    color: "#6b6860",
                     font: { size: 10 },
                   },
                   beginAtZero: true,
@@ -533,7 +533,7 @@ export default function ConsumerDashboardClient({
                   title: {
                     display: true,
                     text: "\u2191 Avg Price (AED)",
-                    color: "#5A6A80",
+                    color: "#6b6860",
                     font: { size: 10 },
                   },
                   beginAtZero: true,
@@ -598,7 +598,7 @@ export default function ConsumerDashboardClient({
                 {
                   data: ar.map(([, v]) => v.s),
                   backgroundColor: ar.map(([k]) => FUND_COLORS[k] || "#555"),
-                  borderColor: "#080C12",
+                  borderColor: "#ffffff",
                   borderWidth: 2,
                 },
               ],
@@ -613,7 +613,7 @@ export default function ConsumerDashboardClient({
                   display: true,
                   position: "bottom",
                   labels: {
-                    color: "#8892A4",
+                    color: "#9a948e",
                     boxWidth: 10,
                     padding: 10,
                     font: { size: 10 },
@@ -652,7 +652,7 @@ export default function ConsumerDashboardClient({
                 {
                   data: ar.map(([, v]) => v.s),
                   backgroundColor: ar.map(([k]) => CARD_COLORS[k] || "#555"),
-                  borderColor: "#080C12",
+                  borderColor: "#ffffff",
                   borderWidth: 2,
                 },
               ],
@@ -667,7 +667,7 @@ export default function ConsumerDashboardClient({
                   display: true,
                   position: "bottom",
                   labels: {
-                    color: "#8892A4",
+                    color: "#9a948e",
                     boxWidth: 10,
                     padding: 10,
                     font: { size: 10 },
@@ -700,7 +700,7 @@ export default function ConsumerDashboardClient({
                 {
                   data: ar.map((w) => w.sum),
                   backgroundColor: PROD_COLORS.slice(0, ar.length),
-                  borderColor: "#080C12",
+                  borderColor: "#ffffff",
                   borderWidth: 2,
                 },
               ],
@@ -715,7 +715,7 @@ export default function ConsumerDashboardClient({
                   display: true,
                   position: "bottom",
                   labels: {
-                    color: "#8892A4",
+                    color: "#9a948e",
                     boxWidth: 10,
                     padding: 10,
                     font: { size: 10 },
@@ -761,7 +761,7 @@ export default function ConsumerDashboardClient({
                 ...PLUG,
                 legend: {
                   display: true,
-                  labels: { color: "#8892A4", boxWidth: 12 },
+                  labels: { color: "#9a948e", boxWidth: 12 },
                 },
               },
               scales: {
@@ -801,7 +801,7 @@ export default function ConsumerDashboardClient({
                 ...PLUG,
                 legend: {
                   display: true,
-                  labels: { color: "#8892A4", boxWidth: 12 },
+                  labels: { color: "#9a948e", boxWidth: 12 },
                 },
               },
               scales: {
@@ -939,12 +939,12 @@ export default function ConsumerDashboardClient({
               scales: {
                 x: {
                   grid: { display: false },
-                  ticks: { color: "#8892A4", font: { size: 10 } },
+                  ticks: { color: "#9a948e", font: { size: 10 } },
                 },
                 y: {
                   grid: { color: GRID },
                   ticks: {
-                    color: "#5A6A80",
+                    color: "#6b6860",
                     font: { size: 10 },
                     callback: (v: any) => `${(v / 1000).toFixed(1)}k`,
                   },
@@ -975,7 +975,7 @@ export default function ConsumerDashboardClient({
                   Number(C.waterfall.boonz_cogs || 0),
                 ],
                 backgroundColor: ["#F59E0B", "#EF4444"],
-                borderColor: "#080C12",
+                borderColor: "#ffffff",
                 borderWidth: 3,
               },
             ],
@@ -990,7 +990,7 @@ export default function ConsumerDashboardClient({
                 display: true,
                 position: "bottom",
                 labels: {
-                  color: "#8892A4",
+                  color: "#9a948e",
                   boxWidth: 10,
                   padding: 10,
                   font: { size: 10 },
@@ -1067,7 +1067,7 @@ export default function ConsumerDashboardClient({
             onChange={(e) => setDateFrom(e.target.value)}
             max={dateTo}
           />
-          <span style={{ color: "#5A6A80", fontSize: 11 }}>to</span>
+          <span style={{ color: "#6b6860", fontSize: 11 }}>to</span>
           <input
             type="date"
             value={dateTo}
@@ -1123,7 +1123,7 @@ export default function ConsumerDashboardClient({
             Refresh
           </button>
           {lastUpdated && (
-            <span style={{ fontSize: 10, color: "#5A6A80" }}>
+            <span style={{ fontSize: 10, color: "#6b6860" }}>
               Last: {lastUpdated}
             </span>
           )}
@@ -1147,7 +1147,7 @@ export default function ConsumerDashboardClient({
             }}
           >
             <strong>{"\u26A0"} Adyen not loaded</strong>{" "}
-            <span style={{ color: "#8892A4" }}>
+            <span style={{ color: "#9a948e" }}>
               {"\u2014"} Payment columns show {"\u201C\u2014\u201D"} until
               adyen_transactions updated.
             </span>
@@ -1157,7 +1157,7 @@ export default function ConsumerDashboardClient({
           <div
             style={{
               background: "#0D1117",
-              borderBottom: "1px solid #1E2D42",
+              borderBottom: "1px solid #e8e4de",
               padding: "9px 24px",
               display: "flex",
               alignItems: "center",
@@ -1168,7 +1168,7 @@ export default function ConsumerDashboardClient({
           >
             <span
               style={{
-                color: "#5A6A80",
+                color: "#6b6860",
                 textTransform: "uppercase",
                 letterSpacing: ".1em",
                 fontSize: 10,
@@ -1176,27 +1176,27 @@ export default function ConsumerDashboardClient({
             >
               Payment Default
             </span>
-            <span style={{ color: "#8892A4" }}>
-              Total <strong style={{ color: "#E8EDF5" }}>{aed(ts)}</strong>
+            <span style={{ color: "#9a948e" }}>
+              Total <strong style={{ color: "#0a0a0a" }}>{aed(ts)}</strong>
             </span>
-            <span style={{ color: "#2D3748" }}>|</span>
-            <span style={{ color: "#8892A4" }}>
+            <span style={{ color: "#d1ccc7" }}>|</span>
+            <span style={{ color: "#9a948e" }}>
               Captured{" "}
               <strong style={{ color: "#10B981" }}>
                 {aed(S?.matched_captured ?? 0)}
               </strong>
             </span>
-            <span style={{ color: "#2D3748" }}>|</span>
-            <span style={{ color: "#8892A4" }}>
+            <span style={{ color: "#d1ccc7" }}>|</span>
+            <span style={{ color: "#9a948e" }}>
               Gap <strong style={{ color: "#EF4444" }}>{aed(gp)}</strong>
             </span>
-            <span style={{ color: "#2D3748" }}>|</span>
-            <span style={{ color: "#8892A4" }}>
+            <span style={{ color: "#d1ccc7" }}>|</span>
+            <span style={{ color: "#9a948e" }}>
               Default{" "}
               <strong style={{ color: "#F59E0B", fontSize: 14 }}>{dp}%</strong>
             </span>
-            <span style={{ color: "#2D3748" }}>|</span>
-            <span style={{ color: "#5A6A80", fontSize: 10 }}>
+            <span style={{ color: "#d1ccc7" }}>|</span>
+            <span style={{ color: "#6b6860", fontSize: 10 }}>
               {S?.disc_count ?? 0} discrepancies {"\u00B7"}{" "}
               {S?.matched_txns ?? 0}/{S?.total_txns ?? 0} matched
             </span>
@@ -1212,7 +1212,7 @@ export default function ConsumerDashboardClient({
               style={{
                 marginTop: 8,
                 padding: "6px 16px",
-                background: "#1E2D42",
+                background: "#e8e4de",
                 border: "1px solid #EF4444",
                 color: "#EF4444",
                 borderRadius: 4,
@@ -1224,7 +1224,7 @@ export default function ConsumerDashboardClient({
           </div>
         )}
         {loading && !D && (
-          <div style={{ padding: 60, textAlign: "center", color: "#5A6A80" }}>
+          <div style={{ padding: 60, textAlign: "center", color: "#6b6860" }}>
             Loading&hellip;
           </div>
         )}
@@ -1576,7 +1576,7 @@ export default function ConsumerDashboardClient({
                               </td>
                               <td
                                 className="r"
-                                style={{ fontWeight: 600, color: "#E8EDF5" }}
+                                style={{ fontWeight: 600, color: "#0a0a0a" }}
                               >
                                 {aed(p.revenue)}
                               </td>
@@ -1596,7 +1596,7 @@ export default function ConsumerDashboardClient({
                                     style={{
                                       flex: 1,
                                       height: 6,
-                                      background: "#1E2D42",
+                                      background: "#e8e4de",
                                       borderRadius: 2,
                                       overflow: "hidden",
                                     }}
@@ -1613,7 +1613,7 @@ export default function ConsumerDashboardClient({
                                   <span
                                     style={{
                                       fontSize: 10,
-                                      color: "#8892A4",
+                                      color: "#9a948e",
                                       minWidth: 28,
                                     }}
                                   >
@@ -1865,13 +1865,13 @@ export default function ConsumerDashboardClient({
                           <td
                             style={{
                               fontSize: 11,
-                              color: "#8892A4",
+                              color: "#9a948e",
                               whiteSpace: "nowrap",
                             }}
                           >
                             {t2.date}
                           </td>
-                          <td style={{ fontSize: 11, color: "#5A6A80" }}>
+                          <td style={{ fontSize: 11, color: "#6b6860" }}>
                             {t2.time}
                           </td>
                           <td
@@ -1905,7 +1905,7 @@ export default function ConsumerDashboardClient({
                                 {t2.funding}
                               </span>
                             ) : (
-                              <span style={{ color: "#2D3748" }}>
+                              <span style={{ color: "#d1ccc7" }}>
                                 {"\u2014"}
                               </span>
                             )}
@@ -1915,7 +1915,7 @@ export default function ConsumerDashboardClient({
                             style={{
                               fontSize: 10,
                               color:
-                                t2.card === "\u2014" ? "#2D3748" : "#8892A4",
+                                t2.card === "\u2014" ? "#d1ccc7" : "#9a948e",
                             }}
                           >
                             {t2.card}
@@ -1925,7 +1925,7 @@ export default function ConsumerDashboardClient({
                             style={{
                               fontSize: 10,
                               color:
-                                t2.wallet === "\u2014" ? "#2D3748" : "#5A6A80",
+                                t2.wallet === "\u2014" ? "#d1ccc7" : "#6b6860",
                             }}
                           >
                             {t2.wallet}
@@ -1940,7 +1940,7 @@ export default function ConsumerDashboardClient({
                                       fontSize: 12,
                                     }
                                   : {
-                                      color: "#E8EDF5",
+                                      color: "#0a0a0a",
                                       fontWeight: 500,
                                       fontSize: 12,
                                     }
@@ -1954,7 +1954,7 @@ export default function ConsumerDashboardClient({
                               style={
                                 t2.disc
                                   ? { color: "#F59E0B", fontWeight: 600 }
-                                  : { color: "#8892A4" }
+                                  : { color: "#9a948e" }
                               }
                             >
                               {ha && t2.captured > 0
@@ -1962,13 +1962,13 @@ export default function ConsumerDashboardClient({
                                 : "\u2014"}
                             </span>
                           </td>
-                          <td className="c" style={{ color: "#8892A4" }}>
+                          <td className="c" style={{ color: "#9a948e" }}>
                             {t2.units}
                           </td>
                           <td
                             style={{
                               fontSize: 11,
-                              color: "#8892A4",
+                              color: "#9a948e",
                               maxWidth: 220,
                             }}
                           >
@@ -1988,16 +1988,16 @@ export default function ConsumerDashboardClient({
                       gap: 12,
                       padding: "12px 0",
                       fontSize: 12,
-                      color: "#8892A4",
+                      color: "#9a948e",
                     }}
                   >
                     <button
                       onClick={() => setTxnPage((p) => Math.max(0, p - 1))}
                       disabled={txnPage === 0}
                       style={{
-                        background: txnPage === 0 ? "#1E2D42" : "#253448",
-                        color: txnPage === 0 ? "#5A6A80" : "#E8EDF5",
-                        border: "1px solid #1E2D42",
+                        background: txnPage === 0 ? "#e8e4de" : "#f5f2ee",
+                        color: txnPage === 0 ? "#6b6860" : "#0a0a0a",
+                        border: "1px solid #e8e4de",
                         borderRadius: 6,
                         padding: "6px 14px",
                         cursor: txnPage === 0 ? "not-allowed" : "pointer",
@@ -2016,10 +2016,10 @@ export default function ConsumerDashboardClient({
                       disabled={txnPage >= totalPages - 1}
                       style={{
                         background:
-                          txnPage >= totalPages - 1 ? "#1E2D42" : "#253448",
+                          txnPage >= totalPages - 1 ? "#e8e4de" : "#f5f2ee",
                         color:
-                          txnPage >= totalPages - 1 ? "#5A6A80" : "#E8EDF5",
-                        border: "1px solid #1E2D42",
+                          txnPage >= totalPages - 1 ? "#6b6860" : "#0a0a0a",
+                        border: "1px solid #e8e4de",
                         borderRadius: 6,
                         padding: "6px 14px",
                         cursor:
@@ -2186,13 +2186,13 @@ export default function ConsumerDashboardClient({
                                 style={{
                                   fontSize: 20,
                                   fontWeight: 700,
-                                  color: "#E8EDF5",
+                                  color: "#0a0a0a",
                                   marginBottom: 4,
                                 }}
                               >
                                 {k.v}
                               </div>
-                              <div style={{ fontSize: 10, color: "#5A6A80" }}>
+                              <div style={{ fontSize: 10, color: "#6b6860" }}>
                                 {k.s}
                               </div>
                             </div>
@@ -2248,11 +2248,11 @@ export default function ConsumerDashboardClient({
                                     flexShrink: 0,
                                   }}
                                 />
-                                <span style={{ color: "#8892A4", flex: 1 }}>
+                                <span style={{ color: "#9a948e", flex: 1 }}>
                                   {it.l}
                                 </span>
                                 <span
-                                  style={{ color: "#E8EDF5", fontWeight: 600 }}
+                                  style={{ color: "#0a0a0a", fontWeight: 600 }}
                                 >
                                   {aed(it.v)}
                                 </span>
@@ -2315,7 +2315,7 @@ export default function ConsumerDashboardClient({
                                       </span>
                                       <span
                                         style={{
-                                          color: "#8892A4",
+                                          color: "#9a948e",
                                           fontSize: 11,
                                         }}
                                       >
@@ -2330,40 +2330,40 @@ export default function ConsumerDashboardClient({
                                         fontSize: 11,
                                       }}
                                     >
-                                      <div style={{ color: "#5A6A80" }}>
+                                      <div style={{ color: "#6b6860" }}>
                                         Total
                                       </div>
                                       <div
                                         style={{
-                                          color: "#E8EDF5",
+                                          color: "#0a0a0a",
                                           textAlign: "right",
                                         }}
                                       >
                                         {aed(s.total_amount)}
                                       </div>
-                                      <div style={{ color: "#5A6A80" }}>
+                                      <div style={{ color: "#6b6860" }}>
                                         Captured
                                       </div>
                                       <div
                                         style={{
-                                          color: "#E8EDF5",
+                                          color: "#0a0a0a",
                                           textAlign: "right",
                                         }}
                                       >
                                         {aed(s.captured_amount)}
                                       </div>
-                                      <div style={{ color: "#5A6A80" }}>
+                                      <div style={{ color: "#6b6860" }}>
                                         Net Revenue
                                       </div>
                                       <div
                                         style={{
-                                          color: "#E8EDF5",
+                                          color: "#0a0a0a",
                                           textAlign: "right",
                                         }}
                                       >
                                         {aed(s.net_revenue)}
                                       </div>
-                                      <div style={{ color: "#5A6A80" }}>
+                                      <div style={{ color: "#6b6860" }}>
                                         Boonz 20%
                                       </div>
                                       <div
@@ -2374,7 +2374,7 @@ export default function ConsumerDashboardClient({
                                       >
                                         {aed(s.boonz_share)}
                                       </div>
-                                      <div style={{ color: "#5A6A80" }}>
+                                      <div style={{ color: "#6b6860" }}>
                                         Boonz COGS
                                       </div>
                                       <div
@@ -2385,7 +2385,7 @@ export default function ConsumerDashboardClient({
                                       >
                                         {aed(s.boonz_cogs)}
                                       </div>
-                                      <div style={{ color: "#5A6A80" }}>
+                                      <div style={{ color: "#6b6860" }}>
                                         VOX Net Dues
                                       </div>
                                       <div
@@ -2434,7 +2434,7 @@ export default function ConsumerDashboardClient({
                                 paddingTop: 10,
                               }}
                             >
-                              <div style={{ color: "#5A6A80" }}>
+                              <div style={{ color: "#6b6860" }}>
                                 Boonz 20% Share
                               </div>
                               <div
@@ -2442,7 +2442,7 @@ export default function ConsumerDashboardClient({
                               >
                                 {aed(w.boonz_share)}
                               </div>
-                              <div style={{ color: "#5A6A80" }}>Boonz COGS</div>
+                              <div style={{ color: "#6b6860" }}>Boonz COGS</div>
                               <div
                                 style={{ color: "#EF4444", fontWeight: 600 }}
                               >
@@ -2450,7 +2450,7 @@ export default function ConsumerDashboardClient({
                               </div>
                               <div
                                 style={{
-                                  color: "#E8EDF5",
+                                  color: "#0a0a0a",
                                   fontWeight: 600,
                                   borderTop: "1px solid var(--border)",
                                   paddingTop: 6,
@@ -2460,7 +2460,7 @@ export default function ConsumerDashboardClient({
                               </div>
                               <div
                                 style={{
-                                  color: "#E8EDF5",
+                                  color: "#0a0a0a",
                                   fontWeight: 700,
                                   borderTop: "1px solid var(--border)",
                                   paddingTop: 6,
@@ -2539,14 +2539,14 @@ export default function ConsumerDashboardClient({
                                   const statusColor = isDisc
                                     ? "#EF4444"
                                     : isUnmatched
-                                      ? "#8892A4"
+                                      ? "#9a948e"
                                       : "#10B981";
                                   return (
                                     <tr key={i} style={rowStyle}>
                                       <td
                                         style={{
                                           fontSize: 11,
-                                          color: "#8892A4",
+                                          color: "#9a948e",
                                           whiteSpace: "nowrap",
                                         }}
                                       >
@@ -2568,7 +2568,7 @@ export default function ConsumerDashboardClient({
                                       <td
                                         style={{
                                           fontSize: 11,
-                                          color: "#8892A4",
+                                          color: "#9a948e",
                                           maxWidth: 220,
                                         }}
                                       >
@@ -2576,14 +2576,14 @@ export default function ConsumerDashboardClient({
                                       </td>
                                       <td
                                         className="c"
-                                        style={{ color: "#8892A4" }}
+                                        style={{ color: "#9a948e" }}
                                       >
                                         {t.units}
                                       </td>
                                       <td
                                         className="r"
                                         style={{
-                                          color: "#E8EDF5",
+                                          color: "#0a0a0a",
                                           fontSize: 11,
                                         }}
                                       >
@@ -2592,7 +2592,7 @@ export default function ConsumerDashboardClient({
                                       <td
                                         className="r"
                                         style={{
-                                          color: "#8892A4",
+                                          color: "#9a948e",
                                           fontSize: 11,
                                         }}
                                       >
@@ -2601,7 +2601,7 @@ export default function ConsumerDashboardClient({
                                       <td
                                         className="r"
                                         style={{
-                                          color: isDisc ? "#EF4444" : "#2D3748",
+                                          color: isDisc ? "#EF4444" : "#d1ccc7",
                                           fontSize: 11,
                                           fontWeight: isDisc ? 700 : 400,
                                         }}
@@ -2616,7 +2616,7 @@ export default function ConsumerDashboardClient({
                                           color:
                                             Number(t.refunded_amount) > 0
                                               ? "#EC4899"
-                                              : "#2D3748",
+                                              : "#d1ccc7",
                                           fontSize: 11,
                                         }}
                                       >
@@ -2636,7 +2636,7 @@ export default function ConsumerDashboardClient({
                                       <td
                                         className="r"
                                         style={{
-                                          color: "#8892A4",
+                                          color: "#9a948e",
                                           fontSize: 11,
                                         }}
                                       >
@@ -2654,7 +2654,7 @@ export default function ConsumerDashboardClient({
                                       <td
                                         className="r"
                                         style={{
-                                          color: "#8892A4",
+                                          color: "#9a948e",
                                           fontSize: 11,
                                         }}
                                       >
