@@ -24,6 +24,12 @@ interface SimCard {
   paid_by: string | null;
 }
 
+interface MachineOption {
+  machine_id: string;
+  official_name: string;
+  venue_group: string | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string | null): string {
@@ -176,6 +182,29 @@ function FormField({
   );
 }
 
+// ─── Edit mode styles ─────────────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "9px 12px",
+  border: "1px solid #e8e4de",
+  borderRadius: 8,
+  fontSize: 13,
+  color: "#0a0a0a",
+  background: "white",
+  fontFamily: "'Plus Jakarta Sans', sans-serif",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
+  color: "#6b6860",
+  display: "block",
+  marginBottom: 4,
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SimsPage() {
@@ -192,17 +221,36 @@ export default function SimsPage() {
   const [addForm, setAddForm] = useState({ ...EMPTY_FORM });
   const [addSaving, setAddSaving] = useState(false);
 
+  // Edit mode
+  const [editMode, setEditMode] = useState(false);
+  const [editMachineId, setEditMachineId] = useState<string>("");
+  const [editPaidBy, setEditPaidBy] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editRenewal, setEditRenewal] = useState("");
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Machine options for assignment
+  const [machines, setMachines] = useState<MachineOption[]>([]);
+
+  // Refresh key for re-fetching SIMs
+  const [fetchKey, setFetchKey] = useState(0);
+
   // ESC key to close drawers
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setSelected(null);
-        setAddOpen(false);
+        if (editMode) {
+          setEditMode(false);
+        } else {
+          setSelected(null);
+          setAddOpen(false);
+        }
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [editMode]);
 
   // Fetch SIM cards
   useEffect(() => {
@@ -218,6 +266,21 @@ export default function SimsPage() {
       setLoading(false);
     }
     load();
+  }, [fetchKey]);
+
+  // Fetch machines for assignment dropdown
+  useEffect(() => {
+    const fetchMachines = async () => {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("machines")
+        .select("machine_id, official_name, venue_group")
+        .eq("status", "Active")
+        .order("official_name")
+        .limit(10000);
+      if (data) setMachines(data);
+    };
+    fetchMachines();
   }, []);
 
   // Expiring SIMs count (within 30 days or past)
@@ -282,6 +345,37 @@ export default function SimsPage() {
       setAddOpen(false);
     }
     setAddSaving(false);
+  }
+
+  // Save edited SIM
+  async function handleSaveSIM() {
+    if (!selected) return;
+    setSaving(true);
+    const supabase = createClient();
+    const machine = machines.find((m) => m.machine_id === editMachineId);
+
+    const { error } = await supabase
+      .from("sim_cards")
+      .update({
+        machine_id: editMachineId || null,
+        machine_name: machine?.official_name || null,
+        paid_by: editPaidBy || null,
+        notes: editNotes || null,
+        sim_renewal: editRenewal || null,
+        is_active: editIsActive,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("sim_id", selected.sim_id);
+
+    setSaving(false);
+    if (error) {
+      console.error("update sim error:", error);
+      alert("Failed to update SIM card: " + error.message);
+    } else {
+      setEditMode(false);
+      setSelected(null);
+      setFetchKey((k) => k + 1);
+    }
   }
 
   return (
@@ -473,7 +567,15 @@ export default function SimsPage() {
                       cursor: "pointer",
                       background: isSelected ? "#f0fdf4" : undefined,
                     }}
-                    onClick={() => setSelected(s)}
+                    onClick={() => {
+                      setSelected(s);
+                      setEditMode(false);
+                      setEditMachineId(s.machine_id ?? "");
+                      setEditPaidBy(s.paid_by ?? "");
+                      setEditNotes(s.notes ?? "");
+                      setEditRenewal(s.sim_renewal ?? "");
+                      setEditIsActive(s.is_active ?? true);
+                    }}
                     onMouseEnter={(e) => {
                       if (!isSelected)
                         (
@@ -555,7 +657,10 @@ export default function SimsPage() {
           <div
             className="flex-1"
             style={{ background: "rgba(0,0,0,0.3)" }}
-            onClick={() => setSelected(null)}
+            onClick={() => {
+              setSelected(null);
+              setEditMode(false);
+            }}
           />
           {/* Panel */}
           <div
@@ -612,7 +717,10 @@ export default function SimsPage() {
                 </div>
               </div>
               <button
-                onClick={() => setSelected(null)}
+                onClick={() => {
+                  setSelected(null);
+                  setEditMode(false);
+                }}
                 style={{
                   fontSize: 20,
                   color: "#6b6860",
@@ -629,130 +737,297 @@ export default function SimsPage() {
             <div
               style={{ flex: 1, overflow: "auto", padding: "4px 24px 24px" }}
             >
-              {/* SIM Details */}
-              <SectionLabel>SIM Details</SectionLabel>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0 20px",
-                }}
-              >
-                <Field label="SIM Ref" value={selected.sim_ref} />
-                <Field
-                  label="SIM Serial"
-                  value={
-                    selected.sim_serial ? (
-                      <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-                        {selected.sim_serial}
-                      </span>
-                    ) : (
-                      "\u2014"
-                    )
-                  }
-                />
-                <Field
-                  label="SIM Code"
-                  value={
-                    selected.sim_code ? (
-                      <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-                        {selected.sim_code}
-                      </span>
-                    ) : (
-                      "\u2014"
-                    )
-                  }
-                />
-                <Field label="Contact Number" value={selected.contact_number} />
-                <Field
-                  label="PUK1"
-                  value={
-                    selected.puk1 ? (
-                      <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-                        {selected.puk1}
-                      </span>
-                    ) : (
-                      "\u2014"
-                    )
-                  }
-                />
-                <Field
-                  label="PUK2"
-                  value={
-                    selected.puk2 ? (
-                      <span style={{ fontFamily: "monospace", fontSize: 13 }}>
-                        {selected.puk2}
-                      </span>
-                    ) : (
-                      "\u2014"
-                    )
-                  }
-                />
-              </div>
-
-              {/* Assignment */}
-              <SectionLabel>Assignment</SectionLabel>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0 20px",
-                }}
-              >
-                <Field label="Machine" value={selected.machine_name} />
-                <Field label="Paid By" value={selected.paid_by} />
-              </div>
-
-              {/* Dates */}
-              <SectionLabel>Dates</SectionLabel>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0 20px",
-                }}
-              >
-                <Field
-                  label="Activation Date"
-                  value={formatDate(selected.sim_date)}
-                />
-                <Field
-                  label="Renewal Date"
-                  value={
-                    <span style={renewalStyle(selected.sim_renewal)}>
-                      {formatDate(selected.sim_renewal)}
-                    </span>
-                  }
-                />
-                <Field
-                  label="Created"
-                  value={formatTimestamp(selected.created_at)}
-                />
-                <Field
-                  label="Updated"
-                  value={formatTimestamp(selected.updated_at)}
-                />
-              </div>
-
-              {/* Notes */}
-              {selected.notes && (
+              {editMode ? (
+                /* ── Edit Mode ─────────────────────────────────────────── */
                 <>
-                  <SectionLabel>Notes</SectionLabel>
+                  <SectionLabel>Edit SIM</SectionLabel>
+
+                  {/* Active toggle */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 14,
+                        color: "#0a0a0a",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editIsActive}
+                        onChange={(e) => setEditIsActive(e.target.checked)}
+                        style={{
+                          width: 16,
+                          height: 16,
+                          accentColor: "#24544a",
+                        }}
+                      />
+                      Active
+                    </label>
+                  </div>
+
+                  {/* Assigned Machine */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={labelStyle}>Assigned Machine</label>
+                    <select
+                      value={editMachineId}
+                      onChange={(e) => setEditMachineId(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        appearance: "auto" as React.CSSProperties["appearance"],
+                      }}
+                    >
+                      <option value="">{"\u2014 Unassigned \u2014"}</option>
+                      {machines.map((m) => (
+                        <option key={m.machine_id} value={m.machine_id}>
+                          {m.official_name}
+                          {m.venue_group ? ` (${m.venue_group})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Renewal Date */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={labelStyle}>Renewal Date</label>
+                    <input
+                      type="date"
+                      value={editRenewal}
+                      onChange={(e) => setEditRenewal(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </div>
+
+                  {/* Paid By */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={labelStyle}>Paid By</label>
+                    <input
+                      type="text"
+                      value={editPaidBy}
+                      onChange={(e) => setEditPaidBy(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </div>
+
+                  {/* Notes */}
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={labelStyle}>Notes</label>
+                    <textarea
+                      rows={3}
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      style={{
+                        ...inputStyle,
+                        resize: "vertical" as React.CSSProperties["resize"],
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                /* ── View Mode ─────────────────────────────────────────── */
+                <>
+                  {/* SIM Details */}
+                  <SectionLabel>SIM Details</SectionLabel>
                   <div
                     style={{
-                      fontSize: 13,
-                      color: "#4a4845",
-                      background: "#faf9f7",
-                      borderRadius: 8,
-                      padding: "12px 14px",
-                      lineHeight: 1.5,
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
                     }}
                   >
-                    {selected.notes}
+                    <Field label="SIM Ref" value={selected.sim_ref} />
+                    <Field
+                      label="SIM Serial"
+                      value={
+                        selected.sim_serial ? (
+                          <span
+                            style={{ fontFamily: "monospace", fontSize: 13 }}
+                          >
+                            {selected.sim_serial}
+                          </span>
+                        ) : (
+                          "\u2014"
+                        )
+                      }
+                    />
+                    <Field
+                      label="SIM Code"
+                      value={
+                        selected.sim_code ? (
+                          <span
+                            style={{ fontFamily: "monospace", fontSize: 13 }}
+                          >
+                            {selected.sim_code}
+                          </span>
+                        ) : (
+                          "\u2014"
+                        )
+                      }
+                    />
+                    <Field
+                      label="Contact Number"
+                      value={selected.contact_number}
+                    />
+                    <Field
+                      label="PUK1"
+                      value={
+                        selected.puk1 ? (
+                          <span
+                            style={{ fontFamily: "monospace", fontSize: 13 }}
+                          >
+                            {selected.puk1}
+                          </span>
+                        ) : (
+                          "\u2014"
+                        )
+                      }
+                    />
+                    <Field
+                      label="PUK2"
+                      value={
+                        selected.puk2 ? (
+                          <span
+                            style={{ fontFamily: "monospace", fontSize: 13 }}
+                          >
+                            {selected.puk2}
+                          </span>
+                        ) : (
+                          "\u2014"
+                        )
+                      }
+                    />
                   </div>
+
+                  {/* Assignment */}
+                  <SectionLabel>Assignment</SectionLabel>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <Field label="Machine" value={selected.machine_name} />
+                    <Field label="Paid By" value={selected.paid_by} />
+                  </div>
+
+                  {/* Dates */}
+                  <SectionLabel>Dates</SectionLabel>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "0 20px",
+                    }}
+                  >
+                    <Field
+                      label="Activation Date"
+                      value={formatDate(selected.sim_date)}
+                    />
+                    <Field
+                      label="Renewal Date"
+                      value={
+                        <span style={renewalStyle(selected.sim_renewal)}>
+                          {formatDate(selected.sim_renewal)}
+                        </span>
+                      }
+                    />
+                    <Field
+                      label="Created"
+                      value={formatTimestamp(selected.created_at)}
+                    />
+                    <Field
+                      label="Updated"
+                      value={formatTimestamp(selected.updated_at)}
+                    />
+                  </div>
+
+                  {/* Notes */}
+                  {selected.notes && (
+                    <>
+                      <SectionLabel>Notes</SectionLabel>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#4a4845",
+                          background: "#faf9f7",
+                          borderRadius: 8,
+                          padding: "12px 14px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {selected.notes}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Edit button */}
+                  <button
+                    onClick={() => setEditMode(true)}
+                    style={{
+                      marginTop: 24,
+                      background: "#24544a",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "10px 20px",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      width: "100%",
+                    }}
+                  >
+                    Edit SIM
+                  </button>
                 </>
               )}
             </div>
+
+            {/* Edit mode footer */}
+            {editMode && (
+              <div
+                style={{
+                  padding: "14px 24px",
+                  borderTop: "1px solid #e8e4de",
+                  display: "flex",
+                  gap: 12,
+                }}
+              >
+                <button
+                  onClick={() => setEditMode(false)}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: 600,
+                    border: "1px solid #e8e4de",
+                    background: "white",
+                    color: "#6b6860",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveSIM}
+                  disabled={saving}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: 600,
+                    border: "none",
+                    background: saving ? "#9ca3af" : "#24544a",
+                    color: "white",
+                    cursor: saving ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "Saving\u2026" : "Save Changes"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

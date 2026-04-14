@@ -175,7 +175,7 @@ export default function PerformancePage() {
         )
         .gte("transaction_date", `${dateFrom}T00:00:00`)
         .lte("transaction_date", `${dateTo}T23:59:59`)
-        .eq("delivery_status", "SUCCESS")
+        .eq("delivery_status", "Successful")
         .limit(10000);
 
       if (filterMachineIds !== null) {
@@ -936,11 +936,11 @@ function TransactionsTab({
                       padding: "2px 8px",
                       borderRadius: 4,
                       background:
-                        txn.delivery_status === "SUCCESS"
+                        txn.delivery_status === "Successful"
                           ? "#d4edda"
                           : "#f8d7da",
                       color:
-                        txn.delivery_status === "SUCCESS"
+                        txn.delivery_status === "Successful"
                           ? "#155724"
                           : "#721c24",
                     }}

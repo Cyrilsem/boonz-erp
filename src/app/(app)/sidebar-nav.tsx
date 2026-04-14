@@ -12,7 +12,7 @@ interface NavItem {
 
 const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/app", icon: "▦" },
-  { label: "Pods", href: "/app/pods", icon: "◉" },
+  { label: "Machines", href: "/app/machines", icon: "▣" },
   { label: "Refill & Dispatch", href: "/refill", icon: "↻" },
   { label: "Products", href: "/app/products", icon: "☐" },
   { label: "Inventory", href: "/app/inventory", icon: "▤" },
@@ -23,7 +23,6 @@ const allNavItems: NavItem[] = [
   { label: "Performance", href: "/app/performance", icon: "📈" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "SIM Cards", href: "/app/sims", icon: "◈" },
-  { label: "Machines", href: "/app/machines", icon: "▣" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
