@@ -11,6 +11,12 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  LineChart,
+  Line,
+  ScatterChart,
+  Scatter,
+  ZAxis,
+  Cell,
 } from "recharts";
 
 /* ------------------------------------------------------------------ */
@@ -28,6 +34,19 @@ interface SaleRow {
   boonz_product_id: string | null;
   delivery_status: string | null;
   refund_status: string | null;
+  cost_amount: number | null;
+}
+
+interface AdyenTxn {
+  adyen_txn_id: string;
+  machine_id: string;
+  creation_date: string;
+  value_aed: number | null;
+  captured_amount_value: number | null;
+  status: string | null;
+  payment_method: string | null;
+  funding_source: string | null;
+  store_description: string | null;
 }
 
 interface MachineInfo {
@@ -44,6 +63,13 @@ type VenueGroup =
   | "VOX"
   | "WPP";
 
+type Tab =
+  | "OVERVIEW"
+  | "SITES & MACHINES"
+  | "PRODUCTS"
+  | "PAYMENTS"
+  | "TRANSACTIONS";
+
 const VENUE_GROUPS: VenueGroup[] = [
   "All",
   "ADDMIND",
@@ -54,8 +80,13 @@ const VENUE_GROUPS: VenueGroup[] = [
   "WPP",
 ];
 
-type Tab = "OVERVIEW" | "BY MACHINE" | "PRODUCTS" | "TRANSACTIONS";
-const TABS: Tab[] = ["OVERVIEW", "BY MACHINE", "PRODUCTS", "TRANSACTIONS"];
+const TABS: Tab[] = [
+  "OVERVIEW",
+  "SITES & MACHINES",
+  "PRODUCTS",
+  "PAYMENTS",
+  "TRANSACTIONS",
+];
 
 const PAGE_SIZE = 50;
 
@@ -76,6 +107,27 @@ function fmtAed(n: number): string {
   });
 }
 
+function getISOWeek(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum =
+    1 +
+    Math.round(
+      ((d.getTime() - week1.getTime()) / 86400000 -
+        3 +
+        ((week1.getDay() + 6) % 7)) /
+        7,
+    );
+  return `W${weekNum}`;
+}
+
+function getDayOfWeek(dateStr: string): string {
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const d = new Date(dateStr + "T00:00:00");
+  return days[d.getDay()];
+}
+
 /* ------------------------------------------------------------------ */
 /*  Styles                                                             */
 /* ------------------------------------------------------------------ */
@@ -84,7 +136,6 @@ const font = "'Plus Jakarta Sans', sans-serif";
 
 const cardStyle: React.CSSProperties = {
   background: "white",
-  borderLeft: "4px solid #e1b460",
   borderRadius: 12,
   padding: "16px 20px",
   border: "1px solid #e8e4de",
@@ -113,6 +164,57 @@ const tableCellStyle: React.CSSProperties = {
   fontFamily: font,
 };
 
+const dateInputStyle: React.CSSProperties = {
+  padding: "5px 10px",
+  border: "1px solid #e8e4de",
+  borderRadius: 4,
+  fontSize: 12,
+  fontFamily: font,
+  color: "#0a0a0a",
+  background: "white",
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: "5px 10px",
+  border: "1px solid #e8e4de",
+  borderRadius: 4,
+  fontSize: 12,
+  fontFamily: font,
+  color: "#0a0a0a",
+  background: "white",
+};
+
+const tooltipStyle = {
+  borderRadius: 8,
+  border: "1px solid #e8e4de",
+  fontFamily: font,
+  fontSize: 12,
+};
+
+const chartBoxStyle: React.CSSProperties = {
+  background: "white",
+  border: "1px solid #e8e4de",
+  borderRadius: 12,
+  padding: 20,
+};
+
+const chartTitleStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 700,
+  color: "#0a0a0a",
+  marginBottom: 16,
+  fontFamily: font,
+};
+
+const statusBadgeColors: Record<string, { bg: string; color: string }> = {
+  SettledBulk: { bg: "#f0fdf4", color: "#065f46" },
+  Cancelled: { bg: "#f5f2ee", color: "#6b6860" },
+  Refused: { bg: "#fef2f2", color: "#991b1b" },
+  RefundedBulk: { bg: "#fffbeb", color: "#92400e" },
+  Expired: { bg: "#f5f2ee", color: "#6b6860" },
+  Authorised: { bg: "#e6f1fb", color: "#185fa5" },
+};
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
@@ -126,20 +228,22 @@ export default function PerformancePage() {
   const [group, setGroup] = useState<VenueGroup>("All");
   const [activeTab, setActiveTab] = useState<Tab>("OVERVIEW");
   const [txnPage, setTxnPage] = useState(0);
-
   const [sales, setSales] = useState<SaleRow[]>([]);
+  const [adyenTxns, setAdyenTxns] = useState<AdyenTxn[]>([]);
   const [machineMap, setMachineMap] = useState<Record<string, MachineInfo>>({});
   const [loading, setLoading] = useState(true);
-  const [fetchKey, setFetchKey] = useState(0); // bump to force refresh
+  const [fetchKey, setFetchKey] = useState(0);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   /* --- data fetch --- */
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setTxnPage(0);
       const supabase = createClient();
 
-      // Fetch machines
+      // 1. Fetch machines
       const { data: machineData } = await supabase
         .from("machines")
         .select("machine_id, official_name, venue_group")
@@ -159,7 +263,7 @@ export default function PerformancePage() {
         },
       );
 
-      // Determine machine IDs for group filter
+      // 2. Determine machine IDs for group filter
       let filterMachineIds: string[] | null = null;
       if (group !== "All") {
         filterMachineIds = Object.entries(mMap)
@@ -167,36 +271,66 @@ export default function PerformancePage() {
           .map(([k]) => k);
       }
 
-      // Fetch sales
-      let query = supabase
+      if (filterMachineIds !== null && filterMachineIds.length === 0) {
+        if (!cancelled) {
+          setMachineMap(mMap);
+          setSales([]);
+          setAdyenTxns([]);
+          setLoading(false);
+          setLastUpdated(
+            new Date().toLocaleTimeString("en-AE", {
+              hour: "2-digit",
+              minute: "2-digit",
+              timeZone: "Asia/Dubai",
+            }),
+          );
+        }
+        return;
+      }
+
+      // 3. Fetch sales_history
+      const { data: salesData } = await supabase
         .from("sales_history")
         .select(
-          "transaction_id, machine_id, transaction_date, total_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, refund_status",
+          "transaction_id, machine_id, transaction_date, total_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, refund_status, cost_amount",
         )
         .gte("transaction_date", `${dateFrom}T00:00:00`)
         .lte("transaction_date", `${dateTo}T23:59:59`)
         .eq("delivery_status", "Successful")
         .limit(10000);
 
-      if (filterMachineIds !== null) {
-        if (filterMachineIds.length === 0) {
-          // No machines in this group — return empty
-          if (!cancelled) {
-            setMachineMap(mMap);
-            setSales([]);
-            setLoading(false);
-          }
-          return;
-        }
-        query = query.in("machine_id", filterMachineIds);
-      }
-
-      const { data: salesData } = await query;
+      // 4. Fetch adyen_transactions
+      const { data: adyenData } = await supabase
+        .from("adyen_transactions")
+        .select(
+          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description",
+        )
+        .gte("creation_date", `${dateFrom}T00:00:00`)
+        .lte("creation_date", `${dateTo}T23:59:59`)
+        .limit(10000);
 
       if (!cancelled) {
         setMachineMap(mMap);
-        setSales((salesData as SaleRow[]) ?? []);
+
+        // Filter by machineIds client-side if group selected
+        let filteredSales = (salesData as SaleRow[]) ?? [];
+        let filteredAdyen = (adyenData as AdyenTxn[]) ?? [];
+        if (filterMachineIds !== null) {
+          const idSet = new Set(filterMachineIds);
+          filteredSales = filteredSales.filter((s) => idSet.has(s.machine_id));
+          filteredAdyen = filteredAdyen.filter((a) => idSet.has(a.machine_id));
+        }
+
+        setSales(filteredSales);
+        setAdyenTxns(filteredAdyen);
         setLoading(false);
+        setLastUpdated(
+          new Date().toLocaleTimeString("en-AE", {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "Asia/Dubai",
+          }),
+        );
       }
     }
     load();
@@ -205,12 +339,23 @@ export default function PerformancePage() {
     };
   }, [dateFrom, dateTo, group, fetchKey]);
 
-  // Reset txn page when filters change
-  useEffect(() => {
-    setTxnPage(0);
-  }, [dateFrom, dateTo, group, fetchKey]);
+  /* --- Payment default strip aggregations --- */
+  const paymentDefault = useMemo(() => {
+    const totalSales = sales.reduce((s, r) => s + (r.total_amount ?? 0), 0);
+    const totalCaptured = adyenTxns
+      .filter((a) => a.status === "SettledBulk")
+      .reduce((s, a) => s + (a.value_aed ?? 0), 0);
+    const gap = totalSales - totalCaptured;
+    const defaultRate = totalSales > 0 ? (gap / totalSales) * 100 : 0;
+    return {
+      totalSales: Math.round(totalSales * 100) / 100,
+      totalCaptured: Math.round(totalCaptured * 100) / 100,
+      gap: Math.round(gap * 100) / 100,
+      defaultRate: Math.round(defaultRate * 100) / 100,
+    };
+  }, [sales, adyenTxns]);
 
-  /* --- aggregations --- */
+  /* --- overview aggregations --- */
   const overview = useMemo(() => {
     const totalRevenue = sales.reduce((s, r) => s + (r.total_amount ?? 0), 0);
     const totalTxns = sales.length;
@@ -233,6 +378,22 @@ export default function PerformancePage() {
       }));
   }, [sales]);
 
+  const weeklyRevenue = useMemo(() => {
+    const map: Record<string, number> = {};
+    sales.forEach((r) => {
+      const day = r.transaction_date?.split("T")[0] ?? "";
+      if (!day) return;
+      const week = getISOWeek(day);
+      map[week] = (map[week] ?? 0) + (r.total_amount ?? 0);
+    });
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([week, revenue]) => ({
+        week,
+        revenue: Math.round(revenue * 100) / 100,
+      }));
+  }, [sales]);
+
   const hourlyDistribution = useMemo(() => {
     const counts = new Array(24).fill(0);
     sales.forEach((r) => {
@@ -247,31 +408,25 @@ export default function PerformancePage() {
     }));
   }, [sales]);
 
-  const byMachine = useMemo(() => {
-    const map: Record<
-      string,
-      { txns: number; units: number; revenue: number; lastSale: string }
-    > = {};
-    sales.forEach((r) => {
-      const id = r.machine_id;
-      if (!map[id]) map[id] = { txns: 0, units: 0, revenue: 0, lastSale: "" };
-      map[id].txns++;
-      map[id].units += r.qty ?? 0;
-      map[id].revenue += r.total_amount ?? 0;
-      if (r.transaction_date > map[id].lastSale)
-        map[id].lastSale = r.transaction_date;
+  const dayOfWeekRevenue = useMemo(() => {
+    const map: Record<string, number> = {};
+    const dayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    dayOrder.forEach((d) => {
+      map[d] = 0;
     });
-    return Object.entries(map)
-      .map(([machineId, d]) => ({
-        machineId,
-        name: machineMap[machineId]?.name ?? machineId,
-        group: machineMap[machineId]?.group ?? "UNKNOWN",
-        ...d,
-        avgPerTxn: d.txns > 0 ? d.revenue / d.txns : 0,
-      }))
-      .sort((a, b) => b.revenue - a.revenue);
-  }, [sales, machineMap]);
+    sales.forEach((r) => {
+      const day = r.transaction_date?.split("T")[0] ?? "";
+      if (!day) return;
+      const dow = getDayOfWeek(day);
+      map[dow] = (map[dow] ?? 0) + (r.total_amount ?? 0);
+    });
+    return dayOrder.map((day) => ({
+      day,
+      revenue: Math.round((map[day] ?? 0) * 100) / 100,
+    }));
+  }, [sales]);
 
+  /* --- product aggregation --- */
   const byProduct = useMemo(() => {
     const map: Record<
       string,
@@ -293,6 +448,7 @@ export default function PerformancePage() {
       .sort((a, b) => b.revenue - a.revenue);
   }, [sales]);
 
+  /* --- transactions pagination --- */
   const paginatedTxns = useMemo(() => {
     const sorted = [...sales].sort(
       (a, b) =>
@@ -307,202 +463,266 @@ export default function PerformancePage() {
 
   const handleRefresh = useCallback(() => setFetchKey((k) => k + 1), []);
 
-  /* --- filter summary --- */
-  const filterSummary = `${dateFrom} to ${dateTo}${group !== "All" ? ` | ${group}` : " | All Groups"}`;
+  /* --- tab bar styles --- */
+  const tabBarStyle: React.CSSProperties = {
+    position: "sticky",
+    top: 0,
+    zIndex: 100,
+    background: "rgba(250,249,247,0.97)",
+    backdropFilter: "blur(12px)",
+    borderBottom: "1px solid #e8e4de",
+    display: "flex",
+    alignItems: "center",
+    padding: "0 24px",
+    flexWrap: "wrap",
+  };
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    padding: "12px 16px",
+    fontSize: 12,
+    fontWeight: active ? 700 : 500,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: active ? "#0a0a0a" : "#6b6860",
+    cursor: "pointer",
+    background: "none",
+    border: "none",
+    borderBottomWidth: 3,
+    borderBottomStyle: "solid",
+    borderBottomColor: active ? "#0a0a0a" : "transparent",
+    whiteSpace: "nowrap",
+    fontFamily: font,
+  });
 
   /* ---------------------------------------------------------------- */
   /*  Render                                                           */
   /* ---------------------------------------------------------------- */
 
   return (
-    <div style={{ padding: "24px 32px", maxWidth: 1400, fontFamily: font }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1
+    <div style={{ fontFamily: font }}>
+      {/* Tab bar */}
+      <div style={tabBarStyle}>
+        <span
           style={{
-            fontWeight: 800,
-            fontSize: 28,
-            letterSpacing: "-0.02em",
-            color: "#0a0a0a",
-            margin: 0,
             fontFamily: font,
+            fontWeight: 800,
+            fontSize: 15,
+            padding: "14px 24px 14px 0",
+            borderRight: "1px solid #e8e4de",
+            marginRight: 8,
+            letterSpacing: "-0.5px",
           }}
         >
           Performance
-        </h1>
-        <p style={{ color: "#6b6860", fontSize: 13, marginTop: 4 }}>
-          {filterSummary}
-        </p>
+        </span>
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setActiveTab(t)}
+            style={tabStyle(activeTab === t)}
+          >
+            {t}
+          </button>
+        ))}
+        <div
+          style={{
+            marginLeft: "auto",
+            fontSize: 10,
+            color: "#6b6860",
+            display: "flex",
+            gap: 16,
+            alignItems: "center",
+          }}
+        >
+          {lastUpdated && <span>Updated {lastUpdated}</span>}
+        </div>
       </div>
 
-      {/* Sticky filter bar */}
+      {/* Filter bar */}
       <div
         style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 20,
-          background: "#faf9f7",
+          background: "#f5f2ee",
           borderBottom: "1px solid #e8e4de",
-          padding: "12px 0",
-          marginBottom: 24,
+          padding: "10px 24px",
           display: "flex",
-          flexWrap: "wrap",
-          gap: 12,
           alignItems: "center",
+          gap: 14,
+          flexWrap: "wrap",
         }}
       >
-        <label style={{ fontSize: 12, fontWeight: 600, color: "#6b6860" }}>
-          FROM
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            style={{
-              marginLeft: 6,
-              padding: "6px 10px",
-              border: "1px solid #e8e4de",
-              borderRadius: 8,
-              fontSize: 13,
-              fontFamily: font,
-              color: "#0a0a0a",
-              background: "white",
-            }}
-          />
-        </label>
-        <label style={{ fontSize: 12, fontWeight: 600, color: "#6b6860" }}>
-          TO
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            style={{
-              marginLeft: 6,
-              padding: "6px 10px",
-              border: "1px solid #e8e4de",
-              borderRadius: 8,
-              fontSize: 13,
-              fontFamily: font,
-              color: "#0a0a0a",
-              background: "white",
-            }}
-          />
-        </label>
-        <label style={{ fontSize: 12, fontWeight: 600, color: "#6b6860" }}>
+        <span
+          style={{
+            fontSize: 10,
+            color: "#6b6860",
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+          }}
+        >
+          PERIOD
+        </span>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          style={dateInputStyle}
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          style={dateInputStyle}
+        />
+        <div
+          style={{
+            width: 1,
+            height: 20,
+            background: "#e8e4de",
+            margin: "0 4px",
+          }}
+        />
+        <span
+          style={{
+            fontSize: 10,
+            color: "#6b6860",
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+          }}
+        >
           GROUP
-          <select
-            value={group}
-            onChange={(e) => setGroup(e.target.value as VenueGroup)}
-            style={{
-              marginLeft: 6,
-              padding: "6px 10px",
-              border: "1px solid #e8e4de",
-              borderRadius: 8,
-              fontSize: 13,
-              fontFamily: font,
-              color: "#0a0a0a",
-              background: "white",
-            }}
-          >
-            {VENUE_GROUPS.map((g) => (
-              <option key={g} value={g}>
-                {g}
-              </option>
-            ))}
-          </select>
-        </label>
+        </span>
+        <select
+          value={group}
+          onChange={(e) => setGroup(e.target.value as VenueGroup)}
+          style={selectStyle}
+        >
+          {VENUE_GROUPS.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
+        </select>
         <button
           onClick={handleRefresh}
           style={{
-            padding: "6px 16px",
-            background: "#24544a",
-            color: "white",
-            border: "none",
-            borderRadius: 8,
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: font,
+            padding: "5px 12px",
+            borderRadius: 4,
+            fontSize: 11,
             cursor: "pointer",
+            border: "1px solid #e8e4de",
+            background: "white",
+            color: "#6b6860",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
           }}
         >
-          Refresh
+          &#8634; Refresh
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Payment Default Strip */}
       <div
         style={{
+          background: "#24544a",
+          padding: "10px 24px",
           display: "flex",
-          gap: 0,
-          borderBottom: "1px solid #e8e4de",
-          marginBottom: 24,
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
         }}
       >
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: "white",
+          }}
+        >
+          PAYMENT DEFAULT
+        </span>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+          Total Weimi
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "white" }}>
+          AED {fmtAed(paymentDefault.totalSales)}
+        </span>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+          Captured Adyen
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#e1b460" }}>
+          AED {fmtAed(paymentDefault.totalCaptured)}
+        </span>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+          Gap
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#dc2626" }}>
+          AED {fmtAed(paymentDefault.gap)}
+        </span>
+        <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+          Default
+        </span>
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: paymentDefault.defaultRate > 5 ? "#dc2626" : "#e1b460",
+          }}
+        >
+          {paymentDefault.defaultRate.toFixed(1)}%
+        </span>
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: "28px 24px", maxWidth: 1400, margin: "0 auto" }}>
+        {loading ? (
+          <LoadingSkeleton />
+        ) : sales.length === 0 && adyenTxns.length === 0 ? (
+          <div
             style={{
-              padding: "12px 16px",
-              fontSize: 12,
-              fontWeight: activeTab === tab ? 700 : 500,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: activeTab === tab ? "#0a0a0a" : "#6b6860",
-              borderBottom:
-                activeTab === tab
-                  ? "3px solid #0a0a0a"
-                  : "3px solid transparent",
-              background: "none",
-              border: "none",
-              borderBottomWidth: 3,
-              borderBottomStyle: "solid",
-              borderBottomColor: activeTab === tab ? "#0a0a0a" : "transparent",
-              cursor: "pointer",
+              textAlign: "center",
+              padding: "60px 20px",
+              color: "#6b6860",
+              fontSize: 15,
               fontFamily: font,
             }}
           >
-            {tab}
-          </button>
-        ))}
+            No sales data for this selection
+          </div>
+        ) : (
+          <>
+            {activeTab === "OVERVIEW" && (
+              <OverviewTab
+                overview={overview}
+                dailyRevenue={dailyRevenue}
+                weeklyRevenue={weeklyRevenue}
+                hourlyDistribution={hourlyDistribution}
+                dayOfWeekRevenue={dayOfWeekRevenue}
+              />
+            )}
+            {activeTab === "SITES & MACHINES" && (
+              <SitesAndMachinesTab sales={sales} machineMap={machineMap} />
+            )}
+            {activeTab === "PRODUCTS" && (
+              <ProductsTab
+                data={byProduct}
+                totalRevenue={overview.totalRevenue}
+              />
+            )}
+            {activeTab === "PAYMENTS" && <PaymentsTab adyenTxns={adyenTxns} />}
+            {activeTab === "TRANSACTIONS" && (
+              <TransactionsTab
+                data={paginatedTxns}
+                machineMap={machineMap}
+                page={txnPage}
+                totalPages={totalTxnPages}
+                onPageChange={setTxnPage}
+              />
+            )}
+          </>
+        )}
       </div>
-
-      {/* Loading state */}
-      {loading ? (
-        <LoadingSkeleton />
-      ) : sales.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "60px 20px",
-            color: "#6b6860",
-            fontSize: 15,
-            fontFamily: font,
-          }}
-        >
-          No sales data for this selection
-        </div>
-      ) : (
-        <>
-          {activeTab === "OVERVIEW" && (
-            <OverviewTab
-              overview={overview}
-              dailyRevenue={dailyRevenue}
-              hourlyDistribution={hourlyDistribution}
-            />
-          )}
-          {activeTab === "BY MACHINE" && <ByMachineTab data={byMachine} />}
-          {activeTab === "PRODUCTS" && <ProductsTab data={byProduct} />}
-          {activeTab === "TRANSACTIONS" && (
-            <TransactionsTab
-              data={paginatedTxns}
-              machineMap={machineMap}
-              page={txnPage}
-              totalPages={totalTxnPages}
-              onPageChange={setTxnPage}
-            />
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -534,7 +754,13 @@ function LoadingSkeleton() {
           <div key={i} style={shimmer} />
         ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 16,
+        }}
+      >
         <div style={{ ...shimmer, height: 280 }} />
         <div style={{ ...shimmer, height: 280 }} />
       </div>
@@ -543,11 +769,15 @@ function LoadingSkeleton() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  OVERVIEW TAB                                                       */
+/* ------------------------------------------------------------------ */
 
 function OverviewTab({
   overview,
   dailyRevenue,
+  weeklyRevenue,
   hourlyDistribution,
+  dayOfWeekRevenue,
 }: {
   overview: {
     totalRevenue: number;
@@ -556,7 +786,9 @@ function OverviewTab({
     avgPerTxn: number;
   };
   dailyRevenue: { date: string; revenue: number }[];
+  weeklyRevenue: { week: string; revenue: number }[];
   hourlyDistribution: { hour: string; count: number }[];
+  dayOfWeekRevenue: { day: string; revenue: number }[];
 }) {
   const cards = [
     { label: "TOTAL REVENUE (AED)", value: fmtAed(overview.totalRevenue) },
@@ -605,7 +837,7 @@ function OverviewTab({
         ))}
       </div>
 
-      {/* Charts */}
+      {/* Charts 2x2 */}
       <div
         style={{
           display: "grid",
@@ -614,25 +846,8 @@ function OverviewTab({
         }}
       >
         {/* Daily Revenue */}
-        <div
-          style={{
-            background: "white",
-            border: "1px solid #e8e4de",
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: "#0a0a0a",
-              marginBottom: 16,
-              fontFamily: font,
-            }}
-          >
-            Daily Revenue
-          </div>
+        <div style={chartBoxStyle}>
+          <div style={chartTitleStyle}>Daily Revenue</div>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={dailyRevenue}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" />
@@ -643,12 +858,7 @@ function OverviewTab({
               />
               <YAxis tick={{ fontSize: 10, fill: "#6b6860" }} />
               <Tooltip
-                contentStyle={{
-                  borderRadius: 8,
-                  border: "1px solid #e8e4de",
-                  fontFamily: font,
-                  fontSize: 12,
-                }}
+                contentStyle={tooltipStyle}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 formatter={(value: any) => [
                   `AED ${fmtAed(Number(value))}`,
@@ -662,38 +872,37 @@ function OverviewTab({
           </ResponsiveContainer>
         </div>
 
+        {/* Week-on-Week */}
+        <div style={chartBoxStyle}>
+          <div style={chartTitleStyle}>Week-on-Week Revenue</div>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={weeklyRevenue}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" />
+              <XAxis dataKey="week" tick={{ fontSize: 10, fill: "#6b6860" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#6b6860" }} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(value: any) => [
+                  `AED ${fmtAed(Number(value))}`,
+                  "Revenue",
+                ]}
+              />
+              <Bar dataKey="revenue" fill="#24544a" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
         {/* Hourly Distribution */}
-        <div
-          style={{
-            background: "white",
-            border: "1px solid #e8e4de",
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: "#0a0a0a",
-              marginBottom: 16,
-              fontFamily: font,
-            }}
-          >
-            Hourly Distribution
-          </div>
+        <div style={chartBoxStyle}>
+          <div style={chartTitleStyle}>Hourly Distribution</div>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={hourlyDistribution}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" />
               <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "#6b6860" }} />
               <YAxis tick={{ fontSize: 10, fill: "#6b6860" }} />
               <Tooltip
-                contentStyle={{
-                  borderRadius: 8,
-                  border: "1px solid #e8e4de",
-                  fontFamily: font,
-                  fontSize: 12,
-                }}
+                contentStyle={tooltipStyle}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 formatter={(value: any) => [Number(value), "Transactions"]}
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -703,100 +912,273 @@ function OverviewTab({
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Day of Week */}
+        <div style={chartBoxStyle}>
+          <div style={chartTitleStyle}>Day of Week Revenue</div>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={dayOfWeekRevenue}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" />
+              <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#6b6860" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#6b6860" }} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                formatter={(value: any) => [
+                  `AED ${fmtAed(Number(value))}`,
+                  "Revenue",
+                ]}
+              />
+              <Bar dataKey="revenue" fill="#24544a" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </>
   );
 }
 
 /* ------------------------------------------------------------------ */
+/*  SITES & MACHINES TAB                                               */
+/* ------------------------------------------------------------------ */
 
-function ByMachineTab({
-  data,
+function SitesAndMachinesTab({
+  sales,
+  machineMap,
 }: {
-  data: {
-    machineId: string;
-    name: string;
-    group: string;
-    txns: number;
-    units: number;
-    revenue: number;
-    avgPerTxn: number;
-    lastSale: string;
-  }[];
+  sales: SaleRow[];
+  machineMap: Record<string, MachineInfo>;
 }) {
+  // Group sales by venue_group
+  const venueGroupData = useMemo(() => {
+    const groups: Record<
+      string,
+      { revenue: number; txns: number; units: number; sales: SaleRow[] }
+    > = {};
+
+    sales.forEach((s) => {
+      const groupName = machineMap[s.machine_id]?.group ?? "UNKNOWN";
+      if (!groups[groupName])
+        groups[groupName] = { revenue: 0, txns: 0, units: 0, sales: [] };
+      groups[groupName].revenue += s.total_amount ?? 0;
+      groups[groupName].txns++;
+      groups[groupName].units += s.qty ?? 0;
+      groups[groupName].sales.push(s);
+    });
+
+    return Object.entries(groups)
+      .sort(([, a], [, b]) => b.revenue - a.revenue)
+      .map(([name, data]) => ({ name, ...data }));
+  }, [sales, machineMap]);
+
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}
-      >
-        <thead>
-          <tr>
-            <th style={tableHeaderStyle}>Machine</th>
-            <th style={tableHeaderStyle}>Group</th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
-              Transactions
-            </th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>Units</th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
-              Revenue (AED)
-            </th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>Avg/Txn</th>
-            <th style={tableHeaderStyle}>Last Sale</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row) => (
-            <tr key={row.machineId}>
-              <td style={tableCellStyle}>{row.name}</td>
-              <td style={tableCellStyle}>
-                <span
+    <>
+      {venueGroupData.map((grp) => {
+        // Daily trend for this group
+        const dailyMap: Record<string, number> = {};
+        grp.sales.forEach((s) => {
+          const day = s.transaction_date?.split("T")[0] ?? "";
+          dailyMap[day] = (dailyMap[day] ?? 0) + (s.total_amount ?? 0);
+        });
+        const dailyData = Object.entries(dailyMap)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, revenue]) => ({
+            date,
+            revenue: Math.round(revenue * 100) / 100,
+          }));
+
+        // Machine breakdown
+        const machineBreakdown: Record<string, number> = {};
+        grp.sales.forEach((s) => {
+          const name = machineMap[s.machine_id]?.name ?? s.machine_id;
+          machineBreakdown[name] =
+            (machineBreakdown[name] ?? 0) + (s.total_amount ?? 0);
+        });
+        const machineData = Object.entries(machineBreakdown)
+          .sort(([, a], [, b]) => b - a)
+          .map(([name, revenue]) => ({
+            name,
+            revenue: Math.round(revenue * 100) / 100,
+          }));
+
+        return (
+          <div
+            key={grp.name}
+            style={{
+              background: "white",
+              border: "1px solid #e8e4de",
+              borderRadius: 6,
+              padding: "18px 20px",
+              marginBottom: 16,
+            }}
+          >
+            {/* Group header */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
+              <div>
+                <h3
                   style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: "2px 8px",
-                    borderRadius: 4,
-                    background: "#f0ede8",
-                    color: "#6b6860",
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: "#0a0a0a",
+                    margin: 0,
+                    fontFamily: font,
                   }}
                 >
-                  {row.group}
+                  {grp.name}
+                </h3>
+                <span style={{ fontSize: 11, color: "#6b6860" }}>
+                  {grp.txns} txns &middot; {grp.units} units
                 </span>
-              </td>
-              <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                {row.txns.toLocaleString()}
-              </td>
-              <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                {row.units.toLocaleString()}
-              </td>
-              <td
+              </div>
+              <span
                 style={{
-                  ...tableCellStyle,
-                  textAlign: "right",
-                  fontWeight: 600,
+                  fontSize: 20,
+                  fontWeight: 800,
+                  color: "#24544a",
+                  fontFamily: font,
                 }}
               >
-                {fmtAed(row.revenue)}
-              </td>
-              <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                {fmtAed(row.avgPerTxn)}
-              </td>
-              <td style={{ ...tableCellStyle, fontSize: 12, color: "#6b6860" }}>
-                {row.lastSale
-                  ? new Date(row.lastSale).toLocaleDateString("en-AE")
-                  : "-"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                AED {fmtAed(grp.revenue)}
+              </span>
+            </div>
+
+            {/* Daily trend line chart */}
+            <div style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "#6b6860",
+                  marginBottom: 8,
+                }}
+              >
+                Daily Trend
+              </div>
+              <ResponsiveContainer width="100%" height={120}>
+                <LineChart data={dailyData}>
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 9, fill: "#6b6860" }}
+                    tickFormatter={(v: string) => v.slice(5)}
+                  />
+                  <YAxis tick={{ fontSize: 9, fill: "#6b6860" }} width={50} />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    formatter={(value: any) => [
+                      `AED ${fmtAed(Number(value))}`,
+                      "Revenue",
+                    ]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#24544a"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Machine breakdown horizontal bars */}
+            <div
+              style={{
+                fontSize: 11,
+                color: "#6b6860",
+                marginBottom: 8,
+              }}
+            >
+              Machine Revenue
+            </div>
+            {machineData.map((m) => {
+              const pct = grp.revenue > 0 ? (m.revenue / grp.revenue) * 100 : 0;
+              return (
+                <div
+                  key={m.name}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    marginBottom: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "#6b6860",
+                      width: 180,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {m.name}
+                  </span>
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 6,
+                      background: "#e8e4de",
+                      borderRadius: 2,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        borderRadius: 2,
+                        background: "#24544a",
+                        width: `${pct}%`,
+                        transition: "width 0.8s ease",
+                      }}
+                    />
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "#0a0a0a",
+                      width: 80,
+                      textAlign: "right",
+                      fontWeight: 500,
+                    }}
+                  >
+                    AED {fmtAed(m.revenue)}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "#6b6860",
+                      width: 35,
+                      textAlign: "right",
+                    }}
+                  >
+                    {pct.toFixed(0)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
 /* ------------------------------------------------------------------ */
+/*  PRODUCTS TAB                                                       */
+/* ------------------------------------------------------------------ */
 
 function ProductsTab({
   data,
+  totalRevenue,
 }: {
   data: {
     product: string;
@@ -805,59 +1187,558 @@ function ProductsTab({
     txns: number;
     avgPrice: number;
   }[];
+  totalRevenue: number;
 }) {
+  const productBubbles = data.map((p) => ({
+    name: p.product,
+    x: p.units,
+    y: Math.round(p.avgPrice * 100) / 100,
+    z: p.revenue,
+  }));
+
+  const topProducts = data.slice(0, 15).map((p) => ({
+    product: p.product,
+    revenue: Math.round(p.revenue * 100) / 100,
+  }));
+
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table
-        style={{ width: "100%", borderCollapse: "collapse", minWidth: 600 }}
-      >
-        <thead>
-          <tr>
-            <th style={tableHeaderStyle}>Product</th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
-              Units Sold
-            </th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
-              Revenue (AED)
-            </th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
-              Transactions
-            </th>
-            <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
-              Avg Price
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row) => (
-            <tr key={row.product}>
-              <td style={tableCellStyle}>{row.product}</td>
-              <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                {row.units.toLocaleString()}
-              </td>
-              <td
-                style={{
-                  ...tableCellStyle,
-                  textAlign: "right",
-                  fontWeight: 600,
-                }}
-              >
-                {fmtAed(row.revenue)}
-              </td>
-              <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                {row.txns.toLocaleString()}
-              </td>
-              <td style={{ ...tableCellStyle, textAlign: "right" }}>
-                {fmtAed(row.avgPrice)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      {/* Volume vs Value bubble chart */}
+      <div style={{ ...chartBoxStyle, marginBottom: 24 }}>
+        <div style={chartTitleStyle}>Volume vs Value</div>
+        <ResponsiveContainer width="100%" height={350}>
+          <ScatterChart>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" />
+            <XAxis
+              dataKey="x"
+              name="Units"
+              tick={{ fontSize: 10, fill: "#6b6860" }}
+              label={{
+                value: "Units Sold",
+                position: "bottom",
+                fontSize: 11,
+                fill: "#6b6860",
+              }}
+            />
+            <YAxis
+              dataKey="y"
+              name="Avg Price"
+              tick={{ fontSize: 10, fill: "#6b6860" }}
+              label={{
+                value: "Avg Price (AED)",
+                angle: -90,
+                position: "left",
+                fontSize: 11,
+                fill: "#6b6860",
+              }}
+            />
+            <ZAxis dataKey="z" range={[50, 400]} name="Revenue" />
+            <Tooltip
+              cursor={{ strokeDasharray: "3 3" }}
+              contentStyle={tooltipStyle}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(value: any, name: any) => [
+                name === "Revenue" ? `AED ${fmtAed(Number(value))}` : value,
+                name,
+              ]}
+            />
+            <Scatter data={productBubbles} fill="#24544a" fillOpacity={0.6}>
+              {productBubbles.map((_, i) => (
+                <Cell key={i} fill={i % 2 === 0 ? "#24544a" : "#e1b460"} />
+              ))}
+            </Scatter>
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Revenue by Product horizontal bar chart */}
+      <div style={{ ...chartBoxStyle, marginBottom: 24 }}>
+        <div style={chartTitleStyle}>Revenue by Product (Top 15)</div>
+        <ResponsiveContainer
+          width="100%"
+          height={Math.max(300, topProducts.length * 28)}
+        >
+          <BarChart data={topProducts} layout="vertical" margin={{ left: 150 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" />
+            <XAxis type="number" tick={{ fontSize: 10, fill: "#6b6860" }} />
+            <YAxis
+              type="category"
+              dataKey="product"
+              tick={{ fontSize: 10, fill: "#6b6860" }}
+              width={140}
+            />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(value: any) => [
+                `AED ${fmtAed(Number(value))}`,
+                "Revenue",
+              ]}
+            />
+            <Bar dataKey="revenue" fill="#24544a" radius={[0, 3, 3, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Product detail table */}
+      <div style={chartBoxStyle}>
+        <div style={chartTitleStyle}>Product Detail</div>
+        <div style={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              minWidth: 650,
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={tableHeaderStyle}>Product</th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Units Sold
+                </th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Revenue (AED)
+                </th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Share %
+                </th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Transactions
+                </th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Avg Price
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row) => (
+                <tr key={row.product}>
+                  <td style={tableCellStyle}>{row.product}</td>
+                  <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                    {row.units.toLocaleString()}
+                  </td>
+                  <td
+                    style={{
+                      ...tableCellStyle,
+                      textAlign: "right",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {fmtAed(row.revenue)}
+                  </td>
+                  <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                    {totalRevenue > 0
+                      ? ((row.revenue / totalRevenue) * 100).toFixed(1)
+                      : "0.0"}
+                    %
+                  </td>
+                  <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                    {row.txns.toLocaleString()}
+                  </td>
+                  <td style={{ ...tableCellStyle, textAlign: "right" }}>
+                    {fmtAed(row.avgPrice)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  PAYMENTS TAB                                                       */
+/* ------------------------------------------------------------------ */
+
+function PaymentsTab({ adyenTxns }: { adyenTxns: AdyenTxn[] }) {
+  const settled = useMemo(
+    () => adyenTxns.filter((a) => a.status === "SettledBulk"),
+    [adyenTxns],
+  );
+
+  const summaryCards = useMemo(() => {
+    const totalCaptured = settled.reduce((s, a) => s + (a.value_aed ?? 0), 0);
+    const totalCount = settled.length;
+    const avg = totalCount > 0 ? totalCaptured / totalCount : 0;
+    return { totalCaptured, totalCount, avg };
+  }, [settled]);
+
+  // Funding source breakdown
+  const fundingBreakdown = useMemo(() => {
+    const map: Record<string, number> = {};
+    settled.forEach((a) => {
+      const src = a.funding_source ?? "UNKNOWN";
+      map[src] = (map[src] ?? 0) + (a.value_aed ?? 0);
+    });
+    const total = Object.values(map).reduce((s, v) => s + v, 0);
+    return Object.entries(map)
+      .sort(([, a], [, b]) => b - a)
+      .map(([source, value]) => ({
+        source,
+        value: Math.round(value * 100) / 100,
+        pct: total > 0 ? (value / total) * 100 : 0,
+      }));
+  }, [settled]);
+
+  // Payment method breakdown
+  const methodBreakdown = useMemo(() => {
+    const map: Record<string, number> = {};
+    settled.forEach((a) => {
+      const method = a.payment_method ?? "unknown";
+      map[method] = (map[method] ?? 0) + (a.value_aed ?? 0);
+    });
+    const total = Object.values(map).reduce((s, v) => s + v, 0);
+    const methodLabels: Record<string, string> = {
+      mc: "Mastercard",
+      visa: "Visa",
+      amex: "AMEX",
+      maestro: "Maestro",
+      cup: "UnionPay",
+    };
+    return Object.entries(map)
+      .sort(([, a], [, b]) => b - a)
+      .map(([method, value]) => ({
+        method: methodLabels[method] ?? method,
+        value: Math.round(value * 100) / 100,
+        pct: total > 0 ? (value / total) * 100 : 0,
+      }));
+  }, [settled]);
+
+  // Status breakdown
+  const statusBreakdown = useMemo(() => {
+    const map: Record<string, { count: number; total: number }> = {};
+    adyenTxns.forEach((a) => {
+      const status = a.status ?? "Unknown";
+      if (!map[status]) map[status] = { count: 0, total: 0 };
+      map[status].count++;
+      map[status].total += a.value_aed ?? 0;
+    });
+    const grandTotal = Object.values(map).reduce((s, v) => s + v.total, 0);
+    return Object.entries(map)
+      .sort(([, a], [, b]) => b.total - a.total)
+      .map(([status, d]) => ({
+        status,
+        count: d.count,
+        total: Math.round(d.total * 100) / 100,
+        pct: grandTotal > 0 ? (d.total / grandTotal) * 100 : 0,
+      }));
+  }, [adyenTxns]);
+
+  const maxFundingValue = Math.max(...fundingBreakdown.map((f) => f.value), 1);
+  const maxMethodValue = Math.max(...methodBreakdown.map((m) => m.value), 1);
+
+  return (
+    <>
+      {/* Summary cards */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: 16,
+          marginBottom: 32,
+        }}
+      >
+        <div style={cardStyle}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "#6b6860",
+              marginBottom: 8,
+              fontFamily: font,
+            }}
+          >
+            TOTAL CAPTURED (AED)
+          </div>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 800,
+              color: "#0a0a0a",
+              fontFamily: font,
+            }}
+          >
+            AED {fmtAed(summaryCards.totalCaptured)}
+          </div>
+        </div>
+        <div style={cardStyle}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "#6b6860",
+              marginBottom: 8,
+              fontFamily: font,
+            }}
+          >
+            TOTAL TRANSACTIONS
+          </div>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 800,
+              color: "#0a0a0a",
+              fontFamily: font,
+            }}
+          >
+            {summaryCards.totalCount.toLocaleString()}
+          </div>
+        </div>
+        <div style={cardStyle}>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "#6b6860",
+              marginBottom: 8,
+              fontFamily: font,
+            }}
+          >
+            AVG TRANSACTION
+          </div>
+          <div
+            style={{
+              fontSize: 24,
+              fontWeight: 800,
+              color: "#0a0a0a",
+              fontFamily: font,
+            }}
+          >
+            AED {fmtAed(summaryCards.avg)}
+          </div>
+        </div>
+      </div>
+
+      {/* Funding source breakdown */}
+      <div style={{ ...chartBoxStyle, marginBottom: 24 }}>
+        <div style={chartTitleStyle}>Funding Source Breakdown</div>
+        {fundingBreakdown.map((f) => (
+          <div
+            key={f.source}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 8,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                color: "#6b6860",
+                width: 100,
+                flexShrink: 0,
+                fontWeight: 500,
+              }}
+            >
+              {f.source}
+            </span>
+            <div
+              style={{
+                flex: 1,
+                height: 8,
+                background: "#e8e4de",
+                borderRadius: 3,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  borderRadius: 3,
+                  background: "#24544a",
+                  width: `${(f.value / maxFundingValue) * 100}%`,
+                  transition: "width 0.8s ease",
+                }}
+              />
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: "#0a0a0a",
+                width: 90,
+                textAlign: "right",
+                fontWeight: 600,
+              }}
+            >
+              AED {fmtAed(f.value)}
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                color: "#6b6860",
+                width: 40,
+                textAlign: "right",
+              }}
+            >
+              {f.pct.toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Payment method breakdown */}
+      <div style={{ ...chartBoxStyle, marginBottom: 24 }}>
+        <div style={chartTitleStyle}>Payment Method Breakdown</div>
+        {methodBreakdown.map((m) => (
+          <div
+            key={m.method}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              marginBottom: 8,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                color: "#6b6860",
+                width: 100,
+                flexShrink: 0,
+                fontWeight: 500,
+              }}
+            >
+              {m.method}
+            </span>
+            <div
+              style={{
+                flex: 1,
+                height: 8,
+                background: "#e8e4de",
+                borderRadius: 3,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  borderRadius: 3,
+                  background: "#e1b460",
+                  width: `${(m.value / maxMethodValue) * 100}%`,
+                  transition: "width 0.8s ease",
+                }}
+              />
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: "#0a0a0a",
+                width: 90,
+                textAlign: "right",
+                fontWeight: 600,
+              }}
+            >
+              AED {fmtAed(m.value)}
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                color: "#6b6860",
+                width: 40,
+                textAlign: "right",
+              }}
+            >
+              {m.pct.toFixed(1)}%
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Status breakdown table */}
+      <div style={chartBoxStyle}>
+        <div style={chartTitleStyle}>Status Breakdown</div>
+        <div style={{ overflowX: "auto" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              minWidth: 500,
+            }}
+          >
+            <thead>
+              <tr>
+                <th style={tableHeaderStyle}>Status</th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Count
+                </th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  Total AED
+                </th>
+                <th style={{ ...tableHeaderStyle, textAlign: "right" }}>
+                  % of Total
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {statusBreakdown.map((row) => {
+                const badge = statusBadgeColors[row.status] ?? {
+                  bg: "#f5f2ee",
+                  color: "#6b6860",
+                };
+                return (
+                  <tr key={row.status}>
+                    <td style={tableCellStyle}>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: badge.bg,
+                          color: badge.color,
+                        }}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                    <td
+                      style={{
+                        ...tableCellStyle,
+                        textAlign: "right",
+                      }}
+                    >
+                      {row.count.toLocaleString()}
+                    </td>
+                    <td
+                      style={{
+                        ...tableCellStyle,
+                        textAlign: "right",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {fmtAed(row.total)}
+                    </td>
+                    <td
+                      style={{
+                        ...tableCellStyle,
+                        textAlign: "right",
+                      }}
+                    >
+                      {row.pct.toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  TRANSACTIONS TAB                                                   */
 /* ------------------------------------------------------------------ */
 
 function TransactionsTab({
@@ -894,7 +1775,11 @@ function TransactionsTab({
     <>
       <div style={{ overflowX: "auto" }}>
         <table
-          style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+            minWidth: 700,
+          }}
         >
           <thead>
             <tr>
@@ -937,12 +1822,12 @@ function TransactionsTab({
                       borderRadius: 4,
                       background:
                         txn.delivery_status === "Successful"
-                          ? "#d4edda"
-                          : "#f8d7da",
+                          ? "#f0fdf4"
+                          : "#fef2f2",
                       color:
                         txn.delivery_status === "Successful"
-                          ? "#155724"
-                          : "#721c24",
+                          ? "#065f46"
+                          : "#991b1b",
                     }}
                   >
                     {txn.delivery_status ?? "-"}
