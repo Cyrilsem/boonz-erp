@@ -43,6 +43,8 @@ interface PackLine {
   display_name: string;
   recommended_qty: number;
   packed_qty: number;
+  /** Raw DB filled_quantity — null if line has never been packed */
+  filled_quantity: number | null;
   action: LineAction;
   /** DB packed boolean — true if this line was already packed+saved in a prior session */
   packed: boolean;
@@ -621,6 +623,7 @@ export default function PackingDetailPage() {
         recommended_qty: line.quantity ?? 0,
         packed_qty:
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
+        filled_quantity: (line.filled_quantity as number | null) ?? null,
         action: isPacked ? "packed" : null,
         packed: isPacked,
         fifo_expiry: fifo.primary_expiry,
@@ -840,20 +843,52 @@ export default function PackingDetailPage() {
           })
           .eq("dispatch_id", line.dispatch_id);
 
-        // Deduct WH stock at pack time (3-stage inventory flow).
-        // Non-blocking: a failure warns but does not roll back the packed=true save.
-        if (filledQty > 0 && line.boonz_product_id) {
+        // Delta-aware WH stock adjustment (3-stage inventory flow).
+        // prevQty = what was already deducted in a prior pack session (0 if first time).
+        // Non-blocking: failure warns but does not roll back the packed=true save.
+        if (line.boonz_product_id) {
+          const prevPacked = line.packed;
+          const prevQty = prevPacked ? (line.filled_quantity ?? 0) : 0;
+          const prevExpiry = prevPacked ? line.expiry_date : null;
+          const delta = filledQty - prevQty;
+
           try {
-            await deductWarehouseStock(
-              supabase,
-              line.boonz_product_id,
-              chosenExpiry,
-              filledQty,
-            );
+            if (delta > 0) {
+              // New pack or qty increased — deduct the difference only
+              await deductWarehouseStock(
+                supabase,
+                line.boonz_product_id,
+                chosenExpiry,
+                delta,
+              );
+            } else if (delta < 0) {
+              // Qty reduced — restore the absolute difference to WH
+              await restoreWarehouseStock(
+                supabase,
+                line.boonz_product_id,
+                prevExpiry,
+                Math.abs(delta),
+              );
+            } else if (prevPacked && chosenExpiry !== prevExpiry) {
+              // Same qty but expiry batch changed — swap: restore old, deduct new
+              await restoreWarehouseStock(
+                supabase,
+                line.boonz_product_id,
+                prevExpiry,
+                prevQty,
+              );
+              await deductWarehouseStock(
+                supabase,
+                line.boonz_product_id,
+                chosenExpiry,
+                filledQty,
+              );
+            }
+            // delta === 0 and same expiry → no WH change needed
           } catch (err) {
-            console.error("[Pack] WH deduction failed:", err);
+            console.error("[Pack] WH adjustment failed:", err);
             setWhWarnMsg(
-              "Packed saved but WH stock deduction failed — please check warehouse inventory.",
+              "Packed saved but WH stock adjustment failed — please check warehouse inventory.",
             );
           }
         }
