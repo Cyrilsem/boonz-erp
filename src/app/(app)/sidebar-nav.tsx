@@ -20,7 +20,6 @@ const allNavItems: NavItem[] = [
   { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
-  { label: "Machines", href: "/admin/machines", icon: "⊞" },
   { label: "SIM Cards", href: "/field/config/sims", icon: "◈" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
@@ -39,23 +38,51 @@ export default function SidebarNav({ role }: { role: string }) {
 
   return (
     <aside
-      className={`flex flex-col border-r border-neutral-200 bg-neutral-50 transition-[width] dark:border-neutral-800 dark:bg-neutral-950 ${
+      className={`flex flex-col shrink-0 transition-[width] ${
         collapsed ? "w-14" : "w-56"
-      } max-md:w-14 shrink-0`}
+      } max-md:w-14`}
+      style={{
+        background: "#24544a",
+        borderRight: "1px solid #1d4439",
+      }}
     >
-      <div className="flex h-14 items-center justify-between px-3 border-b border-neutral-200 dark:border-neutral-800">
+      {/* Logo bar */}
+      <div
+        className="flex h-14 items-center justify-between px-3"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
+      >
         {!collapsed && (
-          <span className="text-sm font-bold max-md:hidden">Boonz</span>
+          <span
+            className="max-md:hidden"
+            style={{
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              fontWeight: 800,
+              fontSize: 16,
+              letterSpacing: "-0.02em",
+              color: "#e1b460",
+            }}
+          >
+            Boonz
+          </span>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded p-1 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-800 max-md:hidden"
+          className="rounded p-1 max-md:hidden transition-colors"
+          style={{ color: "rgba(255,255,255,0.5)" }}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLButtonElement).style.color = "white")
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLButtonElement).style.color =
+              "rgba(255,255,255,0.5)")
+          }
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? "▸" : "◂"}
         </button>
       </div>
 
+      {/* Nav items */}
       <nav className="flex-1 overflow-y-auto py-2">
         {items.map((item) => {
           const active =
@@ -67,11 +94,33 @@ export default function SidebarNav({ role }: { role: string }) {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 mx-1 rounded text-sm transition-colors ${
+              className="flex items-center gap-3 px-3 py-2 mx-1 rounded text-sm transition-colors"
+              style={
                 active
-                  ? "bg-neutral-200 font-medium dark:bg-neutral-800"
-                  : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-900"
-              }`}
+                  ? {
+                      background: "#e1b460",
+                      color: "#24544a",
+                      fontWeight: 600,
+                    }
+                  : {
+                      color: "rgba(255,255,255,0.7)",
+                    }
+              }
+              onMouseEnter={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLAnchorElement).style.background =
+                    "rgba(255,255,255,0.10)";
+                  (e.currentTarget as HTMLAnchorElement).style.color = "white";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLAnchorElement).style.background =
+                    "transparent";
+                  (e.currentTarget as HTMLAnchorElement).style.color =
+                    "rgba(255,255,255,0.7)";
+                }
+              }}
             >
               <span className="w-5 text-center shrink-0">{item.icon}</span>
               <span

@@ -172,33 +172,85 @@ export default function AppPage() {
   ];
 
   return (
-    <div className="p-6 max-w-5xl">
-      <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-1">
-        Dashboard
-      </h1>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        {formatDate(today)}
-      </p>
+    <div className="p-8 max-w-5xl">
+      {/* ── Page header ─────────────────────────────────────────────────────── */}
+      <div className="mb-8">
+        <h1
+          style={{
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontWeight: 800,
+            fontSize: 28,
+            letterSpacing: "-0.02em",
+            color: "#0a0a0a",
+            margin: 0,
+          }}
+        >
+          Dashboard
+        </h1>
+        <p style={{ color: "#6b6860", fontSize: 14, marginTop: 4 }}>
+          {formatDate(today)}
+        </p>
+      </div>
 
       {/* ── Stat cards ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {statCards.map((card) => (
           <div
             key={card.label}
-            className="rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 px-5 py-4"
+            style={{
+              background: "white",
+              border: "1px solid #e8e4de",
+              borderLeft: "4px solid #e1b460",
+              borderRadius: 12,
+              padding: "20px 24px",
+              transition: "border-color 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLDivElement).style.borderColor = "#24544a";
+              (e.currentTarget as HTMLDivElement).style.borderLeftColor =
+                "#e1b460";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLDivElement).style.borderColor = "#e8e4de";
+              (e.currentTarget as HTMLDivElement).style.borderLeftColor =
+                "#e1b460";
+            }}
           >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+            <div className="flex items-center justify-between mb-3">
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#6b6860",
+                }}
+              >
                 {card.label}
               </span>
-              <span className="text-neutral-400 dark:text-neutral-600 text-lg">
+              <span style={{ color: "#e1b460", fontSize: 18 }}>
                 {card.icon}
               </span>
             </div>
             {loading ? (
-              <div className="h-8 w-16 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div
+                className="animate-pulse rounded"
+                style={{
+                  height: 40,
+                  width: 64,
+                  background: "#f0ede8",
+                }}
+              />
             ) : (
-              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+              <p
+                style={{
+                  fontSize: 32,
+                  fontWeight: 800,
+                  color: "#0a0a0a",
+                  margin: 0,
+                  lineHeight: 1,
+                }}
+              >
                 {card.value ?? 0}
               </p>
             )}
@@ -209,20 +261,63 @@ export default function AppPage() {
       {/* ── Expiring stock alert ───────────────────────────────────────────── */}
       {!loading && expiring.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-3">
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "#6b6860",
+              marginBottom: 12,
+            }}
+          >
             ⚠ Expiring WH Stock (next 14 days)
-          </h2>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20 overflow-hidden">
+          </p>
+          <div
+            style={{
+              background: "#fff8ec",
+              borderLeft: "4px solid #e1b460",
+              borderRadius: 8,
+              overflow: "hidden",
+            }}
+          >
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-amber-200 dark:border-amber-900/50">
-                  <th className="text-left px-4 py-2 font-medium text-amber-900 dark:text-amber-300">
+                <tr style={{ borderBottom: "1px solid #f0e4c8" }}>
+                  <th
+                    className="text-left px-4 py-2"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#b8860b",
+                    }}
+                  >
                     Product
                   </th>
-                  <th className="text-right px-4 py-2 font-medium text-amber-900 dark:text-amber-300">
+                  <th
+                    className="text-right px-4 py-2"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#b8860b",
+                    }}
+                  >
                     Stock
                   </th>
-                  <th className="text-right px-4 py-2 font-medium text-amber-900 dark:text-amber-300">
+                  <th
+                    className="text-right px-4 py-2"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#b8860b",
+                    }}
+                  >
                     Expires
                   </th>
                 </tr>
@@ -234,22 +329,36 @@ export default function AppPage() {
                   return (
                     <tr
                       key={row.wh_inventory_id}
-                      className="border-b border-amber-100 dark:border-amber-900/30 last:border-0"
+                      style={{ borderBottom: "1px solid #f5e8d0" }}
                     >
                       <td
-                        className={`px-4 py-2 ${urgent ? "font-medium text-red-700 dark:text-red-400" : "text-amber-900 dark:text-amber-200"}`}
+                        className="px-4 py-2"
+                        style={{
+                          color: urgent ? "#dc2626" : "#92400e",
+                          fontWeight: urgent ? 500 : 400,
+                        }}
                       >
                         {row.boonz_product_name}
                       </td>
-                      <td className="px-4 py-2 text-right text-amber-800 dark:text-amber-300">
+                      <td
+                        className="px-4 py-2 text-right"
+                        style={{ color: "#92400e" }}
+                      >
                         {row.warehouse_stock}
                       </td>
                       <td
-                        className={`px-4 py-2 text-right tabular-nums ${urgent ? "text-red-700 font-medium dark:text-red-400" : "text-amber-800 dark:text-amber-300"}`}
+                        className="px-4 py-2 text-right tabular-nums"
+                        style={{
+                          color: urgent ? "#dc2626" : "#92400e",
+                          fontWeight: urgent ? 500 : 400,
+                        }}
                       >
                         {formatDate(row.expiration_date)}
                         {urgent && (
-                          <span className="ml-1 text-xs text-red-600 dark:text-red-400">
+                          <span
+                            className="ml-1 text-xs"
+                            style={{ color: "#dc2626" }}
+                          >
                             ({daysLeft}d)
                           </span>
                         )}
@@ -265,53 +374,73 @@ export default function AppPage() {
 
       {/* ── Recent dispatches ─────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-3">
+        <p
+          style={{
+            fontSize: 11,
+            fontWeight: 500,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "#6b6860",
+            marginBottom: 12,
+          }}
+        >
           Recent Dispatches
-        </h2>
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+        </p>
+        <div
+          style={{
+            background: "white",
+            border: "1px solid #e8e4de",
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
           <table className="w-full text-sm">
-            <thead className="bg-neutral-50 dark:bg-neutral-900">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">
-                  Date
-                </th>
-                <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">
-                  Machine
-                </th>
-                <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">
-                  Product
-                </th>
-                <th className="text-right px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">
-                  Qty
-                </th>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #e8e4de" }}>
+                {["Date", "Machine", "Product", "Qty"].map((h, i) => (
+                  <th
+                    key={h}
+                    className={
+                      i === 3 ? "text-right px-4 py-3" : "text-left px-4 py-3"
+                    }
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
-                  <tr
-                    key={i}
-                    className="border-t border-neutral-100 dark:border-neutral-800"
-                  >
-                    <td className="px-4 py-2">
-                      <div className="h-4 w-20 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="h-4 w-32 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="h-4 w-28 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="h-4 w-8 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800 ml-auto" />
-                    </td>
+                  <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                    {[20, 32, 28, 8].map((w, j) => (
+                      <td key={j} className="px-4 py-3">
+                        <div
+                          className="animate-pulse rounded"
+                          style={{
+                            height: 14,
+                            width: `${w * 4}px`,
+                            background: "#f0ede8",
+                            marginLeft: j === 3 ? "auto" : 0,
+                          }}
+                        />
+                      </td>
+                    ))}
                   </tr>
                 ))
               ) : dispatches.length === 0 ? (
                 <tr>
                   <td
                     colSpan={4}
-                    className="px-4 py-6 text-center text-neutral-400 dark:text-neutral-600"
+                    className="px-4 py-8 text-center"
+                    style={{ color: "#6b6860" }}
                   >
                     No dispatches yet today.
                   </td>
@@ -320,24 +449,42 @@ export default function AppPage() {
                 dispatches.map((row) => (
                   <tr
                     key={row.dispatch_id}
-                    className="border-t border-neutral-100 dark:border-neutral-800 hover:bg-neutral-50 dark:hover:bg-neutral-900/50"
+                    style={{ borderBottom: "1px solid #f5f2ee" }}
+                    onMouseEnter={(e) =>
+                      ((
+                        e.currentTarget as HTMLTableRowElement
+                      ).style.background = "#faf9f7")
+                    }
+                    onMouseLeave={(e) =>
+                      ((
+                        e.currentTarget as HTMLTableRowElement
+                      ).style.background = "transparent")
+                    }
                   >
-                    <td className="px-4 py-2 text-neutral-500 tabular-nums whitespace-nowrap">
+                    <td
+                      className="px-4 py-3 tabular-nums whitespace-nowrap"
+                      style={{ color: "#6b6860" }}
+                    >
                       {formatDate(row.dispatch_date)}
                     </td>
                     <td
-                      className="px-4 py-2 text-neutral-800 dark:text-neutral-200 max-w-[160px] truncate"
+                      className="px-4 py-3 max-w-[160px] truncate"
+                      style={{ color: "#24544a", fontWeight: 500 }}
                       title={row.machine_name}
                     >
                       {row.machine_name}
                     </td>
                     <td
-                      className="px-4 py-2 text-neutral-700 dark:text-neutral-300 max-w-[180px] truncate"
+                      className="px-4 py-3 max-w-[180px] truncate"
+                      style={{ color: "#0a0a0a" }}
                       title={row.product_name}
                     >
                       {row.product_name}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-neutral-700 dark:text-neutral-300">
+                    <td
+                      className="px-4 py-3 text-right tabular-nums"
+                      style={{ color: "#0a0a0a" }}
+                    >
                       {row.filled_quantity ?? row.quantity}
                     </td>
                   </tr>

@@ -22,9 +22,22 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <SidebarNav role={role} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
-    </div>
+    <>
+      {/* Plus Jakarta Sans — scoped to /app shell */}
+      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');`}</style>
+      <div
+        className="flex h-screen overflow-hidden"
+        style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+      >
+        <SidebarNav role={role} />
+        <main
+          className="flex-1 overflow-y-auto"
+          style={{ background: "#faf9f7" }}
+        >
+          {children}
+        </main>
+      </div>
+    </>
   );
 }
