@@ -33,7 +33,8 @@ export default function DispatchingPage() {
       )
       .gte("dispatch_date", yesterday)
       .lte("dispatch_date", today)
-      .eq("include", true);
+      .eq("include", true)
+      .eq("dispatched", false);
 
     if (!lines || lines.length === 0) {
       setMachines([]);
