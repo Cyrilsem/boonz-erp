@@ -45,6 +45,8 @@ interface PackLine {
   packed_qty: number;
   action: LineAction;
   fifo_expiry: string | null;
+  /** Saved expiry_date from the DB (set when line was previously packed) */
+  expiry_date: string | null;
   allocations: BatchAllocation[];
   warehouse_stock: number;
   /** Non-null only for mix products (pod_product maps to >1 boonz variant) */
@@ -512,6 +514,7 @@ export default function PackingDetailPage() {
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
         action: isPacked ? "packed" : null,
         fifo_expiry: fifo.primary_expiry,
+        expiry_date: (line.expiry_date as string | null) ?? null,
         allocations: fifo.allocations,
         warehouse_stock: (() => {
           const bpId = line.boonz_product_id ?? "";
@@ -559,12 +562,42 @@ export default function PackingDetailPage() {
 
     for (const line of mapped) {
       if (line.variantStocks) {
-        // Mix: distribute each variant's packQty across its own batches
+        // Mix: distribute each variant's packQty across its own batches.
+        // If already packed and a saved expiry_date exists, pin the fill to
+        // the matching batch (same logic as single-variant below).
         for (const v of line.variantStocks) {
+          if (line.action === "packed" && line.expiry_date) {
+            const match = v.batches.find((b) => b.expiry === line.expiry_date);
+            if (match) {
+              if (!initBatchPickQtys[line.dispatch_id])
+                initBatchPickQtys[line.dispatch_id] = {};
+              for (const b of v.batches) {
+                initBatchPickQtys[line.dispatch_id][b.wh_inventory_id] =
+                  b === match ? v.packQty : 0;
+              }
+              continue;
+            }
+          }
           fillBatches(line.dispatch_id, v.batches, v.packQty);
         }
       } else if (line.singleBatches !== null) {
-        // Single-variant: distribute recommended_qty across batches
+        // Single-variant: if already packed and saved expiry_date matches a batch,
+        // pin all filled_quantity to that batch; zero all others.
+        if (line.action === "packed" && line.expiry_date) {
+          const match = line.singleBatches.find(
+            (b) => b.expiry === line.expiry_date,
+          );
+          if (match) {
+            if (!initBatchPickQtys[line.dispatch_id])
+              initBatchPickQtys[line.dispatch_id] = {};
+            for (const b of line.singleBatches) {
+              initBatchPickQtys[line.dispatch_id][b.wh_inventory_id] =
+                b === match ? line.packed_qty : 0;
+            }
+            continue;
+          }
+        }
+        // Unpacked or no matching batch — fall back to FIFO
         fillBatches(line.dispatch_id, line.singleBatches, line.recommended_qty);
       }
     }
