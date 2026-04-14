@@ -286,7 +286,7 @@ export default function InventoryPage() {
           </h1>
           <p style={{ color: "#6b6860", fontSize: 14, marginTop: 4 }}>
             {loading
-              ? "Loading\u2026"
+              ? "Loading…"
               : `${filtered.length} batches \u00b7 ${totalStock.toLocaleString()} units${expiredCount > 0 ? ` \u00b7 ${expiredCount} expired` : ""}`}
           </p>
         </div>
@@ -299,7 +299,7 @@ export default function InventoryPage() {
       >
         <input
           type="text"
-          placeholder="Search products\u2026"
+          placeholder="Search products…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{
@@ -640,7 +640,7 @@ export default function InventoryPage() {
                 }}
                 aria-label="Close"
               >
-                \u2715
+                ✕
               </button>
             </div>
 

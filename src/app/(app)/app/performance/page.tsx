@@ -288,7 +288,7 @@ export default function PerformancePage() {
         return;
       }
 
-      // 3. Fetch sales_history
+      // 3. Fetch sales_history — use .range() to guarantee >1000 rows
       const { data: salesData } = await supabase
         .from("sales_history")
         .select(
@@ -297,6 +297,7 @@ export default function PerformancePage() {
         .gte("transaction_date", `${dateFrom}T00:00:00`)
         .lte("transaction_date", `${dateTo}T23:59:59`)
         .eq("delivery_status", "Successful")
+        .range(0, 9999)
         .limit(10000);
 
       // 4. Fetch adyen_transactions
