@@ -175,6 +175,7 @@ export default function PackingDetailPage() {
         quantity,
         filled_quantity,
         packed,
+        expiry_date,
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
       `,
@@ -347,6 +348,19 @@ export default function PackingDetailPage() {
       });
     }
 
+    // whStockMap: exact key `${boonz_product_id}|||${expiry ?? 'null'}` → stock
+    // Used so a stale expiry_date on a dispatch line (from a prior refill cycle)
+    // can still fall back to total Active stock when the exact batch is gone.
+    const whStockMap = new Map<string, number>();
+    for (const b of rawBatches) {
+      const key = `${b.boonz_product_id}|||${b.expiration_date ?? "null"}`;
+      whStockMap.set(
+        key,
+        (whStockMap.get(key) ?? 0) + (b.warehouse_stock ?? 0),
+      );
+    }
+    // stockMap already serves as whTotalMap: boonz_product_id → total Active stock
+
     // ── Step 3: Build variantMap for mix products (packQty = 0 initially) ────
     // packQty is computed per dispatch line in Step 5 using the actual quantity.
     const variantMap = new Map<string, VariantStock[]>();
@@ -486,7 +500,17 @@ export default function PackingDetailPage() {
         action: isPacked ? "packed" : null,
         fifo_expiry: fifo.primary_expiry,
         allocations: fifo.allocations,
-        warehouse_stock: stockMap.get(line.boonz_product_id ?? "") ?? 0,
+        warehouse_stock: (() => {
+          const bpId = line.boonz_product_id ?? "";
+          const lineExpiry = (line.expiry_date as string | null) ?? null;
+          const exactKey = `${bpId}|||${lineExpiry ?? "null"}`;
+          const exact = whStockMap.get(exactKey) ?? 0;
+          const total = stockMap.get(bpId) ?? 0;
+          // If the exact batch the dispatch line was last packed against is now
+          // exhausted/inactive, fall back to total Active stock for this SKU so
+          // the "No stock found" warning only fires when the product is truly OOS.
+          return exact > 0 ? exact : total;
+        })(),
         variantStocks,
         singleBatches,
       };
@@ -965,9 +989,18 @@ export default function PackingDetailPage() {
                     <div className="mb-2">
                       {!line.singleBatches ||
                       line.singleBatches.length === 0 ? (
-                        <p className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                          ⚠ No stock found in warehouse
-                        </p>
+                        line.warehouse_stock > 0 ? (
+                          /* Batch detail unavailable but Active stock exists (e.g.
+                             dispatch line still carries a stale expiry from a prior
+                             refill cycle while the fresh batch is a different row) */
+                          <p className="inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                            {line.warehouse_stock} units available in warehouse
+                          </p>
+                        ) : (
+                          <p className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                            ⚠ No stock found in warehouse
+                          </p>
+                        )
                       ) : (
                         <div className="w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">
                           {/* Header row */}
