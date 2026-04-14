@@ -270,7 +270,10 @@ export default function PickupPage() {
                               {line.pod_product_name}
                             </span>
                             <span className="shrink-0 ml-2 text-neutral-500">
-                              ×{line.quantity}
+                              ×
+                              {line.filled_quantity > 0
+                                ? line.filled_quantity
+                                : line.quantity}
                             </span>
                           </li>
                         ))}
