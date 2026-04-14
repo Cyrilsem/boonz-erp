@@ -110,6 +110,8 @@ export default function InventoryPage() {
   const [editExpiry, setEditExpiry] = useState<string>("");
   const [editStock, setEditStock] = useState<number>(0);
 
+  console.log("InventoryPage mounted, selectedBatch:", selectedBatch);
+
   // Extended filters
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>("all");
   const [hideEmpty, setHideEmpty] = useState(false);
@@ -482,6 +484,7 @@ export default function InventoryPage() {
                 <tr
                   key={r.wh_inventory_id}
                   onClick={() => {
+                    console.log("inventory row clicked", r);
                     setSelectedBatch(r);
                     setEditMode(false);
                     setEditStatus(r.status);
@@ -597,6 +600,7 @@ export default function InventoryPage() {
               flexDirection: "column",
               borderLeft: "1px solid #e8e4de",
               fontFamily: "'Plus Jakarta Sans', sans-serif",
+              border: "4px solid red",
             }}
           >
             {/* Drawer header */}

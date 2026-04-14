@@ -233,6 +233,8 @@ export default function SimsPage() {
   // Machine options for assignment
   const [machines, setMachines] = useState<MachineOption[]>([]);
 
+  console.log("SimsPage mounted, selected:", selected);
+
   // Refresh key for re-fetching SIMs
   const [fetchKey, setFetchKey] = useState(0);
 
@@ -568,6 +570,7 @@ export default function SimsPage() {
                       background: isSelected ? "#f0fdf4" : undefined,
                     }}
                     onClick={() => {
+                      console.log("sim row clicked", s);
                       setSelected(s);
                       setEditMode(false);
                       setEditMachineId(s.machine_id ?? "");
@@ -673,6 +676,7 @@ export default function SimsPage() {
               flexDirection: "column",
               boxShadow: "-4px 0 24px rgba(0,0,0,0.08)",
               fontFamily: "'Plus Jakarta Sans', sans-serif",
+              border: "4px solid red",
             }}
           >
             {/* Header */}
