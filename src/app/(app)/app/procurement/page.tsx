@@ -227,6 +227,7 @@ export default function ProcurementPage() {
     const poId = `PO-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
     const rows = newLines.map((l) => ({
       po_id: poId,
+      po_number: poId,
       supplier_id: newSupplier,
       boonz_product_id: l.boonz_product_id,
       purchase_date: newDate,

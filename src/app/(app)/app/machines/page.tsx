@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -66,6 +65,57 @@ const DRAWER_TABS: { key: DrawerTab; label: string }[] = [
 const MACHINE_COLS =
   "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, adyen_unique_terminal_id, adyen_permanent_terminal_id, adyen_store_code, adyen_fridge_assigned, adyen_store_description, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, shipment_batch_nbr, micron_app_id, app_version, micron_version, wifi_network_name, wifi_mac_address, wifi_device_hostname, payment_terminal_installed, payment_micron_bo_setup, payment_adyen_store_created, payment_connect_store_terminal, payment_general_ui_updated, payment_pos_hide_button, payment_app_deployed, payment_app_deployed_terminal, payment_kiosk_mode, payment_fan_test, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply";
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  border: "1px solid #e8e4de",
+  borderRadius: 6,
+  padding: "6px 10px",
+  fontSize: 14,
+  color: "#0a0a0a",
+  outline: "none",
+  background: "white",
+};
+
+const cancelBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "10px 20px",
+  borderRadius: 8,
+  fontSize: 14,
+  fontWeight: 600,
+  border: "1px solid #e8e4de",
+  background: "white",
+  color: "#6b6860",
+  cursor: "pointer",
+};
+
+const saveBtnStyle: React.CSSProperties = {
+  flex: 2,
+  padding: "10px 20px",
+  borderRadius: 8,
+  fontSize: 14,
+  fontWeight: 600,
+  border: "none",
+  background: "#24544a",
+  color: "white",
+  cursor: "pointer",
+};
+
+const editBtnStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  background: "#24544a",
+  color: "white",
+  padding: "10px 20px",
+  borderRadius: 8,
+  border: "none",
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -102,7 +152,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
         {label}
       </div>
       <div style={{ fontSize: 14, color: "#0a0a0a", fontWeight: 500 }}>
-        {value ?? "—"}
+        {value ?? "\u2014"}
       </div>
     </div>
   );
@@ -114,11 +164,13 @@ function BoolField({ label, value }: { label: string; value: boolean | null }) {
       label={label}
       value={
         value === true ? (
-          <span style={{ color: "#24544a", fontWeight: 700 }}>✓ Yes</span>
+          <span style={{ color: "#24544a", fontWeight: 700 }}>
+            &#10003; Yes
+          </span>
         ) : value === false ? (
-          <span style={{ color: "#9ca3af" }}>— No</span>
+          <span style={{ color: "#9ca3af" }}>&mdash; No</span>
         ) : (
-          <span style={{ color: "#9ca3af" }}>—</span>
+          <span style={{ color: "#9ca3af" }}>&mdash;</span>
         )
       }
     />
@@ -127,7 +179,7 @@ function BoolField({ label, value }: { label: string; value: boolean | null }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function PodsPage() {
+export default function MachinesPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -138,14 +190,26 @@ export default function PodsPage() {
   const [selected, setSelected] = useState<Machine | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
 
-  // ESC key to close drawer
+  // Edit mode state
+  const [editing, setEditing] = useState(false);
+  const [editValues, setEditValues] = useState<Partial<Machine>>({});
+  const [saving, setSaving] = useState(false);
+
+  // ESC key to close drawer / cancel edit
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSelected(null);
+      if (e.key === "Escape") {
+        if (editing) {
+          setEditing(false);
+          setEditValues({});
+        } else {
+          setSelected(null);
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [editing]);
 
   useEffect(() => {
     async function load() {
@@ -185,13 +249,165 @@ export default function PodsPage() {
     });
   }, [machines, search, statusFilter, groupFilter]);
 
+  // ── Edit helpers ────────────────────────────────────────────────────────────
+
+  const startEditing = useCallback(() => {
+    if (!selected) return;
+    setEditing(true);
+    setEditValues({ ...selected });
+  }, [selected]);
+
+  const cancelEditing = useCallback(() => {
+    setEditing(false);
+    setEditValues({});
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    if (!selected) return;
+    setSaving(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("machines")
+      .update(editValues)
+      .eq("machine_id", selected.machine_id);
+
+    if (!error) {
+      setMachines((prev) =>
+        prev.map((m) =>
+          m.machine_id === selected.machine_id
+            ? ({ ...m, ...editValues } as Machine)
+            : m,
+        ),
+      );
+      setSelected({ ...selected, ...editValues } as Machine);
+      setEditing(false);
+      setEditValues({});
+    } else {
+      console.error("save error:", error);
+    }
+    setSaving(false);
+  }, [selected, editValues]);
+
+  // Close drawer and cancel edit
+  const closeDrawer = useCallback(() => {
+    setSelected(null);
+    setEditing(false);
+    setEditValues({});
+  }, []);
+
+  // ── Editable field components ─────────────────────────────────────────────
+
+  function EditableField({
+    label,
+    field,
+    type = "text",
+  }: {
+    label: string;
+    field: keyof Machine;
+    type?: string;
+  }) {
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 500,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "#6b6860",
+            marginBottom: 3,
+          }}
+        >
+          {label}
+        </div>
+        <input
+          type={type}
+          value={
+            ((editValues as Record<string, unknown>)[field] as string) ?? ""
+          }
+          onChange={(e) =>
+            setEditValues((prev) => ({
+              ...prev,
+              [field]:
+                type === "number"
+                  ? e.target.value === ""
+                    ? null
+                    : Number(e.target.value)
+                  : e.target.value,
+            }))
+          }
+          style={inputStyle}
+        />
+      </div>
+    );
+  }
+
+  function EditableBoolField({
+    label,
+    field,
+  }: {
+    label: string;
+    field: keyof Machine;
+  }) {
+    const val = (editValues as Record<string, unknown>)[field] as
+      | boolean
+      | null;
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div
+          style={{
+            fontSize: 10,
+            fontWeight: 500,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "#6b6860",
+            marginBottom: 6,
+          }}
+        >
+          {label}
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            setEditValues((prev) => ({
+              ...prev,
+              [field]: val === true ? false : val === false ? null : true,
+            }))
+          }
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 6,
+            border: "1px solid #e8e4de",
+            background:
+              val === true ? "#f0fdf4" : val === false ? "#fef2f2" : "#faf9f7",
+            color:
+              val === true ? "#065f46" : val === false ? "#991b1b" : "#6b6860",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {val === true ? "Yes" : val === false ? "No" : "Not set"}
+        </button>
+      </div>
+    );
+  }
+
   // ── Drawer content renderer ─────────────────────────────────────────────────
+
   function renderDrawerContent(m: Machine) {
     const grid2 = {
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
       gap: "0 20px",
     } as const;
+
+    if (editing) {
+      return renderEditContent(grid2);
+    }
 
     switch (drawerTab) {
       case "overview":
@@ -293,7 +509,7 @@ export default function PodsPage() {
                 value={m.payment_adyen_store_created}
               />
               <BoolField
-                label="Connect Store → Terminal"
+                label="Connect Store &rarr; Terminal"
                 value={m.payment_connect_store_terminal}
               />
               <BoolField
@@ -348,6 +564,199 @@ export default function PodsPage() {
     }
   }
 
+  // ── Edit mode content ───────────────────────────────────────────────────────
+
+  function renderEditContent(grid2: React.CSSProperties) {
+    switch (drawerTab) {
+      case "overview":
+        return (
+          <>
+            <SectionLabel>Machine Details</SectionLabel>
+            <div style={grid2}>
+              <EditableField label="Official Name" field="official_name" />
+              <EditableField label="Venue Group" field="venue_group" />
+              <EditableField label="Location Type" field="location_type" />
+              <EditableField label="Status" field="status" />
+              <EditableField label="Location" field="pod_location" />
+              <EditableField label="Address" field="pod_address" />
+              <EditableField label="Supply Source" field="source_of_supply" />
+              <EditableField
+                label="Cabinets"
+                field="cabinet_count"
+                type="number"
+              />
+              <EditableBoolField
+                label="Include in Refill"
+                field="include_in_refill"
+              />
+              <EditableField
+                label="Installation Date"
+                field="installation_date"
+                type="date"
+              />
+            </div>
+            <SectionLabel>Contact</SectionLabel>
+            <div style={grid2}>
+              <EditableField label="Person" field="contact_person" />
+              <EditableField label="Phone" field="contact_phone" />
+              <EditableField label="Email" field="contact_email" type="email" />
+            </div>
+            <SectionLabel>Notes</SectionLabel>
+            <div style={{ marginBottom: 14 }}>
+              <textarea
+                value={(editValues.notes as string) ?? ""}
+                onChange={(e) =>
+                  setEditValues((prev) => ({ ...prev, notes: e.target.value }))
+                }
+                rows={4}
+                style={{
+                  ...inputStyle,
+                  resize: "vertical",
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                }}
+              />
+            </div>
+          </>
+        );
+
+      case "adyen":
+        return (
+          <>
+            <SectionLabel>Adyen Configuration</SectionLabel>
+            <div style={grid2}>
+              <EditableField label="Adyen Status" field="adyen_status" />
+              <EditableBoolField
+                label="Inventory In-Store"
+                field="adyen_inventory_in_store"
+              />
+              <EditableField
+                label="Unique Terminal ID"
+                field="adyen_unique_terminal_id"
+              />
+              <EditableField
+                label="Permanent Terminal ID"
+                field="adyen_permanent_terminal_id"
+              />
+              <EditableField label="Store Code" field="adyen_store_code" />
+              <EditableField
+                label="Store Description"
+                field="adyen_store_description"
+              />
+              <EditableBoolField
+                label="Fridge Assigned"
+                field="adyen_fridge_assigned"
+              />
+              <EditableField
+                label="Shipment Batch"
+                field="shipment_batch_nbr"
+              />
+            </div>
+            <SectionLabel>Software</SectionLabel>
+            <div style={grid2}>
+              <EditableField label="Micron App ID" field="micron_app_id" />
+              <EditableField label="App Version" field="app_version" />
+              <EditableField label="Micron Version" field="micron_version" />
+            </div>
+          </>
+        );
+
+      case "payment":
+        return (
+          <>
+            <SectionLabel>Payment Setup Checklist</SectionLabel>
+            <div style={grid2}>
+              <EditableBoolField
+                label="Terminal Installed"
+                field="payment_terminal_installed"
+              />
+              <EditableBoolField
+                label="Micron BO Setup"
+                field="payment_micron_bo_setup"
+              />
+              <EditableBoolField
+                label="Adyen Store Created"
+                field="payment_adyen_store_created"
+              />
+              <EditableBoolField
+                label="Connect Store &rarr; Terminal"
+                field="payment_connect_store_terminal"
+              />
+              <EditableBoolField
+                label="General UI Updated"
+                field="payment_general_ui_updated"
+              />
+              <EditableBoolField
+                label="POS Hide Button"
+                field="payment_pos_hide_button"
+              />
+              <EditableBoolField
+                label="App Deployed"
+                field="payment_app_deployed"
+              />
+              <EditableBoolField
+                label="App Deployed Terminal"
+                field="payment_app_deployed_terminal"
+              />
+              <EditableBoolField
+                label="Kiosk Mode"
+                field="payment_kiosk_mode"
+              />
+              <EditableBoolField label="Fan Test" field="payment_fan_test" />
+            </div>
+          </>
+        );
+
+      case "hardware":
+        return (
+          <>
+            <SectionLabel>Hardware Checks</SectionLabel>
+            <div style={grid2}>
+              <EditableBoolField
+                label="Compressor OK"
+                field="hw_compressor_ok"
+              />
+              <EditableBoolField
+                label="Calibration OK"
+                field="hw_calibration_ok"
+              />
+              <EditableBoolField
+                label="Door Spring OK"
+                field="hw_door_spring_ok"
+              />
+              <EditableBoolField
+                label="Test Successful"
+                field="hw_test_successful"
+              />
+            </div>
+            <SectionLabel>Identity</SectionLabel>
+            <div style={grid2}>
+              <EditableField label="Serial Number" field="serial_number" />
+              <EditableField
+                label="Shipment Batch"
+                field="shipment_batch_nbr"
+              />
+            </div>
+          </>
+        );
+
+      case "wifi":
+        return (
+          <>
+            <SectionLabel>WiFi Configuration</SectionLabel>
+            <div style={grid2}>
+              <EditableField label="Network Name" field="wifi_network_name" />
+              <EditableField label="MAC Address" field="wifi_mac_address" />
+              <EditableField
+                label="Device Hostname"
+                field="wifi_device_hostname"
+              />
+              <EditableField label="Serial Number" field="serial_number" />
+            </div>
+          </>
+        );
+    }
+  }
+
   return (
     <div className="p-8 max-w-7xl">
       {/* ── Header ──────────────────────────────────────────────────────────── */}
@@ -363,29 +772,12 @@ export default function PodsPage() {
               margin: 0,
             }}
           >
-            Pods
+            Machines
           </h1>
           <p style={{ color: "#6b6860", fontSize: 14, marginTop: 4 }}>
-            {loading ? "Loading…" : `${machines.length} machines`}
+            {loading ? "Loading\u2026" : `${machines.length} machines`}
           </p>
         </div>
-        <Link
-          href="/app/machines"
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            background: "#24544a",
-            color: "white",
-            borderRadius: 8,
-            padding: "8px 16px",
-            fontSize: 14,
-            fontWeight: 600,
-            textDecoration: "none",
-          }}
-        >
-          Manage →
-        </Link>
       </div>
 
       {/* ── Filter bar ──────────────────────────────────────────────────────── */}
@@ -395,7 +787,7 @@ export default function PodsPage() {
       >
         <input
           type="text"
-          placeholder="Search machines…"
+          placeholder="Search machines\u2026"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{
@@ -529,6 +921,8 @@ export default function PodsPage() {
                     onClick={() => {
                       setSelected(m);
                       setDrawerTab("overview");
+                      setEditing(false);
+                      setEditValues({});
                     }}
                     onMouseEnter={(e) => {
                       if (!isSelected)
@@ -550,34 +944,34 @@ export default function PodsPage() {
                       {m.official_name}
                     </td>
                     <td className="px-4 py-3" style={{ color: "#6b6860" }}>
-                      {m.venue_group ?? "—"}
+                      {m.venue_group ?? "\u2014"}
                     </td>
                     <td
                       className="px-4 py-3 max-w-[160px] truncate"
                       style={{ color: "#0a0a0a" }}
                       title={m.pod_location ?? undefined}
                     >
-                      {m.pod_location ?? "—"}
+                      {m.pod_location ?? "\u2014"}
                     </td>
                     <td className="px-4 py-3" style={{ color: "#6b6860" }}>
-                      {m.adyen_status ?? "—"}
+                      {m.adyen_status ?? "\u2014"}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {m.adyen_inventory_in_store ? (
                         <span style={{ color: "#24544a", fontWeight: 700 }}>
-                          ✓
+                          &#10003;
                         </span>
                       ) : (
-                        <span style={{ color: "#9ca3af" }}>—</span>
+                        <span style={{ color: "#9ca3af" }}>&mdash;</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {m.include_in_refill ? (
                         <span style={{ color: "#24544a", fontWeight: 700 }}>
-                          ✓
+                          &#10003;
                         </span>
                       ) : (
-                        <span style={{ color: "#9ca3af" }}>—</span>
+                        <span style={{ color: "#9ca3af" }}>&mdash;</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -592,7 +986,7 @@ export default function PodsPage() {
                           color: isActive ? "#065f46" : "#6b6860",
                         }}
                       >
-                        {m.status ?? "—"}
+                        {m.status ?? "\u2014"}
                       </span>
                     </td>
                   </tr>
@@ -610,12 +1004,12 @@ export default function PodsPage() {
           <div
             className="flex-1"
             style={{ background: "rgba(0,0,0,0.3)" }}
-            onClick={() => setSelected(null)}
+            onClick={closeDrawer}
           />
           {/* Panel */}
           <div
             style={{
-              width: 560,
+              width: 520,
               maxWidth: "100vw",
               background: "white",
               height: "100%",
@@ -648,11 +1042,26 @@ export default function PodsPage() {
                   {selected.official_name}
                 </h2>
                 <p style={{ color: "#6b6860", fontSize: 13, marginTop: 2 }}>
-                  {selected.venue_group ?? "—"} · {selected.status ?? "—"}
+                  {selected.venue_group ?? "\u2014"} &middot;{" "}
+                  {selected.status ?? "\u2014"}
+                  {editing && (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#e1b460",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                      }}
+                    >
+                      Editing
+                    </span>
+                  )}
                 </p>
               </div>
               <button
-                onClick={() => setSelected(null)}
+                onClick={closeDrawer}
                 style={{
                   fontSize: 20,
                   color: "#6b6860",
@@ -661,7 +1070,7 @@ export default function PodsPage() {
                   cursor: "pointer",
                 }}
               >
-                ✕
+                &#10005;
               </button>
             </div>
 
@@ -680,16 +1089,14 @@ export default function PodsPage() {
                     flex: 1,
                     padding: "10px 8px",
                     fontSize: 12,
-                    fontWeight: drawerTab === t.key ? 700 : 500,
-                    color: drawerTab === t.key ? "#0a0a0a" : "#6b6860",
+                    fontWeight: drawerTab === t.key ? 700 : 400,
+                    color: drawerTab === t.key ? "#24544a" : "#6b6860",
                     background: "none",
                     border: "none",
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
                     borderBottom:
                       drawerTab === t.key
-                        ? "3px solid #0a0a0a"
-                        : "3px solid transparent",
+                        ? "2px solid #24544a"
+                        : "2px solid transparent",
                     cursor: "pointer",
                   }}
                 >
@@ -712,23 +1119,28 @@ export default function PodsPage() {
                 borderTop: "1px solid #e8e4de",
               }}
             >
-              <Link
-                href="/app/machines"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: "#24544a",
-                  color: "white",
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  textDecoration: "none",
-                  fontSize: 14,
-                  fontWeight: 600,
-                }}
-              >
-                Open Full Editor →
-              </Link>
+              {editing ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={cancelEditing} style={cancelBtnStyle}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                      ...saveBtnStyle,
+                      opacity: saving ? 0.7 : 1,
+                      cursor: saving ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {saving ? "Saving\u2026" : "Save Changes"}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={startEditing} style={editBtnStyle}>
+                  Edit Machine
+                </button>
+              )}
             </div>
           </div>
         </div>

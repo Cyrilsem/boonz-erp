@@ -20,9 +20,10 @@ const allNavItems: NavItem[] = [
   { label: "Financials", href: "/app/financials", icon: "$" },
   { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
+  { label: "Performance", href: "/app/performance", icon: "📈" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
-  { label: "SIM Cards", href: "/field/config/sims", icon: "◈" },
-  { label: "Machines", href: "/field/config/machines", icon: "▣" },
+  { label: "SIM Cards", href: "/app/sims", icon: "◈" },
+  { label: "Machines", href: "/app/machines", icon: "▣" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
@@ -87,10 +88,14 @@ export default function SidebarNav({ role }: { role: string }) {
       {/* Nav items */}
       <nav className="flex-1 overflow-y-auto py-2">
         {items.map((item) => {
+          // Exact match for /app, and for /refill only match exact path
+          // to prevent /refill/consumers from highlighting Refill & Dispatch
           const active =
             item.href === "/app"
               ? pathname === "/app"
-              : pathname.startsWith(item.href);
+              : item.href === "/refill"
+                ? pathname === "/refill"
+                : pathname.startsWith(item.href);
 
           return (
             <Link

@@ -58,7 +58,7 @@ const CSS = `@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+
 .vr{background:var(--bg);color:var(--white);font-family:var(--font-mono);font-size:13px;line-height:1.5;min-height:100vh}.vr *{box-sizing:border-box}
 .vr nav{position:sticky;top:0;z-index:100;background:rgba(250,249,247,0.97);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;flex-wrap:wrap}
 .nb{font-family:var(--font-head);font-weight:800;font-size:15px;padding:14px 24px 14px 0;border-right:1px solid var(--border);margin-right:8px;letter-spacing:-0.5px}
-.nt{padding:14px 18px;font-size:11px;font-family:var(--font-mono);letter-spacing:0.08em;text-transform:uppercase;color:var(--grey);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;white-space:nowrap}.nt:hover{color:var(--white)}.nt.a{color:var(--white);border-bottom-color:var(--merc)}
+.nt{padding:12px 16px;font-size:12px;font-family:var(--font-head);font-weight:500;letter-spacing:0.06em;text-transform:uppercase;color:var(--grey);cursor:pointer;border-bottom:3px solid transparent;transition:all 0.2s;white-space:nowrap}.nt:hover{color:var(--white)}.nt.a{color:var(--white);font-weight:700;border-bottom-color:#0a0a0a}
 .nm{margin-left:auto;font-size:10px;color:var(--grey);display:flex;gap:16px;align-items:center}
 .sb{padding:3px 10px;border-radius:2px;font-size:10px;font-weight:500}.sbm{background:var(--merc-dim);color:var(--merc);border:1px solid rgba(59,130,246,0.3)}.sbi{background:var(--mird-dim);color:var(--mird);border:1px solid rgba(16,185,129,0.3)}
 .pg{padding:28px 24px;max-width:1400px;margin:0 auto;animation:vf .3s ease}@keyframes vf{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 
@@ -10,27 +9,47 @@ import { getDubaiDate } from "@/lib/utils/date";
 interface DispatchLine {
   dispatch_id: string;
   machine_id: string;
+  boonz_product_id: string;
+  action: string | null;
   quantity: number | null;
   filled_quantity: number | null;
   packed: boolean;
   picked_up: boolean;
   dispatched: boolean;
+  expiry_date: string | null;
   machines: {
     official_name: string;
     pod_location: string | null;
+    venue_group: string | null;
   };
+  boonz_products: {
+    boonz_product_name: string;
+  } | null;
 }
 
 interface MachineSummary {
   machine_id: string;
   official_name: string;
   pod_location: string | null;
+  venue_group: string | null;
   total: number;
   planned_qty: number;
+  filled_qty: number;
   packed_count: number;
   picked_up_count: number;
   dispatched_count: number;
-  filled_qty: number;
+  lines: DispatchLine[];
+}
+
+type MachineStage = "pack" | "pickup" | "dispatch" | "complete";
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function getMachineStage(m: MachineSummary): MachineStage {
+  if (m.packed_count < m.total) return "pack";
+  if (m.picked_up_count < m.total) return "pickup";
+  if (m.dispatched_count < m.total) return "dispatch";
+  return "complete";
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -42,38 +61,43 @@ export function DailyDispatchingTab({
 }) {
   const [lines, setLines] = useState<DispatchLine[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedMachines, setExpandedMachines] = useState<Set<string>>(
+    new Set(),
+  );
+  const [updatingMachine, setUpdatingMachine] = useState<string | null>(null);
+
+  const queryDate = selectedDate || getDubaiDate();
+
+  // ── Fetch ──────────────────────────────────────────────────────────────────
+
+  const fetchData = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("refill_dispatching")
+      .select(
+        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!inner(official_name, pod_location, venue_group), boonz_products(boonz_product_name)",
+      )
+      .eq("dispatch_date", queryDate)
+      .eq("include", true)
+      .limit(10000);
+
+    setLines(
+      (data ?? []).map((d) => ({
+        ...d,
+        machines: d.machines as unknown as DispatchLine["machines"],
+        boonz_products:
+          d.boonz_products as unknown as DispatchLine["boonz_products"],
+      })),
+    );
+    setLoading(false);
+  }, [queryDate]);
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      const supabase = createClient();
-      const today = getDubaiDate();
-      const queryDate = selectedDate || today;
+    setLoading(true);
+    fetchData();
+  }, [fetchData]);
 
-      const { data } = await supabase
-        .from("refill_dispatching")
-        .select(
-          "dispatch_id, machine_id, quantity, filled_quantity, packed, picked_up, dispatched, machines!inner(official_name, pod_location)",
-        )
-        .eq("dispatch_date", queryDate)
-        .eq("include", true)
-        .limit(10000);
-
-      setLines(
-        (data ?? []).map((d) => ({
-          ...d,
-          machines: d.machines as unknown as {
-            official_name: string;
-            pod_location: string | null;
-          },
-        })),
-      );
-      setLoading(false);
-    }
-    load();
-  }, [selectedDate]);
-
-  // ── Aggregate by machine ─────────────────────────────────────────────────────
+  // ── Aggregate by machine ─────────────────────────────────────────────────
 
   const machines = useMemo<MachineSummary[]>(() => {
     const map = new Map<string, MachineSummary>();
@@ -88,17 +112,20 @@ export function DailyDispatchingTab({
         if (l.packed) existing.packed_count += 1;
         if (l.picked_up) existing.picked_up_count += 1;
         if (l.dispatched) existing.dispatched_count += 1;
+        existing.lines.push(l);
       } else {
         map.set(l.machine_id, {
           machine_id: l.machine_id,
           official_name: l.machines.official_name,
           pod_location: l.machines.pod_location,
+          venue_group: l.machines.venue_group,
           total: 1,
           planned_qty: qty,
           filled_qty: filled,
           packed_count: l.packed ? 1 : 0,
           picked_up_count: l.picked_up ? 1 : 0,
           dispatched_count: l.dispatched ? 1 : 0,
+          lines: [l],
         });
       }
     }
@@ -107,28 +134,199 @@ export function DailyDispatchingTab({
     );
   }, [lines]);
 
-  // ── Summary totals ────────────────────────────────────────────────────────────
+  // ── Summary totals (machine-level) ───────────────────────────────────────
 
-  const totals = useMemo(
-    () => ({
+  const totals = useMemo(() => {
+    const totalMachines = machines.length;
+    const packedMachines = machines.filter(
+      (m) => m.packed_count === m.total,
+    ).length;
+    const pickedUpMachines = machines.filter(
+      (m) => m.picked_up_count === m.total,
+    ).length;
+    const dispatchedMachines = machines.filter(
+      (m) => m.dispatched_count === m.total,
+    ).length;
+    return {
       totalLines: lines.length,
-      totalMachines: machines.length,
-      packed: lines.filter((l) => l.packed).length,
-      pickedUp: lines.filter((l) => l.picked_up).length,
-      dispatched: lines.filter((l) => l.dispatched).length,
-    }),
-    [lines, machines],
-  );
+      totalMachines,
+      packedMachines,
+      pickedUpMachines,
+      dispatchedMachines,
+    };
+  }, [lines, machines]);
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Toggle expand ────────────────────────────────────────────────────────
+
+  function toggleExpand(machineId: string) {
+    setExpandedMachines((prev) => {
+      const next = new Set(prev);
+      if (next.has(machineId)) next.delete(machineId);
+      else next.add(machineId);
+      return next;
+    });
+  }
+
+  // ── Bulk update handler ──────────────────────────────────────────────────
+
+  async function handleBulkUpdate(
+    machineId: string,
+    field: "packed" | "picked_up" | "dispatched",
+  ) {
+    setUpdatingMachine(machineId);
+    try {
+      const supabase = createClient();
+      // Build the update payload: set the target field and all preceding fields to true
+      const updatePayload: Record<string, boolean> = {};
+      if (field === "packed") {
+        updatePayload.packed = true;
+      } else if (field === "picked_up") {
+        updatePayload.packed = true;
+        updatePayload.picked_up = true;
+      } else if (field === "dispatched") {
+        updatePayload.packed = true;
+        updatePayload.picked_up = true;
+        updatePayload.dispatched = true;
+      }
+
+      await supabase
+        .from("refill_dispatching")
+        .update(updatePayload)
+        .eq("machine_id", machineId)
+        .eq("dispatch_date", queryDate)
+        .eq("include", true);
+
+      await fetchData();
+    } finally {
+      setUpdatingMachine(null);
+    }
+  }
+
+  // ── Render helpers ───────────────────────────────────────────────────────
+
+  function renderActionButton(m: MachineSummary) {
+    const stage = getMachineStage(m);
+    const isUpdating = updatingMachine === m.machine_id;
+
+    if (stage === "complete") {
+      return (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            fontSize: 12,
+            fontWeight: 700,
+            color: "#24544a",
+            background: "rgba(36, 84, 74, 0.08)",
+            borderRadius: 6,
+            padding: "5px 12px",
+          }}
+        >
+          <span style={{ fontSize: 14 }}>&#10003;</span> Complete
+        </span>
+      );
+    }
+
+    const config: Record<
+      Exclude<MachineStage, "complete">,
+      {
+        label: string;
+        field: "packed" | "picked_up" | "dispatched";
+        bg: string;
+        border: string;
+        color: string;
+      }
+    > = {
+      pack: {
+        label: "Mark All Packed",
+        field: "packed",
+        bg: "#24544a",
+        border: "#24544a",
+        color: "#ffffff",
+      },
+      pickup: {
+        label: "Mark All Picked Up",
+        field: "picked_up",
+        bg: "#ffffff",
+        border: "#24544a",
+        color: "#24544a",
+      },
+      dispatch: {
+        label: "Mark All Dispatched",
+        field: "dispatched",
+        bg: "#e1b460",
+        border: "#e1b460",
+        color: "#0a0a0a",
+      },
+    };
+
+    const c = config[stage];
+
+    return (
+      <button
+        disabled={isUpdating}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleBulkUpdate(m.machine_id, c.field);
+        }}
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          fontFamily: "'Plus Jakarta Sans', sans-serif",
+          color: c.color,
+          background: c.bg,
+          border: `1px solid ${c.border}`,
+          borderRadius: 6,
+          padding: "5px 12px",
+          cursor: isUpdating ? "wait" : "pointer",
+          opacity: isUpdating ? 0.6 : 1,
+          whiteSpace: "nowrap",
+          transition: "opacity 0.15s ease",
+        }}
+      >
+        {isUpdating ? "Updating..." : c.label}
+      </button>
+    );
+  }
+
+  function renderStatusIcon(value: boolean) {
+    return (
+      <span
+        style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: value ? "#24544a" : "#d0cdc7",
+        }}
+      >
+        {value ? "\u2713" : "\u2014"}
+      </span>
+    );
+  }
+
+  // ── Stat cards ─────────────────────────────────────────────────────────────
 
   const statCards = [
     { label: "Machines", value: totals.totalMachines, color: "#0a0a0a" },
-    { label: "Lines Planned", value: totals.totalLines, color: "#0a0a0a" },
-    { label: "Packed", value: totals.packed, color: "#24544a" },
-    { label: "Picked Up", value: totals.pickedUp, color: "#1d4439" },
-    { label: "Dispatched", value: totals.dispatched, color: "#e1b460" },
+    { label: "Lines", value: totals.totalLines, color: "#0a0a0a" },
+    {
+      label: "Packed",
+      value: `${totals.packedMachines}/${totals.totalMachines}`,
+      color: "#24544a",
+    },
+    {
+      label: "Picked Up",
+      value: `${totals.pickedUpMachines}/${totals.totalMachines}`,
+      color: "#1d4439",
+    },
+    {
+      label: "Dispatched",
+      value: `${totals.dispatchedMachines}/${totals.totalMachines}`,
+      color: "#e1b460",
+    },
   ];
+
+  // ── Main render ────────────────────────────────────────────────────────────
 
   return (
     <div>
@@ -170,7 +368,7 @@ export function DailyDispatchingTab({
                 margin: 0,
               }}
             >
-              {loading ? "—" : card.value}
+              {loading ? "\u2014" : card.value}
             </p>
           </div>
         ))}
@@ -185,19 +383,20 @@ export function DailyDispatchingTab({
           overflow: "hidden",
         }}
       >
-        <table className="w-full text-sm">
+        <table
+          className="w-full text-sm"
+          style={{ borderCollapse: "collapse" }}
+        >
           <thead>
             <tr style={{ borderBottom: "1px solid #e8e4de" }}>
               {[
                 "Machine",
                 "Location",
+                "Group",
                 "Lines",
-                "Planned Qty",
-                "Packed",
-                "Picked Up",
-                "Dispatched",
+                "Planned",
                 "Progress",
-                "",
+                "Action",
               ].map((h) => (
                 <th
                   key={h}
@@ -219,7 +418,7 @@ export function DailyDispatchingTab({
             {loading ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                  {[200, 140, 60, 80, 60, 70, 80, 120, 60].map((w, j) => (
+                  {[200, 140, 100, 60, 80, 140, 120].map((w, j) => (
                     <td key={j} className="px-4 py-3">
                       <div
                         className="animate-pulse rounded"
@@ -232,131 +431,33 @@ export function DailyDispatchingTab({
             ) : machines.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={7}
                   className="px-4 py-10 text-center"
                   style={{ color: "#6b6860" }}
                 >
-                  No dispatch lines for {selectedDate}.
+                  No dispatch lines for {queryDate}.
                 </td>
               </tr>
             ) : (
               machines.map((m) => {
+                const isExpanded = expandedMachines.has(m.machine_id);
                 const dispatchPct =
                   m.total > 0
                     ? Math.round((m.dispatched_count / m.total) * 100)
                     : 0;
                 const allDone = m.dispatched_count === m.total;
-                const allPacked = m.packed_count === m.total;
 
                 return (
-                  <tr
+                  <MachineRow
                     key={m.machine_id}
-                    style={{ borderBottom: "1px solid #f5f2ee" }}
-                    onMouseEnter={(e) =>
-                      ((
-                        e.currentTarget as HTMLTableRowElement
-                      ).style.background = "#faf9f7")
-                    }
-                    onMouseLeave={(e) =>
-                      ((
-                        e.currentTarget as HTMLTableRowElement
-                      ).style.background = "transparent")
-                    }
-                  >
-                    <td
-                      className="px-4 py-3"
-                      style={{ fontWeight: 600, color: "#24544a" }}
-                    >
-                      {m.official_name}
-                    </td>
-                    <td
-                      className="px-4 py-3 max-w-[140px] truncate"
-                      style={{ color: "#6b6860" }}
-                      title={m.pod_location ?? undefined}
-                    >
-                      {m.pod_location ?? "—"}
-                    </td>
-                    <td
-                      className="px-4 py-3"
-                      style={{ color: "#0a0a0a", fontWeight: 600 }}
-                    >
-                      {m.total}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
-                      {m.planned_qty}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        style={{
-                          color: allPacked ? "#24544a" : "#6b6860",
-                          fontWeight: allPacked ? 700 : 400,
-                        }}
-                      >
-                        {m.packed_count}/{m.total}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "#6b6860" }}>
-                      {m.picked_up_count}/{m.total}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        style={{
-                          color: allDone ? "#24544a" : "#6b6860",
-                          fontWeight: allDone ? 700 : 400,
-                        }}
-                      >
-                        {m.dispatched_count}/{m.total}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3" style={{ minWidth: 120 }}>
-                      <div
-                        style={{
-                          height: 6,
-                          background: "#f0ede8",
-                          borderRadius: 3,
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            width: `${dispatchPct}%`,
-                            background: allDone ? "#24544a" : "#e1b460",
-                            borderRadius: 3,
-                            transition: "width 0.3s ease",
-                          }}
-                        />
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: "#6b6860",
-                          marginTop: 2,
-                          display: "block",
-                        }}
-                      >
-                        {dispatchPct}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/field/dispatching/${m.machine_id}`}
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: "#24544a",
-                          textDecoration: "none",
-                          border: "1px solid #24544a",
-                          borderRadius: 6,
-                          padding: "4px 10px",
-                          display: "inline-block",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        Dispatch →
-                      </Link>
-                    </td>
-                  </tr>
+                    machine={m}
+                    isExpanded={isExpanded}
+                    dispatchPct={dispatchPct}
+                    allDone={allDone}
+                    onToggle={() => toggleExpand(m.machine_id)}
+                    actionButton={renderActionButton(m)}
+                    renderStatusIcon={renderStatusIcon}
+                  />
                 );
               })
             )}
@@ -364,5 +465,247 @@ export function DailyDispatchingTab({
         </table>
       </div>
     </div>
+  );
+}
+
+// ── Machine Row Sub-Component ──────────────────────────────────────────────────
+
+function MachineRow({
+  machine: m,
+  isExpanded,
+  dispatchPct,
+  allDone,
+  onToggle,
+  actionButton,
+  renderStatusIcon,
+}: {
+  machine: MachineSummary;
+  isExpanded: boolean;
+  dispatchPct: number;
+  allDone: boolean;
+  onToggle: () => void;
+  actionButton: React.ReactNode;
+  renderStatusIcon: (v: boolean) => React.ReactNode;
+}) {
+  return (
+    <>
+      {/* Main machine row */}
+      <tr
+        onClick={onToggle}
+        style={{
+          borderBottom: isExpanded ? "none" : "1px solid #f5f2ee",
+          cursor: "pointer",
+          transition: "background 0.1s ease",
+        }}
+        onMouseEnter={(e) =>
+          ((e.currentTarget as HTMLTableRowElement).style.background =
+            "#faf9f7")
+        }
+        onMouseLeave={(e) =>
+          ((e.currentTarget as HTMLTableRowElement).style.background =
+            "transparent")
+        }
+      >
+        <td className="px-4 py-3" style={{ fontWeight: 600, color: "#24544a" }}>
+          <span
+            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: 16,
+                fontSize: 10,
+                color: "#6b6860",
+                transition: "transform 0.15s ease",
+                transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+              }}
+            >
+              &#9654;
+            </span>
+            {m.official_name}
+          </span>
+        </td>
+        <td
+          className="px-4 py-3 max-w-[140px] truncate"
+          style={{ color: "#6b6860" }}
+          title={m.pod_location ?? undefined}
+        >
+          {m.pod_location ?? "\u2014"}
+        </td>
+        <td
+          className="px-4 py-3 max-w-[100px] truncate"
+          style={{ color: "#6b6860", fontSize: 12 }}
+          title={m.venue_group ?? undefined}
+        >
+          {m.venue_group ?? "\u2014"}
+        </td>
+        <td className="px-4 py-3" style={{ color: "#0a0a0a", fontWeight: 600 }}>
+          {m.total}
+        </td>
+        <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
+          {m.planned_qty}
+        </td>
+        <td className="px-4 py-3" style={{ minWidth: 140 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div
+              style={{
+                flex: 1,
+                height: 6,
+                background: "#f0ede8",
+                borderRadius: 3,
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${dispatchPct}%`,
+                  background: allDone ? "#24544a" : "#e1b460",
+                  borderRadius: 3,
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+            <span style={{ fontSize: 11, color: "#6b6860", minWidth: 32 }}>
+              {dispatchPct}%
+            </span>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              marginTop: 4,
+              fontSize: 11,
+              color: "#6b6860",
+            }}
+          >
+            <span>
+              P {m.packed_count}/{m.total}
+            </span>
+            <span>
+              U {m.picked_up_count}/{m.total}
+            </span>
+            <span>
+              D {m.dispatched_count}/{m.total}
+            </span>
+          </div>
+        </td>
+        <td className="px-4 py-3">{actionButton}</td>
+      </tr>
+
+      {/* Expanded detail rows */}
+      {isExpanded && (
+        <tr style={{ borderBottom: "1px solid #f5f2ee" }}>
+          <td colSpan={7} style={{ padding: 0 }}>
+            <div
+              style={{
+                background: "#faf9f7",
+                borderTop: "1px solid #e8e4de",
+                borderBottom: "1px solid #e8e4de",
+                padding: "0 16px",
+              }}
+            >
+              <table
+                className="w-full text-sm"
+                style={{ borderCollapse: "collapse" }}
+              >
+                <thead>
+                  <tr>
+                    {[
+                      "Product",
+                      "Action",
+                      "Qty",
+                      "Filled",
+                      "Expiry",
+                      "Packed",
+                      "Picked Up",
+                      "Dispatched",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="text-left px-3 py-2"
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 500,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          color: "#6b6860",
+                          borderBottom: "1px solid #e8e4de",
+                        }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {m.lines.map((l) => (
+                    <tr
+                      key={l.dispatch_id}
+                      style={{ borderBottom: "1px solid #f0ede8" }}
+                    >
+                      <td
+                        className="px-3 py-2"
+                        style={{ color: "#0a0a0a", fontWeight: 500 }}
+                      >
+                        {l.boonz_products?.boonz_product_name ?? "\u2014"}
+                      </td>
+                      <td className="px-3 py-2" style={{ color: "#6b6860" }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background:
+                              l.action === "refill"
+                                ? "rgba(36, 84, 74, 0.08)"
+                                : l.action === "collect"
+                                  ? "rgba(225, 180, 96, 0.15)"
+                                  : "transparent",
+                            color:
+                              l.action === "refill"
+                                ? "#24544a"
+                                : l.action === "collect"
+                                  ? "#b08930"
+                                  : "#6b6860",
+                          }}
+                        >
+                          {l.action ?? "\u2014"}
+                        </span>
+                      </td>
+                      <td
+                        className="px-3 py-2"
+                        style={{ color: "#0a0a0a", fontWeight: 600 }}
+                      >
+                        {l.quantity ?? "\u2014"}
+                      </td>
+                      <td className="px-3 py-2" style={{ color: "#6b6860" }}>
+                        {l.filled_quantity ?? "\u2014"}
+                      </td>
+                      <td
+                        className="px-3 py-2"
+                        style={{ color: "#6b6860", fontSize: 12 }}
+                      >
+                        {l.expiry_date ?? "\u2014"}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {renderStatusIcon(l.packed)}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {renderStatusIcon(l.picked_up)}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {renderStatusIcon(l.dispatched)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

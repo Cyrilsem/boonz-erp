@@ -807,14 +807,16 @@ export default function RefillPage() {
             key={t}
             onClick={() => setTab(t)}
             style={{
-              padding: "10px 20px",
-              fontSize: 14,
-              fontWeight: tab === t ? 700 : 400,
-              color: tab === t ? "#24544a" : "#6b6860",
+              padding: "12px 16px",
+              fontSize: 12,
+              fontWeight: tab === t ? 700 : 500,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase" as const,
+              color: tab === t ? "#0a0a0a" : "#6b6860",
               background: "none",
               border: "none",
               borderBottom:
-                tab === t ? "2px solid #24544a" : "2px solid transparent",
+                tab === t ? "3px solid #0a0a0a" : "3px solid transparent",
               marginBottom: -1,
               cursor: "pointer",
             }}
