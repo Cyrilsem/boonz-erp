@@ -664,12 +664,35 @@ export default function PackingDetailPage() {
             ? variantTotal(line.dispatch_id)
             : line.packed_qty;
 
+        // Derive the expiry from whichever batch was actually picked (highest qty),
+        // not the FIFO expiry computed at load time.
+        const batchQtys = batchPickQtys[line.dispatch_id];
+        const chosenExpiry = (() => {
+          if (!batchQtys) return line.fifo_expiry ?? null;
+          const allBatches: {
+            wh_inventory_id: string;
+            expiry: string | null;
+          }[] = line.singleBatches
+            ? line.singleBatches
+            : (line.variantStocks ?? []).flatMap((v) => v.batches);
+          let dominant: { expiry: string | null } | null = null;
+          let maxQty = 0;
+          for (const b of allBatches) {
+            const qty = batchQtys[b.wh_inventory_id] ?? 0;
+            if (qty > maxQty) {
+              maxQty = qty;
+              dominant = b;
+            }
+          }
+          return dominant?.expiry ?? line.fifo_expiry ?? null;
+        })();
+
         await supabase
           .from("refill_dispatching")
           .update({
             packed: true,
             filled_quantity: filledQty,
-            expiry_date: line.fifo_expiry ?? null,
+            expiry_date: chosenExpiry,
           })
           .eq("dispatch_id", line.dispatch_id);
       } else if (line.action === "skip") {
