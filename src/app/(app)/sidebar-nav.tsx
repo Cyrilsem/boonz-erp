@@ -12,16 +12,16 @@ interface NavItem {
 
 const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/app", icon: "▦" },
-  { label: "Pods", href: "/app/pods", icon: "◉" },
-  { label: "Refill & Dispatch", href: "/app/refill", icon: "↻" },
+  { label: "Pods", href: "/field/config/machines", icon: "◉" },
+  { label: "Refill & Dispatch", href: "/refill", icon: "↻" },
   { label: "Products", href: "/app/products", icon: "☐" },
-  { label: "Inventory", href: "/app/inventory", icon: "▤" },
+  { label: "Inventory", href: "/field/inventory", icon: "▤" },
   { label: "Financials", href: "/app/financials", icon: "$" },
   { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "Machines", href: "/admin/machines", icon: "⊞" },
-  { label: "SIM Cards", href: "/admin/sim-cards", icon: "◈" },
+  { label: "SIM Cards", href: "/field/config/sims", icon: "◈" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
