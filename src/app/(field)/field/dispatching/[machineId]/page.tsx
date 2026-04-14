@@ -120,7 +120,8 @@ export default function DispatchingDetailPage() {
       .lte("dispatch_date", today)
       .eq("include", true)
       .eq("machine_id", machineId)
-      .eq("picked_up", true);
+      .eq("picked_up", true)
+      .eq("dispatched", false);
 
     if (dispatchLines) {
       const mapped: DispatchLine[] = dispatchLines.map((line) => {
