@@ -444,29 +444,30 @@ export default function PerformancePage() {
 
   // ── weekly data ──
   const weeklyData = useMemo(() => {
+    const weekKey = (date: Date): string => {
+      const d = new Date(
+        Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
+      );
+      const dayNum = d.getUTCDay() || 7;
+      d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil(
+        ((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+      );
+      return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+    };
     const map: Record<string, number> = {};
     salesRows.forEach((r) => {
       const d = new Date(r.transaction_date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      const wk = new Date(d.setDate(diff)).toISOString().split("T")[0];
-      map[wk] = (map[wk] || 0) + (r.total_amount || 0);
+      const key = weekKey(d);
+      map[key] = (map[key] || 0) + (r.total_amount || 0);
     });
     return Object.entries(map)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([wk, amount]) => {
-        const wd = new Date(wk);
-        const weekNum = Math.ceil(
-          ((wd.getTime() - new Date(wd.getFullYear(), 0, 1).getTime()) /
-            86400000 +
-            1) /
-            7,
-        );
-        return {
-          week: `W${String(weekNum).padStart(2, "0")}`,
-          amount: Math.round(amount),
-        };
-      });
+      .map(([key, amount]) => ({
+        week: "W" + key.split("-W")[1],
+        amount: Math.round(amount),
+      }));
   }, [salesRows]);
 
   // ── hourly data ──
@@ -990,7 +991,10 @@ export default function PerformancePage() {
         {(["consolidated", "by-group"] as const).map((v) => (
           <button
             key={v}
-            onClick={() => setViewMode(v)}
+            onClick={() => {
+              setViewMode(v);
+              if (v === "consolidated") setTxnGroup("All");
+            }}
             style={{
               padding: "5px 14px",
               borderRadius: 4,
@@ -1381,6 +1385,129 @@ export default function PerformancePage() {
                 </div>
               </div>
             </div>
+
+            {/* by-group breakdown (only in by-group view) */}
+            {viewMode === "by-group" && groupData.length > 0 && (
+              <div
+                style={{
+                  background: "white",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  marginTop: 14,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "14px 20px",
+                    borderBottom: "1px solid #e8e4de",
+                  }}
+                >
+                  <h3
+                    style={{
+                      fontFamily: font,
+                      fontWeight: 600,
+                      fontSize: 15,
+                      margin: 0,
+                    }}
+                  >
+                    Performance by Group
+                  </h3>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 11.5,
+                      minWidth: 700,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        {[
+                          "Group",
+                          "Revenue",
+                          "Transactions",
+                          "Units",
+                          "Avg/Txn",
+                          "% Share",
+                        ].map((h) => (
+                          <th
+                            key={h}
+                            style={{
+                              background: "#f5f2ee",
+                              padding: "10px 12px",
+                              textAlign: h === "Group" ? "left" : "right",
+                              fontSize: 9.5,
+                              letterSpacing: ".1em",
+                              textTransform: "uppercase",
+                              color: "#6b6860",
+                              fontWeight: 500,
+                              borderBottom: "1px solid #e8e4de",
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupData.map((g) => (
+                        <tr
+                          key={g.name}
+                          style={{ borderBottom: "1px solid #e8e4de" }}
+                        >
+                          <td style={{ padding: "9px 12px", fontWeight: 500 }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 8px",
+                                borderRadius: 3,
+                                background: `${GROUP_COLORS[g.name] || "#6b6860"}18`,
+                                color: GROUP_COLORS[g.name] || "#6b6860",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {g.name}
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              padding: "9px 12px",
+                              textAlign: "right",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {fmtAed(g.revenue)}
+                          </td>
+                          <td
+                            style={{ padding: "9px 12px", textAlign: "right" }}
+                          >
+                            {fmtN(g.txns)}
+                          </td>
+                          <td
+                            style={{ padding: "9px 12px", textAlign: "right" }}
+                          >
+                            {fmtN(g.units)}
+                          </td>
+                          <td
+                            style={{ padding: "9px 12px", textAlign: "right" }}
+                          >
+                            {fmtAed(g.txns > 0 ? g.revenue / g.txns : 0)}
+                          </td>
+                          <td
+                            style={{ padding: "9px 12px", textAlign: "right" }}
+                          >
+                            {pct(g.revenue, totalWeimi)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1687,16 +1814,12 @@ export default function PerformancePage() {
                 height={Math.max(300, productData.slice(0, 15).length * 32)}
               >
                 <BarChart
-                  data={productData
-                    .slice(0, 15)
-                    .map((p) => ({
-                      ...p,
-                      name:
-                        p.name.length > 30
-                          ? p.name.slice(0, 27) + "..."
-                          : p.name,
-                      revenue: Math.round(p.revenue),
-                    }))}
+                  data={productData.slice(0, 15).map((p) => ({
+                    ...p,
+                    name:
+                      p.name.length > 30 ? p.name.slice(0, 27) + "..." : p.name,
+                    revenue: Math.round(p.revenue),
+                  }))}
                   layout="vertical"
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" />
@@ -1762,14 +1885,17 @@ export default function PerformancePage() {
                 >
                   <thead>
                     <tr>
-                      {[
-                        "Product",
-                        "Groups",
-                        "Revenue",
-                        "Units",
-                        "Avg Price",
-                        "Share",
-                      ].map((h) => (
+                      {(viewMode === "by-group"
+                        ? [
+                            "Product",
+                            "Groups",
+                            "Revenue",
+                            "Units",
+                            "Avg Price",
+                            "Share",
+                          ]
+                        : ["Product", "Revenue", "Units", "Avg Price", "Share"]
+                      ).map((h) => (
                         <th
                           key={h}
                           style={{
@@ -1811,31 +1937,33 @@ export default function PerformancePage() {
                         >
                           {p.name}
                         </td>
-                        <td style={{ padding: "9px 12px" }}>
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 4,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {p.groups.map((g) => (
-                              <span
-                                key={g}
-                                style={{
-                                  fontSize: 9,
-                                  padding: "2px 6px",
-                                  borderRadius: 3,
-                                  background: `${GROUP_COLORS[g] || "#6b6860"}18`,
-                                  color: GROUP_COLORS[g] || "#6b6860",
-                                  fontWeight: 500,
-                                }}
-                              >
-                                {g}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
+                        {viewMode === "by-group" && (
+                          <td style={{ padding: "9px 12px" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 4,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              {p.groups.map((g) => (
+                                <span
+                                  key={g}
+                                  style={{
+                                    fontSize: 9,
+                                    padding: "2px 6px",
+                                    borderRadius: 3,
+                                    background: `${GROUP_COLORS[g] || "#6b6860"}18`,
+                                    color: GROUP_COLORS[g] || "#6b6860",
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  {g}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        )}
                         <td
                           style={{
                             padding: "9px 12px",
@@ -2111,37 +2239,41 @@ export default function PerformancePage() {
                 marginBottom: 14,
               }}
             >
-              {GROUPS.map((g) => (
-                <button
-                  key={g}
-                  onClick={() => {
-                    setTxnGroup(g);
-                    setTxnPage(0);
-                  }}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 4,
-                    border: `1px solid ${txnGroup === g ? "#24544a" : "#e8e4de"}`,
-                    background:
-                      txnGroup === g ? "rgba(36,84,74,0.12)" : "#ffffff",
-                    color: txnGroup === g ? "#24544a" : "#9a948e",
-                    fontSize: 11,
-                    fontFamily: font,
-                    cursor: "pointer",
-                    transition: "all .15s",
-                  }}
-                >
-                  {g}
-                </button>
-              ))}
-              <div
-                style={{
-                  width: 1,
-                  height: 20,
-                  background: "#e8e4de",
-                  margin: "0 4px",
-                }}
-              />
+              {viewMode === "by-group" && (
+                <>
+                  {GROUPS.map((g) => (
+                    <button
+                      key={g}
+                      onClick={() => {
+                        setTxnGroup(g);
+                        setTxnPage(0);
+                      }}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 4,
+                        border: `1px solid ${txnGroup === g ? "#24544a" : "#e8e4de"}`,
+                        background:
+                          txnGroup === g ? "rgba(36,84,74,0.12)" : "#ffffff",
+                        color: txnGroup === g ? "#24544a" : "#9a948e",
+                        fontSize: 11,
+                        fontFamily: font,
+                        cursor: "pointer",
+                        transition: "all .15s",
+                      }}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                  <div
+                    style={{
+                      width: 1,
+                      height: 20,
+                      background: "#e8e4de",
+                      margin: "0 4px",
+                    }}
+                  />
+                </>
+              )}
               {["All", "DEBIT", "CREDIT", "PREPAID"].map((f) => (
                 <button
                   key={f}
@@ -2479,6 +2611,142 @@ export default function PerformancePage() {
               />
             </div>
 
+            {/* by-group breakdown table (above waterfall) */}
+            {viewMode === "by-group" && (
+              <div
+                style={{
+                  background: "white",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  overflow: "hidden",
+                  marginBottom: 28,
+                }}
+              >
+                <div
+                  style={{
+                    padding: "14px 20px",
+                    borderBottom: "1px solid #e8e4de",
+                  }}
+                >
+                  <h3
+                    style={{
+                      fontFamily: font,
+                      fontWeight: 600,
+                      fontSize: 15,
+                      margin: 0,
+                    }}
+                  >
+                    By Group Breakdown
+                  </h3>
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 11.5,
+                      minWidth: 1000,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        {[
+                          "Group",
+                          "Revenue",
+                          "Captured",
+                          "Net Rev",
+                          "Boonz 20%",
+                          "Net Dues",
+                        ].map((h) => (
+                          <th
+                            key={h}
+                            style={{
+                              background: "#f5f2ee",
+                              padding: "10px 12px",
+                              textAlign: h === "Group" ? "left" : "right",
+                              fontSize: 9.5,
+                              letterSpacing: ".1em",
+                              textTransform: "uppercase",
+                              color: "#6b6860",
+                              fontWeight: 500,
+                              borderBottom: "1px solid #e8e4de",
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commercialData.groupBreakdown.map((g) => (
+                        <tr
+                          key={g.name}
+                          style={{ borderBottom: "1px solid #e8e4de" }}
+                        >
+                          <td style={{ padding: "9px 12px", fontWeight: 500 }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 8px",
+                                borderRadius: 3,
+                                background: `${GROUP_COLORS[g.name] || "#6b6860"}18`,
+                                color: GROUP_COLORS[g.name] || "#6b6860",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {g.name}
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              padding: "9px 12px",
+                              textAlign: "right",
+                              fontWeight: 500,
+                            }}
+                          >
+                            {fmtAed(g.revenue)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "9px 12px",
+                              textAlign: "right",
+                              color: "#24544a",
+                            }}
+                          >
+                            {fmtAed(g.captured)}
+                          </td>
+                          <td
+                            style={{ padding: "9px 12px", textAlign: "right" }}
+                          >
+                            {fmtAed(g.netRevenue)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "9px 12px",
+                              textAlign: "right",
+                              color: "#d97706",
+                            }}
+                          >
+                            {fmtAed(g.boonzShare)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "9px 12px",
+                              textAlign: "right",
+                              fontWeight: 600,
+                              color: g.netDues >= 0 ? "#8B5CF6" : "#dc2626",
+                            }}
+                          >
+                            {fmtAed(g.netDues)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* waterfall chart */}
             <div
               style={{
@@ -2530,164 +2798,6 @@ export default function PerformancePage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
-            {/* by-group breakdown table */}
-            {viewMode === "by-group" && (
-              <div
-                style={{
-                  background: "white",
-                  border: "1px solid #e8e4de",
-                  borderRadius: 6,
-                  overflow: "hidden",
-                  marginBottom: 28,
-                }}
-              >
-                <div
-                  style={{
-                    padding: "14px 20px",
-                    borderBottom: "1px solid #e8e4de",
-                  }}
-                >
-                  <h3
-                    style={{
-                      fontFamily: font,
-                      fontWeight: 600,
-                      fontSize: 15,
-                      margin: 0,
-                    }}
-                  >
-                    By Group Breakdown
-                  </h3>
-                </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 11.5,
-                      minWidth: 1000,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        {[
-                          "Group",
-                          "Txns",
-                          "Units",
-                          "Total",
-                          "Captured",
-                          "Net Rev",
-                          "Boonz 20%",
-                          "COGS",
-                          "Net Dues",
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              background: "#f5f2ee",
-                              padding: "10px 12px",
-                              textAlign: h === "Group" ? "left" : "right",
-                              fontSize: 9.5,
-                              letterSpacing: ".1em",
-                              textTransform: "uppercase",
-                              color: "#6b6860",
-                              fontWeight: 500,
-                              borderBottom: "1px solid #e8e4de",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {commercialData.groupBreakdown.map((g) => (
-                        <tr
-                          key={g.name}
-                          style={{ borderBottom: "1px solid #e8e4de" }}
-                        >
-                          <td style={{ padding: "9px 12px", fontWeight: 500 }}>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                padding: "2px 8px",
-                                borderRadius: 3,
-                                background: `${GROUP_COLORS[g.name] || "#6b6860"}18`,
-                                color: GROUP_COLORS[g.name] || "#6b6860",
-                                fontWeight: 600,
-                              }}
-                            >
-                              {g.name}
-                            </span>
-                          </td>
-                          <td
-                            style={{ padding: "9px 12px", textAlign: "right" }}
-                          >
-                            {fmtN(g.txns)}
-                          </td>
-                          <td
-                            style={{ padding: "9px 12px", textAlign: "right" }}
-                          >
-                            {fmtN(g.units)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {fmtAed(g.revenue)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              color: "#24544a",
-                            }}
-                          >
-                            {fmtAed(g.captured)}
-                          </td>
-                          <td
-                            style={{ padding: "9px 12px", textAlign: "right" }}
-                          >
-                            {fmtAed(g.netRevenue)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              color: "#d97706",
-                            }}
-                          >
-                            {fmtAed(g.boonzShare)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              color: "#dc2626",
-                            }}
-                          >
-                            {fmtAed(g.cogs)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              fontWeight: 600,
-                              color: g.netDues >= 0 ? "#8B5CF6" : "#dc2626",
-                            }}
-                          >
-                            {fmtAed(g.netDues)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
 
             {/* full transaction ledger */}
             <div
