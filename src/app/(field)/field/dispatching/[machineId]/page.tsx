@@ -297,40 +297,10 @@ export default function DispatchingDetailPage() {
 
     log("qty=" + qty);
 
-    // ── STEP 1: Warehouse FIFO deduction ─────────────────────────
-    try {
-      const { data: batches } = await supabase
-        .from("warehouse_inventory")
-        .select("wh_inventory_id, warehouse_stock, expiration_date")
-        .eq("boonz_product_id", line.boonz_product_id)
-        .eq("status", "Active")
-        .gt("warehouse_stock", 0)
-        .order("expiration_date", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: true });
+    // WH deduction removed — stock is now deducted at pack time (3-stage inventory flow).
+    // packing/[machineId]/page.tsx::handleConfirmPacking calls deductWarehouseStock().
 
-      log("WH: deducting from " + (batches?.length ?? 0) + " batches");
-
-      let remaining = qty;
-      for (const batch of batches ?? []) {
-        if (remaining <= 0) break;
-        const deduct = Math.min(batch.warehouse_stock, remaining);
-        remaining -= deduct;
-        await supabase
-          .from("warehouse_inventory")
-          .update({ warehouse_stock: batch.warehouse_stock - deduct })
-          .eq("wh_inventory_id", batch.wh_inventory_id);
-        log(
-          "WH: deducted " +
-            deduct +
-            " from batch expiry=" +
-            batch.expiration_date,
-        );
-      }
-    } catch (err) {
-      console.error("[Dispatch] warehouse step error:", err);
-    }
-
-    // ── STEP 2: Pod inventory update ─────────────────────────────
+    // ── Pod inventory update ──────────────────────────────────────
     try {
       let podQuery = supabase
         .from("pod_inventory")

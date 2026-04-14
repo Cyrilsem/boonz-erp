@@ -44,6 +44,8 @@ interface PackLine {
   recommended_qty: number;
   packed_qty: number;
   action: LineAction;
+  /** DB packed boolean — true if this line was already packed+saved in a prior session */
+  packed: boolean;
   fifo_expiry: string | null;
   /** Saved expiry_date from the DB (set when line was previously packed) */
   expiry_date: string | null;
@@ -121,6 +123,112 @@ function computeVariantQtys(
   return sorted.filter((v) => v.qty > 0);
 }
 
+// ─── WH stock helpers (module-level, reusable) ───────────────────────────────
+
+/**
+ * Deduct `qty` from warehouse_inventory using FIFO.
+ * Prioritises the `chosenExpiry` batch first; spills to remaining Active batches
+ * in expiry ASC order if the chosen batch has insufficient stock.
+ */
+async function deductWarehouseStock(
+  sb: ReturnType<typeof createClient>,
+  boonzProductId: string,
+  chosenExpiry: string | null,
+  qty: number,
+): Promise<void> {
+  let remaining = qty;
+
+  // Step 1: deduct from the batch the warehouse actually picked
+  if (chosenExpiry && remaining > 0) {
+    const { data: batch } = await sb
+      .from("warehouse_inventory")
+      .select("wh_inventory_id, warehouse_stock")
+      .eq("boonz_product_id", boonzProductId)
+      .eq("expiration_date", chosenExpiry)
+      .eq("status", "Active")
+      .single();
+
+    if (batch && batch.warehouse_stock > 0) {
+      const take = Math.min(batch.warehouse_stock, remaining);
+      const newStock = batch.warehouse_stock - take;
+      await sb
+        .from("warehouse_inventory")
+        .update({
+          warehouse_stock: newStock,
+          status: newStock <= 0 ? "Inactive" : "Active",
+        })
+        .eq("wh_inventory_id", batch.wh_inventory_id);
+      remaining -= take;
+    }
+  }
+
+  // Step 2: spill to remaining FIFO batches if chosen batch was short
+  if (remaining > 0) {
+    const { data: batches } = await sb
+      .from("warehouse_inventory")
+      .select("wh_inventory_id, warehouse_stock, expiration_date")
+      .eq("boonz_product_id", boonzProductId)
+      .eq("status", "Active")
+      .gt("warehouse_stock", 0)
+      .order("expiration_date", { ascending: true, nullsFirst: false })
+      .limit(50);
+
+    for (const b of batches ?? []) {
+      if (remaining <= 0) break;
+      if (chosenExpiry && b.expiration_date === chosenExpiry) continue; // already handled
+      const take = Math.min(b.warehouse_stock, remaining);
+      const newStock = b.warehouse_stock - take;
+      await sb
+        .from("warehouse_inventory")
+        .update({
+          warehouse_stock: newStock,
+          status: newStock <= 0 ? "Inactive" : "Active",
+        })
+        .eq("wh_inventory_id", b.wh_inventory_id);
+      remaining -= take;
+    }
+  }
+}
+
+/**
+ * Restore `qty` units back to warehouse_inventory for the given expiry batch.
+ * Called when a previously-packed line is skipped (WH deduction reversal).
+ */
+async function restoreWarehouseStock(
+  sb: ReturnType<typeof createClient>,
+  boonzProductId: string,
+  expiry: string | null,
+  qty: number,
+): Promise<void> {
+  if (expiry) {
+    const { data: batch } = await sb
+      .from("warehouse_inventory")
+      .select("wh_inventory_id, warehouse_stock")
+      .eq("boonz_product_id", boonzProductId)
+      .eq("expiration_date", expiry)
+      .maybeSingle(); // include Inactive rows — may need to reactivate
+
+    if (batch) {
+      const newStock = (batch.warehouse_stock ?? 0) + qty;
+      await sb
+        .from("warehouse_inventory")
+        .update({ warehouse_stock: newStock, status: "Active" })
+        .eq("wh_inventory_id", batch.wh_inventory_id);
+      return;
+    }
+  }
+
+  // Defensive fallback: batch not found — create a new WH row
+  // (should not occur in normal flow)
+  await sb.from("warehouse_inventory").insert({
+    boonz_product_id: boonzProductId,
+    warehouse_stock: qty,
+    expiration_date: expiry,
+    status: "Active",
+    snapshot_date: new Date().toISOString().split("T")[0],
+  });
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PackingDetailPage() {
@@ -133,6 +241,7 @@ export default function PackingDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
+  const [whWarnMsg, setWhWarnMsg] = useState<string>("");
 
   /**
    * Per-batch pick quantities for mix lines.
@@ -513,6 +622,7 @@ export default function PackingDetailPage() {
         packed_qty:
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
         action: isPacked ? "packed" : null,
+        packed: isPacked,
         fifo_expiry: fifo.primary_expiry,
         expiry_date: (line.expiry_date as string | null) ?? null,
         allocations: fifo.allocations,
@@ -688,6 +798,7 @@ export default function PackingDetailPage() {
 
   async function handleConfirmPacking() {
     setSaving(true);
+    setWhWarnMsg("");
     const supabase = createClient();
 
     for (const line of lines) {
@@ -728,7 +839,41 @@ export default function PackingDetailPage() {
             expiry_date: chosenExpiry,
           })
           .eq("dispatch_id", line.dispatch_id);
+
+        // Deduct WH stock at pack time (3-stage inventory flow).
+        // Non-blocking: a failure warns but does not roll back the packed=true save.
+        if (filledQty > 0 && line.boonz_product_id) {
+          try {
+            await deductWarehouseStock(
+              supabase,
+              line.boonz_product_id,
+              chosenExpiry,
+              filledQty,
+            );
+          } catch (err) {
+            console.error("[Pack] WH deduction failed:", err);
+            setWhWarnMsg(
+              "Packed saved but WH stock deduction failed — please check warehouse inventory.",
+            );
+          }
+        }
       } else if (line.action === "skip") {
+        // If this line was already packed (WH was deducted), restore WH stock first.
+        // SCENARIO B (admin sets include=false directly in DB) must be handled manually.
+        const wasAlreadyPacked = line.packed && line.packed_qty > 0;
+        if (wasAlreadyPacked && line.boonz_product_id) {
+          try {
+            await restoreWarehouseStock(
+              supabase,
+              line.boonz_product_id,
+              line.expiry_date,
+              line.packed_qty,
+            );
+          } catch (err) {
+            console.error("[Pack] WH restore failed:", err);
+          }
+        }
+
         await supabase
           .from("refill_dispatching")
           .update({
@@ -816,6 +961,11 @@ export default function PackingDetailPage() {
               — {skippedCount} skipped
             </span>
           )}
+        </div>
+      )}
+      {whWarnMsg && (
+        <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          ⚠ {whWarnMsg}
         </div>
       )}
 
