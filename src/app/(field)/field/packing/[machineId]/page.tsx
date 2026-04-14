@@ -284,21 +284,19 @@ export default function PackingDetailPage() {
       expiration_date: string | null;
     }
 
-    let rawBatches: WBatch[] = [];
+    // Fetch ALL Active warehouse batches unconditionally so the query runs
+    // even when allBoonzIds is empty (e.g. dispatch lines with null boonz_product_id).
+    const { data: rawBatchData } = await supabase
+      .from("warehouse_inventory")
+      .select(
+        "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
+      )
+      .eq("status", "Active")
+      .gt("warehouse_stock", 0)
+      .order("expiration_date", { ascending: true, nullsFirst: false })
+      .limit(10000);
 
-    if (allBoonzIds.length > 0) {
-      const { data: batchData } = await supabase
-        .from("warehouse_inventory")
-        .select(
-          "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
-        )
-        .in("boonz_product_id", allBoonzIds)
-        .eq("status", "Active")
-        .gt("warehouse_stock", 0)
-        .order("expiration_date", { ascending: true, nullsFirst: false });
-
-      rawBatches = (batchData ?? []) as WBatch[];
-    }
+    const rawBatches: WBatch[] = (rawBatchData ?? []) as WBatch[];
 
     const batchPool = new Map<
       string,
@@ -812,8 +810,8 @@ export default function PackingDetailPage() {
                       {line.variantStocks!.every(
                         (v) => v.packQty === 0 && v.stock === 0,
                       ) ? (
-                        <p className="text-xs font-medium text-red-600 dark:text-red-400">
-                          Out of stock
+                        <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                          ⚠ No warehouse stock — skip or receive new stock
                         </p>
                       ) : (
                         <div className="space-y-2">
