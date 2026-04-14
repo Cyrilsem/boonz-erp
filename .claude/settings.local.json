@@ -62,7 +62,11 @@
       "Bash(python -m engines.refill.engine_d_decider)",
       "Bash(pip3 install:*)",
       "Bash(PYTHONPATH=\"/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages\" python3 -m engines.refill.engine_d_decider)",
-      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/\")"
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/\")",
+      "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/page.tsx\")",
+      "Bash(head -30 \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/page.tsx\")",
+      "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/client.tsx\")",
+      "Bash(head -60 \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/client.tsx\")"
     ]
   }
 }

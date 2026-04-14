@@ -12,10 +12,11 @@ interface NavItem {
 
 const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/app", icon: "▦" },
-  { label: "Pods", href: "/field/config/machines", icon: "◉" },
+  { label: "Pods", href: "/app/pods", icon: "◉" },
   { label: "Refill & Dispatch", href: "/refill", icon: "↻" },
   { label: "Products", href: "/app/products", icon: "☐" },
   { label: "Inventory", href: "/field/inventory", icon: "▤" },
+  { label: "Procurement", href: "/app/procurement", icon: "☐" },
   { label: "Financials", href: "/app/financials", icon: "$" },
   { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
   { label: "Consumers", href: "/refill/consumers", icon: "⇢" },
@@ -59,7 +60,7 @@ export default function SidebarNav({ role }: { role: string }) {
               fontWeight: 800,
               fontSize: 16,
               letterSpacing: "-0.02em",
-              color: "#e1b460",
+              color: "#0a0a0a",
             }}
           >
             Boonz
@@ -98,8 +99,8 @@ export default function SidebarNav({ role }: { role: string }) {
               style={
                 active
                   ? {
-                      background: "#e1b460",
-                      color: "#24544a",
+                      background: "#0a0a0a",
+                      color: "white",
                       fontWeight: 600,
                     }
                   : {

@@ -558,8 +558,16 @@ function DriverHome({
             cardStyle={ratioCardStyle(kpis.dispatchedMachines, kpis.stopsToday)}
             href="/field/dispatching"
           />
-          {/* empty cell — 3 stats only */}
-          <div />
+          {/* Driver Route shortcut */}
+          <Link
+            href="/refill/route"
+            className="block rounded-xl border border-neutral-200 p-3 transition-opacity hover:opacity-80 bg-neutral-50"
+          >
+            <p className="text-2xl font-bold text-neutral-700">🗺️</p>
+            <p className="mt-0.5 text-xs font-medium text-neutral-600">
+              Driver Route
+            </p>
+          </Link>
         </div>
       </SectionCard>
 

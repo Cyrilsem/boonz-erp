@@ -223,8 +223,14 @@ def _calc_total_stock(door_statuses: list) -> int:
     """Sum currStock across all cabinets → layers → aisles."""
     total = 0
     for cabinet in door_statuses or []:
+        if not isinstance(cabinet, dict):
+            continue
         for layer in (cabinet.get("layers") or []):
+            if not isinstance(layer, dict):
+                continue
             for aisle in (layer.get("aisles") or []):
+                if not isinstance(aisle, dict):
+                    continue
                 try:
                     total += int(aisle.get("currStock") or 0)
                 except (TypeError, ValueError):
@@ -239,8 +245,14 @@ def _extract_slot_codes(door_statuses: list) -> list[str]:
     """
     codes: list[str] = []
     for cabinet in door_statuses or []:
+        if not isinstance(cabinet, dict):
+            continue
         for layer in (cabinet.get("layers") or []):
+            if not isinstance(layer, dict):
+                continue
             for aisle in (layer.get("aisles") or []):
+                if not isinstance(aisle, dict):
+                    continue
                 code = str(aisle.get("code") or aisle.get("showName") or "").strip()
                 if code:
                     codes.append(code)
@@ -318,12 +330,17 @@ def _fetch_device_snapshot(
         print()
 
     # Device list can be at data.list, data.records, or data directly
-    data = body.get("data") or {}
-    devices: list[dict] = (
-        data.get("list")
-        or data.get("records")
-        or (data if isinstance(data, list) else [])
-    )
+    raw_data = body.get("data")
+    if isinstance(raw_data, list):
+        devices: list[dict] = raw_data
+    elif isinstance(raw_data, dict):
+        devices: list[dict] = (
+            raw_data.get("list")
+            or raw_data.get("records")
+            or []
+        )
+    else:
+        devices: list[dict] = []
 
     if not devices:
         return {"slots": 0, "devices": 0, "upserted": 0}
