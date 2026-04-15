@@ -22,17 +22,13 @@ export default function DispatchingPage() {
   const fetchMachines = useCallback(async () => {
     const supabase = createClient();
     const today = getDubaiDate();
-    const yesterday = new Date(Date.now() - 86400000)
-      .toISOString()
-      .split("T")[0];
 
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
         "dispatch_id, machine_id, picked_up, dispatched, machines!inner(official_name, pod_location)",
       )
-      .gte("dispatch_date", yesterday)
-      .lte("dispatch_date", today)
+      .eq("dispatch_date", today)
       .eq("include", true);
 
     if (!lines || lines.length === 0) {

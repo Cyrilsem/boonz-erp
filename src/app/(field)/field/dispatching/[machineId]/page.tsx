@@ -86,9 +86,6 @@ export default function DispatchingDetailPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient();
     const today = getDubaiDate();
-    const yesterday = new Date(Date.now() - 86400000)
-      .toISOString()
-      .split("T")[0];
 
     const { data: machineData } = await supabase
       .from("machines")
@@ -116,12 +113,10 @@ export default function DispatchingDetailPage() {
         pod_products(pod_product_name)
       `,
       )
-      .gte("dispatch_date", yesterday)
-      .lte("dispatch_date", today)
+      .eq("dispatch_date", today)
       .eq("include", true)
       .eq("machine_id", machineId)
-      .eq("picked_up", true)
-      .eq("dispatched", false);
+      .eq("picked_up", true);
 
     if (dispatchLines) {
       const mapped: DispatchLine[] = dispatchLines.map((line) => {
@@ -477,6 +472,64 @@ export default function DispatchingDetailPage() {
           <p className="text-neutral-500">Loading dispatch details…</p>
         </div>
       </>
+    );
+  }
+
+  // Detect if all lines were already dispatched in DB (completed machine)
+  const allDispatchedFromDB =
+    lines.length > 0 && lines.every((l) => l.dispatched);
+
+  if (allDispatchedFromDB && !editingAfterSave) {
+    const today = getDubaiDate();
+    return (
+      <div className="px-4 py-4">
+        <FieldHeader title="Dispatch Detail" />
+        <div className="mx-auto max-w-md">
+          <div className="rounded-xl border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30">
+            <div className="border-b border-green-200 px-4 py-3 dark:border-green-900">
+              <p className="text-lg font-bold text-green-700 dark:text-green-400">
+                ✓ Dispatch Complete
+              </p>
+              <p className="text-xs text-green-600 dark:text-green-500">
+                {machine?.official_name ?? ""} · {formatDMY(today)}
+              </p>
+            </div>
+            <ul className="divide-y divide-green-100 dark:divide-green-900/50">
+              {lines.map((line) => (
+                <li
+                  key={line.dispatch_id}
+                  className="flex items-center justify-between px-4 py-2.5"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-xs font-mono text-green-600 dark:bg-green-900/40 dark:text-green-400">
+                      {line.shelf_code ?? "—"}
+                    </span>
+                    <span className="text-sm truncate">
+                      {line.pod_product_name ?? line.boonz_product_name ?? "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-sm font-medium">
+                      ×{line.filled_qty || line.quantity}
+                    </span>
+                    {line.expiry_date && (
+                      <span className="text-xs text-neutral-400">
+                        {formatDMY(line.expiry_date)}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <button
+            onClick={() => window.history.back()}
+            className="mt-4 w-full rounded-lg border border-neutral-300 py-3 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
     );
   }
 
