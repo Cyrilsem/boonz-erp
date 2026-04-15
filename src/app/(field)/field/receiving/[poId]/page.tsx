@@ -69,6 +69,9 @@ export default function ReceivingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [receiveResults, setReceiveResults] = useState<
+    { productName: string; qty: number; batchId: string }[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
 
   // Field additions state
@@ -266,6 +269,7 @@ export default function ReceivingDetailPage() {
 
     const supabase = createClient();
     const today = getDubaiDate();
+    const results: { productName: string; qty: number; batchId: string }[] = [];
 
     for (const line of lines) {
       const activeBatches = line.batches.filter((b) => b.received_qty > 0);
@@ -273,6 +277,7 @@ export default function ReceivingDetailPage() {
 
       for (let i = 0; i < activeBatches.length; i++) {
         const batch = activeBatches[i];
+        const batchId = `${poId}-B${i + 1}`;
 
         if (i === 0) {
           // Update original PO line with received date, actual qty, and expiry
@@ -319,7 +324,7 @@ export default function ReceivingDetailPage() {
             boonz_product_id: line.boonz_product_id,
             warehouse_stock: batch.received_qty,
             expiration_date: batch.expiry_date || null,
-            batch_id: `${poId}-B${i + 1}`,
+            batch_id: batchId,
             wh_location: line.wh_location || null,
             status: "Active",
             snapshot_date: today,
@@ -330,9 +335,16 @@ export default function ReceivingDetailPage() {
           setSubmitting(false);
           return;
         }
+
+        results.push({
+          productName: line.boonz_product_name,
+          qty: batch.received_qty,
+          batchId,
+        });
       }
     }
 
+    setReceiveResults(results);
     setSubmitted(true);
     setSubmitting(false);
   }
@@ -388,6 +400,24 @@ export default function ReceivingDetailPage() {
           <p className="mb-4 text-sm text-neutral-500">
             {header?.po_id} has been received into inventory
           </p>
+          {receiveResults.length > 0 && (
+            <div className="mb-4 w-full max-w-sm rounded-lg border border-green-200 bg-green-50 p-3 text-left dark:border-green-900 dark:bg-green-950/30">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">
+                Added to warehouse
+              </p>
+              {receiveResults.map((r, i) => (
+                <p
+                  key={i}
+                  className="py-1 text-xs text-green-800 dark:text-green-300"
+                >
+                  ✓ {r.qty} units of {r.productName}{" "}
+                  <span className="text-green-600 dark:text-green-500">
+                    (Batch: {r.batchId})
+                  </span>
+                </p>
+              ))}
+            </div>
+          )}
           <button
             onClick={() => router.push("/field/receiving")}
             className="rounded-lg bg-neutral-900 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"

@@ -195,7 +195,7 @@ export default function ProcurementPage() {
       .from("po_additions")
       .select("*, boonz_products(boonz_product_name)")
       .eq("po_id", po.po_id)
-      .eq("status", "pending_receive")
+      .order("created_at", { ascending: false })
       .limit(100);
     setPOLines((data ?? []) as unknown as PODetail[]);
     setPoAdditions((additionsData ?? []) as unknown as POAddition[]);
@@ -316,9 +316,26 @@ export default function ProcurementPage() {
     await fetchOrders();
   };
 
+  const [additionToast, setAdditionToast] = useState<string | null>(null);
+
   const handleReceiveAddition = async (addition: POAddition) => {
     setReceivingAddition(addition.addition_id);
     const supabase = createClient();
+
+    // Guard: check if already received to prevent duplicate WH rows
+    const { data: existing } = await supabase
+      .from("po_additions")
+      .select("status")
+      .eq("addition_id", addition.addition_id)
+      .single();
+
+    if (existing?.status === "received") {
+      setAdditionToast("Already received — no duplicate created");
+      setTimeout(() => setAdditionToast(null), 3000);
+      setReceivingAddition(null);
+      return;
+    }
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -342,12 +359,20 @@ export default function ProcurementPage() {
       })
       .eq("addition_id", addition.addition_id);
 
-    // Refresh
+    // Optimistic: mark as received in local state (don't remove — show as received)
     setPoAdditions((prev) =>
-      prev.filter((a) => a.addition_id !== addition.addition_id),
+      prev.map((a) =>
+        a.addition_id === addition.addition_id
+          ? { ...a, status: "received" }
+          : a,
+      ),
     );
     setPendingAdditionsCount((prev) => Math.max(0, prev - 1));
     setReceivingAddition(null);
+    setAdditionToast(
+      `✓ ${addition.qty} units of ${addition.boonz_products.boonz_product_name} added to warehouse`,
+    );
+    setTimeout(() => setAdditionToast(null), 4000);
   };
 
   const displayed = useMemo(() => {
@@ -371,6 +396,27 @@ export default function ProcurementPage() {
 
   return (
     <div className="p-8 max-w-7xl">
+      {/* Addition toast */}
+      {additionToast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 200,
+            background: "#166534",
+            color: "white",
+            padding: "10px 20px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          }}
+        >
+          {additionToast}
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -893,8 +939,16 @@ export default function ProcurementPage() {
                 </div>
               )}
 
-              {poAdditions.length > 0 && (
-                <div style={{ marginTop: 20 }}>
+              {poAdditions.filter((a) => a.status === "pending_receive")
+                .length > 0 && (
+                <div
+                  style={{
+                    marginTop: 20,
+                    background: "#fffbeb",
+                    borderRadius: 6,
+                    padding: "12px 16px",
+                  }}
+                >
                   <div
                     style={{
                       fontSize: 10,
@@ -907,31 +961,23 @@ export default function ProcurementPage() {
                   >
                     Field Additions &mdash; Awaiting Receive
                   </div>
-                  {poAdditions.map((a) => (
-                    <div
-                      key={a.addition_id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "8px 0",
-                        borderBottom: "1px solid #fef3c7",
-                      }}
-                    >
-                      <div>
-                        <span style={{ fontWeight: 600, color: "#24544a" }}>
-                          {a.boonz_products.boonz_product_name}
-                        </span>
-                        <span
-                          style={{
-                            marginLeft: 8,
-                            fontSize: 12,
-                            color: "#6b6860",
-                          }}
-                        >
-                          &times;{a.qty}
-                        </span>
-                        {a.price_per_unit_aed && (
+                  {poAdditions
+                    .filter((a) => a.status === "pending_receive")
+                    .map((a) => (
+                      <div
+                        key={a.addition_id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "8px 0",
+                          borderBottom: "1px solid #fef3c7",
+                        }}
+                      >
+                        <div>
+                          <span style={{ fontWeight: 600, color: "#24544a" }}>
+                            {a.boonz_products.boonz_product_name}
+                          </span>
                           <span
                             style={{
                               marginLeft: 8,
@@ -939,30 +985,112 @@ export default function ProcurementPage() {
                               color: "#6b6860",
                             }}
                           >
-                            {a.price_per_unit_aed.toFixed(2)} AED
+                            &times;{a.qty}
                           </span>
-                        )}
+                          {a.price_per_unit_aed && (
+                            <span
+                              style={{
+                                marginLeft: 8,
+                                fontSize: 12,
+                                color: "#6b6860",
+                              }}
+                            >
+                              {a.price_per_unit_aed.toFixed(2)} AED
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => handleReceiveAddition(a)}
+                          disabled={
+                            receivingAddition === a.addition_id ||
+                            a.status === "received"
+                          }
+                          style={{
+                            background:
+                              a.status === "received" ? "#9ca3af" : "#f59e0b",
+                            color: "white",
+                            border: "none",
+                            borderRadius: 6,
+                            padding: "4px 12px",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor:
+                              a.status === "received"
+                                ? "not-allowed"
+                                : "pointer",
+                          }}
+                        >
+                          {receivingAddition === a.addition_id
+                            ? "\u2026"
+                            : "Receive"}
+                        </button>
                       </div>
-                      <button
-                        onClick={() => handleReceiveAddition(a)}
-                        disabled={receivingAddition === a.addition_id}
+                    ))}
+                </div>
+              )}
+              {poAdditions.filter((a) => a.status === "received").length >
+                0 && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    background: "#f0fdf4",
+                    borderRadius: 6,
+                    padding: "12px 16px",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#166534",
+                      marginBottom: 12,
+                    }}
+                  >
+                    Received Additions
+                  </div>
+                  {poAdditions
+                    .filter((a) => a.status === "received")
+                    .map((a) => (
+                      <div
+                        key={a.addition_id}
                         style={{
-                          background: "#f59e0b",
-                          color: "white",
-                          border: "none",
-                          borderRadius: 6,
-                          padding: "4px 12px",
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "8px 0",
+                          borderBottom: "1px solid #dcfce7",
                         }}
                       >
-                        {receivingAddition === a.addition_id
-                          ? "\u2026"
-                          : "Receive"}
-                      </button>
-                    </div>
-                  ))}
+                        <div>
+                          <span style={{ fontWeight: 600, color: "#24544a" }}>
+                            {a.boonz_products.boonz_product_name}
+                          </span>
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              fontSize: 12,
+                              color: "#6b6860",
+                            }}
+                          >
+                            &times;{a.qty}
+                          </span>
+                        </div>
+                        <span
+                          style={{
+                            background: "#bbf7d0",
+                            color: "#166534",
+                            borderRadius: 12,
+                            padding: "2px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          Received &#10003;
+                        </span>
+                      </div>
+                    ))}
                 </div>
               )}
             </div>
