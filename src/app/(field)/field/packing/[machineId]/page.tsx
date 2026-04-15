@@ -627,7 +627,11 @@ export default function PackingDetailPage() {
 
       // For mix lines, compute per-variant pack quantities from split percentages.
       // Create a new array per line (don't mutate the shared variantMap entry).
-      let variantStocks: VariantStock[] | null = variantMap.get(podId) ?? null;
+      // Only use variantStocks for actual mix lines — single-variant lines with a
+      // boonz_product_id use singleBatches directly (no split_pct distribution).
+      let variantStocks: VariantStock[] | null = isMix
+        ? (variantMap.get(podId) ?? null)
+        : null;
 
       if (variantStocks && (line.quantity ?? 0) > 0) {
         const podSplits = splitMap.get(podId) ?? new Map<string, number>();
