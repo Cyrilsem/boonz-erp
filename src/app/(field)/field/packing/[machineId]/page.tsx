@@ -383,6 +383,24 @@ export default function PackingDetailPage() {
       }
     }
 
+    // Direct name lookup for dispatch-line boonz IDs (ensures correct name
+    // even when product_mapping doesn't carry the FK-joined name for this SKU)
+    const directBoonzIds = dispatchLines
+      .map((l) => l.boonz_product_id)
+      .filter((id): id is string => id !== null && !boonzIdToName.has(id));
+    if (directBoonzIds.length > 0) {
+      const { data: directNames } = await supabase
+        .from("boonz_products")
+        .select("boonz_product_id, boonz_product_name")
+        .in("boonz_product_id", [...new Set(directBoonzIds)])
+        .limit(1000);
+      for (const row of directNames ?? []) {
+        if (row.boonz_product_name) {
+          boonzIdToName.set(row.boonz_product_id, row.boonz_product_name);
+        }
+      }
+    }
+
     // Identify mix products (pod → >1 boonz variant)
     const mixPodIdSet = new Set(
       [...podToVariants.entries()]
@@ -407,17 +425,22 @@ export default function PackingDetailPage() {
       expiration_date: string | null;
     }
 
-    // Fetch ALL Active warehouse batches unconditionally so the query runs
-    // even when allBoonzIds is empty (e.g. dispatch lines with null boonz_product_id).
-    const { data: rawBatchData } = await supabase
-      .from("warehouse_inventory")
-      .select(
-        "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
-      )
-      .eq("status", "Active")
-      .gt("warehouse_stock", 0)
-      .order("expiration_date", { ascending: true, nullsFirst: false })
-      .limit(10000);
+    // Fetch Active warehouse batches for relevant boonz products only.
+    // When allBoonzIds is empty (e.g. dispatch lines with null boonz_product_id),
+    // skip the query entirely — no warehouse rows needed.
+    const { data: rawBatchData } =
+      allBoonzIds.length > 0
+        ? await supabase
+            .from("warehouse_inventory")
+            .select(
+              "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
+            )
+            .in("boonz_product_id", allBoonzIds)
+            .eq("status", "Active")
+            .gt("warehouse_stock", 0)
+            .order("expiration_date", { ascending: true, nullsFirst: false })
+            .limit(10000)
+        : { data: [] };
 
     const rawBatches: WBatch[] = (rawBatchData ?? []) as WBatch[];
 
@@ -963,25 +986,27 @@ export default function PackingDetailPage() {
   const isReadOnly = saved && !editingAfterSave;
 
   // ── Group lines by action category ──────────────────────────────────────────
-  // Detect swaps: "Add New" lines whose comment contains "SWAP" paired with "Remove" lines
-  const swapAddIds = new Set<string>();
-  const swapRemoveIds = new Set<string>();
+  // Pair Add New ↔ Remove by position (engine generates matched pairs)
   const addNewLines = lines.filter((l) => l.dispatch_action === "Add New");
   const removeLines = lines.filter((l) => l.dispatch_action === "Remove");
-  for (const addLine of addNewLines) {
-    const hasSwapComment =
-      addLine.dispatch_comment?.toUpperCase().includes("SWAP") ?? false;
-    if (hasSwapComment) {
-      // Find a matching Remove line (same dispatch, not yet paired)
-      const matchRemove = removeLines.find(
-        (r) => !swapRemoveIds.has(r.dispatch_id),
-      );
-      if (matchRemove) {
-        swapAddIds.add(addLine.dispatch_id);
-        swapRemoveIds.add(matchRemove.dispatch_id);
-      }
-    }
-  }
+  const refillLines = lines.filter(
+    (l) => l.dispatch_action !== "Add New" && l.dispatch_action !== "Remove",
+  );
+
+  const swapPairs = addNewLines.map((addLine, i) => ({
+    addLine,
+    removeLine: removeLines[i] ?? null,
+  }));
+  // Removes without an Add New partner
+  const standaloneRemoves = removeLines.slice(addNewLines.length);
+
+  // IDs for quick lookup
+  const swapAddIds = new Set(addNewLines.map((l) => l.dispatch_id));
+  const swapRemoveIds = new Set(
+    swapPairs
+      .filter((p) => p.removeLine !== null)
+      .map((p) => p.removeLine!.dispatch_id),
+  );
 
   type ActionSection = {
     key: string;
@@ -992,45 +1017,35 @@ export default function PackingDetailPage() {
 
   const sections: ActionSection[] = [];
 
-  // Section 1: Pack these items (Refill, Add, Add New that are not swaps, plus misc)
-  const packLines = lines.filter((l) => {
-    if (swapAddIds.has(l.dispatch_id) || swapRemoveIds.has(l.dispatch_id))
-      return false;
-    const a = l.dispatch_action;
-    return a !== "Remove";
-  });
-  if (packLines.length > 0) {
+  // Section 1: Pack these items — Refill lines only (+ Add, misc non-swap/non-remove)
+  if (refillLines.length > 0) {
     sections.push({
       key: "pack",
       icon: "📦",
       title: "Pack these items",
-      lines: packLines,
+      lines: refillLines,
     });
   }
 
-  // Section 2: Swaps
-  const swapLines = lines.filter(
-    (l) => swapAddIds.has(l.dispatch_id) || swapRemoveIds.has(l.dispatch_id),
-  );
-  if (swapLines.length > 0) {
+  // Section 2: Swaps — paired Add New + Remove
+  if (swapPairs.length > 0) {
     sections.push({
       key: "swap",
       icon: "🔄",
       title: "Swaps",
-      lines: swapLines,
+      lines: swapPairs.flatMap((p) =>
+        p.removeLine ? [p.removeLine, p.addLine] : [p.addLine],
+      ),
     });
   }
 
-  // Section 3: Remove from machine (standalone Remove lines not part of swaps)
-  const standaloneRemoveLines = lines.filter(
-    (l) => l.dispatch_action === "Remove" && !swapRemoveIds.has(l.dispatch_id),
-  );
-  if (standaloneRemoveLines.length > 0) {
+  // Section 3: Standalone removes (no swap partner)
+  if (standaloneRemoves.length > 0) {
     sections.push({
       key: "remove",
       icon: "❌",
       title: "Remove from machine",
-      lines: standaloneRemoveLines,
+      lines: standaloneRemoves,
     });
   }
 
@@ -1121,12 +1136,66 @@ export default function PackingDetailPage() {
                 lineCommitted > 0 &&
                 totalBatchAvailable <= 0;
 
-              const borderClass =
-                line.action === "packed"
+              const borderClass = isRemove
+                ? "border-l-[3px] border-l-red-300"
+                : line.action === "packed"
                   ? "border-l-4 border-l-green-400"
                   : line.action === "skip"
                     ? "border-l-4 border-l-neutral-300 opacity-60"
                     : "";
+
+              // ── REMOVE CARD — completely different layout ──────────────
+              if (isRemove) {
+                return (
+                  <li
+                    key={line.dispatch_id}
+                    className={`rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30 ${borderClass}`}
+                  >
+                    <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-400 dark:bg-red-900/40 dark:text-red-500">
+                        {line.shelf_code}
+                      </span>
+                      {line.display_name}
+                      {swapRemoveIds.has(line.dispatch_id) ? (
+                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                          SWAP OUT
+                        </span>
+                      ) : (
+                        <span className="rounded bg-red-200 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-400">
+                          REMOVE FROM MACHINE
+                        </span>
+                      )}
+                    </p>
+                    <p className="mb-2 text-xs text-red-500 dark:text-red-400">
+                      Take these out of the machine on arrival
+                    </p>
+                    {line.dispatch_comment && (
+                      <p className="mb-2 text-xs italic text-red-400 dark:text-red-500">
+                        💬 {line.dispatch_comment}
+                      </p>
+                    )}
+                    {!isReadOnly && (
+                      <button
+                        onClick={() => updateAction(line.dispatch_id, "packed")}
+                        className={`w-full rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
+                          line.action === "packed"
+                            ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                            : "border-red-300 text-red-600 hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/40"
+                        }`}
+                      >
+                        {line.action === "packed"
+                          ? "✓ Confirmed removed"
+                          : "✓ Confirm removed"}
+                      </button>
+                    )}
+                    {isReadOnly && line.action === "packed" && (
+                      <p className="text-xs font-medium text-green-600 dark:text-green-400">
+                        ✓ Confirmed removed
+                      </p>
+                    )}
+                  </li>
+                );
+              }
 
               return (
                 <li
@@ -1144,23 +1213,12 @@ export default function PackingDetailPage() {
                         NEW
                       </span>
                     )}
-                    {line.dispatch_action === "Remove" && (
-                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                        REMOVE
-                      </span>
-                    )}
                     {swapAddIds.has(line.dispatch_id) && (
                       <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                         SWAP IN
                       </span>
                     )}
-                    {swapRemoveIds.has(line.dispatch_id) && (
-                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                        SWAP OUT
-                      </span>
-                    )}
-                    {!isRemove &&
-                      !isMix &&
+                    {!isMix &&
                       (() => {
                         const expiry = line.fifo_expiry;
                         if (expiry === null) {
@@ -1201,12 +1259,8 @@ export default function PackingDetailPage() {
                     </p>
                   )}
 
-                  {/* Stock / FIFO / Remove / Mix breakdown ───────────────── */}
-                  {isRemove ? (
-                    <p className="mb-2 inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                      Remove from machine
-                    </p>
-                  ) : isMix ? (
+                  {/* Stock / FIFO / Mix breakdown ────────────────────────── */}
+                  {isMix ? (
                     /* Mix product — per-variant editable qty inputs */
                     <div className="mb-2">
                       {line.variantStocks!.every(
