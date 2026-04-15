@@ -59,6 +59,10 @@ interface PackLine {
   singleBatches:
     | { wh_inventory_id: string; expiry: string | null; stock: number }[]
     | null;
+  /** Raw action from refill_dispatching (Refill, Add, Add New, Remove, etc.) */
+  dispatch_action: string;
+  /** Raw comment from refill_dispatching */
+  dispatch_comment: string | null;
 }
 
 interface MachineInfo {
@@ -293,6 +297,8 @@ export default function PackingDetailPage() {
         filled_quantity,
         packed,
         expiry_date,
+        action,
+        comment,
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
       `,
@@ -642,6 +648,10 @@ export default function PackingDetailPage() {
         })(),
         variantStocks,
         singleBatches,
+        dispatch_action:
+          ((line as Record<string, unknown>).action as string) ?? "Refill",
+        dispatch_comment:
+          ((line as Record<string, unknown>).comment as string | null) ?? null,
       };
     });
 
@@ -952,15 +962,77 @@ export default function PackingDetailPage() {
   const pendingCount = lines.filter((l) => l.action === null).length;
   const isReadOnly = saved && !editingAfterSave;
 
-  const grouped = new Map<string, PackLine[]>();
-  for (const line of lines) {
-    const existing = grouped.get(line.shelf_code) ?? [];
-    existing.push(line);
-    grouped.set(line.shelf_code, existing);
+  // ── Group lines by action category ──────────────────────────────────────────
+  // Detect swaps: "Add New" lines whose comment contains "SWAP" paired with "Remove" lines
+  const swapAddIds = new Set<string>();
+  const swapRemoveIds = new Set<string>();
+  const addNewLines = lines.filter((l) => l.dispatch_action === "Add New");
+  const removeLines = lines.filter((l) => l.dispatch_action === "Remove");
+  for (const addLine of addNewLines) {
+    const hasSwapComment =
+      addLine.dispatch_comment?.toUpperCase().includes("SWAP") ?? false;
+    if (hasSwapComment) {
+      // Find a matching Remove line (same dispatch, not yet paired)
+      const matchRemove = removeLines.find(
+        (r) => !swapRemoveIds.has(r.dispatch_id),
+      );
+      if (matchRemove) {
+        swapAddIds.add(addLine.dispatch_id);
+        swapRemoveIds.add(matchRemove.dispatch_id);
+      }
+    }
   }
-  const shelves = Array.from(grouped.entries()).sort((a, b) =>
-    a[0].localeCompare(b[0]),
+
+  type ActionSection = {
+    key: string;
+    icon: string;
+    title: string;
+    lines: PackLine[];
+  };
+
+  const sections: ActionSection[] = [];
+
+  // Section 1: Pack these items (Refill, Add, Add New that are not swaps, plus misc)
+  const packLines = lines.filter((l) => {
+    if (swapAddIds.has(l.dispatch_id) || swapRemoveIds.has(l.dispatch_id))
+      return false;
+    const a = l.dispatch_action;
+    return a !== "Remove";
+  });
+  if (packLines.length > 0) {
+    sections.push({
+      key: "pack",
+      icon: "📦",
+      title: "Pack these items",
+      lines: packLines,
+    });
+  }
+
+  // Section 2: Swaps
+  const swapLines = lines.filter(
+    (l) => swapAddIds.has(l.dispatch_id) || swapRemoveIds.has(l.dispatch_id),
   );
+  if (swapLines.length > 0) {
+    sections.push({
+      key: "swap",
+      icon: "🔄",
+      title: "Swaps",
+      lines: swapLines,
+    });
+  }
+
+  // Section 3: Remove from machine (standalone Remove lines not part of swaps)
+  const standaloneRemoveLines = lines.filter(
+    (l) => l.dispatch_action === "Remove" && !swapRemoveIds.has(l.dispatch_id),
+  );
+  if (standaloneRemoveLines.length > 0) {
+    sections.push({
+      key: "remove",
+      icon: "❌",
+      title: "Remove from machine",
+      lines: standaloneRemoveLines,
+    });
+  }
 
   return (
     <div className="px-4 py-4 pb-40">
@@ -1004,13 +1076,24 @@ export default function PackingDetailPage() {
         </div>
       )}
 
-      {shelves.map(([shelfCode, shelfLines]) => (
-        <div key={shelfCode} className="mb-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-            Shelf {shelfCode}
+      {sections.map((section) => (
+        <div key={section.key} className="mb-6">
+          <h2
+            className={`mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide ${
+              section.key === "remove"
+                ? "text-red-600 dark:text-red-400"
+                : section.key === "swap"
+                  ? "text-blue-600 dark:text-blue-400"
+                  : "text-neutral-700 dark:text-neutral-300"
+            }`}
+          >
+            <span className="text-base">{section.icon}</span> {section.title}
+            <span className="ml-auto text-xs font-normal text-neutral-400">
+              {section.lines.length} item{section.lines.length !== 1 ? "s" : ""}
+            </span>
           </h2>
           <ul className="space-y-2">
-            {shelfLines.map((line) => {
+            {section.lines.map((line) => {
               const isRemove = line.recommended_qty === 0;
               const isMix = line.variantStocks !== null;
 
@@ -1052,7 +1135,30 @@ export default function PackingDetailPage() {
                 >
                   {/* Primary label */}
                   <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                    <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                      {line.shelf_code}
+                    </span>
                     {line.display_name}
+                    {line.dispatch_action === "Add New" && (
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                        NEW
+                      </span>
+                    )}
+                    {line.dispatch_action === "Remove" && (
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                        REMOVE
+                      </span>
+                    )}
+                    {swapAddIds.has(line.dispatch_id) && (
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                        SWAP IN
+                      </span>
+                    )}
+                    {swapRemoveIds.has(line.dispatch_id) && (
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                        SWAP OUT
+                      </span>
+                    )}
                     {!isRemove &&
                       !isMix &&
                       (() => {
@@ -1086,9 +1192,14 @@ export default function PackingDetailPage() {
                         return null;
                       })()}
                   </p>
-                  <p className="mb-2 text-xs text-neutral-400">
+                  <p className="mb-1 text-xs text-neutral-400">
                     Recommended: {line.recommended_qty} units
                   </p>
+                  {line.dispatch_comment && (
+                    <p className="mb-2 text-xs italic text-neutral-500 dark:text-neutral-400">
+                      💬 {line.dispatch_comment}
+                    </p>
+                  )}
 
                   {/* Stock / FIFO / Remove / Mix breakdown ───────────────── */}
                   {isRemove ? (
