@@ -560,9 +560,13 @@ export default function PackingDetailPage() {
     > = {};
 
     for (const line of sortedForAlloc) {
-      const isMixLine = line.pod_product_id
-        ? mixPodIdSet.has(line.pod_product_id)
-        : false;
+      // A line is only mix if the pod has >1 variant AND this line has no
+      // boonz_product_id (refill engine left it for packing to split).
+      // If the line already has a boonz_product_id, it's a single-variant line.
+      const isMixLine =
+        !line.boonz_product_id &&
+        !!line.pod_product_id &&
+        mixPodIdSet.has(line.pod_product_id);
       const isRemoveLine = (line.quantity ?? 0) === 0;
 
       if (isMixLine || isRemoveLine) {
@@ -608,7 +612,9 @@ export default function PackingDetailPage() {
       };
       const isPacked = !!line.packed;
       const podId = line.pod_product_id ?? "";
-      const isMix = mixPodIdSet.has(podId);
+      // A line is only mix if the pod has >1 variant AND this line has no
+      // boonz_product_id (refill engine left it for packing to split).
+      const isMix = !line.boonz_product_id && mixPodIdSet.has(podId);
 
       // display_name: boonz SKU for single-variant, pod name for mix header / REMOVE
       let displayName = product.pod_product_name;
