@@ -22,6 +22,7 @@ interface ReceiveLine {
   price_per_unit_aed: number | null;
   purchase_date: string;
   wh_location: string;
+  received_date: string | null;
   batches: ReceiveBatch[];
 }
 
@@ -99,6 +100,7 @@ export default function ReceivingDetailPage() {
         purchase_date,
         ordered_qty,
         expiry_date,
+        received_date,
         boonz_product_id,
         supplier_id,
         price_per_unit_aed,
@@ -106,8 +108,7 @@ export default function ReceivingDetailPage() {
         suppliers!inner(supplier_name)
       `,
       )
-      .eq("po_id", poId)
-      .is("received_date", null);
+      .eq("po_id", poId);
 
     // Fetch boonz_products + existing po_additions in parallel
     const [{ data: productsData }, { data: additionsData }] = await Promise.all(
@@ -157,6 +158,7 @@ export default function ReceivingDetailPage() {
         price_per_unit_aed: (line.price_per_unit_aed as number | null) ?? null,
         purchase_date: line.purchase_date,
         wh_location: "",
+        received_date: (line.received_date as string | null) ?? null,
         batches: [
           {
             batch_key: generateKey(),
@@ -272,6 +274,7 @@ export default function ReceivingDetailPage() {
     const results: { productName: string; qty: number; batchId: string }[] = [];
 
     for (const line of lines) {
+      if (line.received_date) continue; // Already received — skip
       const activeBatches = line.batches.filter((b) => b.received_qty > 0);
       if (activeBatches.length === 0) continue;
 
@@ -429,13 +432,13 @@ export default function ReceivingDetailPage() {
     );
   }
 
-  if (lines.length === 0) {
+  if (lines.length === 0 && additions.length === 0) {
     return (
       <>
         <FieldHeader title="Receive Delivery" />
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-            No pending lines for this PO
+            No lines found for this PO
           </p>
           <button
             onClick={() => router.back()}
@@ -464,6 +467,30 @@ export default function ReceivingDetailPage() {
 
       <ul className="space-y-4">
         {lines.map((line) => {
+          const isReceived = !!line.received_date;
+
+          // Already received — compact read-only card
+          if (isReceived) {
+            return (
+              <li
+                key={line.po_line_id}
+                className="rounded-lg border border-green-200 bg-green-50 p-4 opacity-70 dark:border-green-900 dark:bg-green-950/30"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-neutral-700 dark:text-neutral-300">
+                    {line.boonz_product_name}
+                  </p>
+                  <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                    Received ✓
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-neutral-500">
+                  {line.ordered_qty} units · {formatDate(line.received_date!)}
+                </p>
+              </li>
+            );
+          }
+
           const batchTotal = line.batches.reduce(
             (sum, b) => sum + b.received_qty,
             0,
@@ -748,15 +775,17 @@ export default function ReceivingDetailPage() {
         <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>
       )}
 
-      <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
-        <button
-          onClick={handleConfirm}
-          disabled={submitting}
-          className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-        >
-          {submitting ? "Confirming…" : "Confirm receiving"}
-        </button>
-      </div>
+      {lines.some((l) => !l.received_date) && (
+        <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+          <button
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+          >
+            {submitting ? "Confirming…" : "Confirm receiving"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
