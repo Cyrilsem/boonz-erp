@@ -6,6 +6,13 @@ import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
 
+interface DispatchLineInfo {
+  shelf_code: string | null;
+  product_name: string | null;
+  qty: number;
+  expiry_date: string | null;
+}
+
 interface DispatchMachine {
   machine_id: string;
   official_name: string;
@@ -13,11 +20,18 @@ interface DispatchMachine {
   total: number;
   dispatched_count: number;
   all_dispatched: boolean;
+  lines: DispatchLineInfo[];
+}
+
+function formatShortDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export default function DispatchingPage() {
   const [machines, setMachines] = useState<DispatchMachine[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expandedMachine, setExpandedMachine] = useState<string | null>(null);
 
   const fetchMachines = useCallback(async () => {
     const supabase = createClient();
@@ -26,7 +40,7 @@ export default function DispatchingPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, picked_up, dispatched, machines!inner(official_name, pod_location)",
+        "dispatch_id, machine_id, picked_up, dispatched, quantity, filled_quantity, expiry_date, machines!inner(official_name, pod_location), shelf_configurations(shelf_code), pod_products(pod_product_name)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);
@@ -46,6 +60,7 @@ export default function DispatchingPage() {
         total: number;
         picked_up_count: number;
         dispatched_count: number;
+        lines: DispatchLineInfo[];
       }
     >();
 
@@ -54,11 +69,24 @@ export default function DispatchingPage() {
         official_name: string;
         pod_location: string | null;
       };
+      const shelf = line.shelf_configurations as unknown as {
+        shelf_code: string;
+      } | null;
+      const product = line.pod_products as unknown as {
+        pod_product_name: string;
+      } | null;
+      const lineInfo: DispatchLineInfo = {
+        shelf_code: shelf?.shelf_code ?? null,
+        product_name: product?.pod_product_name ?? null,
+        qty: (line.filled_quantity as number | null) ?? line.quantity ?? 0,
+        expiry_date: (line.expiry_date as string | null) ?? null,
+      };
       const existing = grouped.get(line.machine_id);
       if (existing) {
         existing.total += 1;
         if (line.picked_up) existing.picked_up_count += 1;
         if (line.dispatched) existing.dispatched_count += 1;
+        existing.lines.push(lineInfo);
       } else {
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
@@ -67,6 +95,7 @@ export default function DispatchingPage() {
           total: 1,
           picked_up_count: line.picked_up ? 1 : 0,
           dispatched_count: line.dispatched ? 1 : 0,
+          lines: [lineInfo],
         });
       }
     }
@@ -81,6 +110,9 @@ export default function DispatchingPage() {
         total: m.total,
         dispatched_count: m.dispatched_count,
         all_dispatched: m.dispatched_count === m.total,
+        lines: m.lines.sort((a, b) =>
+          (a.shelf_code ?? "").localeCompare(b.shelf_code ?? ""),
+        ),
       }))
       .sort((a, b) => a.official_name.localeCompare(b.official_name));
 
@@ -186,26 +218,63 @@ export default function DispatchingPage() {
             Completed
           </h2>
           <ul className="space-y-2">
-            {completed.map((machine) => (
-              <li
-                key={machine.machine_id}
-                className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 opacity-60 dark:border-neutral-800 dark:bg-neutral-950"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-base font-semibold truncate">
-                    {machine.official_name}
-                  </p>
-                  {machine.pod_location && (
-                    <p className="text-sm text-neutral-500 truncate">
-                      {machine.pod_location}
-                    </p>
+            {completed.map((machine) => {
+              const isExpanded = expandedMachine === machine.machine_id;
+              return (
+                <li key={machine.machine_id}>
+                  <button
+                    onClick={() =>
+                      setExpandedMachine((prev) =>
+                        prev === machine.machine_id ? null : machine.machine_id,
+                      )
+                    }
+                    className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 text-left opacity-70 transition-opacity hover:opacity-100 dark:border-neutral-800 dark:bg-neutral-950"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-base font-semibold truncate">
+                        {machine.official_name}
+                      </p>
+                      {machine.pod_location && (
+                        <p className="text-sm text-neutral-500 truncate">
+                          {machine.pod_location}
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                      Completed ✓
+                    </span>
+                    <span className="shrink-0 text-xs text-neutral-400">
+                      {isExpanded ? "▲" : "▼"}
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="mt-1 rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+                      {machine.lines.map((line, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center gap-2 py-1.5 text-sm"
+                        >
+                          <span className="shrink-0 w-8 text-xs font-mono text-neutral-400">
+                            {line.shelf_code ?? "—"}
+                          </span>
+                          <span className="flex-1 min-w-0 truncate text-neutral-700 dark:text-neutral-300">
+                            {line.product_name ?? "—"}
+                          </span>
+                          <span className="shrink-0 font-medium text-neutral-600 dark:text-neutral-400">
+                            ×{line.qty}
+                          </span>
+                          {line.expiry_date && (
+                            <span className="shrink-0 text-xs text-neutral-400">
+                              {formatShortDate(line.expiry_date)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </div>
-                <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
-                  Completed ✓
-                </span>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
