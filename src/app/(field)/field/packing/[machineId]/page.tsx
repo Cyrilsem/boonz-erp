@@ -62,6 +62,10 @@ interface PackLine {
     | null;
   /** Boonz SKU name — shown as section header inside the card */
   boonz_display_name: string | null;
+  /** Extra slice dispatch_ids absorbed into this card (from prior multi-batch save) */
+  extraSliceIds: string[];
+  /** Per-expiry packed quantities from absorbed extra slices: expiry → filled_quantity */
+  extraSlicePacked: { expiry: string | null; qty: number }[];
   /** Raw action from refill_dispatching (Refill, Add, Add New, Remove, etc.) */
   dispatch_action: string;
   /** Raw comment from refill_dispatching */
@@ -688,6 +692,8 @@ export default function PackingDetailPage() {
         variantStocks,
         singleBatches,
         boonz_display_name: boonzDisplayName,
+        extraSliceIds: [],
+        extraSlicePacked: [],
         dispatch_action:
           ((line as Record<string, unknown>).action as string) ?? "Refill",
         dispatch_comment:
@@ -696,7 +702,52 @@ export default function PackingDetailPage() {
     });
 
     mapped.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
-    setLines(mapped);
+
+    // ── Merge extra slice lines back into their primary card ────────────
+    // When multi-batch packing creates extra dispatch lines (same boonz_product_id,
+    // different expiry), merge them into one card so the user sees one card per
+    // variant with all batch rows. The extra slices' filled_qty+expiry are tracked
+    // in extraSlicePacked for batchPickQtys initialization.
+    const mergedMap = new Map<string, PackLine>();
+    const mergedList: PackLine[] = [];
+
+    for (const line of mapped) {
+      const isRemove = line.recommended_qty === 0 && !line.packed;
+      const isMix = line.variantStocks !== null;
+      // Only merge single-variant non-remove packed lines
+      if (isRemove || isMix) {
+        mergedList.push(line);
+        continue;
+      }
+      const key = `${line.boonz_product_id}|||${line.shelf_code}`;
+      const existing = mergedMap.get(key);
+      if (!existing) {
+        mergedMap.set(key, line);
+        mergedList.push(line);
+      } else {
+        // Absorb this line into the existing primary
+        existing.extraSliceIds.push(line.dispatch_id);
+        if (
+          line.packed &&
+          line.filled_quantity != null &&
+          line.filled_quantity > 0
+        ) {
+          existing.extraSlicePacked.push({
+            expiry: line.expiry_date,
+            qty: line.filled_quantity,
+          });
+        }
+        // Sum recommended qty from absorbed lines
+        existing.recommended_qty += line.recommended_qty;
+        // If either is packed, the primary is packed
+        if (line.packed && !existing.packed) {
+          existing.packed = true;
+          existing.action = "packed";
+        }
+      }
+    }
+
+    setLines(mergedList);
 
     // Initialise batchPickQtys: FIFO distribute each variant's packQty across its batches
     // Initialise batchPickQtys: FIFO-fill batches for both mix and single-variant lines
@@ -723,7 +774,7 @@ export default function PackingDetailPage() {
       }
     };
 
-    for (const line of mapped) {
+    for (const line of mergedList) {
       if (line.variantStocks) {
         // Mix: distribute each variant's packQty across its own batches.
         // If already packed and a saved expiry_date exists, pin the fill to
@@ -744,18 +795,37 @@ export default function PackingDetailPage() {
           fillBatches(line.dispatch_id, v.batches, v.packQty);
         }
       } else if (line.singleBatches !== null) {
-        // Single-variant: if already packed and saved expiry_date matches a batch,
-        // pin all filled_quantity to that batch; zero all others.
-        if (line.action === "packed" && line.expiry_date) {
-          const match = line.singleBatches.find(
-            (b) => b.expiry === line.expiry_date,
-          );
-          if (match) {
-            if (!initBatchPickQtys[line.dispatch_id])
-              initBatchPickQtys[line.dispatch_id] = {};
+        // Single-variant: if already packed, pin saved quantities per expiry batch.
+        // Handles merged lines: primary's filled_quantity + extraSlicePacked entries.
+        if (
+          line.action === "packed" &&
+          (line.expiry_date || line.extraSlicePacked.length > 0)
+        ) {
+          if (!initBatchPickQtys[line.dispatch_id])
+            initBatchPickQtys[line.dispatch_id] = {};
+          // Build expiry→qty map from primary + extra slices
+          const packedByExpiry = new Map<string, number>();
+          if (
+            line.expiry_date &&
+            line.filled_quantity != null &&
+            line.filled_quantity > 0
+          ) {
+            packedByExpiry.set(
+              line.expiry_date ?? "__null__",
+              line.filled_quantity,
+            );
+          }
+          for (const slice of line.extraSlicePacked) {
+            const key = slice.expiry ?? "__null__";
+            packedByExpiry.set(key, (packedByExpiry.get(key) ?? 0) + slice.qty);
+          }
+          if (packedByExpiry.size > 0) {
             for (const b of line.singleBatches) {
+              const bKey = b.expiry ?? "__null__";
               initBatchPickQtys[line.dispatch_id][b.wh_inventory_id] =
-                b === match ? line.packed_qty : 0;
+                packedByExpiry.get(bKey) ?? 0;
+              // Clear after use so duplicate batches with same expiry don't double-count
+              packedByExpiry.delete(bKey);
             }
             continue;
           }
@@ -878,6 +948,14 @@ export default function PackingDetailPage() {
         const batchQtys = batchPickQtys[line.dispatch_id];
         const today = getDubaiDate();
         const isMixLine = line.variantStocks !== null;
+
+        // Delete previously created extra slice lines before re-creating them
+        if (line.extraSliceIds.length > 0) {
+          await supabase
+            .from("refill_dispatching")
+            .delete()
+            .in("dispatch_id", line.extraSliceIds);
+        }
 
         // ── Collect picks grouped by (boonz_product_id, expiry) ──────────
         // Each entry becomes its own dispatch line.
