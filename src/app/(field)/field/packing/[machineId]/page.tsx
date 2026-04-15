@@ -873,24 +873,42 @@ export default function PackingDetailPage() {
       if (line.action === "packed") {
         // ── RULE: Whatever is physically packed and confirmed is source of truth.
         // ── The system records it exactly. Nothing overwrites confirmed data.
-        // ── One dispatch line per expiry batch with qty > 0.
+        // ── One dispatch line per boonz variant per expiry batch with qty > 0.
 
         const batchQtys = batchPickQtys[line.dispatch_id];
         const today = getDubaiDate();
+        const isMixLine = line.variantStocks !== null;
 
-        // Collect per-expiry totals from the batch picks
-        // Each unique expiry date gets its own dispatch line
-        const pickedBatches: { expiry: string | null; qty: number }[] = [];
+        // ── Collect picks grouped by (boonz_product_id, expiry) ──────────
+        // Each entry becomes its own dispatch line.
+        interface PickSlice {
+          boonzProductId: string;
+          expiry: string | null;
+          qty: number;
+        }
+        const pickSlices: PickSlice[] = [];
 
-        if (batchQtys) {
-          const allBatches: {
-            wh_inventory_id: string;
-            expiry: string | null;
-          }[] = line.singleBatches
-            ? line.singleBatches
-            : (line.variantStocks ?? []).flatMap((v) => v.batches);
-
-          // Group by expiry date, sum qty per expiry
+        if (batchQtys && isMixLine) {
+          // Mix line: group by variant then expiry
+          for (const v of line.variantStocks!) {
+            const expiryMap = new Map<string, number>();
+            for (const b of v.batches) {
+              const qty = batchQtys[b.wh_inventory_id] ?? 0;
+              if (qty <= 0) continue;
+              const key = b.expiry ?? "__null__";
+              expiryMap.set(key, (expiryMap.get(key) ?? 0) + qty);
+            }
+            for (const [key, qty] of expiryMap) {
+              pickSlices.push({
+                boonzProductId: v.boonzProductId,
+                expiry: key === "__null__" ? null : key,
+                qty,
+              });
+            }
+          }
+        } else if (batchQtys) {
+          // Single-variant line: group by expiry only
+          const allBatches = line.singleBatches ?? [];
           const expiryMap = new Map<string, number>();
           for (const b of allBatches) {
             const qty = batchQtys[b.wh_inventory_id] ?? 0;
@@ -899,7 +917,8 @@ export default function PackingDetailPage() {
             expiryMap.set(key, (expiryMap.get(key) ?? 0) + qty);
           }
           for (const [key, qty] of expiryMap) {
-            pickedBatches.push({
+            pickSlices.push({
+              boonzProductId: line.boonz_product_id,
               expiry: key === "__null__" ? null : key,
               qty,
             });
@@ -907,40 +926,43 @@ export default function PackingDetailPage() {
         }
 
         // Fallback: no batch UI interaction — single batch with packed_qty
-        if (pickedBatches.length === 0) {
-          pickedBatches.push({
+        if (pickSlices.length === 0) {
+          pickSlices.push({
+            boonzProductId: line.boonz_product_id,
             expiry: line.fifo_expiry ?? null,
             qty: line.packed_qty,
           });
         }
 
-        const filledQty = pickedBatches[0].qty;
-        const chosenExpiry = pickedBatches[0].expiry;
+        // ── Save: UPDATE original line with first slice, INSERT rest ─────
+        const [firstSlice, ...extraSlices] = pickSlices;
 
-        // UPDATE original dispatch line with first batch
         await supabase
           .from("refill_dispatching")
           .update({
             packed: true,
-            filled_quantity: filledQty,
-            expiry_date: chosenExpiry,
+            filled_quantity: firstSlice.qty,
+            expiry_date: firstSlice.expiry,
+            // For mix lines the original line may have a different boonz_product_id
+            ...(isMixLine
+              ? { boonz_product_id: firstSlice.boonzProductId }
+              : {}),
           })
           .eq("dispatch_id", line.dispatch_id);
 
-        // INSERT additional dispatch lines for extra expiry batches
-        for (const batch of pickedBatches.slice(1)) {
+        for (const slice of extraSlices) {
           const { error: insertErr } = await supabase
             .from("refill_dispatching")
             .insert({
               machine_id: machineId,
               shelf_id: line.shelf_id,
               pod_product_id: line.pod_product_id,
-              boonz_product_id: line.boonz_product_id,
+              boonz_product_id: slice.boonzProductId,
               dispatch_date: today,
               action: line.dispatch_action ?? "Refill",
-              quantity: batch.qty,
-              filled_quantity: batch.qty,
-              expiry_date: batch.expiry,
+              quantity: slice.qty,
+              filled_quantity: slice.qty,
+              expiry_date: slice.expiry,
               packed: true,
               picked_up: false,
               dispatched: false,
@@ -948,68 +970,75 @@ export default function PackingDetailPage() {
               include: true,
             });
           if (insertErr) {
-            console.error("[Pack] extra batch line INSERT failed:", insertErr);
+            console.error("[Pack] extra slice INSERT failed:", insertErr);
             setWhWarnMsg(
-              `Batch ${batch.expiry ?? "no-expiry"} line failed to save — check WH`,
+              `Batch ${slice.boonzProductId}/${slice.expiry ?? "no-expiry"} line failed to save — check WH`,
             );
           }
         }
 
-        // Delta-aware WH stock adjustment (3-stage inventory flow).
-        // For the primary batch: delta vs previously saved qty.
-        // For additional batches: full qty deduction (they're new lines).
-        // Non-blocking: failure warns but does not roll back the packed=true save.
-        if (line.boonz_product_id) {
+        // ── WH stock adjustment ──────────────────────────────────────────
+        // Primary slice: delta vs previously saved qty (handles re-pack).
+        // Extra slices: full qty deduction (new lines).
+        // Non-blocking: failure warns but does not roll back packed=true.
+        if (firstSlice.boonzProductId) {
           const prevPacked = line.packed;
           const prevQty = prevPacked ? (line.filled_quantity ?? 0) : 0;
           const prevExpiry = prevPacked ? line.expiry_date : null;
-          const primaryDelta = filledQty - prevQty;
+          const primaryDelta = firstSlice.qty - prevQty;
 
           try {
             if (primaryDelta > 0) {
               await deductWarehouseStock(
                 supabase,
-                line.boonz_product_id,
-                chosenExpiry,
+                firstSlice.boonzProductId,
+                firstSlice.expiry,
                 primaryDelta,
               );
             } else if (primaryDelta < 0) {
               await restoreWarehouseStock(
                 supabase,
-                line.boonz_product_id,
+                firstSlice.boonzProductId,
                 prevExpiry,
                 Math.abs(primaryDelta),
               );
-            } else if (prevPacked && chosenExpiry !== prevExpiry) {
+            } else if (prevPacked && firstSlice.expiry !== prevExpiry) {
               await restoreWarehouseStock(
                 supabase,
-                line.boonz_product_id,
+                firstSlice.boonzProductId,
                 prevExpiry,
                 prevQty,
               );
               await deductWarehouseStock(
                 supabase,
-                line.boonz_product_id,
-                chosenExpiry,
-                filledQty,
+                firstSlice.boonzProductId,
+                firstSlice.expiry,
+                firstSlice.qty,
               );
-            }
-            // Deduct additional batches (new lines, full qty)
-            for (const batch of pickedBatches.slice(1)) {
-              if (batch.qty > 0) {
-                await deductWarehouseStock(
-                  supabase,
-                  line.boonz_product_id,
-                  batch.expiry,
-                  batch.qty,
-                );
-              }
             }
           } catch (err) {
             console.error("[Pack] WH adjustment failed:", err);
             setWhWarnMsg(
               "Packed saved but WH stock adjustment failed — please check warehouse inventory.",
             );
+          }
+        }
+        // Deduct extra slices (new lines, full qty each)
+        for (const slice of extraSlices) {
+          if (slice.qty > 0 && slice.boonzProductId) {
+            try {
+              await deductWarehouseStock(
+                supabase,
+                slice.boonzProductId,
+                slice.expiry,
+                slice.qty,
+              );
+            } catch (err) {
+              console.error("[Pack] WH deduct for extra slice failed:", err);
+              setWhWarnMsg(
+                "Packed saved but WH stock adjustment failed — please check warehouse inventory.",
+              );
+            }
           }
         }
       } else if (line.action === "skip") {
