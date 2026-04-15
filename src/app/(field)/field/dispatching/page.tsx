@@ -40,7 +40,7 @@ export default function DispatchingPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, picked_up, dispatched, quantity, filled_quantity, expiry_date, machines!inner(official_name, pod_location), shelf_configurations(shelf_code), pod_products(pod_product_name)",
+        "dispatch_id, machine_id, picked_up, dispatched, returned, quantity, filled_quantity, expiry_date, machines!inner(official_name, pod_location), shelf_configurations(shelf_code), pod_products(pod_product_name)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);
@@ -85,7 +85,7 @@ export default function DispatchingPage() {
       if (existing) {
         existing.total += 1;
         if (line.picked_up) existing.picked_up_count += 1;
-        if (line.dispatched) existing.dispatched_count += 1;
+        if (line.dispatched || line.returned) existing.dispatched_count += 1;
         existing.lines.push(lineInfo);
       } else {
         grouped.set(line.machine_id, {
@@ -94,7 +94,7 @@ export default function DispatchingPage() {
           pod_location: m.pod_location,
           total: 1,
           picked_up_count: line.picked_up ? 1 : 0,
-          dispatched_count: line.dispatched ? 1 : 0,
+          dispatched_count: line.dispatched || line.returned ? 1 : 0,
           lines: [lineInfo],
         });
       }

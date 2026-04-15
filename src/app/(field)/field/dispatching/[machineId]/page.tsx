@@ -429,7 +429,7 @@ export default function DispatchingDetailPage() {
         await supabase
           .from("refill_dispatching")
           .update({
-            dispatched: false,
+            dispatched: true,
             returned: true,
             return_reason: line.return_reason || null,
             filled_quantity: 0,
@@ -477,7 +477,7 @@ export default function DispatchingDetailPage() {
 
   // Detect if all lines were already dispatched in DB (completed machine)
   const allDispatchedFromDB =
-    lines.length > 0 && lines.every((l) => l.dispatched);
+    lines.length > 0 && lines.every((l) => l.dispatched || l.returned);
 
   if (allDispatchedFromDB && !editingAfterSave) {
     const today = getDubaiDate();
