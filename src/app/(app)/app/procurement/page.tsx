@@ -51,6 +51,16 @@ interface ProductOption {
   boonz_product_name: string;
 }
 
+interface POAddition {
+  addition_id: string;
+  boonz_product_id: string;
+  qty: number;
+  price_per_unit_aed: number | null;
+  status: string;
+  created_at: string;
+  boonz_products: { boonz_product_name: string };
+}
+
 type TabFilter = "pending" | "all";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -77,6 +87,13 @@ export default function ProcurementPage() {
   const [selectedPO, setSelectedPO] = useState<POGroup | null>(null);
   const [poLines, setPOLines] = useState<PODetail[]>([]);
   const [poLoading, setPOLoading] = useState(false);
+
+  // Field additions state
+  const [pendingAdditionsCount, setPendingAdditionsCount] = useState(0);
+  const [poAdditions, setPoAdditions] = useState<POAddition[]>([]);
+  const [receivingAddition, setReceivingAddition] = useState<string | null>(
+    null,
+  );
 
   // New PO modal state
   const [showNewPO, setShowNewPO] = useState(false);
@@ -136,6 +153,14 @@ export default function ProcurementPage() {
 
   useEffect(() => {
     fetchOrders();
+    (async () => {
+      const supabase = createClient();
+      const { count } = await supabase
+        .from("po_additions")
+        .select("addition_id", { count: "exact", head: true })
+        .eq("status", "pending_receive");
+      setPendingAdditionsCount(count ?? 0);
+    })();
   }, [fetchOrders]);
 
   // ESC key handler
@@ -166,7 +191,14 @@ export default function ProcurementPage() {
       )
       .eq("po_id", po.po_id)
       .limit(10000);
+    const { data: additionsData } = await supabase
+      .from("po_additions")
+      .select("*, boonz_products(boonz_product_name)")
+      .eq("po_id", po.po_id)
+      .eq("status", "pending_receive")
+      .limit(100);
     setPOLines((data ?? []) as unknown as PODetail[]);
+    setPoAdditions((additionsData ?? []) as unknown as POAddition[]);
     setPOLoading(false);
   }, []);
 
@@ -284,6 +316,40 @@ export default function ProcurementPage() {
     await fetchOrders();
   };
 
+  const handleReceiveAddition = async (addition: POAddition) => {
+    setReceivingAddition(addition.addition_id);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const today = getDubaiDate();
+
+    // Insert into warehouse_inventory
+    await supabase.from("warehouse_inventory").insert({
+      boonz_product_id: addition.boonz_product_id,
+      warehouse_stock: addition.qty,
+      status: "Active",
+      snapshot_date: today,
+    });
+
+    // Update po_additions
+    await supabase
+      .from("po_additions")
+      .update({
+        status: "received",
+        received_at: new Date().toISOString(),
+        received_by: user?.id,
+      })
+      .eq("addition_id", addition.addition_id);
+
+    // Refresh
+    setPoAdditions((prev) =>
+      prev.filter((a) => a.addition_id !== addition.addition_id),
+    );
+    setPendingAdditionsCount((prev) => Math.max(0, prev - 1));
+    setReceivingAddition(null);
+  };
+
   const displayed = useMemo(() => {
     let result = allOrders;
     if (tab === "pending") result = result.filter((o) => !o.received_date);
@@ -391,6 +457,24 @@ export default function ProcurementPage() {
           </span>
         )}
       </div>
+
+      {pendingAdditionsCount > 0 && (
+        <div
+          style={{
+            background: "#fef9ee",
+            border: "1px solid #e1b460",
+            borderRadius: 8,
+            padding: "10px 14px",
+            fontSize: 13,
+            color: "#92400e",
+            marginBottom: 14,
+          }}
+        >
+          {"\u26A0"} {pendingAdditionsCount} field addition
+          {pendingAdditionsCount > 1 ? "s" : ""} pending warehouse receive
+          &mdash; review in PO detail
+        </div>
+      )}
 
       {/* Table */}
       <div
@@ -806,6 +890,79 @@ export default function ProcurementPage() {
                       AED
                     </span>
                   )}
+                </div>
+              )}
+
+              {poAdditions.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 500,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#92400e",
+                      marginBottom: 12,
+                    }}
+                  >
+                    Field Additions &mdash; Awaiting Receive
+                  </div>
+                  {poAdditions.map((a) => (
+                    <div
+                      key={a.addition_id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "8px 0",
+                        borderBottom: "1px solid #fef3c7",
+                      }}
+                    >
+                      <div>
+                        <span style={{ fontWeight: 600, color: "#24544a" }}>
+                          {a.boonz_products.boonz_product_name}
+                        </span>
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 12,
+                            color: "#6b6860",
+                          }}
+                        >
+                          &times;{a.qty}
+                        </span>
+                        {a.price_per_unit_aed && (
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              fontSize: 12,
+                              color: "#6b6860",
+                            }}
+                          >
+                            {a.price_per_unit_aed.toFixed(2)} AED
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleReceiveAddition(a)}
+                        disabled={receivingAddition === a.addition_id}
+                        style={{
+                          background: "#f59e0b",
+                          color: "white",
+                          border: "none",
+                          borderRadius: 6,
+                          padding: "4px 12px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {receivingAddition === a.addition_id
+                          ? "\u2026"
+                          : "Receive"}
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

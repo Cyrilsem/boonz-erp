@@ -43,6 +43,7 @@ interface WarehouseKpis {
   lastControlDays: number | null; // null = never
   openTasksCount: number;
   pendingPodReviews: number;
+  pendingAdditionsCount: number;
 }
 
 interface DriverKpis {
@@ -367,6 +368,13 @@ function WarehouseHome({
           </Link>
         </div>
       </SectionCard>
+
+      {kpis.pendingAdditionsCount > 0 && (
+        <div className="mx-4 mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {kpis.pendingAdditionsCount} field addition
+          {kpis.pendingAdditionsCount > 1 ? "s" : ""} awaiting warehouse receive
+        </div>
+      )}
 
       {/* ── Section 3: Inventory ── */}
       <SectionCard
@@ -761,6 +769,13 @@ function OperatorAdminHome({
         </div>
       </SectionCard>
 
+      {kpis.pendingAdditionsCount > 0 && (
+        <div className="mx-4 mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          {kpis.pendingAdditionsCount} field addition
+          {kpis.pendingAdditionsCount > 1 ? "s" : ""} awaiting warehouse receive
+        </div>
+      )}
+
       {/* ── Section 3: Inventory ── */}
       <SectionCard
         title="Inventory"
@@ -1008,6 +1023,7 @@ export default function FieldPage() {
           { data: openTasksData },
           { count: pendingPodReviewsCount },
           { data: podData },
+          { count: pendingAdditionsCount },
         ] = await Promise.all([
           supabase
             .from("refill_dispatching")
@@ -1073,6 +1089,10 @@ export default function FieldPage() {
             .select("expiration_date")
             .eq("status", "Active")
             .limit(10000),
+          supabase
+            .from("po_additions")
+            .select("addition_id", { count: "exact", head: true })
+            .eq("status", "pending_receive"),
         ]);
 
         // Group by machine, count completed status per-machine
@@ -1130,6 +1150,7 @@ export default function FieldPage() {
           lastControlDays,
           openTasksCount: openTasksData?.length ?? 0,
           pendingPodReviews: pendingPodReviewsCount ?? 0,
+          pendingAdditionsCount: pendingAdditionsCount ?? 0,
         });
 
         // Pod inventory expiry KPIs
