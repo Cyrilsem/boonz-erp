@@ -60,6 +60,8 @@ interface PackLine {
   singleBatches:
     | { wh_inventory_id: string; expiry: string | null; stock: number }[]
     | null;
+  /** Boonz SKU name — shown as section header inside the card */
+  boonz_display_name: string | null;
   /** Raw action from refill_dispatching (Refill, Add, Add New, Remove, etc.) */
   dispatch_action: string;
   /** Raw comment from refill_dispatching */
@@ -616,14 +618,15 @@ export default function PackingDetailPage() {
       // boonz_product_id (refill engine left it for packing to split).
       const isMix = !line.boonz_product_id && mixPodIdSet.has(podId);
 
-      // display_name: boonz SKU for single-variant, pod name for mix header / REMOVE
-      let displayName = product.pod_product_name;
-      if (!isMix) {
+      // display_name: always pod_product_name (shelf identity for card header)
+      // boonz_product_name shown as section label inside the card
+      const displayName = product.pod_product_name;
+      // Resolve boonz product name for section header inside card
+      const boonzDisplayName = (() => {
         const boonzId =
           line.boonz_product_id ?? podToVariants.get(podId)?.[0] ?? "";
-        const boonzName = boonzIdToName.get(boonzId);
-        if (boonzName) displayName = boonzName;
-      }
+        return boonzIdToName.get(boonzId) ?? null;
+      })();
 
       // For mix lines, compute per-variant pack quantities from split percentages.
       // Create a new array per line (don't mutate the shared variantMap entry).
@@ -684,6 +687,7 @@ export default function PackingDetailPage() {
         })(),
         variantStocks,
         singleBatches,
+        boonz_display_name: boonzDisplayName,
         dispatch_action:
           ((line as Record<string, unknown>).action as string) ?? "Refill",
         dispatch_comment:
@@ -1913,6 +1917,12 @@ export default function PackingDetailPage() {
                     ) : (
                       /* Single-variant — per-batch pick table (same layout as mix) */
                       <div className="mb-2">
+                        {line.boonz_display_name &&
+                          line.boonz_display_name !== line.display_name && (
+                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300">
+                              {line.boonz_display_name}
+                            </div>
+                          )}
                         {!line.singleBatches ||
                         line.singleBatches.length === 0 ? (
                           line.warehouse_stock > 0 ? (
