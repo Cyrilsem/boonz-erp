@@ -747,6 +747,46 @@ export default function PackingDetailPage() {
       }
     }
 
+    // ── Inject synthetic batch rows for packed expiries not in WH ────────
+    // When a packed line's expiry no longer exists in warehouse_inventory (stock = 0
+    // or batch consumed), add a synthetic batch row so edit mode can show and adjust it.
+    for (const line of mergedList) {
+      if (!line.packed || !line.singleBatches) continue;
+      const existingExpiries = new Set(
+        line.singleBatches.map((b) => b.expiry ?? "__null__"),
+      );
+      // Collect all packed expiries (primary + extra slices)
+      const packedExpiries: { expiry: string | null; qty: number }[] = [];
+      if (line.expiry_date && (line.filled_quantity ?? 0) > 0) {
+        packedExpiries.push({
+          expiry: line.expiry_date,
+          qty: line.filled_quantity!,
+        });
+      }
+      for (const s of line.extraSlicePacked) {
+        packedExpiries.push({ expiry: s.expiry, qty: s.qty });
+      }
+      for (const pe of packedExpiries) {
+        const key = pe.expiry ?? "__null__";
+        if (!existingExpiries.has(key)) {
+          // Synthetic batch: WH stock = 0, unique placeholder ID for batchPickQtys
+          line.singleBatches.push({
+            wh_inventory_id: `packed-${line.dispatch_id}-${key}`,
+            expiry: pe.expiry,
+            stock: 0,
+          });
+          existingExpiries.add(key);
+        }
+      }
+      // Re-sort by expiry ASC NULLS LAST
+      line.singleBatches.sort((a, b) => {
+        if (a.expiry === b.expiry) return 0;
+        if (a.expiry === null) return 1;
+        if (b.expiry === null) return -1;
+        return a.expiry.localeCompare(b.expiry);
+      });
+    }
+
     setLines(mergedList);
 
     // Initialise batchPickQtys: FIFO distribute each variant's packQty across its batches
@@ -2030,15 +2070,38 @@ export default function PackingDetailPage() {
                               {line.boonz_display_name}
                             </div>
                           )}
+                        {/* Packed summary — shows what was packed before editing */}
+                        {line.packed && !line.action && (
+                          <div className="mb-2 rounded bg-green-50 px-2.5 py-1.5 text-xs text-green-700 dark:bg-green-950/30 dark:text-green-400">
+                            <p>
+                              Packed: {line.filled_quantity ?? 0} unit
+                              {line.filled_quantity !== 1 ? "s" : ""}
+                              {line.expiry_date
+                                ? ` · ${formatExpiry(line.expiry_date)}`
+                                : " · No expiry"}
+                            </p>
+                            {line.extraSlicePacked.map((slice, i) => (
+                              <p key={i}>
+                                Packed: {slice.qty} unit
+                                {slice.qty !== 1 ? "s" : ""}
+                                {slice.expiry
+                                  ? ` · ${formatExpiry(slice.expiry)}`
+                                  : " · No expiry"}
+                              </p>
+                            ))}
+                          </div>
+                        )}
                         {!line.singleBatches ||
                         line.singleBatches.length === 0 ? (
                           line.warehouse_stock > 0 ? (
-                            /* Batch detail unavailable but Active stock exists (e.g.
-                             dispatch line still carries a stale expiry from a prior
-                             refill cycle while the fresh batch is a different row) */
                             <p className="inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                               {line.warehouse_stock} units available in
                               warehouse
+                            </p>
+                          ) : line.packed && (line.filled_quantity ?? 0) > 0 ? (
+                            /* WH stock is 0 but line was packed — show packed-only batch rows for editing */
+                            <p className="inline-flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                              WH stock depleted — packed qty shown above
                             </p>
                           ) : (
                             <p className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
