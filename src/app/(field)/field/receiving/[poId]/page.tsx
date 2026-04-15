@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 
 interface ReceiveBatch {
@@ -216,7 +217,7 @@ export default function ReceivingDetailPage() {
     setError(null);
 
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
 
     for (const line of lines) {
       const activeBatches = line.batches.filter((b) => b.received_qty > 0);

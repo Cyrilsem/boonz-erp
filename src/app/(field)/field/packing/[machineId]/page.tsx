@@ -227,7 +227,7 @@ async function restoreWarehouseStock(
     warehouse_stock: qty,
     expiration_date: expiry,
     status: "Active",
-    snapshot_date: new Date().toISOString().split("T")[0],
+    snapshot_date: getDubaiDate(),
   });
 }
 

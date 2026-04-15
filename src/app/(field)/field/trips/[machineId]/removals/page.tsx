@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../../components/field-header";
 
 interface ProductOption {
@@ -88,7 +89,7 @@ export default function RemovalsPage() {
 
     setSubmitting(true);
     const supabase = createClient();
-    const today = new Date().toISOString().split("T")[0];
+    const today = getDubaiDate();
 
     const inserts = validLines.map((r) => ({
       machine_id: machineId,

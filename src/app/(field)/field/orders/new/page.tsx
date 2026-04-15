@@ -6,6 +6,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 import * as XLSX from "xlsx";
 
@@ -175,9 +176,7 @@ export default function NewOrderPage() {
 
   // Header
   const [supplierId, setSupplierId] = useState("");
-  const [poDate, setPoDate] = useState(
-    () => new Date().toISOString().split("T")[0],
-  );
+  const [poDate, setPoDate] = useState(() => getDubaiDate());
   const [poId, setPoId] = useState("");
 
   // Mode
