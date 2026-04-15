@@ -344,7 +344,6 @@ export default function PerformancePage() {
           .eq("delivery_status", "Successful")
           .gte("transaction_date", `${dateFrom}T00:00:00+00:00`)
           .lte("transaction_date", `${dateTo}T23:59:59+00:00`)
-          .range(0, 9999)
           .limit(10000),
         supabase
           .from("adyen_transactions")
@@ -353,7 +352,6 @@ export default function PerformancePage() {
           )
           .gte("creation_date", `${dateFrom}T00:00:00+00:00`)
           .lte("creation_date", `${dateTo}T23:59:59+00:00`)
-          .range(0, 9999)
           .limit(10000),
       ]);
 
