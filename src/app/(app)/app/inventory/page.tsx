@@ -11,6 +11,7 @@ interface WHRowRaw {
   batch_id: string | null;
   wh_location: string | null;
   warehouse_stock: number;
+  consumer_stock: number | null;
   expiration_date: string | null;
   status: string;
   boonz_products: {
@@ -27,6 +28,7 @@ interface WHRow {
   batch_id: string | null;
   wh_location: string | null;
   warehouse_stock: number;
+  consumer_stock: number;
   expiration_date: string | null;
   status: string;
 }
@@ -134,7 +136,7 @@ export default function InventoryPage() {
     const { data, error } = await supabase
       .from("warehouse_inventory")
       .select(
-        "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, expiration_date, status, boonz_products!inner(boonz_product_name, physical_type)",
+        "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, consumer_stock, expiration_date, status, boonz_products!inner(boonz_product_name, physical_type)",
       )
       .order("expiration_date", { ascending: true, nullsFirst: false })
       .limit(10000);
@@ -150,6 +152,7 @@ export default function InventoryPage() {
         batch_id: r.batch_id,
         wh_location: r.wh_location,
         warehouse_stock: r.warehouse_stock,
+        consumer_stock: Number(r.consumer_stock ?? 0),
         expiration_date: r.expiration_date,
         status: r.status,
       }),
@@ -223,8 +226,14 @@ export default function InventoryPage() {
     return arr;
   }, [filtered, sortBy]);
 
+  // Total inventory we own = on-shelf + reserved/consumer (still our stock,
+  // just earmarked for an in-flight dispatch).
   const totalStock = useMemo(
-    () => filtered.reduce((sum, r) => sum + (r.warehouse_stock ?? 0), 0),
+    () =>
+      filtered.reduce(
+        (sum, r) => sum + (r.warehouse_stock ?? 0) + (r.consumer_stock ?? 0),
+        0,
+      ),
     [filtered],
   );
 
@@ -538,6 +547,24 @@ export default function InventoryPage() {
                     style={{ fontWeight: 700, color: "#0a0a0a" }}
                   >
                     {(r.warehouse_stock ?? 0).toLocaleString()}
+                    {r.consumer_stock > 0 && (
+                      <span
+                        title="Staged for dispatch"
+                        style={{
+                          display: "inline-block",
+                          marginLeft: 6,
+                          padding: "1px 6px",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          borderRadius: 4,
+                          background: "rgba(225, 180, 96, 0.18)",
+                          color: "#b08930",
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        +{r.consumer_stock} reserved
+                      </span>
+                    )}
                   </td>
                   <td
                     className="px-4 py-3"

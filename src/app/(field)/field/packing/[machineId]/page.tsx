@@ -1041,6 +1041,42 @@ export default function PackingDetailPage() {
           }
         }
 
+        // ── B3: pack_dispatch_line RPC fast-path ────────────────────────
+        // Atomic WH↦consumer reservation + child-dispatch spawn + OB-2 parent
+        // decrement. Only safe for single-variant fresh packs with no prior
+        // multi-batch state. Mix lines (multi-bpid children), re-packs (parent
+        // already packed), and partially-frozen lines fall through to the
+        // inline path below.
+        const canUseRpc =
+          !isMixLine &&
+          !line.packed &&
+          line.extraSliceIds.length === 0 &&
+          frozenSliceRows.length === 0 &&
+          Boolean(batchQtys);
+
+        if (canUseRpc) {
+          const picks: { wh_inventory_id: string; qty: number }[] = [];
+          for (const b of line.singleBatches ?? []) {
+            const qty = batchQtys![b.wh_inventory_id] ?? 0;
+            if (qty > 0) {
+              picks.push({ wh_inventory_id: b.wh_inventory_id, qty });
+            }
+          }
+          if (picks.length > 0) {
+            const { error: rpcErr } = await supabase.rpc("pack_dispatch_line", {
+              p_dispatch_id: line.dispatch_id,
+              p_picks: picks,
+            });
+            if (rpcErr) {
+              console.error("[Pack] pack_dispatch_line RPC error:", rpcErr);
+              setWhWarnMsg(
+                "Pack failed: " + (rpcErr.message ?? "unknown error"),
+              );
+            }
+            continue;
+          }
+        }
+
         // ── Collect picks grouped by (boonz_product_id, expiry) ──────────
         // Each entry becomes its own dispatch line.
         interface PickSlice {

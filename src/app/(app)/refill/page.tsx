@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { createBrowserClient } from "@supabase/ssr";
 import { RefillPlanReview } from "@/components/RefillPlanReview";
 import { getDubaiDate } from "@/lib/utils/date";
@@ -767,6 +768,14 @@ export default function RefillPage() {
           <p className="text-sm text-gray-500 mt-1">
             Pull latest sales, inventory, and machine status from Weimi API
           </p>
+          <div className="mt-2 flex items-center gap-3 text-xs">
+            <Link
+              href="/refill/drift"
+              className="text-gray-500 hover:text-gray-900 underline-offset-2 hover:underline transition-colors"
+            >
+              Inventory drift &rarr;
+            </Link>
+          </div>
           {/* Today / Tomorrow toggle */}
           <div className="flex gap-2 items-center mt-3">
             <button
