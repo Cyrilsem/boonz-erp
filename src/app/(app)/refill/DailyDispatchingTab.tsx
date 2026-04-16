@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 
@@ -17,6 +17,7 @@ interface DispatchLine {
   picked_up: boolean;
   dispatched: boolean;
   expiry_date: string | null;
+  shelf_code: string | null;
   machines: {
     official_name: string;
     pod_location: string | null;
@@ -44,6 +45,100 @@ interface MachineSummary {
 type MachineStage = "pack" | "pickup" | "dispatch" | "complete";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
+
+function formatExpiry(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
+}
+
+interface SliceRow {
+  dispatch_id: string;
+  qty: number;
+  expiry_date: string | null;
+}
+
+interface LineGroup {
+  key: string;
+  shelf_code: string | null;
+  boonz_product_name: string;
+  action: string | null;
+  plan_qty: number;
+  total_filled: number;
+  earliest_expiry: string | null;
+  packed: boolean;
+  picked_up: boolean;
+  dispatched: boolean;
+  slices: SliceRow[];
+}
+
+function buildSortedGroups(lines: DispatchLine[]): LineGroup[] {
+  const groups = new Map<string, LineGroup>();
+  for (const l of lines) {
+    const key = `${l.shelf_code ?? ""}|${l.boonz_product_id}|${l.action ?? ""}`;
+    const qty = Number(l.quantity ?? 0);
+    const filled = Number(l.filled_quantity ?? 0);
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, {
+        key,
+        shelf_code: l.shelf_code ?? null,
+        boonz_product_name: l.boonz_products?.boonz_product_name ?? "\u2014",
+        action: l.action,
+        plan_qty: qty,
+        total_filled: filled,
+        earliest_expiry: l.expiry_date,
+        packed: l.packed ?? false,
+        picked_up: l.picked_up ?? false,
+        dispatched: l.dispatched ?? false,
+        slices: [
+          {
+            dispatch_id: l.dispatch_id,
+            qty: filled || qty,
+            expiry_date: l.expiry_date,
+          },
+        ],
+      });
+    } else {
+      existing.plan_qty = Math.max(existing.plan_qty, qty);
+      existing.total_filled += filled;
+      if (
+        l.expiry_date &&
+        (!existing.earliest_expiry || l.expiry_date < existing.earliest_expiry)
+      ) {
+        existing.earliest_expiry = l.expiry_date;
+      }
+      existing.packed = existing.packed && (l.packed ?? false);
+      existing.picked_up = existing.picked_up && (l.picked_up ?? false);
+      existing.dispatched = existing.dispatched && (l.dispatched ?? false);
+      existing.slices.push({
+        dispatch_id: l.dispatch_id,
+        qty: filled || qty,
+        expiry_date: l.expiry_date,
+      });
+    }
+  }
+
+  const sorted = Array.from(groups.values()).sort((a, b) => {
+    if (a.shelf_code == null && b.shelf_code == null) return 0;
+    if (a.shelf_code == null) return 1;
+    if (b.shelf_code == null) return -1;
+    return a.shelf_code.localeCompare(b.shelf_code);
+  });
+
+  for (const g of sorted) {
+    g.slices.sort((a, b) => {
+      if (a.expiry_date == null && b.expiry_date == null) return 0;
+      if (a.expiry_date == null) return 1;
+      if (b.expiry_date == null) return -1;
+      return a.expiry_date.localeCompare(b.expiry_date);
+    });
+  }
+
+  return sorted;
+}
 
 function getMachineStage(m: MachineSummary): MachineStage {
   if (m.packed_count < m.total) return "pack";
@@ -75,19 +170,25 @@ export function DailyDispatchingTab({
     const { data } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!inner(official_name, pod_location, venue_group), boonz_products(boonz_product_name)",
+        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!inner(official_name, pod_location, venue_group), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
       )
       .eq("dispatch_date", queryDate)
       .eq("include", true)
       .limit(10000);
 
     setLines(
-      (data ?? []).map((d) => ({
-        ...d,
-        machines: d.machines as unknown as DispatchLine["machines"],
-        boonz_products:
-          d.boonz_products as unknown as DispatchLine["boonz_products"],
-      })),
+      (data ?? []).map((d) => {
+        const shelf = d.shelf_configurations as unknown as {
+          shelf_code: string | null;
+        } | null;
+        return {
+          ...d,
+          shelf_code: shelf?.shelf_code ?? null,
+          machines: d.machines as unknown as DispatchLine["machines"],
+          boonz_products:
+            d.boonz_products as unknown as DispatchLine["boonz_products"],
+        };
+      }),
     );
     setLoading(false);
   }, [queryDate]);
@@ -639,66 +740,110 @@ function MachineRow({
                   </tr>
                 </thead>
                 <tbody>
-                  {m.lines.map((l) => (
-                    <tr
-                      key={l.dispatch_id}
-                      style={{ borderBottom: "1px solid #f0ede8" }}
-                    >
-                      <td
-                        className="px-3 py-2"
-                        style={{ color: "#0a0a0a", fontWeight: 500 }}
-                      >
-                        {l.boonz_products?.boonz_product_name ?? "\u2014"}
-                      </td>
-                      <td className="px-3 py-2" style={{ color: "#6b6860" }}>
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 600,
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            background:
-                              l.action === "refill"
-                                ? "rgba(36, 84, 74, 0.08)"
-                                : l.action === "collect"
-                                  ? "rgba(225, 180, 96, 0.15)"
-                                  : "transparent",
-                            color:
-                              l.action === "refill"
-                                ? "#24544a"
-                                : l.action === "collect"
-                                  ? "#b08930"
-                                  : "#6b6860",
-                          }}
+                  {buildSortedGroups(m.lines).map((g) => (
+                    <Fragment key={g.key}>
+                      <tr style={{ borderBottom: "1px solid #f0ede8" }}>
+                        <td
+                          className="px-3 py-2"
+                          style={{ color: "#0a0a0a", fontWeight: 500 }}
                         >
-                          {l.action ?? "\u2014"}
-                        </span>
-                      </td>
-                      <td
-                        className="px-3 py-2"
-                        style={{ color: "#0a0a0a", fontWeight: 600 }}
-                      >
-                        {l.quantity ?? "\u2014"}
-                      </td>
-                      <td className="px-3 py-2" style={{ color: "#6b6860" }}>
-                        {l.filled_quantity ?? "\u2014"}
-                      </td>
-                      <td
-                        className="px-3 py-2"
-                        style={{ color: "#6b6860", fontSize: 12 }}
-                      >
-                        {l.expiry_date ?? "\u2014"}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {renderStatusIcon(l.packed)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {renderStatusIcon(l.picked_up)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {renderStatusIcon(l.dispatched)}
-                      </td>
-                    </tr>
+                          {g.shelf_code && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                marginRight: 8,
+                                padding: "2px 6px",
+                                fontSize: 11,
+                                fontFamily:
+                                  "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                color: "#6b6860",
+                                background: "#f0ede8",
+                                borderRadius: 4,
+                              }}
+                            >
+                              {g.shelf_code}
+                            </span>
+                          )}
+                          {g.boonz_product_name}
+                        </td>
+                        <td className="px-3 py-2" style={{ color: "#6b6860" }}>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background:
+                                g.action === "refill"
+                                  ? "rgba(36, 84, 74, 0.08)"
+                                  : g.action === "collect"
+                                    ? "rgba(225, 180, 96, 0.15)"
+                                    : "transparent",
+                              color:
+                                g.action === "refill"
+                                  ? "#24544a"
+                                  : g.action === "collect"
+                                    ? "#b08930"
+                                    : "#6b6860",
+                            }}
+                          >
+                            {g.action ?? "\u2014"}
+                          </span>
+                        </td>
+                        <td
+                          className="px-3 py-2"
+                          style={{ color: "#0a0a0a", fontWeight: 600 }}
+                        >
+                          {g.plan_qty}
+                        </td>
+                        <td className="px-3 py-2" style={{ color: "#6b6860" }}>
+                          {g.total_filled}/{g.plan_qty}
+                        </td>
+                        <td
+                          className="px-3 py-2"
+                          style={{ color: "#6b6860", fontSize: 12 }}
+                        >
+                          {g.earliest_expiry
+                            ? formatExpiry(g.earliest_expiry)
+                            : "\u2014"}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {renderStatusIcon(g.packed)}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {renderStatusIcon(g.picked_up)}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {renderStatusIcon(g.dispatched)}
+                        </td>
+                      </tr>
+                      {g.slices.length > 1 &&
+                        g.slices.map((s, idx) => (
+                          <tr
+                            key={`${g.key}-slice-${idx}`}
+                            style={{
+                              borderBottom: "1px solid #f0ede8",
+                              fontSize: 12,
+                              color: "#6b6860",
+                            }}
+                          >
+                            <td
+                              className="px-3 py-1"
+                              style={{ paddingLeft: 40 }}
+                              colSpan={2}
+                            >
+                              <span style={{ marginRight: 8 }}>&#8627;</span>
+                              &#215;{s.qty}
+                            </td>
+                            <td className="px-3 py-1" colSpan={2}>
+                              {s.expiry_date
+                                ? formatExpiry(s.expiry_date)
+                                : "No expiry"}
+                            </td>
+                            <td colSpan={4} />
+                          </tr>
+                        ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
