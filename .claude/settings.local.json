@@ -66,7 +66,13 @@
       "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/page.tsx\")",
       "Bash(head -30 \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/page.tsx\")",
       "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/client.tsx\")",
-      "Bash(head -60 \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/client.tsx\")"
+      "Bash(head -60 \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/client.tsx\")",
+      "Bash(grep -q '\"\"recharts\"\"' package.json)",
+      "Bash(wc -l \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/DailyDispatchingTab.tsx\")",
+      "mcp__9317327f-7b25-403a-addf-077dcb3de768__execute_sql",
+      "mcp__9317327f-7b25-403a-addf-077dcb3de768__apply_migration",
+      "Bash(ls -la \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/\")",
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/\" \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/route/\")"
     ]
   }
 }

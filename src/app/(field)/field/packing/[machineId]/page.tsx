@@ -989,12 +989,56 @@ export default function PackingDetailPage() {
         const today = getDubaiDate();
         const isMixLine = line.variantStocks !== null;
 
-        // Delete previously created extra slice lines before re-creating them
+        // ── Fetch existing state of extra slices to preserve frozen rows ─
+        // Frozen rows (picked_up OR dispatched) must NOT be deleted or re-written.
+        // Only rows still in the "packed, not yet picked up" phase can be safely
+        // replaced. Any state written by the dispatch flow is source of truth.
+        const frozenSliceRows: {
+          dispatch_id: string;
+          boonz_product_id: string | null;
+          quantity: number;
+          filled_quantity: number | null;
+          expiry_date: string | null;
+        }[] = [];
+
         if (line.extraSliceIds.length > 0) {
-          await supabase
+          const { data: existingSlices, error: fetchErr } = await supabase
             .from("refill_dispatching")
-            .delete()
+            .select(
+              "dispatch_id, boonz_product_id, quantity, filled_quantity, expiry_date, picked_up, dispatched",
+            )
             .in("dispatch_id", line.extraSliceIds);
+
+          if (fetchErr) {
+            console.error("Failed to fetch extra slice state", fetchErr);
+            throw fetchErr;
+          }
+
+          const deletableIds: string[] = [];
+          for (const row of existingSlices ?? []) {
+            if (row.picked_up === true || row.dispatched === true) {
+              frozenSliceRows.push({
+                dispatch_id: row.dispatch_id,
+                boonz_product_id: row.boonz_product_id,
+                quantity: Number(row.quantity ?? 0),
+                filled_quantity: Number(row.filled_quantity ?? 0),
+                expiry_date: row.expiry_date,
+              });
+            } else {
+              deletableIds.push(row.dispatch_id);
+            }
+          }
+
+          if (deletableIds.length > 0) {
+            const { error: delErr } = await supabase
+              .from("refill_dispatching")
+              .delete()
+              .in("dispatch_id", deletableIds);
+            if (delErr) {
+              console.error("Failed to delete extra slice rows", delErr);
+              throw delErr;
+            }
+          }
         }
 
         // ── Collect picks grouped by (boonz_product_id, expiry) ──────────
@@ -1052,8 +1096,35 @@ export default function PackingDetailPage() {
           });
         }
 
+        // ── Filter out slices already represented by frozen rows ─────────
+        // Frozen rows hold the correct state on disk — nothing to re-write.
+        // Match on (boonzProductId, expiry) which is a slice's natural key.
+        const frozenKey = (bpId: string | null, exp: string | null) =>
+          `${bpId ?? ""}__${exp ?? ""}`;
+        const frozenKeys = new Set(
+          frozenSliceRows.map((r) =>
+            frozenKey(r.boonz_product_id, r.expiry_date),
+          ),
+        );
+        const writableSlices = pickSlices.filter(
+          (s) => !frozenKeys.has(frozenKey(s.boonzProductId, s.expiry)),
+        );
+
+        if (writableSlices.length === 0) {
+          // All slices already packed and frozen. Nothing new to write.
+          if (frozenSliceRows.length > 0) {
+            console.info(
+              `[pack-save] ${frozenSliceRows.length} slice(s) preserved as already dispatched:`,
+              frozenSliceRows
+                .map((r) => `${r.boonz_product_id}@${r.expiry_date}`)
+                .join(", "),
+            );
+          }
+          continue;
+        }
+
         // ── Save: UPDATE original line with first slice, INSERT rest ─────
-        const [firstSlice, ...extraSlices] = pickSlices;
+        const [firstSlice, ...extraSlices] = writableSlices;
 
         await supabase
           .from("refill_dispatching")
@@ -1158,6 +1229,15 @@ export default function PackingDetailPage() {
               );
             }
           }
+        }
+
+        if (frozenSliceRows.length > 0) {
+          console.info(
+            `[pack-save] ${frozenSliceRows.length} slice(s) preserved as already dispatched:`,
+            frozenSliceRows
+              .map((r) => `${r.boonz_product_id}@${r.expiry_date}`)
+              .join(", "),
+          );
         }
       } else if (line.action === "skip") {
         // If this line was already packed (WH was deducted), restore WH stock first.
