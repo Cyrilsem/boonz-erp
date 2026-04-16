@@ -75,6 +75,7 @@ export default function DispatchingDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
+  const [returnNotice, setReturnNotice] = useState<string | null>(null);
 
   // Photos
   const [beforePhoto, setBeforePhoto] = useState<DispatchPhoto | null>(null);
@@ -263,97 +264,6 @@ export default function DispatchingDetailPage() {
     setPhotoUploading(null);
   }
 
-  // ── Inventory update logic (non-blocking) ──────────────────────────────────
-
-  async function runInventoryUpdates(line: {
-    dispatch_id: string;
-    boonz_product_id: string;
-    machine_id: string;
-    shelf_id: string | null;
-    quantity: number;
-    filled_qty: number;
-    expiry_date: string | null;
-  }) {
-    const qty = Number(line.filled_qty ?? line.quantity ?? 0);
-
-    if (qty <= 0) {
-      console.warn(
-        "[Dispatch] qty is 0, skipping inventory update for",
-        line.dispatch_id,
-      );
-      return;
-    }
-
-    const log = (msg: string) => {
-      console.log("[Dispatch]", msg);
-    };
-    const supabase = createClient();
-    const today = getDubaiDate();
-
-    log("qty=" + qty);
-
-    // WH deduction removed — stock is now deducted at pack time (3-stage inventory flow).
-    // packing/[machineId]/page.tsx::handleConfirmPacking calls deductWarehouseStock().
-
-    // ── Pod inventory update ──────────────────────────────────────
-    try {
-      let podQuery = supabase
-        .from("pod_inventory")
-        .select("pod_inventory_id, current_stock")
-        .eq("machine_id", line.machine_id)
-        .eq("boonz_product_id", line.boonz_product_id)
-        .eq("status", "Active");
-      if (line.expiry_date) {
-        podQuery = podQuery.eq("expiration_date", line.expiry_date);
-      } else {
-        podQuery = podQuery.is("expiration_date", null);
-      }
-      const { data: rows, error: selectErr } = await podQuery.limit(1);
-
-      if (selectErr) throw selectErr;
-
-      log("POD: found " + (rows?.length ?? 0) + " existing rows");
-
-      if (rows && rows.length > 0) {
-        const { error: updateErr } = await supabase
-          .from("pod_inventory")
-          .update({
-            current_stock: (rows[0].current_stock ?? 0) + qty,
-            snapshot_date: today,
-          })
-          .eq("pod_inventory_id", rows[0].pod_inventory_id);
-        if (updateErr) throw updateErr;
-        log(
-          "POD: UPDATE row " +
-            rows[0].pod_inventory_id +
-            " new_stock=" +
-            ((rows[0].current_stock ?? 0) + qty),
-        );
-      } else {
-        const { error: insertErr } = await supabase
-          .from("pod_inventory")
-          .insert({
-            machine_id: line.machine_id,
-            shelf_id: line.shelf_id ?? null,
-            boonz_product_id: line.boonz_product_id,
-            current_stock: qty,
-            expiration_date: line.expiry_date ?? null,
-            batch_id: "DISPATCH-" + today,
-            status: "Active",
-            snapshot_date: today,
-          });
-        if (insertErr) throw insertErr;
-        log("POD: INSERT new row stock=" + qty);
-      }
-    } catch (err) {
-      console.error("[Dispatch] pod inventory error:", err);
-      setInvWarnings((prev) => ({
-        ...prev,
-        [line.dispatch_id]: "⚠ Pod inventory update failed",
-      }));
-    }
-  }
-
   // ── Line state helpers ─────────────────────────────────────────────────────
 
   function updateAction(dispatchId: string, action: LineAction) {
@@ -400,31 +310,49 @@ export default function DispatchingDetailPage() {
 
   async function handleSave() {
     setSaving(true);
+    setReturnNotice(null);
     const supabase = createClient();
     const today = getDubaiDate();
+    let totalReturnDelta = 0;
 
     for (const line of lines) {
       if (line.action === "added") {
-        await supabase
-          .from("refill_dispatching")
-          .update({
-            dispatched: true,
-            returned: false,
-            filled_quantity: line.filled_qty,
-            comment: line.comment.trim() || null,
-          })
-          .eq("dispatch_id", line.dispatch_id);
+        // B2: receive_dispatch_line RPC handles pod_inventory INSERT and
+        // returns any unfilled units back to warehouse_inventory in one txn.
+        const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          "receive_dispatch_line",
+          {
+            p_dispatch_id: line.dispatch_id,
+            p_filled_quantity: line.filled_qty,
+          },
+        );
 
-        // Non-blocking inventory update
-        await runInventoryUpdates({
-          dispatch_id: line.dispatch_id,
-          boonz_product_id: line.boonz_product_id ?? "",
-          machine_id: machineId,
-          shelf_id: line.shelf_id,
-          quantity: line.quantity,
-          filled_qty: line.filled_qty,
-          expiry_date: line.expiry_date,
-        });
+        if (rpcErr) {
+          const msg = rpcErr.message ?? "";
+          if (msg.includes("already received")) {
+            // Idempotent — line was already received in a prior submit
+            console.info("[Dispatch] line already received:", line.dispatch_id);
+          } else {
+            console.error("[Dispatch] receive_dispatch_line error:", rpcErr);
+            setInvWarnings((prev) => ({
+              ...prev,
+              [line.dispatch_id]: "⚠ Receive failed: " + msg,
+            }));
+            continue;
+          }
+        } else if (rpcData) {
+          const result = rpcData as { return_delta?: number | string };
+          const delta = Number(result.return_delta ?? 0);
+          if (delta > 0) totalReturnDelta += delta;
+        }
+
+        // Comment isn't touched by the RPC; persist it separately if set.
+        if (line.comment.trim()) {
+          await supabase
+            .from("refill_dispatching")
+            .update({ comment: line.comment.trim() })
+            .eq("dispatch_id", line.dispatch_id);
+        }
       } else if (line.action === "returned") {
         await supabase
           .from("refill_dispatching")
@@ -459,6 +387,12 @@ export default function DispatchingDetailPage() {
       }
     }
 
+    if (totalReturnDelta > 0) {
+      setReturnNotice(
+        `Returned ${totalReturnDelta} unit${totalReturnDelta === 1 ? "" : "s"} to warehouse.`,
+      );
+    }
+
     setSaving(false);
     setSaved(true);
     setEditingAfterSave(false);
@@ -485,6 +419,11 @@ export default function DispatchingDetailPage() {
       <div className="px-4 py-4">
         <FieldHeader title="Dispatch Detail" />
         <div className="mx-auto max-w-md">
+          {returnNotice && (
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              ↩ {returnNotice}
+            </div>
+          )}
           <div className="rounded-xl border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30">
             <div className="border-b border-green-200 px-4 py-3 dark:border-green-900">
               <p className="text-lg font-bold text-green-700 dark:text-green-400">

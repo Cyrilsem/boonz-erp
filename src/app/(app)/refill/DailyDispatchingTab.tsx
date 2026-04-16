@@ -297,6 +297,24 @@ export function DailyDispatchingTab({
         .eq("dispatch_date", queryDate)
         .eq("include", true);
 
+      // B2: when admin marks all dispatched, also materialize inventory —
+      // pod_inventory rows + return any underfilled units back to WH.
+      if (field === "dispatched") {
+        const { error: rpcErr } = await supabase.rpc(
+          "receive_all_dispatches_for_machine",
+          {
+            p_machine_id: machineId,
+            p_dispatch_date: queryDate,
+          },
+        );
+        if (rpcErr) {
+          console.error(
+            "[DailyDispatching] receive_all_dispatches_for_machine error:",
+            rpcErr,
+          );
+        }
+      }
+
       await fetchData();
     } finally {
       setUpdatingMachine(null);
