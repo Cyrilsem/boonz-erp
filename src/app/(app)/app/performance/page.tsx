@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   BarChart,
@@ -42,6 +42,86 @@ type GroupFilter = (typeof GROUPS)[number];
 const ADYEN_FEE_PCT = 0.0475;
 const BOONZ_SHARE_PCT = 0.2;
 const PAGE_SIZE = 50;
+
+// ── commercial scenario constants ──
+const OPEX_PCT = 0; // placeholder — Opex line currently renders as AED 0
+const GRIT_OMD_PARTNER_SHARE = 0.05;
+const GRIT_OMD_BOONZ_SHARE = 0.95;
+
+const VOX_MACHINE_IDS = new Set<string>([
+  "148c4fcf-b794-43f0-a2a8-e6f17605b045", // VOXMCC-1009-0201-B0
+  "b9f0c828-bcd1-493a-ac28-934f5dba0872", // VOXMCC-1011-0101-B0
+  "5b8fc451-741f-48e6-9eba-54a61d312167", // VOXMCC-1012-0100-V0
+  "df4f3c4b-6c38-4e45-b536-19389d4fed31", // VOXMCC-1017-0200-V0
+  "bd94970e-40d6-49fd-a532-1fd1e758ffda", // VOXMM-1009-0100-V0
+  "bb9578ea-9aba-404e-881d-ea239f8609ce", // VOXMM-1013-0101-B0
+]);
+
+const GRIT_OMD_MACHINE_IDS = new Set<string>([
+  "7a8e5711-7acb-48a7-9809-ca1324976855", // GRIT-1022-0100-W0
+  "822d386f-e0db-4a51-b201-0731df90f393", // OMDBB-1020-0P00-O1
+  "5ac54ef6-b25d-48ae-a292-070871621e03", // OMDCW-1021-0100-W0
+]);
+
+type CommercialScenario = "VOX" | "GRIT_OMD" | "STANDARD";
+
+function detectScenario(selectedIds: string[]): CommercialScenario {
+  if (selectedIds.length === 0) return "STANDARD";
+  const allVox = selectedIds.every((id) => VOX_MACHINE_IDS.has(id));
+  if (allVox) return "VOX";
+  const allGritOmd = selectedIds.every((id) => GRIT_OMD_MACHINE_IDS.has(id));
+  if (allGritOmd) return "GRIT_OMD";
+  return "STANDARD";
+}
+
+type WaterfallStepType = "total" | "subtract" | "subtotal";
+interface WaterfallStep {
+  label: string;
+  value: number; // positive for totals/subtotals; negative for subtracts
+  type: WaterfallStepType;
+}
+interface WaterfallBar {
+  name: string;
+  base: number;
+  value: number;
+  fill: string;
+}
+
+function buildWaterfallBars(steps: WaterfallStep[]): WaterfallBar[] {
+  const bars: WaterfallBar[] = [];
+  let running = 0;
+  for (const step of steps) {
+    if (step.type === "total") {
+      bars.push({
+        name: step.label,
+        base: 0,
+        value: Math.round(Math.max(0, step.value)),
+        fill: "#0F4D3A",
+      });
+      running = step.value;
+    } else if (step.type === "subtotal") {
+      bars.push({
+        name: step.label,
+        base: 0,
+        value: Math.round(Math.max(0, step.value)),
+        fill: "#0E3F4D",
+      });
+      running = step.value;
+    } else {
+      // subtract: value is negative; draw red bar from (running - deduction) up to running
+      const deduction = Math.abs(step.value);
+      const newRunning = running + step.value;
+      bars.push({
+        name: step.label,
+        base: Math.round(Math.max(0, newRunning)),
+        value: Math.round(deduction),
+        fill: "#DC2626",
+      });
+      running = newRunning;
+    }
+  }
+  return bars;
+}
 
 const GROUP_COLORS: Record<string, string> = {
   ADDMIND: "#2563eb",
@@ -87,6 +167,7 @@ interface MachineInfo {
   machine_id: string;
   official_name: string;
   venue_group: string | null;
+  status: string | null;
 }
 
 // ── helpers ──
@@ -311,6 +392,9 @@ export default function PerformancePage() {
   const [viewMode, setViewMode] = useState<"consolidated" | "by-group">(
     "consolidated",
   );
+  const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>([]);
+  const [machineDropdownOpen, setMachineDropdownOpen] = useState(false);
+  const machineDropdownRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
@@ -330,29 +414,37 @@ export default function PerformancePage() {
     try {
       const supabase = createClient();
 
+      let salesQuery = supabase
+        .from("sales_history")
+        .select(
+          "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, machines!inner(official_name, venue_group)",
+        )
+        .eq("delivery_status", "Successful")
+        .gte("transaction_date", `${dateFrom}T00:00:00+00:00`)
+        .lte("transaction_date", `${dateTo}T23:59:59+00:00`);
+      if (selectedMachineIds.length > 0) {
+        salesQuery = salesQuery.in("machine_id", selectedMachineIds);
+      }
+
+      let adyenQuery = supabase
+        .from("adyen_transactions")
+        .select(
+          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference",
+        )
+        .gte("creation_date", `${dateFrom}T00:00:00+00:00`)
+        .lte("creation_date", `${dateTo}T23:59:59+00:00`);
+      if (selectedMachineIds.length > 0) {
+        adyenQuery = adyenQuery.in("machine_id", selectedMachineIds);
+      }
+
       const [machineRes, salesRes, adyenRes] = await Promise.all([
         supabase
           .from("machines")
-          .select("machine_id, official_name, venue_group")
+          .select("machine_id, official_name, venue_group, status")
           .order("official_name")
           .limit(10000),
-        supabase
-          .from("sales_history")
-          .select(
-            "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, machines!inner(official_name, venue_group)",
-          )
-          .eq("delivery_status", "Successful")
-          .gte("transaction_date", `${dateFrom}T00:00:00+00:00`)
-          .lte("transaction_date", `${dateTo}T23:59:59+00:00`)
-          .limit(10000),
-        supabase
-          .from("adyen_transactions")
-          .select(
-            "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference",
-          )
-          .gte("creation_date", `${dateFrom}T00:00:00+00:00`)
-          .lte("creation_date", `${dateTo}T23:59:59+00:00`)
-          .limit(10000),
+        salesQuery.limit(10000),
+        adyenQuery.limit(10000),
       ]);
 
       const machines = (machineRes.data ?? []) as MachineInfo[];
@@ -389,11 +481,52 @@ export default function PerformancePage() {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, group]);
+  }, [dateFrom, dateTo, group, selectedMachineIds]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Close machine dropdown when clicking outside
+  useEffect(() => {
+    if (!machineDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        machineDropdownRef.current &&
+        !machineDropdownRef.current.contains(e.target as Node)
+      ) {
+        setMachineDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [machineDropdownOpen]);
+
+  // Machines available in the dropdown (Active + not warehouse)
+  const dropdownMachines = useMemo(
+    () =>
+      machineList
+        .filter(
+          (m) =>
+            m.status === "Active" && !(m.official_name || "").startsWith("WH"),
+        )
+        .sort((a, b) =>
+          (a.official_name || "").localeCompare(b.official_name || ""),
+        ),
+    [machineList],
+  );
+
+  // Commercial scenario derived from selected machines
+  const commercialScenario: CommercialScenario = useMemo(
+    () => detectScenario(selectedMachineIds),
+    [selectedMachineIds],
+  );
+
+  const toggleMachineId = (id: string) => {
+    setSelectedMachineIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
 
   const handleRefresh = () => {
     fetchData();
@@ -710,68 +843,66 @@ export default function PerformancePage() {
       .filter((r) => r.status === "RefundedBulk")
       .reduce((s, r) => s + (r.captured_amount_value || 0), 0);
 
-    const waterfallData = [
-      {
-        name: "Total\nAmount",
-        base: 0,
-        value: Math.round(totalWeimi),
-        fill: "#2A3547",
-      },
-      {
-        name: "Default",
-        base: Math.round(capturedAdyen),
-        value: Math.round(gap),
-        fill: "#EF4444",
-      },
-      {
-        name: "Captured",
-        base: 0,
-        value: Math.round(capturedAdyen),
-        fill: "#0F4D3A",
-      },
-      {
-        name: "Refund",
-        base: Math.round(capturedAdyen - refunds),
-        value: Math.round(refunds),
-        fill: "#F59E0B",
-      },
-      {
-        name: "Adyen\nFees",
-        base: Math.round(netRevenue),
-        value: Math.round(adyenFees),
-        fill: "#6366F1",
-      },
-      {
-        name: "Net\nRevenue",
-        base: 0,
-        value: Math.round(netRevenue),
-        fill: "#0E3F4D",
-      },
-      {
-        name: "Boonz\n20%",
-        base: Math.round(clientShare),
-        value: Math.round(boonzShare),
-        fill: "#F59E0B",
-      },
-      {
-        name: "Client\n80%",
-        base: 0,
-        value: Math.round(clientShare),
-        fill: "#0891B2",
-      },
-      {
-        name: "COGS",
-        base: Math.round(clientShare - boonzCogs),
-        value: Math.round(boonzCogs),
-        fill: "#DC2626",
-      },
-      {
-        name: "Net\nDues",
-        base: 0,
-        value: Math.round(Math.max(0, netDues)),
-        fill: "#8B5CF6",
-      },
-    ];
+    // ── scenario waterfall (drives COMMERCIAL waterfall chart + summary table) ──
+    const scenarioGross = totalWeimi;
+    const scenarioNet = scenarioGross - refunds - adyenFees;
+    const opex = OPEX_PCT; // 0 — placeholder
+
+    // VOX values
+    const voxShare = scenarioNet * (1 - BOONZ_SHARE_PCT);
+    const voxBoonzNet = scenarioNet * BOONZ_SHARE_PCT;
+    const voxGrossProfit = voxBoonzNet - totalCogs;
+    const voxEbitda = voxGrossProfit - opex;
+
+    // GRIT/OMD values
+    const gritPartner = scenarioNet * GRIT_OMD_PARTNER_SHARE;
+    const gritBoonzNet = scenarioNet * GRIT_OMD_BOONZ_SHARE;
+    const gritEbitda = gritBoonzNet - opex;
+
+    let scenarioSteps: WaterfallStep[];
+    if (commercialScenario === "VOX") {
+      scenarioSteps = [
+        { label: "Gross Revenue", value: scenarioGross, type: "total" },
+        { label: "Returns/Refunds", value: -refunds, type: "subtract" },
+        { label: "Net Revenue", value: scenarioNet, type: "subtotal" },
+        { label: "VOX Share (80%)", value: -voxShare, type: "subtract" },
+        {
+          label: "Boonz Net Revenue",
+          value: voxBoonzNet,
+          type: "subtotal",
+        },
+        { label: "Boonz COGS", value: -totalCogs, type: "subtract" },
+        { label: "Gross Profit", value: voxGrossProfit, type: "subtotal" },
+        { label: "Opex", value: -opex, type: "subtract" },
+        { label: "EBITDA", value: voxEbitda, type: "total" },
+      ];
+    } else if (commercialScenario === "GRIT_OMD") {
+      scenarioSteps = [
+        { label: "Gross Revenue", value: scenarioGross, type: "total" },
+        { label: "Returns/Refunds", value: -refunds, type: "subtract" },
+        { label: "Net Revenue", value: scenarioNet, type: "subtotal" },
+        {
+          label: "Site Partner (5%)",
+          value: -gritPartner,
+          type: "subtract",
+        },
+        {
+          label: "Boonz Net Revenue",
+          value: gritBoonzNet,
+          type: "subtotal",
+        },
+        { label: "Opex", value: -opex, type: "subtract" },
+        { label: "EBITDA", value: gritEbitda, type: "total" },
+      ];
+    } else {
+      scenarioSteps = [
+        { label: "Gross Revenue", value: scenarioGross, type: "total" },
+        { label: "Returns/Refunds", value: -refunds, type: "subtract" },
+        { label: "Net Revenue", value: scenarioNet, type: "total" },
+      ];
+    }
+
+    const waterfallData: WaterfallBar[] = buildWaterfallBars(scenarioSteps);
 
     // group breakdown
     const groupBreakdown = groupData.map((g) => {
@@ -805,6 +936,18 @@ export default function PerformancePage() {
       refunds,
       waterfallData,
       groupBreakdown,
+      // scenario-specific summary values
+      scenario: commercialScenario,
+      scenarioGross,
+      scenarioNet,
+      opex,
+      voxShare,
+      voxBoonzNet,
+      voxGrossProfit,
+      voxEbitda,
+      gritPartner,
+      gritBoonzNet,
+      gritEbitda,
     };
   }, [
     totalWeimi,
@@ -815,6 +958,7 @@ export default function PerformancePage() {
     settledAdyen,
     groupData,
     machineList,
+    commercialScenario,
   ]);
 
   // unique machines with data
@@ -977,6 +1121,161 @@ export default function PerformancePage() {
             {g}
           </button>
         ))}
+        <div
+          style={{
+            width: 1,
+            height: 20,
+            background: "#e8e4de",
+            margin: "0 4px",
+          }}
+        />
+        <span style={cblStyle}>Machines</span>
+        <div
+          ref={machineDropdownRef}
+          style={{ position: "relative", fontFamily: font }}
+        >
+          <button
+            onClick={() => setMachineDropdownOpen((o) => !o)}
+            style={{
+              padding: "5px 12px",
+              borderRadius: 4,
+              fontSize: 11,
+              cursor: "pointer",
+              border: `1px solid ${selectedMachineIds.length > 0 ? "#0E3F4D" : "#e8e4de"}`,
+              background:
+                selectedMachineIds.length > 0
+                  ? "rgba(14,63,77,0.12)"
+                  : "#ffffff",
+              color: selectedMachineIds.length > 0 ? "#0E3F4D" : "#6b6860",
+              fontFamily: font,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              minWidth: 110,
+            }}
+          >
+            <span>
+              {selectedMachineIds.length === 0
+                ? "All"
+                : `${selectedMachineIds.length} machine${selectedMachineIds.length === 1 ? "" : "s"}`}
+            </span>
+            <span style={{ fontSize: 9, opacity: 0.6 }}>
+              {machineDropdownOpen ? "\u25B2" : "\u25BC"}
+            </span>
+          </button>
+          {machineDropdownOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                left: 0,
+                zIndex: 200,
+                background: "#ffffff",
+                border: "1px solid #e8e4de",
+                borderRadius: 6,
+                boxShadow: "0 6px 20px rgba(0,0,0,0.08)",
+                width: 280,
+                maxHeight: 360,
+                display: "flex",
+                flexDirection: "column",
+                fontFamily: font,
+              }}
+            >
+              <div
+                style={{
+                  padding: "8px 12px",
+                  borderBottom: "1px solid #e8e4de",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontSize: 10,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color: "#6b6860",
+                }}
+              >
+                <span>
+                  {selectedMachineIds.length === 0
+                    ? "All machines"
+                    : `${selectedMachineIds.length} selected`}
+                </span>
+                <button
+                  onClick={() => setSelectedMachineIds([])}
+                  disabled={selectedMachineIds.length === 0}
+                  style={{
+                    border: "none",
+                    background: "none",
+                    color:
+                      selectedMachineIds.length === 0 ? "#c7c2bb" : "#dc2626",
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    cursor:
+                      selectedMachineIds.length === 0 ? "default" : "pointer",
+                    fontFamily: font,
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  padding: "4px 0",
+                }}
+              >
+                {dropdownMachines.length === 0 && (
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      fontSize: 11,
+                      color: "#9a948e",
+                    }}
+                  >
+                    No active machines
+                  </div>
+                )}
+                {dropdownMachines.map((m) => {
+                  const checked = selectedMachineIds.includes(m.machine_id);
+                  return (
+                    <label
+                      key={m.machine_id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 12px",
+                        cursor: "pointer",
+                        fontSize: 11.5,
+                        color: "#0a0a0a",
+                        background: checked
+                          ? "rgba(14,63,77,0.06)"
+                          : "transparent",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMachineId(m.machine_id)}
+                        style={{ cursor: "pointer" }}
+                      />
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {m.official_name}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
         <div
           style={{
             width: 1,
@@ -2560,6 +2859,368 @@ export default function PerformancePage() {
               {fmtN(totalCount - matchedCount)} unmatched
             </p>
 
+            {/* scenario badge */}
+            <div style={{ marginBottom: 14 }}>
+              {(() => {
+                const badgeMap: Record<
+                  CommercialScenario,
+                  { label: string; bg: string; color: string; border: string }
+                > = {
+                  VOX: {
+                    label: "VOX Agreement",
+                    bg: "rgba(37,99,235,0.12)",
+                    color: "#1d4ed8",
+                    border: "#1d4ed8",
+                  },
+                  GRIT_OMD: {
+                    label: "GRIT / OMD Agreement (5% / 95%)",
+                    bg: "rgba(22,163,74,0.12)",
+                    color: "#15803d",
+                    border: "#15803d",
+                  },
+                  STANDARD: {
+                    label: "No Commercial Agreement",
+                    bg: "rgba(107,104,96,0.12)",
+                    color: "#6b6860",
+                    border: "#d6d2cb",
+                  },
+                };
+                const b = badgeMap[commercialScenario];
+                return (
+                  <span
+                    style={{
+                      display: "inline-block",
+                      padding: "4px 12px",
+                      fontSize: 10.5,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                      borderRadius: 999,
+                      background: b.bg,
+                      color: b.color,
+                      border: `1px solid ${b.border}`,
+                      fontFamily: font,
+                    }}
+                  >
+                    {b.label}
+                  </span>
+                );
+              })()}
+            </div>
+
+            {/* scenario summary table */}
+            <div
+              style={{
+                background: "white",
+                border: "1px solid #e8e4de",
+                borderRadius: 6,
+                overflow: "hidden",
+                marginBottom: 28,
+              }}
+            >
+              <div
+                style={{
+                  padding: "14px 20px",
+                  borderBottom: "1px solid #e8e4de",
+                }}
+              >
+                <h3
+                  style={{
+                    fontFamily: font,
+                    fontWeight: 600,
+                    fontSize: 15,
+                    margin: 0,
+                  }}
+                >
+                  Commercial Summary
+                </h3>
+                {commercialScenario === "STANDARD" && (
+                  <div style={{ fontSize: 11, color: "#6b6860", marginTop: 4 }}>
+                    Select a specific machine group to view commercial breakdown
+                  </div>
+                )}
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                {commercialScenario === "VOX" && (
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 11.5,
+                      minWidth: 900,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        {[
+                          "Gross Rev",
+                          "Refunds",
+                          "Net Rev",
+                          "VOX Share",
+                          "Boonz Net",
+                          "COGS",
+                          "GP",
+                          "EBITDA",
+                        ].map((h) => (
+                          <th
+                            key={h}
+                            style={{
+                              background: "#f5f2ee",
+                              padding: "10px 12px",
+                              textAlign: "right",
+                              fontSize: 9.5,
+                              letterSpacing: ".1em",
+                              textTransform: "uppercase",
+                              color: "#6b6860",
+                              fontWeight: 500,
+                              borderBottom: "1px solid #e8e4de",
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                          {fmtAed(commercialData.scenarioGross)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            color: "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.refunds)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#0E3F4D",
+                          }}
+                        >
+                          {fmtAed(commercialData.scenarioNet)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            color: "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.voxShare)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {fmtAed(commercialData.voxBoonzNet)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            color: "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.boonzCogs)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color:
+                              commercialData.voxGrossProfit >= 0
+                                ? "#0F4D3A"
+                                : "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.voxGrossProfit)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            color:
+                              commercialData.voxEbitda >= 0
+                                ? "#0F4D3A"
+                                : "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.voxEbitda)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+                {commercialScenario === "GRIT_OMD" && (
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 11.5,
+                      minWidth: 800,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        {[
+                          "Gross Rev",
+                          "Refunds",
+                          "Net Rev",
+                          "Partner (5%)",
+                          "Boonz Net (95%)",
+                          "EBITDA",
+                        ].map((h) => (
+                          <th
+                            key={h}
+                            style={{
+                              background: "#f5f2ee",
+                              padding: "10px 12px",
+                              textAlign: "right",
+                              fontSize: 9.5,
+                              letterSpacing: ".1em",
+                              textTransform: "uppercase",
+                              color: "#6b6860",
+                              fontWeight: 500,
+                              borderBottom: "1px solid #e8e4de",
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                          {fmtAed(commercialData.scenarioGross)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            color: "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.refunds)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                            color: "#0E3F4D",
+                          }}
+                        >
+                          {fmtAed(commercialData.scenarioNet)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            color: "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.gritPartner)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {fmtAed(commercialData.gritBoonzNet)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            color:
+                              commercialData.gritEbitda >= 0
+                                ? "#0F4D3A"
+                                : "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.gritEbitda)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+                {commercialScenario === "STANDARD" && (
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontSize: 11.5,
+                      minWidth: 500,
+                    }}
+                  >
+                    <thead>
+                      <tr>
+                        {["Gross Rev", "Refunds", "Net Rev"].map((h) => (
+                          <th
+                            key={h}
+                            style={{
+                              background: "#f5f2ee",
+                              padding: "10px 12px",
+                              textAlign: "right",
+                              fontSize: 9.5,
+                              letterSpacing: ".1em",
+                              textTransform: "uppercase",
+                              color: "#6b6860",
+                              fontWeight: 500,
+                              borderBottom: "1px solid #e8e4de",
+                            }}
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                          {fmtAed(commercialData.scenarioGross)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            color: "#dc2626",
+                          }}
+                        >
+                          {fmtAed(commercialData.refunds)}
+                        </td>
+                        <td
+                          style={{
+                            padding: "9px 12px",
+                            textAlign: "right",
+                            fontWeight: 700,
+                            color: "#0E3F4D",
+                          }}
+                        >
+                          {fmtAed(commercialData.scenarioNet)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
             {/* 6 stat cards */}
             <div
               style={{
@@ -2795,6 +3456,21 @@ export default function PerformancePage() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              {commercialScenario === "STANDARD" && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "10px 14px",
+                    background: "#f5f2ee",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: "#6b6860",
+                    textAlign: "center",
+                  }}
+                >
+                  Select a specific machine group to view commercial breakdown
+                </div>
+              )}
             </div>
 
             {/* full transaction ledger */}
