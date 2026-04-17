@@ -16,6 +16,7 @@ import {
   Scatter,
   ZAxis,
   Cell,
+  LabelList,
 } from "recharts";
 
 // ── constants ──
@@ -833,19 +834,19 @@ export default function PerformancePage() {
 
   // ── commercial data ──
   const commercialData = useMemo(() => {
-    const netRevenue = capturedAdyen * (1 - ADYEN_FEE_PCT);
-    const boonzShare = netRevenue * BOONZ_SHARE_PCT;
-    const clientShare = netRevenue * (1 - BOONZ_SHARE_PCT);
-    const boonzCogs = totalCogs;
-    const netDues = clientShare - boonzCogs;
+    // Single source of truth for revenue math. netRevenue is derived from
+    // Weimi gross minus refunds and Adyen fees — used by cards, waterfall,
+    // and the summary table. No second formula exists.
     const adyenFees = capturedAdyen * ADYEN_FEE_PCT;
     const refunds = adyenRows
       .filter((r) => r.status === "RefundedBulk")
       .reduce((s, r) => s + (r.captured_amount_value || 0), 0);
+    const boonzCogs = totalCogs;
 
     // ── scenario waterfall (drives COMMERCIAL waterfall chart + summary table) ──
     const scenarioGross = totalWeimi;
     const scenarioNet = scenarioGross - refunds - adyenFees;
+    const netRevenue = scenarioNet;
     const opex = OPEX_PCT; // 0 — placeholder
 
     // VOX values
@@ -904,7 +905,18 @@ export default function PerformancePage() {
 
     const waterfallData: WaterfallBar[] = buildWaterfallBars(scenarioSteps);
 
-    // group breakdown
+    // Scenario-aware Boonz vs Partner split, derived from the unified
+    // scenarioNet so cards, waterfall, and summary agree.
+    const boonzRevenue =
+      commercialScenario === "VOX"
+        ? voxBoonzNet
+        : commercialScenario === "GRIT_OMD"
+          ? gritBoonzNet
+          : scenarioNet;
+    const partnerRevenue = scenarioNet - boonzRevenue;
+    const ebitda = boonzRevenue - boonzCogs - opex;
+
+    // group breakdown — uses unified per-group formula (gross − refunds − fees)
     const groupBreakdown = groupData.map((g) => {
       const gAdyen = settledAdyen.filter((a) => {
         const m = machineList.find((mm) => mm.machine_id === a.machine_id);
@@ -914,7 +926,15 @@ export default function PerformancePage() {
         (s, r) => s + (r.captured_amount_value || 0),
         0,
       );
-      const gNet = gCaptured * (1 - ADYEN_FEE_PCT);
+      const gFees = gCaptured * ADYEN_FEE_PCT;
+      const gRefunds = adyenRows
+        .filter((rw) => rw.status === "RefundedBulk")
+        .filter((rw) => {
+          const m = machineList.find((mm) => mm.machine_id === rw.machine_id);
+          return m?.venue_group === g.name;
+        })
+        .reduce((s, rw) => s + (rw.captured_amount_value || 0), 0);
+      const gNet = g.revenue - gRefunds - gFees;
       const gBoonz = gNet * BOONZ_SHARE_PCT;
       const gDues = gNet * (1 - BOONZ_SHARE_PCT) - g.cogs;
       return {
@@ -928,12 +948,12 @@ export default function PerformancePage() {
 
     return {
       netRevenue,
-      boonzShare,
-      clientShare,
-      boonzCogs,
-      netDues,
       adyenFees,
       refunds,
+      boonzRevenue,
+      partnerRevenue,
+      boonzCogs,
+      ebitda,
       waterfallData,
       groupBreakdown,
       // scenario-specific summary values
@@ -3221,11 +3241,11 @@ export default function PerformancePage() {
               </div>
             </div>
 
-            {/* 6 stat cards */}
+            {/* 5 unified stat cards (scenario-aware) */}
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(6, 1fr)",
+                gridTemplateColumns: "repeat(5, 1fr)",
                 gap: 14,
                 marginBottom: 28,
               }}
@@ -3233,40 +3253,53 @@ export default function PerformancePage() {
               <StatCard
                 label="Total Amount"
                 value={fmtAed(totalWeimi)}
-                accent="#2A3547"
-                valueColor="#2A3547"
+                subtitle="Gross from Weimi"
+                accent="#0E3F4D"
+                valueColor="#0E3F4D"
               />
               <StatCard
                 label="Captured"
                 value={fmtAed(capturedAdyen)}
+                subtitle="After payment processing"
                 accent="#0F4D3A"
                 valueColor="#0F4D3A"
               />
               <StatCard
                 label="Net Revenue"
                 value={fmtAed(commercialData.netRevenue)}
-                subtitle={`After ${(ADYEN_FEE_PCT * 100).toFixed(2)}% fees`}
+                subtitle={`After ${(ADYEN_FEE_PCT * 100).toFixed(2)}% fees & refunds`}
                 accent="#0E3F4D"
                 valueColor="#0E3F4D"
               />
               <StatCard
-                label="Boonz 20% Share"
-                value={fmtAed(commercialData.boonzShare)}
-                accent="#F59E0B"
-                valueColor="#d97706"
+                label="Boonz Revenue"
+                value={fmtAed(commercialData.boonzRevenue)}
+                subtitle={
+                  commercialData.scenario === "VOX"
+                    ? "Boonz 20% Share"
+                    : commercialData.scenario === "GRIT_OMD"
+                      ? "Boonz 95% Share"
+                      : "100% — No Agreement"
+                }
+                accent="#0F4D3A"
+                valueColor="#0F4D3A"
               />
               <StatCard
-                label="Boonz COGS"
-                value={fmtAed(commercialData.boonzCogs)}
-                accent="#dc2626"
-                valueColor="#dc2626"
-              />
-              <StatCard
-                label="Net Dues"
-                value={fmtAed(commercialData.netDues)}
-                subtitle="Client 80% - COGS"
-                accent="#8B5CF6"
-                valueColor="#8B5CF6"
+                label="Partner Revenue"
+                value={fmtAed(commercialData.partnerRevenue)}
+                subtitle={
+                  commercialData.scenario === "VOX"
+                    ? "VOX 80% Share"
+                    : commercialData.scenario === "GRIT_OMD"
+                      ? "Site Partner 5%"
+                      : "—"
+                }
+                accent={
+                  commercialData.partnerRevenue > 0 ? "#F59E0B" : "#9CA3AF"
+                }
+                valueColor={
+                  commercialData.partnerRevenue > 0 ? "#d97706" : "#9CA3AF"
+                }
               />
             </div>
 
@@ -3453,6 +3486,18 @@ export default function PerformancePage() {
                     {commercialData.waterfallData.map((d, i) => (
                       <Cell key={i} fill={d.fill} />
                     ))}
+                    <LabelList
+                      dataKey="value"
+                      position="top"
+                      formatter={(v: unknown) =>
+                        typeof v === "number" && v > 0 ? fmtAed(v) : ""
+                      }
+                      style={{
+                        fontSize: 9.5,
+                        fill: "#2A3547",
+                        fontWeight: 500,
+                      }}
+                    />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
