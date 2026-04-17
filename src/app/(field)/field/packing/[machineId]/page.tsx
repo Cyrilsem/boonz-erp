@@ -1458,13 +1458,21 @@ export default function PackingDetailPage() {
                                               key={b.wh_inventory_id}
                                               className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
                                             >
-                                              <span
-                                                className={`font-mono text-xs ${urgencyColor}`}
-                                              >
-                                                {b.expiry
-                                                  ? formatExpiry(b.expiry)
-                                                  : "—"}
-                                              </span>
+                                              <div className="flex flex-col leading-tight">
+                                                <span
+                                                  className={`font-mono text-xs ${urgencyColor}`}
+                                                >
+                                                  {b.expiry
+                                                    ? formatExpiry(b.expiry)
+                                                    : "—"}
+                                                </span>
+                                                <span
+                                                  className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
+                                                  title={v.name}
+                                                >
+                                                  {v.name}
+                                                </span>
+                                              </div>
                                               <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                                 {b.stock}u
                                               </span>
@@ -1582,11 +1590,27 @@ export default function PackingDetailPage() {
                                 key={b.wh_inventory_id}
                                 className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
                               >
-                                <span
-                                  className={`font-mono text-xs ${urgencyColor}`}
-                                >
-                                  {b.expiry ? formatExpiry(b.expiry) : "—"}
-                                </span>
+                                <div className="flex flex-col leading-tight">
+                                  <span
+                                    className={`font-mono text-xs ${urgencyColor}`}
+                                  >
+                                    {b.expiry ? formatExpiry(b.expiry) : "—"}
+                                  </span>
+                                  <span
+                                    className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
+                                    title={stripPodPrefix(
+                                      addLine.boonz_display_name ??
+                                        addLine.display_name,
+                                      addLine.pod_product_name,
+                                    )}
+                                  >
+                                    {stripPodPrefix(
+                                      addLine.boonz_display_name ??
+                                        addLine.display_name,
+                                      addLine.pod_product_name,
+                                    )}
+                                  </span>
+                                </div>
                                 <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                   {b.stock}u
                                 </span>
@@ -1900,13 +1924,21 @@ export default function PackingDetailPage() {
                                             key={b.wh_inventory_id}
                                             className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
                                           >
-                                            <span
-                                              className={`font-mono text-xs ${urgencyColor}`}
-                                            >
-                                              {b.expiry
-                                                ? formatExpiry(b.expiry)
-                                                : "—"}
-                                            </span>
+                                            <div className="flex flex-col leading-tight">
+                                              <span
+                                                className={`font-mono text-xs ${urgencyColor}`}
+                                              >
+                                                {b.expiry
+                                                  ? formatExpiry(b.expiry)
+                                                  : "—"}
+                                              </span>
+                                              <span
+                                                className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
+                                                title={v.name}
+                                              >
+                                                {v.name}
+                                              </span>
+                                            </div>
                                             <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                               {b.stock}u
                                             </span>
@@ -2128,11 +2160,27 @@ export default function PackingDetailPage() {
                                   key={b.wh_inventory_id}
                                   className="grid grid-cols-4 items-center px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
                                 >
-                                  <span
-                                    className={`font-mono text-xs ${urgencyColor}`}
-                                  >
-                                    {b.expiry ? formatExpiry(b.expiry) : "—"}
-                                  </span>
+                                  <div className="flex flex-col leading-tight">
+                                    <span
+                                      className={`font-mono text-xs ${urgencyColor}`}
+                                    >
+                                      {b.expiry ? formatExpiry(b.expiry) : "—"}
+                                    </span>
+                                    <span
+                                      className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
+                                      title={stripPodPrefix(
+                                        line.boonz_display_name ??
+                                          line.display_name,
+                                        line.pod_product_name,
+                                      )}
+                                    >
+                                      {stripPodPrefix(
+                                        line.boonz_display_name ??
+                                          line.display_name,
+                                        line.pod_product_name,
+                                      )}
+                                    </span>
+                                  </div>
                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                     {b.stock}u
                                   </span>
