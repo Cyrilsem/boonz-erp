@@ -312,7 +312,6 @@ export default function DispatchingDetailPage() {
     setSaving(true);
     setReturnNotice(null);
     const supabase = createClient();
-    const today = getDubaiDate();
     let totalReturnDelta = 0;
 
     for (const line of lines) {
@@ -354,51 +353,49 @@ export default function DispatchingDetailPage() {
             .eq("dispatch_id", line.dispatch_id);
         }
       } else if (line.action === "returned") {
-        // B3.1 Issue 9: idempotency guard. If the line is already returned
-        // in the DB, do not re-run the UPDATE or the WH INSERT — otherwise
-        // every "Returned" click creates a duplicate RETURNED-DISPATCH
-        // warehouse row (phantom units). Surface the state instead.
-        if (line.returned === true) {
-          console.info(
-            "[Dispatch] already returned — skipping duplicate write:",
-            line.dispatch_id,
-          );
+        // B3.2: return_dispatch_line RPC replaces the legacy inline flow.
+        // The RPC atomically drains consumer_stock on the packed batch,
+        // restores warehouse_stock on the SAME row (no RETURN-DISPATCH
+        // duplicate), flips returned=true, and is idempotent.
+        const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          "return_dispatch_line",
+          {
+            p_dispatch_id: line.dispatch_id,
+            p_return_reason: line.return_reason || null,
+          },
+        );
+
+        if (rpcErr) {
+          console.error("[B3.2] return_dispatch_line failed:", rpcErr);
           setInvWarnings((prev) => ({
             ...prev,
-            [line.dispatch_id]: "ℹ Already returned earlier — no change",
+            [line.dispatch_id]:
+              "⚠ Return failed: " + (rpcErr.message ?? "unknown error"),
           }));
           continue;
         }
 
-        await supabase
-          .from("refill_dispatching")
-          .update({
-            dispatched: true,
-            returned: true,
-            return_reason: line.return_reason || null,
-            filled_quantity: 0,
-            comment: line.comment.trim() || null,
-          })
-          .eq("dispatch_id", line.dispatch_id);
+        const status = (rpcData as { status?: string } | null)?.status;
+        if (status === "already_returned") {
+          console.info("[B3.2] already returned — no-op:", line.dispatch_id);
+          setInvWarnings((prev) => ({
+            ...prev,
+            [line.dispatch_id]: "ℹ Already returned earlier — no change",
+          }));
+        } else {
+          const returnQty = Number(
+            (rpcData as { return_qty?: number | string } | null)?.return_qty ??
+              0,
+          );
+          if (returnQty > 0) totalReturnDelta += returnQty;
+        }
 
-        // Non-blocking: return stock to warehouse
-        if (line.boonz_product_id) {
-          try {
-            await supabase.from("warehouse_inventory").insert({
-              boonz_product_id: line.boonz_product_id,
-              warehouse_stock: line.quantity,
-              expiration_date: line.expiry_date ?? null,
-              batch_id: `RETURNED-DISPATCH-${today}`,
-              status: "Active",
-              snapshot_date: today,
-            });
-          } catch (err) {
-            console.error("[Dispatch] return to warehouse insert failed:", err);
-            setInvWarnings((prev) => ({
-              ...prev,
-              [line.dispatch_id]: "⚠ Warehouse return record failed",
-            }));
-          }
+        // Persist driver comment separately — the RPC doesn't touch comment.
+        if (line.comment.trim()) {
+          await supabase
+            .from("refill_dispatching")
+            .update({ comment: line.comment.trim() })
+            .eq("dispatch_id", line.dispatch_id);
         }
 
         // Mark local state so a second click immediately no-ops even if
@@ -418,6 +415,12 @@ export default function DispatchingDetailPage() {
         `Returned ${totalReturnDelta} unit${totalReturnDelta === 1 ? "" : "s"} to warehouse.`,
       );
     }
+
+    // B3.2: re-fetch authoritative state after the save loop so the UI
+    // reflects RPC-driven changes (returned/dispatched/filled_quantity,
+    // consumer_stock drains, any RETURN fallback rows) — no optimistic
+    // caching beyond the per-line local state above.
+    await fetchData();
 
     setSaving(false);
     setSaved(true);
