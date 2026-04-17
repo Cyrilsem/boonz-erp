@@ -139,71 +139,6 @@ function computeVariantQtys(
 // ─── WH stock helpers (module-level, reusable) ───────────────────────────────
 
 /**
- * Deduct `qty` from warehouse_inventory using FIFO.
- * Prioritises the `chosenExpiry` batch first; spills to remaining Active batches
- * in expiry ASC order if the chosen batch has insufficient stock.
- */
-async function deductWarehouseStock(
-  sb: ReturnType<typeof createClient>,
-  boonzProductId: string,
-  chosenExpiry: string | null,
-  qty: number,
-): Promise<void> {
-  let remaining = qty;
-
-  // Step 1: deduct from the batch the warehouse actually picked
-  if (chosenExpiry && remaining > 0) {
-    const { data: batch } = await sb
-      .from("warehouse_inventory")
-      .select("wh_inventory_id, warehouse_stock")
-      .eq("boonz_product_id", boonzProductId)
-      .eq("expiration_date", chosenExpiry)
-      .eq("status", "Active")
-      .single();
-
-    if (batch && batch.warehouse_stock > 0) {
-      const take = Math.min(batch.warehouse_stock, remaining);
-      const newStock = batch.warehouse_stock - take;
-      await sb
-        .from("warehouse_inventory")
-        .update({
-          warehouse_stock: newStock,
-          status: newStock <= 0 ? "Inactive" : "Active",
-        })
-        .eq("wh_inventory_id", batch.wh_inventory_id);
-      remaining -= take;
-    }
-  }
-
-  // Step 2: spill to remaining FIFO batches if chosen batch was short
-  if (remaining > 0) {
-    const { data: batches } = await sb
-      .from("warehouse_inventory")
-      .select("wh_inventory_id, warehouse_stock, expiration_date")
-      .eq("boonz_product_id", boonzProductId)
-      .eq("status", "Active")
-      .gt("warehouse_stock", 0)
-      .order("expiration_date", { ascending: true, nullsFirst: false })
-      .limit(50);
-
-    for (const b of batches ?? []) {
-      if (remaining <= 0) break;
-      if (chosenExpiry && b.expiration_date === chosenExpiry) continue; // already handled
-      const take = Math.min(b.warehouse_stock, remaining);
-      const newStock = b.warehouse_stock - take;
-      await sb
-        .from("warehouse_inventory")
-        .update({
-          warehouse_stock: newStock,
-          status: newStock <= 0 ? "Inactive" : "Active",
-        })
-        .eq("wh_inventory_id", b.wh_inventory_id);
-      remaining -= take;
-    }
-  }
-}
-
-/**
  * Restore `qty` units back to warehouse_inventory for the given expiry batch.
  * Called when a previously-packed line is skipped (WH deduction reversal).
  */
@@ -255,6 +190,15 @@ export default function PackingDetailPage() {
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [whWarnMsg, setWhWarnMsg] = useState<string>("");
+  /** B3.1: skipped-but-recoverable lines (include=false, packed=false) */
+  const [skippedLines, setSkippedLines] = useState<
+    {
+      dispatch_id: string;
+      shelf_code: string;
+      display_name: string;
+      quantity: number;
+    }[]
+  >([]);
 
   /**
    * Per-batch pick quantities for mix lines.
@@ -314,6 +258,41 @@ export default function PackingDetailPage() {
       .eq("dispatch_date", today)
       .eq("include", true)
       .eq("machine_id", machineId);
+
+    // B3.1 Issue 6: fetch skipped-but-recoverable lines (include=false)
+    // so the UI can show an "Un-skip" affordance.
+    const { data: skippedRaw } = await supabase
+      .from("refill_dispatching")
+      .select(
+        `
+        dispatch_id,
+        quantity,
+        shelf_configurations(shelf_code),
+        pod_products(pod_product_name)
+      `,
+      )
+      .eq("dispatch_date", today)
+      .eq("include", false)
+      .eq("packed", false)
+      .eq("machine_id", machineId)
+      .limit(10000);
+
+    setSkippedLines(
+      (skippedRaw ?? []).map((r) => {
+        const shelf = r.shelf_configurations as unknown as {
+          shelf_code: string | null;
+        } | null;
+        const prod = r.pod_products as unknown as {
+          pod_product_name: string | null;
+        } | null;
+        return {
+          dispatch_id: r.dispatch_id,
+          shelf_code: shelf?.shelf_code ?? "—",
+          display_name: prod?.pod_product_name ?? "—",
+          quantity: Number(r.quantity ?? 0),
+        };
+      }),
+    );
 
     if (!dispatchLines) {
       setLines([]);
@@ -978,303 +957,145 @@ export default function PackingDetailPage() {
     setSaving(true);
     setWhWarnMsg("");
     const supabase = createClient();
+    const warnings: string[] = [];
 
     for (const line of lines) {
       if (line.action === "packed") {
-        // ── RULE: Whatever is physically packed and confirmed is source of truth.
-        // ── The system records it exactly. Nothing overwrites confirmed data.
-        // ── One dispatch line per boonz variant per expiry batch with qty > 0.
-
+        // ── B3.1 RPC-only path ───────────────────────────────────────────
+        // pack_dispatch_line does: WH→consumer reservation, parent qty
+        // reconciliation (via OB-2 trigger on child INSERT), atomic audit.
+        // NO legacy inline WH UPDATE or child INSERT exists below.
         const batchQtys = batchPickQtys[line.dispatch_id];
-        const today = getDubaiDate();
         const isMixLine = line.variantStocks !== null;
 
-        // ── Fetch existing state of extra slices to preserve frozen rows ─
-        // Frozen rows (picked_up OR dispatched) must NOT be deleted or re-written.
-        // Only rows still in the "packed, not yet picked up" phase can be safely
-        // replaced. Any state written by the dispatch flow is source of truth.
-        const frozenSliceRows: {
-          dispatch_id: string;
-          boonz_product_id: string | null;
-          quantity: number;
-          filled_quantity: number | null;
-          expiry_date: string | null;
-        }[] = [];
+        // Fetch existing extra-slice state; preserve frozen (picked_up /
+        // dispatched) rows — these must not be touched. Clear only rows
+        // still in the packed-not-yet-picked-up phase so the RPC can
+        // spawn fresh children via the OB-2 trigger.
+        const frozenKeys = new Set<string>();
+        const keyOf = (bpId: string | null, exp: string | null) =>
+          `${bpId ?? ""}__${exp ?? ""}`;
 
         if (line.extraSliceIds.length > 0) {
           const { data: existingSlices, error: fetchErr } = await supabase
             .from("refill_dispatching")
             .select(
-              "dispatch_id, boonz_product_id, quantity, filled_quantity, expiry_date, picked_up, dispatched",
+              "dispatch_id, boonz_product_id, expiry_date, picked_up, dispatched",
             )
             .in("dispatch_id", line.extraSliceIds);
-
           if (fetchErr) {
-            console.error("Failed to fetch extra slice state", fetchErr);
-            throw fetchErr;
+            console.error("[B3.1] fetch extra slices failed", fetchErr);
+            warnings.push(
+              `${line.pod_product_name}: failed to read existing slices — skipped`,
+            );
+            continue;
           }
-
           const deletableIds: string[] = [];
           for (const row of existingSlices ?? []) {
             if (row.picked_up === true || row.dispatched === true) {
-              frozenSliceRows.push({
-                dispatch_id: row.dispatch_id,
-                boonz_product_id: row.boonz_product_id,
-                quantity: Number(row.quantity ?? 0),
-                filled_quantity: Number(row.filled_quantity ?? 0),
-                expiry_date: row.expiry_date,
-              });
+              frozenKeys.add(keyOf(row.boonz_product_id, row.expiry_date));
             } else {
               deletableIds.push(row.dispatch_id);
             }
           }
-
           if (deletableIds.length > 0) {
             const { error: delErr } = await supabase
               .from("refill_dispatching")
               .delete()
               .in("dispatch_id", deletableIds);
             if (delErr) {
-              console.error("Failed to delete extra slice rows", delErr);
-              throw delErr;
-            }
-          }
-        }
-
-        // ── B3: pack_dispatch_line RPC fast-path ────────────────────────
-        // Atomic WH↦consumer reservation + child-dispatch spawn + OB-2 parent
-        // decrement. Only safe for single-variant fresh packs with no prior
-        // multi-batch state. Mix lines (multi-bpid children), re-packs (parent
-        // already packed), and partially-frozen lines fall through to the
-        // inline path below.
-        const canUseRpc =
-          !isMixLine &&
-          !line.packed &&
-          line.extraSliceIds.length === 0 &&
-          frozenSliceRows.length === 0 &&
-          Boolean(batchQtys);
-
-        if (canUseRpc) {
-          const picks: { wh_inventory_id: string; qty: number }[] = [];
-          for (const b of line.singleBatches ?? []) {
-            const qty = batchQtys![b.wh_inventory_id] ?? 0;
-            if (qty > 0) {
-              picks.push({ wh_inventory_id: b.wh_inventory_id, qty });
-            }
-          }
-          if (picks.length > 0) {
-            const { error: rpcErr } = await supabase.rpc("pack_dispatch_line", {
-              p_dispatch_id: line.dispatch_id,
-              p_picks: picks,
-            });
-            if (rpcErr) {
-              console.error("[Pack] pack_dispatch_line RPC error:", rpcErr);
-              setWhWarnMsg(
-                "Pack failed: " + (rpcErr.message ?? "unknown error"),
+              console.error("[B3.1] delete stale slices failed", delErr);
+              warnings.push(
+                `${line.pod_product_name}: could not clear stale slices — skipped`,
               );
-            }
-            continue;
-          }
-        }
-
-        // ── Collect picks grouped by (boonz_product_id, expiry) ──────────
-        // Each entry becomes its own dispatch line.
-        interface PickSlice {
-          boonzProductId: string;
-          expiry: string | null;
-          qty: number;
-        }
-        const pickSlices: PickSlice[] = [];
-
-        if (batchQtys && isMixLine) {
-          // Mix line: group by variant then expiry
-          for (const v of line.variantStocks!) {
-            const expiryMap = new Map<string, number>();
-            for (const b of v.batches) {
-              const qty = batchQtys[b.wh_inventory_id] ?? 0;
-              if (qty <= 0) continue;
-              const key = b.expiry ?? "__null__";
-              expiryMap.set(key, (expiryMap.get(key) ?? 0) + qty);
-            }
-            for (const [key, qty] of expiryMap) {
-              pickSlices.push({
-                boonzProductId: v.boonzProductId,
-                expiry: key === "__null__" ? null : key,
-                qty,
-              });
+              continue;
             }
           }
-        } else if (batchQtys) {
-          // Single-variant line: group by expiry only
-          const allBatches = line.singleBatches ?? [];
-          const expiryMap = new Map<string, number>();
-          for (const b of allBatches) {
-            const qty = batchQtys[b.wh_inventory_id] ?? 0;
-            if (qty <= 0) continue;
-            const key = b.expiry ?? "__null__";
-            expiryMap.set(key, (expiryMap.get(key) ?? 0) + qty);
-          }
-          for (const [key, qty] of expiryMap) {
-            pickSlices.push({
-              boonzProductId: line.boonz_product_id,
-              expiry: key === "__null__" ? null : key,
-              qty,
-            });
-          }
         }
 
-        // Fallback: no batch UI interaction — single batch with packed_qty
-        if (pickSlices.length === 0) {
-          pickSlices.push({
-            boonzProductId: line.boonz_product_id,
-            expiry: line.fifo_expiry ?? null,
-            qty: line.packed_qty,
-          });
-        }
-
-        // ── Filter out slices already represented by frozen rows ─────────
-        // Frozen rows hold the correct state on disk — nothing to re-write.
-        // Match on (boonzProductId, expiry) which is a slice's natural key.
-        const frozenKey = (bpId: string | null, exp: string | null) =>
-          `${bpId ?? ""}__${exp ?? ""}`;
-        const frozenKeys = new Set(
-          frozenSliceRows.map((r) =>
-            frozenKey(r.boonz_product_id, r.expiry_date),
-          ),
-        );
-        const writableSlices = pickSlices.filter(
-          (s) => !frozenKeys.has(frozenKey(s.boonzProductId, s.expiry)),
-        );
-
-        if (writableSlices.length === 0) {
-          // All slices already packed and frozen. Nothing new to write.
-          if (frozenSliceRows.length > 0) {
-            console.info(
-              `[pack-save] ${frozenSliceRows.length} slice(s) preserved as already dispatched:`,
-              frozenSliceRows
-                .map((r) => `${r.boonz_product_id}@${r.expiry_date}`)
-                .join(", "),
-            );
-          }
+        // Re-pack of an already-packed parent is not supported by the RPC
+        // (protect_packed_dispatch_row trigger blocks identity changes).
+        // Surface a clear message instead of falling back to legacy.
+        if (line.packed) {
+          warnings.push(
+            `${line.pod_product_name}: already packed — refresh to edit`,
+          );
           continue;
         }
 
-        // ── Save: UPDATE original line with first slice, INSERT rest ─────
-        const [firstSlice, ...extraSlices] = writableSlices;
+        // Build per-batch pick list. Every pick carries its own
+        // boonz_product_id so mix lines (one parent → multiple variants)
+        // pack atomically in one RPC call.
+        interface Pick {
+          wh_inventory_id: string;
+          qty: number;
+          boonz_product_id: string;
+        }
+        const picks: Pick[] = [];
 
-        await supabase
-          .from("refill_dispatching")
-          .update({
-            packed: true,
-            filled_quantity: firstSlice.qty,
-            expiry_date: firstSlice.expiry,
-            // For mix lines the original line may have a different boonz_product_id
-            ...(isMixLine
-              ? { boonz_product_id: firstSlice.boonzProductId }
-              : {}),
-          })
-          .eq("dispatch_id", line.dispatch_id);
-
-        for (const slice of extraSlices) {
-          const { error: insertErr } = await supabase
-            .from("refill_dispatching")
-            .insert({
-              machine_id: machineId,
-              shelf_id: line.shelf_id,
-              pod_product_id: line.pod_product_id,
-              boonz_product_id: slice.boonzProductId,
-              dispatch_date: today,
-              action: line.dispatch_action ?? "Refill",
-              quantity: slice.qty,
-              filled_quantity: slice.qty,
-              expiry_date: slice.expiry,
-              packed: true,
-              picked_up: false,
-              dispatched: false,
-              returned: false,
-              include: true,
+        if (isMixLine && line.variantStocks) {
+          for (const v of line.variantStocks) {
+            for (const b of v.batches) {
+              const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
+              if (qty <= 0) continue;
+              if (frozenKeys.has(keyOf(v.boonzProductId, b.expiry))) continue;
+              picks.push({
+                wh_inventory_id: b.wh_inventory_id,
+                qty,
+                boonz_product_id: v.boonzProductId,
+              });
+            }
+          }
+        } else {
+          for (const b of line.singleBatches ?? []) {
+            const qty = batchQtys?.[b.wh_inventory_id] ?? 0;
+            if (qty <= 0) continue;
+            if (frozenKeys.has(keyOf(line.boonz_product_id, b.expiry)))
+              continue;
+            picks.push({
+              wh_inventory_id: b.wh_inventory_id,
+              qty,
+              boonz_product_id: line.boonz_product_id,
             });
-          if (insertErr) {
-            console.error("[Pack] extra slice INSERT failed:", insertErr);
-            setWhWarnMsg(
-              `Batch ${slice.boonzProductId}/${slice.expiry ?? "no-expiry"} line failed to save — check WH`,
-            );
           }
         }
 
-        // ── WH stock adjustment ──────────────────────────────────────────
-        // Primary slice: delta vs previously saved qty (handles re-pack).
-        // Extra slices: full qty deduction (new lines).
-        // Non-blocking: failure warns but does not roll back packed=true.
-        if (firstSlice.boonzProductId) {
-          const prevPacked = line.packed;
-          const prevQty = prevPacked ? (line.filled_quantity ?? 0) : 0;
-          const prevExpiry = prevPacked ? line.expiry_date : null;
-          const primaryDelta = firstSlice.qty - prevQty;
-
-          try {
-            if (primaryDelta > 0) {
-              await deductWarehouseStock(
-                supabase,
-                firstSlice.boonzProductId,
-                firstSlice.expiry,
-                primaryDelta,
-              );
-            } else if (primaryDelta < 0) {
-              await restoreWarehouseStock(
-                supabase,
-                firstSlice.boonzProductId,
-                prevExpiry,
-                Math.abs(primaryDelta),
-              );
-            } else if (prevPacked && firstSlice.expiry !== prevExpiry) {
-              await restoreWarehouseStock(
-                supabase,
-                firstSlice.boonzProductId,
-                prevExpiry,
-                prevQty,
-              );
-              await deductWarehouseStock(
-                supabase,
-                firstSlice.boonzProductId,
-                firstSlice.expiry,
-                firstSlice.qty,
-              );
-            }
-          } catch (err) {
-            console.error("[Pack] WH adjustment failed:", err);
-            setWhWarnMsg(
-              "Packed saved but WH stock adjustment failed — please check warehouse inventory.",
-            );
-          }
-        }
-        // Deduct extra slices (new lines, full qty each)
-        for (const slice of extraSlices) {
-          if (slice.qty > 0 && slice.boonzProductId) {
-            try {
-              await deductWarehouseStock(
-                supabase,
-                slice.boonzProductId,
-                slice.expiry,
-                slice.qty,
-              );
-            } catch (err) {
-              console.error("[Pack] WH deduct for extra slice failed:", err);
-              setWhWarnMsg(
-                "Packed saved but WH stock adjustment failed — please check warehouse inventory.",
-              );
-            }
-          }
-        }
-
-        if (frozenSliceRows.length > 0) {
-          console.info(
-            `[pack-save] ${frozenSliceRows.length} slice(s) preserved as already dispatched:`,
-            frozenSliceRows
-              .map((r) => `${r.boonz_product_id}@${r.expiry_date}`)
-              .join(", "),
+        // Zero picks: user clicked Packed with 0 qtys. The
+        // zeroQtyWarnings banner has already cued them; don't touch DB.
+        if (picks.length === 0) {
+          console.warn(
+            `[B3.1] ${line.pod_product_name}: 0 picks — RPC skipped`,
           );
+          continue;
         }
+
+        // Diagnostic telemetry — used to verify mix lines are taking the
+        // RPC path (zero legacy fallback expected).
+        const distinctBpids = new Set(picks.map((p) => p.boonz_product_id));
+        console.log(
+          `[B3.1] Packing ${line.pod_product_name} (dispatch ${line.dispatch_id}):`,
+          {
+            isMixLine,
+            variantCount: distinctBpids.size,
+            totalPickQty: picks.reduce((s, p) => s + p.qty, 0),
+            plannedQty: line.recommended_qty,
+            picksCount: picks.length,
+          },
+        );
+
+        const { data: rpcData, error: rpcErr } = await supabase.rpc(
+          "pack_dispatch_line",
+          { p_dispatch_id: line.dispatch_id, p_picks: picks },
+        );
+        if (rpcErr) {
+          console.error(
+            `[B3.1] Pack RPC failed for ${line.pod_product_name}:`,
+            rpcErr.message,
+          );
+          warnings.push(`${line.pod_product_name}: ${rpcErr.message}`);
+          continue;
+        }
+        console.log(`[B3.1] Packed via RPC: ${line.pod_product_name}`, rpcData);
       } else if (line.action === "skip") {
         // If this line was already packed (WH was deducted), restore WH stock first.
         // SCENARIO B (admin sets include=false directly in DB) must be handled manually.
@@ -1304,9 +1125,32 @@ export default function PackingDetailPage() {
       }
     }
 
+    if (warnings.length > 0) {
+      setWhWarnMsg(warnings.join(" · "));
+    }
+
+    // B3.1 Issue 8: re-fetch authoritative state after the save loop so
+    // the UI reflects packed=true, filled_quantity, and any RPC-spawned
+    // child rows — no optimistic caching.
+    await fetchData();
+
     setSaving(false);
     setSaved(true);
     setEditingAfterSave(false);
+  }
+
+  async function handleUnskip(dispatchId: string) {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("refill_dispatching")
+      .update({ include: true })
+      .eq("dispatch_id", dispatchId);
+    if (error) {
+      console.error("[B3.1] un-skip failed", error);
+      setWhWarnMsg(`Un-skip failed: ${error.message}`);
+      return;
+    }
+    await fetchData();
   }
 
   // Intercept Packed button for mix lines: show warning if total = 0
@@ -2128,14 +1972,31 @@ export default function PackingDetailPage() {
                                         </span>
                                         <span />
                                       </div>
-                                      {/* Double-allocation warning for this variant */}
+                                      {/* B3.1 Issue 7: per-batch availability.
+                                          Summed across batches — stays positive
+                                          if any single batch is pickable. */}
                                       {(() => {
-                                        const vc =
-                                          committedByProduct.get(
-                                            v.boonzProductId,
-                                          ) ?? 0;
-                                        if (vc === 0) return null;
-                                        const va = v.stock - vc;
+                                        const vCommitted = v.batches.reduce(
+                                          (s, b) =>
+                                            s +
+                                            (committedByBatch.get(
+                                              `${v.boonzProductId}|||${b.expiry ?? "null"}`,
+                                            ) ?? 0),
+                                          0,
+                                        );
+                                        const vAvail = v.batches.reduce(
+                                          (s, b) =>
+                                            s +
+                                            Math.max(
+                                              0,
+                                              b.stock -
+                                                (committedByBatch.get(
+                                                  `${v.boonzProductId}|||${b.expiry ?? "null"}`,
+                                                ) ?? 0),
+                                            ),
+                                          0,
+                                        );
+                                        if (vCommitted === 0) return null;
                                         return (
                                           <div className="border-t border-neutral-100 px-3 py-2 text-xs dark:border-neutral-800">
                                             <span className="text-neutral-500">
@@ -2143,22 +2004,21 @@ export default function PackingDetailPage() {
                                             </span>
                                             {" | "}
                                             <span className="text-amber-600 dark:text-amber-400">
-                                              Committed: {vc}
+                                              Committed: {vCommitted}
                                             </span>
                                             {" | "}
                                             <span
                                               className={
-                                                va > 0
+                                                vAvail > 0
                                                   ? "text-green-700 dark:text-green-400"
                                                   : "text-red-600 dark:text-red-400"
                                               }
                                             >
-                                              Avail: {va}
+                                              Avail: {vAvail}
                                             </span>
-                                            {va <= 0 && (
+                                            {vAvail <= 0 && (
                                               <p className="mt-1 font-medium text-red-600 dark:text-red-400">
-                                                ✗ Fully committed to other
-                                                machines
+                                                ✗ All batches fully committed
                                               </p>
                                             )}
                                           </div>
@@ -2330,7 +2190,10 @@ export default function PackingDetailPage() {
                               </span>
                               <span />
                             </div>
-                            {/* Double-allocation warning */}
+                            {/* B3.1 Issue 7: per-batch availability sum.
+                                totalBatchAvailable clamps negatives per row,
+                                so one fully-committed batch can't block the
+                                others from being picked. */}
                             {lineCommitted > 0 && (
                               <div className="border-t border-neutral-100 px-3 py-2 text-xs dark:border-neutral-800">
                                 <span className="text-neutral-500">
@@ -2343,23 +2206,24 @@ export default function PackingDetailPage() {
                                 {" | "}
                                 <span
                                   className={
-                                    lineAvailable > 0
+                                    totalBatchAvailable > 0
                                       ? "text-green-700 dark:text-green-400"
                                       : "text-red-600 dark:text-red-400"
                                   }
                                 >
-                                  Available: {lineAvailable}
+                                  Available: {totalBatchAvailable}
                                 </span>
-                                {lineAvailable <= 0 && (
+                                {totalBatchAvailable <= 0 && (
                                   <p className="mt-1 font-medium text-red-600 dark:text-red-400">
-                                    ✗ No stock available — fully committed to
-                                    other machines
+                                    ✗ All batches fully committed — no stock
+                                    pickable for this machine
                                   </p>
                                 )}
-                                {lineAvailable > 0 &&
-                                  lineAvailable < line.recommended_qty && (
+                                {totalBatchAvailable > 0 &&
+                                  totalBatchAvailable <
+                                    line.recommended_qty && (
                                     <p className="mt-1 text-red-600 dark:text-red-400">
-                                      ⚠ Only {lineAvailable} available —{" "}
+                                      ⚠ Only {totalBatchAvailable} available —{" "}
                                       {lineCommitted} committed to other
                                       machines
                                     </p>
@@ -2409,6 +2273,45 @@ export default function PackingDetailPage() {
           </ul>
         </div>
       ))}
+
+      {/* B3.1 Issue 6: skipped items recovery */}
+      {skippedLines.length > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+            <span className="text-base">⏭</span> Skipped items
+            <span className="ml-auto text-xs font-normal text-neutral-400">
+              {skippedLines.length} item
+              {skippedLines.length !== 1 ? "s" : ""}
+            </span>
+          </h2>
+          <ul className="space-y-1">
+            {skippedLines.map((s) => (
+              <li
+                key={s.dispatch_id}
+                className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                    {s.shelf_code}
+                  </span>
+                  <span className="truncate text-neutral-600 dark:text-neutral-400">
+                    {s.display_name}
+                  </span>
+                  <span className="shrink-0 text-xs text-neutral-400">
+                    — {s.quantity}u
+                  </span>
+                </span>
+                <button
+                  onClick={() => handleUnskip(s.dispatch_id)}
+                  className="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  ↩ Un-skip
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Bottom bar */}
       <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">

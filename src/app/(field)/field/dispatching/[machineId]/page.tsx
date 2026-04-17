@@ -354,6 +354,22 @@ export default function DispatchingDetailPage() {
             .eq("dispatch_id", line.dispatch_id);
         }
       } else if (line.action === "returned") {
+        // B3.1 Issue 9: idempotency guard. If the line is already returned
+        // in the DB, do not re-run the UPDATE or the WH INSERT — otherwise
+        // every "Returned" click creates a duplicate RETURNED-DISPATCH
+        // warehouse row (phantom units). Surface the state instead.
+        if (line.returned === true) {
+          console.info(
+            "[Dispatch] already returned — skipping duplicate write:",
+            line.dispatch_id,
+          );
+          setInvWarnings((prev) => ({
+            ...prev,
+            [line.dispatch_id]: "ℹ Already returned earlier — no change",
+          }));
+          continue;
+        }
+
         await supabase
           .from("refill_dispatching")
           .update({
@@ -384,6 +400,16 @@ export default function DispatchingDetailPage() {
             }));
           }
         }
+
+        // Mark local state so a second click immediately no-ops even if
+        // the user doesn't re-submit to pick up the DB write.
+        setLines((prev) =>
+          prev.map((l) =>
+            l.dispatch_id === line.dispatch_id
+              ? { ...l, returned: true, dispatched: true, filled_qty: 0 }
+              : l,
+          ),
+        );
       }
     }
 
