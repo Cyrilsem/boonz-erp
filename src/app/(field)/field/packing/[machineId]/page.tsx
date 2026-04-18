@@ -1060,12 +1060,24 @@ export default function PackingDetailPage() {
           }
         }
 
-        // Zero picks: user clicked Packed with 0 qtys. The
-        // zeroQtyWarnings banner has already cued them; don't touch DB.
+        // Zero picks: user intentionally packed 0 qty (e.g. shelf cleared,
+        // product swapped out). Mark the dispatch line as packed with qty=0
+        // so the shelf counts as done — no WH stock is deducted.
         if (picks.length === 0) {
-          console.warn(
-            `[B3.1] ${line.pod_product_name}: 0 picks — RPC skipped`,
+          console.log(
+            `[B3.1] ${line.pod_product_name}: packed with qty=0 — marking done`,
           );
+          const { error: zeroErr } = await supabase
+            .from("refill_dispatching")
+            .update({ packed: true, filled_quantity: 0 })
+            .eq("dispatch_id", line.dispatch_id);
+          if (zeroErr) {
+            console.error(
+              `[B3.1] Zero-pack update failed for ${line.pod_product_name}:`,
+              zeroErr.message,
+            );
+            warnings.push(`${line.pod_product_name}: ${zeroErr.message}`);
+          }
           continue;
         }
 

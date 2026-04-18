@@ -1218,9 +1218,32 @@ export default function InventoryPage() {
   const processed: InventoryRow[] = useMemo(() => {
     let filtered = rows;
 
-    // Status filter
+    // Status filter — when an expiry filter is active, also surface Inactive /
+    // Expired rows that fall within the expiry window so they don't silently
+    // disappear behind the default "Active" status pill.
     if (statusFilter !== "All") {
-      filtered = filtered.filter((r) => r.status === statusFilter);
+      filtered = filtered.filter((r) => {
+        if (r.status === statusFilter) return true;
+        if (
+          expiryFilter !== "all" &&
+          (r.status === "Inactive" || r.status === "Expired")
+        ) {
+          const days = daysUntilExpiry(r.expiration_date);
+          if (days === null)
+            return expiryFilter === "expired" && r.status === "Expired";
+          switch (expiryFilter) {
+            case "expired":
+              return days <= 0;
+            case "3days":
+              return days <= 3;
+            case "7days":
+              return days <= 7;
+            case "30days":
+              return days <= 30;
+          }
+        }
+        return false;
+      });
     }
 
     // Hide empty
