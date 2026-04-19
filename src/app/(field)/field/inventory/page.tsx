@@ -1462,18 +1462,60 @@ export default function InventoryPage() {
     );
   }
 
+  // F-05: CSV export of the currently filtered + sorted `processed` array.
+  function exportCSV() {
+    const headers = [
+      "Product Name",
+      "Category",
+      "Batch ID",
+      "Location",
+      "Stock",
+      "Expiry Date",
+      "Status",
+    ];
+    const csvRows = [
+      headers.join(","),
+      ...processed.map((r) =>
+        [
+          `"${r.boonz_product_name.replace(/"/g, '""')}"`,
+          `"${(r.product_category ?? "").replace(/"/g, '""')}"`,
+          r.batch_id,
+          `"${(r.wh_location ?? "").replace(/"/g, '""')}"`,
+          r.warehouse_stock,
+          r.expiration_date ?? "",
+          r.status,
+        ].join(","),
+      ),
+    ];
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `warehouse-inventory-${getDubaiDate()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="pb-24">
       <FieldHeader
         title="Inventory"
         rightAction={
           !controlMode ? (
-            <button
-              onClick={enterControlMode}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-            >
-              + Inventory Control
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exportCSV}
+                className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                Export CSV
+              </button>
+              <button
+                onClick={enterControlMode}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                + Inventory Control
+              </button>
+            </div>
           ) : (
             <button
               onClick={() => {
