@@ -690,9 +690,15 @@ export default function PerformancePage() {
     for (const s of salesRows) {
       const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
       if (!base) continue;
+      // Mirror the RPC's vox_sales filter: skip zero-amount rows (cash /
+      // cancelled-before-capture). They inflate basket count and distort the rate.
+      const effectiveTotal = (s.total_amount ?? 0) > 0
+        ? (s.total_amount ?? 0)
+        : (s.paid_amount ?? 0);
+      if (effectiveTotal <= 0) continue;
       const g = groups.get(base);
-      if (g) { g.total += s.total_amount || 0; }
-      else groups.set(base, { total: s.total_amount || 0 });
+      if (g) { g.total += effectiveTotal; }
+      else groups.set(base, { total: effectiveTotal });
     }
     let matchedTotal = 0;
     let matchedCount = 0;
@@ -1000,10 +1006,14 @@ export default function PerformancePage() {
     );
   }, [salesRows, adyenByMerchantRef, txnGroup, txnFunding, txnSearch]);
 
-  // Count of sales rows with no settled Adyen match — feeds the PAYMENT DEFAULT banner.
+  // Count of non-zero sales rows with no settled Adyen match — feeds the PAYMENT DEFAULT banner.
   const defaultTxnCount = useMemo(() => {
     let n = 0;
     for (const s of salesRows) {
+      const effectiveTotal = (s.total_amount ?? 0) > 0
+        ? (s.total_amount ?? 0)
+        : (s.paid_amount ?? 0);
+      if (effectiveTotal <= 0) continue; // skip cash / cancelled-before-capture
       const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
       const match = base ? adyenByMerchantRef.get(base) : undefined;
       if (!match || !SETTLED_STATUSES.has(match.status ?? "")) n++;
