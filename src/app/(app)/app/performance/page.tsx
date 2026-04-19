@@ -505,16 +505,27 @@ export default function PerformancePage() {
         salesQuery = salesQuery.in("machine_id", selectedMachineIds);
       }
 
-      let adyenQuery = supabase
+      // Adyen settlements post 1-3 days after the Weimi sale.
+      // Extend the window ±7 days so edge-of-range baskets always find their match.
+      // Do NOT filter by machine_id — that column is NULL in adyen_transactions;
+      // machine association is resolved implicitly via merchant_reference matching.
+      const adyenFrom = new Date(
+        new Date(dateFrom).getTime() - 7 * 24 * 60 * 60 * 1000,
+      )
+        .toISOString()
+        .split("T")[0];
+      const adyenTo = new Date(
+        new Date(dateTo).getTime() + 7 * 24 * 60 * 60 * 1000,
+      )
+        .toISOString()
+        .split("T")[0];
+      const adyenQuery = supabase
         .from("adyen_transactions")
         .select(
           "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference",
         )
-        .gte("creation_date", `${dateFrom}T00:00:00+00:00`)
-        .lte("creation_date", `${dateTo}T23:59:59+00:00`);
-      if (selectedMachineIds.length > 0) {
-        adyenQuery = adyenQuery.in("machine_id", selectedMachineIds);
-      }
+        .gte("creation_date", `${adyenFrom}T00:00:00+00:00`)
+        .lte("creation_date", `${adyenTo}T23:59:59+00:00`);
 
       const [machineRes, salesRes, adyenRes, agreementsRes] = await Promise.all(
         [
@@ -567,18 +578,10 @@ export default function PerformancePage() {
       }
       setSalesRows(filtered);
 
-      let filteredAdyen = (adyenRes.data ?? []) as AdyenTxn[];
-      if (group !== "All") {
-        const machineIds = new Set(
-          machines
-            .filter((m) => m.venue_group === group)
-            .map((m) => m.machine_id),
-        );
-        filteredAdyen = filteredAdyen.filter((r) =>
-          machineIds.has(r.machine_id),
-        );
-      }
-      setAdyenRows(filteredAdyen);
+      // Do not filter Adyen by machine_id (NULL in all rows).
+      // Machine association is resolved via merchant_reference matching against
+      // salesRows (which IS filtered by group). This mirrors the RPC approach.
+      setAdyenRows((adyenRes.data ?? []) as AdyenTxn[]);
 
       setLastUpdated(
         new Date().toLocaleTimeString("en-GB", {
@@ -708,6 +711,7 @@ export default function PerformancePage() {
     let matchedCapture = 0;
     let matchedCount = 0;
     let defaultGap = 0;
+    let defaultBasketCount = 0;
     for (const [base, grp] of groups) {
       const adyen = adyenByMerchantRef.get(base);
       if (adyen !== undefined) {                              // psp_reference IS NOT NULL
@@ -715,7 +719,9 @@ export default function PerformancePage() {
         matchedTotal += grp.total;
         matchedCapture += captured;
         matchedCount++;
-        defaultGap += Math.max(grp.total - captured, 0);
+        const gap = Math.max(grp.total - captured, 0);
+        defaultGap += gap;
+        if (gap > 0.01) defaultBasketCount++;
       }
     }
     return {
@@ -724,6 +730,7 @@ export default function PerformancePage() {
       matchedCapture,
       gap: defaultGap,
       defaultPct: matchedTotal > 0 ? (defaultGap / matchedTotal) * 100 : 0,
+      defaultBasketCount,
     };
   }, [salesRows, adyenByMerchantRef]);
 
@@ -975,22 +982,28 @@ export default function PerformancePage() {
 
   // ── transactions tab ──
   const filteredTxns = useMemo(() => {
-    // Match by merchant_reference (= base_txn_sn) for accurate default detection.
+    // Mirror the RPC: match = psp_reference IS NOT NULL (any Adyen record).
+    // isDefault = matched but captured < weimi_total (positive gap only).
+    // Unmatched rows are NOT defaults — they are simply excluded from the gap calc.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rows: any[] = salesRows.map((s) => {
       const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
       const matchedAny = base ? adyenByMerchantRef.get(base) : undefined;
       const status = matchedAny?.status ?? null;
-      const settled = !!status && SETTLED_STATUSES.has(status);
+      const captured = matchedAny?.captured_amount_value ?? 0;
+      const effectiveTotal =
+        (s.total_amount ?? 0) > 0 ? (s.total_amount ?? 0) : (s.paid_amount ?? 0);
       return {
         ...s,
-        captured: settled ? (matchedAny?.captured_amount_value ?? 0) : 0,
+        captured: matchedAny !== undefined ? captured : 0,
         funding: matchedAny?.funding_source || "",
         adyenStatus: status || "",
         psp: matchedAny?.psp_reference || "",
         paymentMethod: matchedAny?.payment_method || "",
         isWallet: (matchedAny?.funding_source || "").toUpperCase() === "WALLET",
-        isDefault: !matchedAny || !settled,
+        // Default = matched basket where Adyen captured less than Weimi charged
+        isDefault:
+          matchedAny !== undefined && captured < effectiveTotal - 0.01,
       };
     });
     if (txnGroup !== "All")
@@ -1014,21 +1027,8 @@ export default function PerformancePage() {
     );
   }, [salesRows, adyenByMerchantRef, txnGroup, txnFunding, txnSearch]);
 
-  // Count of non-zero sales rows with no Adyen match at all — feeds PAYMENT DEFAULT banner.
-  const defaultTxnCount = useMemo(() => {
-    let n = 0;
-    for (const s of salesRows) {
-      const effectiveTotal = (s.total_amount ?? 0) > 0
-        ? (s.total_amount ?? 0)
-        : (s.paid_amount ?? 0);
-      if (effectiveTotal <= 0) continue;
-      const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
-      if (!base) continue;
-      const match = adyenByMerchantRef.get(base);
-      if (match === undefined) n++;  // only truly unmatched rows count
-    }
-    return n;
-  }, [salesRows, adyenByMerchantRef]);
+  // defaultBasketCount lives inside txnMatchStats (basket-level, mirrors RPC disc_count).
+  const defaultTxnCount = txnMatchStats.defaultBasketCount;
 
   const txnPageCount = Math.ceil(filteredTxns.length / PAGE_SIZE);
   const txnSlice = filteredTxns.slice(
