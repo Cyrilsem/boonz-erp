@@ -304,6 +304,12 @@ function ProductCard({
                 </span>
                 {/* Days badge */}
                 <DaysBadge expiryDate={batch.expiration_date} />
+                {/* Low-stock badge — F-04 */}
+                {batch.warehouse_stock <= 5 && batch.warehouse_stock > 0 && (
+                  <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+                    Low stock
+                  </span>
+                )}
                 {/* Qty input */}
                 <div className="flex items-center gap-1">
                   <input
