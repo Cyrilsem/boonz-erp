@@ -45,6 +45,15 @@ const GROUPS = [
 type GroupFilter = (typeof GROUPS)[number];
 const ADYEN_FEE_PCT = 0.0475;
 const BOONZ_SHARE_PCT = 0.2;
+// B2: only these Adyen statuses count as real captured revenue.
+// Everything else (Refused, RefundedBulk, cancellation states, etc.)
+// is either reversed, pending, or explicitly refused — not settled.
+const SETTLED_STATUSES: ReadonlySet<string> = new Set([
+  "SettledBulk",
+  "SentForSettle",
+  "Captured",
+  "AuthorisedBulk",
+]);
 const PAGE_SIZE = 50;
 
 // ── commercial scenario constants ──
@@ -52,6 +61,10 @@ const OPEX_PCT = 0; // placeholder — Opex line currently renders as AED 0
 const GRIT_OMD_PARTNER_SHARE = 0.05;
 const GRIT_OMD_BOONZ_SHARE = 0.95;
 
+// B3: legacy hardcoded machine-ID sets below are no longer the source
+// of truth. Kept only so old code paths still type-check while the
+// refactor lands; actual scenario math is driven by
+// resolveAgreement(activeGroup, selectedMachineIds, machineList, agreementByGroup).
 const VOX_MACHINE_IDS = new Set<string>([
   "148c4fcf-b794-43f0-a2a8-e6f17605b045", // VOXMCC-1009-0201-B0
   "b9f0c828-bcd1-493a-ac28-934f5dba0872", // VOXMCC-1011-0101-B0
@@ -67,6 +80,9 @@ const GRIT_OMD_MACHINE_IDS = new Set<string>([
   "5ac54ef6-b25d-48ae-a292-070871621e03", // OMDCW-1021-0100-W0
 ]);
 
+// B3: legacy scenario type. Still used as the shape key for waterfall
+// step selection below (VOX / REVENUE_SHARE / NONE map to the same
+// 9 / 7 / 3-step shapes that VOX / GRIT_OMD / STANDARD did before).
 type CommercialScenario = "VOX" | "GRIT_OMD" | "STANDARD";
 
 function detectScenario(selectedIds: string[]): CommercialScenario {
@@ -76,6 +92,51 @@ function detectScenario(selectedIds: string[]): CommercialScenario {
   const allGritOmd = selectedIds.every((id) => GRIT_OMD_MACHINE_IDS.has(id));
   if (allGritOmd) return "GRIT_OMD";
   return "STANDARD";
+}
+
+// B3: DB-driven agreement resolution. Replaces the hardcoded machine-ID
+// based detectScenario. Called from the component body with state.
+type Agreement = {
+  type: "VOX" | "REVENUE_SHARE" | "NONE";
+  boonz: number;
+  partner: number;
+  partnerName: string | null;
+};
+const DEFAULT_AGREEMENT: Agreement = {
+  type: "NONE",
+  boonz: 1.0,
+  partner: 0.0,
+  partnerName: null,
+};
+function resolveAgreement(
+  activeGroup: string | null,
+  selectedMachineIds: string[],
+  machineList: Array<{ machine_id: string; venue_group?: string | null }>,
+  agreementByGroup: Record<string, Agreement>,
+): Agreement {
+  let venueGroups: string[] = [];
+
+  if (activeGroup && activeGroup !== "All") {
+    venueGroups = [activeGroup];
+  } else if (selectedMachineIds.length > 0) {
+    const sel = machineList.filter((m) =>
+      selectedMachineIds.includes(m.machine_id),
+    );
+    venueGroups = [
+      ...new Set(sel.map((m) => m.venue_group).filter(Boolean) as string[]),
+    ];
+  } else {
+    // All machines, no specific group — mixed tenants, show no agreement
+    return DEFAULT_AGREEMENT;
+  }
+
+  if (venueGroups.length === 0) return DEFAULT_AGREEMENT;
+  const resolved = venueGroups.map(
+    (g) => agreementByGroup[g] ?? DEFAULT_AGREEMENT,
+  );
+  const first = resolved[0];
+  const allSame = resolved.every((a) => a.type === first.type);
+  return allSame ? first : DEFAULT_AGREEMENT;
 }
 
 type WaterfallStepType = "total" | "subtract" | "subtotal";
@@ -405,6 +466,19 @@ export default function PerformancePage() {
   const [salesRows, setSalesRows] = useState<SaleRow[]>([]);
   const [adyenRows, setAdyenRows] = useState<AdyenTxn[]>([]);
   const [machineList, setMachineList] = useState<MachineInfo[]>([]);
+  // B3: DB-driven commercial agreements (venue_group → boonz/partner split).
+  // Keyed by venue_group. Empty {} until the initial fetch resolves.
+  const [agreementByGroup, setAgreementByGroup] = useState<
+    Record<
+      string,
+      {
+        type: "VOX" | "REVENUE_SHARE" | "NONE";
+        boonz: number;
+        partner: number;
+        partnerName: string | null;
+      }
+    >
+  >({});
 
   // transactions tab state
   const [txnPage, setTxnPage] = useState(0);
@@ -441,15 +515,46 @@ export default function PerformancePage() {
         adyenQuery = adyenQuery.in("machine_id", selectedMachineIds);
       }
 
-      const [machineRes, salesRes, adyenRes] = await Promise.all([
-        supabase
-          .from("machines")
-          .select("machine_id, official_name, venue_group, status")
-          .order("official_name")
-          .limit(10000),
-        salesQuery.limit(10000),
-        adyenQuery.limit(10000),
-      ]);
+      const [machineRes, salesRes, adyenRes, agreementsRes] = await Promise.all(
+        [
+          supabase
+            .from("machines")
+            .select("machine_id, official_name, venue_group, status")
+            .order("official_name")
+            .limit(10000),
+          salesQuery.limit(10000),
+          adyenQuery.limit(10000),
+          supabase
+            .from("commercial_agreements")
+            .select(
+              "venue_group, agreement_type, boonz_share_pct, partner_share_pct, partner_name",
+            )
+            .limit(10000),
+        ],
+      );
+
+      // B3: build the venue_group → agreement map. Rows with unknown types
+      // fall through to NONE at render time via DEFAULT_AGREEMENT.
+      const agreementMap: Record<
+        string,
+        {
+          type: "VOX" | "REVENUE_SHARE" | "NONE";
+          boonz: number;
+          partner: number;
+          partnerName: string | null;
+        }
+      > = {};
+      for (const a of agreementsRes.data ?? []) {
+        const t = (a.agreement_type as string) ?? "NONE";
+        agreementMap[a.venue_group as string] = {
+          type:
+            t === "VOX" || t === "REVENUE_SHARE" || t === "NONE" ? t : "NONE",
+          boonz: Number(a.boonz_share_pct ?? 1),
+          partner: Number(a.partner_share_pct ?? 0),
+          partnerName: (a.partner_name as string | null) ?? null,
+        };
+      }
+      setAgreementByGroup(agreementMap);
 
       const machines = (machineRes.data ?? []) as MachineInfo[];
       setMachineList(machines);
@@ -520,11 +625,27 @@ export default function PerformancePage() {
     [machineList],
   );
 
-  // Commercial scenario derived from selected machines
-  const commercialScenario: CommercialScenario = useMemo(
-    () => detectScenario(selectedMachineIds),
-    [selectedMachineIds],
+  // B3: DB-driven agreement resolution (venue_group → boonz/partner split).
+  // Source of truth for all scenario math below.
+  const activeAgreement = useMemo(
+    () =>
+      resolveAgreement(
+        group,
+        selectedMachineIds,
+        machineList,
+        agreementByGroup,
+      ),
+    [group, selectedMachineIds, machineList, agreementByGroup],
   );
+  // Kept as the shape key for waterfall + per-scenario layout switches.
+  // Maps DB agreement type → legacy shape label (VOX / REVENUE_SHARE → 7
+  // steps like GRIT_OMD used to; NONE → 3 steps like STANDARD).
+  const commercialScenario: CommercialScenario =
+    activeAgreement.type === "VOX"
+      ? "VOX"
+      : activeAgreement.type === "REVENUE_SHARE"
+        ? "GRIT_OMD"
+        : "STANDARD";
 
   const toggleMachineId = (id: string) => {
     setSelectedMachineIds((prev) =>
@@ -542,7 +663,7 @@ export default function PerformancePage() {
     [salesRows],
   );
   const settledAdyen = useMemo(
-    () => adyenRows.filter((r) => r.status === "SettledBulk"),
+    () => adyenRows.filter((r) => SETTLED_STATUSES.has(r.status ?? "")),
     [adyenRows],
   );
   const capturedAdyen = useMemo(
@@ -797,28 +918,35 @@ export default function PerformancePage() {
 
   // ── transactions tab ──
   const filteredTxns = useMemo(() => {
+    // B3 Fix 4: match against ALL adyen rows so DEFAULT filter can see
+    // both "no match at all" and "matched but not settled" states.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rows: any[] = salesRows.map((s) => {
-      const matchedAdyen = settledAdyen.find(
+      const matchedAny = adyenRows.find(
         (a) =>
           a.machine_id === s.machine_id &&
           a.creation_date?.split("T")[0] === s.transaction_date?.split("T")[0],
       );
+      const status = matchedAny?.status ?? null;
+      const settled = !!status && SETTLED_STATUSES.has(status);
       return {
         ...s,
-        captured: matchedAdyen?.captured_amount_value || 0,
-        funding: matchedAdyen?.funding_source || "",
-        adyenStatus: matchedAdyen?.status || "",
-        psp: matchedAdyen?.psp_reference || "",
-        paymentMethod: matchedAdyen?.payment_method || "",
-        isWallet:
-          (matchedAdyen?.funding_source || "").toUpperCase() === "WALLET",
+        captured: settled ? (matchedAny?.captured_amount_value ?? 0) : 0,
+        funding: matchedAny?.funding_source || "",
+        adyenStatus: status || "",
+        psp: matchedAny?.psp_reference || "",
+        paymentMethod: matchedAny?.payment_method || "",
+        isWallet: (matchedAny?.funding_source || "").toUpperCase() === "WALLET",
+        isDefault: !matchedAny || !settled,
       };
     });
     if (txnGroup !== "All")
       rows = rows.filter((r) => r.machines?.venue_group === txnGroup);
-    if (txnFunding !== "All")
+    if (txnFunding === "DEFAULT") {
+      rows = rows.filter((r) => r.isDefault);
+    } else if (txnFunding !== "All") {
       rows = rows.filter((r) => r.funding === txnFunding);
+    }
     if (txnSearch) {
       const q = txnSearch.toLowerCase();
       rows = rows.filter(
@@ -831,7 +959,22 @@ export default function PerformancePage() {
     return rows.sort((a, b) =>
       (b.transaction_date || "").localeCompare(a.transaction_date || ""),
     );
-  }, [salesRows, settledAdyen, txnGroup, txnFunding, txnSearch]);
+  }, [salesRows, adyenRows, txnGroup, txnFunding, txnSearch]);
+
+  // B3 Fix 4: count of rows with no settled adyen match — feeds the
+  // PAYMENT DEFAULT banner count.
+  const defaultTxnCount = useMemo(() => {
+    let n = 0;
+    for (const s of salesRows) {
+      const match = adyenRows.find(
+        (a) =>
+          a.machine_id === s.machine_id &&
+          a.creation_date?.split("T")[0] === s.transaction_date?.split("T")[0],
+      );
+      if (!match || !SETTLED_STATUSES.has(match.status ?? "")) n++;
+    }
+    return n;
+  }, [salesRows, adyenRows]);
 
   const txnPageCount = Math.ceil(filteredTxns.length / PAGE_SIZE);
   const txnSlice = filteredTxns.slice(
@@ -856,16 +999,20 @@ export default function PerformancePage() {
     const netRevenue = scenarioNet;
     const opex = OPEX_PCT; // 0 — placeholder
 
-    // VOX values
-    const voxShare = scenarioNet * (1 - BOONZ_SHARE_PCT);
-    const voxBoonzNet = scenarioNet * BOONZ_SHARE_PCT;
+    // B3: splits come from the active DB agreement, not hardcoded constants.
+    const boonzRevenue = scenarioNet * activeAgreement.boonz;
+    const partnerRevenue = scenarioNet * activeAgreement.partner;
+    // Back-compat aliases — the waterfall step locals still use these names.
+    const voxShare = partnerRevenue;
+    const voxBoonzNet = boonzRevenue;
     const voxGrossProfit = voxBoonzNet - totalCogs;
     const voxEbitda = voxGrossProfit - opex;
-
-    // GRIT/OMD values
-    const gritPartner = scenarioNet * GRIT_OMD_PARTNER_SHARE;
-    const gritBoonzNet = scenarioNet * GRIT_OMD_BOONZ_SHARE;
+    const gritPartner = partnerRevenue;
+    const gritBoonzNet = boonzRevenue;
     const gritEbitda = gritBoonzNet - opex;
+    const partnerLabel = activeAgreement.partnerName ?? "Partner";
+    const partnerPctLabel = `${Math.round(activeAgreement.partner * 100)}%`;
+    const boonzPctLabel = `${Math.round(activeAgreement.boonz * 100)}%`;
 
     let scenarioSteps: WaterfallStep[];
     if (commercialScenario === "VOX") {
@@ -873,9 +1020,13 @@ export default function PerformancePage() {
         { label: "Gross Revenue", value: scenarioGross, type: "total" },
         { label: "Returns/Refunds", value: -refunds, type: "subtract" },
         { label: "Net Revenue", value: scenarioNet, type: "subtotal" },
-        { label: "VOX Share (80%)", value: -voxShare, type: "subtract" },
         {
-          label: "Boonz Net Revenue",
+          label: `${partnerLabel} Share (${partnerPctLabel})`,
+          value: -voxShare,
+          type: "subtract",
+        },
+        {
+          label: `Boonz Net Revenue (${boonzPctLabel})`,
           value: voxBoonzNet,
           type: "subtotal",
         },
@@ -890,12 +1041,12 @@ export default function PerformancePage() {
         { label: "Returns/Refunds", value: -refunds, type: "subtract" },
         { label: "Net Revenue", value: scenarioNet, type: "subtotal" },
         {
-          label: "Site Partner (5%)",
+          label: `${partnerLabel} Share (${partnerPctLabel})`,
           value: -gritPartner,
           type: "subtract",
         },
         {
-          label: "Boonz Net Revenue",
+          label: `Boonz Net Revenue (${boonzPctLabel})`,
           value: gritBoonzNet,
           type: "subtotal",
         },
@@ -912,15 +1063,6 @@ export default function PerformancePage() {
 
     const waterfallData: WaterfallBar[] = buildWaterfallBars(scenarioSteps);
 
-    // Scenario-aware Boonz vs Partner split, derived from the unified
-    // scenarioNet so cards, waterfall, and summary agree.
-    const boonzRevenue =
-      commercialScenario === "VOX"
-        ? voxBoonzNet
-        : commercialScenario === "GRIT_OMD"
-          ? gritBoonzNet
-          : scenarioNet;
-    const partnerRevenue = scenarioNet - boonzRevenue;
     const ebitda = boonzRevenue - boonzCogs - opex;
 
     // group breakdown — uses unified per-group formula (gross − refunds − fees)
@@ -942,8 +1084,10 @@ export default function PerformancePage() {
         })
         .reduce((s, rw) => s + (rw.captured_amount_value || 0), 0);
       const gNet = g.revenue - gRefunds - gFees;
-      const gBoonz = gNet * BOONZ_SHARE_PCT;
-      const gDues = gNet * (1 - BOONZ_SHARE_PCT) - g.cogs;
+      // B3: each group's boonz/partner split comes from its DB agreement.
+      const gAgreement = agreementByGroup[g.name] ?? DEFAULT_AGREEMENT;
+      const gBoonz = gNet * gAgreement.boonz;
+      const gDues = gNet * gAgreement.partner - g.cogs;
       return {
         ...g,
         captured: gCaptured,
@@ -965,6 +1109,7 @@ export default function PerformancePage() {
       groupBreakdown,
       // scenario-specific summary values
       scenario: commercialScenario,
+      agreement: activeAgreement,
       scenarioGross,
       scenarioNet,
       opex,
@@ -986,6 +1131,8 @@ export default function PerformancePage() {
     groupData,
     machineList,
     commercialScenario,
+    activeAgreement,
+    agreementByGroup,
   ]);
 
   // unique machines with data
@@ -2704,6 +2851,13 @@ export default function PerformancePage() {
               <span style={{ color: "#cbd5e1" }}>|</span>
               <span>Default {defaultPct.toFixed(2)}%</span>
               <span style={{ color: "#cbd5e1" }}>|</span>
+              <span
+                style={{ color: defaultTxnCount > 0 ? "#fca5a5" : undefined }}
+              >
+                {fmtN(defaultTxnCount)} default
+                {defaultTxnCount === 1 ? "" : "s"}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
               <span>
                 {fmtN(matchedCount)}/{fmtN(totalCount)} matched
               </span>
@@ -2777,6 +2931,34 @@ export default function PerformancePage() {
                   {f === "All" ? "All Funding" : f}
                 </button>
               ))}
+              {/* B3 Fix 4: DEFAULT toggle — mutually exclusive with the
+                  DEBIT/CREDIT/PREPAID buttons above. Amber styling to
+                  visually distinguish this as a quality/status filter
+                  rather than a funding-type filter. */}
+              <button
+                onClick={() => {
+                  setTxnFunding(txnFunding === "DEFAULT" ? "All" : "DEFAULT");
+                  setTxnPage(0);
+                }}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 4,
+                  border: `1px solid ${txnFunding === "DEFAULT" ? "#d97706" : "#f59e0b"}`,
+                  background:
+                    txnFunding === "DEFAULT"
+                      ? "rgba(245,158,11,0.25)"
+                      : "rgba(245,158,11,0.06)",
+                  color: txnFunding === "DEFAULT" ? "#92400e" : "#d97706",
+                  fontSize: 11,
+                  fontFamily: font,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all .15s",
+                }}
+                title="Rows with no settled Adyen match (pending / refused / refunded)"
+              >
+                DEFAULT ({fmtN(defaultTxnCount)})
+              </button>
               <div style={{ flex: 1 }} />
               <input
                 type="text"
@@ -3079,33 +3261,32 @@ export default function PerformancePage() {
               {fmtN(totalCount - matchedCount)} unmatched
             </p>
 
-            {/* scenario badge */}
+            {/* scenario badge — DB-driven via activeAgreement */}
             <div style={{ marginBottom: 14 }}>
               {(() => {
-                const badgeMap: Record<
-                  CommercialScenario,
-                  { label: string; bg: string; color: string; border: string }
-                > = {
-                  VOX: {
-                    label: "VOX Agreement",
-                    bg: "rgba(37,99,235,0.12)",
-                    color: "#1d4ed8",
-                    border: "#1d4ed8",
-                  },
-                  GRIT_OMD: {
-                    label: "GRIT / OMD Agreement (5% / 95%)",
-                    bg: "rgba(22,163,74,0.12)",
-                    color: "#15803d",
-                    border: "#15803d",
-                  },
-                  STANDARD: {
-                    label: "No Commercial Agreement",
-                    bg: "rgba(107,104,96,0.12)",
-                    color: "#6b6860",
-                    border: "#d6d2cb",
-                  },
-                };
-                const b = badgeMap[commercialScenario];
+                const boonzPct = Math.round(activeAgreement.boonz * 100);
+                const partnerPct = Math.round(activeAgreement.partner * 100);
+                const partnerName = activeAgreement.partnerName ?? "Partner";
+                let label: string;
+                let bg: string;
+                let color: string;
+                let border: string;
+                if (activeAgreement.type === "VOX") {
+                  label = `VOX Agreement · ${boonzPct}% Boonz / ${partnerPct}% VOX`;
+                  bg = "rgba(37,99,235,0.12)";
+                  color = "#1d4ed8";
+                  border = "#1d4ed8";
+                } else if (activeAgreement.type === "REVENUE_SHARE") {
+                  label = `${partnerName} Agreement · ${partnerPct}% / ${boonzPct}%`;
+                  bg = "rgba(22,163,74,0.12)";
+                  color = "#15803d";
+                  border = "#15803d";
+                } else {
+                  label = "No Commercial Agreement";
+                  bg = "rgba(107,104,96,0.12)";
+                  color = "#6b6860";
+                  border = "#d6d2cb";
+                }
                 return (
                   <span
                     style={{
@@ -3116,13 +3297,13 @@ export default function PerformancePage() {
                       textTransform: "uppercase",
                       fontWeight: 600,
                       borderRadius: 999,
-                      background: b.bg,
-                      color: b.color,
-                      border: `1px solid ${b.border}`,
+                      background: bg,
+                      color,
+                      border: `1px solid ${border}`,
                       fontFamily: font,
                     }}
                   >
-                    {b.label}
+                    {label}
                   </span>
                 );
               })()}
@@ -3147,14 +3328,14 @@ export default function PerformancePage() {
               <StatCard
                 label="Captured"
                 value={fmtAed(capturedAdyen)}
-                subtitle="After payment processing"
+                subtitle="Settled payments only"
                 accent="#0F4D3A"
                 valueColor="#0F4D3A"
               />
               <StatCard
                 label="Net Revenue"
                 value={fmtAed(commercialData.netRevenue)}
-                subtitle={`After ${(ADYEN_FEE_PCT * 100).toFixed(2)}% fees & refunds`}
+                subtitle={`After ${(ADYEN_FEE_PCT * 100).toFixed(2)}% fees (on captured)`}
                 accent="#0E3F4D"
                 valueColor="#0E3F4D"
               />
@@ -3162,11 +3343,9 @@ export default function PerformancePage() {
                 label="Boonz Revenue"
                 value={fmtAed(commercialData.boonzRevenue)}
                 subtitle={
-                  commercialData.scenario === "VOX"
-                    ? "Boonz 20% Share"
-                    : commercialData.scenario === "GRIT_OMD"
-                      ? "Boonz 95% Share"
-                      : "100% — No Agreement"
+                  activeAgreement.type === "NONE"
+                    ? "100% — No Agreement"
+                    : `Boonz ${Math.round(activeAgreement.boonz * 100)}% Share`
                 }
                 accent="#0F4D3A"
                 valueColor="#0F4D3A"
@@ -3175,11 +3354,9 @@ export default function PerformancePage() {
                 label="Partner Revenue"
                 value={fmtAed(commercialData.partnerRevenue)}
                 subtitle={
-                  commercialData.scenario === "VOX"
-                    ? "VOX 80% Share"
-                    : commercialData.scenario === "GRIT_OMD"
-                      ? "Site Partner 5%"
-                      : "—"
+                  activeAgreement.type === "NONE"
+                    ? "—"
+                    : `${activeAgreement.partnerName ?? "Partner"} ${Math.round(activeAgreement.partner * 100)}% Share`
                 }
                 accent={
                   commercialData.partnerRevenue > 0 ? "#F59E0B" : "#9CA3AF"
@@ -3492,24 +3669,27 @@ export default function PerformancePage() {
                   </thead>
                   <tbody>
                     {(() => {
-                      // Scenario-aware Boonz/Partner splits for per-row math.
-                      const boonzShare =
-                        commercialScenario === "VOX"
-                          ? BOONZ_SHARE_PCT
-                          : commercialScenario === "GRIT_OMD"
-                            ? GRIT_OMD_BOONZ_SHARE
-                            : 1;
-                      const partnerShare = 1 - boonzShare;
+                      // B3: scenario-aware splits — sourced from the active
+                      // DB agreement, not hardcoded constants.
+                      const boonzShare = activeAgreement.boonz;
+                      const partnerShare = activeAgreement.partner;
                       return salesRows.slice(0, 100).map((r, i) => {
-                        const matchedA = settledAdyen.find(
+                        // B3 Fix 3: look across ALL adyen rows so we can
+                        // distinguish "no adyen match at all" (pending) from
+                        // "adyen found but not settled" (refused / refunded).
+                        const matchedA = adyenRows.find(
                           (a) =>
                             a.machine_id === r.machine_id &&
                             a.creation_date?.split("T")[0] ===
                               r.transaction_date?.split("T")[0],
                         );
-                        const captured = matchedA?.captured_amount_value || 0;
+                        const adyenStatus = matchedA?.status ?? null;
+                        const isSettled =
+                          !!adyenStatus && SETTLED_STATUSES.has(adyenStatus);
+                        const captured = isSettled
+                          ? (matchedA?.captured_amount_value ?? 0)
+                          : 0;
                         const defAmt = r.total_amount - captured;
-                        const isDefault = defAmt > 0;
                         const fees = captured * ADYEN_FEE_PCT;
                         const net = captured - fees;
                         const boonzNR = net * boonzShare;
@@ -3562,24 +3742,63 @@ export default function PerformancePage() {
                             >
                               {paid != null && paid > 0 ? fmtAed(paid) : "—"}
                             </td>
+                            {/* B3 Fix 3: tri-state Captured cell */}
                             <td
                               style={{
                                 padding: "7px 10px",
                                 textAlign: "right",
-                                color: "#24544a",
                               }}
                             >
-                              {captured > 0 ? fmtAed(captured) : "—"}
+                              {!matchedA ? (
+                                <span
+                                  style={{
+                                    color: "#9a948e",
+                                    fontStyle: "italic",
+                                  }}
+                                >
+                                  Not found
+                                </span>
+                              ) : !isSettled ? (
+                                <span style={{ color: "#d97706" }}>
+                                  AED 0.00 · {adyenStatus}
+                                </span>
+                              ) : (
+                                <span style={{ color: "#24544a" }}>
+                                  {fmtAed(captured)}
+                                </span>
+                              )}
                             </td>
+                            {/* B3 Fix 3: tri-state Default cell */}
                             <td
                               style={{
                                 padding: "7px 10px",
                                 textAlign: "right",
-                                color: isDefault ? "#dc2626" : "#9a948e",
-                                fontWeight: isDefault ? 600 : 400,
                               }}
                             >
-                              {isDefault ? fmtAed(defAmt) : "—"}
+                              {!matchedA ? (
+                                <span
+                                  style={{ color: "#f59e0b", fontWeight: 600 }}
+                                >
+                                  Pending
+                                </span>
+                              ) : !isSettled ? (
+                                <span
+                                  style={{ color: "#dc2626", fontWeight: 600 }}
+                                >
+                                  {fmtAed(
+                                    r.total_amount -
+                                      (matchedA.captured_amount_value ?? 0),
+                                  )}
+                                </span>
+                              ) : defAmt > 0.01 ? (
+                                <span
+                                  style={{ color: "#dc2626", fontWeight: 600 }}
+                                >
+                                  {fmtAed(defAmt)}
+                                </span>
+                              ) : (
+                                <span style={{ color: "#9a948e" }}>—</span>
+                              )}
                             </td>
                             <td
                               style={{
