@@ -670,9 +670,32 @@ export default function PerformancePage() {
     () => adyenRows.filter((r) => SETTLED_STATUSES.has(r.status ?? "")),
     [adyenRows],
   );
+
+  // Base txn IDs for every basket in the current machine-group-filtered salesRows.
+  // Used to scope Adyen captures/refunds to just the active group — machine_id is
+  // NULL in adyen_transactions so we must join via merchant_reference instead.
+  const salesBaseTxnSns = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of salesRows) {
+      const base = (r.internal_txn_sn ?? "").replace(/_\d+$/, "");
+      if (base) s.add(base);
+    }
+    return s;
+  }, [salesRows]);
+
+  // Settled Adyen rows that actually belong to the current salesRows selection.
+  const matchedSettledAdyen = useMemo(
+    () =>
+      settledAdyen.filter(
+        (r) => r.merchant_reference && salesBaseTxnSns.has(r.merchant_reference),
+      ),
+    [settledAdyen, salesBaseTxnSns],
+  );
+
   const capturedAdyen = useMemo(
-    () => settledAdyen.reduce((s, r) => s + (r.captured_amount_value || 0), 0),
-    [settledAdyen],
+    () =>
+      matchedSettledAdyen.reduce((s, r) => s + (r.captured_amount_value || 0), 0),
+    [matchedSettledAdyen],
   );
 
   // ── Correct payment default: match by merchant_reference, not machine+date ──
@@ -1042,8 +1065,14 @@ export default function PerformancePage() {
     // Weimi gross minus refunds and Adyen fees — used by cards, waterfall,
     // and the summary table. No second formula exists.
     const adyenFees = capturedAdyen * ADYEN_FEE_PCT;
+    // Refunds scoped to salesRows baskets only (machine_id is NULL in adyen_transactions)
     const refunds = adyenRows
-      .filter((r) => r.status === "RefundedBulk")
+      .filter(
+        (r) =>
+          r.status === "RefundedBulk" &&
+          r.merchant_reference &&
+          salesBaseTxnSns.has(r.merchant_reference),
+      )
       .reduce((s, r) => s + (r.captured_amount_value || 0), 0);
     const boonzCogs = totalCogs;
 
@@ -1120,22 +1149,36 @@ export default function PerformancePage() {
     const ebitda = boonzRevenue - boonzCogs - opex;
 
     // group breakdown — uses unified per-group formula (gross − refunds − fees)
+    // machine_id is NULL in adyen_transactions, so we match via merchant_reference
+    // against the salesRows baskets for each group's machines.
     const groupBreakdown = groupData.map((g) => {
-      const gAdyen = settledAdyen.filter((a) => {
-        const m = machineList.find((mm) => mm.machine_id === a.machine_id);
-        return m?.venue_group === g.name;
-      });
+      const groupMachineIds = new Set(
+        machineList
+          .filter((mm) => mm.venue_group === g.name)
+          .map((mm) => mm.machine_id),
+      );
+      const gBaseSns = new Set<string>();
+      for (const r of salesRows) {
+        if (groupMachineIds.has(r.machine_id)) {
+          const base = (r.internal_txn_sn ?? "").replace(/_\d+$/, "");
+          if (base) gBaseSns.add(base);
+        }
+      }
+      const gAdyen = settledAdyen.filter(
+        (a) => a.merchant_reference && gBaseSns.has(a.merchant_reference),
+      );
       const gCaptured = gAdyen.reduce(
         (s, r) => s + (r.captured_amount_value || 0),
         0,
       );
       const gFees = gCaptured * ADYEN_FEE_PCT;
       const gRefunds = adyenRows
-        .filter((rw) => rw.status === "RefundedBulk")
-        .filter((rw) => {
-          const m = machineList.find((mm) => mm.machine_id === rw.machine_id);
-          return m?.venue_group === g.name;
-        })
+        .filter(
+          (rw) =>
+            rw.status === "RefundedBulk" &&
+            rw.merchant_reference &&
+            gBaseSns.has(rw.merchant_reference),
+        )
         .reduce((s, rw) => s + (rw.captured_amount_value || 0), 0);
       const gNet = g.revenue - gRefunds - gFees;
       // B3: each group's boonz/partner split comes from its DB agreement.
@@ -1182,6 +1225,8 @@ export default function PerformancePage() {
     totalCogs,
     adyenRows,
     settledAdyen,
+    salesBaseTxnSns,
+    salesRows,
     groupData,
     machineList,
     commercialScenario,
