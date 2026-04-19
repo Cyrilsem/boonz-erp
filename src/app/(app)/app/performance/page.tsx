@@ -17,6 +17,9 @@ import {
   ZAxis,
   Cell,
   LabelList,
+  PieChart,
+  Pie,
+  Legend,
 } from "recharts";
 
 // ── constants ──
@@ -806,6 +809,10 @@ export default function PerformancePage() {
         captured: matchedAdyen?.captured_amount_value || 0,
         funding: matchedAdyen?.funding_source || "",
         adyenStatus: matchedAdyen?.status || "",
+        psp: matchedAdyen?.psp_reference || "",
+        paymentMethod: matchedAdyen?.payment_method || "",
+        isWallet:
+          (matchedAdyen?.funding_source || "").toUpperCase() === "WALLET",
       };
     });
     if (txnGroup !== "All")
@@ -2020,149 +2027,163 @@ export default function PerformancePage() {
               Product Performance
             </h2>
 
-            {/* scatter chart */}
+            {/* Volume vs Value + Revenue by Product side-by-side */}
             <div
               style={{
-                background: "white",
-                border: "1px solid #e8e4de",
-                borderRadius: 6,
-                padding: "18px 20px",
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
                 marginBottom: 14,
               }}
             >
-              <h3
+              {/* scatter chart */}
+              <div
                 style={{
-                  fontFamily: font,
-                  fontWeight: 600,
-                  fontSize: 15,
-                  marginBottom: 12,
+                  background: "white",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  padding: "18px 20px",
                 }}
               >
-                Volume vs Value
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <ScatterChart>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" />
-                  <XAxis
-                    type="number"
-                    dataKey="x"
-                    name="Units"
-                    tick={{ fontSize: 10, fill: "#6b6860" }}
-                    label={{
-                      value: "Units Sold",
-                      position: "insideBottom",
-                      offset: -5,
-                      style: { fontSize: 10, fill: "#6b6860" },
-                    }}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="y"
-                    name="Avg Price"
-                    tick={{ fontSize: 10, fill: "#6b6860" }}
-                    label={{
-                      value: "Avg Price (AED)",
-                      angle: -90,
-                      position: "insideLeft",
-                      style: { fontSize: 10, fill: "#6b6860" },
-                    }}
-                  />
-                  <ZAxis
-                    type="number"
-                    dataKey="z"
-                    range={[60, 600]}
-                    name="Revenue"
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#fff",
-                      border: "1px solid #e8e4de",
-                      borderRadius: 4,
-                      fontSize: 11,
-                    }}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    formatter={(value: any, name: any) => [
-                      name === "Revenue"
-                        ? fmtAed(value)
-                        : name === "Avg Price"
-                          ? `AED ${Number(value).toFixed(2)}`
-                          : fmtN(value),
-                      name,
-                    ]}
-                  />
-                  <Scatter data={scatterData} fill="#24544a">
-                    {scatterData.map((_, i) => (
-                      <Cell
-                        key={i}
-                        fill={
-                          Object.values(GROUP_COLORS)[
-                            i % Object.values(GROUP_COLORS).length
-                          ]
-                        }
-                      />
-                    ))}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* horizontal bar chart - top 15 */}
-            <div
-              style={{
-                background: "white",
-                border: "1px solid #e8e4de",
-                borderRadius: 6,
-                padding: "18px 20px",
-                marginBottom: 14,
-              }}
-            >
-              <h3
-                style={{
-                  fontFamily: font,
-                  fontWeight: 600,
-                  fontSize: 15,
-                  marginBottom: 12,
-                }}
-              >
-                Revenue by Product (Top 15)
-              </h3>
-              <ResponsiveContainer
-                width="100%"
-                height={Math.max(300, productData.slice(0, 15).length * 32)}
-              >
-                <BarChart
-                  data={productData.slice(0, 15).map((p) => ({
-                    ...p,
-                    name:
-                      p.name.length > 30 ? p.name.slice(0, 27) + "..." : p.name,
-                    revenue: Math.round(p.revenue),
-                  }))}
-                  layout="vertical"
+                <h3
+                  style={{
+                    fontFamily: font,
+                    fontWeight: 600,
+                    fontSize: 15,
+                    marginBottom: 12,
+                  }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 10, fill: "#6b6860" }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={180}
-                    tick={{ fontSize: 10, fill: "#6b6860" }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#fff",
-                      border: "1px solid #e8e4de",
-                      borderRadius: 4,
-                      fontSize: 11,
-                    }}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    formatter={(value: any) => [fmtAed(value), "Revenue"]}
-                  />
-                  <Bar dataKey="revenue" fill="#24544a" radius={[0, 3, 3, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+                  Volume vs Value
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" />
+                    <XAxis
+                      type="number"
+                      dataKey="x"
+                      name="Units"
+                      tick={{ fontSize: 10, fill: "#6b6860" }}
+                      label={{
+                        value: "Units Sold",
+                        position: "insideBottom",
+                        offset: -5,
+                        style: { fontSize: 10, fill: "#6b6860" },
+                      }}
+                    />
+                    <YAxis
+                      type="number"
+                      dataKey="y"
+                      name="Avg Price"
+                      tick={{ fontSize: 10, fill: "#6b6860" }}
+                      label={{
+                        value: "Avg Price (AED)",
+                        angle: -90,
+                        position: "insideLeft",
+                        style: { fontSize: 10, fill: "#6b6860" },
+                      }}
+                    />
+                    <ZAxis
+                      type="number"
+                      dataKey="z"
+                      range={[60, 600]}
+                      name="Revenue"
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#fff",
+                        border: "1px solid #e8e4de",
+                        borderRadius: 4,
+                        fontSize: 11,
+                      }}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any, name: any) => [
+                        name === "Revenue"
+                          ? fmtAed(value)
+                          : name === "Avg Price"
+                            ? `AED ${Number(value).toFixed(2)}`
+                            : fmtN(value),
+                        name,
+                      ]}
+                    />
+                    <Scatter data={scatterData} fill="#24544a">
+                      {scatterData.map((_, i) => (
+                        <Cell
+                          key={i}
+                          fill={
+                            Object.values(GROUP_COLORS)[
+                              i % Object.values(GROUP_COLORS).length
+                            ]
+                          }
+                        />
+                      ))}
+                    </Scatter>
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* horizontal bar chart - top 15 */}
+              <div
+                style={{
+                  background: "white",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  padding: "18px 20px",
+                }}
+              >
+                <h3
+                  style={{
+                    fontFamily: font,
+                    fontWeight: 600,
+                    fontSize: 15,
+                    marginBottom: 12,
+                  }}
+                >
+                  Revenue by Product (Top 15)
+                </h3>
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(300, productData.slice(0, 15).length * 32)}
+                >
+                  <BarChart
+                    data={productData.slice(0, 15).map((p) => ({
+                      ...p,
+                      name:
+                        p.name.length > 30
+                          ? p.name.slice(0, 27) + "..."
+                          : p.name,
+                      revenue: Math.round(p.revenue),
+                    }))}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 10, fill: "#6b6860" }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={180}
+                      tick={{ fontSize: 10, fill: "#6b6860" }}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#fff",
+                        border: "1px solid #e8e4de",
+                        borderRadius: 4,
+                        fontSize: 11,
+                      }}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      formatter={(value: any) => [fmtAed(value), "Revenue"]}
+                    />
+                    <Bar
+                      dataKey="revenue"
+                      fill="#24544a"
+                      radius={[0, 3, 3, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             {/* product detail table */}
@@ -2358,6 +2379,107 @@ export default function PerformancePage() {
               />
             </div>
 
+            {/* pie charts — Funding Source & Payment Method */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 14,
+                marginBottom: 14,
+              }}
+            >
+              {(
+                [
+                  {
+                    title: "Funding Source",
+                    data: paymentStats.funding,
+                    palette: [
+                      "#24544a",
+                      "#0F4D3A",
+                      "#6366F1",
+                      "#8B5CF6",
+                      "#6b6860",
+                    ],
+                  },
+                  {
+                    title: "Payment Method",
+                    data: paymentStats.methods,
+                    palette: [
+                      "#e1b460",
+                      "#d97706",
+                      "#2A3547",
+                      "#F59E0B",
+                      "#9a948e",
+                    ],
+                  },
+                ] as const
+              ).map((p) => (
+                <div
+                  key={p.title}
+                  style={{
+                    background: "white",
+                    border: "1px solid #e8e4de",
+                    borderRadius: 6,
+                    padding: "18px 20px",
+                  }}
+                >
+                  <h3
+                    style={{
+                      fontFamily: font,
+                      fontWeight: 600,
+                      fontSize: 15,
+                      marginBottom: 14,
+                    }}
+                  >
+                    {p.title}
+                  </h3>
+                  {p.data.length === 0 ? (
+                    <p style={{ fontSize: 11, color: "#6b6860" }}>
+                      No data for this period.
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={p.data.map((d) => ({
+                            name: d.name,
+                            value: Math.round(d.amount),
+                          }))}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          innerRadius={42}
+                          paddingAngle={2}
+                        >
+                          {p.data.map((_, i) => (
+                            <Cell
+                              key={i}
+                              fill={p.palette[i % p.palette.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{
+                            background: "#fff",
+                            border: "1px solid #e8e4de",
+                            borderRadius: 4,
+                            fontSize: 11,
+                          }}
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          formatter={(v: any) => [fmtAed(v), "Captured"]}
+                        />
+                        <Legend
+                          wrapperStyle={{ fontSize: 11, color: "#6b6860" }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              ))}
+            </div>
+
             {/* funding source */}
             <div
               style={{
@@ -2546,6 +2668,47 @@ export default function PerformancePage() {
               {fmtN(filteredTxns.length)} transactions
             </p>
 
+            {/* PAYMENT DEFAULT banner */}
+            <div
+              style={{
+                background: "#2A3547",
+                color: "#fff",
+                borderRadius: 6,
+                padding: "12px 18px",
+                marginBottom: 14,
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 18,
+                fontFamily: font,
+                fontSize: 11.5,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  letterSpacing: ".15em",
+                  fontWeight: 700,
+                  color: "#e1b460",
+                }}
+              >
+                PAYMENT DEFAULT
+              </span>
+              <span>Total {fmtAed(totalWeimi)}</span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span>Captured {fmtAed(capturedAdyen)}</span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span style={{ color: gap > 0 ? "#fca5a5" : "#86efac" }}>
+                Gap {fmtAed(gap)}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span>Default {defaultPct.toFixed(2)}%</span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span>
+                {fmtN(matchedCount)}/{fmtN(totalCount)} matched
+              </span>
+            </div>
+
             {/* sub-filters */}
             <div
               style={{
@@ -2650,27 +2813,36 @@ export default function PerformancePage() {
                   width: "100%",
                   borderCollapse: "collapse",
                   fontSize: 11.5,
-                  minWidth: 900,
+                  minWidth: 1200,
                 }}
               >
                 <thead>
                   <tr>
                     {[
                       "Date",
+                      "Time",
                       "Machine",
-                      "Group",
-                      "Product",
-                      "Qty",
+                      "Site",
+                      "PSP",
+                      "Fund",
+                      "Card",
+                      "Wallet",
                       "Total",
                       "Captured",
-                      "Status",
+                      "Qty",
+                      "Items",
                     ].map((h) => (
                       <th
                         key={h}
                         style={{
                           background: "#f5f2ee",
                           padding: "10px 12px",
-                          textAlign: ["Qty", "Total", "Captured"].includes(h)
+                          textAlign: [
+                            "Qty",
+                            "Total",
+                            "Captured",
+                            "Wallet",
+                          ].includes(h)
                             ? "right"
                             : "left",
                           fontSize: 9.5,
@@ -2704,12 +2876,17 @@ export default function PerformancePage() {
                       }}
                     >
                       <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
-                        <div style={{ fontSize: 11, fontWeight: 500 }}>
-                          {r.transaction_date?.split("T")[0]}
-                        </div>
-                        <div style={{ fontSize: 10, color: "#6b6860" }}>
-                          {r.transaction_date?.split("T")[1]?.slice(0, 5)}
-                        </div>
+                        {r.transaction_date?.split("T")[0] ?? "—"}
+                      </td>
+                      <td
+                        style={{
+                          padding: "9px 12px",
+                          whiteSpace: "nowrap",
+                          color: "#6b6860",
+                          fontSize: 10.5,
+                        }}
+                      >
+                        {r.transaction_date?.split("T")[1]?.slice(0, 5) ?? "—"}
                       </td>
                       <td
                         style={{
@@ -2724,7 +2901,7 @@ export default function PerformancePage() {
                         {r.machines?.official_name || r.machine_id}
                       </td>
                       <td style={{ padding: "9px 12px" }}>
-                        {r.machines?.venue_group && (
+                        {r.machines?.venue_group ? (
                           <span
                             style={{
                               fontSize: 9,
@@ -2739,22 +2916,55 @@ export default function PerformancePage() {
                           >
                             {r.machines.venue_group}
                           </span>
+                        ) : (
+                          <span style={{ color: "#9a948e" }}>—</span>
                         )}
                       </td>
                       <td
                         style={{
                           padding: "9px 12px",
-                          fontSize: 11,
-                          maxWidth: 180,
+                          fontFamily:
+                            "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: 10,
+                          color: "#6b6860",
+                          maxWidth: 120,
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                         }}
+                        title={r.psp || undefined}
                       >
-                        {r.pod_product_name || r.boonz_product_id || "-"}
+                        {r.psp || "—"}
                       </td>
-                      <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                        {r.qty}
+                      <td
+                        style={{
+                          padding: "9px 12px",
+                          fontSize: 10.5,
+                        }}
+                      >
+                        {r.funding || (
+                          <span style={{ color: "#9a948e" }}>—</span>
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          padding: "9px 12px",
+                          fontSize: 10.5,
+                        }}
+                      >
+                        {r.paymentMethod || (
+                          <span style={{ color: "#9a948e" }}>—</span>
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          padding: "9px 12px",
+                          textAlign: "right",
+                          color: r.isWallet ? "#d97706" : "#9a948e",
+                          fontWeight: r.isWallet ? 600 : 400,
+                        }}
+                      >
+                        {r.isWallet ? "✓" : "—"}
                       </td>
                       <td
                         style={{
@@ -2772,33 +2982,23 @@ export default function PerformancePage() {
                           color: r.captured > 0 ? "#24544a" : "#9a948e",
                         }}
                       >
-                        {r.captured > 0 ? fmtAed(r.captured) : "-"}
+                        {r.captured > 0 ? fmtAed(r.captured) : "—"}
                       </td>
-                      <td style={{ padding: "9px 12px" }}>
-                        {r.adyenStatus ? (
-                          (() => {
-                            const sc = statusColor(r.adyenStatus);
-                            return (
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  padding: "2px 8px",
-                                  borderRadius: 3,
-                                  background: sc.bg,
-                                  color: sc.color,
-                                  fontWeight: 500,
-                                  display: "inline-block",
-                                }}
-                              >
-                                {r.adyenStatus}
-                              </span>
-                            );
-                          })()
-                        ) : (
-                          <span style={{ fontSize: 10, color: "#9a948e" }}>
-                            -
-                          </span>
-                        )}
+                      <td style={{ padding: "9px 12px", textAlign: "right" }}>
+                        {r.qty}
+                      </td>
+                      <td
+                        style={{
+                          padding: "9px 12px",
+                          fontSize: 11,
+                          maxWidth: 200,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={r.pod_product_name || undefined}
+                      >
+                        {r.pod_product_name || "—"}
                       </td>
                     </tr>
                   ))}
@@ -2928,319 +3128,6 @@ export default function PerformancePage() {
               })()}
             </div>
 
-            {/* scenario summary table */}
-            <div
-              style={{
-                background: "white",
-                border: "1px solid #e8e4de",
-                borderRadius: 6,
-                overflow: "hidden",
-                marginBottom: 28,
-              }}
-            >
-              <div
-                style={{
-                  padding: "14px 20px",
-                  borderBottom: "1px solid #e8e4de",
-                }}
-              >
-                <h3
-                  style={{
-                    fontFamily: font,
-                    fontWeight: 600,
-                    fontSize: 15,
-                    margin: 0,
-                  }}
-                >
-                  Commercial Summary
-                </h3>
-                {commercialScenario === "STANDARD" && (
-                  <div style={{ fontSize: 11, color: "#6b6860", marginTop: 4 }}>
-                    Select a specific machine group to view commercial breakdown
-                  </div>
-                )}
-              </div>
-              <div style={{ overflowX: "auto" }}>
-                {commercialScenario === "VOX" && (
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 11.5,
-                      minWidth: 900,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        {[
-                          "Gross Rev",
-                          "Refunds",
-                          "Net Rev",
-                          "VOX Share",
-                          "Boonz Net",
-                          "COGS",
-                          "GP",
-                          "EBITDA",
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              background: "#f5f2ee",
-                              padding: "10px 12px",
-                              textAlign: "right",
-                              fontSize: 9.5,
-                              letterSpacing: ".1em",
-                              textTransform: "uppercase",
-                              color: "#6b6860",
-                              fontWeight: 500,
-                              borderBottom: "1px solid #e8e4de",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                          {fmtAed(commercialData.scenarioGross)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            color: "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.refunds)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color: "#0E3F4D",
-                          }}
-                        >
-                          {fmtAed(commercialData.scenarioNet)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            color: "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.voxShare)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {fmtAed(commercialData.voxBoonzNet)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            color: "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.boonzCogs)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color:
-                              commercialData.voxGrossProfit >= 0
-                                ? "#0F4D3A"
-                                : "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.voxGrossProfit)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 700,
-                            color:
-                              commercialData.voxEbitda >= 0
-                                ? "#0F4D3A"
-                                : "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.voxEbitda)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                )}
-                {commercialScenario === "GRIT_OMD" && (
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 11.5,
-                      minWidth: 800,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        {[
-                          "Gross Rev",
-                          "Refunds",
-                          "Net Rev",
-                          "Partner (5%)",
-                          "Boonz Net (95%)",
-                          "EBITDA",
-                        ].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              background: "#f5f2ee",
-                              padding: "10px 12px",
-                              textAlign: "right",
-                              fontSize: 9.5,
-                              letterSpacing: ".1em",
-                              textTransform: "uppercase",
-                              color: "#6b6860",
-                              fontWeight: 500,
-                              borderBottom: "1px solid #e8e4de",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                          {fmtAed(commercialData.scenarioGross)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            color: "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.refunds)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 600,
-                            color: "#0E3F4D",
-                          }}
-                        >
-                          {fmtAed(commercialData.scenarioNet)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            color: "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.gritPartner)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {fmtAed(commercialData.gritBoonzNet)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 700,
-                            color:
-                              commercialData.gritEbitda >= 0
-                                ? "#0F4D3A"
-                                : "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.gritEbitda)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                )}
-                {commercialScenario === "STANDARD" && (
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "collapse",
-                      fontSize: 11.5,
-                      minWidth: 500,
-                    }}
-                  >
-                    <thead>
-                      <tr>
-                        {["Gross Rev", "Refunds", "Net Rev"].map((h) => (
-                          <th
-                            key={h}
-                            style={{
-                              background: "#f5f2ee",
-                              padding: "10px 12px",
-                              textAlign: "right",
-                              fontSize: 9.5,
-                              letterSpacing: ".1em",
-                              textTransform: "uppercase",
-                              color: "#6b6860",
-                              fontWeight: 500,
-                              borderBottom: "1px solid #e8e4de",
-                            }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td style={{ padding: "9px 12px", textAlign: "right" }}>
-                          {fmtAed(commercialData.scenarioGross)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            color: "#dc2626",
-                          }}
-                        >
-                          {fmtAed(commercialData.refunds)}
-                        </td>
-                        <td
-                          style={{
-                            padding: "9px 12px",
-                            textAlign: "right",
-                            fontWeight: 700,
-                            color: "#0E3F4D",
-                          }}
-                        >
-                          {fmtAed(commercialData.scenarioNet)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-
             {/* 5 unified stat cards (scenario-aware) */}
             <div
               style={{
@@ -3347,8 +3234,8 @@ export default function PerformancePage() {
                           "Revenue",
                           "Captured",
                           "Net Rev",
-                          "Boonz 20%",
-                          "Net Dues",
+                          "Boonz NR",
+                          "Partner NR",
                         ].map((h) => (
                           <th
                             key={h}
@@ -3370,69 +3257,80 @@ export default function PerformancePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {commercialData.groupBreakdown.map((g) => (
-                        <tr
-                          key={g.name}
-                          style={{ borderBottom: "1px solid #e8e4de" }}
-                        >
-                          <td style={{ padding: "9px 12px", fontWeight: 500 }}>
-                            <span
+                      {commercialData.groupBreakdown.map((g) => {
+                        const partnerNR = Math.max(
+                          0,
+                          g.netRevenue - g.boonzShare,
+                        );
+                        return (
+                          <tr
+                            key={g.name}
+                            style={{ borderBottom: "1px solid #e8e4de" }}
+                          >
+                            <td
+                              style={{ padding: "9px 12px", fontWeight: 500 }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  padding: "2px 8px",
+                                  borderRadius: 3,
+                                  background: `${GROUP_COLORS[g.name] || "#6b6860"}18`,
+                                  color: GROUP_COLORS[g.name] || "#6b6860",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {g.name}
+                              </span>
+                            </td>
+                            <td
                               style={{
-                                fontSize: 10,
-                                padding: "2px 8px",
-                                borderRadius: 3,
-                                background: `${GROUP_COLORS[g.name] || "#6b6860"}18`,
-                                color: GROUP_COLORS[g.name] || "#6b6860",
+                                padding: "9px 12px",
+                                textAlign: "right",
+                                fontWeight: 500,
+                              }}
+                            >
+                              {fmtAed(g.revenue)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 12px",
+                                textAlign: "right",
+                                color: "#24544a",
+                              }}
+                            >
+                              {fmtAed(g.captured)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 12px",
+                                textAlign: "right",
+                              }}
+                            >
+                              {fmtAed(g.netRevenue)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 12px",
+                                textAlign: "right",
+                                color: "#0F4D3A",
                                 fontWeight: 600,
                               }}
                             >
-                              {g.name}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {fmtAed(g.revenue)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              color: "#24544a",
-                            }}
-                          >
-                            {fmtAed(g.captured)}
-                          </td>
-                          <td
-                            style={{ padding: "9px 12px", textAlign: "right" }}
-                          >
-                            {fmtAed(g.netRevenue)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              color: "#d97706",
-                            }}
-                          >
-                            {fmtAed(g.boonzShare)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "9px 12px",
-                              textAlign: "right",
-                              fontWeight: 600,
-                              color: g.netDues >= 0 ? "#8B5CF6" : "#dc2626",
-                            }}
-                          >
-                            {fmtAed(g.netDues)}
-                          </td>
-                        </tr>
-                      ))}
+                              {fmtAed(g.boonzShare)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 12px",
+                                textAlign: "right",
+                                color: partnerNR > 0 ? "#d97706" : "#9a948e",
+                              }}
+                            >
+                              {partnerNR > 0 ? fmtAed(partnerNR) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -3560,30 +3458,22 @@ export default function PerformancePage() {
                     <tr>
                       {[
                         "Date",
-                        "Group",
                         "Machine",
-                        "Product",
-                        "Qty",
                         "Total",
+                        "Paid",
                         "Captured",
                         "Default",
-                        "Adyen Fees",
+                        "Adyen Fee",
                         "Net Rev",
-                        "Boonz 20%",
-                        "Net 80%",
-                        "COGS",
+                        "Boonz NR",
+                        "Partner NR",
                       ].map((h) => (
                         <th
                           key={h}
                           style={{
                             background: "#f5f2ee",
                             padding: "8px 10px",
-                            textAlign: [
-                              "Date",
-                              "Group",
-                              "Machine",
-                              "Product",
-                            ].includes(h)
+                            textAlign: ["Date", "Machine"].includes(h)
                               ? "left"
                               : "right",
                             fontSize: 9,
@@ -3601,146 +3491,136 @@ export default function PerformancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {salesRows.slice(0, 100).map((r, i) => {
-                      const matchedA = settledAdyen.find(
-                        (a) =>
-                          a.machine_id === r.machine_id &&
-                          a.creation_date?.split("T")[0] ===
-                            r.transaction_date?.split("T")[0],
-                      );
-                      const captured = matchedA?.captured_amount_value || 0;
-                      const defAmt = r.total_amount - captured;
-                      const fees = captured * ADYEN_FEE_PCT;
-                      const net = captured - fees;
-                      const b20 = net * BOONZ_SHARE_PCT;
-                      const n80 = net * (1 - BOONZ_SHARE_PCT);
-                      const cogs = r.product_cost || 0;
+                    {(() => {
+                      // Scenario-aware Boonz/Partner splits for per-row math.
+                      const boonzShare =
+                        commercialScenario === "VOX"
+                          ? BOONZ_SHARE_PCT
+                          : commercialScenario === "GRIT_OMD"
+                            ? GRIT_OMD_BOONZ_SHARE
+                            : 1;
+                      const partnerShare = 1 - boonzShare;
+                      return salesRows.slice(0, 100).map((r, i) => {
+                        const matchedA = settledAdyen.find(
+                          (a) =>
+                            a.machine_id === r.machine_id &&
+                            a.creation_date?.split("T")[0] ===
+                              r.transaction_date?.split("T")[0],
+                        );
+                        const captured = matchedA?.captured_amount_value || 0;
+                        const defAmt = r.total_amount - captured;
+                        const isDefault = defAmt > 0;
+                        const fees = captured * ADYEN_FEE_PCT;
+                        const net = captured - fees;
+                        const boonzNR = net * boonzShare;
+                        const partnerNR = net * partnerShare;
+                        const paid =
+                          (r as unknown as { paid_amount?: number | null })
+                            .paid_amount ?? null;
 
-                      return (
-                        <tr
-                          key={`${r.transaction_id}-${i}`}
-                          style={{ borderBottom: "1px solid #e8e4de" }}
-                        >
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              whiteSpace: "nowrap",
-                              fontSize: 10,
-                            }}
+                        return (
+                          <tr
+                            key={`${r.transaction_id}-${i}`}
+                            style={{ borderBottom: "1px solid #e8e4de" }}
                           >
-                            {r.transaction_date?.split("T")[0]}
-                          </td>
-                          <td style={{ padding: "7px 10px" }}>
-                            <span
+                            <td
                               style={{
-                                fontSize: 9,
-                                padding: "1px 5px",
-                                borderRadius: 2,
-                                background: `${GROUP_COLORS[r.machines?.venue_group || ""] || "#6b6860"}18`,
-                                color:
-                                  GROUP_COLORS[r.machines?.venue_group || ""] ||
-                                  "#6b6860",
+                                padding: "7px 10px",
+                                whiteSpace: "nowrap",
+                                fontSize: 10,
                               }}
                             >
-                              {r.machines?.venue_group || "-"}
-                            </span>
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              fontSize: 10,
-                              maxWidth: 130,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {r.machines?.official_name || r.machine_id}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              fontSize: 10,
-                              maxWidth: 150,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {r.pod_product_name || "-"}
-                          </td>
-                          <td
-                            style={{ padding: "7px 10px", textAlign: "right" }}
-                          >
-                            {r.qty}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              textAlign: "right",
-                              fontWeight: 500,
-                            }}
-                          >
-                            {fmtAed(r.total_amount)}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              textAlign: "right",
-                              color: "#24544a",
-                            }}
-                          >
-                            {captured > 0 ? fmtAed(captured) : "-"}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              textAlign: "right",
-                              color: defAmt > 0 ? "#dc2626" : "#9a948e",
-                            }}
-                          >
-                            {defAmt > 0 ? fmtAed(defAmt) : "-"}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              textAlign: "right",
-                              color: "#6366F1",
-                            }}
-                          >
-                            {fees > 0 ? fmtAed(fees) : "-"}
-                          </td>
-                          <td
-                            style={{ padding: "7px 10px", textAlign: "right" }}
-                          >
-                            {net > 0 ? fmtAed(net) : "-"}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              textAlign: "right",
-                              color: "#d97706",
-                            }}
-                          >
-                            {b20 > 0 ? fmtAed(b20) : "-"}
-                          </td>
-                          <td
-                            style={{ padding: "7px 10px", textAlign: "right" }}
-                          >
-                            {n80 > 0 ? fmtAed(n80) : "-"}
-                          </td>
-                          <td
-                            style={{
-                              padding: "7px 10px",
-                              textAlign: "right",
-                              color: "#dc2626",
-                            }}
-                          >
-                            {cogs > 0 ? fmtAed(cogs) : "-"}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                              {r.transaction_date?.split("T")[0] ?? "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                fontSize: 10,
+                                maxWidth: 160,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {r.machines?.official_name || r.machine_id}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                fontWeight: 500,
+                              }}
+                            >
+                              {fmtAed(r.total_amount)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                color: "#6b6860",
+                              }}
+                            >
+                              {paid != null && paid > 0 ? fmtAed(paid) : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                color: "#24544a",
+                              }}
+                            >
+                              {captured > 0 ? fmtAed(captured) : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                color: isDefault ? "#dc2626" : "#9a948e",
+                                fontWeight: isDefault ? 600 : 400,
+                              }}
+                            >
+                              {isDefault ? fmtAed(defAmt) : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                color: "#6366F1",
+                              }}
+                            >
+                              {fees > 0 ? fmtAed(fees) : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                              }}
+                            >
+                              {net > 0 ? fmtAed(net) : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                color: "#0F4D3A",
+                                fontWeight: 600,
+                              }}
+                            >
+                              {boonzNR > 0 ? fmtAed(boonzNR) : "—"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "7px 10px",
+                                textAlign: "right",
+                                color: partnerNR > 0 ? "#d97706" : "#9a948e",
+                              }}
+                            >
+                              {partnerNR > 0 ? fmtAed(partnerNR) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
                   </tbody>
                 </table>
               </div>
