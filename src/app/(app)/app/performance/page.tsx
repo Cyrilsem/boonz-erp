@@ -211,6 +211,7 @@ interface SaleRow {
   delivery_status: string | null;
   product_cost: number | null;
   actual_selling_price: number | null;
+  internal_txn_sn: string | null;
   machines: { official_name: string; venue_group: string | null } | null;
 }
 
@@ -495,7 +496,7 @@ export default function PerformancePage() {
       let salesQuery = supabase
         .from("sales_history")
         .select(
-          "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, machines!inner(official_name, venue_group)",
+          "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, internal_txn_sn, machines!inner(official_name, venue_group)",
         )
         .eq("delivery_status", "Successful")
         .gte("transaction_date", `${dateFrom}T00:00:00+00:00`)
@@ -670,10 +671,52 @@ export default function PerformancePage() {
     () => settledAdyen.reduce((s, r) => s + (r.captured_amount_value || 0), 0),
     [settledAdyen],
   );
-  const gap = totalWeimi - capturedAdyen;
-  const defaultPct = totalWeimi > 0 ? (gap / totalWeimi) * 100 : 0;
-  const matchedCount = settledAdyen.length;
-  const totalCount = salesRows.length;
+
+  // ── Correct payment default: match by merchant_reference, not machine+date ──
+  // Each Adyen merchant_reference equals base_txn_sn (internal_txn_sn with
+  // trailing _N suffix stripped). Only transactions with a settled Adyen match
+  // are counted — unmatched rows (no Adyen record yet) are NOT flagged as defaults.
+  const adyenByMerchantRef = useMemo(() => {
+    const m = new Map<string, AdyenTxn>();
+    for (const a of adyenRows) {
+      if (a.merchant_reference) m.set(a.merchant_reference, a);
+    }
+    return m;
+  }, [adyenRows]);
+
+  const txnMatchStats = useMemo(() => {
+    // Group individual sales lines into basket-level transactions
+    const groups = new Map<string, { total: number }>();
+    for (const s of salesRows) {
+      const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
+      if (!base) continue;
+      const g = groups.get(base);
+      if (g) { g.total += s.total_amount || 0; }
+      else groups.set(base, { total: s.total_amount || 0 });
+    }
+    let matchedTotal = 0;
+    let matchedCount = 0;
+    let defaultGap = 0;
+    for (const [base, grp] of groups) {
+      const adyen = adyenByMerchantRef.get(base);
+      if (adyen && SETTLED_STATUSES.has(adyen.status ?? "")) {
+        matchedTotal += grp.total;
+        matchedCount++;
+        defaultGap += Math.max(grp.total - (adyen.captured_amount_value || 0), 0);
+      }
+    }
+    return {
+      matchedCount,
+      totalCount: groups.size,
+      gap: defaultGap,
+      defaultPct: matchedTotal > 0 ? (defaultGap / matchedTotal) * 100 : 0,
+    };
+  }, [salesRows, adyenByMerchantRef]);
+
+  const gap = txnMatchStats.gap;
+  const defaultPct = txnMatchStats.defaultPct;
+  const matchedCount = txnMatchStats.matchedCount;
+  const totalCount = txnMatchStats.totalCount;
   const totalCogs = useMemo(
     () => salesRows.reduce((s, r) => s + (r.product_cost || 0), 0),
     [salesRows],
@@ -918,15 +961,11 @@ export default function PerformancePage() {
 
   // ── transactions tab ──
   const filteredTxns = useMemo(() => {
-    // B3 Fix 4: match against ALL adyen rows so DEFAULT filter can see
-    // both "no match at all" and "matched but not settled" states.
+    // Match by merchant_reference (= base_txn_sn) for accurate default detection.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let rows: any[] = salesRows.map((s) => {
-      const matchedAny = adyenRows.find(
-        (a) =>
-          a.machine_id === s.machine_id &&
-          a.creation_date?.split("T")[0] === s.transaction_date?.split("T")[0],
-      );
+      const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
+      const matchedAny = base ? adyenByMerchantRef.get(base) : undefined;
       const status = matchedAny?.status ?? null;
       const settled = !!status && SETTLED_STATUSES.has(status);
       return {
@@ -959,22 +998,18 @@ export default function PerformancePage() {
     return rows.sort((a, b) =>
       (b.transaction_date || "").localeCompare(a.transaction_date || ""),
     );
-  }, [salesRows, adyenRows, txnGroup, txnFunding, txnSearch]);
+  }, [salesRows, adyenByMerchantRef, txnGroup, txnFunding, txnSearch]);
 
-  // B3 Fix 4: count of rows with no settled adyen match — feeds the
-  // PAYMENT DEFAULT banner count.
+  // Count of sales rows with no settled Adyen match — feeds the PAYMENT DEFAULT banner.
   const defaultTxnCount = useMemo(() => {
     let n = 0;
     for (const s of salesRows) {
-      const match = adyenRows.find(
-        (a) =>
-          a.machine_id === s.machine_id &&
-          a.creation_date?.split("T")[0] === s.transaction_date?.split("T")[0],
-      );
+      const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
+      const match = base ? adyenByMerchantRef.get(base) : undefined;
       if (!match || !SETTLED_STATUSES.has(match.status ?? "")) n++;
     }
     return n;
-  }, [salesRows, adyenRows]);
+  }, [salesRows, adyenByMerchantRef]);
 
   const txnPageCount = Math.ceil(filteredTxns.length / PAGE_SIZE);
   const txnSlice = filteredTxns.slice(
