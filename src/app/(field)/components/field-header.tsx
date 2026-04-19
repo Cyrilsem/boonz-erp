@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface FieldHeaderProps {
   title: string;
@@ -57,7 +58,10 @@ export function FieldHeader({ title, rightAction }: FieldHeaderProps) {
         )}
       </div>
       <h1 className="text-base font-semibold">{title}</h1>
-      <div className="min-w-[60px] text-right">{rightAction ?? null}</div>
+      <div className="flex min-w-[60px] items-center justify-end gap-1">
+        {rightAction ?? null}
+        <ThemeToggle />
+      </div>
     </div>
   );
 }
