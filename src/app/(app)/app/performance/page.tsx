@@ -700,20 +700,28 @@ export default function PerformancePage() {
       if (g) { g.total += effectiveTotal; }
       else groups.set(base, { total: effectiveTotal });
     }
+    // Mirror RPC default_stats: WHERE psp_reference IS NOT NULL
+    // Any Adyen record = matched, regardless of status.
+    // gap = MAX(weimi_total - COALESCE(captured, 0), 0) per basket.
+    // defaultPct = gap / matched_weimi (not total weimi).
     let matchedTotal = 0;
+    let matchedCapture = 0;
     let matchedCount = 0;
     let defaultGap = 0;
     for (const [base, grp] of groups) {
       const adyen = adyenByMerchantRef.get(base);
-      if (adyen && SETTLED_STATUSES.has(adyen.status ?? "")) {
+      if (adyen !== undefined) {                              // psp_reference IS NOT NULL
+        const captured = adyen.captured_amount_value ?? 0;
         matchedTotal += grp.total;
+        matchedCapture += captured;
         matchedCount++;
-        defaultGap += Math.max(grp.total - (adyen.captured_amount_value || 0), 0);
+        defaultGap += Math.max(grp.total - captured, 0);
       }
     }
     return {
       matchedCount,
       totalCount: groups.size,
+      matchedCapture,
       gap: defaultGap,
       defaultPct: matchedTotal > 0 ? (defaultGap / matchedTotal) * 100 : 0,
     };
@@ -1006,17 +1014,18 @@ export default function PerformancePage() {
     );
   }, [salesRows, adyenByMerchantRef, txnGroup, txnFunding, txnSearch]);
 
-  // Count of non-zero sales rows with no settled Adyen match — feeds the PAYMENT DEFAULT banner.
+  // Count of non-zero sales rows with no Adyen match at all — feeds PAYMENT DEFAULT banner.
   const defaultTxnCount = useMemo(() => {
     let n = 0;
     for (const s of salesRows) {
       const effectiveTotal = (s.total_amount ?? 0) > 0
         ? (s.total_amount ?? 0)
         : (s.paid_amount ?? 0);
-      if (effectiveTotal <= 0) continue; // skip cash / cancelled-before-capture
+      if (effectiveTotal <= 0) continue;
       const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
-      const match = base ? adyenByMerchantRef.get(base) : undefined;
-      if (!match || !SETTLED_STATUSES.has(match.status ?? "")) n++;
+      if (!base) continue;
+      const match = adyenByMerchantRef.get(base);
+      if (match === undefined) n++;  // only truly unmatched rows count
     }
     return n;
   }, [salesRows, adyenByMerchantRef]);
@@ -1599,7 +1608,7 @@ export default function PerformancePage() {
         <span style={{ color: "rgba(255,255,255,0.8)" }}>
           Captured{" "}
           <strong style={{ color: "#a7f3d0" }}>
-            AED {fmtN(capturedAdyen)}
+            AED {fmtN(txnMatchStats.matchedCapture)}
           </strong>
         </span>
         <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
