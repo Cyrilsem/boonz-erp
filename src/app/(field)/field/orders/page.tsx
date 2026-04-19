@@ -249,7 +249,8 @@ export default function OrdersPage() {
                       {order.received_date ? (
                         order.total_received < order.total_ordered ? (
                           <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                            Partial · {order.total_received}/{order.total_ordered} units
+                            Partial · {order.total_received}/
+                            {order.total_ordered} units
                           </span>
                         ) : (
                           <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">

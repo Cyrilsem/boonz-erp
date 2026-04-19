@@ -490,12 +490,14 @@ export default function ReceivingDetailPage() {
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-neutral-500">
-                  {line.received_qty ?? line.ordered_qty} of {line.ordered_qty} units · {formatDate(line.received_date!)}
-                  {line.received_qty !== null && line.received_qty < line.ordered_qty && (
-                    <span className="ml-1 font-medium text-amber-600 dark:text-amber-400">
-                      ({line.ordered_qty - line.received_qty} short)
-                    </span>
-                  )}
+                  {line.received_qty ?? line.ordered_qty} of {line.ordered_qty}{" "}
+                  units · {formatDate(line.received_date!)}
+                  {line.received_qty !== null &&
+                    line.received_qty < line.ordered_qty && (
+                      <span className="ml-1 font-medium text-amber-600 dark:text-amber-400">
+                        ({line.ordered_qty - line.received_qty} short)
+                      </span>
+                    )}
                 </p>
               </li>
             );
