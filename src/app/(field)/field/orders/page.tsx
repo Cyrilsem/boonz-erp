@@ -11,6 +11,7 @@ interface POGroup {
   purchase_date: string;
   line_count: number;
   total_ordered: number;
+  total_received: number;
   received_date: string | null;
 }
 
@@ -52,6 +53,7 @@ export default function OrdersPage() {
         po_id,
         purchase_date,
         ordered_qty,
+        received_qty,
         received_date,
         suppliers!inner(supplier_name)
       `,
@@ -68,9 +70,13 @@ export default function OrdersPage() {
     for (const line of lines) {
       const s = line.suppliers as unknown as { supplier_name: string };
       const existing = grouped.get(line.po_id);
+      const lineReceivedQty =
+        (line.received_qty as number | null) ??
+        (line.received_date ? (line.ordered_qty ?? 0) : 0);
       if (existing) {
         existing.line_count += 1;
         existing.total_ordered += line.ordered_qty ?? 0;
+        existing.total_received += lineReceivedQty;
         if (!line.received_date) {
           existing.received_date = null;
         }
@@ -81,6 +87,7 @@ export default function OrdersPage() {
           purchase_date: line.purchase_date,
           line_count: 1,
           total_ordered: line.ordered_qty ?? 0,
+          total_received: lineReceivedQty,
           received_date: line.received_date,
         });
       }
@@ -240,9 +247,15 @@ export default function OrdersPage() {
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-2">
                       {order.received_date ? (
-                        <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
-                          Received {formatDate(order.received_date)}
-                        </span>
+                        order.total_received < order.total_ordered ? (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                            Partial · {order.total_received}/{order.total_ordered} units
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
+                            Received {formatDate(order.received_date)}
+                          </span>
+                        )
                       ) : (
                         <>
                           <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">

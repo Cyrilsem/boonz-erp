@@ -18,6 +18,7 @@ interface ReceiveLine {
   boonz_product_id: string;
   boonz_product_name: string;
   ordered_qty: number;
+  received_qty: number | null;
   supplier_id: string;
   price_per_unit_aed: number | null;
   purchase_date: string;
@@ -99,6 +100,7 @@ export default function ReceivingDetailPage() {
         po_id,
         purchase_date,
         ordered_qty,
+        received_qty,
         expiry_date,
         received_date,
         boonz_product_id,
@@ -154,6 +156,7 @@ export default function ReceivingDetailPage() {
         boonz_product_id: line.boonz_product_id,
         boonz_product_name: p.boonz_product_name,
         ordered_qty: line.ordered_qty ?? 0,
+        received_qty: (line.received_qty as number | null) ?? null,
         supplier_id: (line.supplier_id as string) ?? "",
         price_per_unit_aed: (line.price_per_unit_aed as number | null) ?? null,
         purchase_date: line.purchase_date,
@@ -283,13 +286,14 @@ export default function ReceivingDetailPage() {
         const batchId = `${poId}-B${i + 1}`;
 
         if (i === 0) {
-          // Update original PO line with received date, actual qty, and expiry
+          // Update original PO line: set received_qty (NOT ordered_qty — preserve
+          // the original order quantity so shortfalls remain traceable).
           const { error: updateErr } = await supabase
             .from("purchase_orders")
             .update({
               received_date: today,
               expiry_date: batch.expiry_date || null,
-              ordered_qty: batch.received_qty,
+              received_qty: batch.received_qty,
             })
             .eq("po_line_id", line.po_line_id);
 
@@ -306,7 +310,8 @@ export default function ReceivingDetailPage() {
               po_id: line.po_id,
               supplier_id: line.supplier_id,
               boonz_product_id: line.boonz_product_id,
-              ordered_qty: batch.received_qty,
+              ordered_qty: line.ordered_qty,
+              received_qty: batch.received_qty,
               price_per_unit_aed: line.price_per_unit_aed,
               expiry_date: batch.expiry_date || null,
               purchase_date: line.purchase_date,
@@ -485,7 +490,12 @@ export default function ReceivingDetailPage() {
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-neutral-500">
-                  {line.ordered_qty} units · {formatDate(line.received_date!)}
+                  {line.received_qty ?? line.ordered_qty} of {line.ordered_qty} units · {formatDate(line.received_date!)}
+                  {line.received_qty !== null && line.received_qty < line.ordered_qty && (
+                    <span className="ml-1 font-medium text-amber-600 dark:text-amber-400">
+                      ({line.ordered_qty - line.received_qty} short)
+                    </span>
+                  )}
                 </p>
               </li>
             );

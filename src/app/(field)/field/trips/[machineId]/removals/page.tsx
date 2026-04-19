@@ -97,6 +97,7 @@ export default function RemovalsPage() {
       snapshot_date: today,
       current_stock: 0,
       status: "Removed / Expired",
+      removal_reason: r.reason,          // BUG-5 fix: persist the reason
     }));
 
     await supabase.from("pod_inventory").insert(inserts);
