@@ -845,7 +845,10 @@ export default function SalesPipelinePage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [filterOwner, setFilterOwner] = useState("All");
-  const [filterEngagement, setFilterEngagement] = useState("All");
+  const [filterEngagement, setFilterEngagement] = useState<string[]>(
+    ENGAGEMENT_STATUSES.filter((s) => s !== "Inactive")
+  );
+  const [filterOverdue, setFilterOverdue] = useState(false);
   const [search, setSearch] = useState("");
   const [fetchKey, setFetchKey] = useState(0);
 
@@ -880,7 +883,11 @@ export default function SalesPipelinePage() {
   const filtered = useMemo(() => {
     return leads.filter((l) => {
       if (filterOwner !== "All" && l.lead_owner !== filterOwner) return false;
-      if (filterEngagement !== "All" && l.engagement_status !== filterEngagement) return false;
+      if (filterEngagement.length < ENGAGEMENT_STATUSES.length && !filterEngagement.includes(l.engagement_status)) return false;
+      if (filterOverdue) {
+        if (!l.next_follow_up_date) return false;
+        if (new Date(l.next_follow_up_date + "T00:00:00") >= new Date()) return false;
+      }
       if (search) {
         const q = search.toLowerCase();
         if (
@@ -892,7 +899,7 @@ export default function SalesPipelinePage() {
       }
       return true;
     });
-  }, [leads, filterOwner, filterEngagement, search]);
+  }, [leads, filterOwner, filterEngagement, filterOverdue, search]);
 
   // Kanban columns
   const columns: string[] = useMemo(() => {
@@ -1029,19 +1036,62 @@ export default function SalesPipelinePage() {
           ))}
         </div>
 
-        {/* Engagement filter */}
-        <select
-          value={filterEngagement}
-          onChange={(e) => setFilterEngagement(e.target.value)}
+        {/* Engagement multi-select filter */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {ENGAGEMENT_STATUSES.map((s) => {
+            const active = filterEngagement.includes(s);
+            const c = ENGAGEMENT_COLORS[s];
+            return (
+              <button
+                key={s}
+                onClick={() =>
+                  setFilterEngagement((prev) =>
+                    prev.includes(s)
+                      ? prev.filter((x) => x !== s)
+                      : [...prev, s]
+                  )
+                }
+                style={{
+                  background: active ? c.bg : "#f1f0ee",
+                  color: active ? c.text : "#9ca3af",
+                  border: active ? `1px solid ${c.text}44` : "1px solid transparent",
+                  borderRadius: 6,
+                  padding: "5px 10px", fontSize: 11, fontWeight: 600,
+                  cursor: "pointer", transition: "all 0.15s",
+                  textDecoration: active ? "none" : "line-through",
+                  opacity: active ? 1 : 0.6,
+                }}
+              >
+                {s}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Overdue toggle */}
+        <button
+          onClick={() => setFilterOverdue((v) => !v)}
           style={{
-            border: "1px solid #e8e4de", borderRadius: 8, padding: "7px 10px",
-            fontSize: 12, color: "#374151", background: "white",
-            fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: "pointer",
+            background: filterOverdue ? "#fee2e2" : "#f1f0ee",
+            color: filterOverdue ? "#b91c1c" : "#6b6860",
+            border: filterOverdue ? "1px solid #fca5a5" : "1px solid transparent",
+            borderRadius: 6,
+            padding: "5px 11px", fontSize: 11, fontWeight: 700,
+            cursor: "pointer", transition: "all 0.15s",
+            display: "flex", alignItems: "center", gap: 5,
           }}
         >
-          <option value="All">All Statuses</option>
-          {ENGAGEMENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+          ⚠️ Overdue{overdueCount > 0 && (
+            <span style={{
+              background: filterOverdue ? "#b91c1c" : "#dc2626",
+              color: "white",
+              borderRadius: 8,
+              padding: "0px 5px",
+              fontSize: 10,
+              fontWeight: 800,
+            }}>{overdueCount}</span>
+          )}
+        </button>
 
         {/* Count */}
         {filtered.length !== totalLeads && (
