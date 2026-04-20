@@ -23,11 +23,12 @@ const allNavItems: NavItem[] = [
   { label: "Performance", href: "/app/performance", icon: "📈" },
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "SIM Cards", href: "/app/sims", icon: "◈" },
+  { label: "Sales Pipeline", href: "/app/sales-pipeline", icon: "◎" },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
 const hiddenByRole: Record<string, string[]> = {
-  finance: ["Pods", "Refill & Dispatch", "Consumers", "Lifecycle"],
+  finance: ["Pods", "Refill & Dispatch", "Consumers", "Lifecycle", "Sales Pipeline"],
   manager: ["Settings", "Lifecycle"],
 };
 
