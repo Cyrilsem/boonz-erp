@@ -47,6 +47,8 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   const [planProcessing, setPlanProcessing] = useState<Set<string>>(new Set());
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [planToast, setPlanToast] = useState<string | null>(null);
+  /** boonz_product_name → total Active warehouse stock across all warehouses */
+  const [warehouseStockMap, setWarehouseStockMap] = useState<Map<string, number>>(new Map());
 
   const loadPlan = useCallback(async () => {
     const supabase = createClient();
@@ -64,9 +66,36 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
     if (data && data.length > 0) {
       setPlanRows(data as RefillPlanRow[]);
       setPlanDate((data[0] as RefillPlanRow).plan_date);
+
+      // Batch-fetch total Active warehouse stock for all products in the plan
+      // so the operator can see zero-stock blockers before approving.
+      const names = [
+        ...new Set(
+          (data as RefillPlanRow[])
+            .filter((r) => r.action !== "Remove")
+            .map((r) => r.boonz_product_name)
+            .filter(Boolean),
+        ),
+      ];
+      if (names.length > 0) {
+        const { data: stockRows } = await supabase
+          .from("warehouse_inventory")
+          .select("boonz_product_id, warehouse_stock, boonz_products(boonz_product_name)")
+          .eq("status", "Active")
+          .limit(5000);
+        const stockMap = new Map<string, number>();
+        for (const row of stockRows ?? []) {
+          const name = (row.boonz_products as unknown as { boonz_product_name: string } | null)
+            ?.boonz_product_name;
+          if (!name) continue;
+          stockMap.set(name, (stockMap.get(name) ?? 0) + Number(row.warehouse_stock ?? 0));
+        }
+        setWarehouseStockMap(stockMap);
+      }
     } else {
       setPlanRows([]);
       setPlanDate(null);
+      setWarehouseStockMap(new Map());
     }
   }, [selectedDate]);
 
@@ -90,6 +119,15 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
       remove_count: rows.filter((r) => r.action === "Remove").length,
     }));
   }, [planRows]);
+
+  /** Returns true if this plan row is a zero-warehouse-stock blocker */
+  function isZeroStockBlocker(row: RefillPlanRow): boolean {
+    if (row.action === "Remove") return false;
+    if (!row.boonz_product_name) return false;
+    const stock = warehouseStockMap.get(row.boonz_product_name);
+    // Only flag when the map is loaded AND stock is confirmed zero (not just missing)
+    return warehouseStockMap.size > 0 && stock === 0;
+  }
 
   async function handlePlanMachine(
     machineName: string,
@@ -207,10 +245,11 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
             {planGroups.map((group) => {
               const isExpanded = planExpanded === group.machine_name;
               const isProcessing = planProcessing.has(group.machine_name);
+              const blockerCount = group.rows.filter(isZeroStockBlocker).length;
               return (
                 <div
                   key={group.machine_name}
-                  className="bg-white border border-gray-200 rounded-lg overflow-hidden"
+                  className={`bg-white border rounded-lg overflow-hidden ${blockerCount > 0 ? "border-red-300" : "border-gray-200"}`}
                 >
                   {/* Machine card header */}
                   <button
@@ -242,6 +281,11 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                         {group.remove_count > 0 && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-800 font-medium">
                             {group.remove_count} Remove
+                          </span>
+                        )}
+                        {blockerCount > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-200 text-red-800 font-semibold">
+                            ⛔ {blockerCount} no stock
                           </span>
                         )}
                       </div>
@@ -317,13 +361,16 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                                         ? "bg-red-100 text-red-800"
                                         : "";
                               const hasWarning = row.comment?.includes("⚠️");
+                              const isBlocker = isZeroStockBlocker(row);
                               return (
                                 <tr
                                   key={row.id}
                                   className={
-                                    hasWarning
-                                      ? "bg-yellow-50 border-l-4 border-yellow-400"
-                                      : "hover:bg-gray-50"
+                                    isBlocker
+                                      ? "bg-red-50 border-l-4 border-red-500"
+                                      : hasWarning
+                                        ? "bg-yellow-50 border-l-4 border-yellow-400"
+                                        : "hover:bg-gray-50"
                                   }
                                 >
                                   <td className="px-3 py-2 font-mono text-gray-500">
@@ -359,8 +406,15 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                                       <span className="text-gray-300">—</span>
                                     )}
                                   </td>
-                                  <td className="px-3 py-2 text-gray-500 max-w-[160px] truncate">
-                                    {row.comment ?? ""}
+                                  <td className="px-3 py-2 max-w-[180px]">
+                                    {isBlocker && (
+                                      <span className="mr-1 inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                                        ⛔ 0 stock
+                                      </span>
+                                    )}
+                                    <span className="truncate text-gray-500 text-xs">
+                                      {row.comment ?? ""}
+                                    </span>
                                   </td>
                                   <td className="px-2 py-2 text-right">
                                     <button

@@ -169,6 +169,29 @@ export default function DispatchingDetailPage() {
           action,
         };
       });
+      // Resolve boonz_product_name for each line so the driver sees the
+      // brand-level name (e.g. "Evian - Regular") rather than the generic
+      // pod name. Batch-fetch to avoid N+1 queries.
+      const boonzIds = [
+        ...new Set(mapped.map((l) => l.boonz_product_id).filter(Boolean) as string[]),
+      ];
+      if (boonzIds.length > 0) {
+        const { data: boonzNames } = await supabase
+          .from("boonz_products")
+          .select("product_id, boonz_product_name")
+          .in("product_id", boonzIds)
+          .limit(500);
+        const boonzNameMap = new Map<string, string>(
+          (boonzNames ?? []).map((b) => [b.product_id as string, b.boonz_product_name as string]),
+        );
+        for (const line of mapped) {
+          if (line.boonz_product_id) {
+            const resolved = boonzNameMap.get(line.boonz_product_id);
+            if (resolved) line.boonz_product_name = resolved;
+          }
+        }
+      }
+
       mapped.sort((a, b) =>
         (a.shelf_code ?? "").localeCompare(b.shelf_code ?? ""),
       );
@@ -493,7 +516,7 @@ export default function DispatchingDetailPage() {
                       {line.shelf_code ?? "—"}
                     </span>
                     <span className="text-sm truncate">
-                      {line.pod_product_name ?? line.boonz_product_name ?? "—"}
+                      {line.boonz_product_name ?? line.pod_product_name ?? "—"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -683,7 +706,7 @@ export default function DispatchingDetailPage() {
                   {/* Product name + expiry */}
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <p className="text-sm font-medium">
-                      {line.pod_product_name ?? line.boonz_product_name}
+                      {line.boonz_product_name ?? line.pod_product_name ?? "Unknown product"}
                     </p>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       {/* Expiry: engine flag takes precedence over date-based style */}
