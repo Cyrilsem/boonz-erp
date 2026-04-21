@@ -248,9 +248,9 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
     }
   }
 
-  if (planRows.length === 0) return null;
-
   // ── Leg 1 rendering helpers ────────────────────────────────────────────────
+  // NOTE: this useMemo MUST stay above the early-return so the hook is always
+  // called in the same order regardless of planRows length (Rules of Hooks).
 
   /** Group leg1Items by staging warehouse name */
   const leg1ByWarehouse = useMemo(() => {
@@ -261,6 +261,8 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [leg1Items]);
+
+  if (planRows.length === 0) return null;
 
   return (
     <>
