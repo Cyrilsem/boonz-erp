@@ -29,6 +29,7 @@ interface BoonzProduct {
   product_sub_brand: string | null;
   product_category: string | null;
   category_group: string | null;
+  physical_type: string | null;
   product_weight_g: number | null;
   actual_weight_g: number | null;
   description: string | null;
@@ -41,6 +42,7 @@ interface BoonzProduct {
   max_cost: number | null;
   avg_cost: number | null;
   sourcing_channel: string | null;
+  storage_temp_requirement: string;
 }
 
 interface ProductDraft {
@@ -60,7 +62,14 @@ interface ProductDraft {
   max_cost: string;
   avg_cost: string;
   sourcing_channel: string;
+  storage_temp_requirement: string;
 }
+
+const STORAGE_TEMP_OPTIONS: { value: string; label: string; desc: string }[] = [
+  { value: "ambient", label: "Ambient", desc: "Can be staged in WH_MM / WH_MCC" },
+  { value: "cold",    label: "Cold ❄",  desc: "Requires refrigeration — ships from WH Central only" },
+  { value: "frozen",  label: "Frozen",  desc: "Requires freezer — ships from WH Central only" },
+];
 
 function rowToDraft(r: BoonzProduct): ProductDraft {
   return {
@@ -80,6 +89,7 @@ function rowToDraft(r: BoonzProduct): ProductDraft {
     max_cost: r.max_cost?.toString() ?? "",
     avg_cost: r.avg_cost?.toString() ?? "",
     sourcing_channel: r.sourcing_channel ?? "",
+    storage_temp_requirement: r.storage_temp_requirement ?? "ambient",
   };
 }
 
@@ -101,10 +111,12 @@ function emptyDraft(): ProductDraft {
     max_cost: "",
     avg_cost: "",
     sourcing_channel: "",
+    storage_temp_requirement: "ambient",
   };
 }
 
 type SortOption = "name" | "category" | "brand";
+type TempFilter = "all" | "cold" | "frozen";
 
 function ToggleChip({
   label,
@@ -303,6 +315,46 @@ function ProductForm({
 
       <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">
+          Storage
+        </p>
+        <div className="space-y-2">
+          {STORAGE_TEMP_OPTIONS.map((opt) => {
+            const active = draft.storage_temp_requirement === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange({ storage_temp_requirement: opt.value })}
+                className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                  active
+                    ? opt.value === "ambient"
+                      ? "border-green-500 bg-green-50 dark:bg-green-900/20"
+                      : opt.value === "cold"
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                      : "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
+                    : "border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-sm font-medium ${active ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-600 dark:text-neutral-400"}`}>
+                    {opt.label}
+                  </span>
+                  {active && (
+                    <span className={`text-xs font-semibold ${
+                      opt.value === "ambient" ? "text-green-600" :
+                      opt.value === "cold" ? "text-blue-600" : "text-purple-600"
+                    }`}>✓ Selected</span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-neutral-400">{opt.desc}</p>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">
           Cost
         </p>
         <div className="grid grid-cols-3 gap-2">
@@ -413,6 +465,7 @@ function draftToPayload(d: ProductDraft) {
     max_cost: d.max_cost ? parseFloat(d.max_cost) : null,
     avg_cost: d.avg_cost ? parseFloat(d.avg_cost) : null,
     sourcing_channel: d.sourcing_channel.trim() || null,
+    storage_temp_requirement: d.storage_temp_requirement,
     updated_at: new Date().toISOString(),
   };
 }
@@ -424,6 +477,7 @@ export default function BoonzProductsPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("name");
 
+  const [tempFilter, setTempFilter] = useState<TempFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, ProductDraft>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
@@ -489,6 +543,9 @@ export default function BoonzProductsPage() {
           p.boonz_product_name.toLowerCase().includes(q) ||
           (p.product_brand ?? "").toLowerCase().includes(q),
       );
+    }
+    if (tempFilter !== "all") {
+      r = r.filter((p) => p.storage_temp_requirement === tempFilter);
     }
     return [...r].sort((a, b) => {
       if (sortBy === "category")
@@ -632,6 +689,27 @@ export default function BoonzProductsPage() {
           ))}
         </div>
 
+        <div className="mb-3 flex items-center gap-2 text-xs text-neutral-500">
+          <span>Storage:</span>
+          {(["all", "cold", "frozen"] as TempFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setTempFilter(f)}
+              className={`rounded px-2 py-1 transition-colors ${
+                tempFilter === f
+                  ? f === "cold"
+                    ? "bg-blue-100 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
+                    : f === "frozen"
+                    ? "bg-purple-100 font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                    : "bg-neutral-200 font-medium text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100"
+                  : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {f === "all" ? "All" : f === "cold" ? "❄ Cold" : "🧊 Frozen"}
+            </button>
+          ))}
+        </div>
+
         <p className="mb-3 text-xs text-neutral-500">
           {processed.length} products
         </p>
@@ -669,6 +747,16 @@ export default function BoonzProductsPage() {
                         {row.category_group && (
                           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                             {row.category_group}
+                          </span>
+                        )}
+                        {row.storage_temp_requirement === "cold" && (
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                            ❄ Cold
+                          </span>
+                        )}
+                        {row.storage_temp_requirement === "frozen" && (
+                          <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                            🧊 Frozen
                           </span>
                         )}
                       </div>
