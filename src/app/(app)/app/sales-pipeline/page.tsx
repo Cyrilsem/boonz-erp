@@ -43,7 +43,7 @@ interface Activity {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const FUNNEL_STAGES = ["Lead", "Initiated", "Qualification", "Proposal", "Negotiation", "Installed"];
+const FUNNEL_STAGES = ["Lead", "Initiated", "Qualification", "Negotiation", "Awarded", "Installed"];
 const ENGAGEMENT_STATUSES = ["Active", "Inactive", "Closed-Won", "Closed-Lost"];
 const PRIORITY_ORDERS = [1, 2, 3, 4, 5];
 const PRIORITY_LABELS: Record<number, string> = {
@@ -64,8 +64,8 @@ const STAGE_COLORS: Record<string, { bg: string; text: string }> = {
   Lead:         { bg: "#f1f0ee", text: "#6b6860" },
   Initiated:    { bg: "#dbeafe", text: "#1d4ed8" },
   Qualification:{ bg: "#fef9c3", text: "#a16207" },
-  Proposal:     { bg: "#ffedd5", text: "#c2410c" },
   Negotiation:  { bg: "#fce7f3", text: "#be185d" },
+  Awarded:      { bg: "#fef3c7", text: "#92400e" },
   Installed:    { bg: "#d1fae5", text: "#065f46" },
 };
 const ENGAGEMENT_COLORS: Record<string, { bg: string; text: string }> = {
