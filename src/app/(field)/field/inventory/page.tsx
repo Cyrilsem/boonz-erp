@@ -26,7 +26,11 @@ interface InventoryRow {
   warehouse_stock: number;
   expiration_date: string | null;
   status: string;
+  warehouse_id: string | null;
+  warehouse_name: string;
 }
+
+type WarehouseFilter = "all" | "WH_CENTRAL" | "WH_MM" | "WH_MCC";
 
 interface ControlEdit {
   qty: number;
@@ -433,6 +437,7 @@ export default function InventoryPage() {
   const [hideEmpty, setHideEmpty] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [warehouseFilter, setWarehouseFilter] = useState<WarehouseFilter>("all");
 
   /** Products collapsed to header-only (default: all expanded) */
   const [collapsedProducts, setCollapsedProducts] = useState<Set<string>>(
@@ -475,7 +480,9 @@ export default function InventoryPage() {
         warehouse_stock,
         expiration_date,
         status,
-        boonz_products!inner(boonz_product_name, product_category)
+        warehouse_id,
+        boonz_products!inner(boonz_product_name, product_category),
+        warehouses(name)
       `);
 
     const { data } = await query;
@@ -491,6 +498,7 @@ export default function InventoryPage() {
         boonz_product_name: string;
         product_category: string | null;
       };
+      const w = row.warehouses as unknown as { name: string } | null;
       return {
         wh_inventory_id: row.wh_inventory_id,
         boonz_product_id: row.boonz_product_id,
@@ -501,6 +509,8 @@ export default function InventoryPage() {
         warehouse_stock: row.warehouse_stock ?? 0,
         expiration_date: row.expiration_date,
         status: row.status ?? "Active",
+        warehouse_id: row.warehouse_id ?? null,
+        warehouse_name: w?.name ?? "WH_CENTRAL",
       };
     });
 
@@ -1224,6 +1234,11 @@ export default function InventoryPage() {
   const processed: InventoryRow[] = useMemo(() => {
     let filtered = rows;
 
+    // Warehouse filter
+    if (warehouseFilter !== "all") {
+      filtered = filtered.filter((r) => r.warehouse_name === warehouseFilter);
+    }
+
     // Status filter — when an expiry filter is active, also surface Inactive /
     // Expired rows that fall within the expiry window so they don't silently
     // disappear behind the default "Active" status pill.
@@ -1308,7 +1323,7 @@ export default function InventoryPage() {
     });
 
     return filtered;
-  }, [rows, search, expiryFilter, sortBy, hideEmpty, statusFilter]);
+  }, [rows, search, expiryFilter, sortBy, hideEmpty, statusFilter, warehouseFilter]);
 
   const groups: InventoryGroup[] = useMemo(() => {
     if (groupBy === "none") return [];
@@ -1693,6 +1708,20 @@ export default function InventoryPage() {
             placeholder="Search products..."
             className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
           />
+
+          {/* Warehouse filter */}
+          <div className="mb-3 flex items-center gap-2">
+            <select
+              value={warehouseFilter}
+              onChange={(e) => setWarehouseFilter(e.target.value as WarehouseFilter)}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+            >
+              <option value="all">All Warehouses</option>
+              <option value="WH_CENTRAL">Central</option>
+              <option value="WH_MCC">MCC</option>
+              <option value="WH_MM">MM</option>
+            </select>
+          </div>
 
           {/* Status filter pills */}
           <div className="mb-3 flex gap-2">
