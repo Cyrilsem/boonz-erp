@@ -360,6 +360,7 @@ export default function MachinesPage() {
     old_machine_id: string;
     new_machine_id: string;
     slots_archived: number;
+    aliases_wired:  number;
   } | null>(null);
   const [repurposeError, setRepurposeError] = useState<string | null>(null);
 
@@ -567,37 +568,47 @@ export default function MachinesPage() {
     setMachineSaving((p) => ({ ...p, [id]: false }));
   }
 
-  // CC-08: Repurpose machine — routed through /api/machines/repurpose (service_role)
+  // CC-15: Repurpose machine — Supabase Edge Function (repurpose-machine).
+  // Replaced the Next.js /api/machines/repurpose route so this works identically
+  // in the field PWA (no Next.js server needed) and in the ERP app.
+  // The edge function calls repurpose_machine() which now also wires
+  // machine_name_aliases (Steps 4 & 5) so future WEIMI imports are attributed
+  // to the correct machine UUID without any manual correction.
   async function handleRepurposeMachine() {
     if (!repurposeMachineId || !repurposeValues.official_name.trim()) return;
     setRepurposing(true);
     setRepurposeError(null);
+    const supabase = createClient();
     try {
-      const res = await fetch("/api/machines/repurpose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          p_old_machine_id: repurposeMachineId,
-          p_new_official_name: repurposeValues.official_name.trim(),
-          p_new_pod_location: repurposeValues.pod_location.trim() || null,
-          p_new_location_type: repurposeValues.location_type,
-          p_new_building_id: repurposeValues.building_id.trim() || null,
+      const { data, error } = await supabase.functions.invoke("repurpose-machine", {
+        body: {
+          p_old_machine_id:       repurposeMachineId,
+          p_new_official_name:    repurposeValues.official_name.trim(),
+          p_new_pod_location:     repurposeValues.pod_location.trim() || null,
+          p_new_location_type:    repurposeValues.location_type,
+          p_new_building_id:      repurposeValues.building_id.trim() || null,
           p_new_source_of_supply: repurposeValues.source_of_supply || null,
-          p_new_venue_group: repurposeValues.venue_group,
-        }),
+          p_new_venue_group:      repurposeValues.venue_group,
+        },
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setRepurposeError(json.error ?? "Unknown error");
+      if (error) {
+        // error.message may be a JSON string from the function — unwrap it
+        let msg = error.message ?? "Unknown error";
+        try {
+          const parsed = JSON.parse(msg);
+          msg = parsed.error ?? msg;
+        } catch { /* not JSON, use as-is */ }
+        setRepurposeError(msg);
         setRepurposing(false);
         return;
       }
-      const row = Array.isArray(json) ? json[0] : json;
+      const row = Array.isArray(data) ? data[0] : data;
       setRepurposeResult(
         row as {
           old_machine_id: string;
           new_machine_id: string;
           slots_archived: number;
+          aliases_wired:  number;
         },
       );
       setRepurposeStep("done");
@@ -1288,9 +1299,14 @@ export default function MachinesPage() {
                     {repurposeResult.new_machine_id}
                   </span>
                 </p>
-                <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
+                <p className="mb-1 text-sm text-neutral-600 dark:text-neutral-400">
                   Slot lifecycle rows archived:{" "}
                   <strong>{repurposeResult.slots_archived}</strong>
+                </p>
+                <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
+                  WEIMI aliases wired:{" "}
+                  <strong>{repurposeResult.aliases_wired}</strong>{" "}
+                  <span className="text-xs text-neutral-400">(old + new name → correct UUID)</span>
                 </p>
                 <button
                   onClick={() => setRepurposeMachineId(null)}
