@@ -8,6 +8,7 @@ import { FieldHeader } from "../../../components/field-header";
 import { usePageTour } from "../../../components/onboarding/use-page-tour";
 import Tour from "../../../components/onboarding/tour";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
+import type { ExpiryWarning } from "@/lib/dispatch-types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ interface DispatchPhoto {
   url: string;
 }
 
+/** Driver outcome recorded for a dispatch line (UI-only, not stored as-is in DB) */
 type LineAction = "added" | "returned" | null;
 
 interface DispatchLine {
@@ -37,7 +39,7 @@ interface DispatchLine {
   return_reason: string;
   expiry_date: string | null;
   /** Expiry flag set by the refill engine at plan-write time */
-  expiry_warning: "expiring_soon" | "expired" | "no_expiry" | null;
+  expiry_warning: ExpiryWarning | null;
   /** Source warehouse UUID */
   from_warehouse_id: string | null;
   /** Source warehouse display name (e.g. "WH_CENTRAL", "WH_MM") */
@@ -162,7 +164,7 @@ export default function DispatchingDetailPage() {
           returned: isReturned,
           return_reason: (line.return_reason as string | null) ?? "",
           expiry_date: (line.expiry_date as string | null) ?? null,
-          expiry_warning: ((line as Record<string, unknown>).expiry_warning as "expiring_soon" | "expired" | "no_expiry" | null) ?? null,
+          expiry_warning: ((line as Record<string, unknown>).expiry_warning as ExpiryWarning | null) ?? null,
           from_warehouse_id: whId,
           from_warehouse_name: whId ? (whNameMap.get(whId) ?? null) : null,
           comment: (line.comment as string | null) ?? "",
@@ -345,6 +347,17 @@ export default function DispatchingDetailPage() {
         ...l,
         action: "added" as LineAction,
         filled_qty: l.quantity,
+      })),
+    );
+  }
+
+  function handleMarkAllReturned() {
+    setLines((prev) =>
+      prev.map((l) => ({
+        ...l,
+        action: "returned" as LineAction,
+        filled_qty: 0,
+        return_reason: l.return_reason || "Not added to machine",
       })),
     );
   }
@@ -858,12 +871,20 @@ export default function DispatchingDetailPage() {
           </button>
         ) : (
           <div className="space-y-2">
-            <button
-              onClick={handleMarkAllAdded}
-              className="w-full rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            >
-              Mark all as added
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleMarkAllAdded}
+                className="rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                ✓ All added
+              </button>
+              <button
+                onClick={handleMarkAllReturned}
+                className="rounded-lg border border-amber-300 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+              >
+                ↩ All returned
+              </button>
+            </div>
             <button
               onClick={handleSave}
               disabled={!allActioned || saving}

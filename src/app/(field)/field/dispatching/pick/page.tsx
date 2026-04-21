@@ -13,20 +13,22 @@ interface PickItem {
   pod_product_name: string;
   boonz_product_id: string;
   boonz_product_name: string;
-  supplier: string;
+  supplier: string | null;
   sku_pick_qty: number;
   warehouse_stock_available: number;
+  from_warehouse_id: string | null;
+  warehouse_name: string | null;
   is_blocker: boolean;
 }
 
-type GroupMode = "supplier" | "machine";
+type GroupMode = "supplier" | "machine" | "warehouse";
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DispatchPickPage() {
   const [items, setItems] = useState<PickItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [groupBy, setGroupBy] = useState<GroupMode>("supplier");
+  const [groupBy, setGroupBy] = useState<GroupMode>("warehouse");
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -34,9 +36,10 @@ export default function DispatchPickPage() {
     const { data } = await supabase
       .from("v_dispatch_pick_list")
       .select(
-        "machine_id, machine_name, shelf_code, pod_product_name, boonz_product_id, boonz_product_name, supplier, sku_pick_qty, warehouse_stock_available",
+        "machine_id, machine_name, shelf_code, pod_product_name, boonz_product_id, boonz_product_name, supplier, sku_pick_qty, warehouse_stock_available, from_warehouse_id, warehouse_name",
       )
-      .order("supplier")
+      .order("warehouse_name", { nullsFirst: false })
+      .order("supplier", { nullsFirst: false })
       .order("machine_name")
       .limit(10000);
 
@@ -48,9 +51,11 @@ export default function DispatchPickPage() {
         pod_product_name: r.pod_product_name,
         boonz_product_id: r.boonz_product_id,
         boonz_product_name: r.boonz_product_name,
-        supplier: r.supplier,
+        supplier: (r.supplier as string | null) ?? null,
         sku_pick_qty: r.sku_pick_qty,
         warehouse_stock_available: r.warehouse_stock_available,
+        from_warehouse_id: (r.from_warehouse_id as string | null) ?? null,
+        warehouse_name: (r.warehouse_name as string | null) ?? null,
         is_blocker: r.warehouse_stock_available < r.sku_pick_qty,
       }));
       setItems(mapped);
@@ -83,18 +88,28 @@ export default function DispatchPickPage() {
   // Group maps
   const bySupplier = new Map<string, PickItem[]>();
   const byMachine = new Map<string, PickItem[]>();
+  const byWarehouse = new Map<string, PickItem[]>();
 
   for (const item of items) {
-    const sArr = bySupplier.get(item.supplier) ?? [];
+    const supKey = item.supplier ?? "Unknown supplier";
+    const sArr = bySupplier.get(supKey) ?? [];
     sArr.push(item);
-    bySupplier.set(item.supplier, sArr);
+    bySupplier.set(supKey, sArr);
 
     const mArr = byMachine.get(item.machine_name) ?? [];
     mArr.push(item);
     byMachine.set(item.machine_name, mArr);
+
+    const whKey = item.warehouse_name ?? "Unknown warehouse";
+    const wArr = byWarehouse.get(whKey) ?? [];
+    wArr.push(item);
+    byWarehouse.set(whKey, wArr);
   }
 
-  const activeMap = groupBy === "supplier" ? bySupplier : byMachine;
+  const activeMap =
+    groupBy === "supplier" ? bySupplier :
+    groupBy === "warehouse" ? byWarehouse :
+    byMachine;
   const groups = Array.from(activeMap.entries()).sort((a, b) =>
     a[0].localeCompare(b[0]),
   );
@@ -132,7 +147,7 @@ export default function DispatchPickPage() {
 
         {/* Group tabs */}
         <div className="mb-3 flex gap-2">
-          {(["supplier", "machine"] as const).map((mode) => (
+          {(["warehouse", "supplier", "machine"] as const).map((mode) => (
             <button
               key={mode}
               onClick={() => setGroupBy(mode)}
@@ -191,13 +206,22 @@ export default function DispatchPickPage() {
                     }`}
                   >
                     <div className="min-w-0 flex-1 pr-2">
-                      <p className="truncate text-sm font-medium">
-                        {item.boonz_product_name}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="truncate text-sm font-medium">
+                          {item.boonz_product_name}
+                        </p>
+                        {item.warehouse_name && groupBy !== "warehouse" && (
+                          <span className="shrink-0 rounded bg-blue-50 px-1 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                            📦 {item.warehouse_name}
+                          </span>
+                        )}
+                      </div>
                       <p className="truncate text-xs text-neutral-500">
-                        {groupBy === "supplier"
-                          ? item.machine_name
-                          : item.supplier}{" "}
+                        {groupBy === "warehouse"
+                          ? `${item.machine_name} · ${item.supplier ?? "—"}`
+                          : groupBy === "supplier"
+                            ? item.machine_name
+                            : item.supplier ?? "—"}{" "}
                         · {item.shelf_code}
                       </p>
                     </div>

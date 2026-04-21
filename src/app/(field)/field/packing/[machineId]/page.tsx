@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
+import type { DispatchAction, ExpiryWarning } from "@/lib/dispatch-types";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LineAction = "packed" | "skip" | null;
@@ -66,8 +67,8 @@ interface PackLine {
   extraSliceIds: string[];
   /** Per-expiry packed quantities from absorbed extra slices: expiry → filled_quantity */
   extraSlicePacked: { expiry: string | null; qty: number }[];
-  /** Raw action from refill_dispatching (Refill, Add, Add New, Remove, etc.) */
-  dispatch_action: string;
+  /** Raw action from refill_dispatching (Refill, Add New, Remove) */
+  dispatch_action: DispatchAction | string; // string fallback for legacy values
   /** Raw comment from refill_dispatching */
   dispatch_comment: string | null;
   /** Source warehouse UUID */
@@ -75,7 +76,7 @@ interface PackLine {
   /** Source warehouse display name (e.g. "WH_CENTRAL", "WH_MM") */
   from_warehouse_name: string | null;
   /** Expiry flag set by the refill engine at plan-write time */
-  expiry_warning: "expiring_soon" | "expired" | "no_expiry" | null;
+  expiry_warning: ExpiryWarning | null;
   /** Whether this item was returned on a prior dispatch run */
   returned: boolean;
   /** Reason recorded when item was returned */

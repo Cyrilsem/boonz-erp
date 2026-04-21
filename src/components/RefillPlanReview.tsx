@@ -3,7 +3,20 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const WH_CENTRAL_ID = "4bebef68-9e36-4a5c-9c2c-142f8dbdae85";
+
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+/** One aggregated line in the Leg 1 staging-transfer summary */
+type Leg1Item = {
+  staging_warehouse_name: string; // e.g. "WH_MM" or "WH_MCC"
+  boonz_product_name: string;
+  pod_product_name: string;
+  total_qty: number;
+  machines: string[]; // which machines need this product from staging
+};
 
 type RefillPlanRow = {
   id: string;
@@ -49,6 +62,8 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   const [planToast, setPlanToast] = useState<string | null>(null);
   /** boonz_product_name → total Active warehouse stock across all warehouses */
   const [warehouseStockMap, setWarehouseStockMap] = useState<Map<string, number>>(new Map());
+  /** Leg 1 staging-transfer requirements (WH_CENTRAL → WH_MM / WH_MCC) */
+  const [leg1Items, setLeg1Items] = useState<Leg1Item[]>([]);
 
   const loadPlan = useCallback(async () => {
     const supabase = createClient();
@@ -92,10 +107,57 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
         }
         setWarehouseStockMap(stockMap);
       }
+
+      // ── Leg 1: staging-transfer requirements ─────────────────────────────
+      // For machines whose primary warehouse is NOT WH_CENTRAL (i.e. staging
+      // warehouses like WH_MM / WH_MCC), aggregate plan lines so the warehouse
+      // manager knows what to move from WH_CENTRAL before the driver arrives.
+      const machineNames = [...new Set((data as RefillPlanRow[]).map((r) => r.machine_name))];
+      const { data: machineRows } = await supabase
+        .from("machines")
+        .select("official_name, primary_warehouse_id, warehouses(name)")
+        .in("official_name", machineNames)
+        .neq("primary_warehouse_id", WH_CENTRAL_ID);
+
+      const stagingMachineMap = new Map<string, string>(); // machine_name → staging WH name
+      for (const m of machineRows ?? []) {
+        const whName = (m.warehouses as unknown as { name: string } | null)?.name;
+        if (whName) stagingMachineMap.set(m.official_name as string, whName);
+      }
+
+      const leg1Map = new Map<string, Leg1Item>(); // key: "WH_MCC|boonz_product_name"
+      for (const row of data as RefillPlanRow[]) {
+        if (row.action === "Remove") continue;
+        const whName = stagingMachineMap.get(row.machine_name);
+        if (!whName) continue;
+        const key = `${whName}|${row.boonz_product_name}`;
+        if (!leg1Map.has(key)) {
+          leg1Map.set(key, {
+            staging_warehouse_name: whName,
+            boonz_product_name: row.boonz_product_name,
+            pod_product_name: row.pod_product_name,
+            total_qty: 0,
+            machines: [],
+          });
+        }
+        const item = leg1Map.get(key)!;
+        item.total_qty += row.quantity ?? 0;
+        if (!item.machines.includes(row.machine_name)) {
+          item.machines.push(row.machine_name);
+        }
+      }
+      setLeg1Items(
+        Array.from(leg1Map.values()).sort(
+          (a, b) =>
+            a.staging_warehouse_name.localeCompare(b.staging_warehouse_name) ||
+            a.boonz_product_name.localeCompare(b.boonz_product_name),
+        ),
+      );
     } else {
       setPlanRows([]);
       setPlanDate(null);
       setWarehouseStockMap(new Map());
+      setLeg1Items([]);
     }
   }, [selectedDate]);
 
@@ -187,6 +249,18 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   }
 
   if (planRows.length === 0) return null;
+
+  // ── Leg 1 rendering helpers ────────────────────────────────────────────────
+
+  /** Group leg1Items by staging warehouse name */
+  const leg1ByWarehouse = useMemo(() => {
+    const map = new Map<string, Leg1Item[]>();
+    for (const item of leg1Items) {
+      if (!map.has(item.staging_warehouse_name)) map.set(item.staging_warehouse_name, []);
+      map.get(item.staging_warehouse_name)!.push(item);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [leg1Items]);
 
   return (
     <>
@@ -475,6 +549,87 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
           </div>
         )}
       </div>
+
+      {/* ── Leg 1 — Staging Transfers ─────────────────────────────────────── */}
+      {leg1ByWarehouse.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-amber-200 p-6 mb-6">
+          <p className="text-xs font-semibold tracking-wider text-amber-600 uppercase mb-4">
+            🚛 Leg 1 — Staging Transfers
+          </p>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold text-gray-900">
+              WH_CENTRAL → Staging
+            </h2>
+            <span className="text-xs text-gray-500">
+              Move before driver departs
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            {leg1ByWarehouse.map(([whName, items]) => {
+              const totalUnits = items.reduce((s, i) => s + i.total_qty, 0);
+              return (
+                <div
+                  key={whName}
+                  className="overflow-hidden rounded-lg border border-amber-100"
+                >
+                  {/* Warehouse sub-header */}
+                  <div className="flex items-center justify-between bg-amber-50 px-4 py-2">
+                    <span className="text-sm font-semibold text-amber-900">
+                      📦 {whName}
+                    </span>
+                    <span className="text-xs text-amber-700">
+                      {items.length} SKU{items.length !== 1 ? "s" : ""} · {totalUnits} units
+                    </span>
+                  </div>
+
+                  {/* Product lines */}
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
+                        <th className="px-3 py-2 text-left font-medium">Boonz Product</th>
+                        <th className="px-3 py-2 text-left font-medium">Pod Product</th>
+                        <th className="px-3 py-2 text-right font-medium">Qty</th>
+                        <th className="px-3 py-2 text-left font-medium">Machines</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {items.map((item) => (
+                        <tr
+                          key={`${item.staging_warehouse_name}|${item.boonz_product_name}`}
+                          className="hover:bg-gray-50"
+                        >
+                          <td className="px-3 py-2 font-medium text-gray-800 max-w-[160px] truncate">
+                            {item.boonz_product_name}
+                          </td>
+                          <td className="px-3 py-2 text-gray-500 max-w-[140px] truncate">
+                            {item.pod_product_name}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold text-gray-900">
+                            {item.total_qty}
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">
+                            <div className="flex flex-wrap gap-1">
+                              {item.machines.map((m) => (
+                                <span
+                                  key={m}
+                                  className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600"
+                                >
+                                  {m}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </>
   );
 }
