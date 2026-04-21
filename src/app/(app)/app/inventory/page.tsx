@@ -14,10 +14,13 @@ interface WHRowRaw {
   consumer_stock: number | null;
   expiration_date: string | null;
   status: string;
+  warehouse_id: string | null;
   boonz_products: {
     boonz_product_name: string;
     physical_type: string | null;
+    product_category: string | null;
   };
+  warehouses: { name: string } | null;
 }
 
 interface WHRow {
@@ -25,17 +28,21 @@ interface WHRow {
   boonz_product_id: string;
   boonz_product_name: string;
   physical_type: string | null;
+  product_category: string | null;
   batch_id: string | null;
   wh_location: string | null;
   warehouse_stock: number;
   consumer_stock: number;
   expiration_date: string | null;
   status: string;
+  warehouse_id: string | null;
+  warehouse_name: string;
 }
 
 type StatusFilter = "All" | "Active" | "Inactive";
 type ExpiryFilter = "all" | "expired" | "3d" | "7d" | "30d";
 type SortOption = "expiry" | "name" | "stockHigh" | "stockLow";
+type WarehouseTab = "all" | "WH_CENTRAL" | "WH_MM" | "WH_MCC";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +82,45 @@ function daysLeftLabel(dateStr: string | null): {
   return { text: `${days}d left`, color: "#6b6860" };
 }
 
+function exportToCsv(rows: WHRow[], filename: string) {
+  const headers = [
+    "Product",
+    "Category",
+    "Type",
+    "Batch",
+    "Location",
+    "Warehouse",
+    "Stock",
+    "Reserved",
+    "Expiry",
+    "Status",
+  ];
+  const csvRows = rows.map((r) => [
+    r.boonz_product_name,
+    r.product_category ?? "",
+    r.physical_type ?? "",
+    r.batch_id ?? "",
+    r.wh_location ?? "",
+    r.warehouse_name,
+    r.warehouse_stock,
+    r.consumer_stock,
+    r.expiration_date ?? "",
+    r.status,
+  ]);
+  const csv = [headers, ...csvRows]
+    .map((row) =>
+      row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","),
+    )
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
   <div style={{ marginBottom: 16 }}>
     <div
@@ -97,12 +143,22 @@ const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
+const font = "'Plus Jakarta Sans', sans-serif";
+
+const WAREHOUSE_TABS: { key: WarehouseTab; label: string }[] = [
+  { key: "all", label: "All Warehouses" },
+  { key: "WH_CENTRAL", label: "Central" },
+  { key: "WH_MM", label: "MM" },
+  { key: "WH_MCC", label: "MCC" },
+];
+
 export default function InventoryPage() {
   const [rows, setRows] = useState<WHRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [categoryFilter, setCategoryFilter] = useState("All");
+  const [warehouseTab, setWarehouseTab] = useState<WarehouseTab>("all");
   const [fetchKey, setFetchKey] = useState(0);
 
   // Drawer state
@@ -136,7 +192,7 @@ export default function InventoryPage() {
     const { data, error } = await supabase
       .from("warehouse_inventory")
       .select(
-        "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, consumer_stock, expiration_date, status, boonz_products!inner(boonz_product_name, physical_type)",
+        "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, consumer_stock, expiration_date, status, warehouse_id, boonz_products!inner(boonz_product_name, physical_type, product_category), warehouses(name)",
       )
       .order("expiration_date", { ascending: true, nullsFirst: false })
       .limit(10000);
@@ -149,12 +205,15 @@ export default function InventoryPage() {
         boonz_product_id: r.boonz_product_id,
         boonz_product_name: r.boonz_products.boonz_product_name,
         physical_type: r.boonz_products.physical_type,
+        product_category: r.boonz_products.product_category,
         batch_id: r.batch_id,
         wh_location: r.wh_location,
         warehouse_stock: r.warehouse_stock,
         consumer_stock: Number(r.consumer_stock ?? 0),
         expiration_date: r.expiration_date,
         status: r.status,
+        warehouse_id: r.warehouse_id ?? null,
+        warehouse_name: r.warehouses?.name ?? "WH_CENTRAL",
       }),
     );
     setRows(mapped);
@@ -165,6 +224,21 @@ export default function InventoryPage() {
     fetchInventory();
   }, [fetchInventory, fetchKey]);
 
+  // Warehouse tab counts
+  const warehouseCounts = useMemo(() => {
+    const counts: Record<WarehouseTab, number> = {
+      all: rows.length,
+      WH_CENTRAL: 0,
+      WH_MM: 0,
+      WH_MCC: 0,
+    };
+    for (const r of rows) {
+      const wh = r.warehouse_name as WarehouseTab;
+      if (wh in counts) counts[wh]++;
+    }
+    return counts;
+  }, [rows]);
+
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) if (r.physical_type) set.add(r.physical_type);
@@ -173,6 +247,9 @@ export default function InventoryPage() {
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
+      // Warehouse tab
+      if (warehouseTab !== "all" && r.warehouse_name !== warehouseTab)
+        return false;
       if (
         search &&
         !r.boonz_product_name.toLowerCase().includes(search.toLowerCase())
@@ -210,7 +287,7 @@ export default function InventoryPage() {
       }
       return true;
     });
-  }, [rows, search, statusFilter, categoryFilter, hideEmpty, expiryFilter]);
+  }, [rows, search, statusFilter, categoryFilter, hideEmpty, expiryFilter, warehouseTab]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -222,12 +299,9 @@ export default function InventoryPage() {
       arr.sort((a, b) => b.warehouse_stock - a.warehouse_stock);
     else if (sortBy === "stockLow")
       arr.sort((a, b) => a.warehouse_stock - b.warehouse_stock);
-    // 'expiry' is already the default sort from DB
     return arr;
   }, [filtered, sortBy]);
 
-  // Total inventory we own = on-shelf + reserved/consumer (still our stock,
-  // just earmarked for an in-flight dispatch).
   const totalStock = useMemo(
     () =>
       filtered.reduce(
@@ -266,6 +340,13 @@ export default function InventoryPage() {
     }
   };
 
+  const handleExportCsv = () => {
+    const date = new Date().toISOString().slice(0, 10);
+    const wh =
+      warehouseTab === "all" ? "all-warehouses" : warehouseTab.toLowerCase();
+    exportToCsv(sorted, `inventory-${wh}-${date}.csv`);
+  };
+
   const expiryOptions: { key: ExpiryFilter; label: string }[] = [
     { key: "all", label: "All Expiry" },
     { key: "expired", label: "Expired" },
@@ -274,14 +355,34 @@ export default function InventoryPage() {
     { key: "30d", label: "\u226430 days" },
   ];
 
+  // ── Tab style ────────────────────────────────────────────────────────────────
+  const tabStyle = (tab: WarehouseTab): React.CSSProperties => ({
+    padding: "12px 16px",
+    fontSize: 12,
+    fontWeight: warehouseTab === tab ? 700 : 500,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: warehouseTab === tab ? "#0a0a0a" : "#6b6860",
+    borderBottom: "none",
+    borderBottomStyle: "solid",
+    borderBottomWidth: 3,
+    borderBottomColor: warehouseTab === tab ? "#0a0a0a" : "transparent",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    fontFamily: font,
+    transition: "color 0.15s, border-color 0.15s",
+    paddingBottom: 13,
+  });
+
   return (
-    <div className="p-8 max-w-7xl">
+    <div className="p-8 max-w-7xl" style={{ fontFamily: font }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1
             style={{
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              fontFamily: font,
               fontWeight: 800,
               fontSize: 28,
               letterSpacing: "-0.02em",
@@ -297,6 +398,64 @@ export default function InventoryPage() {
               : `${filtered.length} batches \u00b7 ${totalStock.toLocaleString()} units${expiredCount > 0 ? ` \u00b7 ${expiredCount} expired` : ""}`}
           </p>
         </div>
+        <button
+          onClick={handleExportCsv}
+          style={{
+            padding: "8px 16px",
+            fontSize: 13,
+            fontWeight: 600,
+            border: "1px solid #e8e4de",
+            borderRadius: 8,
+            background: "white",
+            color: "#0a0a0a",
+            cursor: "pointer",
+            fontFamily: font,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          ↓ Export CSV
+        </button>
+      </div>
+
+      {/* Warehouse Tabs */}
+      <div
+        style={{
+          display: "flex",
+          gap: 0,
+          borderBottom: "1px solid #e8e4de",
+          marginBottom: 20,
+        }}
+      >
+        {WAREHOUSE_TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setWarehouseTab(t.key)}
+            style={{
+              ...tabStyle(t.key),
+              borderBottom:
+                warehouseTab === t.key
+                  ? "3px solid #0a0a0a"
+                  : "3px solid transparent",
+            }}
+          >
+            {t.label}
+            {!loading && (
+              <span
+                style={{
+                  marginLeft: 6,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: warehouseTab === t.key ? "#24544a" : "#9c9790",
+                }}
+              >
+                {warehouseCounts[t.key]}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {/* Filter bar — Row 1 */}
@@ -439,9 +598,11 @@ export default function InventoryPage() {
             <tr style={{ borderBottom: "1px solid #e8e4de" }}>
               {[
                 "Product",
+                "Category",
                 "Type",
                 "Batch",
                 "Location",
+                "Warehouse",
                 "Stock",
                 "Expiry",
                 "Status",
@@ -466,7 +627,7 @@ export default function InventoryPage() {
             {loading ? (
               Array.from({ length: 10 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                  {[200, 100, 80, 100, 60, 80, 60].map((w, j) => (
+                  {[200, 100, 80, 80, 100, 80, 60, 80, 60].map((w, j) => (
                     <td key={j} className="px-4 py-3">
                       <div
                         className="animate-pulse rounded"
@@ -479,7 +640,7 @@ export default function InventoryPage() {
             ) : sorted.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={9}
                   className="px-4 py-10 text-center"
                   style={{ color: "#6b6860" }}
                 >
@@ -526,6 +687,9 @@ export default function InventoryPage() {
                   >
                     {r.boonz_product_name}
                   </td>
+                  <td className="px-4 py-3" style={{ color: "#6b6860", fontSize: 12 }}>
+                    {r.product_category ?? "—"}
+                  </td>
                   <td className="px-4 py-3" style={{ color: "#6b6860" }}>
                     {r.physical_type ?? "\u2014"}
                   </td>
@@ -541,6 +705,37 @@ export default function InventoryPage() {
                   </td>
                   <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
                     {r.wh_location ?? "\u2014"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "2px 8px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background:
+                          r.warehouse_name === "WH_CENTRAL"
+                            ? "#e6f1fb"
+                            : r.warehouse_name === "WH_MM"
+                              ? "#eaf3de"
+                              : "#faeeda",
+                        color:
+                          r.warehouse_name === "WH_CENTRAL"
+                            ? "#185fa5"
+                            : r.warehouse_name === "WH_MM"
+                              ? "#3b6d11"
+                              : "#854f0b",
+                      }}
+                    >
+                      {r.warehouse_name === "WH_CENTRAL"
+                        ? "Central"
+                        : r.warehouse_name === "WH_MM"
+                          ? "MM"
+                          : r.warehouse_name === "WH_MCC"
+                            ? "MCC"
+                            : r.warehouse_name}
+                    </span>
                   </td>
                   <td
                     className="px-4 py-3"
@@ -623,7 +818,7 @@ export default function InventoryPage() {
               display: "flex",
               flexDirection: "column",
               borderLeft: "1px solid #e8e4de",
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              fontFamily: font,
             }}
           >
             {/* Drawer header */}
@@ -676,10 +871,53 @@ export default function InventoryPage() {
                     value={selectedBatch.boonz_product_name}
                   />
                   <Field
+                    label="Category"
+                    value={selectedBatch.product_category ?? "—"}
+                  />
+                  <Field
+                    label="Warehouse"
+                    value={
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "2px 10px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          background:
+                            selectedBatch.warehouse_name === "WH_CENTRAL"
+                              ? "#e6f1fb"
+                              : selectedBatch.warehouse_name === "WH_MM"
+                                ? "#eaf3de"
+                                : "#faeeda",
+                          color:
+                            selectedBatch.warehouse_name === "WH_CENTRAL"
+                              ? "#185fa5"
+                              : selectedBatch.warehouse_name === "WH_MM"
+                                ? "#3b6d11"
+                                : "#854f0b",
+                        }}
+                      >
+                        {selectedBatch.warehouse_name === "WH_CENTRAL"
+                          ? "Central"
+                          : selectedBatch.warehouse_name === "WH_MM"
+                            ? "MM"
+                            : selectedBatch.warehouse_name === "WH_MCC"
+                              ? "MCC"
+                              : selectedBatch.warehouse_name}
+                      </span>
+                    }
+                  />
+                  <Field
                     label="Stock"
                     value={
                       <span style={{ fontWeight: 700 }}>
                         {(selectedBatch.warehouse_stock ?? 0).toLocaleString()}
+                        {selectedBatch.consumer_stock > 0 && (
+                          <span style={{ color: "#b08930", fontWeight: 500, marginLeft: 8, fontSize: 12 }}>
+                            +{selectedBatch.consumer_stock} reserved
+                          </span>
+                        )}
                       </span>
                     }
                   />
@@ -870,7 +1108,7 @@ export default function InventoryPage() {
                     fontSize: 14,
                     fontWeight: 600,
                     cursor: "pointer",
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    fontFamily: font,
                   }}
                 >
                   Edit Batch
@@ -889,7 +1127,7 @@ export default function InventoryPage() {
                       fontSize: 14,
                       fontWeight: 600,
                       cursor: "pointer",
-                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                      fontFamily: font,
                     }}
                   >
                     Cancel
@@ -906,7 +1144,7 @@ export default function InventoryPage() {
                       fontSize: 14,
                       fontWeight: 600,
                       cursor: "pointer",
-                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                      fontFamily: font,
                     }}
                   >
                     Save Changes
