@@ -70,6 +70,16 @@ interface PackLine {
   dispatch_action: string;
   /** Raw comment from refill_dispatching */
   dispatch_comment: string | null;
+  /** Source warehouse UUID */
+  from_warehouse_id: string | null;
+  /** Source warehouse display name (e.g. "WH_CENTRAL", "WH_MM") */
+  from_warehouse_name: string | null;
+  /** Expiry flag set by the refill engine at plan-write time */
+  expiry_warning: "expiring_soon" | "expired" | "no_expiry" | null;
+  /** Whether this item was returned on a prior dispatch run */
+  returned: boolean;
+  /** Reason recorded when item was returned */
+  return_reason: string | null;
 }
 
 interface MachineInfo {
@@ -237,6 +247,14 @@ export default function PackingDetailPage() {
 
     if (machineData) setMachine(machineData);
 
+    // Fetch warehouse name map for source-warehouse display
+    const { data: warehouseRows } = await supabase
+      .from("warehouses")
+      .select("warehouse_id, name");
+    const whNameMap = new Map<string, string>(
+      (warehouseRows ?? []).map((w) => [w.warehouse_id as string, w.name as string]),
+    );
+
     const { data: dispatchLines } = await supabase
       .from("refill_dispatching")
       .select(
@@ -248,7 +266,11 @@ export default function PackingDetailPage() {
         quantity,
         filled_quantity,
         packed,
+        returned,
+        return_reason,
         expiry_date,
+        expiry_warning,
+        from_warehouse_id,
         action,
         comment,
         shelf_configurations!inner(shelf_code),
@@ -376,14 +398,15 @@ export default function PackingDetailPage() {
       .map((l) => l.boonz_product_id)
       .filter((id): id is string => id !== null && !boonzIdToName.has(id));
     if (directBoonzIds.length > 0) {
+      // Fix: use product_id (the actual PK) not boonz_product_id
       const { data: directNames } = await supabase
         .from("boonz_products")
-        .select("boonz_product_id, boonz_product_name")
-        .in("boonz_product_id", [...new Set(directBoonzIds)])
+        .select("product_id, boonz_product_name")
+        .in("product_id", [...new Set(directBoonzIds)])
         .limit(1000);
       for (const row of directNames ?? []) {
-        if (row.boonz_product_name) {
-          boonzIdToName.set(row.boonz_product_id, row.boonz_product_name);
+        if (row.boonz_product_name && row.product_id) {
+          boonzIdToName.set(row.product_id as string, row.boonz_product_name as string);
         }
       }
     }
@@ -601,15 +624,16 @@ export default function PackingDetailPage() {
       // boonz_product_id (refill engine left it for packing to split).
       const isMix = !line.boonz_product_id && mixPodIdSet.has(podId);
 
-      // display_name: always pod_product_name (shelf identity for card header)
-      // boonz_product_name shown as section label inside the card
-      const displayName = product.pod_product_name;
       // Resolve boonz product name for section header inside card
       const boonzDisplayName = (() => {
         const boonzId =
           line.boonz_product_id ?? podToVariants.get(podId)?.[0] ?? "";
         return boonzIdToName.get(boonzId) ?? null;
       })();
+      // display_name: boonz_product_name for single-variant lines (brand-accurate),
+      // pod_product_name for mix lines (category header) or when boonz name unavailable.
+      const displayName =
+        !isMix && boonzDisplayName ? boonzDisplayName : product.pod_product_name;
 
       // For mix lines, compute per-variant pack quantities from split percentages.
       // Create a new array per line (don't mutate the shared variantMap entry).
@@ -677,6 +701,21 @@ export default function PackingDetailPage() {
           ((line as Record<string, unknown>).action as string) ?? "Refill",
         dispatch_comment:
           ((line as Record<string, unknown>).comment as string | null) ?? null,
+        from_warehouse_id:
+          (line.from_warehouse_id as string | null) ?? null,
+        from_warehouse_name: (() => {
+          const whId = line.from_warehouse_id as string | null;
+          return whId ? (whNameMap.get(whId) ?? null) : null;
+        })(),
+        expiry_warning:
+          (line.expiry_warning as
+            | "expiring_soon"
+            | "expired"
+            | "no_expiry"
+            | null) ?? null,
+        returned: !!((line as Record<string, unknown>).returned as boolean | null),
+        return_reason:
+          ((line as Record<string, unknown>).return_reason as string | null) ?? null,
       };
     });
 
@@ -1192,10 +1231,14 @@ export default function PackingDetailPage() {
   const isReadOnly = saved && !editingAfterSave;
 
   // ── Group lines by action category ──────────────────────────────────────────
+  // Separate returned items from active packing lines
+  const returnedLines = lines.filter((l) => l.returned);
+  const activeLines = lines.filter((l) => !l.returned);
+
   // Pair Add New ↔ Remove by position (engine generates matched pairs)
-  const addNewLines = lines.filter((l) => l.dispatch_action === "Add New");
-  const removeLines = lines.filter((l) => l.dispatch_action === "Remove");
-  const refillLines = lines.filter(
+  const addNewLines = activeLines.filter((l) => l.dispatch_action === "Add New");
+  const removeLines = activeLines.filter((l) => l.dispatch_action === "Remove");
+  const refillLines = activeLines.filter(
     (l) => l.dispatch_action !== "Add New" && l.dispatch_action !== "Remove",
   );
 
@@ -1255,6 +1298,16 @@ export default function PackingDetailPage() {
     });
   }
 
+  // Section 4: Previously returned items (read-only history)
+  if (returnedLines.length > 0) {
+    sections.push({
+      key: "returned",
+      icon: "↩",
+      title: "Previously returned",
+      lines: returnedLines,
+    });
+  }
+
   return (
     <div className="px-4 py-4 pb-40">
       <FieldHeader
@@ -1305,7 +1358,9 @@ export default function PackingDetailPage() {
                 ? "text-red-600 dark:text-red-400"
                 : section.key === "swap"
                   ? "text-blue-600 dark:text-blue-400"
-                  : "text-neutral-700 dark:text-neutral-300"
+                  : section.key === "returned"
+                    ? "text-neutral-400 dark:text-neutral-500"
+                    : "text-neutral-700 dark:text-neutral-300"
             }`}
           >
             <span className="text-base">{section.icon}</span> {section.title}
@@ -1711,6 +1766,44 @@ export default function PackingDetailPage() {
             {/* ── PACK / REMOVE SECTIONS: individual cards ── */}
             {section.key !== "swap" &&
               section.lines.map((line) => {
+                // ── Previously returned: read-only greyed card ────────────
+                if (section.key === "returned") {
+                  return (
+                    <li
+                      key={line.dispatch_id}
+                      className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 opacity-60 dark:border-neutral-800 dark:bg-neutral-900/50"
+                    >
+                      <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium text-neutral-400 dark:text-neutral-500">
+                        <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                          {line.shelf_code}
+                        </span>
+                        {line.from_warehouse_name && (
+                          <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-400 dark:bg-blue-950/20 dark:text-blue-600">
+                            📦 {line.from_warehouse_name}
+                          </span>
+                        )}
+                        <span className="rounded bg-orange-100 px-1.5 py-0.5 text-xs font-semibold text-orange-600 dark:bg-orange-950/30 dark:text-orange-400">
+                          ↩ RETURNED
+                        </span>
+                        {line.display_name}
+                      </p>
+                      {line.return_reason && (
+                        <p className="mt-1 text-xs italic text-neutral-400 dark:text-neutral-500">
+                          Reason: {line.return_reason}
+                        </p>
+                      )}
+                      {line.dispatch_comment && (
+                        <p className="mt-0.5 text-xs italic text-neutral-400 dark:text-neutral-500">
+                          💬 {line.dispatch_comment}
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
+                        {line.recommended_qty} units · not packed this run
+                      </p>
+                    </li>
+                  );
+                }
+
                 const isRemove = line.recommended_qty === 0;
                 const isMix = line.variantStocks !== null;
 
@@ -1811,6 +1904,12 @@ export default function PackingDetailPage() {
                       <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
                         {line.shelf_code}
                       </span>
+                      {/* Warehouse source badge */}
+                      {line.from_warehouse_name && (
+                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                          📦 {line.from_warehouse_name}
+                        </span>
+                      )}
                       {line.display_name}
                       {line.dispatch_action === "Add New" && (
                         <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
@@ -1822,7 +1921,17 @@ export default function PackingDetailPage() {
                           SWAP IN
                         </span>
                       )}
-                      {!isMix &&
+                      {/* Expiry warning: check engine flag first, then date-based fallback */}
+                      {line.expiry_warning === "expired" ? (
+                        <span className="rounded px-1 py-0.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                          ⚠ EXPIRED
+                        </span>
+                      ) : line.expiry_warning === "expiring_soon" ? (
+                        <span className="rounded px-1 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                          ⚠ Expires soon
+                        </span>
+                      ) : (
+                        !isMix &&
                         (() => {
                           const expiry = line.fifo_expiry;
                           if (expiry === null) {
@@ -1832,12 +1941,12 @@ export default function PackingDetailPage() {
                               </span>
                             );
                           }
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
+                          const todayD = new Date();
+                          todayD.setHours(0, 0, 0, 0);
                           const exp = new Date(expiry + "T00:00:00");
-                          const soon = new Date(today);
+                          const soon = new Date(todayD);
                           soon.setDate(soon.getDate() + 30);
-                          if (exp < today) {
+                          if (exp < todayD) {
                             return (
                               <span className="rounded px-1 py-0.5 text-xs font-normal bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                                 ⚠ EXPIRED
@@ -1852,7 +1961,8 @@ export default function PackingDetailPage() {
                             );
                           }
                           return null;
-                        })()}
+                        })()
+                      )}
                     </p>
                     <p className="mb-1 text-xs text-neutral-400">
                       Recommended: {line.recommended_qty} units

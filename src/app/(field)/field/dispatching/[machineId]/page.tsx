@@ -36,6 +36,12 @@ interface DispatchLine {
   returned: boolean;
   return_reason: string;
   expiry_date: string | null;
+  /** Expiry flag set by the refill engine at plan-write time */
+  expiry_warning: "expiring_soon" | "expired" | "no_expiry" | null;
+  /** Source warehouse UUID */
+  from_warehouse_id: string | null;
+  /** Source warehouse display name (e.g. "WH_CENTRAL", "WH_MM") */
+  from_warehouse_name: string | null;
   comment: string;
   action: LineAction;
 }
@@ -96,6 +102,14 @@ export default function DispatchingDetailPage() {
 
     if (machineData) setMachine(machineData);
 
+    // Build warehouse name map for badges
+    const { data: warehouseRows } = await supabase
+      .from("warehouses")
+      .select("warehouse_id, name");
+    const whNameMap = new Map<string, string>(
+      (warehouseRows ?? []).map((w) => [w.warehouse_id as string, w.name as string]),
+    );
+
     const { data: dispatchLines } = await supabase
       .from("refill_dispatching")
       .select(
@@ -109,6 +123,8 @@ export default function DispatchingDetailPage() {
         returned,
         return_reason,
         expiry_date,
+        expiry_warning,
+        from_warehouse_id,
         comment,
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
@@ -132,6 +148,7 @@ export default function DispatchingDetailPage() {
         let action: LineAction = null;
         if (isDispatched) action = "added";
         if (isReturned) action = "returned";
+        const whId = (line as Record<string, unknown>).from_warehouse_id as string | null ?? null;
         return {
           dispatch_id: line.dispatch_id,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
@@ -145,6 +162,9 @@ export default function DispatchingDetailPage() {
           returned: isReturned,
           return_reason: (line.return_reason as string | null) ?? "",
           expiry_date: (line.expiry_date as string | null) ?? null,
+          expiry_warning: ((line as Record<string, unknown>).expiry_warning as "expiring_soon" | "expired" | "no_expiry" | null) ?? null,
+          from_warehouse_id: whId,
+          from_warehouse_name: whId ? (whNameMap.get(whId) ?? null) : null,
           comment: (line.comment as string | null) ?? "",
           action,
         };
@@ -665,13 +685,28 @@ export default function DispatchingDetailPage() {
                     <p className="text-sm font-medium">
                       {line.pod_product_name ?? line.boonz_product_name}
                     </p>
-                    {line.expiry_date && (
-                      <span
-                        className={`shrink-0 text-xs ${expiryStyle.qtyColor}`}
-                      >
-                        {formatDMY(line.expiry_date)}
-                      </span>
-                    )}
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      {/* Expiry: engine flag takes precedence over date-based style */}
+                      {line.expiry_warning === "expired" ? (
+                        <span className="rounded px-1 py-0.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                          ⚠ EXPIRED
+                        </span>
+                      ) : line.expiry_warning === "expiring_soon" ? (
+                        <span className="rounded px-1 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                          ⚠ Expires soon
+                        </span>
+                      ) : line.expiry_date ? (
+                        <span className={`text-xs ${expiryStyle.qtyColor}`}>
+                          {formatDMY(line.expiry_date)}
+                        </span>
+                      ) : null}
+                      {/* Warehouse source badge */}
+                      {line.from_warehouse_name && (
+                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                          📦 {line.from_warehouse_name}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {isMixed && (
