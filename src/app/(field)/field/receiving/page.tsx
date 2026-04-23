@@ -25,15 +25,29 @@ export default function ReceivingPage() {
   const [pos, setPos] = useState<PendingPO[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // AUDIT (2026-04-23): Original query used suppliers!inner(supplier_name) which is an
+  // INNER JOIN — any PO line whose supplier_id doesn't resolve in the FK relationship
+  // is silently dropped, causing the whole PO to disappear from the list (hit by
+  // PO-2026-0423-UC). Fixed: use left join suppliers(supplier_name) so POs are always
+  // visible regardless of supplier join result. Added .limit(10000) per CLAUDE.md rule.
+  // Added error handling so query failures surface as "No pending deliveries" rather than
+  // a blank spinner.
+  // A PO appears here when: at least one line has received_date IS NULL.
+  // A PO is NOT excluded because: po_number IS NULL, price IS NULL, expiry_date IS NULL.
   const fetchPOs = useCallback(async () => {
     const supabase = createClient();
 
-    const { data: lines } = await supabase
+    const { data: lines, error } = await supabase
       .from("purchase_orders")
       .select(
-        "po_line_id, po_id, purchase_date, received_date, suppliers!inner(supplier_name)",
+        "po_line_id, po_id, purchase_date, received_date, suppliers(supplier_name)",
       )
-      .is("received_date", null);
+      .is("received_date", null)
+      .limit(10000);
+
+    if (error) {
+      console.error("Failed to fetch pending POs:", error.message);
+    }
 
     if (!lines || lines.length === 0) {
       setPos([]);
@@ -44,14 +58,14 @@ export default function ReceivingPage() {
     const grouped = new Map<string, PendingPO>();
 
     for (const line of lines) {
-      const s = line.suppliers as unknown as { supplier_name: string };
+      const s = line.suppliers as unknown as { supplier_name: string } | null;
       const existing = grouped.get(line.po_id);
       if (existing) {
         existing.line_count += 1;
       } else {
         grouped.set(line.po_id, {
           po_id: line.po_id,
-          supplier_name: s.supplier_name,
+          supplier_name: s?.supplier_name ?? "Unknown supplier",
           purchase_date: line.purchase_date,
           line_count: 1,
         });
