@@ -385,11 +385,11 @@ export default function TasksPage() {
                   </div>
                 )}
 
-                {/* Expanded accordion */}
-                <div
-                  className="overflow-hidden transition-all duration-200"
-                  style={{ maxHeight: isExpanded ? "1200px" : "0px" }}
-                >
+                {/* Expanded accordion — no inner max-height cap so long POs
+                    (e.g. PO-2026-0423-UC with 27 lines) are fully scrollable
+                    via the page scroll. Previously maxHeight:1200px + overflow-hidden
+                    clipped the last ~18 products out of view. */}
+                <div className={isExpanded ? "" : "hidden"}>
                   <div className="border-t border-neutral-100 px-4 pb-4 pt-3 dark:border-neutral-800">
                     {expandLoading ? (
                       <div className="space-y-2">
