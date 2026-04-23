@@ -197,12 +197,8 @@ export default function NewOrderPage() {
   const [importedRows, setImportedRows] = useState<ImportedRow[]>([]);
   const [importReady, setImportReady] = useState(false);
 
-  // Price input raw strings (FIX 3: prevent decimal point loss on keystroke)
-  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
-  // Last purchase price hints (FIX 2: auto-fill on product select)
-  const [lastPrices, setLastPrices] = useState<Record<string, number | null>>(
-    {},
-  );
+  // 2026-04-23: priceInputs / lastPrices state removed along with the price
+  // input UI. Price is now captured during /field/receiving/[poId].
 
   // Submit + confirm dialog
   const [submitting, setSubmitting] = useState(false);
@@ -296,24 +292,9 @@ export default function NewOrderPage() {
         price: null,
       },
     ]);
-    setPriceInputs({});
-    setLastPrices({});
   }
 
-  async function fetchLastPrice(
-    boonzProductId: string,
-  ): Promise<number | null> {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("purchase_orders")
-      .select("price_per_unit_aed")
-      .eq("boonz_product_id", boonzProductId)
-      .not("price_per_unit_aed", "is", null)
-      .order("purchase_date", { ascending: false })
-      .limit(1)
-      .single();
-    return data?.price_per_unit_aed ?? null;
-  }
+  // 2026-04-23: fetchLastPrice helper removed with price input. Not needed here.
 
   // -- Excel import --
 
@@ -440,12 +421,10 @@ export default function NewOrderPage() {
       return;
     }
 
-    const missingPrice = finalLines.find((l) => !l.price || l.price <= 0);
-    if (missingPrice) {
-      setError("Unit price is required for all lines");
-      return;
-    }
-
+    // 2026-04-23: Price validation removed. Price is now captured by the
+    // warehouse manager during /field/receiving/[poId]. Previously a missing
+    // price silently blocked the confirm dialog and no PO was ever inserted
+    // (root cause of "PO disappeared after adding products" on 2026-04-23).
     setShowConfirm(true);
   }
 
@@ -519,38 +498,44 @@ export default function NewOrderPage() {
       (supplier.supplier_code ?? "") as (typeof WALK_IN_SUPPLIER_CODES)[number],
     );
 
+    // 2026-04-23: ALWAYS insert a driver_tasks row so the PO surfaces on the
+    // driver's /field/tasks list and the operator's open-orders view — not just
+    // for walk-in suppliers. Root cause of the 2026-04-23 "PO never showed on
+    // tasks" incident: non-walk-in POs only sent an email and never created a
+    // task, so the driver had no way to see incoming deliveries.
+    const notes = finalLines
+      .map((l) => `${l.product_name} x${l.qty}`)
+      .join(", ");
+    const { error: taskError } = await supabase.from("driver_tasks").insert({
+      po_id: poId,
+      po_number: nextNumber,
+      supplier_id: supplierId,
+      status: "pending",
+      created_by: user.id,
+      notes,
+    });
+    if (taskError) {
+      console.error("[NewOrder] driver_task insert error:", taskError);
+      setError(
+        "Order saved but could not create driver task. Please contact admin.",
+      );
+      setSubmitting(false);
+      setSubmitStatus(null);
+      return;
+    }
+    await supabase.from("po_notifications").insert({
+      po_id: poId,
+      po_number: nextNumber,
+      notification_type: "driver_task",
+      recipient: "driver",
+      status: "sent",
+      sent_by: user.id,
+    });
+
     if (isWalkIn) {
-      const notes = finalLines
-        .map((l) => `${l.product_name} x${l.qty}`)
-        .join(", ");
-      const { error: taskError } = await supabase.from("driver_tasks").insert({
-        po_id: poId,
-        po_number: nextNumber,
-        supplier_id: supplierId,
-        status: "pending",
-        created_by: user.id,
-        notes,
-      });
-      if (taskError) {
-        console.error("[NewOrder] driver_task insert error:", taskError);
-        setError(
-          "Order saved but could not create driver task. Please contact admin.",
-        );
-        setSubmitting(false);
-        setSubmitStatus(null);
-        return;
-      }
-      await supabase.from("po_notifications").insert({
-        po_id: poId,
-        po_number: nextNumber,
-        notification_type: "driver_task",
-        recipient: "driver",
-        status: "sent",
-        sent_by: user.id,
-      });
       setSubmitStatus("Order created — driver task sent");
     } else {
-      // Email: call Edge Function non-blocking (PO is already saved)
+      // Email: call Edge Function non-blocking (PO + task are already saved)
       try {
         const {
           data: { session },
@@ -585,7 +570,7 @@ export default function NewOrderPage() {
         );
       }
       setSubmitStatus(
-        `Order saved and email sent to ${supplier.supplier_name}`,
+        `Order saved, driver task created, and email sent to ${supplier.supplier_name}`,
       );
     }
 
@@ -600,8 +585,6 @@ export default function NewOrderPage() {
       },
     ]);
     setSupplierId("");
-    setPriceInputs({});
-    setLastPrices({});
     setPoId(`PO-${new Date().getFullYear()}-${nextNumber + 1}`);
 
     setTimeout(() => router.push("/field/orders"), 1500);
@@ -736,88 +719,38 @@ export default function NewOrderPage() {
                   <SearchableDropdown
                     items={productItems}
                     value={line.product_id}
-                    onChange={async (id) => {
+                    onChange={(id) => {
                       updateLine(line.key, "product_id", id);
-                      const lastPrice = await fetchLastPrice(id);
-                      setLastPrices((prev) => ({
-                        ...prev,
-                        [line.key]: lastPrice,
-                      }));
-                      if (lastPrice !== null) {
-                        updateLine(line.key, "price", lastPrice);
-                        setPriceInputs((prev) => ({
-                          ...prev,
-                          [line.key]: String(lastPrice),
-                        }));
-                      }
                     }}
                     placeholder="Select product…"
                   />
                 </div>
 
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="block text-xs text-neutral-500 mb-0.5">
-                      Qty <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={line.qty === 0 ? "" : line.qty}
-                      placeholder="0"
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, "");
-                        updateLine(
-                          line.key,
-                          "qty",
-                          val === "" ? 0 : Math.max(0, parseInt(val, 10)),
-                        );
-                      }}
-                      className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="block text-xs text-neutral-500 mb-0.5">
-                      Unit price (AED) <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={
-                        priceInputs[line.key] ??
-                        (line.price === null ? "" : String(line.price))
-                      }
-                      placeholder="0.00"
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9.]/g, "");
-                        setPriceInputs((prev) => ({
-                          ...prev,
-                          [line.key]: val,
-                        }));
-                      }}
-                      onBlur={() => {
-                        const raw = priceInputs[line.key] ?? "";
-                        const num = parseFloat(raw);
-                        const parsed = isNaN(num)
-                          ? null
-                          : Math.round(num * 100) / 100;
-                        updateLine(line.key, "price", parsed);
-                        setPriceInputs((prev) => ({
-                          ...prev,
-                          [line.key]: parsed === null ? "" : String(parsed),
-                        }));
-                      }}
-                      className="w-full rounded border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
-                    />
-                    {lastPrices[line.key] != null && (
-                      <p className="mt-0.5 text-xs text-neutral-400">
-                        Last purchase: AED {lastPrices[line.key]}
-                      </p>
-                    )}
-                  </div>
+                <div>
+                  <label className="block text-xs text-neutral-500 mb-0.5">
+                    Qty <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={line.qty === 0 ? "" : line.qty}
+                    placeholder="0"
+                    onFocus={(e) => e.target.select()}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^0-9]/g, "");
+                      updateLine(
+                        line.key,
+                        "qty",
+                        val === "" ? 0 : Math.max(0, parseInt(val, 10)),
+                      );
+                    }}
+                    className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                  />
+                  {/* 2026-04-23: Unit price + expiry intentionally removed from PO creation.
+                      These must be captured by the warehouse manager during
+                      /field/receiving/[poId] (where the actual invoice + printed expiry
+                      are in hand). */}
                 </div>
               </div>
             </div>

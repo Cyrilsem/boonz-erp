@@ -170,8 +170,6 @@ export default function ProcurementPage() {
         if (showNewPO) setShowNewPO(false);
         else if (selectedPO) {
           setSelectedPO(null);
-          setReceiveQtys({});
-          setReceiveLocations({});
         }
       }
     };
@@ -261,10 +259,24 @@ export default function ProcurementPage() {
     if (!newSupplier || newLines.length === 0) return;
     setNewSaving(true);
     const supabase = createClient();
-    const poId = `PO-${new Date().getFullYear()}-${String(Math.floor(1000 + Math.random() * 9000))}`;
+
+    // 2026-04-23: Compute next sequential po_number from DB. Previously this
+    // function set po_number = poId (a formatted string like "PO-2026-1234"),
+    // which fails the int column type on purchase_orders.po_number — the silent
+    // insert error behind the "PO never created successfully" reports.
+    const { data: lastPo } = await supabase
+      .from("purchase_orders")
+      .select("po_number")
+      .not("po_number", "is", null)
+      .order("po_number", { ascending: false })
+      .limit(1)
+      .single();
+    const nextNumber = (lastPo?.po_number ?? 9016) + 1;
+    const poId = `PO-${new Date().getFullYear()}-${nextNumber}`;
+
     const rows = newLines.map((l) => ({
       po_id: poId,
-      po_number: poId,
+      po_number: nextNumber,
       supplier_id: newSupplier,
       boonz_product_id: l.boonz_product_id,
       purchase_date: newDate,
@@ -279,66 +291,53 @@ export default function ProcurementPage() {
       .from("purchase_orders")
       .insert(rows)
       .select();
-    setNewSaving(false);
     if (insertErr) {
+      setNewSaving(false);
       alert(`Failed to save PO: ${insertErr.message}`);
       return;
     }
+
+    // 2026-04-23: Always insert a driver_tasks row so the PO surfaces on the
+    // driver's /field/tasks list and the operator's open-orders view.
+    // Previously saveNewPO wrote only to purchase_orders, so POs created from
+    // this admin modal were invisible to drivers — same root cause as
+    // PO-2026-0423-UC where the PO existed in DB but never appeared on tasks.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const productNames = newLines
+        .map((l) => `${l.product_name} x${l.ordered_qty}`)
+        .join(", ");
+      const { error: taskErr } = await supabase.from("driver_tasks").insert({
+        po_id: poId,
+        po_number: nextNumber,
+        supplier_id: newSupplier,
+        status: "pending",
+        created_by: user.id,
+        notes: productNames,
+      });
+      if (taskErr) {
+        // Non-fatal: PO is already saved. Log and surface a soft warning.
+        console.error("[procurement] driver_task insert error:", taskErr);
+        alert(
+          `PO saved, but could not create driver task: ${taskErr.message}. Please contact admin.`,
+        );
+      }
+    }
+
+    setNewSaving(false);
     setShowNewPO(false);
     setLoading(true);
     await fetchOrders();
   };
 
-  // Receive delivery inline
-  const [receiveQtys, setReceiveQtys] = useState<Record<string, number>>({});
-  const [receiveLocations, setReceiveLocations] = useState<
-    Record<string, string>
-  >({});
-  const [receiving, setReceiving] = useState(false);
-
-  const handleReceive = async () => {
-    if (!selectedPO) return;
-    setReceiving(true);
-    const supabase = createClient();
-    const today = getDubaiDate();
-    for (const line of poLines) {
-      const qty = receiveQtys[line.po_line_id];
-      if (qty && qty > 0) {
-        const { error: updateErr } = await supabase
-          .from("purchase_orders")
-          .update({ received_date: today })
-          .eq("po_line_id", line.po_line_id);
-        if (updateErr) {
-          alert(`Failed to mark PO received: ${updateErr.message}`);
-          setReceiving(false);
-          return;
-        }
-        // Add to warehouse inventory
-        const loc = receiveLocations[line.po_line_id] || null;
-        const { error: whErr } = await supabase
-          .from("warehouse_inventory")
-          .insert({
-            boonz_product_id: line.boonz_product_id,
-            warehouse_stock: qty,
-            expiration_date: line.expiry_date,
-            wh_location: loc,
-            status: "Active",
-            snapshot_date: today,
-          });
-        if (whErr) {
-          alert(`Failed to add to warehouse inventory: ${whErr.message}`);
-          setReceiving(false);
-          return;
-        }
-      }
-    }
-    setReceiving(false);
-    setSelectedPO(null);
-    setReceiveQtys({});
-    setReceiveLocations({});
-    setLoading(true);
-    await fetchOrders();
-  };
+  // 2026-04-23: The inline "handleReceive" drawer receive flow was retired.
+  // It was broken (no expiry input, no received_qty write, no FIFO batch
+  // handling) and receiving now delegates to the canonical
+  // /field/receiving/[poId] flow via a link in the drawer footer.
+  // The receiveQtys / receiveLocations state and the handleReceive function
+  // were removed at that time.
 
   const [additionToast, setAdditionToast] = useState<string | null>(null);
 
@@ -718,8 +717,6 @@ export default function ProcurementPage() {
           <div
             onClick={() => {
               setSelectedPO(null);
-              setReceiveQtys({});
-              setReceiveLocations({});
             }}
             style={{
               position: "fixed",
@@ -776,7 +773,6 @@ export default function ProcurementPage() {
               <button
                 onClick={() => {
                   setSelectedPO(null);
-                  setReceiveQtys({});
                 }}
                 style={{
                   background: "none",
@@ -822,7 +818,7 @@ export default function ProcurementPage() {
                         "Qty",
                         "Price",
                         "Expiry",
-                        "Receive",
+                        "Status",
                         "WH Loc",
                       ].map((h) => (
                         <th
@@ -876,57 +872,21 @@ export default function ProcurementPage() {
                               ✓ Received
                             </span>
                           ) : (
-                            <input
-                              type="number"
-                              min={0}
-                              max={l.ordered_qty ?? 999}
-                              value={receiveQtys[l.po_line_id] ?? ""}
-                              placeholder={String(l.ordered_qty ?? 0)}
-                              onChange={(e) =>
-                                setReceiveQtys((prev) => ({
-                                  ...prev,
-                                  [l.po_line_id]: Number(e.target.value),
-                                }))
-                              }
+                            <span
                               style={{
-                                width: 64,
-                                border: "1px solid #e8e4de",
-                                borderRadius: 6,
-                                padding: "4px 8px",
-                                fontSize: 13,
-                                color: "#0a0a0a",
-                                outline: "none",
+                                fontSize: 11,
+                                color: "#92400e",
+                                fontStyle: "italic",
                               }}
-                            />
+                            >
+                              Pending
+                            </span>
                           )}
                         </td>
                         <td className="py-2 px-2">
-                          {l.received_date ? (
-                            <span style={{ fontSize: 11, color: "#6b6860" }}>
-                              —
-                            </span>
-                          ) : (
-                            <input
-                              type="text"
-                              value={receiveLocations[l.po_line_id] ?? ""}
-                              placeholder="e.g. A1"
-                              onChange={(e) =>
-                                setReceiveLocations((prev) => ({
-                                  ...prev,
-                                  [l.po_line_id]: e.target.value,
-                                }))
-                              }
-                              style={{
-                                width: 64,
-                                border: "1px solid #e8e4de",
-                                borderRadius: 6,
-                                padding: "4px 8px",
-                                fontSize: 13,
-                                color: "#0a0a0a",
-                                outline: "none",
-                              }}
-                            />
-                          )}
+                          <span style={{ fontSize: 11, color: "#6b6860" }}>
+                            —
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -1119,7 +1079,15 @@ export default function ProcurementPage() {
               )}
             </div>
 
-            {/* Footer */}
+            {/* Footer — 2026-04-23: The inline drawer receive flow has been
+                 retired. It never captured expiry date per batch, never set
+                 received_qty, and never logged price adjustments — so warehouse
+                 stock landed without expiry and the FIFO walker couldn't age
+                 batches correctly. Receiving is now delegated to the canonical
+                 /field/receiving/[poId] flow (which supports multi-batch expiry,
+                 wh_location, editable price at receipt, and inventory_audit_log
+                 writes). The button below opens that flow in a new tab so the
+                 operator stays in-app while the warehouse manager receives. */}
             {!selectedPO.received_date && (
               <div
                 style={{
@@ -1127,38 +1095,39 @@ export default function ProcurementPage() {
                   borderTop: "1px solid #e8e4de",
                 }}
               >
-                <button
-                  onClick={handleReceive}
-                  disabled={
-                    receiving ||
-                    Object.values(receiveQtys).every((v) => !v || v <= 0)
-                  }
+                <a
+                  href={`/field/receiving/${encodeURIComponent(selectedPO.po_id)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
-                    background:
-                      receiving ||
-                      Object.values(receiveQtys).every((v) => !v || v <= 0)
-                        ? "#e8e4de"
-                        : "#24544a",
-                    color:
-                      receiving ||
-                      Object.values(receiveQtys).every((v) => !v || v <= 0)
-                        ? "#6b6860"
-                        : "white",
+                    display: "block",
+                    background: "#24544a",
+                    color: "white",
                     borderRadius: 8,
                     padding: "10px 24px",
                     fontSize: 14,
                     fontWeight: 600,
                     border: "none",
-                    cursor:
-                      receiving ||
-                      Object.values(receiveQtys).every((v) => !v || v <= 0)
-                        ? "not-allowed"
-                        : "pointer",
+                    cursor: "pointer",
                     width: "100%",
+                    textAlign: "center",
+                    textDecoration: "none",
+                    boxSizing: "border-box",
                   }}
                 >
-                  {receiving ? "Receiving…" : "Receive Delivery"}
-                </button>
+                  Open Receiving Flow &nbsp;↗
+                </a>
+                <p
+                  style={{
+                    marginTop: 8,
+                    fontSize: 11,
+                    color: "#6b6860",
+                    textAlign: "center",
+                  }}
+                >
+                  Opens /field/receiving/{selectedPO.po_id} — enter qty, expiry
+                  per batch, and warehouse location there.
+                </p>
               </div>
             )}
           </div>
