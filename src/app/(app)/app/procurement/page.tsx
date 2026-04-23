@@ -252,6 +252,11 @@ export default function ProcurementPage() {
     setNewLines((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  // AUDIT (2026-04-23): saveNewPO previously called .insert() with no error check and
+  // cleared modal state unconditionally — meaning a failed insert (e.g. RLS WITH CHECK
+  // mismatch) appeared successful. Fixed: chain .select(), check error, toast on failure.
+  // handleReceive below was similarly unguarded but is the legacy inline-receive path
+  // (not the field /receiving/<poId> flow). Added error handling there too.
   const saveNewPO = async () => {
     if (!newSupplier || newLines.length === 0) return;
     setNewSaving(true);
@@ -270,9 +275,16 @@ export default function ProcurementPage() {
         : null,
       expiry_date: l.expiry_date || null,
     }));
-    await supabase.from("purchase_orders").insert(rows);
-    setShowNewPO(false);
+    const { error: insertErr } = await supabase
+      .from("purchase_orders")
+      .insert(rows)
+      .select();
     setNewSaving(false);
+    if (insertErr) {
+      alert(`Failed to save PO: ${insertErr.message}`);
+      return;
+    }
+    setShowNewPO(false);
     setLoading(true);
     await fetchOrders();
   };
@@ -292,20 +304,32 @@ export default function ProcurementPage() {
     for (const line of poLines) {
       const qty = receiveQtys[line.po_line_id];
       if (qty && qty > 0) {
-        await supabase
+        const { error: updateErr } = await supabase
           .from("purchase_orders")
           .update({ received_date: today })
           .eq("po_line_id", line.po_line_id);
+        if (updateErr) {
+          alert(`Failed to mark PO received: ${updateErr.message}`);
+          setReceiving(false);
+          return;
+        }
         // Add to warehouse inventory
         const loc = receiveLocations[line.po_line_id] || null;
-        await supabase.from("warehouse_inventory").insert({
-          boonz_product_id: line.boonz_product_id,
-          warehouse_stock: qty,
-          expiration_date: line.expiry_date,
-          wh_location: loc,
-          status: "Active",
-          snapshot_date: today,
-        });
+        const { error: whErr } = await supabase
+          .from("warehouse_inventory")
+          .insert({
+            boonz_product_id: line.boonz_product_id,
+            warehouse_stock: qty,
+            expiration_date: line.expiry_date,
+            wh_location: loc,
+            status: "Active",
+            snapshot_date: today,
+          });
+        if (whErr) {
+          alert(`Failed to add to warehouse inventory: ${whErr.message}`);
+          setReceiving(false);
+          return;
+        }
       }
     }
     setReceiving(false);

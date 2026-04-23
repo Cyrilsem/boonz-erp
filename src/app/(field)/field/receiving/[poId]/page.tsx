@@ -71,6 +71,10 @@ export default function ReceivingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // editedPrices: per-line override of price_per_unit_aed; undefined = use original
+  const [editedPrices, setEditedPrices] = useState<
+    Record<string, number | null>
+  >({});
   const [receiveResults, setReceiveResults] = useState<
     { productName: string; qty: number; batchId: string }[]
   >([]);
@@ -276,10 +280,29 @@ export default function ReceivingDetailPage() {
     const today = getDubaiDate();
     const results: { productName: string; qty: number; batchId: string }[] = [];
 
+    // Resolve the authenticated user once for audit log writes
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+
     for (const line of lines) {
       if (line.received_date) continue; // Already received — skip
       const activeBatches = line.batches.filter((b) => b.received_qty > 0);
       if (activeBatches.length === 0) continue;
+
+      // Resolve effective price: use editedPrices override if set, else original
+      const priceKey = line.po_line_id;
+      const effectivePrice =
+        priceKey in editedPrices
+          ? editedPrices[priceKey]
+          : line.price_per_unit_aed;
+      const priceChanged =
+        priceKey in editedPrices &&
+        editedPrices[priceKey] !== line.price_per_unit_aed;
+      const totalReceived = activeBatches.reduce(
+        (s, b) => s + b.received_qty,
+        0,
+      );
 
       for (let i = 0; i < activeBatches.length; i++) {
         const batch = activeBatches[i];
@@ -294,6 +317,9 @@ export default function ReceivingDetailPage() {
               received_date: today,
               expiry_date: batch.expiry_date || null,
               received_qty: batch.received_qty,
+              price_per_unit_aed: effectivePrice ?? null,
+              total_price_aed:
+                effectivePrice != null ? totalReceived * effectivePrice : null,
             })
             .eq("po_line_id", line.po_line_id);
 
@@ -312,7 +338,7 @@ export default function ReceivingDetailPage() {
               boonz_product_id: line.boonz_product_id,
               ordered_qty: line.ordered_qty,
               received_qty: batch.received_qty,
-              price_per_unit_aed: line.price_per_unit_aed,
+              price_per_unit_aed: effectivePrice ?? null,
               expiry_date: batch.expiry_date || null,
               purchase_date: line.purchase_date,
               received_date: today,
@@ -326,7 +352,7 @@ export default function ReceivingDetailPage() {
         }
 
         // Insert warehouse inventory row for each batch
-        const { error: whErr } = await supabase
+        const { data: whRows, error: whErr } = await supabase
           .from("warehouse_inventory")
           .insert({
             boonz_product_id: line.boonz_product_id,
@@ -336,12 +362,29 @@ export default function ReceivingDetailPage() {
             wh_location: line.wh_location || null,
             status: "Active",
             snapshot_date: today,
-          });
+          })
+          .select("wh_inventory_id")
+          .single();
 
         if (whErr) {
           setError(`Failed to create inventory: ${whErr.message}`);
           setSubmitting(false);
           return;
+        }
+
+        // If price was changed at receipt, log it to inventory_audit_log
+        // Convention: old_qty = original price, new_qty = edited price
+        if (priceChanged && whRows?.wh_inventory_id) {
+          await supabase.from("inventory_audit_log").insert({
+            wh_inventory_id: whRows.wh_inventory_id,
+            boonz_product_id: line.boonz_product_id,
+            adjusted_by: authUser?.id ?? null,
+            old_qty: line.price_per_unit_aed ?? 0,
+            new_qty: effectivePrice ?? 0,
+            delta: (effectivePrice ?? 0) - (line.price_per_unit_aed ?? 0),
+            reason: "price_adjusted_at_receipt",
+          });
+          // Audit log failure is non-blocking — receipt is already saved above
         }
 
         results.push({
@@ -618,6 +661,38 @@ export default function ReceivingDetailPage() {
                     updateWHLocation(line.po_line_id, e.target.value)
                   }
                   placeholder="e.g. A-01"
+                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                />
+              </div>
+
+              {/* Price per unit — editable at receipt */}
+              <div className="mt-3">
+                <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
+                  Price per unit (AED)
+                  {line.po_line_id in editedPrices && (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                      edited
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={
+                    line.po_line_id in editedPrices
+                      ? (editedPrices[line.po_line_id] ?? "")
+                      : (line.price_per_unit_aed ?? "")
+                  }
+                  onChange={(e) => {
+                    const val =
+                      e.target.value === "" ? null : parseFloat(e.target.value);
+                    setEditedPrices((prev) => ({
+                      ...prev,
+                      [line.po_line_id]: val,
+                    }));
+                  }}
+                  placeholder="0.00"
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                 />
               </div>
