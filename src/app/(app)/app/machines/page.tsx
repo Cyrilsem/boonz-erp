@@ -62,28 +62,45 @@ const DRAWER_TABS: { key: DrawerTab; label: string }[] = [
   { key: "wifi", label: "WiFi" },
 ];
 
-// Dropdown option lists — kept in sync with MachineEditPanel.tsx
+// Dropdown option lists — values MUST match the DB CHECK constraints exactly.
+// status     -> machines_status_check
+// location_type -> machines_location_type_check (lowercase!)
+// venue_group   -> machines_venue_group_check (uppercase!)
+// adyen_status has no check constraint; values below mirror what's in use.
 const STATUS_OPTIONS = [
   "Active",
   "Inactive",
   "Maintenance",
-  "Decommissioned",
   "Pending",
+  "Valid",
+  "Online today",
+  "Switched off",
+  "Scheduled",
+  "Warehouse",
 ];
 const LOCATION_TYPE_OPTIONS = [
-  "Office",
-  "Coworking",
-  "Entertainment",
-  "Retail",
-  "Warehouse",
-  "Other",
+  "office",
+  "coworking",
+  "entertainment",
+  "warehouse",
+];
+// venue_group options now come from the venue_groups lookup table at runtime —
+// see useEffect that populates `venueGroups` state. The list below is only used
+// as a defensive fallback if the fetch fails.
+const VENUE_GROUP_FALLBACK = [
+  "ADDMIND",
+  "VOX",
+  "VML",
+  "WPP",
+  "OHMYDESK",
+  "INDEPENDENT",
+  "GRIT",
+  "NOVO",
 ];
 const ADYEN_STATUS_OPTIONS = [
-  "Active",
-  "Inactive",
-  "Suspended",
-  "Pending",
-  "Not Configured",
+  "Online today",
+  "Switched off",
+  "Switched on Non-Functional",
 ];
 
 const MACHINE_COLS =
@@ -291,6 +308,59 @@ function EditableSelect({
   );
 }
 
+/**
+ * Same as EditableSelect, but the dropdown ends with an "+ Add new…" sentinel.
+ * Picking it calls onAddNew() instead of setting the value to that string.
+ */
+function EditableSelectWithAdd({
+  label,
+  field,
+  value,
+  options,
+  onChange,
+  onAddNew,
+  addLabel = "+ Add new…",
+  allowBlank = true,
+}: {
+  label: string;
+  field: string;
+  value: string;
+  options: string[];
+  onChange: (field: string, v: string | null) => void;
+  onAddNew: () => void;
+  addLabel?: string;
+  allowBlank?: boolean;
+}) {
+  const ADD_SENTINEL = "__add_new__";
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <FieldLabel>{label}</FieldLabel>
+      <select
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === ADD_SENTINEL) {
+            onAddNew();
+            return;
+          }
+          onChange(field, v === "" ? null : v);
+        }}
+        style={{ ...inputStyle, cursor: "pointer" }}
+      >
+        {allowBlank && <option value="">—</option>}
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+        <option value={ADD_SENTINEL} style={{ fontStyle: "italic" }}>
+          {addLabel}
+        </option>
+      </select>
+    </div>
+  );
+}
+
 function EditableBoolField({
   label,
   field,
@@ -375,6 +445,68 @@ export default function MachinesPage() {
     message: string;
     type: "success" | "error";
   } | null>(null);
+
+  // Venue groups (from the venue_groups lookup table)
+  const [venueGroups, setVenueGroups] = useState<string[]>(
+    VENUE_GROUP_FALLBACK,
+  );
+
+  // "Add new venue group" modal state
+  const [addGroupOpen, setAddGroupOpen] = useState(false);
+  const [newGroupCode, setNewGroupCode] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [addingGroup, setAddingGroup] = useState(false);
+
+  // Load venue_groups once on mount
+  useEffect(() => {
+    async function loadGroups() {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("venue_groups")
+        .select("code")
+        .eq("active", true)
+        .order("code")
+        .limit(10000);
+      if (error) {
+        console.error("venue_groups fetch error:", error);
+        return;
+      }
+      setVenueGroups((data ?? []).map((r) => r.code as string));
+    }
+    loadGroups();
+  }, []);
+
+  const handleAddVenueGroup = useCallback(async () => {
+    const code = newGroupCode.trim().toUpperCase();
+    const name = newGroupName.trim() || code;
+    if (!code) {
+      setToast({ message: "Group code is required.", type: "error" });
+      return;
+    }
+    setAddingGroup(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("venue_groups")
+      .insert({ code, display_name: name });
+    if (error) {
+      setToast({
+        message: `Could not add group: ${error.message}`,
+        type: "error",
+      });
+      setAddingGroup(false);
+      return;
+    }
+    setVenueGroups((prev) =>
+      prev.includes(code) ? prev : [...prev, code].sort(),
+    );
+    // Auto-select the new group on the row being edited
+    setEditValues((prev) => ({ ...prev, venue_group: code }));
+    setAddGroupOpen(false);
+    setNewGroupCode("");
+    setNewGroupName("");
+    setAddingGroup(false);
+    setToast({ message: `Added venue group "${code}".`, type: "success" });
+  }, [newGroupCode, newGroupName]);
 
   // Auto-dismiss toast after 4s
   useEffect(() => {
@@ -710,11 +842,14 @@ export default function MachinesPage() {
                 value={strVal("official_name")}
                 onChange={updateField}
               />
-              <EditableField
+              <EditableSelectWithAdd
                 label="Venue Group"
                 field="venue_group"
                 value={strVal("venue_group")}
+                options={venueGroups}
                 onChange={updateField}
+                onAddNew={() => setAddGroupOpen(true)}
+                addLabel="+ Add new venue group…"
               />
               <EditableSelect
                 label="Location Type"
@@ -1279,6 +1414,97 @@ export default function MachinesPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Add new venue group modal ──────────────────────────────────────── */}
+      {addGroupOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 250,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+          onClick={() => !addingGroup && setAddGroupOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "white",
+              borderRadius: 12,
+              padding: 24,
+              width: 400,
+              maxWidth: "90vw",
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              boxShadow: "0 20px 50px rgba(0,0,0,0.18)",
+            }}
+          >
+            <h3
+              style={{
+                fontSize: 18,
+                fontWeight: 800,
+                color: "#0a0a0a",
+                marginTop: 0,
+                marginBottom: 4,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Add Venue Group
+            </h3>
+            <p style={{ fontSize: 13, color: "#6b6860", marginBottom: 18 }}>
+              Code is uppercase and used as the unique identifier in the
+              database.
+            </p>
+            <div style={{ marginBottom: 14 }}>
+              <FieldLabel>Code</FieldLabel>
+              <input
+                value={newGroupCode}
+                onChange={(e) =>
+                  setNewGroupCode(e.target.value.toUpperCase())
+                }
+                placeholder="e.g. NOVO"
+                autoFocus
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <FieldLabel>Display Name</FieldLabel>
+              <input
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                placeholder="e.g. NOVO Cinemas"
+                style={inputStyle}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => setAddGroupOpen(false)}
+                disabled={addingGroup}
+                style={cancelBtnStyle}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddVenueGroup}
+                disabled={addingGroup || !newGroupCode.trim()}
+                style={{
+                  ...saveBtnStyle,
+                  opacity:
+                    addingGroup || !newGroupCode.trim() ? 0.6 : 1,
+                  cursor:
+                    addingGroup || !newGroupCode.trim()
+                      ? "not-allowed"
+                      : "pointer",
+                }}
+              >
+                {addingGroup ? "Adding\u2026" : "Add Group"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Toast ──────────────────────────────────────────────────────────── */}
       {toast && (
