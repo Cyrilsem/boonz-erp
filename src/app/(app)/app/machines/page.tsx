@@ -62,6 +62,30 @@ const DRAWER_TABS: { key: DrawerTab; label: string }[] = [
   { key: "wifi", label: "WiFi" },
 ];
 
+// Dropdown option lists — kept in sync with MachineEditPanel.tsx
+const STATUS_OPTIONS = [
+  "Active",
+  "Inactive",
+  "Maintenance",
+  "Decommissioned",
+  "Pending",
+];
+const LOCATION_TYPE_OPTIONS = [
+  "Office",
+  "Coworking",
+  "Entertainment",
+  "Retail",
+  "Warehouse",
+  "Other",
+];
+const ADYEN_STATUS_OPTIONS = [
+  "Active",
+  "Inactive",
+  "Suspended",
+  "Pending",
+  "Not Configured",
+];
+
 const MACHINE_COLS =
   "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, adyen_unique_terminal_id, adyen_permanent_terminal_id, adyen_store_code, adyen_fridge_assigned, adyen_store_description, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, shipment_batch_nbr, micron_app_id, app_version, micron_version, wifi_network_name, wifi_mac_address, wifi_device_hostname, payment_terminal_installed, payment_micron_bo_setup, payment_adyen_store_created, payment_connect_store_terminal, payment_general_ui_updated, payment_pos_hide_button, payment_app_deployed, payment_app_deployed_terminal, payment_kiosk_mode, payment_fan_test, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply";
 
@@ -177,6 +201,159 @@ function BoolField({ label, value }: { label: string; value: boolean | null }) {
   );
 }
 
+// ─── Editable components ──────────────────────────────────────────────────────
+// NOTE: these live at module scope so React keeps the same component identity
+// across renders of the parent. If they were declared inside the parent, every
+// keystroke would create a new function reference, React would unmount and
+// remount the <input>, and the user would lose focus after each character.
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        fontSize: 10,
+        fontWeight: 500,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: "#6b6860",
+        marginBottom: 3,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function EditableField({
+  label,
+  field,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  field: string;
+  value: string;
+  onChange: (field: string, v: string | number | null) => void;
+  type?: string;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <FieldLabel>{label}</FieldLabel>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => {
+          const raw = e.target.value;
+          const next =
+            type === "number" ? (raw === "" ? null : Number(raw)) : raw;
+          onChange(field, next);
+        }}
+        style={inputStyle}
+      />
+    </div>
+  );
+}
+
+function EditableSelect({
+  label,
+  field,
+  value,
+  options,
+  onChange,
+  allowBlank = true,
+}: {
+  label: string;
+  field: string;
+  value: string;
+  options: string[];
+  onChange: (field: string, v: string | null) => void;
+  allowBlank?: boolean;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <FieldLabel>{label}</FieldLabel>
+      <select
+        value={value}
+        onChange={(e) =>
+          onChange(field, e.target.value === "" ? null : e.target.value)
+        }
+        style={{ ...inputStyle, cursor: "pointer" }}
+      >
+        {allowBlank && <option value="">—</option>}
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function EditableBoolField({
+  label,
+  field,
+  value,
+  onChange,
+}: {
+  label: string;
+  field: string;
+  value: boolean | null;
+  onChange: (field: string, v: boolean | null) => void;
+}) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 500,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#6b6860",
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          onChange(
+            field,
+            value === true ? false : value === false ? null : true,
+          )
+        }
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "5px 12px",
+          borderRadius: 6,
+          border: "1px solid #e8e4de",
+          background:
+            value === true
+              ? "#f0fdf4"
+              : value === false
+                ? "#fef2f2"
+                : "#faf9f7",
+          color:
+            value === true
+              ? "#065f46"
+              : value === false
+                ? "#991b1b"
+                : "#6b6860",
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: "pointer",
+        }}
+      >
+        {value === true ? "Yes" : value === false ? "No" : "Not set"}
+      </button>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function MachinesPage() {
@@ -194,6 +371,25 @@ export default function MachinesPage() {
   const [editing, setEditing] = useState(false);
   const [editValues, setEditValues] = useState<Partial<Machine>>({});
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
+
+  // Auto-dismiss toast after 4s
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  // Stable update callback for child fields — prevents focus-loss cascade
+  const updateField = useCallback(
+    (field: string, value: string | number | boolean | null) => {
+      setEditValues((prev) => ({ ...prev, [field]: value }));
+    },
+    [],
+  );
 
   // ESC key to close drawer / cancel edit
   useEffect(() => {
@@ -265,25 +461,52 @@ export default function MachinesPage() {
   const handleSave = useCallback(async () => {
     if (!selected) return;
     setSaving(true);
+
+    // Build a diff: only send fields that actually changed, and never the PK.
+    // Sending the full row (including machine_id) can trip RLS WITH CHECK
+    // clauses and triggers, causing silent save failures.
+    const diff: Record<string, unknown> = {};
+    for (const key of Object.keys(editValues)) {
+      if (key === "machine_id") continue;
+      const newVal = (editValues as Record<string, unknown>)[key];
+      const oldVal = (selected as unknown as Record<string, unknown>)[key];
+      // Normalize empty strings to null for nullable columns
+      const normalized = newVal === "" ? null : newVal;
+      if (normalized !== oldVal) diff[key] = normalized;
+    }
+
+    if (Object.keys(diff).length === 0) {
+      setToast({ message: "No changes to save.", type: "success" });
+      setEditing(false);
+      setEditValues({});
+      setSaving(false);
+      return;
+    }
+
     const supabase = createClient();
     const { error } = await supabase
       .from("machines")
-      .update(editValues)
+      .update(diff)
       .eq("machine_id", selected.machine_id);
 
     if (!error) {
       setMachines((prev) =>
         prev.map((m) =>
           m.machine_id === selected.machine_id
-            ? ({ ...m, ...editValues } as Machine)
+            ? ({ ...m, ...diff } as Machine)
             : m,
         ),
       );
-      setSelected({ ...selected, ...editValues } as Machine);
+      setSelected({ ...selected, ...diff } as Machine);
       setEditing(false);
       setEditValues({});
+      setToast({ message: "Changes saved.", type: "success" });
     } else {
       console.error("save error:", error);
+      setToast({
+        message: `Save failed: ${error.message}`,
+        type: "error",
+      });
     }
     setSaving(false);
   }, [selected, editValues]);
@@ -295,106 +518,14 @@ export default function MachinesPage() {
     setEditValues({});
   }, []);
 
-  // ── Editable field components ─────────────────────────────────────────────
-
-  function EditableField({
-    label,
-    field,
-    type = "text",
-  }: {
-    label: string;
-    field: keyof Machine;
-    type?: string;
-  }) {
-    return (
-      <div style={{ marginBottom: 14 }}>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "#6b6860",
-            marginBottom: 3,
-          }}
-        >
-          {label}
-        </div>
-        <input
-          type={type}
-          value={
-            ((editValues as Record<string, unknown>)[field] as string) ?? ""
-          }
-          onChange={(e) =>
-            setEditValues((prev) => ({
-              ...prev,
-              [field]:
-                type === "number"
-                  ? e.target.value === ""
-                    ? null
-                    : Number(e.target.value)
-                  : e.target.value,
-            }))
-          }
-          style={inputStyle}
-        />
-      </div>
-    );
-  }
-
-  function EditableBoolField({
-    label,
-    field,
-  }: {
-    label: string;
-    field: keyof Machine;
-  }) {
-    const val = (editValues as Record<string, unknown>)[field] as
-      | boolean
-      | null;
-    return (
-      <div style={{ marginBottom: 14 }}>
-        <div
-          style={{
-            fontSize: 10,
-            fontWeight: 500,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "#6b6860",
-            marginBottom: 6,
-          }}
-        >
-          {label}
-        </div>
-        <button
-          type="button"
-          onClick={() =>
-            setEditValues((prev) => ({
-              ...prev,
-              [field]: val === true ? false : val === false ? null : true,
-            }))
-          }
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "5px 12px",
-            borderRadius: 6,
-            border: "1px solid #e8e4de",
-            background:
-              val === true ? "#f0fdf4" : val === false ? "#fef2f2" : "#faf9f7",
-            color:
-              val === true ? "#065f46" : val === false ? "#991b1b" : "#6b6860",
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          {val === true ? "Yes" : val === false ? "No" : "Not set"}
-        </button>
-      </div>
-    );
-  }
+  // ── Small prop-binding helpers ────────────────────────────────────────────
+  // These just close over editValues/updateField and forward to the
+  // stable module-scope components above. They are NOT React components
+  // themselves (lowercase-named), so React doesn't treat them as types.
+  const strVal = (f: keyof Machine) =>
+    ((editValues as Record<string, unknown>)[f] as string | null) ?? "";
+  const boolVal = (f: keyof Machine) =>
+    (editValues as Record<string, unknown>)[f] as boolean | null;
 
   // ── Drawer content renderer ─────────────────────────────────────────────────
 
@@ -573,33 +704,92 @@ export default function MachinesPage() {
           <>
             <SectionLabel>Machine Details</SectionLabel>
             <div style={grid2}>
-              <EditableField label="Official Name" field="official_name" />
-              <EditableField label="Venue Group" field="venue_group" />
-              <EditableField label="Location Type" field="location_type" />
-              <EditableField label="Status" field="status" />
-              <EditableField label="Location" field="pod_location" />
-              <EditableField label="Address" field="pod_address" />
-              <EditableField label="Supply Source" field="source_of_supply" />
+              <EditableField
+                label="Official Name"
+                field="official_name"
+                value={strVal("official_name")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Venue Group"
+                field="venue_group"
+                value={strVal("venue_group")}
+                onChange={updateField}
+              />
+              <EditableSelect
+                label="Location Type"
+                field="location_type"
+                value={strVal("location_type")}
+                options={LOCATION_TYPE_OPTIONS}
+                onChange={updateField}
+              />
+              <EditableSelect
+                label="Status"
+                field="status"
+                value={strVal("status")}
+                options={STATUS_OPTIONS}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Location"
+                field="pod_location"
+                value={strVal("pod_location")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Address"
+                field="pod_address"
+                value={strVal("pod_address")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Supply Source"
+                field="source_of_supply"
+                value={strVal("source_of_supply")}
+                onChange={updateField}
+              />
               <EditableField
                 label="Cabinets"
                 field="cabinet_count"
                 type="number"
+                value={strVal("cabinet_count")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Include in Refill"
                 field="include_in_refill"
+                value={boolVal("include_in_refill")}
+                onChange={updateField}
               />
               <EditableField
                 label="Installation Date"
                 field="installation_date"
                 type="date"
+                value={strVal("installation_date")}
+                onChange={updateField}
               />
             </div>
             <SectionLabel>Contact</SectionLabel>
             <div style={grid2}>
-              <EditableField label="Person" field="contact_person" />
-              <EditableField label="Phone" field="contact_phone" />
-              <EditableField label="Email" field="contact_email" type="email" />
+              <EditableField
+                label="Person"
+                field="contact_person"
+                value={strVal("contact_person")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Phone"
+                field="contact_phone"
+                value={strVal("contact_phone")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Email"
+                field="contact_email"
+                type="email"
+                value={strVal("contact_email")}
+                onChange={updateField}
+              />
             </div>
             <SectionLabel>Notes</SectionLabel>
             <div style={{ marginBottom: 14 }}>
@@ -624,38 +814,76 @@ export default function MachinesPage() {
           <>
             <SectionLabel>Adyen Configuration</SectionLabel>
             <div style={grid2}>
-              <EditableField label="Adyen Status" field="adyen_status" />
+              <EditableSelect
+                label="Adyen Status"
+                field="adyen_status"
+                value={strVal("adyen_status")}
+                options={ADYEN_STATUS_OPTIONS}
+                onChange={updateField}
+              />
               <EditableBoolField
                 label="Inventory In-Store"
                 field="adyen_inventory_in_store"
+                value={boolVal("adyen_inventory_in_store")}
+                onChange={updateField}
               />
               <EditableField
                 label="Unique Terminal ID"
                 field="adyen_unique_terminal_id"
+                value={strVal("adyen_unique_terminal_id")}
+                onChange={updateField}
               />
               <EditableField
                 label="Permanent Terminal ID"
                 field="adyen_permanent_terminal_id"
+                value={strVal("adyen_permanent_terminal_id")}
+                onChange={updateField}
               />
-              <EditableField label="Store Code" field="adyen_store_code" />
+              <EditableField
+                label="Store Code"
+                field="adyen_store_code"
+                value={strVal("adyen_store_code")}
+                onChange={updateField}
+              />
               <EditableField
                 label="Store Description"
                 field="adyen_store_description"
+                value={strVal("adyen_store_description")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Fridge Assigned"
                 field="adyen_fridge_assigned"
+                value={boolVal("adyen_fridge_assigned")}
+                onChange={updateField}
               />
               <EditableField
                 label="Shipment Batch"
                 field="shipment_batch_nbr"
+                value={strVal("shipment_batch_nbr")}
+                onChange={updateField}
               />
             </div>
             <SectionLabel>Software</SectionLabel>
             <div style={grid2}>
-              <EditableField label="Micron App ID" field="micron_app_id" />
-              <EditableField label="App Version" field="app_version" />
-              <EditableField label="Micron Version" field="micron_version" />
+              <EditableField
+                label="Micron App ID"
+                field="micron_app_id"
+                value={strVal("micron_app_id")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="App Version"
+                field="app_version"
+                value={strVal("app_version")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="Micron Version"
+                field="micron_version"
+                value={strVal("micron_version")}
+                onChange={updateField}
+              />
             </div>
           </>
         );
@@ -668,40 +896,63 @@ export default function MachinesPage() {
               <EditableBoolField
                 label="Terminal Installed"
                 field="payment_terminal_installed"
+                value={boolVal("payment_terminal_installed")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Micron BO Setup"
                 field="payment_micron_bo_setup"
+                value={boolVal("payment_micron_bo_setup")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Adyen Store Created"
                 field="payment_adyen_store_created"
+                value={boolVal("payment_adyen_store_created")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Connect Store &rarr; Terminal"
                 field="payment_connect_store_terminal"
+                value={boolVal("payment_connect_store_terminal")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="General UI Updated"
                 field="payment_general_ui_updated"
+                value={boolVal("payment_general_ui_updated")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="POS Hide Button"
                 field="payment_pos_hide_button"
+                value={boolVal("payment_pos_hide_button")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="App Deployed"
                 field="payment_app_deployed"
+                value={boolVal("payment_app_deployed")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="App Deployed Terminal"
                 field="payment_app_deployed_terminal"
+                value={boolVal("payment_app_deployed_terminal")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Kiosk Mode"
                 field="payment_kiosk_mode"
+                value={boolVal("payment_kiosk_mode")}
+                onChange={updateField}
               />
-              <EditableBoolField label="Fan Test" field="payment_fan_test" />
+              <EditableBoolField
+                label="Fan Test"
+                field="payment_fan_test"
+                value={boolVal("payment_fan_test")}
+                onChange={updateField}
+              />
             </div>
           </>
         );
@@ -714,26 +965,41 @@ export default function MachinesPage() {
               <EditableBoolField
                 label="Compressor OK"
                 field="hw_compressor_ok"
+                value={boolVal("hw_compressor_ok")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Calibration OK"
                 field="hw_calibration_ok"
+                value={boolVal("hw_calibration_ok")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Door Spring OK"
                 field="hw_door_spring_ok"
+                value={boolVal("hw_door_spring_ok")}
+                onChange={updateField}
               />
               <EditableBoolField
                 label="Test Successful"
                 field="hw_test_successful"
+                value={boolVal("hw_test_successful")}
+                onChange={updateField}
               />
             </div>
             <SectionLabel>Identity</SectionLabel>
             <div style={grid2}>
-              <EditableField label="Serial Number" field="serial_number" />
+              <EditableField
+                label="Serial Number"
+                field="serial_number"
+                value={strVal("serial_number")}
+                onChange={updateField}
+              />
               <EditableField
                 label="Shipment Batch"
                 field="shipment_batch_nbr"
+                value={strVal("shipment_batch_nbr")}
+                onChange={updateField}
               />
             </div>
           </>
@@ -744,13 +1010,30 @@ export default function MachinesPage() {
           <>
             <SectionLabel>WiFi Configuration</SectionLabel>
             <div style={grid2}>
-              <EditableField label="Network Name" field="wifi_network_name" />
-              <EditableField label="MAC Address" field="wifi_mac_address" />
+              <EditableField
+                label="Network Name"
+                field="wifi_network_name"
+                value={strVal("wifi_network_name")}
+                onChange={updateField}
+              />
+              <EditableField
+                label="MAC Address"
+                field="wifi_mac_address"
+                value={strVal("wifi_mac_address")}
+                onChange={updateField}
+              />
               <EditableField
                 label="Device Hostname"
                 field="wifi_device_hostname"
+                value={strVal("wifi_device_hostname")}
+                onChange={updateField}
               />
-              <EditableField label="Serial Number" field="serial_number" />
+              <EditableField
+                label="Serial Number"
+                field="serial_number"
+                value={strVal("serial_number")}
+                onChange={updateField}
+              />
             </div>
           </>
         );
@@ -996,6 +1279,35 @@ export default function MachinesPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Toast ──────────────────────────────────────────────────────────── */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 200,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 16px",
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            boxShadow: "0 10px 25px rgba(0,0,0,0.12)",
+            background: toast.type === "success" ? "#ecfdf5" : "#fef2f2",
+            color: toast.type === "success" ? "#065f46" : "#991b1b",
+            border:
+              toast.type === "success"
+                ? "1px solid #a7f3d0"
+                : "1px solid #fecaca",
+          }}
+        >
+          <span>{toast.type === "success" ? "\u2713" : "\u2715"}</span>
+          {toast.message}
+        </div>
+      )}
 
       {/* ── Slide-over drawer ──────────────────────────────────────────────── */}
       {selected && (
