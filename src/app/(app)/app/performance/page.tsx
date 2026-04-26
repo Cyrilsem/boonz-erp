@@ -255,10 +255,57 @@ function fmtAed(n: number): string {
 function pct(part: number, whole: number): string {
   return whole > 0 ? ((part / whole) * 100).toFixed(0) + "%" : "0%";
 }
+// ── Dubai-timezone helpers ──────────────────────────────────────────────────
+// All WEIMI/Adyen timestamps are stored as UTC instants in Postgres.
+// These helpers convert to Asia/Dubai (UTC+4, no DST) for display and bucketing.
+
+const DUBAI_TZ = "Asia/Dubai";
+
+function dubaiDateOnly(d: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DUBAI_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+/** Dubai-local YYYY-MM-DD for a stored UTC ISO string */
+function dubaiDate(iso: string): string {
+  return dubaiDateOnly(new Date(iso));
+}
+/** Dubai-local HH:MM for a stored UTC ISO string */
+function dubaiTime(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: DUBAI_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
+}
+/** Dubai-local hour 0-23 */
+function dubaiHour(iso: string): number {
+  return parseInt(
+    new Intl.DateTimeFormat("en", {
+      timeZone: DUBAI_TZ,
+      hour: "numeric",
+      hour12: false,
+    }).format(new Date(iso)),
+    10,
+  );
+}
+/** Dubai-local day-of-week 0 (Sun) … 6 (Sat) */
+function dubaiDow(iso: string): number {
+  const abbr = new Intl.DateTimeFormat("en", {
+    timeZone: DUBAI_TZ,
+    weekday: "short",
+  }).format(new Date(iso));
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(abbr);
+}
+
 function daysAgo(n: number): string {
   const d = new Date();
   d.setDate(d.getDate() - n);
-  return d.toISOString().split("T")[0];
+  return dubaiDateOnly(d); // Dubai-local, not UTC
 }
 
 const cblStyle: React.CSSProperties = {
@@ -453,7 +500,7 @@ function ProgressRow({
 export default function PerformancePage() {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
   const [dateFrom, setDateFrom] = useState(daysAgo(30));
-  const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
+  const [dateTo, setDateTo] = useState(dubaiDateOnly()); // Dubai-local today
   const [group, setGroup] = useState<GroupFilter>("All");
   const [viewMode, setViewMode] = useState<"consolidated" | "by-group">(
     "consolidated",
@@ -499,8 +546,8 @@ export default function PerformancePage() {
           "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, internal_txn_sn, machines!inner(official_name, venue_group)",
         )
         .eq("delivery_status", "Successful")
-        .gte("transaction_date", `${dateFrom}T00:00:00+00:00`)
-        .lte("transaction_date", `${dateTo}T23:59:59+00:00`);
+        .gte("transaction_date", `${dateFrom}T00:00:00+04:00`) // Dubai midnight
+        .lte("transaction_date", `${dateTo}T23:59:59+04:00`); // Dubai end-of-day
       if (selectedMachineIds.length > 0) {
         salesQuery = salesQuery.in("machine_id", selectedMachineIds);
       }
@@ -509,23 +556,19 @@ export default function PerformancePage() {
       // Extend the window ±7 days so edge-of-range baskets always find their match.
       // Do NOT filter by machine_id — that column is NULL in adyen_transactions;
       // machine association is resolved implicitly via merchant_reference matching.
-      const adyenFrom = new Date(
-        new Date(dateFrom).getTime() - 7 * 24 * 60 * 60 * 1000,
-      )
-        .toISOString()
-        .split("T")[0];
-      const adyenTo = new Date(
-        new Date(dateTo).getTime() + 7 * 24 * 60 * 60 * 1000,
-      )
-        .toISOString()
-        .split("T")[0];
+      const adyenFrom = dubaiDateOnly(
+        new Date(new Date(dateFrom).getTime() - 7 * 24 * 60 * 60 * 1000),
+      );
+      const adyenTo = dubaiDateOnly(
+        new Date(new Date(dateTo).getTime() + 7 * 24 * 60 * 60 * 1000),
+      );
       const adyenQuery = supabase
         .from("adyen_transactions")
         .select(
           "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference",
         )
-        .gte("creation_date", `${adyenFrom}T00:00:00+00:00`)
-        .lte("creation_date", `${adyenTo}T23:59:59+00:00`);
+        .gte("creation_date", `${adyenFrom}T00:00:00+04:00`) // Dubai midnight
+        .lte("creation_date", `${adyenTo}T23:59:59+04:00`); // Dubai end-of-day
 
       const [machineRes, salesRes, adyenRes, agreementsRes] = await Promise.all(
         [
@@ -687,14 +730,18 @@ export default function PerformancePage() {
   const matchedSettledAdyen = useMemo(
     () =>
       settledAdyen.filter(
-        (r) => r.merchant_reference && salesBaseTxnSns.has(r.merchant_reference),
+        (r) =>
+          r.merchant_reference && salesBaseTxnSns.has(r.merchant_reference),
       ),
     [settledAdyen, salesBaseTxnSns],
   );
 
   const capturedAdyen = useMemo(
     () =>
-      matchedSettledAdyen.reduce((s, r) => s + (r.captured_amount_value || 0), 0),
+      matchedSettledAdyen.reduce(
+        (s, r) => s + (r.captured_amount_value || 0),
+        0,
+      ),
     [matchedSettledAdyen],
   );
 
@@ -718,13 +765,15 @@ export default function PerformancePage() {
       if (!base) continue;
       // Mirror the RPC's vox_sales filter: skip zero-amount rows (cash /
       // cancelled-before-capture). They inflate basket count and distort the rate.
-      const effectiveTotal = (s.total_amount ?? 0) > 0
-        ? (s.total_amount ?? 0)
-        : (s.paid_amount ?? 0);
+      const effectiveTotal =
+        (s.total_amount ?? 0) > 0
+          ? (s.total_amount ?? 0)
+          : (s.paid_amount ?? 0);
       if (effectiveTotal <= 0) continue;
       const g = groups.get(base);
-      if (g) { g.total += effectiveTotal; }
-      else groups.set(base, { total: effectiveTotal });
+      if (g) {
+        g.total += effectiveTotal;
+      } else groups.set(base, { total: effectiveTotal });
     }
     // Mirror RPC default_stats: WHERE psp_reference IS NOT NULL
     // Any Adyen record = matched, regardless of status.
@@ -737,7 +786,8 @@ export default function PerformancePage() {
     let defaultBasketCount = 0;
     for (const [base, grp] of groups) {
       const adyen = adyenByMerchantRef.get(base);
-      if (adyen !== undefined) {                              // psp_reference IS NOT NULL
+      if (adyen !== undefined) {
+        // psp_reference IS NOT NULL
         const captured = adyen.captured_amount_value ?? 0;
         matchedTotal += grp.total;
         matchedCapture += captured;
@@ -774,7 +824,7 @@ export default function PerformancePage() {
   const dailyData = useMemo(() => {
     const map: Record<string, number> = {};
     salesRows.forEach((r) => {
-      const d = r.transaction_date?.split("T")[0] ?? "";
+      const d = r.transaction_date ? dubaiDate(r.transaction_date) : "";
       if (d) map[d] = (map[d] || 0) + (r.total_amount || 0);
     });
     return Object.entries(map)
@@ -801,7 +851,10 @@ export default function PerformancePage() {
     };
     const map: Record<string, number> = {};
     salesRows.forEach((r) => {
-      const d = new Date(r.transaction_date);
+      // Use Dubai-local date string to build the Date so weekKey uses the right day
+      const d = r.transaction_date
+        ? new Date(dubaiDate(r.transaction_date) + "T00:00:00")
+        : new Date(r.transaction_date);
       const key = weekKey(d);
       map[key] = (map[key] || 0) + (r.total_amount || 0);
     });
@@ -817,7 +870,7 @@ export default function PerformancePage() {
   const hourlyData = useMemo(() => {
     const map: Record<number, number> = {};
     salesRows.forEach((r) => {
-      const h = new Date(r.transaction_date).getHours();
+      const h = dubaiHour(r.transaction_date);
       map[h] = (map[h] || 0) + (r.total_amount || 0);
     });
     return Array.from({ length: 24 }, (_, i) => ({
@@ -831,7 +884,7 @@ export default function PerformancePage() {
     const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const map: Record<number, number> = {};
     salesRows.forEach((r) => {
-      const d = new Date(r.transaction_date).getDay();
+      const d = dubaiDow(r.transaction_date);
       map[d] = (map[d] || 0) + (r.total_amount || 0);
     });
     return days.map((name, i) => ({
@@ -988,7 +1041,7 @@ export default function PerformancePage() {
     salesRows.forEach((r) => {
       const g = r.machines?.venue_group || "Unknown";
       if (!result[g]) result[g] = [];
-      const d = r.transaction_date?.split("T")[0] ?? "";
+      const d = r.transaction_date ? dubaiDate(r.transaction_date) : "";
       const existing = result[g].find((x) => x.date === d);
       if (existing) existing.amount += r.total_amount || 0;
       else result[g].push({ date: d, amount: r.total_amount || 0 });
@@ -1015,7 +1068,9 @@ export default function PerformancePage() {
       const status = matchedAny?.status ?? null;
       const captured = matchedAny?.captured_amount_value ?? 0;
       const effectiveTotal =
-        (s.total_amount ?? 0) > 0 ? (s.total_amount ?? 0) : (s.paid_amount ?? 0);
+        (s.total_amount ?? 0) > 0
+          ? (s.total_amount ?? 0)
+          : (s.paid_amount ?? 0);
       return {
         ...s,
         captured: matchedAny !== undefined ? captured : 0,
@@ -1025,8 +1080,7 @@ export default function PerformancePage() {
         paymentMethod: matchedAny?.payment_method || "",
         isWallet: (matchedAny?.funding_source || "").toUpperCase() === "WALLET",
         // Default = matched basket where Adyen captured less than Weimi charged
-        isDefault:
-          matchedAny !== undefined && captured < effectiveTotal - 0.01,
+        isDefault: matchedAny !== undefined && captured < effectiveTotal - 0.01,
       };
     });
     if (txnGroup !== "All")
@@ -3157,7 +3211,7 @@ export default function PerformancePage() {
                       }}
                     >
                       <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
-                        {r.transaction_date?.split("T")[0] ?? "—"}
+                        {r.transaction_date ? dubaiDate(r.transaction_date) : "—"}
                       </td>
                       <td
                         style={{
@@ -3167,7 +3221,7 @@ export default function PerformancePage() {
                           fontSize: 10.5,
                         }}
                       >
-                        {r.transaction_date?.split("T")[1]?.slice(0, 5) ?? "—"}
+                        {r.transaction_date ? dubaiTime(r.transaction_date) : "—"}
                       </td>
                       <td
                         style={{
@@ -3779,8 +3833,8 @@ export default function PerformancePage() {
                         const matchedA = adyenRows.find(
                           (a) =>
                             a.machine_id === r.machine_id &&
-                            a.creation_date?.split("T")[0] ===
-                              r.transaction_date?.split("T")[0],
+                            (a.creation_date ? dubaiDate(a.creation_date) : null) ===
+                              (r.transaction_date ? dubaiDate(r.transaction_date) : null),
                         );
                         const adyenStatus = matchedA?.status ?? null;
                         const isSettled =
@@ -3809,7 +3863,7 @@ export default function PerformancePage() {
                                 fontSize: 10,
                               }}
                             >
-                              {r.transaction_date?.split("T")[0] ?? "—"}
+                              {r.transaction_date ? dubaiDate(r.transaction_date) : "—"}
                             </td>
                             <td
                               style={{
