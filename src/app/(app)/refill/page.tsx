@@ -6,6 +6,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { RefillPlanReview } from "@/components/RefillPlanReview";
 import { getDubaiDate } from "@/lib/utils/date";
 import { DailyDispatchingTab } from "./DailyDispatchingTab";
+import { RefillPlanningTab } from "./RefillPlanningTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ const tierColors: Record<string, { card: string; bar: string }> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RefillPage() {
-  const [tab, setTab] = useState<"planning" | "dispatching">("planning");
+  const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching">("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
   const dubaiToday = getDubaiDate();
@@ -811,7 +812,13 @@ export default function RefillPage() {
           display: "flex",
         }}
       >
-        {(["planning", "dispatching"] as const).map((t) => (
+        {(
+          [
+            ["snapshot", "Stock Snapshot"],
+            ["planning", "Refill Planning"],
+            ["dispatching", "Refill Dispatch"],
+          ] as const
+        ).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -830,18 +837,26 @@ export default function RefillPage() {
               cursor: "pointer",
             }}
           >
-            {t === "planning" ? "Refill Planning" : "Daily Dispatching"}
+            {label}
           </button>
         ))}
       </div>
 
-      {/* ── Daily Dispatching tab ─────────────────────────────────────────────── */}
+      {/* ── Refill Dispatch tab ───────────────────────────────────────────────── */}
       {tab === "dispatching" && (
         <DailyDispatchingTab selectedDate={selectedDate} />
       )}
 
-      {/* ── Refill Planning tab ──────────────────────────────────────────────── */}
-      <div style={{ display: tab === "planning" ? undefined : "none" }}>
+      {/* ── Refill Planning tab — RPC-driven plan builder ────────────────────── */}
+      {tab === "planning" && (
+        <RefillPlanningTab
+          selectedDate={selectedDate}
+          machineNames={machineHealth.map((m) => m.machine_name)}
+        />
+      )}
+
+      {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
+      <div style={{ display: tab === "snapshot" ? undefined : "none" }}>
         <RefillPlanReview selectedDate={selectedDate} />
 
         {/* Controls card */}
@@ -2057,7 +2072,7 @@ export default function RefillPage() {
           </div>
         )}
       </div>
-      {/* end planning tab */}
+      {/* end snapshot tab */}
     </div>
   );
 }
