@@ -11,6 +11,8 @@ interface DriverTask {
   po_id: string;
   po_number: number;
   supplier_name: string;
+  procurement_type: "walk_in" | "supplier_delivered";
+  is_forced: boolean;
   status: "pending" | "acknowledged" | "collected" | "cancelled";
   notes: string | null;
   created_at: string;
@@ -105,10 +107,11 @@ export default function TasksPage() {
         po_number,
         status,
         notes,
+        is_forced,
         created_at,
         acknowledged_at,
         collected_at,
-        suppliers!inner(supplier_name)
+        suppliers!inner(supplier_name, procurement_type)
       `,
       )
       .order("created_at", { ascending: false });
@@ -119,20 +122,28 @@ export default function TasksPage() {
       return;
     }
 
-    const mapped: DriverTask[] = data.map((row) => {
-      const s = row.suppliers as unknown as { supplier_name: string };
-      return {
-        task_id: row.task_id,
-        po_id: row.po_id,
-        po_number: row.po_number,
-        supplier_name: s.supplier_name,
-        status: row.status as DriverTask["status"],
-        notes: row.notes,
-        created_at: row.created_at,
-        acknowledged_at: row.acknowledged_at,
-        collected_at: row.collected_at,
-      };
-    });
+    const mapped: DriverTask[] = data
+      .filter((row) => {
+        // Only show tasks for walk_in suppliers OR emergency-forced tasks
+        const s = row.suppliers as unknown as { supplier_name: string; procurement_type: string };
+        return s.procurement_type === "walk_in" || row.is_forced === true;
+      })
+      .map((row) => {
+        const s = row.suppliers as unknown as { supplier_name: string; procurement_type: string };
+        return {
+          task_id: row.task_id,
+          po_id: row.po_id,
+          po_number: row.po_number,
+          supplier_name: s.supplier_name,
+          procurement_type: s.procurement_type as DriverTask["procurement_type"],
+          is_forced: row.is_forced ?? false,
+          status: row.status as DriverTask["status"],
+          notes: row.notes,
+          created_at: row.created_at,
+          acknowledged_at: row.acknowledged_at,
+          collected_at: row.collected_at,
+        };
+      });
 
     setTasks(mapped);
     setLoading(false);
@@ -350,6 +361,11 @@ export default function TasksPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold">
                         {task.supplier_name}
+                        {task.is_forced && (
+                          <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                            🚨 Emergency pick-up
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-neutral-500">{task.po_id}</p>
                       <p className="text-xs text-neutral-400 mt-0.5">

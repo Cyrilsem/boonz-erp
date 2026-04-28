@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Procurement Flow Investigation · Boonz ERP · 2026-04-27</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-card: #14181d;
+    --bg-card-elev: #1a1f25;
+    --line: #232a32;
+    --line-soft: #1a2027;
+    --text: #e6ebf0;
+    --text-dim: #8a93a0;
+    --text-muted: #5b6470;
+    --accent: #6ee7b7;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --ok: #34d399;
+    --chip: #1f2630;
+    --chip-text: #b6bfcc;
+    font-family: ui-sans-serif, -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+    font-feature-settings: "ss01","ss02","cv11";
+  }
+  * { box-sizing: border-box; }
+  html,body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body { font-size: 14px; line-height: 1.6; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 36px 24px 100px; }
+
+  /* Header */
+  .top-header { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 32px; }
+  .top-header h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.02em; }
+  .top-header .sub { color: var(--text-dim); font-size: 13px; }
+  .team-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .team-pill { font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 600; letter-spacing: 0.04em; }
+  .pill-ow   { background: rgba(96,165,250,0.12); color: #93c5fd; border: 1px solid rgba(96,165,250,0.25); }
+  .pill-dara { background: rgba(52,211,153,0.12); color: #6ee7b7; border: 1px solid rgba(52,211,153,0.25); }
+  .pill-stax { background: rgba(251,191,36,0.12); color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); }
+  .pill-cody { background: rgba(248,113,113,0.12); color: #fca5a5; border: 1px solid rgba(248,113,113,0.25); }
+
+  /* Section headings */
+  h2 { font-size: 16px; font-weight: 700; margin: 40px 0 16px; color: var(--accent); letter-spacing: -0.01em; border-top: 1px solid var(--line); padding-top: 32px; }
+  h3 { font-size: 14px; font-weight: 600; margin: 24px 0 10px; color: var(--text); }
+
+  /* Finding cards */
+  .finding {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .finding-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+  .sev {
+    font-size: 10px; font-weight: 700; padding: 4px 9px; border-radius: 5px;
+    letter-spacing: 0.08em; white-space: nowrap; flex-shrink: 0; margin-top: 1px;
+  }
+  .sev-p0 { background: rgba(248,113,113,0.2); color: #f87171; }
+  .sev-p1 { background: rgba(251,191,36,0.2); color: #fbbf24; }
+  .sev-p2 { background: rgba(96,165,250,0.2); color: #60a5fa; }
+  .sev-feat { background: rgba(52,211,153,0.15); color: #34d399; }
+  .finding-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .finding-body { font-size: 13px; color: var(--text-dim); line-height: 1.65; }
+  .finding-body p { margin: 0 0 8px; }
+  .finding-body p:last-child { margin: 0; }
+  .owner-tag {
+    display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px;
+    border-radius: 999px; letter-spacing: 0.04em; margin-left: 6px; vertical-align: 1px;
+  }
+  .ow-dara { background: rgba(52,211,153,0.14); color: #6ee7b7; }
+  .ow-stax { background: rgba(251,191,36,0.14); color: #fcd34d; }
+  .ow-cody { background: rgba(248,113,113,0.14); color: #fca5a5; }
+  .ow-ow   { background: rgba(96,165,250,0.14); color: #93c5fd; }
+
+  /* Code blocks */
+  pre, code {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    background: var(--bg-card-elev);
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+  }
+  code { padding: 1px 6px; color: #a5b4fc; }
+  pre { padding: 14px 16px; overflow-x: auto; line-height: 1.6; color: #cfd6df; margin: 10px 0; }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+
+  /* Verdict box */
+  .verdict-box {
+    background: var(--bg-card-elev);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+  .verdict-box .v-label { font-size: 10px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+  .verdict-box .v-content { color: var(--text-dim); }
+  .verdict-box .v-content b { color: var(--text); }
+
+  /* Roadmap table */
+  .roadmap { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .roadmap th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .roadmap td { padding: 12px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; color: var(--text-dim); }
+  .roadmap tr:last-child td { border-bottom: none; }
+  .roadmap td:first-child { font-weight: 600; color: var(--text); white-space: nowrap; }
+  .roadmap .row-p0 td:first-child { color: #f87171; }
+  .roadmap .row-p1 td:first-child { color: #fbbf24; }
+  .roadmap .row-p2 td:first-child { color: #60a5fa; }
+  .roadmap .row-feat td:first-child { color: #34d399; }
+
+  /* Flow diagram */
+  .flow { background: var(--bg-card-elev); border: 1px solid var(--line); border-radius: 8px; padding: 16px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; white-space: pre; overflow-x: auto; line-height: 1.8; color: #cfd6df; margin: 12px 0; }
+  .fl-ok { color: #34d399; }
+  .fl-bug { color: #f87171; }
+  .fl-miss { color: #fbbf24; }
+  .fl-new { color: #60a5fa; }
+
+  /* OW section */
+  .ow-header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .ow-logo { width: 32px; height: 32px; border-radius: 8px; background: rgba(96,165,250,0.15); border: 1px solid rgba(96,165,250,0.3); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800; color: #93c5fd; flex-shrink: 0; }
+  .ow-name { font-size: 14px; font-weight: 700; color: #93c5fd; }
+  .ow-role { font-size: 11px; color: var(--text-muted); }
+
+  /* Advisor cards */
+  .advisor-card { background: var(--bg-card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin-bottom: 20px; }
+  .advisor-card.dara-card { border-color: rgba(52,211,153,0.3); }
+  .advisor-card.stax-card { border-color: rgba(251,191,36,0.3); }
+  .advisor-card.cody-card { border-color: rgba(248,113,113,0.3); }
+  .advisor-card.ow-card   { border-color: rgba(96,165,250,0.3); }
+
+  .advisor-label { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+  .al-dara { color: #6ee7b7; }
+  .al-stax { color: #fcd34d; }
+  .al-cody { color: #fca5a5; }
+  .al-ow   { color: #93c5fd; }
+
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin-bottom: 5px; color: var(--text-dim); font-size: 13px; }
+  li b { color: var(--text); }
+
+  .badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 600; margin-left: 4px; vertical-align: 1px; }
+  .badge-done { background: rgba(52,211,153,0.15); color: #34d399; }
+  .badge-todo { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .badge-block { background: rgba(248,113,113,0.15); color: #f87171; }
+  .badge-new { background: rgba(96,165,250,0.15); color: #60a5fa; }
+
+  .divider { border: none; border-top: 1px solid var(--line); margin: 32px 0; }
+
+  @media (max-width:640px) { .roadmap { display: block; overflow-x: auto; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ─── Header ─────────────────────────────────────────────────────────────── -->
+<div class="top-header">
+  <h1>Procurement Flow — Full Investigation</h1>
+  <div class="sub">Boonz ERP · Initiated 2026-04-27 · Sources: live DB + full FE source</div>
+  <div class="team-pills">
+    <span class="team-pill pill-ow">Oliver Wyman — Process &amp; Systems</span>
+    <span class="team-pill pill-dara">Dara — Data Architecture</span>
+    <span class="team-pill pill-stax">Stax — FE / Orchestration</span>
+    <span class="team-pill pill-cody">Cody — Constitutional Review</span>
+  </div>
+</div>
+
+<!-- ─── OW Executive Summary ───────────────────────────────────────────────── -->
+<h2>§1 · Oliver Wyman — Executive Process Assessment</h2>
+
+<div class="advisor-card ow-card">
+  <div class="advisor-label al-ow">Oliver Wyman — Process Intelligence</div>
+
+  <p style="color:var(--text-dim);font-size:13px;margin:0 0 16px;">We reviewed the full procurement lifecycle from PO creation through inventory receipt. The flow has a solid skeleton — two-leg driver/supplier split, batch expiry tracking, field additions — but carries eight compounding defects that make it brittle in production. Three are operational bugs today. Five are structural risks that will scale badly. We've prioritised them P0 → Feature below.</p>
+
+  <h3 style="margin-top:0;">Current-state flow</h3>
+  <div class="flow"><span class="fl-ok">Operator</span>  ──→  [/field/orders/new]  create PO
+    ├─ supplier is walk-in? ──→ show 🚗 Driver Task confirmation  <span class="fl-ok">✓ correct for SUP_005, SUP_011</span>
+    │                          <span class="fl-bug">✗ SUP_014 "Union Coop" treated as email supplier (missing from code)</span>
+    └─ supplier is regular? ──→ send email to supplier contact
+                               <span class="fl-bug">✗ Some suppliers have contact_email = null or "na"</span>
+
+  [driver_tasks] row inserted for EVERY PO  <span class="fl-ok">✓ (fixed 2026-04-23)</span>
+    └─ driver sees task in /field/tasks  <span class="fl-ok">✓ RLS: SELECT true → all staff see all tasks</span>
+
+  Driver  ──→  [/field/tasks]  acknowledges, marks outcome per product line
+    └─ outcome stored in driver_tasks.outcome_comment (JSON)
+    <span class="fl-bug">⚠ outcome_qty partially purchased not written to purchase_orders → WH doesn't know shortfall</span>
+    <span class="fl-miss">⚠ No handoff state between "collected by driver" and "arrived at warehouse"</span>
+
+  Warehouse  ──→  [/field/receiving/poId]  receives goods
+    ├─ PO lines updated with received_qty, received_date  <span class="fl-ok">✓ (direct write to purchase_orders)</span>
+    ├─ warehouse_inventory row inserted per batch         <span class="fl-bug">✗ DIRECT FE WRITE to protected entity</span>
+    ├─ multi-batch → extra PO LINE inserted              <span class="fl-bug">✗ CORRUPTS PO data model (duplicate lines)</span>
+    └─ po_additions shown but NOT processed in confirm   <span class="fl-bug">✗ additions never enter warehouse_inventory</span>
+
+  [/app/procurement]  operator views PO list
+    └─ po_number generated client-side                   <span class="fl-bug">✗ race condition: two simultaneous POs → same number</span></div>
+
+  <h3>Summary severity matrix</h3>
+  <table class="roadmap" style="margin-top:0;">
+    <thead><tr><th>#</th><th>Finding</th><th>Impact</th><th>Owner</th></tr></thead>
+    <tbody>
+      <tr class="row-p0"><td>B-1</td><td>"Union Coop" SUP_014 missing from walk-in codes</td><td>Operator sees wrong confirmation; email sent to null</td><td><span class="badge badge-todo">Stax</span></td></tr>
+      <tr class="row-p0"><td>B-2</td><td>Multi-batch receiving creates duplicate PO lines</td><td>Orders view shows wrong line counts &amp; totals; confusing for all roles</td><td><span class="badge badge-todo">Dara + Stax</span></td></tr>
+      <tr class="row-p1"><td>B-3</td><td><code>warehouse_inventory</code> written directly from FE</td><td>Constitution Article 3 violation; bypasses audit trail</td><td><span class="badge badge-block">Cody → Stax</span></td></tr>
+      <tr class="row-p1"><td>B-4</td><td><code>po_additions</code> not processed in receiving confirm</td><td>Walk-in field additions never enter warehouse stock</td><td><span class="badge badge-todo">Stax</span></td></tr>
+      <tr class="row-p2"><td>B-5</td><td>po_number generated client-side (race condition)</td><td>Duplicate po_numbers if two POs created simultaneously</td><td><span class="badge badge-todo">Dara + Stax</span></td></tr>
+      <tr class="row-p2"><td>B-6</td><td>No driver → warehouse handoff state</td><td>WH doesn't know goods are in transit after driver collects</td><td><span class="badge badge-new">Feature</span></td></tr>
+      <tr class="row-feat"><td>F-1</td><td>Walk-in classification hardcoded in FE</td><td>New walk-in supplier requires code deployment</td><td><span class="badge badge-new">Dara + Stax</span></td></tr>
+      <tr class="row-feat"><td>F-2</td><td>Partial receipt shortfall not tracked back to PO</td><td>Driver partial buys lost; WH can't see expected shortfall</td><td><span class="badge badge-new">Feature</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ─── Bug Details ────────────────────────────────────────────────────────── -->
+<h2>§2 · Detailed Bug Findings</h2>
+
+<!-- B-1 -->
+<div class="finding">
+  <div class="finding-header">
+    <span class="sev sev-p0">P0</span>
+    <div>
+      <div class="finding-title">B-1 · "Union Coop" (SUP_014) missing from walk-in supplier codes <span class="owner-tag ow-stax">Stax</span></div>
+    </div>
+  </div>
+  <div class="finding-body">
+    <p>The FE hardcodes the walk-in set as a TypeScript constant: <code>const WALK_IN_SUPPLIER_CODES = ["SUP_005", "SUP_011"] as const</code> in <code>src/app/(field)/field/orders/new/page.tsx</code>. There are three walk-in suppliers in the database:</p>
+    <pre>SUP_005  Union Coop Dubai   ✓ in list
+SUP_011  Carrefour          ✓ in list
+SUP_014  Union Coop         ✗ MISSING — treated as email supplier</pre>
+    <p>When a PO is created for "Union Coop" (SUP_014), the system correctly creates a <code>driver_tasks</code> row (since the 2026-04-23 fix), but the confirm dialog shows the 📧 Email badge instead of the 🚗 Driver Task badge, and the system tries to send an email to <code>null</code> (Union Coop has no contact_email). The email call is non-blocking so the PO is saved, but the operator receives a confusing "email sent" status message for a supplier that has no email — and the driver task exists but the operator can't see it was created.</p>
+    <p><b>Root cause:</b> walk-in classification lives in FE code, not in the database. Every new walk-in supplier requires a code change and redeployment.</p>
+    <p><b>Immediate fix:</b> add SUP_014 to <code>WALK_IN_SUPPLIER_CODES</code>. <b>Structural fix:</b> move classification to <code>suppliers.procurement_type</code> column (see F-1).</p>
+  </div>
+</div>
+
+<!-- B-2 -->
+<div class="finding">
+  <div class="finding-header">
+    <span class="sev sev-p0">P0</span>
+    <div>
+      <div class="finding-title">B-2 · Multi-batch receiving inserts duplicate PO lines <span class="owner-tag ow-dara">Dara</span> <span class="owner-tag ow-stax">Stax</span></div>
+    </div>
+  </div>
+  <div class="finding-body">
+    <p>When the warehouse manager receives a PO with multiple expiry batches per product, the receiving page (<code>src/app/(field)/field/receiving/[poId]/page.tsx</code>) handles them as follows:</p>
+    <pre>Batch 1 → UPDATE purchase_orders SET received_date=..., received_qty=...
+             WHERE po_line_id = original_line_id
+Batch 2 → INSERT INTO purchase_orders (po_id, supplier_id, boonz_product_id,
+             ordered_qty=ORIGINAL, received_qty=batch2_qty, ...)
+Batch 3 → INSERT INTO purchase_orders (...)</pre>
+    <p>Each additional batch creates a new row in <code>purchase_orders</code> with the same <code>po_id</code> and <code>boonz_product_id</code>, but a <b>copied <code>ordered_qty</code></b> from the original line. This means:</p>
+    <ul>
+      <li>The orders list groups by <code>po_id</code> and sums <code>ordered_qty</code> — so a 24-unit product with 2 batches shows as 48 ordered</li>
+      <li><code>line_count</code> inflates — 1 product looks like 2 or 3 lines</li>
+      <li>The tasks page loads PO lines and shows the driver inflated quantities</li>
+      <li>If you receive 3 batches of 5 products, you get 15 rows instead of 5, all with wrong ordered_qty</li>
+    </ul>
+    <p><b>Root cause:</b> expiry batches should NOT be separate PO lines. They should be separate <code>warehouse_inventory</code> rows (which already exist) linked to the same PO line. The PO line is an order, not a batch record. The correct model is: one PO line per product-per-PO, one warehouse_inventory row per batch.</p>
+    <p><b>Fix:</b> remove the INSERT path for batches 2+. A new <code>warehouse_inventory</code> row per batch is already being created — that's the right record. The original PO line should be updated with total <code>received_qty</code> (sum of all batches).</p>
+  </div>
+</div>
+
+<!-- B-3 -->
+<div class="finding">
+  <div class="finding-header">
+    <span class="sev sev-p1">P1</span>
+    <div>
+      <div class="finding-title">B-3 · <code>warehouse_inventory</code> written directly from FE client <span class="owner-tag ow-cody">Cody</span> <span class="owner-tag ow-stax">Stax</span></div>
+    </div>
+  </div>
+  <div class="finding-body">
+    <p>The receiving page does this from a browser client component using the anon/session Supabase client:</p>
+    <pre>const { data: whRows } = await supabase
+  .from("warehouse_inventory")
+  .insert({
+    boonz_product_id: ..., warehouse_stock: ...,
+    expiration_date: ..., batch_id: ..., status: "Active", ...
+  })</pre>
+    <p><code>warehouse_inventory</code> is a <b>Constitution-protected entity</b> (Appendix A). Direct writes from the FE client violate Articles 1 and 3. The current permissive RLS policy (<code>warehouse_write_wh_inventory</code>) allows this for all staff including <code>field_staff</code>, which means any field staff user can insert arbitrary inventory rows.</p>
+    <p>Additionally, <code>purchase_orders</code> is written directly (both UPDATE for original lines and INSERT for extra batches), and <code>inventory_audit_log</code> is written directly for price changes. None of these go through an RPC.</p>
+    <p><b>Fix:</b> introduce a <code>receive_purchase_order</code> RPC that accepts the PO ID, an array of line receipts (product, batches, price), and atomically: updates PO lines, creates warehouse_inventory rows, creates audit log entries, and marks po_additions as received. The FE calls this single RPC.</p>
+  </div>
+</div>
+
+<!-- B-4 -->
+<div class="finding">
+  <div class="finding-header">
+    <span class="sev sev-p1">P1</span>
+    <div>
+      <div class="finding-title">B-4 · <code>po_additions</code> not processed in receiving confirm <span class="owner-tag ow-stax">Stax</span></div>
+    </div>
+  </div>
+  <div class="finding-body">
+    <p>The receiving page shows field additions (products added by the driver beyond the original PO) in an amber section, but the <code>handleConfirm()</code> function only loops over <code>lines</code> — never over <code>additions</code>. When the warehouse manager clicks "Confirm receiving", additions remain in <code>po_additions.status = 'pending_receive'</code> indefinitely and <b>no <code>warehouse_inventory</code> row is ever created for them</b>.</p>
+    <p>The older additions in the database that do show <code>status = 'received'</code> and <code>received_at</code> timestamps were handled via a separate path in the operator console (<code>/app/procurement</code>) — there is a parallel receiving mechanism. This creates two partially overlapping flows:</p>
+    <ul>
+      <li>Field receiving page (<code>/field/receiving/[poId]</code>) — handles original PO lines only</li>
+      <li>Operator console — can mark additions as received</li>
+    </ul>
+    <p>Neither flow is complete. The field page should include additions in the confirm batch, with the same batch/expiry/price fields. The RPC proposed in B-3 should handle both.</p>
+  </div>
+</div>
+
+<!-- B-5 -->
+<div class="finding">
+  <div class="finding-header">
+    <span class="sev sev-p2">P2</span>
+    <div>
+      <div class="finding-title">B-5 · <code>po_number</code> generated client-side (race condition) <span class="owner-tag ow-dara">Dara</span> <span class="owner-tag ow-stax">Stax</span></div>
+    </div>
+  </div>
+  <div class="finding-body">
+    <p>The FE generates the next po_number by querying the current max and adding 1:</p>
+    <pre>const { data: lastPo } = await supabase.from("purchase_orders")
+  .select("po_number")
+  .not("po_number", "is", null)
+  .order("po_number", { ascending: false })
+  .limit(1).single()
+const nextNumber = (lastPo?.po_number ?? 9016) + 1</pre>
+    <p>This runs twice per PO creation (once in <code>fetchData</code> for display, once in <code>handleConfirmSend</code> for actual insertion). If two users create POs simultaneously, or if the user takes a long time between opening the page and confirming, they get duplicate po_numbers. There is no UNIQUE constraint on <code>purchase_orders.po_number</code>.</p>
+    <p><b>Fix:</b> use a Postgres sequence or generate the number inside the <code>create_purchase_order</code> RPC using <code>SELECT nextval(...)</code>. The display number shown before submission can be approximate / prefixed with "~".</p>
+  </div>
+</div>
+
+<!-- B-6 -->
+<div class="finding">
+  <div class="finding-header">
+    <span class="sev sev-p2">P2</span>
+    <div>
+      <div class="finding-title">B-6 · No driver → warehouse handoff state <span class="owner-tag ow-ow">Process gap</span></div>
+    </div>
+  </div>
+  <div class="finding-body">
+    <p>When a driver marks a task as "collected" in <code>/field/tasks</code>, the PO continues to appear as "Pending" in <code>/field/orders</code> because <code>purchase_orders.received_date</code> is still null. The warehouse manager has no signal that goods are en route or arrived.</p>
+    <p>The current states in <code>driver_tasks.status</code> are: <code>pending → acknowledged → collected → cancelled</code>. There is no bridge from "collected" to "receiving pending at warehouse". This means:</p>
+    <ul>
+      <li>Operator sees PO as open/pending even after driver has collected</li>
+      <li>Warehouse has no way to know what's arriving today</li>
+      <li>If a driver partially purchases, the WH doesn't know the expected shortfall before goods arrive</li>
+    </ul>
+    <p><b>Fix:</b> add a <code>collected</code> status indicator to the orders view (cross-reference <code>driver_tasks</code> by <code>po_id</code>). When a driver marks a task collected, the orders list should show "In transit — collected by driver" rather than "Pending". The full receive flow completes when the warehouse scans/confirms arrival.</p>
+  </div>
+</div>
+
+<!-- ─── Dara ────────────────────────────────────────────────────────────────── -->
+<h2>§3 · Dara — Schema Proposals</h2>
+
+<div class="advisor-card dara-card">
+  <div class="advisor-label al-dara">Dara — Data Architect</div>
+
+  <h3 style="margin-top:0">D-1 · Add <code>suppliers.procurement_type</code> column (F-1)</h3>
+  <p style="color:var(--text-dim);font-size:13px;">Removes the hardcoded <code>WALK_IN_SUPPLIER_CODES</code> array from the FE. The column drives both the confirm dialog UX and the notification routing.</p>
+  <pre><code>-- Migration: procurement_supplier_type
+ALTER TABLE public.suppliers
+  ADD COLUMN IF NOT EXISTS procurement_type text NOT NULL DEFAULT 'supplier_delivered'
+  CHECK (procurement_type IN ('supplier_delivered', 'walk_in'));
+
+COMMENT ON COLUMN public.suppliers.procurement_type IS
+  'walk_in: driver purchases on behalf (Union Coop, Carrefour).
+   supplier_delivered: supplier delivers to warehouse (email PO sent).';
+
+-- Backfill from known codes
+UPDATE public.suppliers
+SET procurement_type = 'walk_in'
+WHERE supplier_code IN ('SUP_005', 'SUP_011', 'SUP_014');
+
+CREATE INDEX idx_suppliers_procurement_type
+  ON public.suppliers(procurement_type)
+  WHERE procurement_type = 'walk_in';</code></pre>
+
+  <p style="color:var(--text-dim);font-size:13px;">The FE query then becomes: <code>select('supplier_id, supplier_name, supplier_code, contact_email, procurement_type')</code> and <code>isWalkIn = supplier.procurement_type === 'walk_in'</code>. No more hardcoded codes.</p>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>D-2 · Add <code>po_number</code> sequence (B-5)</h3>
+  <pre><code>-- Migration: procurement_po_number_sequence
+CREATE SEQUENCE IF NOT EXISTS public.po_number_seq
+  START WITH 9100
+  INCREMENT BY 1
+  NO MAXVALUE
+  NO CYCLE;
+
+-- Backfill to current max
+SELECT setval('public.po_number_seq',
+  GREATEST(COALESCE((SELECT MAX(po_number) FROM public.purchase_orders), 9099), 9099)
+);</code></pre>
+  <p style="color:var(--text-dim);font-size:13px;">The <code>create_purchase_order</code> RPC will call <code>nextval('public.po_number_seq')</code> to assign the number atomically. No client-side max query needed.</p>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>D-3 · Schema note on <code>purchase_orders</code> multi-batch model</h3>
+  <p style="color:var(--text-dim);font-size:13px;">The correct model (to fix B-2) is:</p>
+  <ul>
+    <li><b><code>purchase_orders</code></b> — one row per product per PO. <code>ordered_qty</code> = original order. <code>received_qty</code> = total received (sum of all batches). <code>received_date</code> = date of first batch receipt.</li>
+    <li><b><code>warehouse_inventory</code></b> — one row per expiry batch. Already exists and is already inserted correctly. The batch reference back to the PO is via <code>batch_id</code> which encodes the <code>po_id</code>.</li>
+  </ul>
+  <p style="color:var(--text-dim);font-size:13px;">No schema change is needed for the PO line model — the bug is in the FE logic that inserts extra rows. The receiving RPC simply does not insert extra PO lines; it only inserts additional <code>warehouse_inventory</code> rows.</p>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>D-4 · Cody handoff checklist</h3>
+  <ul>
+    <li>D-1: <code>suppliers</code> is not a protected entity → fast-path migration, no Article 3 concern. RLS already enabled on <code>suppliers</code>. CHECK constraint ensures valid values only. ✅ ready for Cody fast-path.</li>
+    <li>D-2: Sequence is outside any protected entity. ✅ ready for Cody fast-path.</li>
+    <li>D-3: No DDL change — data model correction is in the RPC logic. Cody reviews the RPC body.</li>
+    <li>New <code>create_purchase_order</code> RPC touches <code>purchase_orders</code> and <code>driver_tasks</code>. Neither is currently in Appendix A, but they should be added as procurement protected entities once the RPC is canonical.</li>
+  </ul>
+</div>
+
+<!-- ─── Stax ────────────────────────────────────────────────────────────────── -->
+<h2>§4 · Stax — FE / Wiring Plan</h2>
+
+<div class="advisor-card stax-card">
+  <div class="advisor-label al-stax">Stax — Full-Stack Engineer</div>
+
+  <h3 style="margin-top:0">S-1 · Immediate patch: B-1 walk-in code fix</h3>
+  <p style="color:var(--text-dim);font-size:13px;"><b>File:</b> <code>src/app/(field)/field/orders/new/page.tsx</code></p>
+  <p style="color:var(--text-dim);font-size:13px;">Before the suppliers query loads, the page already fetches <code>procurement_type</code> (once D-1 migration is applied). Replace the hardcoded constant:</p>
+  <pre><code>// BEFORE (remove this)
+const WALK_IN_SUPPLIER_CODES = ["SUP_005", "SUP_011"] as const;
+const isWalkIn = WALK_IN_SUPPLIER_CODES.includes(supplier.supplier_code);
+
+// AFTER (use DB field)
+const isWalkIn = supplier.procurement_type === 'walk_in';</code></pre>
+  <p style="color:var(--text-dim);font-size:13px;">The supplier SELECT query must include <code>procurement_type</code> in its column list. This is a read-only change — no protected entity write, no RPC needed for this field. Rule S2.</p>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>S-2 · New RPC: <code>create_purchase_order</code></h3>
+  <p style="color:var(--text-dim);font-size:13px;"><b>Replaces:</b> FE direct insert to <code>purchase_orders</code> + FE direct insert to <code>driver_tasks</code> + FE insert to <code>po_notifications</code>. Atomically:</p>
+  <ul>
+    <li>Gets next po_number from sequence</li>
+    <li>Inserts all PO lines into <code>purchase_orders</code></li>
+    <li>Inserts one row into <code>driver_tasks</code></li>
+    <li>Inserts one row into <code>po_notifications</code></li>
+    <li>Returns <code>{ po_id, po_number }</code></li>
+  </ul>
+  <p style="color:var(--text-dim);font-size:13px;"><b>FE call after migration:</b></p>
+  <pre><code>const { data, error } = await supabase.rpc('create_purchase_order', {
+  p_po_id: poId,
+  p_supplier_id: supplierId,
+  p_purchase_date: poDate,
+  p_created_by: user.id,
+  p_lines: finalLines.map(l => ({
+    boonz_product_id: l.product_id,
+    ordered_qty: l.qty,
+    price_per_unit_aed: l.price ?? null,
+    expiry_date: l.expiry_date || null,
+  })),
+});</code></pre>
+  <p style="color:var(--text-dim);font-size:13px;">Email notification stays as a non-blocking Edge Function call after the RPC returns. The RPC only handles the DB writes. Rules S1, S2, S7.</p>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>S-3 · New RPC: <code>receive_purchase_order</code></h3>
+  <p style="color:var(--text-dim);font-size:13px;"><b>Replaces:</b> all direct writes in <code>/field/receiving/[poId]/page.tsx</code>. Accepts the po_id and an array of line receipts with sub-batch arrays. Atomically:</p>
+  <ul>
+    <li>Updates each <code>purchase_orders</code> row: sets <code>received_qty</code> (sum of all batches), <code>received_date</code>, <code>price_per_unit_aed</code></li>
+    <li>Inserts one <code>warehouse_inventory</code> row per expiry batch (correct — already happening, just moved to RPC)</li>
+    <li><b>Does NOT insert extra PO lines for extra batches</b> — this fixes B-2</li>
+    <li>Updates <code>po_additions</code> with status <code>'received'</code>, <code>received_at</code>, <code>received_by</code> for all pending additions</li>
+    <li>Inserts <code>warehouse_inventory</code> row for each addition (fixes B-4)</li>
+    <li>If price changed, writes to <code>inventory_audit_log</code></li>
+  </ul>
+  <p style="color:var(--text-dim);font-size:13px;"><b>FE call:</b></p>
+  <pre><code>const { error } = await supabase.rpc('receive_purchase_order', {
+  p_po_id: poId,
+  p_received_by: authUser.id,
+  p_lines: lines
+    .filter(l => !l.received_date)
+    .map(l => ({
+      po_line_id: l.po_line_id,
+      price_per_unit_aed: effectivePrice(l),
+      wh_location: l.wh_location || null,
+      batches: l.batches
+        .filter(b => b.received_qty > 0)
+        .map(b => ({
+          received_qty: b.received_qty,
+          expiry_date: b.expiry_date || null,
+        })),
+    })),
+  p_additions: additions
+    .filter(a => a.status === 'pending_receive')
+    .map(a => ({
+      addition_id: a.addition_id,
+      boonz_product_id: a.boonz_product_id,
+      qty: a.qty,
+      price_per_unit_aed: a.price_per_unit_aed ?? null,
+      wh_location: null,
+    })),
+});</code></pre>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>S-4 · Orders list: show driver task status (B-6)</h3>
+  <p style="color:var(--text-dim);font-size:13px;"><b>Files:</b> <code>/field/orders/page.tsx</code> (driver view) and <code>/app/procurement/page.tsx</code> (operator view). Both should join <code>driver_tasks</code> by <code>po_id</code> to show the current collection state alongside the receiving state. Add to the existing fetch:</p>
+  <pre><code>// Fetch driver task status per PO
+const { data: taskData } = await supabase
+  .from("driver_tasks")
+  .select("po_id, status, collected_at, outcome")
+  .in("po_id", poIds);
+
+const taskMap = new Map(taskData?.map(t => [t.po_id, t]) ?? []);</code></pre>
+  <p style="color:var(--text-dim);font-size:13px;">Then in the UI, a PO card shows:</p>
+  <ul>
+    <li>🟡 Pending → driver hasn't acknowledged yet</li>
+    <li>🔵 On my way → driver acknowledged</li>
+    <li>🟢 Collected (awaiting WH receive) → driver marked collected, WH not received yet</li>
+    <li>✅ Received → WH confirmed receipt (<code>received_date</code> set)</li>
+  </ul>
+
+  <hr class="divider" style="margin:20px 0;" />
+
+  <h3>Cody handoff from Stax</h3>
+  <p style="color:var(--text-dim);font-size:13px;">Two new canonical writer RPCs for Cody to review:</p>
+  <ul>
+    <li><b><code>create_purchase_order</code></b> — writes to <code>purchase_orders</code>, <code>driver_tasks</code>, <code>po_notifications</code>. Must: set <code>app.via_rpc</code> + <code>app.rpc_name</code>, validate inputs, validate caller role (<code>field_staff|warehouse|operator_admin|superadmin|manager</code>).</li>
+    <li><b><code>receive_purchase_order</code></b> — writes to <code>purchase_orders</code>, <code>warehouse_inventory</code>, <code>po_additions</code>, <code>inventory_audit_log</code>. Must: same Article 4 requirements. This is the single canonical write path for goods receipt.</li>
+  </ul>
+  <p style="color:var(--text-dim);font-size:13px;">Both RPCs should be added to <code>RPC_REGISTRY.md</code> as new canonical writers. Both should be proposed for addition to Constitution Appendix A (<code>purchase_orders</code> and <code>driver_tasks</code> as procurement protected entities).</p>
+</div>
+
+<!-- ─── Cody ────────────────────────────────────────────────────────────────── -->
+<h2>§5 · Cody — Constitutional Review</h2>
+
+<div class="advisor-card cody-card">
+  <div class="advisor-label al-cody">Cody — CTO Advisor / Constitutional Review</div>
+
+  <div class="verdict-box">
+    <div class="v-label">Verdict on current procurement flow</div>
+    <div class="v-content">⚠️ <b>Multiple violations active in production.</b> The receiving page writes directly to <code>warehouse_inventory</code> (protected entity, Appendix A) from an authenticated browser client. This is a clear Article 3 violation. Two new canonical writers are needed and must pass the full Article 4 checklist before shipping. <code>purchase_orders</code> and <code>driver_tasks</code> should be nominated for Appendix A as part of this migration — they are procurement-critical and should have the same write-path guarantees as other protected entities.</div>
+  </div>
+
+  <h3>Articles checked &amp; findings</h3>
+
+  <div class="finding" style="margin-top:0;">
+    <div class="finding-header">
+      <span class="sev sev-p1">BLOCK</span>
+      <div class="finding-title">Article 3 — <code>warehouse_inventory</code> direct write from FE client</div>
+    </div>
+    <div class="finding-body">
+      <p><code>warehouse_inventory</code> is in Constitution Appendix A. The current permissive RLS policy (<code>warehouse_write_wh_inventory</code>) allows writes from all staff roles including <code>field_staff</code>. This policy must be tightened once the RPC is in place. The receiving page must be refactored to call <code>receive_purchase_order</code> (Stax S-3) before this path is acceptable.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-header">
+      <span class="sev sev-p2">FLAG</span>
+      <div class="finding-title">Article 1 — <code>purchase_orders</code> has no canonical write path</div>
+    </div>
+    <div class="finding-body">
+      <p><code>purchase_orders</code> is written from three places: the new-order page, the receiving page (update + insert), and potentially the operator console. There is no canonical writer RPC. Once <code>create_purchase_order</code> and <code>receive_purchase_order</code> are in place and <code>purchase_orders</code> is added to Appendix A, the direct writes become Phase B cleanup targets.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-header">
+      <span class="sev sev-p2">FLAG</span>
+      <div class="finding-title">Article 5 — <code>driver_tasks.status</code> has no state machine enforcement</div>
+    </div>
+    <div class="finding-body">
+      <p>The tasks page does <code>supabase.from("driver_tasks").update({status: "acknowledged", ...})</code> directly from the browser. Status transitions are not validated — any client could set status to any value. Once <code>driver_tasks</code> is added to Appendix A, status transitions must go through the canonical writer. For now, this is flagged but not a hard block given the small user population.</p>
+    </div>
+  </div>
+
+  <div class="finding">
+    <div class="finding-header">
+      <span class="sev sev-feat">APPROVE</span>
+      <div class="finding-title">Articles 2, 7, 12, 14 — Schema proposals (Dara D-1, D-2)</div>
+    </div>
+    <div class="finding-body">
+      <p>D-1 (<code>suppliers.procurement_type</code>): forward-only DDL, <code>suppliers</code> is not in Appendix A, RLS already enabled, no audit log concern. <b>✅ Approve.</b> Migration name: <code>procurement_supplier_type_column</code>.</p>
+      <p>D-2 (<code>po_number_seq</code>): sequence creation is non-protected DDL. <b>✅ Approve.</b> Migration name: <code>procurement_po_number_sequence</code>.</p>
+    </div>
+  </div>
+
+  <h3>Next actions for the two new RPCs</h3>
+  <p style="color:var(--text-dim);font-size:13px;">Before <code>create_purchase_order</code> and <code>receive_purchase_order</code> can ship, each must satisfy the full Article 4 checklist:</p>
+  <ul>
+    <li><code>PERFORM set_config('app.via_rpc', 'true', true);</code> at the top of <code>BEGIN</code></li>
+    <li><code>PERFORM set_config('app.rpc_name', '&lt;function_name&gt;', true);</code></li>
+    <li>NULL checks on all required parameters (<code>p_po_id</code>, <code>p_supplier_id</code>, <code>p_lines</code>, etc.)</li>
+    <li>Role validation: <code>EXISTS (SELECT 1 FROM user_profiles WHERE id = auth.uid() AND role = ANY(ARRAY['field_staff','warehouse','operator_admin','superadmin','manager']))</code></li>
+    <li>The generic <code>audit_log_write</code> trigger must be installed on <code>purchase_orders</code> and <code>warehouse_inventory</code> (already installed on <code>warehouse_inventory</code>; verify for <code>purchase_orders</code>)</li>
+    <li>Add entries to <code>RPC_REGISTRY.md</code> and <code>CHANGELOG.md</code></li>
+    <li>Propose Constitutional Amendment to add <code>purchase_orders</code> and <code>driver_tasks</code> to Appendix A (Article 15)</li>
+  </ul>
+</div>
+
+<!-- ─── Roadmap ─────────────────────────────────────────────────────────────── -->
+<h2>§6 · Implementation Roadmap</h2>
+
+<table class="roadmap">
+  <thead>
+    <tr><th>Step</th><th>What</th><th>Who</th><th>Dependency</th><th>Effort</th></tr>
+  </thead>
+  <tbody>
+    <tr class="row-p0">
+      <td>1</td>
+      <td>Apply <code>procurement_supplier_type_column</code> migration (D-1) + backfill SUP_014</td>
+      <td>Apply now</td>
+      <td>Cody approved</td>
+      <td>5 min</td>
+    </tr>
+    <tr class="row-p0">
+      <td>2</td>
+      <td>Apply <code>procurement_po_number_sequence</code> migration (D-2)</td>
+      <td>Apply now</td>
+      <td>Cody approved</td>
+      <td>5 min</td>
+    </tr>
+    <tr class="row-p0">
+      <td>3</td>
+      <td>FE patch B-1: replace <code>WALK_IN_SUPPLIER_CODES</code> with <code>procurement_type</code> from DB (S-1)</td>
+      <td>Stax</td>
+      <td>Step 1</td>
+      <td>30 min</td>
+    </tr>
+    <tr class="row-p0">
+      <td>4</td>
+      <td>Write + deploy <code>create_purchase_order</code> RPC (S-2); refactor new-order page to call it</td>
+      <td>Stax → Cody review</td>
+      <td>Step 2</td>
+      <td>2–3 h</td>
+    </tr>
+    <tr class="row-p1">
+      <td>5</td>
+      <td>Write + deploy <code>receive_purchase_order</code> RPC (S-3); refactor receiving page; fixes B-2, B-3, B-4</td>
+      <td>Stax → Cody review</td>
+      <td>Step 4</td>
+      <td>3–4 h</td>
+    </tr>
+    <tr class="row-p1">
+      <td>6</td>
+      <td>Tighten <code>warehouse_inventory</code> RLS: remove <code>field_staff</code> from write policy once RPC is in place</td>
+      <td>Cody approves → Apply</td>
+      <td>Step 5</td>
+      <td>30 min</td>
+    </tr>
+    <tr class="row-p2">
+      <td>7</td>
+      <td>Add driver task status to orders list (S-4): "collected — awaiting WH receive" state (B-6)</td>
+      <td>Stax</td>
+      <td>Step 5</td>
+      <td>2 h</td>
+    </tr>
+    <tr class="row-p2">
+      <td>8</td>
+      <td>Add <code>purchase_orders</code> + <code>driver_tasks</code> to Constitution Appendix A + <code>RPC_REGISTRY.md</code></td>
+      <td>Cody + CS</td>
+      <td>Step 6</td>
+      <td>1 h</td>
+    </tr>
+    <tr class="row-feat">
+      <td>9</td>
+      <td>Partial receipt shortfall: surface driver outcome_comment in WH receiving view so WH knows what to expect</td>
+      <td>Stax</td>
+      <td>Step 7</td>
+      <td>2 h</td>
+    </tr>
+  </tbody>
+</table>
+
+<p style="color:var(--text-muted);font-size:12px;margin-top:20px;">Steps 1–2 are schema-only and can be applied immediately (Cody approved). Steps 3 and 4 can run in parallel once Steps 1–2 land. Steps 1–6 resolve all P0 and P1 bugs. Steps 7–9 complete the professional-grade flow.</p>
+
+<!-- ─── Footer ─────────────────────────────────────────────────────────────── -->
+<hr class="divider" />
+<p style="color:var(--text-muted);font-size:12px;text-align:center;">
+  Boonz ERP · Procurement Investigation · 2026-04-27<br/>
+  Team: Oliver Wyman (process) · Dara (schema) · Stax (FE/wiring) · Cody (constitutional review)
+</p>
+
+</div>
+</body>
+</html>

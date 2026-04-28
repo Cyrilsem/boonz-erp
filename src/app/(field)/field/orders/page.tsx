@@ -1,9 +1,15 @@
 "use client";
 
+// B-6 — 2026-04-27: Orders list now shows driver task collection status alongside
+// PO receiving status. "Pending" POs that the driver has already collected now
+// show "In transit — collected by driver" rather than plain "Pending".
+
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface POGroup {
   po_id: string;
@@ -23,7 +29,16 @@ interface POLineDetail {
   expiry_date: string | null;
 }
 
+// Driver task status keyed by po_id (B-6)
+interface TaskStatus {
+  status: "pending" | "acknowledged" | "collected" | "cancelled";
+  outcome: string | null;
+  collected_at: string | null;
+}
+
 type TabOption = "pending" | "all";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
@@ -34,8 +49,38 @@ function formatDate(dateStr: string): string {
   });
 }
 
+function CollectionBadge({ task }: { task: TaskStatus | undefined }) {
+  if (!task) return null;
+
+  switch (task.status) {
+    case "acknowledged":
+      return (
+        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+          🚗 Driver on the way
+        </span>
+      );
+    case "collected":
+      return (
+        <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+          📦 In transit — awaiting WH receipt
+        </span>
+      );
+    case "cancelled":
+      return (
+        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900 dark:text-red-300">
+          ✗ Task cancelled
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<POGroup[]>([]);
+  const [taskMap, setTaskMap] = useState<Record<string, TaskStatus>>({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabOption>("pending");
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
@@ -66,6 +111,7 @@ export default function OrdersPage() {
       return;
     }
 
+    // Group lines by po_id
     const grouped = new Map<string, POGroup>();
     for (const line of lines) {
       const s = line.suppliers as unknown as { supplier_name: string };
@@ -98,6 +144,28 @@ export default function OrdersPage() {
     );
 
     setOrders(result);
+
+    // B-6: Fetch driver task status for all POs so we can show collection state
+    const poIds = result.map((o) => o.po_id);
+    if (poIds.length > 0) {
+      const { data: tasks } = await supabase
+        .from("driver_tasks")
+        .select("po_id, status, outcome, collected_at")
+        .in("po_id", poIds);
+
+      if (tasks) {
+        const tm: Record<string, TaskStatus> = {};
+        for (const t of tasks) {
+          tm[t.po_id] = {
+            status: t.status as TaskStatus["status"],
+            outcome: t.outcome,
+            collected_at: t.collected_at,
+          };
+        }
+        setTaskMap(tm);
+      }
+    }
+
     setLoading(false);
   }, []);
 
@@ -143,24 +211,32 @@ export default function OrdersPage() {
       .eq("po_id", poId);
 
     if (data) {
-      const mapped: POLineDetail[] = data.map((row) => {
+      // De-duplicate: show each product once (first occurrence), since receiving
+      // no longer creates extra rows per batch (B-2 fixed).
+      const seen = new Set<string>();
+      const mapped: POLineDetail[] = [];
+      for (const row of data) {
         const p = row.boonz_products as unknown as {
           boonz_product_name: string;
         };
-        return {
-          boonz_product_name: p.boonz_product_name,
-          ordered_qty: row.ordered_qty ?? 0,
-          price_per_unit_aed: row.price_per_unit_aed,
-          total_price_aed: row.total_price_aed,
-          expiry_date: row.expiry_date,
-        };
-      });
+        if (!seen.has(p.boonz_product_name)) {
+          seen.add(p.boonz_product_name);
+          mapped.push({
+            boonz_product_name: p.boonz_product_name,
+            ordered_qty: row.ordered_qty ?? 0,
+            price_per_unit_aed: row.price_per_unit_aed,
+            total_price_aed: row.total_price_aed,
+            expiry_date: row.expiry_date,
+          });
+        }
+      }
       setExpandedLines(mapped);
     }
 
     setExpandLoading(false);
   }
 
+  // Filter for pending tab: unreceived OR collected-but-not-WH-received
   const filtered =
     tab === "pending"
       ? orders.filter((o) => !o.received_date)
@@ -220,6 +296,7 @@ export default function OrdersPage() {
         <ul className="space-y-2">
           {filtered.map((order) => {
             const isExpanded = expandedPoId === order.po_id && tab === "all";
+            const task = taskMap[order.po_id];
 
             return (
               <li key={order.po_id}>
@@ -241,8 +318,8 @@ export default function OrdersPage() {
                       </p>
                       <p className="text-xs text-neutral-400 mt-0.5">
                         {formatDate(order.purchase_date)} · {order.line_count}{" "}
-                        {order.line_count === 1 ? "line" : "lines"} ·{" "}
-                        {order.total_ordered} units
+                        {order.line_count === 1 ? "product" : "products"} ·{" "}
+                        {order.total_ordered} units ordered
                       </p>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-2">
@@ -259,9 +336,15 @@ export default function OrdersPage() {
                         )
                       ) : (
                         <>
-                          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                            Pending
-                          </span>
+                          {/* B-6: show collection state from driver_tasks */}
+                          {task?.status === "collected" ||
+                          task?.status === "acknowledged" ? (
+                            <CollectionBadge task={task} />
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                              Pending
+                            </span>
+                          )}
                           {tab === "pending" && (
                             <Link
                               href={`/field/receiving/${encodeURIComponent(order.po_id)}`}

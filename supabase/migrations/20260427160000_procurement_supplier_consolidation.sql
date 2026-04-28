@@ -1,0 +1,4 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Merges Union Coop (SUP_014) into Union Coop Dubai (SUP_005), renamed to "Union Coop".
+-- Reclassifies Arab Sweet (SUP_007) + Merich (SUP_001) as walk_in.
+-- Clears bogus 'na' contact_email on Union Coop + Carrefour.

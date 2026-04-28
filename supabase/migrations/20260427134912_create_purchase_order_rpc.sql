@@ -1,0 +1,4 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Creates create_purchase_order() SECURITY DEFINER RPC.
+-- Canonical writer for purchase_orders + driver_tasks + po_notifications.
+-- Phase A.5 compliant (via_rpc + rpc_name tags). See RPC_REGISTRY.md.

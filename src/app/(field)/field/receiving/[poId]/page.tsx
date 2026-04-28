@@ -1,10 +1,30 @@
 "use client";
 
+// S-3 / B-2 / B-3 / B-4 — 2026-04-27
+// All receipt writes now go through receive_purchase_order RPC (SECURITY DEFINER).
+// Fixes:
+//   B-2: No more extra INSERT per expiry batch — only the original PO line is updated
+//   B-3: warehouse_inventory written via RPC, not directly from browser client
+//   B-4: po_additions (field additions) are included in the RPC call and properly inventoried
+
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
+
+// ── Driver outcome types ──────────────────────────────────────────────────────
+// Parsed from driver_tasks.outcome_comment JSON so WH can see what the driver reported
+
+interface DriverLineOutcome {
+  po_line_id: string;
+  product_name: string;
+  outcome: "purchased_full" | "purchased_partial" | "not_available" | "other";
+  qty_purchased: number | null;
+  comment: string | null;
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface ReceiveBatch {
   batch_key: string;
@@ -45,8 +65,11 @@ interface FieldAddition {
   qty: number;
   price_per_unit_aed: number | null;
   status: string;
+  wh_location: string;
   boonz_products: { boonz_product_name: string };
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
@@ -61,6 +84,8 @@ function generateKey(): string {
   return Math.random().toString(36).slice(2);
 }
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function ReceivingDetailPage() {
   const params = useParams<{ poId: string }>();
   const router = useRouter();
@@ -71,16 +96,30 @@ export default function ReceivingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  // editedPrices: per-line override of price_per_unit_aed; undefined = use original
+
+  // Per-line price overrides keyed by po_line_id
   const [editedPrices, setEditedPrices] = useState<
     Record<string, number | null>
   >({});
+
+  // Per-addition wh_location (additions can also have a location)
+  const [additionLocations, setAdditionLocations] = useState<
+    Record<string, string>
+  >({});
+
   const [receiveResults, setReceiveResults] = useState<
-    { productName: string; qty: number; batchId: string }[]
+    { productName: string; qty: number }[]
   >([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Field additions state
+  // Driver outcome report — parsed from driver_tasks.outcome_comment for this PO
+  // keyed by po_line_id for O(1) lookup
+  const [driverOutcomes, setDriverOutcomes] = useState<Map<string, DriverLineOutcome>>(new Map());
+
+  // Lines the WH has explicitly marked as "not purchased" (po_line_id set)
+  const [notPurchasedLines, setNotPurchasedLines] = useState<Set<string>>(new Set());
+
+  // Field additions
   const [showAddItem, setShowAddItem] = useState(false);
   const [allProducts, setAllProducts] = useState<BoonzProduct[]>([]);
   const [addSearch, setAddSearch] = useState("");
@@ -92,6 +131,8 @@ export default function ReceivingDetailPage() {
   const [addSaving, setAddSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [additions, setAdditions] = useState<FieldAddition[]>([]);
+
+  // ── Data fetch ──────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -116,7 +157,6 @@ export default function ReceivingDetailPage() {
       )
       .eq("po_id", poId);
 
-    // Fetch boonz_products + existing po_additions in parallel
     const [{ data: productsData }, { data: additionsData }] = await Promise.all(
       [
         supabase
@@ -134,7 +174,46 @@ export default function ReceivingDetailPage() {
       ],
     );
     setAllProducts((productsData ?? []) as unknown as BoonzProduct[]);
-    setAdditions((additionsData ?? []) as unknown as FieldAddition[]);
+    // Initialise addition locations from existing state
+    const initLocations: Record<string, string> = {};
+    (additionsData ?? []).forEach((a) => {
+      initLocations[(a as unknown as FieldAddition).addition_id] = "";
+    });
+    setAdditionLocations(initLocations);
+    setAdditions(
+      (additionsData ?? []).map((a) => ({
+        ...(a as unknown as FieldAddition),
+        wh_location: "",
+      })),
+    );
+
+    // Fetch driver task outcome for this PO (so WH can see driver's field report)
+    const { data: taskData } = await supabase
+      .from("driver_tasks")
+      .select("outcome_comment, status")
+      .eq("po_id", poId)
+      .not("outcome_comment", "is", null)
+      .limit(1)
+      .single();
+
+    if (taskData?.outcome_comment) {
+      try {
+        const parsed = taskData.outcome_comment as { lines?: DriverLineOutcome[] };
+        const outcomeMap = new Map<string, DriverLineOutcome>();
+        (parsed.lines ?? []).forEach((l) => outcomeMap.set(l.po_line_id, l));
+        setDriverOutcomes(outcomeMap);
+
+        // Pre-mark lines as "not purchased" when driver reported not_available
+        // WH can override by un-checking, but this saves clicks for obvious cases
+        const autoPurchaseLines = new Set<string>();
+        (parsed.lines ?? []).forEach((l) => {
+          if (l.outcome === "not_available") autoPurchaseLines.add(l.po_line_id);
+        });
+        if (autoPurchaseLines.size > 0) setNotPurchasedLines(autoPurchaseLines);
+      } catch {
+        // Malformed outcome_comment — ignore silently
+      }
+    }
 
     if (!poLines || poLines.length === 0) {
       setLines([]);
@@ -181,7 +260,7 @@ export default function ReceivingDetailPage() {
     );
     setLines(mapped);
 
-    // Pre-fill warehouse locations from most recent active batch per product
+    // Pre-fill WH locations from most recent active batch per product
     const productIds = mapped.map((l) => l.boonz_product_id);
     if (productIds.length > 0) {
       const { data: locationData } = await supabase
@@ -214,6 +293,8 @@ export default function ReceivingDetailPage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // ── Batch management ────────────────────────────────────────────────────────
 
   function addBatch(poLineId: string) {
     setLines((prev) =>
@@ -272,133 +353,142 @@ export default function ReceivingDetailPage() {
     );
   }
 
+  // ── Not-purchased helpers ───────────────────────────────────────────────────
+
+  function toggleNotPurchased(poLineId: string) {
+    setNotPurchasedLines((prev) => {
+      const next = new Set(prev);
+      if (next.has(poLineId)) next.delete(poLineId);
+      else next.add(poLineId);
+      return next;
+    });
+  }
+
+  // ── Confirm receipt via RPC ─────────────────────────────────────────────────
+
   async function handleConfirm() {
     setSubmitting(true);
     setError(null);
 
     const supabase = createClient();
     const today = getDubaiDate();
-    const results: { productName: string; qty: number; batchId: string }[] = [];
 
-    // Resolve the authenticated user once for audit log writes
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
+    // Build lines payload for the RPC
+    // Each unreceived line is either: closed as not_purchased, or has batches to receive
+    const rpcLines = lines
+      .filter((l) => !l.received_date)
+      .map((l) => {
+        // Not-purchased path: close the line with zero received
+        if (notPurchasedLines.has(l.po_line_id)) {
+          return {
+            po_line_id: l.po_line_id,
+            close_as_not_purchased: true,
+          };
+        }
 
-    for (const line of lines) {
-      if (line.received_date) continue; // Already received — skip
-      const activeBatches = line.batches.filter((b) => b.received_qty > 0);
-      if (activeBatches.length === 0) continue;
+        const effectivePrice =
+          l.po_line_id in editedPrices
+            ? editedPrices[l.po_line_id]
+            : l.price_per_unit_aed;
 
-      // Resolve effective price: use editedPrices override if set, else original
-      const priceKey = line.po_line_id;
-      const effectivePrice =
-        priceKey in editedPrices
-          ? editedPrices[priceKey]
-          : line.price_per_unit_aed;
-      const priceChanged =
-        priceKey in editedPrices &&
-        editedPrices[priceKey] !== line.price_per_unit_aed;
-      const totalReceived = activeBatches.reduce(
-        (s, b) => s + b.received_qty,
-        0,
+        return {
+          po_line_id: l.po_line_id,
+          price_per_unit_aed: effectivePrice ?? null,
+          wh_location: l.wh_location || null,
+          close_as_not_purchased: false,
+          batches: l.batches
+            .filter((b) => b.received_qty > 0)
+            .map((b) => ({
+              received_qty: b.received_qty,
+              expiry_date: b.expiry_date || null,
+            })),
+        };
+      })
+      // Include both not_purchased lines AND lines with actual batches
+      .filter((l) => l.close_as_not_purchased || (l.batches && l.batches.length > 0));
+
+    // Build additions payload (pending_receive only)
+    const rpcAdditions = additions
+      .filter((a) => a.status === "pending_receive")
+      .map((a) => ({
+        addition_id: a.addition_id,
+        boonz_product_id: a.boonz_product_id,
+        qty: a.qty,
+        price_per_unit_aed: a.price_per_unit_aed ?? null,
+        wh_location: additionLocations[a.addition_id] || null,
+      }));
+
+    if (rpcLines.length === 0 && rpcAdditions.length === 0) {
+      setError("Nothing to receive — all quantities are zero");
+      setSubmitting(false);
+      return;
+    }
+
+    // S-3: single RPC call handles everything atomically
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      "receive_purchase_order",
+      {
+        p_po_id: poId,
+        p_lines: rpcLines,
+        p_additions: rpcAdditions,
+      },
+    );
+
+    if (rpcError) {
+      console.error("[Receiving] receive_purchase_order error:", rpcError);
+      // Surface readable errors to the operator
+      let msg = "Failed to save — please try again";
+      if (rpcError.message.includes("not authorized")) {
+        msg =
+          "Permission denied — only warehouse staff can confirm receipt. Contact your manager.";
+      } else if (rpcError.message.includes("not found in PO")) {
+        msg = "PO line mismatch — please refresh the page and try again.";
+      } else if (rpcError.message) {
+        msg = rpcError.message;
+      }
+      setError(msg);
+      setSubmitting(false);
+      return;
+    }
+
+    const result = rpcResult as {
+      ok: boolean;
+      lines_received: number;
+      additions_received: number;
+    };
+    console.log("[Receiving] receipt confirmed:", result);
+
+    // Build results list for success screen
+    const resultsList: { productName: string; qty: number }[] = [];
+    for (const l of rpcLines) {
+      const lineData = lines.find((ll) => ll.po_line_id === l.po_line_id);
+      const totalQty = l.batches.reduce((s, b) => s + b.received_qty, 0);
+      if (lineData && totalQty > 0) {
+        resultsList.push({
+          productName: lineData.boonz_product_name,
+          qty: totalQty,
+        });
+      }
+    }
+    for (const a of rpcAdditions) {
+      const addData = additions.find(
+        (aa) => aa.addition_id === a.addition_id,
       );
-
-      for (let i = 0; i < activeBatches.length; i++) {
-        const batch = activeBatches[i];
-        const batchId = `${poId}-B${i + 1}`;
-
-        if (i === 0) {
-          // Update original PO line: set received_qty (NOT ordered_qty — preserve
-          // the original order quantity so shortfalls remain traceable).
-          const { error: updateErr } = await supabase
-            .from("purchase_orders")
-            .update({
-              received_date: today,
-              expiry_date: batch.expiry_date || null,
-              received_qty: batch.received_qty,
-              price_per_unit_aed: effectivePrice ?? null,
-              total_price_aed:
-                effectivePrice != null ? totalReceived * effectivePrice : null,
-            })
-            .eq("po_line_id", line.po_line_id);
-
-          if (updateErr) {
-            setError(`Failed to update PO: ${updateErr.message}`);
-            setSubmitting(false);
-            return;
-          }
-        } else {
-          // Insert additional PO line for extra batches
-          const { error: insertErr } = await supabase
-            .from("purchase_orders")
-            .insert({
-              po_id: line.po_id,
-              supplier_id: line.supplier_id,
-              boonz_product_id: line.boonz_product_id,
-              ordered_qty: line.ordered_qty,
-              received_qty: batch.received_qty,
-              price_per_unit_aed: effectivePrice ?? null,
-              expiry_date: batch.expiry_date || null,
-              purchase_date: line.purchase_date,
-              received_date: today,
-            });
-
-          if (insertErr) {
-            setError(`Failed to insert batch: ${insertErr.message}`);
-            setSubmitting(false);
-            return;
-          }
-        }
-
-        // Insert warehouse inventory row for each batch
-        const { data: whRows, error: whErr } = await supabase
-          .from("warehouse_inventory")
-          .insert({
-            boonz_product_id: line.boonz_product_id,
-            warehouse_stock: batch.received_qty,
-            expiration_date: batch.expiry_date || null,
-            batch_id: batchId,
-            wh_location: line.wh_location || null,
-            status: "Active",
-            snapshot_date: today,
-          })
-          .select("wh_inventory_id")
-          .single();
-
-        if (whErr) {
-          setError(`Failed to create inventory: ${whErr.message}`);
-          setSubmitting(false);
-          return;
-        }
-
-        // If price was changed at receipt, log it to inventory_audit_log
-        // Convention: old_qty = original price, new_qty = edited price
-        if (priceChanged && whRows?.wh_inventory_id) {
-          await supabase.from("inventory_audit_log").insert({
-            wh_inventory_id: whRows.wh_inventory_id,
-            boonz_product_id: line.boonz_product_id,
-            adjusted_by: authUser?.id ?? null,
-            old_qty: line.price_per_unit_aed ?? 0,
-            new_qty: effectivePrice ?? 0,
-            delta: (effectivePrice ?? 0) - (line.price_per_unit_aed ?? 0),
-            reason: "price_adjusted_at_receipt",
-          });
-          // Audit log failure is non-blocking — receipt is already saved above
-        }
-
-        results.push({
-          productName: line.boonz_product_name,
-          qty: batch.received_qty,
-          batchId,
+      if (addData) {
+        resultsList.push({
+          productName:
+            addData.boonz_products.boonz_product_name + " (addition)",
+          qty: a.qty,
         });
       }
     }
 
-    setReceiveResults(results);
+    setReceiveResults(resultsList);
     setSubmitted(true);
     setSubmitting(false);
   }
+
+  // ── Field addition helpers ──────────────────────────────────────────────────
 
   async function handleAddConfirm() {
     if (!selectedProduct) return;
@@ -427,6 +517,8 @@ export default function ReceivingDetailPage() {
     setTimeout(() => setToast(null), 2000);
     fetchData();
   }
+
+  // ── Render states ───────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -461,10 +553,7 @@ export default function ReceivingDetailPage() {
                   key={i}
                   className="py-1 text-xs text-green-800 dark:text-green-300"
                 >
-                  ✓ {r.qty} units of {r.productName}{" "}
-                  <span className="text-green-600 dark:text-green-500">
-                    (Batch: {r.batchId})
-                  </span>
+                  ✓ {r.qty} units of {r.productName}
                 </p>
               ))}
             </div>
@@ -498,6 +587,20 @@ export default function ReceivingDetailPage() {
       </>
     );
   }
+
+  const pendingAdditions = additions.filter(
+    (a) => a.status === "pending_receive",
+  );
+  // A line is actionable if: not yet received AND (has a not-purchased mark OR has batch qty > 0)
+  const hasUnreceived = lines.some((l) => !l.received_date);
+  const hasActionableLines =
+    hasUnreceived &&
+    lines.some(
+      (l) =>
+        !l.received_date &&
+        (notPurchasedLines.has(l.po_line_id) ||
+          l.batches.some((b) => b.received_qty > 0)),
+    );
 
   return (
     <div className="px-4 py-4 pb-24">
@@ -557,20 +660,77 @@ export default function ReceivingDetailPage() {
                 ? "text-red-600 dark:text-red-400"
                 : "text-amber-600 dark:text-amber-400";
 
+          const isNotPurchased = notPurchasedLines.has(line.po_line_id);
+          const driverReport = driverOutcomes.get(line.po_line_id);
+
+          // Pre-fill received_qty hint from driver's partial purchase report
+          const driverHintQty =
+            driverReport?.outcome === "purchased_partial"
+              ? driverReport.qty_purchased
+              : null;
+
           return (
             <li
               key={line.po_line_id}
-              className="rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950"
+              className={`rounded-lg border p-4 ${
+                isNotPurchased
+                  ? "border-red-200 bg-red-50 opacity-80 dark:border-red-900 dark:bg-red-950/30"
+                  : "border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950"
+              }`}
             >
               {/* Product header */}
-              <p className="mb-1 text-sm font-bold">
-                {line.boonz_product_name}
-              </p>
+              <div className="mb-1 flex items-start justify-between gap-2">
+                <p className="text-sm font-bold">{line.boonz_product_name}</p>
+                {/* Not purchased toggle */}
+                <button
+                  onClick={() => toggleNotPurchased(line.po_line_id)}
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                    isNotPurchased
+                      ? "bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200"
+                      : "bg-neutral-100 text-neutral-500 hover:bg-red-100 hover:text-red-700 dark:bg-neutral-800 dark:text-neutral-400"
+                  }`}
+                >
+                  {isNotPurchased ? "✗ Not purchased" : "Mark not purchased"}
+                </button>
+              </div>
+
+              {/* Driver report hint */}
+              {driverReport && !isNotPurchased && (
+                <div
+                  className={`mb-2 rounded-md px-2 py-1.5 text-xs ${
+                    driverReport.outcome === "not_available"
+                      ? "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400"
+                      : driverReport.outcome === "purchased_partial"
+                        ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400"
+                        : "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
+                  }`}
+                >
+                  <span className="font-semibold">Driver report: </span>
+                  {driverReport.outcome === "not_available" && "❌ Not available at store"}
+                  {driverReport.outcome === "purchased_full" && "✅ Purchased in full"}
+                  {driverReport.outcome === "purchased_partial" &&
+                    `⚠️ Partial — bought ${driverReport.qty_purchased ?? "?"} units`}
+                  {driverReport.outcome === "other" && `📝 Other${driverReport.comment ? `: ${driverReport.comment}` : ""}`}
+                </div>
+              )}
+
+              {isNotPurchased ? (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  This item will be closed as not purchased. No stock will be added.
+                </p>
+              ) : (
+                <>
               <p className="mb-3 text-xs text-neutral-500">
                 Ordered: {line.ordered_qty} units
+                {driverHintQty != null && (
+                  <span className="ml-2 font-medium text-amber-600 dark:text-amber-400">
+                    · Driver bought {driverHintQty}
+                  </span>
+                )}
               </p>
 
-              {/* Sub-batch rows */}
+              {/* Sub-batch rows — each creates a separate warehouse_inventory row
+                  but does NOT create a new PO line (B-2 fix) */}
               <div className="space-y-3">
                 {line.batches.map((batch, bIdx) => (
                   <div
@@ -579,7 +739,7 @@ export default function ReceivingDetailPage() {
                   >
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-xs font-semibold text-neutral-500">
-                        Batch {bIdx + 1}
+                        Expiry batch {bIdx + 1}
                       </span>
                       {line.batches.length > 1 && (
                         <button
@@ -646,7 +806,7 @@ export default function ReceivingDetailPage() {
 
               {/* Running total */}
               <p className={`mt-2 text-xs font-medium ${totalColor}`}>
-                {batchTotal} of {line.ordered_qty} received
+                {batchTotal} of {line.ordered_qty} to receive
               </p>
 
               {/* Warehouse location */}
@@ -696,24 +856,25 @@ export default function ReceivingDetailPage() {
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                 />
               </div>
+              </> /* end isNotPurchased ? ... : <> </> */
+              )}
             </li>
           );
         })}
       </ul>
 
-      {/* Field additions */}
-      {additions.filter((a) => a.status === "pending_receive").length > 0 && (
+      {/* Field additions — B-4: now included in confirm flow */}
+      {pendingAdditions.length > 0 && (
         <div className="mt-4 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">
-            Field Additions
+            Field Additions — will be received with this PO
           </p>
-          {additions
-            .filter((a) => a.status === "pending_receive")
-            .map((a) => (
-              <div
-                key={a.addition_id}
-                className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
-              >
+          {pendingAdditions.map((a) => (
+            <div
+              key={a.addition_id}
+              className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3"
+            >
+              <div className="flex items-center justify-between mb-2">
                 <div>
                   <span className="text-sm font-medium text-amber-900">
                     {a.boonz_products.boonz_product_name}
@@ -721,12 +882,50 @@ export default function ReceivingDetailPage() {
                   <span className="ml-2 text-xs text-amber-600">x{a.qty}</span>
                   {a.price_per_unit_aed != null && (
                     <span className="ml-2 text-xs text-amber-600">
-                      {a.price_per_unit_aed.toFixed(2)} AED
+                      {a.price_per_unit_aed.toFixed(2)} AED/unit
                     </span>
                   )}
                 </div>
                 <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                  Pending
+                  Will receive ✓
+                </span>
+              </div>
+              {/* WH location for the addition */}
+              <input
+                type="text"
+                value={additionLocations[a.addition_id] ?? ""}
+                onChange={(e) =>
+                  setAdditionLocations((prev) => ({
+                    ...prev,
+                    [a.addition_id]: e.target.value,
+                  }))
+                }
+                placeholder="Warehouse location (optional)"
+                className="w-full rounded border border-amber-300 bg-white px-2 py-1.5 text-xs placeholder:text-neutral-400"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Already-received additions (read-only) */}
+      {additions.filter((a) => a.status === "received").length > 0 && (
+        <div className="mt-4 space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-green-700">
+            Field Additions — already received
+          </p>
+          {additions
+            .filter((a) => a.status === "received")
+            .map((a) => (
+              <div
+                key={a.addition_id}
+                className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-3 py-2 opacity-60"
+              >
+                <span className="text-xs text-green-800">
+                  {a.boonz_products.boonz_product_name} x{a.qty}
+                </span>
+                <span className="text-xs font-medium text-green-700">
+                  Received ✓
                 </span>
               </div>
             ))}
@@ -744,10 +943,10 @@ export default function ReceivingDetailPage() {
         }}
         className="mt-4 w-full rounded-lg border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
       >
-        + Add item
+        + Add item not on PO
       </button>
 
-      {/* Bottom sheet */}
+      {/* Bottom sheet — add item */}
       {showAddItem && (
         <div className="fixed inset-0 z-50 flex items-end">
           <div
@@ -862,7 +1061,8 @@ export default function ReceivingDetailPage() {
         <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>
       )}
 
-      {lines.some((l) => !l.received_date) && (
+      {/* Confirm button — visible when there's something to act on */}
+      {(hasActionableLines || pendingAdditions.length > 0) && (
         <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
           <button
             onClick={handleConfirm}

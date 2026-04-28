@@ -1,0 +1,3 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Creates po_number_seq sequence for atomic server-side PO numbering (eliminates race condition B-5).
+-- Positioned at max(po_number) in purchase_orders at migration time.

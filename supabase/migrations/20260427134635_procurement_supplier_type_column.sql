@@ -1,0 +1,3 @@
+-- Applied 2026-04-27 via Supabase MCP (create_purchase_order session)
+-- Adds procurement_type column to suppliers table.
+-- Replaces hardcoded WALK_IN_SUPPLIER_CODES in FE. See CHANGELOG.md for details.

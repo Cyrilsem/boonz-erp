@@ -10,15 +10,21 @@ import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 import * as XLSX from "xlsx";
 
-const WALK_IN_SUPPLIER_CODES = ["SUP_005", "SUP_011"] as const;
+// ── Constants ────────────────────────────────────────────────────────────────
+// Walk-in supplier classification is now stored in suppliers.procurement_type
+// (migration: procurement_supplier_type_column).
+// DO NOT add supplier codes here — update the DB instead.
 const EDGE_FN_URL =
   "https://eizcexopcuoycuosittm.supabase.co/functions/v1/send-po-notification";
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface Supplier {
   supplier_id: string;
   supplier_name: string;
   supplier_code: string | null;
   contact_email: string | null;
+  procurement_type: "walk_in" | "supplier_delivered";
 }
 
 interface Product {
@@ -177,7 +183,10 @@ export default function NewOrderPage() {
   // Header
   const [supplierId, setSupplierId] = useState("");
   const [poDate, setPoDate] = useState(() => getDubaiDate());
-  const [poId, setPoId] = useState("");
+  // po_number is now assigned server-side via sequence — show placeholder until confirmed
+  const [poIdDisplay, setPoIdDisplay] = useState("PO-2026-???");
+  // Emergency override: force a driver task even for supplier_delivered suppliers
+  const [forceDriverTask, setForceDriverTask] = useState(false);
 
   // Mode
   const [mode, setMode] = useState<EntryMode>("manual");
@@ -197,9 +206,6 @@ export default function NewOrderPage() {
   const [importedRows, setImportedRows] = useState<ImportedRow[]>([]);
   const [importReady, setImportReady] = useState(false);
 
-  // 2026-04-23: priceInputs / lastPrices state removed along with the price
-  // input UI. Price is now captured during /field/receiving/[poId].
-
   // Submit + confirm dialog
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,14 +215,17 @@ export default function NewOrderPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient();
 
+    // Fetch suppliers including procurement_type (B-1 fix: no more hardcoded codes)
     const { data: suppData, error: suppErr } = await supabase
       .from("suppliers")
-      .select("supplier_id, supplier_name, supplier_code, contact_email")
+      .select(
+        "supplier_id, supplier_name, supplier_code, contact_email, procurement_type",
+      )
       .eq("status", "Active")
       .order("supplier_name");
     if (suppErr) console.error("[NewOrder] suppliers fetch error:", suppErr);
     else console.log("[NewOrder] suppliers loaded:", suppData?.length);
-    if (suppData) setSuppliers(suppData);
+    if (suppData) setSuppliers(suppData as Supplier[]);
 
     const { data: prodData, error: prodErr } = await supabase
       .from("boonz_products")
@@ -226,16 +235,8 @@ export default function NewOrderPage() {
     else console.log("[NewOrder] products loaded:", prodData?.length);
     if (prodData) setProducts(prodData);
 
-    const { data: lastPO } = await supabase
-      .from("purchase_orders")
-      .select("po_number")
-      .not("po_number", "is", null)
-      .order("po_number", { ascending: false })
-      .limit(1)
-      .single();
-    const nextNum = (lastPO?.po_number ?? 9016) + 1;
-    setPoId(`PO-${new Date().getFullYear()}-${nextNum}`);
-
+    // po_number is now server-side — show a static placeholder
+    setPoIdDisplay(`PO-${new Date().getFullYear()}-auto`);
     setLoading(false);
   }, []);
 
@@ -292,9 +293,10 @@ export default function NewOrderPage() {
         price: null,
       },
     ]);
+    // Auto-reset force flag when supplier changes
+    const newSupplier = suppliers.find((s) => s.supplier_id === id);
+    setForceDriverTask(newSupplier?.procurement_type === "walk_in" ? false : false);
   }
-
-  // 2026-04-23: fetchLastPrice helper removed with price input. Not needed here.
 
   // -- Excel import --
 
@@ -313,7 +315,6 @@ export default function NewOrderPage() {
         header: 1,
       });
 
-      // Skip header row
       const dataRows = jsonRows.slice(1);
 
       const parsed: ImportedRow[] = dataRows
@@ -421,14 +422,10 @@ export default function NewOrderPage() {
       return;
     }
 
-    // 2026-04-23: Price validation removed. Price is now captured by the
-    // warehouse manager during /field/receiving/[poId]. Previously a missing
-    // price silently blocked the confirm dialog and no PO was ever inserted
-    // (root cause of "PO disappeared after adding products" on 2026-04-23).
     setShowConfirm(true);
   }
 
-  // -- Step 2: Confirm & send --
+  // -- Step 2: Confirm & send via RPC (S-2) --
 
   async function handleConfirmSend() {
     setShowConfirm(false);
@@ -447,95 +444,47 @@ export default function NewOrderPage() {
 
     const finalLines = resolveFinalLines();
 
-    // Get next po_number
-    const { data: lastPo } = await supabase
-      .from("purchase_orders")
-      .select("po_number")
-      .not("po_number", "is", null)
-      .order("po_number", { ascending: false })
-      .limit(1)
-      .single();
+    // Generate a stable po_id client-side (just an ID string, not the number)
+    // po_number is assigned server-side by the sequence inside create_purchase_order
+    const poId = `PO-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
 
-    const nextNumber = (lastPo?.po_number ?? 9016) + 1;
-
-    const inserts = finalLines.map((line) => ({
-      po_id: poId,
-      po_number: nextNumber,
-      supplier_id: supplierId,
-      boonz_product_id: line.product_id,
-      purchase_date: poDate,
-      ordered_qty: line.qty,
-      price_per_unit_aed: line.price,
-      total_price_aed: line.price ? line.qty * line.price : null,
-      expiry_date: line.expiry_date || null,
-      received_date: null,
-    }));
-
-    // a. Insert PO lines
-    const { error: insertError } = await supabase
-      .from("purchase_orders")
-      .insert(inserts);
-
-    if (insertError) {
-      setError(`Failed to save order — try again`);
-      setSubmitting(false);
-      setSubmitStatus(null);
-      return;
-    }
-
-    // b. Notification: driver_task (direct DB) or email (Edge Function, non-blocking)
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Session expired — please log in again");
-      setSubmitting(false);
-      setSubmitStatus(null);
-      return;
-    }
-
-    const isWalkIn = WALK_IN_SUPPLIER_CODES.includes(
-      (supplier.supplier_code ?? "") as (typeof WALK_IN_SUPPLIER_CODES)[number],
+    // S-2: single RPC call — creates PO lines + driver_task (if needed) + notification atomically
+    const { data: rpcResult, error: rpcError } = await supabase.rpc(
+      "create_purchase_order",
+      {
+        p_po_id: poId,
+        p_supplier_id: supplierId,
+        p_purchase_date: poDate,
+        p_force_driver_task: forceDriverTask,
+        p_lines: finalLines.map((line) => ({
+          boonz_product_id: line.product_id,
+          ordered_qty: line.qty,
+          price_per_unit_aed: line.price ?? null,
+          expiry_date: line.expiry_date || null,
+        })),
+      },
     );
 
-    // 2026-04-23: ALWAYS insert a driver_tasks row so the PO surfaces on the
-    // driver's /field/tasks list and the operator's open-orders view — not just
-    // for walk-in suppliers. Root cause of the 2026-04-23 "PO never showed on
-    // tasks" incident: non-walk-in POs only sent an email and never created a
-    // task, so the driver had no way to see incoming deliveries.
-    const notes = finalLines
-      .map((l) => `${l.product_name} x${l.qty}`)
-      .join(", ");
-    const { error: taskError } = await supabase.from("driver_tasks").insert({
-      po_id: poId,
-      po_number: nextNumber,
-      supplier_id: supplierId,
-      status: "pending",
-      created_by: user.id,
-      notes,
-    });
-    if (taskError) {
-      console.error("[NewOrder] driver_task insert error:", taskError);
-      setError(
-        "Order saved but could not create driver task. Please contact admin.",
-      );
+    if (rpcError) {
+      console.error("[NewOrder] create_purchase_order RPC error:", rpcError);
+      setError(`Failed to save order — ${rpcError.message}`);
       setSubmitting(false);
       setSubmitStatus(null);
       return;
     }
-    await supabase.from("po_notifications").insert({
-      po_id: poId,
-      po_number: nextNumber,
-      notification_type: "driver_task",
-      recipient: "driver",
-      status: "sent",
-      sent_by: user.id,
-    });
 
-    if (isWalkIn) {
-      setSubmitStatus("Order created — driver task sent");
+    const result = rpcResult as { po_id: string; po_number: number; driver_task_created: boolean; duplicate?: boolean };
+    console.log("[NewOrder] PO created:", result);
+
+    // Walk-in OR forced → driver task was created
+    const taskCreated = result.driver_task_created;
+
+    if (taskCreated) {
+      setSubmitStatus(
+        `Order PO-${new Date().getFullYear()}-${result.po_number} created — driver task sent`,
+      );
     } else {
-      // Email: call Edge Function non-blocking (PO + task are already saved)
+      // Email: call Edge Function non-blocking (PO + task already saved by RPC)
       try {
         const {
           data: { session },
@@ -548,12 +497,11 @@ export default function NewOrderPage() {
             apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
           },
           body: JSON.stringify({
-            po_id: poId,
-            po_number: nextNumber,
+            po_id: result.po_id,
+            po_number: result.po_number,
             supplier_id: supplierId,
             supplier_email: supplier.contact_email,
             notification_type: "email",
-            created_by: user.id,
             lines: finalLines.map((l) => ({
               boonz_product_name: l.product_name,
               ordered_qty: l.qty,
@@ -570,7 +518,7 @@ export default function NewOrderPage() {
         );
       }
       setSubmitStatus(
-        `Order saved, driver task created, and email sent to ${supplier.supplier_name}`,
+        `Order PO-${new Date().getFullYear()}-${result.po_number} saved, driver task created, email sent to ${supplier.supplier_name}`,
       );
     }
 
@@ -585,19 +533,15 @@ export default function NewOrderPage() {
       },
     ]);
     setSupplierId("");
-    setPoId(`PO-${new Date().getFullYear()}-${nextNumber + 1}`);
+    setPoIdDisplay(`PO-${new Date().getFullYear()}-auto`);
 
     setTimeout(() => router.push("/field/orders"), 1500);
   }
 
-  // Derived: selected supplier info for confirm dialog
+  // Derived: selected supplier for confirm dialog
   const selectedSupplier = suppliers.find((s) => s.supplier_id === supplierId);
-  const isWalkIn = selectedSupplier
-    ? WALK_IN_SUPPLIER_CODES.includes(
-        (selectedSupplier.supplier_code ??
-          "") as (typeof WALK_IN_SUPPLIER_CODES)[number],
-      )
-    : false;
+  // Walk-in: either the supplier is a walk_in type, or force override is on
+  const isWalkIn = selectedSupplier?.procurement_type === "walk_in" || forceDriverTask;
 
   if (loading) {
     return (
@@ -645,6 +589,34 @@ export default function NewOrderPage() {
             onChange={handleSupplierChange}
             placeholder="Select supplier…"
           />
+          {/* Show procurement type + optional force-driver-task toggle */}
+          {selectedSupplier && (
+            <div className="mt-2 space-y-2">
+              {selectedSupplier.procurement_type === "walk_in" ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                  🚗 Walk-in — driver task will be created
+                </span>
+              ) : (
+                <>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+                    📧 Supplier delivery — PO email will be sent
+                  </span>
+                  {/* Emergency override: assign a driver task anyway */}
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
+                    <input
+                      type="checkbox"
+                      checked={forceDriverTask}
+                      onChange={(e) => setForceDriverTask(e.target.checked)}
+                      className="h-4 w-4 rounded border-amber-400 accent-amber-500"
+                    />
+                    <span className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                      🚨 Emergency: assign driver task to go collect
+                    </span>
+                  </label>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3">
@@ -661,12 +633,14 @@ export default function NewOrderPage() {
           </div>
           <div className="flex-1">
             <label className="block text-xs text-neutral-500 mb-0.5">
-              PO ID
+              PO Number
             </label>
             <p className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-              {poId}
+              {poIdDisplay}
             </p>
-            <p className="mt-0.5 text-xs text-neutral-400">Auto-generated</p>
+            <p className="mt-0.5 text-xs text-neutral-400">
+              Assigned on save
+            </p>
           </div>
         </div>
       </div>
@@ -747,10 +721,7 @@ export default function NewOrderPage() {
                     }}
                     className="w-full rounded border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
                   />
-                  {/* 2026-04-23: Unit price + expiry intentionally removed from PO creation.
-                      These must be captured by the warehouse manager during
-                      /field/receiving/[poId] (where the actual invoice + printed expiry
-                      are in hand). */}
+                  {/* Unit price + expiry captured during receiving at /field/receiving/[poId] */}
                 </div>
               </div>
             </div>
@@ -947,6 +918,7 @@ export default function NewOrderPage() {
               Send order to {selectedSupplier.supplier_name}?
             </h2>
 
+            {/* B-1 fix: badge driven by DB field, not hardcoded code list */}
             {isWalkIn ? (
               <>
                 <div className="mb-3 flex items-center gap-2">
@@ -973,7 +945,11 @@ export default function NewOrderPage() {
                   {selectedSupplier.supplier_name} and CC info@boonz.me.
                 </p>
                 <p className="mt-1 text-xs text-neutral-400">
-                  To: {selectedSupplier.contact_email || "info@boonz.me"}
+                  To:{" "}
+                  {selectedSupplier.contact_email &&
+                  selectedSupplier.contact_email !== "na"
+                    ? selectedSupplier.contact_email
+                    : "info@boonz.me"}
                 </p>
               </>
             )}

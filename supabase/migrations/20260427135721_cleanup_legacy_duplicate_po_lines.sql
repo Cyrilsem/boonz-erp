@@ -1,0 +1,3 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Collapses legacy multi-batch PO line duplicates (created by old FE code)
+-- into single rows with summed received_qty. warehouse_inventory rows untouched.

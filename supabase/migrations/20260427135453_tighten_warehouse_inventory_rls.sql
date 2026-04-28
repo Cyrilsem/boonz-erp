@@ -1,0 +1,3 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Removes field_staff from warehouse_inventory write policy.
+-- warehouse_inventory writes must now go through receive_purchase_order RPC.

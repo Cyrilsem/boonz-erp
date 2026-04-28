@@ -1,0 +1,6 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- create_purchase_order v2: only creates driver_task for walk_in suppliers or p_force_driver_task=true.
+--   Accepts p_force_driver_task boolean param. Logs po_created to procurement_events.
+-- receive_purchase_order v2: handles close_as_not_purchased lines (sets purchase_outcome='not_purchased').
+--   Sets purchase_outcome='received' on normal lines. Logs goods_received + line_not_purchased events.
+-- Drops old 4-arg create_purchase_order signature.

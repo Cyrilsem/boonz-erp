@@ -1,0 +1,4 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Creates receive_purchase_order() SECURITY DEFINER RPC.
+-- Fixes B-2 (no duplicate PO lines), B-3 (warehouse_inventory via RPC), B-4 (po_additions received).
+-- See RPC_REGISTRY.md and CHANGELOG.md.

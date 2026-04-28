@@ -1,0 +1,6 @@
+-- Applied 2026-04-27 via Supabase MCP
+-- Adds purchase_orders.purchase_outcome (null / received / not_purchased).
+-- Adds driver_tasks.is_forced boolean (emergency pick-up override).
+-- Creates procurement_events append-only audit table.
+-- Creates log_driver_task_procurement_event() trigger on driver_tasks.
+-- Backfills task_assigned events for existing driver_tasks rows.
