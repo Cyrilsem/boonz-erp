@@ -458,11 +458,12 @@ export default function ReceivingDetailPage() {
     };
     console.log("[Receiving] receipt confirmed:", result);
 
-    // Build results list for success screen
+    // Build results list for success screen (skip not-purchased lines — no batches)
     const resultsList: { productName: string; qty: number }[] = [];
     for (const l of rpcLines) {
+      if (l.close_as_not_purchased) continue;
       const lineData = lines.find((ll) => ll.po_line_id === l.po_line_id);
-      const totalQty = l.batches.reduce((s, b) => s + b.received_qty, 0);
+      const totalQty = (l.batches ?? []).reduce((s, b) => s + b.received_qty, 0);
       if (lineData && totalQty > 0) {
         resultsList.push({
           productName: lineData.boonz_product_name,
