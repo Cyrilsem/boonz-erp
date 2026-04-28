@@ -198,17 +198,19 @@ export function RefillPlanningTab({
         quantity: idx in editedQty ? editedQty[idx] : row.quantity,
       }));
 
-    // write_refill_plan writes to refill_plan_output + dispatching mirror
+    // write_refill_plan(p_plan_date, p_lines) → writes to refill_plan_output
+    // Dispatch mirror happens when operator approves the plan in Stock Snapshot tab
     const { data, error } = await supabase.rpc("write_refill_plan", {
       p_plan_date: selectedDate,
-      p_rows: finalRows,
-    } as never);
+      p_lines: finalRows,
+    });
 
     setWriting(false);
     if (error) {
       setWriteResult({ ok: false, msg: `Write failed: ${error.message}` });
     } else {
-      const written = (data as { lines_written?: number })?.lines_written ?? finalRows.length;
+      const result = data as { status?: string; lines_written?: number } | null;
+      const written = result?.lines_written ?? finalRows.length;
       setWriteResult({
         ok: true,
         msg: `Plan written — ${written} lines for ${selectedDate}`,
