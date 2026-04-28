@@ -437,7 +437,8 @@ export default function InventoryPage() {
   const [hideEmpty, setHideEmpty] = useState(true);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
-  const [warehouseFilter, setWarehouseFilter] = useState<WarehouseFilter>("all");
+  const [warehouseFilter, setWarehouseFilter] =
+    useState<WarehouseFilter>("all");
 
   /** Products collapsed to header-only (default: all expanded) */
   const [collapsedProducts, setCollapsedProducts] = useState<Set<string>>(
@@ -1323,7 +1324,15 @@ export default function InventoryPage() {
     });
 
     return filtered;
-  }, [rows, search, expiryFilter, sortBy, hideEmpty, statusFilter, warehouseFilter]);
+  }, [
+    rows,
+    search,
+    expiryFilter,
+    sortBy,
+    hideEmpty,
+    statusFilter,
+    warehouseFilter,
+  ]);
 
   const groups: InventoryGroup[] = useMemo(() => {
     if (groupBy === "none") return [];
@@ -1713,7 +1722,9 @@ export default function InventoryPage() {
           <div className="mb-3 flex items-center gap-2">
             <select
               value={warehouseFilter}
-              onChange={(e) => setWarehouseFilter(e.target.value as WarehouseFilter)}
+              onChange={(e) =>
+                setWarehouseFilter(e.target.value as WarehouseFilter)
+              }
               className="rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
             >
               <option value="all">All Warehouses</option>

@@ -66,9 +66,21 @@ interface ProductDraft {
 }
 
 const STORAGE_TEMP_OPTIONS: { value: string; label: string; desc: string }[] = [
-  { value: "ambient", label: "Ambient", desc: "Can be staged in WH_MM / WH_MCC" },
-  { value: "cold",    label: "Cold ❄",  desc: "Requires refrigeration — ships from WH Central only" },
-  { value: "frozen",  label: "Frozen",  desc: "Requires freezer — ships from WH Central only" },
+  {
+    value: "ambient",
+    label: "Ambient",
+    desc: "Can be staged in WH_MM / WH_MCC",
+  },
+  {
+    value: "cold",
+    label: "Cold ❄",
+    desc: "Requires refrigeration — ships from WH Central only",
+  },
+  {
+    value: "frozen",
+    label: "Frozen",
+    desc: "Requires freezer — ships from WH Central only",
+  },
 ];
 
 function rowToDraft(r: BoonzProduct): ProductDraft {
@@ -324,26 +336,37 @@ function ProductForm({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => onChange({ storage_temp_requirement: opt.value })}
+                onClick={() =>
+                  onChange({ storage_temp_requirement: opt.value })
+                }
                 className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
                   active
                     ? opt.value === "ambient"
                       ? "border-green-500 bg-green-50 dark:bg-green-900/20"
                       : opt.value === "cold"
-                      ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-                      : "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                        : "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
                     : "border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className={`text-sm font-medium ${active ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-600 dark:text-neutral-400"}`}>
+                  <span
+                    className={`text-sm font-medium ${active ? "text-neutral-900 dark:text-neutral-100" : "text-neutral-600 dark:text-neutral-400"}`}
+                  >
                     {opt.label}
                   </span>
                   {active && (
-                    <span className={`text-xs font-semibold ${
-                      opt.value === "ambient" ? "text-green-600" :
-                      opt.value === "cold" ? "text-blue-600" : "text-purple-600"
-                    }`}>✓ Selected</span>
+                    <span
+                      className={`text-xs font-semibold ${
+                        opt.value === "ambient"
+                          ? "text-green-600"
+                          : opt.value === "cold"
+                            ? "text-blue-600"
+                            : "text-purple-600"
+                      }`}
+                    >
+                      ✓ Selected
+                    </span>
                   )}
                 </div>
                 <p className="mt-0.5 text-xs text-neutral-400">{opt.desc}</p>
@@ -700,8 +723,8 @@ export default function BoonzProductsPage() {
                   ? f === "cold"
                     ? "bg-blue-100 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
                     : f === "frozen"
-                    ? "bg-purple-100 font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
-                    : "bg-neutral-200 font-medium text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100"
+                      ? "bg-purple-100 font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"
+                      : "bg-neutral-200 font-medium text-neutral-900 dark:bg-neutral-700 dark:text-neutral-100"
                   : "hover:bg-neutral-100 dark:hover:bg-neutral-800"
               }`}
             >

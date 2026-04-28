@@ -9,6 +9,11 @@ interface MachineEditPanelProps {
   onClose: () => void;
   onSave: (machineId: string, fields: Partial<Machine>) => Promise<void>;
   onSimChange: () => void;
+  // CC-Article-1: identity-shape changes (official_name, status, venue_group, pod_location,
+  // location_type, source_of_supply, building_id, pod_number) MUST go through the canonical
+  // repurpose_machine RPC (creates new row + archives old). The parent page wires this
+  // callback to its Repurpose dialog. Optional for back-compat with any other call site.
+  onRepurpose?: (machineId: string) => void;
 }
 
 const TAB_LABELS = [
@@ -19,22 +24,10 @@ const TAB_LABELS = [
   "SIM Card",
 ];
 
-const STATUS_OPTIONS = [
-  "Active",
-  "Inactive",
-  "Maintenance",
-  "Decommissioned",
-  "Pending",
-];
-
-const LOCATION_TYPE_OPTIONS = [
-  "Office",
-  "Coworking",
-  "Entertainment",
-  "Retail",
-  "Warehouse",
-  "Other",
-];
+// CC-Article-1 (B.x.3): STATUS_OPTIONS / LOCATION_TYPE_OPTIONS removed — these
+// were only used by the Overview tab's identity inputs, which are now read-only
+// (changes route through the canonical repurpose_machine RPC). The Repurpose
+// dialog in admin/machines/page.tsx defines its own option lists.
 
 const PERMIT_STATUS_OPTIONS = ["Active", "Expired", "Pending", "Not Required"];
 
@@ -168,6 +161,19 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
+// CC-Article-1 (B.x.3): identity-shape fields render read-only.
+// Changes go through the Repurpose Machine dialog (canonical repurpose_machine RPC).
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <div className="w-full bg-[#0f0f18] border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-400 font-mono">
+        {value || <span className="text-neutral-600">—</span>}
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: string | null }) {
   const color =
     status === "Active"
@@ -217,22 +223,22 @@ function getTabFields(tab: number, draft: Partial<Machine>): Partial<Machine> {
 
   switch (tab) {
     case 0:
+      // CC-Article-1 (B.x.3): identity-shape fields removed from this picker
+      // (official_name, status, venue_group, pod_number, pod_location,
+      //  location_type, source_of_supply). They now render as read-only in
+      // renderOverview() with a "Repurpose Machine →" affordance that calls the
+      // canonical repurpose_machine RPC via the parent's onRepurpose callback.
+      // Direct UPDATE of these fields would bypass slot-archival, alias-wiring,
+      // and the audit-row write_audit_log requires (Constitution Article 1, 8).
       return pick([
-        "official_name",
-        "status",
-        "venue_group",
-        "pod_number",
         "machine_number",
-        "pod_location",
         "pod_address",
-        "location_type",
         "freezone_location",
         "latitude",
         "longitude",
         "installation_date",
         "cabinet_count",
         "serial_number",
-        "source_of_supply",
         "shipment_batch_nbr",
         "include_in_refill",
         "notes",
@@ -284,6 +290,7 @@ export default function MachineEditPanel({
   onClose,
   onSave,
   onSimChange,
+  onRepurpose,
 }: MachineEditPanelProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [draft, setDraft] = useState<Partial<Machine>>({ ...machine });
@@ -438,29 +445,61 @@ export default function MachineEditPanel({
 
   const renderOverview = () => (
     <div className="space-y-4">
+      {/* CC-Article-1 (B.x.3): Identity-shape fields are read-only.
+          Changes route through the canonical repurpose_machine RPC,
+          which creates a new machine row + archives the old (slot lifecycle,
+          aliases). In-place edits would silently bypass that contract. */}
+      <div className="rounded-lg border border-amber-700/40 bg-amber-900/10 p-3">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
+              Identity (protected)
+            </h3>
+            <p className="text-[11px] text-amber-200/70 mt-1">
+              Changing identity creates a new machine record. Use Repurpose to
+              update.
+            </p>
+          </div>
+          {onRepurpose && (
+            <button
+              type="button"
+              onClick={() => onRepurpose(machine.machine_id)}
+              className="shrink-0 rounded border border-amber-600/50 bg-amber-900/30 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-900/60 hover:border-amber-500/70 transition-colors"
+            >
+              Repurpose Machine →
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <ReadOnlyField
+            label="Official Name"
+            value={str(machine.official_name)}
+          />
+          <ReadOnlyField label="Status" value={str(machine.status)} />
+          <ReadOnlyField
+            label="Venue Group"
+            value={str(machine.venue_group)}
+          />
+          <ReadOnlyField label="Pod Number" value={str(machine.pod_number)} />
+          <ReadOnlyField
+            label="Pod Location"
+            value={str(machine.pod_location)}
+          />
+          <ReadOnlyField
+            label="Location Type"
+            value={str(machine.location_type)}
+          />
+          <ReadOnlyField
+            label="Source of Supply"
+            value={str(machine.source_of_supply)}
+          />
+        </div>
+      </div>
+
+      {/* Editable metadata fields (non-identity). Still flow through onSave →
+          .from('machines').update — flagged for B.x.3.b (need
+          update_machine_metadata canonical RPC, Dara → Cody). */}
       <div className="grid grid-cols-2 gap-4">
-        <TextInput
-          label="Official Name"
-          value={str(draft.official_name)}
-          onChange={(v) => set("official_name", v)}
-        />
-        <SelectInput
-          label="Status"
-          value={str(draft.status)}
-          options={STATUS_OPTIONS}
-          onChange={(v) => set("status", v)}
-          allowBlank
-        />
-        <TextInput
-          label="Venue Group"
-          value={str(draft.venue_group)}
-          onChange={(v) => set("venue_group", v)}
-        />
-        <TextInput
-          label="Pod Number"
-          value={str(draft.pod_number)}
-          onChange={(v) => set("pod_number", v)}
-        />
         <TextInput
           label="Machine Number"
           value={str(draft.machine_number)}
@@ -473,12 +512,6 @@ export default function MachineEditPanel({
         />
       </div>
 
-      <TextInput
-        label="Pod Location"
-        value={str(draft.pod_location)}
-        onChange={(v) => set("pod_location", v)}
-      />
-
       <div>
         <Label>Pod Address</Label>
         <input
@@ -489,13 +522,6 @@ export default function MachineEditPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <SelectInput
-          label="Location Type"
-          value={str(draft.location_type)}
-          options={LOCATION_TYPE_OPTIONS}
-          onChange={(v) => set("location_type", v)}
-          allowBlank
-        />
         <div className="flex items-end">
           <Toggle
             label="Freezone Location"
@@ -540,11 +566,6 @@ export default function MachineEditPanel({
             set("cabinet_count", v === "" ? null : parseInt(v, 10))
           }
           type="number"
-        />
-        <TextInput
-          label="Source of Supply"
-          value={str(draft.source_of_supply)}
-          onChange={(v) => set("source_of_supply", v)}
         />
         <TextInput
           label="Shipment Batch #"

@@ -18,22 +18,29 @@ export async function POST(req: NextRequest) {
       { global: { headers: { Authorization: authHeader } } },
     );
 
-    const { data, error } = await supabase.functions.invoke("repurpose-machine", {
-      body: {
-        p_old_machine_id:       body.p_old_machine_id,
-        p_new_official_name:    body.p_new_official_name,
-        p_new_pod_location:     body.p_new_pod_location     ?? null,
-        p_new_location_type:    body.p_new_location_type,
-        p_new_building_id:      body.p_new_building_id      ?? null,
-        p_new_source_of_supply: body.p_new_source_of_supply ?? null,
-        p_new_venue_group:      body.p_new_venue_group      ?? "INDEPENDENT",
+    const { data, error } = await supabase.functions.invoke(
+      "repurpose-machine",
+      {
+        body: {
+          p_old_machine_id: body.p_old_machine_id,
+          p_new_official_name: body.p_new_official_name,
+          p_new_pod_location: body.p_new_pod_location ?? null,
+          p_new_location_type: body.p_new_location_type,
+          p_new_building_id: body.p_new_building_id ?? null,
+          p_new_source_of_supply: body.p_new_source_of_supply ?? null,
+          p_new_venue_group: body.p_new_venue_group ?? "INDEPENDENT",
+        },
       },
-    });
+    );
 
     if (error) {
       console.error("repurpose-machine edge function error:", error);
       let msg = error.message ?? "Unknown error";
-      try { msg = JSON.parse(msg).error ?? msg; } catch { /* not JSON */ }
+      try {
+        msg = JSON.parse(msg).error ?? msg;
+      } catch {
+        /* not JSON */
+      }
       return NextResponse.json({ error: msg }, { status: 500 });
     }
 

@@ -28,8 +28,25 @@ const allNavItems: NavItem[] = [
 ];
 
 const hiddenByRole: Record<string, string[]> = {
-  finance: ["Pods", "Refill & Dispatch", "Consumers", "Lifecycle", "Sales Pipeline"],
+  finance: [
+    "Pods",
+    "Refill & Dispatch",
+    "Consumers",
+    "Lifecycle",
+    "Sales Pipeline",
+  ],
   manager: ["Settings", "Lifecycle"],
+  // Warehouse: inventory, products, procurement, machines, refill/dispatch,
+  // suppliers. Hide financial, commercial, and admin-only sections.
+  warehouse: [
+    "Financials",
+    "Consumers",
+    "Performance",
+    "Lifecycle",
+    "SIM Cards",
+    "Sales Pipeline",
+    "Settings",
+  ],
 };
 
 export default function SidebarNav({ role }: { role: string }) {

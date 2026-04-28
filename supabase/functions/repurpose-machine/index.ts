@@ -36,11 +36,19 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const VALID_VENUE_GROUPS = ["ADDMIND", "VOX", "VML", "WPP", "OHMYDESK", "INDEPENDENT"];
+const VALID_VENUE_GROUPS = [
+  "ADDMIND",
+  "VOX",
+  "VML",
+  "WPP",
+  "OHMYDESK",
+  "INDEPENDENT",
+];
 
 Deno.serve(async (req: Request) => {
   // ── CORS preflight ──────────────────────────────────────────────────────────
@@ -61,10 +69,13 @@ Deno.serve(async (req: Request) => {
   const anonClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } }
+    { global: { headers: { Authorization: authHeader } } },
   );
 
-  const { data: { user }, error: authError } = await anonClient.auth.getUser();
+  const {
+    data: { user },
+    error: authError,
+  } = await anonClient.auth.getUser();
   if (authError || !user) {
     return json({ error: "Unauthorized" }, 401);
   }
@@ -82,17 +93,17 @@ Deno.serve(async (req: Request) => {
     p_new_official_name,
     p_new_pod_location,
     p_new_location_type,
-    p_new_building_id      = null,
+    p_new_building_id = null,
     p_new_source_of_supply = null,
-    p_new_venue_group      = "INDEPENDENT",
+    p_new_venue_group = "INDEPENDENT",
   } = body as {
-    p_old_machine_id:        string;
-    p_new_official_name:     string;
-    p_new_pod_location:      string;
-    p_new_location_type:     string;
-    p_new_building_id?:      string | null;
+    p_old_machine_id: string;
+    p_new_official_name: string;
+    p_new_pod_location: string;
+    p_new_location_type: string;
+    p_new_building_id?: string | null;
     p_new_source_of_supply?: string | null;
-    p_new_venue_group?:      string;
+    p_new_venue_group?: string;
   };
 
   // Required field checks
@@ -106,26 +117,32 @@ Deno.serve(async (req: Request) => {
     return json({ error: "p_new_location_type is required" }, 400);
   }
   if (!VALID_VENUE_GROUPS.includes(String(p_new_venue_group))) {
-    return json({
-      error: `Invalid venue_group "${p_new_venue_group}". Must be one of: ${VALID_VENUE_GROUPS.join(", ")}`,
-    }, 400);
+    return json(
+      {
+        error: `Invalid venue_group "${p_new_venue_group}". Must be one of: ${VALID_VENUE_GROUPS.join(", ")}`,
+      },
+      400,
+    );
   }
 
   // ── Execute via service_role (bypasses RLS, calls SECURITY DEFINER fn) ──────
   const serviceClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  const { data, error: rpcError } = await serviceClient.rpc("repurpose_machine", {
-    p_old_machine_id,
-    p_new_official_name:    p_new_official_name.trim(),
-    p_new_pod_location:     (p_new_pod_location ?? "").trim() || null,
-    p_new_location_type:    p_new_location_type.trim(),
-    p_new_building_id:      p_new_building_id      ?? null,
-    p_new_source_of_supply: p_new_source_of_supply ?? null,
-    p_new_venue_group:      String(p_new_venue_group),
-  });
+  const { data, error: rpcError } = await serviceClient.rpc(
+    "repurpose_machine",
+    {
+      p_old_machine_id,
+      p_new_official_name: p_new_official_name.trim(),
+      p_new_pod_location: (p_new_pod_location ?? "").trim() || null,
+      p_new_location_type: p_new_location_type.trim(),
+      p_new_building_id: p_new_building_id ?? null,
+      p_new_source_of_supply: p_new_source_of_supply ?? null,
+      p_new_venue_group: String(p_new_venue_group),
+    },
+  );
 
   if (rpcError) {
     console.error("[repurpose-machine] RPC error:", rpcError);
@@ -150,8 +167,8 @@ Deno.serve(async (req: Request) => {
 
   console.log(
     `[repurpose-machine] ✓ user=${user.id} ` +
-    `old=${row.old_machine_id} → new=${row.new_machine_id} ` +
-    `slots_archived=${row.slots_archived} aliases_wired=${row.aliases_wired}`
+      `old=${row.old_machine_id} → new=${row.new_machine_id} ` +
+      `slots_archived=${row.slots_archived} aliases_wired=${row.aliases_wired}`,
   );
 
   return json(row, 200);

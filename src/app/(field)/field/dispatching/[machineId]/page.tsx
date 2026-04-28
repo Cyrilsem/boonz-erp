@@ -109,7 +109,10 @@ export default function DispatchingDetailPage() {
       .from("warehouses")
       .select("warehouse_id, name");
     const whNameMap = new Map<string, string>(
-      (warehouseRows ?? []).map((w) => [w.warehouse_id as string, w.name as string]),
+      (warehouseRows ?? []).map((w) => [
+        w.warehouse_id as string,
+        w.name as string,
+      ]),
     );
 
     const { data: dispatchLines } = await supabase
@@ -150,7 +153,10 @@ export default function DispatchingDetailPage() {
         let action: LineAction = null;
         if (isDispatched) action = "added";
         if (isReturned) action = "returned";
-        const whId = (line as Record<string, unknown>).from_warehouse_id as string | null ?? null;
+        const whId =
+          ((line as Record<string, unknown>).from_warehouse_id as
+            | string
+            | null) ?? null;
         return {
           dispatch_id: line.dispatch_id,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
@@ -164,7 +170,9 @@ export default function DispatchingDetailPage() {
           returned: isReturned,
           return_reason: (line.return_reason as string | null) ?? "",
           expiry_date: (line.expiry_date as string | null) ?? null,
-          expiry_warning: ((line as Record<string, unknown>).expiry_warning as ExpiryWarning | null) ?? null,
+          expiry_warning:
+            ((line as Record<string, unknown>)
+              .expiry_warning as ExpiryWarning | null) ?? null,
           from_warehouse_id: whId,
           from_warehouse_name: whId ? (whNameMap.get(whId) ?? null) : null,
           comment: (line.comment as string | null) ?? "",
@@ -175,7 +183,9 @@ export default function DispatchingDetailPage() {
       // brand-level name (e.g. "Evian - Regular") rather than the generic
       // pod name. Batch-fetch to avoid N+1 queries.
       const boonzIds = [
-        ...new Set(mapped.map((l) => l.boonz_product_id).filter(Boolean) as string[]),
+        ...new Set(
+          mapped.map((l) => l.boonz_product_id).filter(Boolean) as string[],
+        ),
       ];
       if (boonzIds.length > 0) {
         const { data: boonzNames } = await supabase
@@ -184,7 +194,10 @@ export default function DispatchingDetailPage() {
           .in("product_id", boonzIds)
           .limit(500);
         const boonzNameMap = new Map<string, string>(
-          (boonzNames ?? []).map((b) => [b.product_id as string, b.boonz_product_name as string]),
+          (boonzNames ?? []).map((b) => [
+            b.product_id as string,
+            b.boonz_product_name as string,
+          ]),
         );
         for (const line of mapped) {
           if (line.boonz_product_id) {
@@ -719,7 +732,9 @@ export default function DispatchingDetailPage() {
                   {/* Product name + expiry */}
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <p className="text-sm font-medium">
-                      {line.boonz_product_name ?? line.pod_product_name ?? "Unknown product"}
+                      {line.boonz_product_name ??
+                        line.pod_product_name ??
+                        "Unknown product"}
                     </p>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       {/* Expiry: engine flag takes precedence over date-based style */}

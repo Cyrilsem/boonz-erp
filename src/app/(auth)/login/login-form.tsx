@@ -41,6 +41,23 @@ export default function LoginForm() {
       router.push("/consumers_vox");
       return;
     }
+    // operator_admin and warehouse go to the /app portal;
+    // field_staff and everyone else default to the field app.
+    if (loggedInUser) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", loggedInUser.id)
+        .single();
+      if (
+        profile?.role === "operator_admin" ||
+        profile?.role === "warehouse"
+      ) {
+        const redirectTo = searchParams.get("redirectTo") || "/app";
+        router.push(redirectTo);
+        return;
+      }
+    }
     const redirectTo = searchParams.get("redirectTo") || "/field";
     router.push(redirectTo);
   }

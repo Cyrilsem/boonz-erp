@@ -214,7 +214,9 @@ export default function ProductsPage() {
   >([]);
 
   // Drawer / detail panel
-  const [selectedProduct, setSelectedProduct] = useState<BoonzProduct | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<BoonzProduct | null>(
+    null,
+  );
   const [editMode, setEditMode] = useState(false);
   const [draft, setDraft] = useState<ProductDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -394,9 +396,7 @@ export default function ProductsPage() {
           : p,
       ),
     );
-    setSelectedProduct((prev) =>
-      prev ? { ...prev, ...update } : prev,
-    );
+    setSelectedProduct((prev) => (prev ? { ...prev, ...update } : prev));
     setSaving(false);
     setEditMode(false);
   };
@@ -468,11 +468,7 @@ export default function ProductsPage() {
 
   const subtitle = `${products.length} products in catalogue \u00B7 ${podGrouped.size} active in pods`;
 
-  const attrToggle = (
-    active: boolean,
-    label: string,
-    onClick: () => void,
-  ) => (
+  const attrToggle = (active: boolean, label: string, onClick: () => void) => (
     <button
       key={label}
       type="button"
@@ -705,7 +701,9 @@ export default function ProductsPage() {
                         <td style={{ ...tdStyle, color: "#6b6860" }}>
                           {p.product_brand ?? "—"}
                         </td>
-                        <td style={{ ...tdStyle, color: "#6b6860", fontSize: 12 }}>
+                        <td
+                          style={{ ...tdStyle, color: "#6b6860", fontSize: 12 }}
+                        >
                           {p.product_category ?? "—"}
                         </td>
                         <td style={tdStyle}>
@@ -1168,7 +1166,12 @@ export default function ProductsPage() {
                   {/* Attributes */}
                   <p style={{ ...sectionHead, marginTop: 20 }}>Attributes</p>
                   <div
-                    style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      marginBottom: 8,
+                    }}
                   >
                     {[
                       ["Healthy", selectedProduct.attr_healthy],
@@ -1367,9 +1370,7 @@ export default function ProductsPage() {
                       ] as [string, keyof ProductDraft][]
                     ).map(([label, key]) =>
                       attrToggle(draft[key] as boolean, label, () =>
-                        setDraft((d) =>
-                          d ? { ...d, [key]: !d[key] } : d,
-                        ),
+                        setDraft((d) => (d ? { ...d, [key]: !d[key] } : d)),
                       ),
                     )}
                   </div>

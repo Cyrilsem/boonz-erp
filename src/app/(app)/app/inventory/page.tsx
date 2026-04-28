@@ -287,7 +287,15 @@ export default function InventoryPage() {
       }
       return true;
     });
-  }, [rows, search, statusFilter, categoryFilter, hideEmpty, expiryFilter, warehouseTab]);
+  }, [
+    rows,
+    search,
+    statusFilter,
+    categoryFilter,
+    hideEmpty,
+    expiryFilter,
+    warehouseTab,
+  ]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -687,7 +695,10 @@ export default function InventoryPage() {
                   >
                     {r.boonz_product_name}
                   </td>
-                  <td className="px-4 py-3" style={{ color: "#6b6860", fontSize: 12 }}>
+                  <td
+                    className="px-4 py-3"
+                    style={{ color: "#6b6860", fontSize: 12 }}
+                  >
                     {r.product_category ?? "—"}
                   </td>
                   <td className="px-4 py-3" style={{ color: "#6b6860" }}>
@@ -914,7 +925,14 @@ export default function InventoryPage() {
                       <span style={{ fontWeight: 700 }}>
                         {(selectedBatch.warehouse_stock ?? 0).toLocaleString()}
                         {selectedBatch.consumer_stock > 0 && (
-                          <span style={{ color: "#b08930", fontWeight: 500, marginLeft: 8, fontSize: 12 }}>
+                          <span
+                            style={{
+                              color: "#b08930",
+                              fontWeight: 500,
+                              marginLeft: 8,
+                              fontSize: 12,
+                            }}
+                          >
                             +{selectedBatch.consumer_stock} reserved
                           </span>
                         )}

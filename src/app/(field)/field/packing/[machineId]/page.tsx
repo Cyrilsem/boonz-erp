@@ -253,7 +253,10 @@ export default function PackingDetailPage() {
       .from("warehouses")
       .select("warehouse_id, name");
     const whNameMap = new Map<string, string>(
-      (warehouseRows ?? []).map((w) => [w.warehouse_id as string, w.name as string]),
+      (warehouseRows ?? []).map((w) => [
+        w.warehouse_id as string,
+        w.name as string,
+      ]),
     );
 
     const { data: dispatchLines } = await supabase
@@ -407,7 +410,10 @@ export default function PackingDetailPage() {
         .limit(1000);
       for (const row of directNames ?? []) {
         if (row.boonz_product_name && row.product_id) {
-          boonzIdToName.set(row.product_id as string, row.boonz_product_name as string);
+          boonzIdToName.set(
+            row.product_id as string,
+            row.boonz_product_name as string,
+          );
         }
       }
     }
@@ -634,7 +640,9 @@ export default function PackingDetailPage() {
       // display_name: boonz_product_name for single-variant lines (brand-accurate),
       // pod_product_name for mix lines (category header) or when boonz name unavailable.
       const displayName =
-        !isMix && boonzDisplayName ? boonzDisplayName : product.pod_product_name;
+        !isMix && boonzDisplayName
+          ? boonzDisplayName
+          : product.pod_product_name;
 
       // For mix lines, compute per-variant pack quantities from split percentages.
       // Create a new array per line (don't mutate the shared variantMap entry).
@@ -702,8 +710,7 @@ export default function PackingDetailPage() {
           ((line as Record<string, unknown>).action as string) ?? "Refill",
         dispatch_comment:
           ((line as Record<string, unknown>).comment as string | null) ?? null,
-        from_warehouse_id:
-          (line.from_warehouse_id as string | null) ?? null,
+        from_warehouse_id: (line.from_warehouse_id as string | null) ?? null,
         from_warehouse_name: (() => {
           const whId = line.from_warehouse_id as string | null;
           return whId ? (whNameMap.get(whId) ?? null) : null;
@@ -714,9 +721,12 @@ export default function PackingDetailPage() {
             | "expired"
             | "no_expiry"
             | null) ?? null,
-        returned: !!((line as Record<string, unknown>).returned as boolean | null),
+        returned: !!((line as Record<string, unknown>).returned as
+          | boolean
+          | null),
         return_reason:
-          ((line as Record<string, unknown>).return_reason as string | null) ?? null,
+          ((line as Record<string, unknown>).return_reason as string | null) ??
+          null,
       };
     });
 
@@ -1237,7 +1247,9 @@ export default function PackingDetailPage() {
   const activeLines = lines.filter((l) => !l.returned);
 
   // Pair Add New ↔ Remove by position (engine generates matched pairs)
-  const addNewLines = activeLines.filter((l) => l.dispatch_action === "Add New");
+  const addNewLines = activeLines.filter(
+    (l) => l.dispatch_action === "Add New",
+  );
   const removeLines = activeLines.filter((l) => l.dispatch_action === "Remove");
   const refillLines = activeLines.filter(
     (l) => l.dispatch_action !== "Add New" && l.dispatch_action !== "Remove",

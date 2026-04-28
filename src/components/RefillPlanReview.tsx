@@ -61,7 +61,9 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [planToast, setPlanToast] = useState<string | null>(null);
   /** boonz_product_name → total Active warehouse stock across all warehouses */
-  const [warehouseStockMap, setWarehouseStockMap] = useState<Map<string, number>>(new Map());
+  const [warehouseStockMap, setWarehouseStockMap] = useState<
+    Map<string, number>
+  >(new Map());
   /** Leg 1 staging-transfer requirements (WH_CENTRAL → WH_MM / WH_MCC) */
   const [leg1Items, setLeg1Items] = useState<Leg1Item[]>([]);
 
@@ -95,15 +97,23 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
       if (names.length > 0) {
         const { data: stockRows } = await supabase
           .from("warehouse_inventory")
-          .select("boonz_product_id, warehouse_stock, boonz_products(boonz_product_name)")
+          .select(
+            "boonz_product_id, warehouse_stock, boonz_products(boonz_product_name)",
+          )
           .eq("status", "Active")
           .limit(5000);
         const stockMap = new Map<string, number>();
         for (const row of stockRows ?? []) {
-          const name = (row.boonz_products as unknown as { boonz_product_name: string } | null)
-            ?.boonz_product_name;
+          const name = (
+            row.boonz_products as unknown as {
+              boonz_product_name: string;
+            } | null
+          )?.boonz_product_name;
           if (!name) continue;
-          stockMap.set(name, (stockMap.get(name) ?? 0) + Number(row.warehouse_stock ?? 0));
+          stockMap.set(
+            name,
+            (stockMap.get(name) ?? 0) + Number(row.warehouse_stock ?? 0),
+          );
         }
         setWarehouseStockMap(stockMap);
       }
@@ -112,7 +122,9 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
       // For machines whose primary warehouse is NOT WH_CENTRAL (i.e. staging
       // warehouses like WH_MM / WH_MCC), aggregate plan lines so the warehouse
       // manager knows what to move from WH_CENTRAL before the driver arrives.
-      const machineNames = [...new Set((data as RefillPlanRow[]).map((r) => r.machine_name))];
+      const machineNames = [
+        ...new Set((data as RefillPlanRow[]).map((r) => r.machine_name)),
+      ];
       const { data: machineRows } = await supabase
         .from("machines")
         .select("official_name, primary_warehouse_id, warehouses(name)")
@@ -121,7 +133,8 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
 
       const stagingMachineMap = new Map<string, string>(); // machine_name → staging WH name
       for (const m of machineRows ?? []) {
-        const whName = (m.warehouses as unknown as { name: string } | null)?.name;
+        const whName = (m.warehouses as unknown as { name: string } | null)
+          ?.name;
         if (whName) stagingMachineMap.set(m.official_name as string, whName);
       }
 
@@ -256,7 +269,8 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   const leg1ByWarehouse = useMemo(() => {
     const map = new Map<string, Leg1Item[]>();
     for (const item of leg1Items) {
-      if (!map.has(item.staging_warehouse_name)) map.set(item.staging_warehouse_name, []);
+      if (!map.has(item.staging_warehouse_name))
+        map.set(item.staging_warehouse_name, []);
       map.get(item.staging_warehouse_name)!.push(item);
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
@@ -581,7 +595,8 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                       📦 {whName}
                     </span>
                     <span className="text-xs text-amber-700">
-                      {items.length} SKU{items.length !== 1 ? "s" : ""} · {totalUnits} units
+                      {items.length} SKU{items.length !== 1 ? "s" : ""} ·{" "}
+                      {totalUnits} units
                     </span>
                   </div>
 
@@ -589,10 +604,18 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-[10px]">
-                        <th className="px-3 py-2 text-left font-medium">Boonz Product</th>
-                        <th className="px-3 py-2 text-left font-medium">Pod Product</th>
-                        <th className="px-3 py-2 text-right font-medium">Qty</th>
-                        <th className="px-3 py-2 text-left font-medium">Machines</th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Boonz Product
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Pod Product
+                        </th>
+                        <th className="px-3 py-2 text-right font-medium">
+                          Qty
+                        </th>
+                        <th className="px-3 py-2 text-left font-medium">
+                          Machines
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">

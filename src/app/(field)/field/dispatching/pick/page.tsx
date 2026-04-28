@@ -107,9 +107,11 @@ export default function DispatchPickPage() {
   }
 
   const activeMap =
-    groupBy === "supplier" ? bySupplier :
-    groupBy === "warehouse" ? byWarehouse :
-    byMachine;
+    groupBy === "supplier"
+      ? bySupplier
+      : groupBy === "warehouse"
+        ? byWarehouse
+        : byMachine;
   const groups = Array.from(activeMap.entries()).sort((a, b) =>
     a[0].localeCompare(b[0]),
   );
@@ -221,7 +223,7 @@ export default function DispatchPickPage() {
                           ? `${item.machine_name} · ${item.supplier ?? "—"}`
                           : groupBy === "supplier"
                             ? item.machine_name
-                            : item.supplier ?? "—"}{" "}
+                            : (item.supplier ?? "—")}{" "}
                         · {item.shelf_code}
                       </p>
                     </div>

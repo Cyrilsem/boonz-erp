@@ -360,7 +360,7 @@ export default function MachinesPage() {
     old_machine_id: string;
     new_machine_id: string;
     slots_archived: number;
-    aliases_wired:  number;
+    aliases_wired: number;
   } | null>(null);
   const [repurposeError, setRepurposeError] = useState<string | null>(null);
 
@@ -580,24 +580,29 @@ export default function MachinesPage() {
     setRepurposeError(null);
     const supabase = createClient();
     try {
-      const { data, error } = await supabase.functions.invoke("repurpose-machine", {
-        body: {
-          p_old_machine_id:       repurposeMachineId,
-          p_new_official_name:    repurposeValues.official_name.trim(),
-          p_new_pod_location:     repurposeValues.pod_location.trim() || null,
-          p_new_location_type:    repurposeValues.location_type,
-          p_new_building_id:      repurposeValues.building_id.trim() || null,
-          p_new_source_of_supply: repurposeValues.source_of_supply || null,
-          p_new_venue_group:      repurposeValues.venue_group,
+      const { data, error } = await supabase.functions.invoke(
+        "repurpose-machine",
+        {
+          body: {
+            p_old_machine_id: repurposeMachineId,
+            p_new_official_name: repurposeValues.official_name.trim(),
+            p_new_pod_location: repurposeValues.pod_location.trim() || null,
+            p_new_location_type: repurposeValues.location_type,
+            p_new_building_id: repurposeValues.building_id.trim() || null,
+            p_new_source_of_supply: repurposeValues.source_of_supply || null,
+            p_new_venue_group: repurposeValues.venue_group,
+          },
         },
-      });
+      );
       if (error) {
         // error.message may be a JSON string from the function — unwrap it
         let msg = error.message ?? "Unknown error";
         try {
           const parsed = JSON.parse(msg);
           msg = parsed.error ?? msg;
-        } catch { /* not JSON, use as-is */ }
+        } catch {
+          /* not JSON, use as-is */
+        }
         setRepurposeError(msg);
         setRepurposing(false);
         return;
@@ -608,7 +613,7 @@ export default function MachinesPage() {
           old_machine_id: string;
           new_machine_id: string;
           slots_archived: number;
-          aliases_wired:  number;
+          aliases_wired: number;
         },
       );
       setRepurposeStep("done");
@@ -1306,7 +1311,9 @@ export default function MachinesPage() {
                 <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
                   WEIMI aliases wired:{" "}
                   <strong>{repurposeResult.aliases_wired}</strong>{" "}
-                  <span className="text-xs text-neutral-400">(old + new name → correct UUID)</span>
+                  <span className="text-xs text-neutral-400">
+                    (old + new name → correct UUID)
+                  </span>
                 </p>
                 <button
                   onClick={() => setRepurposeMachineId(null)}
