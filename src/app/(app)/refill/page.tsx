@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { createBrowserClient } from "@supabase/ssr";
-import { RefillPlanReview } from "@/components/RefillPlanReview";
+// RefillPlanReview removed from snapshot tab — plan review is in the Refill Planning tab
 import { getDubaiDate } from "@/lib/utils/date";
 import { DailyDispatchingTab } from "./DailyDispatchingTab";
 import { RefillPlanningTab } from "./RefillPlanningTab";
@@ -857,8 +857,6 @@ export default function RefillPage() {
 
       {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
       <div style={{ display: tab === "snapshot" ? undefined : "none" }}>
-        <RefillPlanReview selectedDate={selectedDate} />
-
         {/* Controls card */}
         <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
           <div className="flex items-center gap-4 flex-wrap">

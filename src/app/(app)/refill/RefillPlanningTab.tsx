@@ -61,16 +61,16 @@ const FILTER_OPTIONS = [
 function actionBadge(action: string) {
   const styles: Record<string, string> = {
     REFILL:
-      "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+      "bg-blue-100 text-blue-700 ",
     REMOVE:
-      "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+      "bg-red-100 text-red-700 ",
     "ADD NEW":
-      "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+      "bg-green-100 text-green-700 ",
   };
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-        styles[action] ?? "bg-neutral-100 text-neutral-600"
+        styles[action] ?? "bg-gray-100 text-gray-600"
       }`}
     >
       {action}
@@ -88,7 +88,7 @@ function tierDot(tier: string) {
   return (
     <span
       className={`inline-block w-2 h-2 rounded-full mr-1.5 flex-shrink-0 ${
-        colors[tier] ?? "bg-neutral-400"
+        colors[tier] ?? "bg-gray-400"
       }`}
     />
   );
@@ -97,13 +97,13 @@ function tierDot(tier: string) {
 function priorityBadge(p: number) {
   if (p === 1)
     return (
-      <span className="text-[9px] font-bold text-red-600 dark:text-red-400">
+      <span className="text-[9px] font-bold text-red-600 ">
         P1
       </span>
     );
   if (p === 2)
     return (
-      <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400">
+      <span className="text-[9px] font-bold text-amber-600 ">
         P2
       </span>
     );
@@ -271,13 +271,13 @@ export function RefillPlanningTab({
   return (
     <div>
       {/* ── Controls ──────────────────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 rounded-xl p-5 mb-6">
+      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
           {/* Filter */}
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100"
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white text-gray-900"
           >
             {FILTER_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -290,7 +290,7 @@ export function RefillPlanningTab({
           <button
             onClick={generate}
             disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50 "
           >
             {generating && (
               <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
@@ -305,7 +305,7 @@ export function RefillPlanningTab({
           {generated && (
             <button
               onClick={() => setShowAdd(true)}
-              className="px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-900"
+              className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               + Add row
             </button>
@@ -328,8 +328,8 @@ export function RefillPlanningTab({
           <div
             className={`mt-3 rounded-lg px-3 py-2 text-sm font-medium ${
               writeResult.ok
-                ? "bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400"
-                : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400"
+                ? "bg-green-50 text-green-700 "
+                : "bg-red-50 text-red-700 "
             }`}
           >
             {writeResult.ok ? "✓ " : "✗ "}
@@ -344,13 +344,13 @@ export function RefillPlanningTab({
           {warnAlerts.map((a, i) => (
             <div
               key={i}
-              className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700"
             >
               ⚠️ {a.msg}
             </div>
           ))}
           {noStockAlerts.length > 0 && (
-            <div className="rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+            <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
               🚨 No WH stock for{" "}
               {noStockAlerts
                 .map((a) => `${a.machine} / ${a.shelf} — ${a.product}`)
@@ -372,10 +372,10 @@ export function RefillPlanningTab({
           ].map(([label, val]) => (
             <div
               key={label as string}
-              className="bg-neutral-50 dark:bg-neutral-900 rounded-xl p-4"
+              className="bg-gray-50 rounded-xl p-4"
             >
               <div className="text-2xl font-medium leading-none">{val}</div>
-              <div className="text-xs text-neutral-500 mt-1">{label}</div>
+              <div className="text-xs text-gray-500 mt-1">{label}</div>
             </div>
           ))}
         </div>
@@ -385,10 +385,10 @@ export function RefillPlanningTab({
       {!generated && !generating && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-4xl mb-3">🧠</div>
-          <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-1">
+          <p className="text-sm font-medium text-gray-600 mb-1">
             Refill plan builder
           </p>
-          <p className="text-xs text-neutral-400 max-w-sm">
+          <p className="text-xs text-gray-400 max-w-sm">
             Select a filter and click <strong>Generate plan</strong> to compute tomorrow&apos;s
             refill plan. Review and edit before writing.
           </p>
@@ -402,12 +402,12 @@ export function RefillPlanningTab({
           return (
             <div
               key={machineName}
-              className="mb-4 border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden"
+              className="mb-4 border border-gray-200 rounded-xl overflow-hidden"
             >
               {/* Machine header */}
-              <div className="flex items-center justify-between px-4 py-3 bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800">
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
                 <span className="font-medium text-sm">{machineName}</span>
-                <span className="text-xs text-neutral-500">
+                <span className="text-xs text-gray-500">
                   {rows.filter(({ idx }) => !removed.has(idx)).length} active
                   lines ·{" "}
                   {rows
@@ -424,7 +424,7 @@ export function RefillPlanningTab({
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-left text-neutral-400 border-b border-neutral-100 dark:border-neutral-800">
+                    <tr className="text-left text-gray-400 border-b border-gray-100 ">
                       <th className="px-4 py-2 font-medium">Shelf</th>
                       <th className="px-4 py-2 font-medium">Action</th>
                       <th className="px-4 py-2 font-medium">Product</th>
@@ -440,10 +440,10 @@ export function RefillPlanningTab({
                     {rows.map(({ row, idx }) => (
                       <tr
                         key={idx}
-                        className={`border-b border-neutral-50 dark:border-neutral-800/50 last:border-0 transition-opacity ${
+                        className={`border-b border-gray-100/50 last:border-0 transition-opacity ${
                           removed.has(idx)
                             ? "opacity-30 line-through"
-                            : "hover:bg-neutral-50/50 dark:hover:bg-neutral-900/30"
+                            : "hover:bg-gray-50"
                         }`}
                       >
                         <td className="px-4 py-2.5 font-mono text-xs">
@@ -460,18 +460,18 @@ export function RefillPlanningTab({
                               <div className="truncate text-xs font-medium">
                                 {row.pod_product_name}
                               </div>
-                              <div className="truncate text-[10px] text-neutral-500">
+                              <div className="truncate text-[10px] text-gray-500">
                                 {row.boonz_product_name}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-right text-neutral-500 whitespace-nowrap">
+                        <td className="px-4 py-2.5 text-right text-gray-500 whitespace-nowrap">
                           {row.current_stock}/{row.max_stock}
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           {row.action === "REMOVE" ? (
-                            <span className="text-neutral-400">—</span>
+                            <span className="text-gray-400">—</span>
                           ) : (
                             <input
                               type="number"
@@ -485,11 +485,11 @@ export function RefillPlanningTab({
                                 setEditedQty((prev) => ({ ...prev, [idx]: v }));
                               }}
                               disabled={removed.has(idx)}
-                              className="w-14 text-right rounded border border-neutral-300 dark:border-neutral-700 px-1.5 py-1 text-xs bg-white dark:bg-neutral-900 disabled:opacity-50"
+                              className="w-14 text-right rounded border border-gray-200 px-1.5 py-1 text-xs bg-white disabled:opacity-50"
                             />
                           )}
                         </td>
-                        <td className="px-4 py-2.5 text-right text-neutral-500">
+                        <td className="px-4 py-2.5 text-right text-gray-500">
                           {row.sold_7d}
                         </td>
                         <td className="px-3 py-2.5 text-right">
@@ -501,7 +501,7 @@ export function RefillPlanningTab({
                                 return n;
                               })
                             }
-                            className="text-[10px] text-neutral-400 hover:text-red-500 dark:hover:text-red-400 px-1 py-0.5 rounded"
+                            className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
                           >
                             {removed.has(idx) ? "Restore" : "×"}
                           </button>
@@ -518,12 +518,12 @@ export function RefillPlanningTab({
       {/* ── Add Row Modal ──────────────────────────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-md bg-white dark:bg-neutral-950 rounded-2xl shadow-2xl p-6">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="font-semibold text-base">Add plan row</h3>
               <button
                 onClick={() => setShowAdd(false)}
-                className="text-neutral-400 hover:text-neutral-600 text-lg"
+                className="text-gray-400 hover:text-gray-600 text-lg"
               >
                 ✕
               </button>
@@ -532,7 +532,7 @@ export function RefillPlanningTab({
             <div className="space-y-3">
               {/* Machine */}
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">
+                <label className="block text-xs text-gray-500 mb-1">
                   Machine <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -540,7 +540,7 @@ export function RefillPlanningTab({
                   onChange={(e) =>
                     setAddForm((f) => ({ ...f, machine_name: e.target.value }))
                   }
-                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 >
                   <option value="">Select machine…</option>
                   {machineNames.map((m) => (
@@ -554,7 +554,7 @@ export function RefillPlanningTab({
               {/* Shelf + Action */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-neutral-500 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Shelf <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -564,11 +564,11 @@ export function RefillPlanningTab({
                     onChange={(e) =>
                       setAddForm((f) => ({ ...f, shelf_code: e.target.value }))
                     }
-                    className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-neutral-500 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Action
                   </label>
                   <select
@@ -579,7 +579,7 @@ export function RefillPlanningTab({
                         action: e.target.value as AddRowForm["action"],
                       }))
                     }
-                    className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                   >
                     <option value="REFILL">REFILL</option>
                     <option value="ADD NEW">ADD NEW</option>
@@ -590,7 +590,7 @@ export function RefillPlanningTab({
 
               {/* Boonz product */}
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">
+                <label className="block text-xs text-gray-500 mb-1">
                   Boonz product name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -603,13 +603,13 @@ export function RefillPlanningTab({
                       boonz_product_name: e.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 />
               </div>
 
               {/* Pod product */}
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">
+                <label className="block text-xs text-gray-500 mb-1">
                   Pod product name
                 </label>
                 <input
@@ -622,14 +622,14 @@ export function RefillPlanningTab({
                       pod_product_name: e.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 />
               </div>
 
               {/* Qty / Current / Max */}
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-neutral-500 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Qty
                   </label>
                   <input
@@ -642,11 +642,11 @@ export function RefillPlanningTab({
                         quantity: parseInt(e.target.value) || 0,
                       }))
                     }
-                    className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-neutral-500 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Current stock
                   </label>
                   <input
@@ -659,11 +659,11 @@ export function RefillPlanningTab({
                         current_stock: parseInt(e.target.value) || 0,
                       }))
                     }
-                    className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-neutral-500 mb-1">
+                  <label className="block text-xs text-gray-500 mb-1">
                     Max stock
                   </label>
                   <input
@@ -676,14 +676,14 @@ export function RefillPlanningTab({
                         max_stock: parseInt(e.target.value) || 10,
                       }))
                     }
-                    className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                   />
                 </div>
               </div>
 
               {/* Comment */}
               <div>
-                <label className="block text-xs text-neutral-500 mb-1">
+                <label className="block text-xs text-gray-500 mb-1">
                   Comment (optional)
                 </label>
                 <input
@@ -692,7 +692,7 @@ export function RefillPlanningTab({
                   onChange={(e) =>
                     setAddForm((f) => ({ ...f, comment: e.target.value }))
                   }
-                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-2 text-sm bg-white dark:bg-neutral-900"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 />
               </div>
             </div>
@@ -700,7 +700,7 @@ export function RefillPlanningTab({
             <div className="mt-5 flex gap-3">
               <button
                 onClick={() => setShowAdd(false)}
-                className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-700 py-2.5 text-sm font-medium text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
               >
                 Cancel
               </button>
@@ -711,7 +711,7 @@ export function RefillPlanningTab({
                   !addForm.shelf_code ||
                   !addForm.boonz_product_name
                 }
-                className="flex-1 rounded-xl bg-neutral-900 py-2.5 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                className="flex-1 rounded-xl bg-gray-900 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-40 "
               >
                 Add row
               </button>
