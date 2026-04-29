@@ -237,10 +237,13 @@ interface AdyenTxn {
   shopper_country: string | null;
 }
 
+type CustomerSegment = "Power User" | "Returning" | "One-off" | "Failed" | "Defaulter" | "Compromised" | "Pure Fraud";
+
 interface CustomerProfile {
-  key: string; // card_bin·card_number_summary·payment_method
-  cardDisplay: string; // "****1234"
+  key: string; // cleanBin-cleanLast4 (dossier format e.g. "531780-3393")
+  cardDisplay: string; // "531780-3393"
   cardBin: string | null;
+  last4: string | null;
   paymentMethod: string | null;
   fundingSource: string | null;
   issuer: string | null;
@@ -249,10 +252,12 @@ interface CustomerProfile {
   settledCount: number;
   refusedCount: number;
   cancelledCount: number;
-  totalSpend: number;
+  totalSpend: number; // SUM of captured_amount_value (true revenue)
+  gap: number;        // SUM of (value_aed - captured_amount_value) on settled
   avgSpend: number;
   firstSeen: string;
   lastSeen: string;
+  segment: CustomerSegment;
   isRepeat: boolean;
   machineCount: number;
   maxRiskScore: number;
@@ -797,20 +802,34 @@ export default function PerformancePage() {
   }, [adyenRows]);
 
   // ── customer intelligence ──
+  // Helper: strip numeric .0 suffix from Adyen card fields stored as float-text
+  const cleanCardField = (v: string | null | undefined): string | null => {
+    if (!v) return null;
+    const s = String(v).replace(/\.0$/, "").trim();
+    return s === "0" || s === "" ? null : s;
+  };
+
   const customerProfiles = useMemo<CustomerProfile[]>(() => {
-    const map = new Map<string, CustomerProfile & { _machines: Set<string> }>();
+    const map = new Map<string, CustomerProfile & { _machines: Set<string>; _fraudFlagged: number }>();
     for (const row of adyenRows) {
-      if (!row.card_number_summary) continue;
-      const key = `${row.card_bin ?? "UNK"}\u00b7${row.card_number_summary}\u00b7${row.payment_method ?? "UNK"}`;
+      const bin  = cleanCardField(row.card_bin);
+      const last4 = cleanCardField(row.card_number_summary);
+      if (!bin || !last4) continue; // skip anonymous & null-card rows
+      const key = `${bin}-${last4}`; // dossier format: "531780-3393"
       const isSettled = SETTLED_STATUSES.has(row.status ?? "");
-      const spend = isSettled ? (row.value_aed ?? 0) : 0;
-      const risk = row.risk_score ?? 0;
+      // ✅ Use captured_amount_value for true revenue (value_aed = AED 1 pre-auth)
+      const captured  = isSettled ? (row.captured_amount_value ?? 0) : 0;
+      const attempted = isSettled ? (row.value_aed ?? 0) : 0;
+      const txnGap    = isSettled ? Math.max(attempted - captured, 0) : 0;
+      const risk  = row.risk_score ?? 0;
+      const isFraudFlagged = risk > 50;
       const existing = map.get(key);
       if (!existing) {
         map.set(key, {
           key,
-          cardDisplay: `****${row.card_number_summary}`,
-          cardBin: row.card_bin ?? null,
+          cardDisplay: key,
+          cardBin: bin,
+          last4,
           paymentMethod: row.payment_method ?? null,
           fundingSource: row.funding_source ?? null,
           issuer: row.issuer ?? null,
@@ -819,36 +838,55 @@ export default function PerformancePage() {
           settledCount: isSettled ? 1 : 0,
           refusedCount: row.status === "Refused" ? 1 : 0,
           cancelledCount: row.status === "Cancelled" ? 1 : 0,
-          totalSpend: spend,
-          avgSpend: spend,
+          totalSpend: captured,
+          gap: txnGap,
+          avgSpend: captured,
           firstSeen: row.creation_date,
           lastSeen: row.creation_date,
+          segment: "One-off",
           isRepeat: false,
           machineCount: 0,
           maxRiskScore: risk,
-          hasHighRisk: risk > 50,
+          hasHighRisk: isFraudFlagged,
           favoriteStore: row.store_description ?? null,
           _machines: new Set(row.machine_id ? [row.machine_id] : []),
+          _fraudFlagged: isFraudFlagged ? 1 : 0,
         });
       } else {
         existing.txnCount++;
         if (isSettled) existing.settledCount++;
         if (row.status === "Refused") existing.refusedCount++;
         if (row.status === "Cancelled") existing.cancelledCount++;
-        existing.totalSpend += spend;
+        existing.totalSpend += captured;
+        existing.gap += txnGap;
         if (row.creation_date < existing.firstSeen) existing.firstSeen = row.creation_date;
         if (row.creation_date > existing.lastSeen) existing.lastSeen = row.creation_date;
         if (risk > existing.maxRiskScore) existing.maxRiskScore = risk;
-        if (risk > 50) existing.hasHighRisk = true;
+        if (isFraudFlagged) { existing.hasHighRisk = true; existing._fraudFlagged++; }
         if (row.machine_id) existing._machines.add(row.machine_id);
       }
     }
-    return Array.from(map.values()).map((cp) => ({
-      ...cp,
-      isRepeat: cp.settledCount > 1,
-      avgSpend: cp.settledCount > 0 ? cp.totalSpend / cp.settledCount : 0,
-      machineCount: cp._machines.size,
-    }));
+    return Array.from(map.values()).map((cp) => {
+      const settled = cp.settledCount;
+      const ff = cp._fraudFlagged;
+      // Dossier-matching segment logic
+      let segment: CustomerSegment;
+      if (ff >= 3)                             segment = "Compromised";
+      else if (ff > 0 && settled === 0)        segment = "Pure Fraud";
+      else if (ff > 0)                         segment = "Compromised";
+      else if (cp.gap > 0 && settled > 0)      segment = "Defaulter";
+      else if (settled === 0)                  segment = "Failed";
+      else if (settled >= 5)                   segment = "Power User";
+      else if (settled >= 2)                   segment = "Returning";
+      else                                     segment = "One-off";
+      return {
+        ...cp,
+        segment,
+        isRepeat: settled > 1,
+        avgSpend: settled > 0 ? cp.totalSpend / settled : 0,
+        machineCount: cp._machines.size,
+      };
+    });
   }, [adyenRows]);
 
   const txnMatchStats = useMemo(() => {
@@ -3491,11 +3529,40 @@ export default function PerformancePage() {
         {/* ── CUSTOMERS ── */}
         {activeTab === "Customers" && (() => {
           // ── derived data for this tab ──
-          const repeatCount = customerProfiles.filter((c) => c.isRepeat).length;
+          const powerUsers   = customerProfiles.filter((c) => c.segment === "Power User");
+          const repeatCount  = customerProfiles.filter((c) => c.isRepeat).length;
           const highRiskTxns = adyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
           const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0);
-          const avgSpendPerCust = customerProfiles.length > 0 ? totalCustSpend / customerProfiles.filter((c) => c.settledCount > 0).length : 0;
+          const paidCustomers = customerProfiles.filter((c) => c.settledCount > 0);
+          const avgSpendPerCust = paidCustomers.length > 0 ? totalCustSpend / paidCustomers.length : 0;
           const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
+          const totalGap = customerProfiles.reduce((s, c) => s + c.gap, 0);
+
+          // segment summary for table at top
+          const segSummary: Record<string, { cards: number; txns: number; revenue: number }> = {};
+          for (const cp of customerProfiles) {
+            if (!segSummary[cp.segment]) segSummary[cp.segment] = { cards: 0, txns: 0, revenue: 0 };
+            segSummary[cp.segment].cards++;
+            segSummary[cp.segment].txns += cp.txnCount;
+            segSummary[cp.segment].revenue += cp.totalSpend;
+          }
+          const SEG_ORDER: CustomerSegment[] = ["Power User","Returning","One-off","Failed","Defaulter","Compromised","Pure Fraud"];
+          const SEG_COLORS: Record<string, string> = {
+            "Power User": "#24544a", "Returning": "#6366F1", "One-off": "#0E3F4D",
+            "Failed": "#9a948e", "Defaulter": "#f97316", "Compromised": "#DC2626", "Pure Fraud": "#7f1d1d",
+          };
+
+          // BIN-level frequency (top 12 by revenue)
+          const binMap: Record<string, { bin: string; issuer: string; cards: number; txns: number; revenue: number; fraud: number }> = {};
+          for (const cp of customerProfiles) {
+            const bin = cp.cardBin ?? "Unknown";
+            if (!binMap[bin]) binMap[bin] = { bin, issuer: cp.issuer ?? bin, cards: 0, txns: 0, revenue: 0, fraud: 0 };
+            binMap[bin].cards++;
+            binMap[bin].txns += cp.txnCount;
+            binMap[bin].revenue += cp.totalSpend;
+            if (cp.hasHighRisk) binMap[bin].fraud++;
+          }
+          const binData = Object.values(binMap).sort((a, b) => b.revenue - a.revenue).slice(0, 12);
 
           // data coverage: two Adyen populations in the DB
           const settledRows = adyenRows.filter((r) => SETTLED_STATUSES.has(r.status ?? ""));
@@ -3673,18 +3740,85 @@ export default function PerformancePage() {
               </div>
 
               {/* ── KPI row ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
-                <StatCard label="Unique Customers" value={fmtN(customerProfiles.length)} subtitle="distinct card fingerprints" accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Repeat Customers" value={`${repeatPct}%`} subtitle={`${fmtN(repeatCount)} with 2+ settled txns`} accent="#e1b460" valueColor="#d97706" />
-                <StatCard label="Avg Spend / Customer" value={fmtAed(avgSpendPerCust)} subtitle="per customer with ≥1 settled txn" accent="#8B5CF6" valueColor="#8B5CF6" />
-                <StatCard label="High-Risk Transactions" value={fmtN(highRiskTxns)} subtitle="risk score > 50 (Adyen)" accent="#DC2626" valueColor="#DC2626" />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
+                <StatCard label="Identified Cards" value={fmtN(customerProfiles.length)} subtitle="BIN + last4 fingerprint" accent="#24544a" valueColor="#24544a" />
+                <StatCard label="Power Users (5+ txns)" value={fmtN(powerUsers.length)} subtitle={`${pct(powerUsers.length, customerProfiles.length)} of cards · ${pct(powerUsers.reduce((s,c)=>s+c.totalSpend,0), totalCustSpend)} of revenue`} accent="#24544a" valueColor="#24544a" />
+                <StatCard label="Total Captured Revenue" value={fmtAed(totalCustSpend)} subtitle="captured_amount_value (true)" accent="#6366F1" valueColor="#6366F1" />
+                <StatCard label="Avg Spend / Card" value={fmtAed(avgSpendPerCust)} subtitle="settled cards only" accent="#8B5CF6" valueColor="#8B5CF6" />
+                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle={`${fmtN(highRiskTxns)} fraud-flagged txns`} accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
               </div>
 
-              {/* ── Charts row 1: Time of Day + New vs Repeat ── */}
+              {/* ── Segment summary table ── */}
+              <div style={{ background: "white", border: "1px solid #e8e4de", borderRadius: 6, marginBottom: 20, overflow: "hidden" }}>
+                <div style={{ padding: "12px 18px", borderBottom: "1px solid #e8e4de", display: "flex", alignItems: "center", gap: 10 }}>
+                  <h3 style={{ fontFamily: font, fontWeight: 700, fontSize: 13, margin: 0 }}>Customer Segments</h3>
+                  <span style={{ fontSize: 10, color: "#6b6860" }}>Dossier methodology · settled≥5=Power User · 2-4=Returning · 1=One-off · 0=Failed · gap=Defaulter · risk{">"}50=Compromised</span>
+                </div>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+                  <thead style={{ background: "#f9f7f4" }}>
+                    <tr>
+                      <th style={{ textAlign: "left", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Segment</th>
+                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Cards</th>
+                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>% Cards</th>
+                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Txns</th>
+                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Revenue</th>
+                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>% Revenue</th>
+                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Avg / Card</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {SEG_ORDER.filter((s) => segSummary[s]).map((seg) => {
+                      const d = segSummary[seg];
+                      const color = SEG_COLORS[seg] ?? "#6b6860";
+                      return (
+                        <tr key={seg} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                          <td style={{ padding: "9px 16px", fontFamily: font }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+                              <span style={{ fontSize: 12, fontWeight: 600, color }}>{seg}</span>
+                            </span>
+                          </td>
+                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12, fontWeight: 700 }}>{fmtN(d.cards)}</td>
+                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 11, color: "#6b6860" }}>{pct(d.cards, customerProfiles.length)}</td>
+                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12 }}>{fmtN(d.txns)}</td>
+                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12, fontWeight: 700, color }}>{fmtAed(d.revenue)}</td>
+                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 11, color: "#6b6860" }}>{pct(d.revenue, totalCustSpend)}</td>
+                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 11, color: "#6b6860" }}>{d.cards > 0 ? fmtAed(d.revenue / d.cards) : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ── Charts row 1: BIN frequency + Time of Day ── */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
                 <div style={chartCard}>
+                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>BIN Frequency — Top Card Families</h3>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Revenue by card issuer BIN · true captured revenue</p>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={binData} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} tickFormatter={(v) => `AED ${fmtN(v)}`} />
+                      <YAxis type="category" dataKey="bin" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} width={52} />
+                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }}
+                        formatter={(v: any, _name: any, props: any) => {
+                          const d = props.payload;
+                          return [`${fmtAed(v)} · ${fmtN(d.cards)} cards · ${fmtN(d.txns)} txns${d.fraud > 0 ? ` · ⚠ ${d.fraud} fraud` : ""}`, d.issuer ?? d.bin];
+                        }}
+                      />
+                      <Bar dataKey="revenue" radius={[0, 3, 3, 0]}>
+                        {binData.map((b, i) => <Cell key={i} fill={b.fraud > 0 ? "#DC2626" : "#24544a"} opacity={b.fraud > 0 ? 1 : 0.85 + i * -0.04} />)}
+                        <LabelList dataKey="revenue" position="right" style={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} formatter={(v: any) => fmtAed(v)} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <p style={{ fontSize: 10, color: "#DC2626", marginTop: 8 }}>🔴 Red bars = BIN has ≥1 fraud-flagged card</p>
+                </div>
+
+                <div style={chartCard}>
                   <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Time of Day</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Hour customers transact (Dubai time, settled only)</p>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Hour customers transact (Dubai time · all Adyen settled)</p>
                   <ResponsiveContainer width="100%" height={200}>
                     <BarChart data={hourData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
@@ -3694,33 +3828,20 @@ export default function PerformancePage() {
                       <Bar dataKey="txns" fill="#24544a" radius={[2, 2, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
-
-                <div style={chartCard}>
-                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>New vs Repeat</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Customer loyalty split by settled transaction count</p>
-                  <div style={{ display: "flex", gap: 14, marginBottom: 14 }}>
-                    {repeatVsNewData.map((d) => (
-                      <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: font }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 2, background: d.fill }} />
-                        <span style={{ color: "#6b6860" }}>{d.label}</span>
-                        <span style={{ fontWeight: 700 }}>{fmtN(d.count)}</span>
-                      </div>
-                    ))}
+                  <div style={{ marginTop: 14 }}>
+                    <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 8 }}>Visit frequency distribution (identified cards)</p>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <BarChart data={freqData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: font, fill: "#6b6860" }} />
+                        <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                        <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} cards`, "Cards"]} />
+                        <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                          {freqData.map((_, i) => <Cell key={i} fill={i === 0 ? "#9a948e" : i === 1 ? "#6366F1" : i === 2 ? "#24544a" : "#e1b460"} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
-                  <ResponsiveContainer width="100%" height={160}>
-                    <BarChart data={freqData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
-                      <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: font, fill: "#6b6860" }} />
-                      <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} customers`, "Customers"]} />
-                      <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                        {freqData.map((entry, index) => (
-                          <Cell key={index} fill={index === 0 ? "#24544a" : index === 1 ? "#6366F1" : index === 2 ? "#e1b460" : "#d97706"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
                 </div>
               </div>
 
@@ -3798,17 +3919,17 @@ export default function PerformancePage() {
                   <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
                     <thead style={{ background: "#f9f7f4" }}>
                       <tr>
-                        <th style={thStyle}>Card</th>
-                        <th style={thStyle}>Method</th>
-                        <th style={thStyle}>Funding</th>
+                        <th style={thStyle}>Card ID</th>
+                        <th style={thStyle}>Segment</th>
                         <th style={thStyle}>Issuer</th>
                         <th style={thStyle}>Country</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Settled Txns</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Total Spend</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Avg Spend</th>
+                        <th style={thStyle}>Funding</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Settled</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Captured Rev.</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Avg / Visit</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Gap</th>
                         <th style={thStyle}>First Seen</th>
                         <th style={thStyle}>Last Seen</th>
-                        <th style={{ ...thStyle, textAlign: "center" }}>Repeat</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Risk</th>
                       </tr>
                     </thead>
@@ -3827,25 +3948,20 @@ export default function PerformancePage() {
                             onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isSelected ? "rgba(36,84,74,0.07)" : "white"; }}
                           >
                             <td style={tdStyle}>
-                              <span style={{ fontWeight: 700, letterSpacing: "0.04em", color: isSelected ? "#24544a" : "#0a0a0a" }}>{cp.cardDisplay}</span>
-                              {cp.cardBin && <span style={{ fontSize: 9, color: "#9a948e", marginLeft: 4 }}>BIN {cp.cardBin}</span>}
+                              <span style={{ fontWeight: 700, fontFamily: "monospace", fontSize: 11, color: isSelected ? "#24544a" : "#0a0a0a" }}>{cp.cardDisplay}</span>
                             </td>
-                            <td style={tdStyle}><span style={{ color: "#2A3547" }}>{cp.paymentMethod ?? "—"}</span></td>
-                            <td style={tdStyle}><span style={{ color: "#6b6860" }}>{cp.fundingSource ?? "—"}</span></td>
-                            <td style={tdStyle}><span style={{ fontSize: 11 }}>{cp.issuer ?? "—"}</span></td>
-                            <td style={tdStyle}><span style={{ fontSize: 11 }}>{cp.issuerCountry ?? "—"}</span></td>
+                            <td style={tdStyle}>
+                              <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: `${SEG_COLORS[cp.segment]}18`, color: SEG_COLORS[cp.segment] }}>{cp.segment}</span>
+                            </td>
+                            <td style={{ ...tdStyle, fontSize: 11 }}>{cp.issuer ?? "—"}</td>
+                            <td style={{ ...tdStyle, fontSize: 11 }}>{cp.issuerCountry ?? "—"}</td>
+                            <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>{cp.fundingSource ?? "—"}</td>
                             <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(cp.settledCount)}</td>
                             <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(cp.totalSpend)}</td>
                             <td style={{ ...tdStyle, textAlign: "right", color: "#6b6860" }}>{fmtAed(cp.avgSpend)}</td>
-                            <td style={{ ...tdStyle, color: "#6b6860" }}>{dubaiDate(cp.firstSeen)}</td>
-                            <td style={{ ...tdStyle, color: "#6b6860" }}>{dubaiDate(cp.lastSeen)}</td>
-                            <td style={{ ...tdStyle, textAlign: "center" }}>
-                              {cp.isRepeat ? (
-                                <span style={{ fontSize: 10, fontWeight: 600, color: "#d97706", background: "rgba(217,119,6,0.1)", padding: "2px 8px", borderRadius: 999 }}>REPEAT</span>
-                              ) : (
-                                <span style={{ fontSize: 10, color: "#9a948e" }}>new</span>
-                              )}
-                            </td>
+                            <td style={{ ...tdStyle, textAlign: "right", color: cp.gap > 0 ? "#DC2626" : "#e8e4de" }}>{cp.gap > 0 ? fmtAed(cp.gap) : "—"}</td>
+                            <td style={{ ...tdStyle, color: "#6b6860", fontSize: 11 }}>{dubaiDate(cp.firstSeen)}</td>
+                            <td style={{ ...tdStyle, color: "#6b6860", fontSize: 11 }}>{dubaiDate(cp.lastSeen)}</td>
                             <td style={{ ...tdStyle, textAlign: "right" }}>
                               {cp.maxRiskScore > 0 ? (
                                 <span style={{ fontSize: 10, fontWeight: 600, color: cp.hasHighRisk ? "#DC2626" : "#6b6860", background: cp.hasHighRisk ? "rgba(220,38,38,0.08)" : "transparent", padding: "2px 6px", borderRadius: 999 }}>
