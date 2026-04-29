@@ -30,6 +30,7 @@ const TABS = [
   "Products",
   "Payments",
   "Transactions",
+  "Customers",
   "Commercial",
 ] as const;
 type Tab = (typeof TABS)[number];
@@ -227,6 +228,36 @@ interface AdyenTxn {
   store_description: string | null;
   psp_reference: string | null;
   merchant_reference: string | null;
+  // customer intelligence fields
+  card_number_summary: string | null;
+  card_bin: string | null;
+  issuer: string | null;
+  issuer_country: string | null;
+  risk_score: number | null;
+  shopper_country: string | null;
+}
+
+interface CustomerProfile {
+  key: string; // card_bin·card_number_summary·payment_method
+  cardDisplay: string; // "****1234"
+  cardBin: string | null;
+  paymentMethod: string | null;
+  fundingSource: string | null;
+  issuer: string | null;
+  issuerCountry: string | null;
+  txnCount: number;
+  settledCount: number;
+  refusedCount: number;
+  cancelledCount: number;
+  totalSpend: number;
+  avgSpend: number;
+  firstSeen: string;
+  lastSeen: string;
+  isRepeat: boolean;
+  machineCount: number;
+  maxRiskScore: number;
+  hasHighRisk: boolean;
+  favoriteStore: string | null;
 }
 
 interface MachineInfo {
@@ -534,6 +565,14 @@ export default function PerformancePage() {
   const [txnGroup, setTxnGroup] = useState<GroupFilter>("All");
   const [txnFunding, setTxnFunding] = useState("All");
 
+  // customers tab state
+  const [custSearch, setCustSearch] = useState("");
+  const [custSort, setCustSort] = useState<"txns" | "spend" | "last_seen" | "risk">("txns");
+  const [custSortDir, setCustSortDir] = useState<"desc" | "asc">("desc");
+  const [selectedCustKey, setSelectedCustKey] = useState<string | null>(null);
+  const [custPage, setCustPage] = useState(0);
+  const CUST_PAGE_SIZE = 50;
+
   // ── fetch data ──
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -565,7 +604,7 @@ export default function PerformancePage() {
       const adyenQuery = supabase
         .from("adyen_transactions")
         .select(
-          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference",
+          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference, card_number_summary, card_bin, issuer, issuer_country, risk_score, shopper_country",
         )
         .gte("creation_date", `${adyenFrom}T00:00:00+04:00`) // Dubai midnight
         .lte("creation_date", `${adyenTo}T23:59:59+04:00`); // Dubai end-of-day
@@ -755,6 +794,61 @@ export default function PerformancePage() {
       if (a.merchant_reference) m.set(a.merchant_reference, a);
     }
     return m;
+  }, [adyenRows]);
+
+  // ── customer intelligence ──
+  const customerProfiles = useMemo<CustomerProfile[]>(() => {
+    const map = new Map<string, CustomerProfile & { _machines: Set<string> }>();
+    for (const row of adyenRows) {
+      if (!row.card_number_summary) continue;
+      const key = `${row.card_bin ?? "UNK"}\u00b7${row.card_number_summary}\u00b7${row.payment_method ?? "UNK"}`;
+      const isSettled = SETTLED_STATUSES.has(row.status ?? "");
+      const spend = isSettled ? (row.value_aed ?? 0) : 0;
+      const risk = row.risk_score ?? 0;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          key,
+          cardDisplay: `****${row.card_number_summary}`,
+          cardBin: row.card_bin ?? null,
+          paymentMethod: row.payment_method ?? null,
+          fundingSource: row.funding_source ?? null,
+          issuer: row.issuer ?? null,
+          issuerCountry: row.issuer_country ?? null,
+          txnCount: 1,
+          settledCount: isSettled ? 1 : 0,
+          refusedCount: row.status === "Refused" ? 1 : 0,
+          cancelledCount: row.status === "Cancelled" ? 1 : 0,
+          totalSpend: spend,
+          avgSpend: spend,
+          firstSeen: row.creation_date,
+          lastSeen: row.creation_date,
+          isRepeat: false,
+          machineCount: 0,
+          maxRiskScore: risk,
+          hasHighRisk: risk > 50,
+          favoriteStore: row.store_description ?? null,
+          _machines: new Set(row.machine_id ? [row.machine_id] : []),
+        });
+      } else {
+        existing.txnCount++;
+        if (isSettled) existing.settledCount++;
+        if (row.status === "Refused") existing.refusedCount++;
+        if (row.status === "Cancelled") existing.cancelledCount++;
+        existing.totalSpend += spend;
+        if (row.creation_date < existing.firstSeen) existing.firstSeen = row.creation_date;
+        if (row.creation_date > existing.lastSeen) existing.lastSeen = row.creation_date;
+        if (risk > existing.maxRiskScore) existing.maxRiskScore = risk;
+        if (risk > 50) existing.hasHighRisk = true;
+        if (row.machine_id) existing._machines.add(row.machine_id);
+      }
+    }
+    return Array.from(map.values()).map((cp) => ({
+      ...cp,
+      isRepeat: cp.settledCount > 1,
+      avgSpend: cp.settledCount > 0 ? cp.totalSpend / cp.settledCount : 0,
+      machineCount: cp._machines.size,
+    }));
   }, [adyenRows]);
 
   const txnMatchStats = useMemo(() => {
@@ -3393,6 +3487,476 @@ export default function PerformancePage() {
             </div>
           </div>
         )}
+
+        {/* ── CUSTOMERS ── */}
+        {activeTab === "Customers" && (() => {
+          // ── derived data for this tab ──
+          const repeatCount = customerProfiles.filter((c) => c.isRepeat).length;
+          const highRiskTxns = adyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
+          const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0);
+          const avgSpendPerCust = customerProfiles.length > 0 ? totalCustSpend / customerProfiles.filter((c) => c.settledCount > 0).length : 0;
+          const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
+
+          // hour-of-day buckets (24h, Dubai TZ, settled txns only)
+          const hourBuckets: number[] = Array(24).fill(0);
+          for (const r of adyenRows) {
+            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+            hourBuckets[dubaiHour(r.creation_date)]++;
+          }
+          const hourData = hourBuckets.map((count, h) => ({
+            hour: `${String(h).padStart(2, "0")}:00`,
+            txns: count,
+          }));
+
+          // issuer country top-10
+          const countryMap: Record<string, number> = {};
+          for (const r of adyenRows) {
+            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+            const c = r.issuer_country ?? "Unknown";
+            countryMap[c] = (countryMap[c] ?? 0) + 1;
+          }
+          const countryData = Object.entries(countryMap)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10)
+            .map(([country, count]) => ({ country, count }));
+
+          // visit-frequency buckets
+          const freqBuckets = { "1": 0, "2–3": 0, "4–10": 0, "10+": 0 };
+          for (const cp of customerProfiles) {
+            if (cp.settledCount === 1) freqBuckets["1"]++;
+            else if (cp.settledCount <= 3) freqBuckets["2–3"]++;
+            else if (cp.settledCount <= 10) freqBuckets["4–10"]++;
+            else freqBuckets["10+"]++;
+          }
+          const freqData = Object.entries(freqBuckets).map(([label, count]) => ({ label, count }));
+
+          // new vs repeat by payment method (for stacked chart)
+          const repeatVsNewData = [
+            { label: "New (1 visit)", count: customerProfiles.filter((c) => !c.isRepeat).length, fill: "#24544a" },
+            { label: "Repeat (2+ visits)", count: repeatCount, fill: "#e1b460" },
+          ];
+
+          // ── customer list derivation ──
+          const custSearchLow = custSearch.toLowerCase();
+          const filteredCusts = customerProfiles.filter((cp) => {
+            if (!custSearchLow) return true;
+            return (
+              cp.cardDisplay.toLowerCase().includes(custSearchLow) ||
+              (cp.paymentMethod ?? "").toLowerCase().includes(custSearchLow) ||
+              (cp.issuer ?? "").toLowerCase().includes(custSearchLow) ||
+              (cp.issuerCountry ?? "").toLowerCase().includes(custSearchLow)
+            );
+          });
+          const sortedCusts = [...filteredCusts].sort((a, b) => {
+            let av = 0, bv = 0;
+            if (custSort === "txns") { av = a.settledCount; bv = b.settledCount; }
+            else if (custSort === "spend") { av = a.totalSpend; bv = b.totalSpend; }
+            else if (custSort === "last_seen") { av = new Date(a.lastSeen).getTime(); bv = new Date(b.lastSeen).getTime(); }
+            else { av = a.maxRiskScore; bv = b.maxRiskScore; }
+            return custSortDir === "desc" ? bv - av : av - bv;
+          });
+          const custPageCount = Math.max(1, Math.ceil(sortedCusts.length / CUST_PAGE_SIZE));
+          const safeCustPage = Math.min(custPage, custPageCount - 1);
+          const pagedCusts = sortedCusts.slice(safeCustPage * CUST_PAGE_SIZE, (safeCustPage + 1) * CUST_PAGE_SIZE);
+
+          // ── selected customer detail ──
+          const selectedCust = selectedCustKey ? customerProfiles.find((c) => c.key === selectedCustKey) ?? null : null;
+          const selectedTxns = selectedCustKey
+            ? adyenRows
+                .filter((r) => `${r.card_bin ?? "UNK"}\u00b7${r.card_number_summary}\u00b7${r.payment_method ?? "UNK"}` === selectedCustKey)
+                .sort((a, b) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
+            : [];
+          // daily spend for selected customer sparkline
+          const custDailyMap: Record<string, number> = {};
+          for (const r of selectedTxns) {
+            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+            const d = dubaiDate(r.creation_date);
+            custDailyMap[d] = (custDailyMap[d] ?? 0) + (r.value_aed ?? 0);
+          }
+          const custDailyData = Object.entries(custDailyMap).sort().map(([date, amount]) => ({ date, amount }));
+          // hour pattern for selected customer
+          const custHourBuckets: number[] = Array(24).fill(0);
+          for (const r of selectedTxns) {
+            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+            custHourBuckets[dubaiHour(r.creation_date)]++;
+          }
+          const custHourData = custHourBuckets.map((count, h) => ({ hour: `${String(h).padStart(2, "0")}`, txns: count }));
+
+          // shared styles
+          const chartCard = {
+            background: "white" as const,
+            border: "1px solid #e8e4de",
+            borderRadius: 6,
+            padding: "18px 20px",
+          };
+          const sortPillStyle = (active: boolean) => ({
+            padding: "5px 12px",
+            borderRadius: 4,
+            border: `1px solid ${active ? "#24544a" : "#e8e4de"}`,
+            background: active ? "rgba(36,84,74,0.12)" : "#ffffff",
+            color: active ? "#24544a" : "#9a948e",
+            fontSize: 11,
+            fontFamily: font,
+            cursor: "pointer" as const,
+            transition: "all .15s",
+          });
+          const thStyle: React.CSSProperties = {
+            textAlign: "left",
+            fontWeight: 700,
+            fontSize: 10,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "#6b6860",
+            padding: "8px 12px",
+            borderBottom: "1px solid #e8e4de",
+            whiteSpace: "nowrap",
+          };
+          const tdStyle: React.CSSProperties = {
+            padding: "10px 12px",
+            fontSize: 12,
+            fontFamily: font,
+            borderBottom: "1px solid #f5f2ee",
+            whiteSpace: "nowrap",
+          };
+
+          return (
+            <div>
+              <SectionLabel text={`${dateFrom} to ${dateTo} \u00B7 CUSTOMER INTELLIGENCE`} />
+              <h2 style={{ fontFamily: font, fontWeight: 700, fontSize: 22, letterSpacing: "-0.5px", marginBottom: 4 }}>
+                Customer Profiles
+              </h2>
+              <p style={{ fontSize: 11, color: "#6b6860", marginBottom: 20 }}>
+                {fmtN(customerProfiles.length)} unique customers &middot; identified by Adyen card fingerprint (BIN + last 4 digits)
+              </p>
+
+              {/* ── KPI row ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+                <StatCard label="Unique Customers" value={fmtN(customerProfiles.length)} subtitle="distinct card fingerprints" accent="#24544a" valueColor="#24544a" />
+                <StatCard label="Repeat Customers" value={`${repeatPct}%`} subtitle={`${fmtN(repeatCount)} with 2+ settled txns`} accent="#e1b460" valueColor="#d97706" />
+                <StatCard label="Avg Spend / Customer" value={fmtAed(avgSpendPerCust)} subtitle="per customer with ≥1 settled txn" accent="#8B5CF6" valueColor="#8B5CF6" />
+                <StatCard label="High-Risk Transactions" value={fmtN(highRiskTxns)} subtitle="risk score > 50 (Adyen)" accent="#DC2626" valueColor="#DC2626" />
+              </div>
+
+              {/* ── Charts row 1: Time of Day + New vs Repeat ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                <div style={chartCard}>
+                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Time of Day</h3>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Hour customers transact (Dubai time, settled only)</p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={hourData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
+                      <XAxis dataKey="hour" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} interval={3} />
+                      <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
+                      <Bar dataKey="txns" fill="#24544a" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div style={chartCard}>
+                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>New vs Repeat</h3>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Customer loyalty split by settled transaction count</p>
+                  <div style={{ display: "flex", gap: 14, marginBottom: 14 }}>
+                    {repeatVsNewData.map((d) => (
+                      <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontFamily: font }}>
+                        <div style={{ width: 10, height: 10, borderRadius: 2, background: d.fill }} />
+                        <span style={{ color: "#6b6860" }}>{d.label}</span>
+                        <span style={{ fontWeight: 700 }}>{fmtN(d.count)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <BarChart data={freqData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: font, fill: "#6b6860" }} />
+                      <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} customers`, "Customers"]} />
+                      <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                        {freqData.map((entry, index) => (
+                          <Cell key={index} fill={index === 0 ? "#24544a" : index === 1 ? "#6366F1" : index === 2 ? "#e1b460" : "#d97706"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* ── Charts row 2: Issuer Countries ── */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
+                <div style={chartCard}>
+                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Issuer Countries</h3>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Top 10 card-issuing countries by settled transaction count</p>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={countryData} layout="vertical" margin={{ top: 0, right: 20, bottom: 0, left: 40 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" horizontal={false} />
+                      <XAxis type="number" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                      <YAxis type="category" dataKey="country" tick={{ fontSize: 10, fontFamily: font, fill: "#6b6860" }} width={36} />
+                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
+                      <Bar dataKey="count" fill="#0E3F4D" radius={[0, 3, 3, 0]}>
+                        <LabelList dataKey="count" position="right" style={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div style={chartCard}>
+                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Fraud Risk Distribution</h3>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Adyen risk score 0–100 across all transactions</p>
+                  {(() => {
+                    const riskBuckets = [
+                      { label: "0–10 Safe", count: adyenRows.filter((r) => (r.risk_score ?? 0) <= 10).length, fill: "#24544a" },
+                      { label: "11–30", count: adyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 10 && s <= 30; }).length, fill: "#6366F1" },
+                      { label: "31–50", count: adyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 30 && s <= 50; }).length, fill: "#e1b460" },
+                      { label: "51–75 High", count: adyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 50 && s <= 75; }).length, fill: "#f97316" },
+                      { label: "76–100 Critical", count: adyenRows.filter((r) => (r.risk_score ?? 0) > 75).length, fill: "#DC2626" },
+                    ];
+                    return (
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={riskBuckets} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
+                          <XAxis dataKey="label" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                          <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
+                          <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
+                          <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                            {riskBuckets.map((b, i) => <Cell key={i} fill={b.fill} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* ── Customer List ── */}
+              <div style={{ background: "white", border: "1px solid #e8e4de", borderRadius: 6, overflow: "hidden", marginBottom: selectedCust ? 0 : 0 }}>
+                <div style={{ padding: "14px 18px", borderBottom: "1px solid #e8e4de", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <h3 style={{ fontFamily: font, fontWeight: 700, fontSize: 14, margin: 0 }}>
+                    All Customers
+                  </h3>
+                  <span style={{ fontSize: 11, color: "#6b6860" }}>{fmtN(filteredCusts.length)} results</span>
+                  <input
+                    type="text"
+                    placeholder="Search card, method, issuer…"
+                    value={custSearch}
+                    onChange={(e) => { setCustSearch(e.target.value); setCustPage(0); }}
+                    style={{ marginLeft: "auto", padding: "6px 12px", fontSize: 11, fontFamily: font, border: "1px solid #e8e4de", borderRadius: 4, width: 220, outline: "none" }}
+                  />
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 10, color: "#6b6860", letterSpacing: "0.06em", textTransform: "uppercase" }}>Sort</span>
+                    {(["txns", "spend", "last_seen", "risk"] as const).map((s) => (
+                      <button key={s} style={sortPillStyle(custSort === s)} onClick={() => { if (custSort === s) setCustSortDir((d) => d === "desc" ? "asc" : "desc"); else { setCustSort(s); setCustSortDir("desc"); } setCustPage(0); }}>
+                        {s === "txns" ? "Txns" : s === "spend" ? "Spend" : s === "last_seen" ? "Last Seen" : "Risk"}{custSort === s ? (custSortDir === "desc" ? " ↓" : " ↑") : ""}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+                    <thead style={{ background: "#f9f7f4" }}>
+                      <tr>
+                        <th style={thStyle}>Card</th>
+                        <th style={thStyle}>Method</th>
+                        <th style={thStyle}>Funding</th>
+                        <th style={thStyle}>Issuer</th>
+                        <th style={thStyle}>Country</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Settled Txns</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Total Spend</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Avg Spend</th>
+                        <th style={thStyle}>First Seen</th>
+                        <th style={thStyle}>Last Seen</th>
+                        <th style={{ ...thStyle, textAlign: "center" }}>Repeat</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Risk</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedCusts.length === 0 && (
+                        <tr><td colSpan={12} style={{ ...tdStyle, color: "#6b6860", textAlign: "center", padding: "28px" }}>No customers match the current filter.</td></tr>
+                      )}
+                      {pagedCusts.map((cp) => {
+                        const isSelected = cp.key === selectedCustKey;
+                        return (
+                          <tr
+                            key={cp.key}
+                            onClick={() => setSelectedCustKey(isSelected ? null : cp.key)}
+                            style={{ background: isSelected ? "rgba(36,84,74,0.07)" : "white", cursor: "pointer", transition: "background .1s" }}
+                            onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "#fafaf8"; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isSelected ? "rgba(36,84,74,0.07)" : "white"; }}
+                          >
+                            <td style={tdStyle}>
+                              <span style={{ fontWeight: 700, letterSpacing: "0.04em", color: isSelected ? "#24544a" : "#0a0a0a" }}>{cp.cardDisplay}</span>
+                              {cp.cardBin && <span style={{ fontSize: 9, color: "#9a948e", marginLeft: 4 }}>BIN {cp.cardBin}</span>}
+                            </td>
+                            <td style={tdStyle}><span style={{ color: "#2A3547" }}>{cp.paymentMethod ?? "—"}</span></td>
+                            <td style={tdStyle}><span style={{ color: "#6b6860" }}>{cp.fundingSource ?? "—"}</span></td>
+                            <td style={tdStyle}><span style={{ fontSize: 11 }}>{cp.issuer ?? "—"}</span></td>
+                            <td style={tdStyle}><span style={{ fontSize: 11 }}>{cp.issuerCountry ?? "—"}</span></td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(cp.settledCount)}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(cp.totalSpend)}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", color: "#6b6860" }}>{fmtAed(cp.avgSpend)}</td>
+                            <td style={{ ...tdStyle, color: "#6b6860" }}>{dubaiDate(cp.firstSeen)}</td>
+                            <td style={{ ...tdStyle, color: "#6b6860" }}>{dubaiDate(cp.lastSeen)}</td>
+                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                              {cp.isRepeat ? (
+                                <span style={{ fontSize: 10, fontWeight: 600, color: "#d97706", background: "rgba(217,119,6,0.1)", padding: "2px 8px", borderRadius: 999 }}>REPEAT</span>
+                              ) : (
+                                <span style={{ fontSize: 10, color: "#9a948e" }}>new</span>
+                              )}
+                            </td>
+                            <td style={{ ...tdStyle, textAlign: "right" }}>
+                              {cp.maxRiskScore > 0 ? (
+                                <span style={{ fontSize: 10, fontWeight: 600, color: cp.hasHighRisk ? "#DC2626" : "#6b6860", background: cp.hasHighRisk ? "rgba(220,38,38,0.08)" : "transparent", padding: "2px 6px", borderRadius: 999 }}>
+                                  {Math.round(cp.maxRiskScore)}
+                                </span>
+                              ) : <span style={{ color: "#e8e4de" }}>—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* pagination */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px", borderTop: "1px solid #e8e4de" }}>
+                  <span style={{ fontSize: 11, color: "#6b6860" }}>
+                    Page {safeCustPage + 1} of {custPageCount} &middot; {fmtN(filteredCusts.length)} customers
+                  </span>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button disabled={safeCustPage === 0} onClick={() => setCustPage((p) => Math.max(0, p - 1))} style={{ padding: "5px 14px", borderRadius: 4, border: "1px solid #e8e4de", background: "#ffffff", color: safeCustPage === 0 ? "#e8e4de" : "#6b6860", cursor: safeCustPage === 0 ? "default" : "pointer", fontFamily: font, fontSize: 11 }}>Prev</button>
+                    <button disabled={safeCustPage >= custPageCount - 1} onClick={() => setCustPage((p) => Math.min(custPageCount - 1, p + 1))} style={{ padding: "5px 14px", borderRadius: 4, border: "1px solid #e8e4de", background: "#ffffff", color: safeCustPage >= custPageCount - 1 ? "#e8e4de" : "#6b6860", cursor: safeCustPage >= custPageCount - 1 ? "default" : "pointer", fontFamily: font, fontSize: 11 }}>Next</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Customer Detail Panel ── */}
+              {selectedCust && (
+                <div style={{ marginTop: 16, background: "white", border: "2px solid #24544a", borderRadius: 8, overflow: "hidden" }}>
+                  {/* header */}
+                  <div style={{ background: "#0F4D3A", padding: "14px 20px", display: "flex", alignItems: "center", gap: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#86efac", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 2 }}>Customer Detail</div>
+                      <div style={{ fontFamily: font, fontWeight: 800, fontSize: 20, color: "white", letterSpacing: "-0.5px" }}>
+                        {selectedCust.cardDisplay}
+                        {selectedCust.cardBin && <span style={{ fontSize: 12, fontWeight: 400, color: "#86efac", marginLeft: 8 }}>BIN {selectedCust.cardBin}</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginLeft: 24, flexWrap: "wrap" }}>
+                      {selectedCust.paymentMethod && <span style={{ fontSize: 11, color: "#cbd5e1", background: "rgba(255,255,255,0.1)", padding: "3px 10px", borderRadius: 999 }}>{selectedCust.paymentMethod}</span>}
+                      {selectedCust.fundingSource && <span style={{ fontSize: 11, color: "#cbd5e1", background: "rgba(255,255,255,0.1)", padding: "3px 10px", borderRadius: 999 }}>{selectedCust.fundingSource}</span>}
+                      {selectedCust.issuerCountry && <span style={{ fontSize: 11, color: "#cbd5e1", background: "rgba(255,255,255,0.1)", padding: "3px 10px", borderRadius: 999 }}>{selectedCust.issuerCountry}</span>}
+                      {selectedCust.isRepeat && <span style={{ fontSize: 11, fontWeight: 700, color: "#fef08a", background: "rgba(217,119,6,0.3)", padding: "3px 10px", borderRadius: 999 }}>REPEAT</span>}
+                      {selectedCust.hasHighRisk && <span style={{ fontSize: 11, fontWeight: 700, color: "#fca5a5", background: "rgba(220,38,38,0.25)", padding: "3px 10px", borderRadius: 999 }}>⚠ HIGH RISK</span>}
+                    </div>
+                    <button
+                      onClick={() => setSelectedCustKey(null)}
+                      style={{ marginLeft: "auto", padding: "6px 14px", border: "1px solid rgba(255,255,255,0.3)", background: "transparent", color: "white", borderRadius: 4, cursor: "pointer", fontSize: 11, fontFamily: font }}
+                    >
+                      Close ✕
+                    </button>
+                  </div>
+
+                  <div style={{ padding: "18px 20px" }}>
+                    {/* mini KPIs */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
+                      <StatCard label="Settled Txns" value={fmtN(selectedCust.settledCount)} accent="#24544a" valueColor="#24544a" />
+                      <StatCard label="Total Spend" value={fmtAed(selectedCust.totalSpend)} accent="#24544a" valueColor="#24544a" />
+                      <StatCard label="Avg per Visit" value={fmtAed(selectedCust.avgSpend)} accent="#6366F1" valueColor="#6366F1" />
+                      <StatCard label="Risk Score" value={selectedCust.maxRiskScore > 0 ? `${Math.round(selectedCust.maxRiskScore)}` : "—"} subtitle="max Adyen score" accent={selectedCust.hasHighRisk ? "#DC2626" : "#6b6860"} valueColor={selectedCust.hasHighRisk ? "#DC2626" : "#0a0a0a"} />
+                      <StatCard label="Refused / Cancelled" value={`${fmtN(selectedCust.refusedCount)} / ${fmtN(selectedCust.cancelledCount)}`} subtitle="declined transactions" accent="#e1b460" valueColor="#d97706" />
+                    </div>
+
+                    {/* mini charts */}
+                    {(custDailyData.length > 0 || custHourData.some((h) => h.txns > 0)) && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+                        {custDailyData.length > 1 && (
+                          <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
+                            <h4 style={{ fontFamily: font, fontWeight: 600, fontSize: 12, marginBottom: 10, color: "#0a0a0a" }}>Spend Over Time</h4>
+                            <ResponsiveContainer width="100%" height={130}>
+                              <LineChart data={custDailyData} margin={{ top: 0, right: 4, bottom: 0, left: -28 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" vertical={false} />
+                                <XAxis dataKey="date" tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} interval="preserveStartEnd" />
+                                <YAxis tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} />
+                                <Tooltip contentStyle={{ fontFamily: font, fontSize: 10, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [fmtAed(v), "Spend"]} />
+                                <Line type="monotone" dataKey="amount" stroke="#24544a" strokeWidth={2} dot={false} />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                        )}
+                        <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
+                          <h4 style={{ fontFamily: font, fontWeight: 600, fontSize: 12, marginBottom: 10, color: "#0a0a0a" }}>Hour Pattern (Dubai time)</h4>
+                          <ResponsiveContainer width="100%" height={130}>
+                            <BarChart data={custHourData} margin={{ top: 0, right: 4, bottom: 0, left: -28 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" vertical={false} />
+                              <XAxis dataKey="hour" tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} interval={5} />
+                              <YAxis tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} allowDecimals={false} />
+                              <Tooltip contentStyle={{ fontFamily: font, fontSize: 10, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
+                              <Bar dataKey="txns" fill="#24544a" radius={[2, 2, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* transactions table */}
+                    <h4 style={{ fontFamily: font, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
+                      Transaction History &middot; <span style={{ fontWeight: 400, color: "#6b6860" }}>{fmtN(selectedTxns.length)} records</span>
+                    </h4>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+                        <thead style={{ background: "#f9f7f4" }}>
+                          <tr>
+                            <th style={thStyle}>Date (Dubai)</th>
+                            <th style={thStyle}>Store</th>
+                            <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
+                            <th style={thStyle}>Status</th>
+                            <th style={thStyle}>Method</th>
+                            <th style={thStyle}>Funding</th>
+                            <th style={{ ...thStyle, textAlign: "right" }}>Risk</th>
+                            <th style={thStyle}>PSP Ref</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedTxns.slice(0, 200).map((r) => {
+                            const isSettled = SETTLED_STATUSES.has(r.status ?? "");
+                            const riskScore = r.risk_score ?? 0;
+                            return (
+                              <tr key={r.adyen_txn_id} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                                <td style={tdStyle}>{dubaiDate(r.creation_date)} {dubaiTime(r.creation_date)}</td>
+                                <td style={{ ...tdStyle, color: "#6b6860", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{r.store_description ?? "—"}</td>
+                                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: isSettled ? "#24544a" : "#9a948e" }}>{fmtAed(r.value_aed ?? 0)}</td>
+                                <td style={tdStyle}>
+                                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: isSettled ? "rgba(36,84,74,0.1)" : r.status === "Refused" ? "rgba(220,38,38,0.08)" : "rgba(107,104,96,0.08)", color: isSettled ? "#24544a" : r.status === "Refused" ? "#DC2626" : "#6b6860" }}>
+                                    {r.status ?? "—"}
+                                  </span>
+                                </td>
+                                <td style={{ ...tdStyle, fontSize: 11, color: "#2A3547" }}>{r.payment_method ?? "—"}</td>
+                                <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>{r.funding_source ?? "—"}</td>
+                                <td style={{ ...tdStyle, textAlign: "right" }}>
+                                  {riskScore > 0 ? (
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: riskScore > 50 ? "#DC2626" : "#6b6860", background: riskScore > 50 ? "rgba(220,38,38,0.08)" : "transparent", padding: "2px 6px", borderRadius: 999 }}>
+                                      {Math.round(riskScore)}
+                                    </span>
+                                  ) : <span style={{ color: "#e8e4de" }}>—</span>}
+                                </td>
+                                <td style={{ ...tdStyle, fontSize: 9, color: "#9a948e", fontFamily: "monospace" }}>{r.psp_reference?.slice(0, 16) ?? "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {selectedTxns.length > 200 && (
+                      <div style={{ fontSize: 10, color: "#6b6860", padding: "10px 0", textAlign: "center" }}>
+                        Showing first 200 of {fmtN(selectedTxns.length)} transactions. Narrow the date range for full history.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── COMMERCIAL ── */}
         {activeTab === "Commercial" && (

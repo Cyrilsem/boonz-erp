@@ -51,6 +51,11 @@ These mutate at least one protected entity. Each must, by the end of Phase A.5:
 | `create_purchase_order` | `purchase_orders`, `driver_tasks`, `po_notifications` | ✅ 2026-04-27 — new canonical writer. Replaces FE direct inserts. Uses `po_number_seq` for race-safe numbering. Roles: field_staff, warehouse, operator_admin, superadmin, manager. |
 | `receive_purchase_order` | `purchase_orders`, `warehouse_inventory`, `po_additions`, `inventory_audit_log` | ✅ 2026-04-27 — new canonical writer. Fixes B-2 (no duplicate PO lines for multi-batch), B-3 (warehouse_inventory no longer written from FE), B-4 (po_additions fully received + inventoried). Roles: warehouse, operator_admin, superadmin, manager. |
 
+### Refill engine — NEW 2026-04-28
+| Function | Writes to | Status |
+|---|---|---|
+| `auto_generate_refill_plan` | `refill_plan_output`, `refill_dispatching` (via `write_refill_plan`) | ✅ 2026-04-28 — replaces the 40-step AI-driven loop. Single call: runs triage, velocity, lifecycle, variant splits, swap candidates, write_refill_plan, dispatching mirror. Runtime < 2s for 10 machines. Args: `p_filter text`, `p_plan_date date`, `p_dry_run boolean`. |
+
 ### Refill plan + dispatch
 | Function | Writes to | A.5 status |
 |---|---|---|
