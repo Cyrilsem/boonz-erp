@@ -330,7 +330,13 @@ export default function RefillPage() {
     const { data: healthData } = await supabase
       .rpc("get_machine_health")
       .limit(10000);
-    if (healthData) setMachineHealth(healthData as MachineHealth[]);
+    if (healthData)
+      // Filter out WH warehouse machines — not field machines, should not appear in refill view
+      setMachineHealth(
+        (healthData as MachineHealth[]).filter(
+          (m) => !m.machine_name.toUpperCase().startsWith("WH")
+        )
+      );
   }, [getSupabase, lookbackDays]);
 
   useEffect(() => {
@@ -600,7 +606,11 @@ export default function RefillPage() {
       const { data: healthData } = await supabase
         .rpc("get_machine_health")
         .limit(10000);
-      setMachineHealth((healthData as MachineHealth[]) || []);
+      setMachineHealth(
+        ((healthData as MachineHealth[]) || []).filter(
+          (m) => !m.machine_name.toUpperCase().startsWith("WH")
+        )
+      );
       setIncludeInRefill(include);
     }
   }
