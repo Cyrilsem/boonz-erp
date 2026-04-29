@@ -3497,6 +3497,15 @@ export default function PerformancePage() {
           const avgSpendPerCust = customerProfiles.length > 0 ? totalCustSpend / customerProfiles.filter((c) => c.settledCount > 0).length : 0;
           const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
 
+          // data coverage: two Adyen populations in the DB
+          const settledRows = adyenRows.filter((r) => SETTLED_STATUSES.has(r.status ?? ""));
+          const identifiedSettled = settledRows.filter((r) => r.card_number_summary);
+          const anonymousSettled = settledRows.filter((r) => !r.card_number_summary);
+          const identifiedRevenue = identifiedSettled.reduce((s, r) => s + (r.value_aed ?? 0), 0);
+          const anonymousRevenue = anonymousSettled.reduce((s, r) => s + (r.value_aed ?? 0), 0);
+          const totalSettledRevenue = identifiedRevenue + anonymousRevenue;
+          const coveredPct = totalSettledRevenue > 0 ? Math.round((identifiedRevenue / totalSettledRevenue) * 100) : 0;
+
           // hour-of-day buckets (24h, Dubai TZ, settled txns only)
           const hourBuckets: number[] = Array(24).fill(0);
           for (const r of adyenRows) {
@@ -3582,6 +3591,30 @@ export default function PerformancePage() {
           }
           const custHourData = custHourBuckets.map((count, h) => ({ hour: `${String(h).padStart(2, "0")}`, txns: count }));
 
+          // Weimi product join for selected customer
+          // adyen merchant_reference = internal_txn_sn (base, no trailing _N suffix)
+          const custMerchantRefs = new Set(
+            selectedTxns
+              .filter((r) => r.merchant_reference)
+              .map((r) => r.merchant_reference as string)
+          );
+          // salesRows internal_txn_sn may have _1, _2 suffixes — strip them for matching
+          const custWeimi = salesRows.filter((s) => {
+            const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
+            return base && custMerchantRefs.has(base);
+          }).sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
+          // aggregate by product
+          const weimiProductMap: Record<string, { name: string; qty: number; spend: number }> = {};
+          for (const s of custWeimi) {
+            const name = s.pod_product_name ?? "Unknown";
+            if (!weimiProductMap[name]) weimiProductMap[name] = { name, qty: 0, spend: 0 };
+            weimiProductMap[name].qty += s.qty ?? 0;
+            weimiProductMap[name].spend += s.total_amount ?? 0;
+          }
+          const weimiTopProducts = Object.values(weimiProductMap)
+            .sort((a, b) => b.spend - a.spend)
+            .slice(0, 10);
+
           // shared styles
           const chartCard = {
             background: "white" as const,
@@ -3625,9 +3658,19 @@ export default function PerformancePage() {
               <h2 style={{ fontFamily: font, fontWeight: 700, fontSize: 22, letterSpacing: "-0.5px", marginBottom: 4 }}>
                 Customer Profiles
               </h2>
-              <p style={{ fontSize: 11, color: "#6b6860", marginBottom: 20 }}>
-                {fmtN(customerProfiles.length)} unique customers &middot; identified by Adyen card fingerprint (BIN + last 4 digits)
+              <p style={{ fontSize: 11, color: "#6b6860", marginBottom: 14 }}>
+                {fmtN(customerProfiles.length)} identified customers &middot; {fmtN(settledRows.length)} total settled Adyen transactions in window
               </p>
+
+              {/* ── Data coverage banner ── */}
+              <div style={{ background: "#2A3547", color: "#fff", borderRadius: 6, padding: "12px 18px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 18, fontFamily: font, fontSize: 11.5 }}>
+                <span style={{ fontSize: 10, letterSpacing: ".15em", fontWeight: 700, color: "#e1b460" }}>DATA COVERAGE</span>
+                <span><strong style={{ color: "#86efac" }}>{fmtN(identifiedSettled.length)}</strong> transactions have card fingerprint ({coveredPct}% of settled revenue)</span>
+                <span style={{ color: "#cbd5e1" }}>|</span>
+                <span><strong style={{ color: "#fca5a5" }}>{fmtN(anonymousSettled.length)}</strong> are settlement-batch records — no card identity</span>
+                <span style={{ color: "#cbd5e1" }}>|</span>
+                <span style={{ color: "#94a3b8", fontSize: 10.5 }}>Widen the date range to see more identified customers. Fix: import Adyen Payment Transaction Report in n8n.</span>
+              </div>
 
               {/* ── KPI row ── */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
@@ -3949,6 +3992,104 @@ export default function PerformancePage() {
                     {selectedTxns.length > 200 && (
                       <div style={{ fontSize: 10, color: "#6b6860", padding: "10px 0", textAlign: "center" }}>
                         Showing first 200 of {fmtN(selectedTxns.length)} transactions. Narrow the date range for full history.
+                      </div>
+                    )}
+
+                    {/* ── Weimi purchases section ── */}
+                    {custMerchantRefs.size > 0 && (
+                      <div style={{ marginTop: 24 }}>
+                        <h4 style={{ fontFamily: font, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
+                          What They Purchased &middot;{" "}
+                          <span style={{ fontWeight: 400, color: "#6b6860" }}>
+                            {fmtN(custWeimi.length)} Weimi line items matched via merchant reference
+                          </span>
+                        </h4>
+
+                        {weimiTopProducts.length > 0 && (
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
+                            {/* top products table */}
+                            <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
+                              <h5 style={{ fontFamily: font, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6860", marginBottom: 10 }}>Top Products</h5>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+                                <thead>
+                                  <tr>
+                                    <th style={{ ...thStyle, background: "transparent", padding: "4px 8px" }}>Product</th>
+                                    <th style={{ ...thStyle, background: "transparent", padding: "4px 8px", textAlign: "right" }}>Qty</th>
+                                    <th style={{ ...thStyle, background: "transparent", padding: "4px 8px", textAlign: "right" }}>Spend</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {weimiTopProducts.map((p, i) => (
+                                    <tr key={i}>
+                                      <td style={{ ...tdStyle, padding: "6px 8px", fontSize: 11 }}>{p.name}</td>
+                                      <td style={{ ...tdStyle, padding: "6px 8px", fontSize: 11, textAlign: "right", color: "#6b6860" }}>{fmtN(p.qty)}</td>
+                                      <td style={{ ...tdStyle, padding: "6px 8px", fontSize: 11, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(p.spend)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* product mini bar chart */}
+                            <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
+                              <h5 style={{ fontFamily: font, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6860", marginBottom: 10 }}>By Spend</h5>
+                              <ResponsiveContainer width="100%" height={160}>
+                                <BarChart data={weimiTopProducts.slice(0, 6)} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 0 }}>
+                                  <XAxis type="number" tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} />
+                                  <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} width={80} />
+                                  <Tooltip contentStyle={{ fontFamily: font, fontSize: 10, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [fmtAed(v), "Spend"]} />
+                                  <Bar dataKey="spend" fill="#24544a" radius={[0, 3, 3, 0]}>
+                                    <LabelList dataKey="spend" position="right" style={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} formatter={(v: any) => fmtAed(v)} />
+                                  </Bar>
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* full Weimi line items */}
+                        <div style={{ overflowX: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+                            <thead style={{ background: "#f9f7f4" }}>
+                              <tr>
+                                <th style={thStyle}>Date (Dubai)</th>
+                                <th style={thStyle}>Product</th>
+                                <th style={thStyle}>Machine</th>
+                                <th style={{ ...thStyle, textAlign: "right" }}>Qty</th>
+                                <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
+                                <th style={thStyle}>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {custWeimi.slice(0, 100).map((s, i) => (
+                                <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                                  <td style={tdStyle}>{dubaiDate(s.transaction_date)} {dubaiTime(s.transaction_date)}</td>
+                                  <td style={{ ...tdStyle, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{s.pod_product_name ?? "—"}</td>
+                                  <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>
+                                    {(s.machines as any)?.official_name ?? "—"}
+                                  </td>
+                                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(s.qty ?? 0)}</td>
+                                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(s.total_amount ?? 0)}</td>
+                                  <td style={tdStyle}>
+                                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(36,84,74,0.1)", color: "#24544a" }}>
+                                      {s.delivery_status ?? "—"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                              {custWeimi.length === 0 && (
+                                <tr><td colSpan={6} style={{ ...tdStyle, color: "#6b6860", textAlign: "center", padding: "20px" }}>
+                                  No Weimi purchase data matched — this customer&apos;s transactions may be settlement-batch records without merchant reference.
+                                </td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    {custMerchantRefs.size === 0 && (
+                      <div style={{ marginTop: 16, padding: "12px 14px", background: "#f9f7f4", borderRadius: 6, fontSize: 11, color: "#6b6860" }}>
+                        <strong>No Weimi purchase data available.</strong> This customer&apos;s Adyen records are settlement-batch type (no merchant_reference). Product history requires the transaction-level Adyen report in n8n.
                       </div>
                     )}
                   </div>
