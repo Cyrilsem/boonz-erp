@@ -235,6 +235,7 @@ interface AdyenTxn {
   issuer_country: string | null;
   risk_score: number | null;
   shopper_country: string | null;
+  adjusted_amount_value: number | null; // what terminal tried to charge
 }
 
 type CustomerSegment = "Power User" | "Returning" | "One-off" | "Failed" | "Defaulter" | "Compromised" | "Pure Fraud";
@@ -250,14 +251,12 @@ interface CustomerProfile {
   issuerCountry: string | null;
   txnCount: number;     // total adyen events for this card
   settledCount: number; // adyen SettledBulk rows
-  matchedTxns: number;  // adyen rows that resolved to a Weimi basket
+  matchedTxns: number;  // = settledCount (kept for backwards compat)
   refusedCount: number;
   cancelledCount: number;
-  // Revenue = SUM(weimi.total_amount) for matched transactions (user definition)
-  totalSpend: number;
-  // Gap = SUM(weimi.total_amount) - SUM(adyen.captured_amount_value) for matched
-  gap: number;
-  avgSpend: number;     // totalSpend / matchedTxns
+  totalSpend: number;   // SUM(adyen.captured_amount_value) for settled rows
+  gap: number;          // SUM(adjusted_amount_value - captured_amount_value) for settled rows
+  avgSpend: number;     // totalSpend / settledCount
   firstSeen: string;
   lastSeen: string;
   segment: CustomerSegment;
@@ -613,7 +612,7 @@ export default function PerformancePage() {
       const adyenQuery = supabase
         .from("adyen_transactions")
         .select(
-          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference, card_number_summary, card_bin, issuer, issuer_country, risk_score, shopper_country",
+          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, adjusted_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference, card_number_summary, card_bin, issuer, issuer_country, risk_score, shopper_country",
         )
         .gte("creation_date", `${adyenFrom}T00:00:00+04:00`) // Dubai midnight
         .lte("creation_date", `${adyenTo}T23:59:59+04:00`); // Dubai end-of-day
@@ -818,34 +817,14 @@ export default function PerformancePage() {
   }, [adyenRows]);
 
   // ── customer intelligence ──
+  // Pure Adyen: no Weimi join.
+  // Revenue   = SUM(captured_amount_value)              — what Adyen actually settled
+  // Gap       = SUM(adjusted_amount_value - captured)   — terminal asked vs Adyen settled
   const customerProfiles = useMemo<CustomerProfile[]>(() => {
-    // Step 1: build Weimi lookup — base_txn_sn → total_amount (sum of all lines)
-    // Revenue definition: SUM(weimi.total_amount) for txns matched to Adyen by merchant_reference
-    const weimiTotalByBase = new Map<string, number>();
-    const weimiCapturedByBase = new Map<string, number>(); // from adyen.captured_amount_value
-    for (const s of salesRows) {
-      if (!s.internal_txn_sn) continue;
-      const base = s.internal_txn_sn.replace(/_\d+$/, "");
-      if (!base) continue;
-      weimiTotalByBase.set(base, (weimiTotalByBase.get(base) ?? 0) + (s.total_amount ?? 0));
-    }
-    // Also build adyen captured per merchant_reference (for gap calc)
-    // Use scopedAdyenRows so captured totals stay within the active machine/group filter
-    for (const a of scopedAdyenRows) {
-      if (!a.merchant_reference) continue;
-      if (!SETTLED_STATUSES.has(a.status ?? "")) continue;
-      weimiCapturedByBase.set(
-        a.merchant_reference,
-        (weimiCapturedByBase.get(a.merchant_reference) ?? 0) + (a.captured_amount_value ?? 0)
-      );
-    }
-
     type Internal = CustomerProfile & { _machines: Set<string>; _ff: number };
     const map = new Map<string, Internal>();
 
-    // scopedAdyenRows is already filtered to the active machine/group via salesBaseTxnSns
     for (const row of scopedAdyenRows) {
-      // Strip .0 numeric storage artefact (e.g. "559917.0" → "559917")
       const bin  = row.card_bin  ? String(row.card_bin).replace(/\.0$/, "").trim()  : null;
       const last4 = row.card_number_summary ? String(row.card_number_summary).replace(/\.0$/, "").trim() : null;
       if (!bin || !last4 || bin === "0" || last4 === "0") continue;
@@ -855,15 +834,11 @@ export default function PerformancePage() {
       const risk = row.risk_score ?? 0;
       const ff = risk > 50;
 
-      // Revenue: Weimi total_amount for this transaction (only when merchant_reference links to Weimi)
-      const base = row.merchant_reference ?? null;
-      const weimiAmt  = base ? (weimiTotalByBase.get(base) ?? 0)    : 0;
-      const captAmt   = base && isSettled ? (weimiCapturedByBase.get(base) ?? 0) : 0;
-      // Round to 2 d.p. before gap test — IEEE 754 float accumulation on multi-line
-      // baskets (e.g. 0.68+2.81=3.4900000000000002) produces phantom sub-cent remainders
-      // that would falsely classify clean cards as Defaulters.
-      const gapAmt    = weimiAmt > 0 ? Math.round(Math.max(weimiAmt - captAmt, 0) * 100) / 100 : 0;
-      const isMatched = base != null && weimiTotalByBase.has(base);
+      // Revenue = captured_amount_value (what Adyen actually paid out)
+      const captured = isSettled ? (row.captured_amount_value ?? 0) : 0;
+      // Gap = adjusted_amount_value (what terminal tried) - captured; fallback to 0 if missing
+      const adjusted = isSettled ? (row.adjusted_amount_value ?? row.captured_amount_value ?? 0) : 0;
+      const gapAmt   = Math.round(Math.max(adjusted - captured, 0) * 100) / 100;
 
       const existing = map.get(key);
       if (!existing) {
@@ -878,10 +853,10 @@ export default function PerformancePage() {
           issuerCountry: row.issuer_country ?? null,
           txnCount: 1,
           settledCount: isSettled ? 1 : 0,
-          matchedTxns: isMatched ? 1 : 0,
+          matchedTxns: isSettled ? 1 : 0,
           refusedCount: row.status === "Refused" ? 1 : 0,
           cancelledCount: row.status === "Cancelled" ? 1 : 0,
-          totalSpend: weimiAmt,
+          totalSpend: captured,
           gap: gapAmt,
           avgSpend: 0,
           firstSeen: row.creation_date,
@@ -897,11 +872,10 @@ export default function PerformancePage() {
         });
       } else {
         existing.txnCount++;
-        if (isSettled) existing.settledCount++;
-        if (isMatched) existing.matchedTxns++;
+        if (isSettled) { existing.settledCount++; existing.matchedTxns++; }
         if (row.status === "Refused") existing.refusedCount++;
         if (row.status === "Cancelled") existing.cancelledCount++;
-        existing.totalSpend += weimiAmt;
+        existing.totalSpend += captured;
         existing.gap += gapAmt;
         if (row.creation_date < existing.firstSeen) existing.firstSeen = row.creation_date;
         if (row.creation_date > existing.lastSeen) existing.lastSeen = row.creation_date;
@@ -914,24 +888,26 @@ export default function PerformancePage() {
     return Array.from(map.values()).map((cp) => {
       const s = cp.settledCount;
       const ff = cp._ff;
+      const gap = Math.round(cp.gap * 100) / 100; // final round to kill accumulation drift
       let segment: CustomerSegment;
-      if (ff >= 3)                       segment = "Compromised";
-      else if (ff > 0 && s === 0)        segment = "Pure Fraud";
-      else if (ff > 0)                   segment = "Compromised";
-      else if (cp.gap >= 0.01 && s > 0)   segment = "Defaulter"; // ≥1 cent, mirrors txnMatchStats threshold
-      else if (s === 0)                  segment = "Failed";
-      else if (s >= 5)                   segment = "Power User";
-      else if (s >= 2)                   segment = "Returning";
-      else                               segment = "One-off";
+      if (ff >= 3)                      segment = "Compromised";
+      else if (ff > 0 && s === 0)       segment = "Pure Fraud";
+      else if (ff > 0)                  segment = "Compromised";
+      else if (gap >= 0.01 && s > 0)    segment = "Defaulter";
+      else if (s === 0)                 segment = "Failed";
+      else if (s >= 5)                  segment = "Power User";
+      else if (s >= 2)                  segment = "Returning";
+      else                              segment = "One-off";
       return {
         ...cp,
+        gap,
         segment,
         isRepeat: s > 1,
-        avgSpend: cp.matchedTxns > 0 ? cp.totalSpend / cp.matchedTxns : 0,
+        avgSpend: s > 0 ? cp.totalSpend / s : 0,
         machineCount: cp._machines.size,
       };
     });
-  }, [scopedAdyenRows, salesRows]);
+  }, [scopedAdyenRows]);
 
   const txnMatchStats = useMemo(() => {
     // Group individual sales lines into basket-level transactions
@@ -3720,14 +3696,20 @@ export default function PerformancePage() {
           }
           const custHourData = custHourBuckets.map((count, h) => ({ hour: `${String(h).padStart(2, "0")}`, txns: count }));
 
-          // Captured total for selected customer detail KPIs
+          // Captured / gap for selected customer detail KPIs — pure Adyen
           const selectedCapture = Math.round(
             selectedTxns
               .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
               .reduce((s, r) => s + (r.captured_amount_value ?? 0), 0) * 100
           ) / 100;
           const selectedDetailGap = Math.round(
-            Math.max((selectedCust?.totalSpend ?? 0) - selectedCapture, 0) * 100
+            selectedTxns
+              .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
+              .reduce((s, r) => {
+                const adj = r.adjusted_amount_value ?? r.captured_amount_value ?? 0;
+                const cap = r.captured_amount_value ?? 0;
+                return s + Math.max(adj - cap, 0);
+              }, 0) * 100
           ) / 100;
 
           // Weimi product join for selected customer
@@ -3806,9 +3788,9 @@ export default function PerformancePage() {
                 <StatCard label="Distinct BINs" value={fmtN(uniqueBins)} subtitle="card families (issuer groups)" accent="#24544a" valueColor="#24544a" />
                 <StatCard label="Est. Customers" value={fmtN(customerProfiles.length)} subtitle={`avg ${(customerProfiles.length / Math.max(uniqueBins, 1)).toFixed(1)} cards per BIN`} accent="#24544a" valueColor="#24544a" />
                 <StatCard label="Power Users (5+ txns)" value={fmtN(powerUsers.length)} subtitle={`${pct(powerUsers.length, customerProfiles.length)} of cards · ${pct(powerUsers.reduce((s,c)=>s+c.totalSpend,0), totalCustSpend)} of revenue`} accent="#0E3F4D" valueColor="#0E3F4D" />
-                <StatCard label="Total Billed (Weimi)" value={fmtAed(totalCustSpend)} subtitle={`${fmtN(totalMatchedTxns)} matched txns`} accent="#6366F1" valueColor="#6366F1" />
-                <StatCard label="Avg Spend / Visit" value={fmtAed(avgSpendPerTxn)} subtitle="Weimi total ÷ matched txns" accent="#8B5CF6" valueColor="#8B5CF6" />
-                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle={`billed minus Adyen captured`} accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
+                <StatCard label="Total Captured" value={fmtAed(totalCustSpend)} subtitle={`${fmtN(totalMatchedTxns)} settled txns`} accent="#6366F1" valueColor="#6366F1" />
+                <StatCard label="Avg Spend / Visit" value={fmtAed(avgSpendPerTxn)} subtitle="captured ÷ settled txns" accent="#8B5CF6" valueColor="#8B5CF6" />
+                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle="adjusted − captured (Adyen)" accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
               </div>
 
               {/* ── Segment summary table ── */}
@@ -3975,7 +3957,7 @@ export default function PerformancePage() {
                         <th style={thStyle}>Country</th>
                         <th style={thStyle}>Funding</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Settled</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Weimi Billed</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Captured</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Avg / Visit</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Gap</th>
                         <th style={thStyle}>First Seen</th>
@@ -4069,8 +4051,8 @@ export default function PerformancePage() {
                     {/* mini KPIs */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
                       <StatCard label="Settled Txns" value={fmtN(selectedCust.settledCount)} accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Weimi Billed" value={fmtAed(selectedCust.totalSpend)} subtitle="total charged by machine" accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Adyen Captured" value={fmtAed(selectedCapture)} subtitle="actually settled to Boonz" accent="#6366F1" valueColor="#6366F1" />
+                      <StatCard label="Captured Revenue" value={fmtAed(selectedCust.totalSpend)} subtitle="sum of Adyen captured_amount" accent="#24544a" valueColor="#24544a" />
+                      <StatCard label="Adjusted (Terminal)" value={fmtAed(selectedCapture + selectedDetailGap)} subtitle="what terminal tried to charge" accent="#6366F1" valueColor="#6366F1" />
                       <StatCard label="Capture Gap" value={selectedDetailGap >= 0.01 ? fmtAed(selectedDetailGap) : "AED 0"} subtitle={selectedDetailGap >= 0.01 ? "billed minus captured" : "fully settled ✓"} accent={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} valueColor={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} />
                       <StatCard label="Avg per Visit" value={fmtAed(selectedCust.avgSpend)} accent="#8B5CF6" valueColor="#8B5CF6" />
                       <StatCard label="Refused / Cancelled" value={`${fmtN(selectedCust.refusedCount)} / ${fmtN(selectedCust.cancelledCount)}`} subtitle="declined transactions" accent="#e1b460" valueColor="#d97706" />
