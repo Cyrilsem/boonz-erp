@@ -4051,7 +4051,7 @@ export default function PerformancePage() {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
                       <StatCard label="Settled Txns" value={fmtN(selectedCust.settledCount)} accent="#24544a" valueColor="#24544a" />
                       <StatCard label="Captured Revenue" value={fmtAed(selectedCust.totalSpend)} subtitle="sum of Adyen captured_amount" accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Adjusted (Terminal)" value={fmtAed(selectedCapture + selectedDetailGap)} subtitle="what terminal tried to charge" accent="#6366F1" valueColor="#6366F1" />
+                      <StatCard label="Total Amount" value={selectedCust.weimiTotal > 0 ? fmtAed(selectedCust.weimiTotal) : fmtAed(selectedCapture + selectedDetailGap)} subtitle={selectedCust.weimiTotal > 0 ? "Weimi retail before discount" : "Adyen adjusted (no Weimi match)"} accent="#6366F1" valueColor="#6366F1" />
                       <StatCard label="Capture Gap" value={selectedDetailGap >= 0.01 ? fmtAed(selectedDetailGap) : "AED 0"} subtitle={selectedDetailGap >= 0.01 ? "billed minus captured" : "fully settled ✓"} accent={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} valueColor={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} />
                       <StatCard label="Avg per Visit" value={fmtAed(selectedCust.avgSpend)} accent="#8B5CF6" valueColor="#8B5CF6" />
                       <StatCard label="Refused / Cancelled" value={`${fmtN(selectedCust.refusedCount)} / ${fmtN(selectedCust.cancelledCount)}`} subtitle="declined transactions" accent="#e1b460" valueColor="#d97706" />
