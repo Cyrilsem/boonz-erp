@@ -3914,25 +3914,6 @@ export default function PerformancePage() {
                 </div>
               </div>
 
-              {/* ── Charts row 2: Issuer Countries ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 24 }}>
-                <div style={chartCard}>
-                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Issuer Countries</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Top 10 card-issuing countries by settled transaction count</p>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={countryData} layout="vertical" margin={{ top: 0, right: 20, bottom: 0, left: 40 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                      <YAxis type="category" dataKey="country" tick={{ fontSize: 10, fontFamily: font, fill: "#6b6860" }} width={36} />
-                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
-                      <Bar dataKey="count" fill="#0E3F4D" radius={[0, 3, 3, 0]}>
-                        <LabelList dataKey="count" position="right" style={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-
-              </div>
 
               {/* ── Customer List ── */}
               <div style={{ background: "white", border: "1px solid #e8e4de", borderRadius: 6, overflow: "hidden", marginBottom: selectedCust ? 0 : 0 }}>
@@ -3972,7 +3953,8 @@ export default function PerformancePage() {
                         <th style={thStyle}>Issuer</th>
                         <th style={thStyle}>Country</th>
                         <th style={thStyle}>Funding</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Settled</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Total Txns</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Weimi Total</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Captured</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Avg / Visit</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Gap</th>
@@ -3983,7 +3965,7 @@ export default function PerformancePage() {
                     </thead>
                     <tbody>
                       {pagedCusts.length === 0 && (
-                        <tr><td colSpan={12} style={{ ...tdStyle, color: "#6b6860", textAlign: "center", padding: "28px" }}>No customers match the current filter.</td></tr>
+                        <tr><td colSpan={13} style={{ ...tdStyle, color: "#6b6860", textAlign: "center", padding: "28px" }}>No customers match the current filter.</td></tr>
                       )}
                       {pagedCusts.map((cp) => {
                         const isSelected = cp.key === selectedCustKey;
@@ -4004,7 +3986,8 @@ export default function PerformancePage() {
                             <td style={{ ...tdStyle, fontSize: 11 }}>{cp.issuer ?? "—"}</td>
                             <td style={{ ...tdStyle, fontSize: 11 }}>{cp.issuerCountry ?? "—"}</td>
                             <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>{cp.fundingSource ?? "—"}</td>
-                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(cp.settledCount)}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(cp.txnCount)}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#0E3F4D" }}>{cp.weimiTotal > 0 ? fmtAed(cp.weimiTotal) : <span style={{ color: "#e8e4de" }}>—</span>}</td>
                             <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(cp.totalSpend)}</td>
                             <td style={{ ...tdStyle, textAlign: "right", color: "#6b6860" }}>{fmtAed(cp.avgSpend)}</td>
                             <td style={{ ...tdStyle, textAlign: "right", color: cp.gap > 0 ? "#DC2626" : "#e8e4de" }}>{cp.gap > 0 ? fmtAed(cp.gap) : "—"}</td>
