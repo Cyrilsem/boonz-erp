@@ -3554,11 +3554,13 @@ export default function PerformancePage() {
           const powerUsers  = customerProfiles.filter((c) => c.segment === "Power User");
           const highRiskTxns = scopedAdyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
           // Revenue = SUM(weimi.total_amount) for matched txns — per user definition
-          const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0);
+          const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0); // SUM(captured_amount_value)
           const totalMatchedTxns = customerProfiles.reduce((s, c) => s + c.matchedTxns, 0);
-          // Avg = totalSpend / number of matched transactions (not cards)
-          const avgSpendPerTxn = totalMatchedTxns > 0 ? totalCustSpend / totalMatchedTxns : 0;
           const totalGap = customerProfiles.reduce((s, c) => s + c.gap, 0);
+          // Total Amount = captured + gap = SUM(adjusted_amount_value) = equivalent to Weimi total_amount
+          const totalAdjusted = Math.round((totalCustSpend + totalGap) * 100) / 100;
+          // Avg = captured / settled txns
+          const avgSpendPerTxn = totalMatchedTxns > 0 ? totalCustSpend / totalMatchedTxns : 0;
           const repeatCount = customerProfiles.filter((c) => c.isRepeat).length;
           const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
 
@@ -3787,8 +3789,8 @@ export default function PerformancePage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14, marginBottom: 20 }}>
                 <StatCard label="Distinct BINs" value={fmtN(uniqueBins)} subtitle="card families (issuer groups)" accent="#24544a" valueColor="#24544a" />
                 <StatCard label="Est. Customers" value={fmtN(customerProfiles.length)} subtitle={`avg ${(customerProfiles.length / Math.max(uniqueBins, 1)).toFixed(1)} cards per BIN`} accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Power Users (5+ txns)" value={fmtN(powerUsers.length)} subtitle={`${pct(powerUsers.length, customerProfiles.length)} of cards · ${pct(powerUsers.reduce((s,c)=>s+c.totalSpend,0), totalCustSpend)} of revenue`} accent="#0E3F4D" valueColor="#0E3F4D" />
-                <StatCard label="Total Captured" value={fmtAed(totalCustSpend)} subtitle={`${fmtN(totalMatchedTxns)} settled txns`} accent="#6366F1" valueColor="#6366F1" />
+                <StatCard label="Total Amount" value={fmtAed(totalAdjusted)} subtitle={`Weimi billed · ${fmtN(totalMatchedTxns)} settled txns`} accent="#0E3F4D" valueColor="#0E3F4D" />
+                <StatCard label="Captured Amount" value={fmtAed(totalCustSpend)} subtitle="Adyen settled to Boonz" accent="#6366F1" valueColor="#6366F1" />
                 <StatCard label="Avg Spend / Visit" value={fmtAed(avgSpendPerTxn)} subtitle="captured ÷ settled txns" accent="#8B5CF6" valueColor="#8B5CF6" />
                 <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle="adjusted − captured (Adyen)" accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
               </div>
