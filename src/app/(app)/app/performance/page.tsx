@@ -579,6 +579,7 @@ export default function PerformancePage() {
   const [custSortDir, setCustSortDir] = useState<"desc" | "asc">("desc");
   const [selectedCustKey, setSelectedCustKey] = useState<string | null>(null);
   const [custPage, setCustPage] = useState(0);
+  const [custSegFilter, setCustSegFilter] = useState<CustomerSegment | null>(null);
   const CUST_PAGE_SIZE = 50;
 
   // ── fetch data ──
@@ -3606,7 +3607,14 @@ export default function PerformancePage() {
             binMap[bin].revenue += cp.totalSpend;
             if (cp.hasHighRisk) binMap[bin].fraud++;
           }
-          const binData = Object.values(binMap).sort((a, b) => b.revenue - a.revenue).slice(0, 12);
+          const shortenIssuer = (s: string) =>
+            s.replace(/\s*\(P\.?J\.?S\.?C\.?\)/gi, "").replace(/\s+BANK\b/gi, " Bk")
+             .replace(/\bBANK\b/gi, "Bk").replace(/\bPAYMENTS LIMITED\b/gi, "Pay")
+             .replace(/\bBUILDING SOCIETY\b/gi, "BS").replace(/\s{2,}/g, " ").trim().slice(0, 24);
+          const binData = Object.values(binMap)
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 12)
+            .map((b) => ({ ...b, label: shortenIssuer(b.issuer) }));
 
           // data coverage: two Adyen populations in the DB
           // Use raw adyenRows here so the banner always shows the full window coverage,
@@ -3661,6 +3669,7 @@ export default function PerformancePage() {
           // ── customer list derivation ──
           const custSearchLow = custSearch.toLowerCase();
           const filteredCusts = customerProfiles.filter((cp) => {
+            if (custSegFilter && cp.segment !== custSegFilter) return false;
             if (!custSearchLow) return true;
             return (
               cp.cardDisplay.toLowerCase().includes(custSearchLow) ||
@@ -3697,7 +3706,7 @@ export default function PerformancePage() {
           for (const r of selectedTxns) {
             if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
             const d = dubaiDate(r.creation_date);
-            custDailyMap[d] = (custDailyMap[d] ?? 0) + (r.value_aed ?? 0);
+            custDailyMap[d] = (custDailyMap[d] ?? 0) + (r.captured_amount_value ?? 0);
           }
           const custDailyData = Object.entries(custDailyMap).sort().map(([date, amount]) => ({ date, amount }));
           // hour pattern for selected customer
@@ -3779,23 +3788,14 @@ export default function PerformancePage() {
                 {fmtN(customerProfiles.length)} identified customers &middot; {fmtN(settledRows.length)} total settled Adyen transactions in window
               </p>
 
-              {/* ── Data coverage banner ── */}
-              <div style={{ background: "#2A3547", color: "#fff", borderRadius: 6, padding: "12px 18px", marginBottom: 20, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 18, fontFamily: font, fontSize: 11.5 }}>
-                <span style={{ fontSize: 10, letterSpacing: ".15em", fontWeight: 700, color: "#e1b460" }}>DATA COVERAGE</span>
-                <span><strong style={{ color: "#86efac" }}>{fmtN(identifiedSettled.length)}</strong> transactions have card fingerprint ({coveredPct}% of settled revenue)</span>
-                <span style={{ color: "#cbd5e1" }}>|</span>
-                <span><strong style={{ color: "#fca5a5" }}>{fmtN(anonymousSettled.length)}</strong> are settlement-batch records — no card identity</span>
-                <span style={{ color: "#cbd5e1" }}>|</span>
-                <span style={{ color: "#94a3b8", fontSize: 10.5 }}>Widen the date range to see more identified customers. Fix: import Adyen Payment Transaction Report in n8n.</span>
-              </div>
-
               {/* ── KPI row ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
-                <StatCard label="Identified Customers" value={fmtN(uniqueBins)} subtitle={`distinct BINs · ${fmtN(customerProfiles.length)} unique cards`} accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Power Users (5+ txns)" value={fmtN(powerUsers.length)} subtitle={`${pct(powerUsers.length, customerProfiles.length)} of cards · ${pct(powerUsers.reduce((s,c)=>s+c.totalSpend,0), totalCustSpend)} of revenue`} accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Total Captured Revenue" value={fmtAed(totalCustSpend)} subtitle={`Weimi total · ${fmtN(totalMatchedTxns)} matched txns`} accent="#6366F1" valueColor="#6366F1" />
-                <StatCard label="Avg Spend / Transaction" value={fmtAed(avgSpendPerTxn)} subtitle="weimi total / matched txns" accent="#8B5CF6" valueColor="#8B5CF6" />
-                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle={`${fmtN(highRiskTxns)} fraud-flagged · weimi minus captured`} accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14, marginBottom: 20 }}>
+                <StatCard label="Distinct BINs" value={fmtN(uniqueBins)} subtitle="card families (issuer groups)" accent="#24544a" valueColor="#24544a" />
+                <StatCard label="Est. Customers" value={fmtN(customerProfiles.length)} subtitle={`avg ${(customerProfiles.length / Math.max(uniqueBins, 1)).toFixed(1)} cards per BIN`} accent="#24544a" valueColor="#24544a" />
+                <StatCard label="Power Users (5+ txns)" value={fmtN(powerUsers.length)} subtitle={`${pct(powerUsers.length, customerProfiles.length)} of cards · ${pct(powerUsers.reduce((s,c)=>s+c.totalSpend,0), totalCustSpend)} of revenue`} accent="#0E3F4D" valueColor="#0E3F4D" />
+                <StatCard label="Total Billed (Weimi)" value={fmtAed(totalCustSpend)} subtitle={`${fmtN(totalMatchedTxns)} matched txns`} accent="#6366F1" valueColor="#6366F1" />
+                <StatCard label="Avg Spend / Visit" value={fmtAed(avgSpendPerTxn)} subtitle="Weimi total ÷ matched txns" accent="#8B5CF6" valueColor="#8B5CF6" />
+                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle={`billed minus Adyen captured`} accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
               </div>
 
               {/* ── Segment summary table ── */}
@@ -3820,12 +3820,20 @@ export default function PerformancePage() {
                     {SEG_ORDER.filter((s) => segSummary[s]).map((seg) => {
                       const d = segSummary[seg];
                       const color = SEG_COLORS[seg] ?? "#6b6860";
+                      const isActive = custSegFilter === seg;
                       return (
-                        <tr key={seg} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                        <tr
+                          key={seg}
+                          onClick={() => { setCustSegFilter(isActive ? null : seg as CustomerSegment); setCustPage(0); }}
+                          style={{ borderBottom: "1px solid #f5f2ee", cursor: "pointer", background: isActive ? `${color}12` : "white", transition: "background .1s" }}
+                          onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLTableRowElement).style.background = "#fafaf8"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isActive ? `${color}12` : "white"; }}
+                        >
                           <td style={{ padding: "9px 16px", fontFamily: font }}>
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                               <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
                               <span style={{ fontSize: 12, fontWeight: 600, color }}>{seg}</span>
+                              {isActive && <span style={{ fontSize: 9, fontWeight: 700, color, background: `${color}22`, padding: "1px 6px", borderRadius: 999, marginLeft: 4 }}>FILTERED ✕</span>}
                             </span>
                           </td>
                           <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12, fontWeight: 700 }}>{fmtN(d.cards)}</td>
@@ -3844,26 +3852,26 @@ export default function PerformancePage() {
               {/* ── Charts row 1: BIN frequency + Time of Day ── */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
                 <div style={chartCard}>
-                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>BIN Frequency — Top Card Families</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Revenue by card issuer BIN · true captured revenue</p>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={binData} layout="vertical" margin={{ top: 0, right: 60, bottom: 0, left: 10 }}>
+                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Top Card Families by Revenue</h3>
+                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Weimi billed revenue by issuer · hover for BIN + card count</p>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <BarChart data={binData} layout="vertical" margin={{ top: 0, right: 64, bottom: 0, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} tickFormatter={(v) => `AED ${fmtN(v)}`} />
-                      <YAxis type="category" dataKey="bin" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} width={52} />
+                      <YAxis type="category" dataKey="label" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} width={140} />
                       <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }}
                         formatter={(v: any, _name: any, props: any) => {
                           const d = props.payload;
-                          return [`${fmtAed(v)} · ${fmtN(d.cards)} cards · ${fmtN(d.txns)} txns${d.fraud > 0 ? ` · ⚠ ${d.fraud} fraud` : ""}`, d.issuer ?? d.bin];
+                          return [`${fmtAed(v)} · BIN ${d.bin} · ${fmtN(d.cards)} cards · ${fmtN(d.txns)} txns${d.fraud > 0 ? ` · ⚠ ${d.fraud} fraud` : ""}`, d.issuer];
                         }}
                       />
                       <Bar dataKey="revenue" radius={[0, 3, 3, 0]}>
-                        {binData.map((b, i) => <Cell key={i} fill={b.fraud > 0 ? "#DC2626" : "#24544a"} opacity={b.fraud > 0 ? 1 : 0.85 + i * -0.04} />)}
+                        {binData.map((b, i) => <Cell key={i} fill={b.fraud > 0 ? "#DC2626" : "#24544a"} opacity={b.fraud > 0 ? 1 : 0.9 - i * 0.03} />)}
                         <LabelList dataKey="revenue" position="right" style={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} formatter={(v: any) => fmtAed(v)} />
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
-                  <p style={{ fontSize: 10, color: "#DC2626", marginTop: 8 }}>🔴 Red bars = BIN has ≥1 fraud-flagged card</p>
+                  <p style={{ fontSize: 10, color: "#DC2626", marginTop: 8 }}>Red bars = issuer has ≥1 fraud-flagged card in this window</p>
                 </div>
 
                 <div style={chartCard}>
@@ -3913,40 +3921,19 @@ export default function PerformancePage() {
                   </ResponsiveContainer>
                 </div>
 
-                <div style={chartCard}>
-                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Fraud Risk Distribution</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Adyen risk score 0–100 across all transactions</p>
-                  {(() => {
-                    const riskBuckets = [
-                      { label: "0–10 Safe", count: scopedAdyenRows.filter((r) => (r.risk_score ?? 0) <= 10).length, fill: "#24544a" },
-                      { label: "11–30", count: scopedAdyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 10 && s <= 30; }).length, fill: "#6366F1" },
-                      { label: "31–50", count: scopedAdyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 30 && s <= 50; }).length, fill: "#e1b460" },
-                      { label: "51–75 High", count: scopedAdyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 50 && s <= 75; }).length, fill: "#f97316" },
-                      { label: "76–100 Critical", count: scopedAdyenRows.filter((r) => (r.risk_score ?? 0) > 75).length, fill: "#DC2626" },
-                    ];
-                    return (
-                      <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={riskBuckets} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
-                          <XAxis dataKey="label" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                          <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                          <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
-                          <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                            {riskBuckets.map((b, i) => <Cell key={i} fill={b.fill} />)}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    );
-                  })()}
-                </div>
               </div>
 
               {/* ── Customer List ── */}
               <div style={{ background: "white", border: "1px solid #e8e4de", borderRadius: 6, overflow: "hidden", marginBottom: selectedCust ? 0 : 0 }}>
                 <div style={{ padding: "14px 18px", borderBottom: "1px solid #e8e4de", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                   <h3 style={{ fontFamily: font, fontWeight: 700, fontSize: 14, margin: 0 }}>
-                    All Customers
+                    {custSegFilter ? custSegFilter : "All Customers"}
                   </h3>
+                  {custSegFilter && (
+                    <button onClick={() => { setCustSegFilter(null); setCustPage(0); }} style={{ fontSize: 10, fontWeight: 600, color: SEG_COLORS[custSegFilter], background: `${SEG_COLORS[custSegFilter]}18`, border: `1px solid ${SEG_COLORS[custSegFilter]}44`, padding: "2px 10px", borderRadius: 999, cursor: "pointer", fontFamily: font }}>
+                      {custSegFilter} ✕ clear
+                    </button>
+                  )}
                   <span style={{ fontSize: 11, color: "#6b6860" }}>{fmtN(filteredCusts.length)} results</span>
                   <input
                     type="text"
@@ -3975,7 +3962,7 @@ export default function PerformancePage() {
                         <th style={thStyle}>Country</th>
                         <th style={thStyle}>Funding</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Settled</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Captured Rev.</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Weimi Billed</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Avg / Visit</th>
                         <th style={{ ...thStyle, textAlign: "right" }}>Gap</th>
                         <th style={thStyle}>First Seen</th>
@@ -4133,7 +4120,7 @@ export default function PerformancePage() {
                               <tr key={r.adyen_txn_id} style={{ borderBottom: "1px solid #f5f2ee" }}>
                                 <td style={tdStyle}>{dubaiDate(r.creation_date)} {dubaiTime(r.creation_date)}</td>
                                 <td style={{ ...tdStyle, color: "#6b6860", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{r.store_description ?? "—"}</td>
-                                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: isSettled ? "#24544a" : "#9a948e" }}>{fmtAed(r.value_aed ?? 0)}</td>
+                                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: isSettled ? "#24544a" : "#9a948e" }}>{fmtAed(r.captured_amount_value ?? 0)}</td>
                                 <td style={tdStyle}>
                                   <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: isSettled ? "rgba(36,84,74,0.1)" : r.status === "Refused" ? "rgba(220,38,38,0.08)" : "rgba(107,104,96,0.08)", color: isSettled ? "#24544a" : r.status === "Refused" ? "#DC2626" : "#6b6860" }}>
                                     {r.status ?? "—"}
