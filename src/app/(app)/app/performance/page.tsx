@@ -255,6 +255,7 @@ interface CustomerProfile {
   refusedCount: number;
   cancelledCount: number;
   totalSpend: number;   // SUM(adyen.captured_amount_value) for settled rows
+  weimiTotal: number;   // SUM(weimi.total_amount) for matched transactions — true retail
   gap: number;          // SUM(adjusted_amount_value - captured_amount_value) for settled rows
   avgSpend: number;     // totalSpend / settledCount
   firstSeen: string;
@@ -817,10 +818,18 @@ export default function PerformancePage() {
   }, [adyenRows]);
 
   // ── customer intelligence ──
-  // Pure Adyen: no Weimi join.
-  // Revenue   = SUM(captured_amount_value)              — what Adyen actually settled
-  // Gap       = SUM(adjusted_amount_value - captured)   — terminal asked vs Adyen settled
+  // totalSpend  = SUM(adyen.captured_amount_value)  — Adyen settled
+  // weimiTotal  = SUM(weimi.total_amount)           — Weimi retail (via merchant_reference join)
+  // gap         = SUM(adjusted - captured)          — Adyen shortfall
   const customerProfiles = useMemo<CustomerProfile[]>(() => {
+    // Weimi total_amount lookup: base_txn → sum of retail total per basket
+    const weimiTotalByBase = new Map<string, number>();
+    for (const s of salesRows) {
+      if (!s.internal_txn_sn) continue;
+      const base = s.internal_txn_sn.replace(/_\d+$/, "");
+      if (!base) continue;
+      weimiTotalByBase.set(base, (weimiTotalByBase.get(base) ?? 0) + (s.total_amount ?? 0));
+    }
     type Internal = CustomerProfile & { _machines: Set<string>; _ff: number };
     const map = new Map<string, Internal>();
 
@@ -839,6 +848,9 @@ export default function PerformancePage() {
       // Gap = adjusted_amount_value (what terminal tried) - captured; fallback to 0 if missing
       const adjusted = isSettled ? (row.adjusted_amount_value ?? row.captured_amount_value ?? 0) : 0;
       const gapAmt   = Math.round(Math.max(adjusted - captured, 0) * 100) / 100;
+      // Weimi retail = sales_history.total_amount via merchant_reference join
+      const weimiBase = row.merchant_reference ?? null;
+      const weimiAmt  = weimiBase ? (weimiTotalByBase.get(weimiBase) ?? 0) : 0;
 
       const existing = map.get(key);
       if (!existing) {
@@ -857,6 +869,7 @@ export default function PerformancePage() {
           refusedCount: row.status === "Refused" ? 1 : 0,
           cancelledCount: row.status === "Cancelled" ? 1 : 0,
           totalSpend: captured,
+          weimiTotal: weimiAmt,
           gap: gapAmt,
           avgSpend: 0,
           firstSeen: row.creation_date,
@@ -876,6 +889,7 @@ export default function PerformancePage() {
         if (row.status === "Refused") existing.refusedCount++;
         if (row.status === "Cancelled") existing.cancelledCount++;
         existing.totalSpend += captured;
+        existing.weimiTotal += weimiAmt;
         existing.gap += gapAmt;
         if (row.creation_date < existing.firstSeen) existing.firstSeen = row.creation_date;
         if (row.creation_date > existing.lastSeen) existing.lastSeen = row.creation_date;
@@ -907,7 +921,7 @@ export default function PerformancePage() {
         machineCount: cp._machines.size,
       };
     });
-  }, [scopedAdyenRows]);
+  }, [scopedAdyenRows, salesRows]);
 
   const txnMatchStats = useMemo(() => {
     // Group individual sales lines into basket-level transactions
@@ -3557,8 +3571,8 @@ export default function PerformancePage() {
           const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0); // SUM(captured_amount_value)
           const totalMatchedTxns = customerProfiles.reduce((s, c) => s + c.matchedTxns, 0);
           const totalGap = customerProfiles.reduce((s, c) => s + c.gap, 0);
-          // Total Amount = captured + gap = SUM(adjusted_amount_value) = equivalent to Weimi total_amount
-          const totalAdjusted = Math.round((totalCustSpend + totalGap) * 100) / 100;
+          // Total Amount = SUM(weimi.total_amount) via merchant_reference join — true retail
+          const totalWeimiAmount = Math.round(customerProfiles.reduce((s, c) => s + c.weimiTotal, 0) * 100) / 100;
           // Avg = captured / settled txns
           const avgSpendPerTxn = totalMatchedTxns > 0 ? totalCustSpend / totalMatchedTxns : 0;
           const repeatCount = customerProfiles.filter((c) => c.isRepeat).length;
@@ -3789,7 +3803,7 @@ export default function PerformancePage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14, marginBottom: 20 }}>
                 <StatCard label="Distinct BINs" value={fmtN(uniqueBins)} subtitle="card families (issuer groups)" accent="#24544a" valueColor="#24544a" />
                 <StatCard label="Est. Customers" value={fmtN(customerProfiles.length)} subtitle={`avg ${(customerProfiles.length / Math.max(uniqueBins, 1)).toFixed(1)} cards per BIN`} accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Total Amount" value={fmtAed(totalAdjusted)} subtitle={`Weimi billed · ${fmtN(totalMatchedTxns)} settled txns`} accent="#0E3F4D" valueColor="#0E3F4D" />
+                <StatCard label="Total Amount" value={fmtAed(totalWeimiAmount)} subtitle={`Weimi retail · ${fmtN(totalMatchedTxns)} matched txns`} accent="#0E3F4D" valueColor="#0E3F4D" />
                 <StatCard label="Captured Amount" value={fmtAed(totalCustSpend)} subtitle="Adyen settled to Boonz" accent="#6366F1" valueColor="#6366F1" />
                 <StatCard label="Avg Spend / Visit" value={fmtAed(avgSpendPerTxn)} subtitle="captured ÷ settled txns" accent="#8B5CF6" valueColor="#8B5CF6" />
                 <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle="adjusted − captured (Adyen)" accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
