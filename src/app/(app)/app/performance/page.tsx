@@ -859,7 +859,10 @@ export default function PerformancePage() {
       const base = row.merchant_reference ?? null;
       const weimiAmt  = base ? (weimiTotalByBase.get(base) ?? 0)    : 0;
       const captAmt   = base && isSettled ? (weimiCapturedByBase.get(base) ?? 0) : 0;
-      const gapAmt    = weimiAmt > 0 ? Math.max(weimiAmt - captAmt, 0) : 0;
+      // Round to 2 d.p. before gap test — IEEE 754 float accumulation on multi-line
+      // baskets (e.g. 0.68+2.81=3.4900000000000002) produces phantom sub-cent remainders
+      // that would falsely classify clean cards as Defaulters.
+      const gapAmt    = weimiAmt > 0 ? Math.round(Math.max(weimiAmt - captAmt, 0) * 100) / 100 : 0;
       const isMatched = base != null && weimiTotalByBase.has(base);
 
       const existing = map.get(key);
@@ -915,7 +918,7 @@ export default function PerformancePage() {
       if (ff >= 3)                       segment = "Compromised";
       else if (ff > 0 && s === 0)        segment = "Pure Fraud";
       else if (ff > 0)                   segment = "Compromised";
-      else if (cp.gap > 0 && s > 0)      segment = "Defaulter";
+      else if (cp.gap >= 0.01 && s > 0)   segment = "Defaulter"; // ≥1 cent, mirrors txnMatchStats threshold
       else if (s === 0)                  segment = "Failed";
       else if (s >= 5)                   segment = "Power User";
       else if (s >= 2)                   segment = "Returning";
@@ -3717,6 +3720,16 @@ export default function PerformancePage() {
           }
           const custHourData = custHourBuckets.map((count, h) => ({ hour: `${String(h).padStart(2, "0")}`, txns: count }));
 
+          // Captured total for selected customer detail KPIs
+          const selectedCapture = Math.round(
+            selectedTxns
+              .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
+              .reduce((s, r) => s + (r.captured_amount_value ?? 0), 0) * 100
+          ) / 100;
+          const selectedDetailGap = Math.round(
+            Math.max((selectedCust?.totalSpend ?? 0) - selectedCapture, 0) * 100
+          ) / 100;
+
           // Weimi product join for selected customer
           // adyen merchant_reference = internal_txn_sn (base, no trailing _N suffix)
           const custMerchantRefs = new Set(
@@ -4054,11 +4067,12 @@ export default function PerformancePage() {
 
                   <div style={{ padding: "18px 20px" }}>
                     {/* mini KPIs */}
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
                       <StatCard label="Settled Txns" value={fmtN(selectedCust.settledCount)} accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Total Spend" value={fmtAed(selectedCust.totalSpend)} accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Avg per Visit" value={fmtAed(selectedCust.avgSpend)} accent="#6366F1" valueColor="#6366F1" />
-                      <StatCard label="Risk Score" value={selectedCust.maxRiskScore > 0 ? `${Math.round(selectedCust.maxRiskScore)}` : "—"} subtitle="max Adyen score" accent={selectedCust.hasHighRisk ? "#DC2626" : "#6b6860"} valueColor={selectedCust.hasHighRisk ? "#DC2626" : "#0a0a0a"} />
+                      <StatCard label="Weimi Billed" value={fmtAed(selectedCust.totalSpend)} subtitle="total charged by machine" accent="#24544a" valueColor="#24544a" />
+                      <StatCard label="Adyen Captured" value={fmtAed(selectedCapture)} subtitle="actually settled to Boonz" accent="#6366F1" valueColor="#6366F1" />
+                      <StatCard label="Capture Gap" value={selectedDetailGap >= 0.01 ? fmtAed(selectedDetailGap) : "AED 0"} subtitle={selectedDetailGap >= 0.01 ? "billed minus captured" : "fully settled ✓"} accent={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} valueColor={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} />
+                      <StatCard label="Avg per Visit" value={fmtAed(selectedCust.avgSpend)} accent="#8B5CF6" valueColor="#8B5CF6" />
                       <StatCard label="Refused / Cancelled" value={`${fmtN(selectedCust.refusedCount)} / ${fmtN(selectedCust.cancelledCount)}`} subtitle="declined transactions" accent="#e1b460" valueColor="#d97706" />
                     </div>
 
