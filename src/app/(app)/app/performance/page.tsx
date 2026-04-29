@@ -773,6 +773,18 @@ export default function PerformancePage() {
     return s;
   }, [salesRows]);
 
+  // Adyen rows scoped to the current machine/group filter.
+  // adyen_transactions.machine_id is always NULL — the only way to attribute a tap
+  // to a specific machine is via merchant_reference ↔ salesBaseTxnSns linkage.
+  // Used by the Customers tab so all card data respects the active filter.
+  const scopedAdyenRows = useMemo(
+    () =>
+      adyenRows.filter(
+        (r) => r.merchant_reference && salesBaseTxnSns.has(r.merchant_reference),
+      ),
+    [adyenRows, salesBaseTxnSns],
+  );
+
   // Settled Adyen rows that actually belong to the current salesRows selection.
   const matchedSettledAdyen = useMemo(
     () =>
@@ -817,7 +829,8 @@ export default function PerformancePage() {
       weimiTotalByBase.set(base, (weimiTotalByBase.get(base) ?? 0) + (s.total_amount ?? 0));
     }
     // Also build adyen captured per merchant_reference (for gap calc)
-    for (const a of adyenRows) {
+    // Use scopedAdyenRows so captured totals stay within the active machine/group filter
+    for (const a of scopedAdyenRows) {
       if (!a.merchant_reference) continue;
       if (!SETTLED_STATUSES.has(a.status ?? "")) continue;
       weimiCapturedByBase.set(
@@ -829,7 +842,8 @@ export default function PerformancePage() {
     type Internal = CustomerProfile & { _machines: Set<string>; _ff: number };
     const map = new Map<string, Internal>();
 
-    for (const row of adyenRows) {
+    // scopedAdyenRows is already filtered to the active machine/group via salesBaseTxnSns
+    for (const row of scopedAdyenRows) {
       // Strip .0 numeric storage artefact (e.g. "559917.0" → "559917")
       const bin  = row.card_bin  ? String(row.card_bin).replace(/\.0$/, "").trim()  : null;
       const last4 = row.card_number_summary ? String(row.card_number_summary).replace(/\.0$/, "").trim() : null;
@@ -913,7 +927,7 @@ export default function PerformancePage() {
         machineCount: cp._machines.size,
       };
     });
-  }, [adyenRows, salesRows]);
+  }, [scopedAdyenRows, salesRows]);
 
   const txnMatchStats = useMemo(() => {
     // Group individual sales lines into basket-level transactions
@@ -3558,7 +3572,7 @@ export default function PerformancePage() {
           // "Identified customers" = distinct BINs (card families), per user definition
           const uniqueBins = new Set(customerProfiles.map((c) => c.cardBin)).size;
           const powerUsers  = customerProfiles.filter((c) => c.segment === "Power User");
-          const highRiskTxns = adyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
+          const highRiskTxns = scopedAdyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
           // Revenue = SUM(weimi.total_amount) for matched txns — per user definition
           const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0);
           const totalMatchedTxns = customerProfiles.reduce((s, c) => s + c.matchedTxns, 0);
@@ -3595,6 +3609,8 @@ export default function PerformancePage() {
           const binData = Object.values(binMap).sort((a, b) => b.revenue - a.revenue).slice(0, 12);
 
           // data coverage: two Adyen populations in the DB
+          // Use raw adyenRows here so the banner always shows the full window coverage,
+          // not just the scoped subset (helps diagnose pipeline gaps)
           const settledRows = adyenRows.filter((r) => SETTLED_STATUSES.has(r.status ?? ""));
           const identifiedSettled = settledRows.filter((r) => r.card_number_summary);
           const anonymousSettled = settledRows.filter((r) => !r.card_number_summary);
@@ -3603,9 +3619,9 @@ export default function PerformancePage() {
           const totalSettledRevenue = identifiedRevenue + anonymousRevenue;
           const coveredPct = totalSettledRevenue > 0 ? Math.round((identifiedRevenue / totalSettledRevenue) * 100) : 0;
 
-          // hour-of-day buckets (24h, Dubai TZ, settled txns only)
+          // hour-of-day buckets (24h, Dubai TZ, settled txns only) — scoped to filter
           const hourBuckets: number[] = Array(24).fill(0);
-          for (const r of adyenRows) {
+          for (const r of scopedAdyenRows) {
             if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
             hourBuckets[dubaiHour(r.creation_date)]++;
           }
@@ -3614,9 +3630,9 @@ export default function PerformancePage() {
             txns: count,
           }));
 
-          // issuer country top-10
+          // issuer country top-10 — scoped to filter
           const countryMap: Record<string, number> = {};
-          for (const r of adyenRows) {
+          for (const r of scopedAdyenRows) {
             if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
             const c = r.issuer_country ?? "Unknown";
             countryMap[c] = (countryMap[c] ?? 0) + 1;
@@ -3668,7 +3684,7 @@ export default function PerformancePage() {
           // ── selected customer detail ──
           const selectedCust = selectedCustKey ? customerProfiles.find((c) => c.key === selectedCustKey) ?? null : null;
           const selectedTxns = selectedCustKey
-            ? adyenRows
+            ? scopedAdyenRows
                 .filter((r) => {
                   const b = r.card_bin ? String(r.card_bin).replace(/\.0$/, "").trim() : null;
                   const l = r.card_number_summary ? String(r.card_number_summary).replace(/\.0$/, "").trim() : null;
@@ -3902,11 +3918,11 @@ export default function PerformancePage() {
                   <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Adyen risk score 0–100 across all transactions</p>
                   {(() => {
                     const riskBuckets = [
-                      { label: "0–10 Safe", count: adyenRows.filter((r) => (r.risk_score ?? 0) <= 10).length, fill: "#24544a" },
-                      { label: "11–30", count: adyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 10 && s <= 30; }).length, fill: "#6366F1" },
-                      { label: "31–50", count: adyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 30 && s <= 50; }).length, fill: "#e1b460" },
-                      { label: "51–75 High", count: adyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 50 && s <= 75; }).length, fill: "#f97316" },
-                      { label: "76–100 Critical", count: adyenRows.filter((r) => (r.risk_score ?? 0) > 75).length, fill: "#DC2626" },
+                      { label: "0–10 Safe", count: scopedAdyenRows.filter((r) => (r.risk_score ?? 0) <= 10).length, fill: "#24544a" },
+                      { label: "11–30", count: scopedAdyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 10 && s <= 30; }).length, fill: "#6366F1" },
+                      { label: "31–50", count: scopedAdyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 30 && s <= 50; }).length, fill: "#e1b460" },
+                      { label: "51–75 High", count: scopedAdyenRows.filter((r) => { const s = r.risk_score ?? 0; return s > 50 && s <= 75; }).length, fill: "#f97316" },
+                      { label: "76–100 Critical", count: scopedAdyenRows.filter((r) => (r.risk_score ?? 0) > 75).length, fill: "#DC2626" },
                     ];
                     return (
                       <ResponsiveContainer width="100%" height={220}>
