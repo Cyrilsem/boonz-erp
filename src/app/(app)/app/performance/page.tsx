@@ -240,21 +240,24 @@ interface AdyenTxn {
 type CustomerSegment = "Power User" | "Returning" | "One-off" | "Failed" | "Defaulter" | "Compromised" | "Pure Fraud";
 
 interface CustomerProfile {
-  key: string; // cleanBin-cleanLast4 (dossier format e.g. "531780-3393")
-  cardDisplay: string; // "531780-3393"
+  key: string;          // "bin-last4" e.g. "531780-3393"
+  cardDisplay: string;
   cardBin: string | null;
   last4: string | null;
   paymentMethod: string | null;
   fundingSource: string | null;
   issuer: string | null;
   issuerCountry: string | null;
-  txnCount: number;
-  settledCount: number;
+  txnCount: number;     // total adyen events for this card
+  settledCount: number; // adyen SettledBulk rows
+  matchedTxns: number;  // adyen rows that resolved to a Weimi basket
   refusedCount: number;
   cancelledCount: number;
-  totalSpend: number; // SUM of captured_amount_value (true revenue)
-  gap: number;        // SUM of (value_aed - captured_amount_value) on settled
-  avgSpend: number;
+  // Revenue = SUM(weimi.total_amount) for matched transactions (user definition)
+  totalSpend: number;
+  // Gap = SUM(weimi.total_amount) - SUM(adyen.captured_amount_value) for matched
+  gap: number;
+  avgSpend: number;     // totalSpend / matchedTxns
   firstSeen: string;
   lastSeen: string;
   segment: CustomerSegment;
@@ -802,27 +805,48 @@ export default function PerformancePage() {
   }, [adyenRows]);
 
   // ── customer intelligence ──
-  // Helper: strip numeric .0 suffix from Adyen card fields stored as float-text
-  const cleanCardField = (v: string | null | undefined): string | null => {
-    if (!v) return null;
-    const s = String(v).replace(/\.0$/, "").trim();
-    return s === "0" || s === "" ? null : s;
-  };
-
   const customerProfiles = useMemo<CustomerProfile[]>(() => {
-    const map = new Map<string, CustomerProfile & { _machines: Set<string>; _fraudFlagged: number }>();
+    // Step 1: build Weimi lookup — base_txn_sn → total_amount (sum of all lines)
+    // Revenue definition: SUM(weimi.total_amount) for txns matched to Adyen by merchant_reference
+    const weimiTotalByBase = new Map<string, number>();
+    const weimiCapturedByBase = new Map<string, number>(); // from adyen.captured_amount_value
+    for (const s of salesRows) {
+      if (!s.internal_txn_sn) continue;
+      const base = s.internal_txn_sn.replace(/_\d+$/, "");
+      if (!base) continue;
+      weimiTotalByBase.set(base, (weimiTotalByBase.get(base) ?? 0) + (s.total_amount ?? 0));
+    }
+    // Also build adyen captured per merchant_reference (for gap calc)
+    for (const a of adyenRows) {
+      if (!a.merchant_reference) continue;
+      if (!SETTLED_STATUSES.has(a.status ?? "")) continue;
+      weimiCapturedByBase.set(
+        a.merchant_reference,
+        (weimiCapturedByBase.get(a.merchant_reference) ?? 0) + (a.captured_amount_value ?? 0)
+      );
+    }
+
+    type Internal = CustomerProfile & { _machines: Set<string>; _ff: number };
+    const map = new Map<string, Internal>();
+
     for (const row of adyenRows) {
-      const bin  = cleanCardField(row.card_bin);
-      const last4 = cleanCardField(row.card_number_summary);
-      if (!bin || !last4) continue; // skip anonymous & null-card rows
-      const key = `${bin}-${last4}`; // dossier format: "531780-3393"
+      // Strip .0 numeric storage artefact (e.g. "559917.0" → "559917")
+      const bin  = row.card_bin  ? String(row.card_bin).replace(/\.0$/, "").trim()  : null;
+      const last4 = row.card_number_summary ? String(row.card_number_summary).replace(/\.0$/, "").trim() : null;
+      if (!bin || !last4 || bin === "0" || last4 === "0") continue;
+
+      const key = `${bin}-${last4}`;
       const isSettled = SETTLED_STATUSES.has(row.status ?? "");
-      // ✅ Use captured_amount_value for true revenue (value_aed = AED 1 pre-auth)
-      const captured  = isSettled ? (row.captured_amount_value ?? 0) : 0;
-      const attempted = isSettled ? (row.value_aed ?? 0) : 0;
-      const txnGap    = isSettled ? Math.max(attempted - captured, 0) : 0;
-      const risk  = row.risk_score ?? 0;
-      const isFraudFlagged = risk > 50;
+      const risk = row.risk_score ?? 0;
+      const ff = risk > 50;
+
+      // Revenue: Weimi total_amount for this transaction (only when merchant_reference links to Weimi)
+      const base = row.merchant_reference ?? null;
+      const weimiAmt  = base ? (weimiTotalByBase.get(base) ?? 0)    : 0;
+      const captAmt   = base && isSettled ? (weimiCapturedByBase.get(base) ?? 0) : 0;
+      const gapAmt    = weimiAmt > 0 ? Math.max(weimiAmt - captAmt, 0) : 0;
+      const isMatched = base != null && weimiTotalByBase.has(base);
+
       const existing = map.get(key);
       if (!existing) {
         map.set(key, {
@@ -836,58 +860,60 @@ export default function PerformancePage() {
           issuerCountry: row.issuer_country ?? null,
           txnCount: 1,
           settledCount: isSettled ? 1 : 0,
+          matchedTxns: isMatched ? 1 : 0,
           refusedCount: row.status === "Refused" ? 1 : 0,
           cancelledCount: row.status === "Cancelled" ? 1 : 0,
-          totalSpend: captured,
-          gap: txnGap,
-          avgSpend: captured,
+          totalSpend: weimiAmt,
+          gap: gapAmt,
+          avgSpend: 0,
           firstSeen: row.creation_date,
           lastSeen: row.creation_date,
           segment: "One-off",
           isRepeat: false,
           machineCount: 0,
           maxRiskScore: risk,
-          hasHighRisk: isFraudFlagged,
+          hasHighRisk: ff,
           favoriteStore: row.store_description ?? null,
           _machines: new Set(row.machine_id ? [row.machine_id] : []),
-          _fraudFlagged: isFraudFlagged ? 1 : 0,
+          _ff: ff ? 1 : 0,
         });
       } else {
         existing.txnCount++;
         if (isSettled) existing.settledCount++;
+        if (isMatched) existing.matchedTxns++;
         if (row.status === "Refused") existing.refusedCount++;
         if (row.status === "Cancelled") existing.cancelledCount++;
-        existing.totalSpend += captured;
-        existing.gap += txnGap;
+        existing.totalSpend += weimiAmt;
+        existing.gap += gapAmt;
         if (row.creation_date < existing.firstSeen) existing.firstSeen = row.creation_date;
         if (row.creation_date > existing.lastSeen) existing.lastSeen = row.creation_date;
         if (risk > existing.maxRiskScore) existing.maxRiskScore = risk;
-        if (isFraudFlagged) { existing.hasHighRisk = true; existing._fraudFlagged++; }
+        if (ff) { existing.hasHighRisk = true; existing._ff++; }
         if (row.machine_id) existing._machines.add(row.machine_id);
       }
     }
+
     return Array.from(map.values()).map((cp) => {
-      const settled = cp.settledCount;
-      const ff = cp._fraudFlagged;
-      // Dossier-matching segment logic
+      const s = cp.settledCount;
+      const ff = cp._ff;
       let segment: CustomerSegment;
-      if (ff >= 3)                             segment = "Compromised";
-      else if (ff > 0 && settled === 0)        segment = "Pure Fraud";
-      else if (ff > 0)                         segment = "Compromised";
-      else if (cp.gap > 0 && settled > 0)      segment = "Defaulter";
-      else if (settled === 0)                  segment = "Failed";
-      else if (settled >= 5)                   segment = "Power User";
-      else if (settled >= 2)                   segment = "Returning";
-      else                                     segment = "One-off";
+      if (ff >= 3)                       segment = "Compromised";
+      else if (ff > 0 && s === 0)        segment = "Pure Fraud";
+      else if (ff > 0)                   segment = "Compromised";
+      else if (cp.gap > 0 && s > 0)      segment = "Defaulter";
+      else if (s === 0)                  segment = "Failed";
+      else if (s >= 5)                   segment = "Power User";
+      else if (s >= 2)                   segment = "Returning";
+      else                               segment = "One-off";
       return {
         ...cp,
         segment,
-        isRepeat: settled > 1,
-        avgSpend: settled > 0 ? cp.totalSpend / settled : 0,
+        isRepeat: s > 1,
+        avgSpend: cp.matchedTxns > 0 ? cp.totalSpend / cp.matchedTxns : 0,
         machineCount: cp._machines.size,
       };
     });
-  }, [adyenRows]);
+  }, [adyenRows, salesRows]);
 
   const txnMatchStats = useMemo(() => {
     // Group individual sales lines into basket-level transactions
@@ -3529,14 +3555,18 @@ export default function PerformancePage() {
         {/* ── CUSTOMERS ── */}
         {activeTab === "Customers" && (() => {
           // ── derived data for this tab ──
-          const powerUsers   = customerProfiles.filter((c) => c.segment === "Power User");
-          const repeatCount  = customerProfiles.filter((c) => c.isRepeat).length;
+          // "Identified customers" = distinct BINs (card families), per user definition
+          const uniqueBins = new Set(customerProfiles.map((c) => c.cardBin)).size;
+          const powerUsers  = customerProfiles.filter((c) => c.segment === "Power User");
           const highRiskTxns = adyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
+          // Revenue = SUM(weimi.total_amount) for matched txns — per user definition
           const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0);
-          const paidCustomers = customerProfiles.filter((c) => c.settledCount > 0);
-          const avgSpendPerCust = paidCustomers.length > 0 ? totalCustSpend / paidCustomers.length : 0;
-          const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
+          const totalMatchedTxns = customerProfiles.reduce((s, c) => s + c.matchedTxns, 0);
+          // Avg = totalSpend / number of matched transactions (not cards)
+          const avgSpendPerTxn = totalMatchedTxns > 0 ? totalCustSpend / totalMatchedTxns : 0;
           const totalGap = customerProfiles.reduce((s, c) => s + c.gap, 0);
+          const repeatCount = customerProfiles.filter((c) => c.isRepeat).length;
+          const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
 
           // segment summary for table at top
           const segSummary: Record<string, { cards: number; txns: number; revenue: number }> = {};
@@ -3639,7 +3669,11 @@ export default function PerformancePage() {
           const selectedCust = selectedCustKey ? customerProfiles.find((c) => c.key === selectedCustKey) ?? null : null;
           const selectedTxns = selectedCustKey
             ? adyenRows
-                .filter((r) => `${r.card_bin ?? "UNK"}\u00b7${r.card_number_summary}\u00b7${r.payment_method ?? "UNK"}` === selectedCustKey)
+                .filter((r) => {
+                  const b = r.card_bin ? String(r.card_bin).replace(/\.0$/, "").trim() : null;
+                  const l = r.card_number_summary ? String(r.card_number_summary).replace(/\.0$/, "").trim() : null;
+                  return b && l && `${b}-${l}` === selectedCustKey;
+                })
                 .sort((a, b) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
             : [];
           // daily spend for selected customer sparkline
@@ -3741,11 +3775,11 @@ export default function PerformancePage() {
 
               {/* ── KPI row ── */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 14, marginBottom: 20 }}>
-                <StatCard label="Identified Cards" value={fmtN(customerProfiles.length)} subtitle="BIN + last4 fingerprint" accent="#24544a" valueColor="#24544a" />
+                <StatCard label="Identified Customers" value={fmtN(uniqueBins)} subtitle={`distinct BINs · ${fmtN(customerProfiles.length)} unique cards`} accent="#24544a" valueColor="#24544a" />
                 <StatCard label="Power Users (5+ txns)" value={fmtN(powerUsers.length)} subtitle={`${pct(powerUsers.length, customerProfiles.length)} of cards · ${pct(powerUsers.reduce((s,c)=>s+c.totalSpend,0), totalCustSpend)} of revenue`} accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Total Captured Revenue" value={fmtAed(totalCustSpend)} subtitle="captured_amount_value (true)" accent="#6366F1" valueColor="#6366F1" />
-                <StatCard label="Avg Spend / Card" value={fmtAed(avgSpendPerCust)} subtitle="settled cards only" accent="#8B5CF6" valueColor="#8B5CF6" />
-                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle={`${fmtN(highRiskTxns)} fraud-flagged txns`} accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
+                <StatCard label="Total Captured Revenue" value={fmtAed(totalCustSpend)} subtitle={`Weimi total · ${fmtN(totalMatchedTxns)} matched txns`} accent="#6366F1" valueColor="#6366F1" />
+                <StatCard label="Avg Spend / Transaction" value={fmtAed(avgSpendPerTxn)} subtitle="weimi total / matched txns" accent="#8B5CF6" valueColor="#8B5CF6" />
+                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle={`${fmtN(highRiskTxns)} fraud-flagged · weimi minus captured`} accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
               </div>
 
               {/* ── Segment summary table ── */}
