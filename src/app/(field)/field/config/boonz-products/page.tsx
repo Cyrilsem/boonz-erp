@@ -63,7 +63,25 @@ interface ProductDraft {
   avg_cost: string;
   sourcing_channel: string;
   storage_temp_requirement: string;
+  physical_type: string;
 }
+
+const PHYSICAL_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "bar_standard", label: "Bar (standard)" },
+  { value: "bag_snack", label: "Bag (snack)" },
+  { value: "bag_large", label: "Bag (large)" },
+  { value: "bottle_330", label: "Bottle 330ml" },
+  { value: "bottle_500", label: "Bottle 500ml" },
+  { value: "bottle_large", label: "Bottle (large)" },
+  { value: "can_250", label: "Can 250ml" },
+  { value: "can_330", label: "Can 330ml" },
+  { value: "box_biscuit", label: "Box (biscuit)" },
+  { value: "cake_wrapped", label: "Cake (wrapped)" },
+  { value: "cup_yogurt", label: "Cup (yogurt)" },
+  { value: "pack_gum", label: "Pack (gum)" },
+  { value: "date_ball", label: "Date ball" },
+  { value: "other", label: "Other" },
+];
 
 const STORAGE_TEMP_OPTIONS: { value: string; label: string; desc: string }[] = [
   {
@@ -102,6 +120,7 @@ function rowToDraft(r: BoonzProduct): ProductDraft {
     avg_cost: r.avg_cost?.toString() ?? "",
     sourcing_channel: r.sourcing_channel ?? "",
     storage_temp_requirement: r.storage_temp_requirement ?? "ambient",
+    physical_type: r.physical_type ?? "",
   };
 }
 
@@ -124,6 +143,7 @@ function emptyDraft(): ProductDraft {
     avg_cost: "",
     sourcing_channel: "",
     storage_temp_requirement: "ambient",
+    physical_type: "",
   };
 }
 
@@ -378,6 +398,24 @@ function ProductForm({
 
       <div>
         <p className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">
+          Physical Type *
+        </p>
+        <select
+          value={draft.physical_type}
+          onChange={(e) => onChange({ physical_type: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+        >
+          <option value="">Select physical type…</option>
+          {PHYSICAL_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-400">
           Cost
         </p>
         <div className="grid grid-cols-3 gap-2">
@@ -489,6 +527,7 @@ function draftToPayload(d: ProductDraft) {
     avg_cost: d.avg_cost ? parseFloat(d.avg_cost) : null,
     sourcing_channel: d.sourcing_channel.trim() || null,
     storage_temp_requirement: d.storage_temp_requirement,
+    physical_type: d.physical_type.trim() || "other",
     updated_at: new Date().toISOString(),
   };
 }
@@ -629,6 +668,10 @@ export default function BoonzProductsPage() {
       setAddError(
         "Both Brand and Sub-brand are required to generate the product name",
       );
+      return;
+    }
+    if (!newDraft.physical_type.trim()) {
+      setAddError("Physical Type is required");
       return;
     }
     const computedName = `${newDraft.product_brand.trim()} - ${newDraft.product_sub_brand.trim()}`;
