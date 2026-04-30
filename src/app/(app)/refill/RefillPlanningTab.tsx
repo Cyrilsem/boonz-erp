@@ -150,9 +150,14 @@ export function RefillPlanningTab({
   const [filter, setFilter] = useState("all");
   const [generating, setGenerating] = useState(false);
   const [writing, setWriting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<PlanAlert[]>([]);
   const [machineCount, setMachineCount] = useState(0);
   const [writeResult, setWriteResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+  const [loadResult, setLoadResult] = useState<{
     ok: boolean;
     msg: string;
   } | null>(null);
@@ -231,6 +236,55 @@ export function RefillPlanningTab({
     setMachineCount(data?.machines ?? 0);
     setGenerated(true);
   }, [filter, selectedDate, supabase]);
+
+  // ── Load pending plan ──────────────────────────────────────────────────────
+  const loadPendingPlan = useCallback(async () => {
+    setLoading(true);
+    setLoadResult(null);
+    setRemoved(new Set());
+    setEditedQty({});
+
+    const { data, error } = await supabase
+      .from('refill_plan_output')
+      .select('*')
+      .eq('plan_date', selectedDate)
+      .eq('operator_status', 'pending')
+      .order('shelf_code')
+      .order('action', { ascending: false });
+
+    setLoading(false);
+    if (error) {
+      setLoadResult({ ok: false, msg: `Load failed: ${error.message}` });
+      return;
+    }
+    if (!data || data.length === 0) {
+      setLoadResult({ ok: false, msg: `No pending plan found for ${selectedDate}` });
+      return;
+    }
+
+    // Map DB rows to PlanRow type
+    const rows: PlanRow[] = data.map((r: Record<string, unknown>) => ({
+      machine_name:      r.machine_name as string,
+      machine_priority:  (r.machine_priority as number) ?? 5,
+      shelf_code:        r.shelf_code as string,
+      pod_product_name:  r.pod_product_name as string,
+      boonz_product_name: r.boonz_product_name as string,
+      action:            r.action as PlanRow['action'],
+      quantity:          (r.quantity as number) ?? 0,
+      current_stock:     (r.current_stock as number) ?? 0,
+      max_stock:         (r.max_stock as number) ?? 0,
+      smart_target:      (r.smart_target as number) ?? 0,
+      tier:              (r.tier as string) ?? 'keep',
+      global_score:      (r.global_score as number) ?? 0,
+      sold_7d:           (r.sold_7d as number) ?? 0,
+      fill_pct:          (r.fill_pct as number) ?? 0,
+      comment:           (r.comment as string) ?? '',
+    }));
+
+    setPlanRows(rows);
+    setGenerated(true);
+    setLoadResult({ ok: true, msg: `Loaded ${rows.length} pending lines for ${selectedDate}` });
+  }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
 
   // ── Write plan ───────────────────────────────────────────────────────────────
   const writePlan = useCallback(async () => {
@@ -347,6 +401,15 @@ export function RefillPlanningTab({
             {generating ? "Generating…" : "Generate plan"}
           </button>
 
+          {/* Load pending plan */}
+          <button
+            onClick={loadPendingPlan}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loading ? 'Loading…' : '↓ Load pending plan'}
+          </button>
+
           {/* Add row */}
           {generated && (
             <button
@@ -380,6 +443,20 @@ export function RefillPlanningTab({
           >
             {writeResult.ok ? "✓ " : "✗ "}
             {writeResult.msg}
+          </div>
+        )}
+
+        {/* Load result */}
+        {loadResult && (
+          <div
+            className={`mt-3 rounded-lg px-3 py-2 text-sm font-medium ${
+              loadResult.ok
+                ? "bg-blue-50 text-blue-700"
+                : "bg-amber-50 text-amber-700"
+            }`}
+          >
+            {loadResult.ok ? "✓ " : "⚠ "}
+            {loadResult.msg}
           </div>
         )}
 
