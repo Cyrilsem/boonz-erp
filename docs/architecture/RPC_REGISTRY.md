@@ -59,6 +59,7 @@ These mutate at least one protected entity. Each must, by the end of Phase A.5:
 ### Refill plan + dispatch
 | Function | Writes to | A.5 status |
 |---|---|---|
+| `approve_refill_plan` | `refill_plan_output` (status→approved), `refill_dispatching` | ✅ NEW 2026-04-30 — canonical approval gate. Args: `p_plan_date date, p_machine_names text[]`. Roles: operator_admin, superadmin, manager. Articles 1, 3, 4, 5, 8, 12. |
 | `write_refill_plan` | `refill_plan_output` | ✅ A.5b — patched 2026-04-26 |
 | `write_dispatch_plan` | `dispatch_plan` | ✅ A.5b — patched 2026-04-26 |
 | `push_plan_to_dispatch` | `dispatch_plan`, `dispatch_lines` | ✅ A.5b — patched 2026-04-26 |

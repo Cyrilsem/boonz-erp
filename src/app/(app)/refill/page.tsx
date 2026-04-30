@@ -6,7 +6,7 @@ import { createBrowserClient } from "@supabase/ssr";
 // RefillPlanReview removed from snapshot tab — plan review is in the Refill Planning tab
 import { getDubaiDate } from "@/lib/utils/date";
 import { DailyDispatchingTab } from "./DailyDispatchingTab";
-import { RefillPlanningTab } from "./RefillPlanningTab";
+import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -222,6 +222,12 @@ const tierColors: Record<string, { card: string; bar: string }> = {
 export default function RefillPage() {
   const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching">("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
+
+  // ── Hoisted refill planning state (persists across tab switches) ──────────────
+  const [planRows, setPlanRows] = useState<PlanRow[]>([]);
+  const [editedQty, setEditedQty] = useState<Record<number, number>>({});
+  const [removed, setRemoved] = useState<Set<number>>(new Set());
+  const [generated, setGenerated] = useState(false);
 
   const dubaiToday = getDubaiDate();
   const dubaiTomorrow = (() => {
@@ -862,6 +868,14 @@ export default function RefillPage() {
         <RefillPlanningTab
           selectedDate={selectedDate}
           machineNames={machineHealth.map((m) => m.machine_name)}
+          planRows={planRows}
+          setPlanRows={setPlanRows}
+          editedQty={editedQty}
+          setEditedQty={setEditedQty}
+          removed={removed}
+          setRemoved={setRemoved}
+          generated={generated}
+          setGenerated={setGenerated}
         />
       )}
 

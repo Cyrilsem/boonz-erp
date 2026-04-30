@@ -5,7 +5,7 @@ import { createBrowserClient } from "@supabase/ssr";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type PlanRow = {
+export type PlanRow = {
   machine_name: string;
   machine_priority: number;
   shelf_code: string;
@@ -127,25 +127,40 @@ const BLANK_FORM: AddRowForm = {
 export function RefillPlanningTab({
   selectedDate,
   machineNames,
+  planRows,
+  setPlanRows,
+  editedQty,
+  setEditedQty,
+  removed,
+  setRemoved,
+  generated,
+  setGenerated,
 }: {
   selectedDate: string;
   machineNames: string[];
+  planRows: PlanRow[];
+  setPlanRows: React.Dispatch<React.SetStateAction<PlanRow[]>>;
+  editedQty: Record<number, number>;
+  setEditedQty: React.Dispatch<React.SetStateAction<Record<number, number>>>;
+  removed: Set<number>;
+  setRemoved: React.Dispatch<React.SetStateAction<Set<number>>>;
+  generated: boolean;
+  setGenerated: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
   const [filter, setFilter] = useState("all");
   const [generating, setGenerating] = useState(false);
   const [writing, setWriting] = useState(false);
-  const [planRows, setPlanRows] = useState<PlanRow[]>([]);
   const [alerts, setAlerts] = useState<PlanAlert[]>([]);
   const [machineCount, setMachineCount] = useState(0);
-  const [generated, setGenerated] = useState(false);
   const [writeResult, setWriteResult] = useState<{
     ok: boolean;
     msg: string;
   } | null>(null);
-
-  // Row-level edit state (index → value)
-  const [removed, setRemoved] = useState<Set<number>>(new Set());
-  const [editedQty, setEditedQty] = useState<Record<number, number>>({});
+  const [approving, setApproving] = useState(false);
+  const [approveResult, setApproveResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
 
   // Add row modal
   const [showAdd, setShowAdd] = useState(false);
@@ -155,6 +170,37 @@ export function RefillPlanningTab({
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
+
+  // ── Approve plan ──────────────────────────────────────────────────────────────
+  const approvePlan = useCallback(async () => {
+    setApproving(true);
+    setApproveResult(null);
+
+    const machineNames = [...new Set(
+      planRows
+        .filter((_, i) => !removed.has(i))
+        .map(r => r.machine_name)
+    )];
+
+    const { data, error } = await supabase.rpc('approve_refill_plan', {
+      p_plan_date: selectedDate,
+      p_machine_names: machineNames,
+    });
+
+    setApproving(false);
+    if (error) {
+      setApproveResult({ ok: false, msg: `Approval failed: ${error.message}` });
+      return;
+    }
+    const result = data as { status?: string; dispatching_rows_written?: number } | null;
+    setApproveResult({
+      ok: true,
+      msg: `Plan approved — ${result?.dispatching_rows_written ?? 0} dispatching lines written for ${selectedDate}`,
+    });
+    // Clear the plan from page state after approval — it's locked
+    setPlanRows([]);
+    setGenerated(false);
+  }, [planRows, removed, selectedDate, supabase, setPlanRows, setGenerated]);
 
   // ── Generate (dry run) ───────────────────────────────────────────────────────
   const generate = useCallback(async () => {
@@ -311,14 +357,14 @@ export function RefillPlanningTab({
             </button>
           )}
 
-          {/* Write plan */}
+          {/* Save draft */}
           {generated && activeRows.length > 0 && (
             <button
               onClick={writePlan}
               disabled={writing}
               className="ml-auto flex items-center gap-2 px-5 py-2 rounded-lg bg-green-700 text-white text-sm font-medium hover:bg-green-800 disabled:opacity-50"
             >
-              {writing ? "Writing…" : `Write plan (${activeRows.length} lines)`}
+              {writing ? "Saving…" : `Save draft (${activeRows.length} lines)`}
             </button>
           )}
         </div>
@@ -334,6 +380,26 @@ export function RefillPlanningTab({
           >
             {writeResult.ok ? "✓ " : "✗ "}
             {writeResult.msg}
+          </div>
+        )}
+
+        {/* Approve & Dispatch button */}
+        {writeResult?.ok && (
+          <button
+            onClick={approvePlan}
+            disabled={approving}
+            className="mt-3 flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-700 text-white text-sm font-medium hover:bg-emerald-800 disabled:opacity-50"
+          >
+            {approving ? 'Approving…' : '✓ Approve & Dispatch'}
+          </button>
+        )}
+
+        {/* Approval result */}
+        {approveResult && (
+          <div className={`mt-2 rounded-lg px-3 py-2 text-sm font-medium ${
+            approveResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+          }`}>
+            {approveResult.ok ? '✓ ' : '✗ '}{approveResult.msg}
           </div>
         )}
       </div>

@@ -15,6 +15,45 @@ Format:
 
 ---
 
+## 2026-04-30 — Boonz Master operational intelligence layer
+**Phase / Article:** Operational / Articles 1, 2, 3, 4, 5, 8, 12
+**Applied to:** prod + repo
+**Migration names:** `boonz_master_foundation`, `add_approve_refill_plan_rpc`
+
+**Summary:** Introduced the Boonz Master skill as the single operational interface for the refill system, replacing the need for CS to route between `/refill-engine`, Cody, Stax, and Dara for day-to-day ops. Four changes shipped:
+
+1. **`boonz_context` table** — Active operational brief. One row at a time. Master writes here when CS sets context ("NOVO promo next 2 weeks", "push office to aggressive"). The refill-engine reads this before generating any plan. Holds `context_text` (plain English), `default_scenario` (conservative/standard/aggressive), `scenario_overrides` per venue group, and `machine_modes` per machine.
+
+2. **`planned_swaps` table** — Confirmed next-visit swap orders from operator, CS, or driver (phone call, chat, field note). Brain executes these unconditionally on next run, bypassing lifecycle signal checks. Status lifecycle: pending → applied | cancelled.
+
+3. **`machine_field_notes` table** — Driver feedback loop. Post-dispatch prompt in field app creates a note (add_more, reduce, substitute, remove, general). Brain reads and applies on next plan run, marks as applied after.
+
+4. **`product_mapping.mix_weight` column** — Controls how refill qty splits across variants of the same pod product. Default 1.0 = equal share. "More M&M than Mars" → update M&M weight to 1.5, Mars stays 1.0 → 60/40 split from next run.
+
+5. **`approve_refill_plan(date, text[])` RPC** — New canonical approval gate. Replaces the missing approval step in the refill flow. Flips `operator_status` pending→approved, then writes `refill_dispatching` rows in one atomic call. FE "Approve & Dispatch" button calls this. Roles: operator_admin, superadmin, manager only.
+
+6. **FE changes** — `RefillPlanningTab` plan state lifted to `page.tsx` parent (tab-wipe bug fixed). "Write plan" renamed to "Save draft". "Approve & Dispatch" button added (calls `approve_refill_plan` RPC). Two-step flow: save draft → review → approve.
+
+7. **Boonz Master skill** — New `boonz-master` skill installed. Single ops interface. Interprets plain English instructions, writes to the new tables, invokes refill-engine with context applied. Replaces `/refill-engine` for daily ops.
+
+8. **6am Dubai scheduled run** — `boonz-morning-refill` scheduled task created. Runs at 06:05 Dubai time daily. Reads `boonz_context` + pending swaps + field notes, generates tomorrow's plan for all critical/warning machines, posts morning brief with link to approve.
+
+9. **`refill-engine` v4** — Updated SKILL.md. New CONTEXT CHECK step runs before PRE-FLIGHT: reads `boonz_context`, `planned_swaps`, `machine_field_notes`. Applies scenario mapping, machine_modes, planned swaps, field note adjustments to the plan.
+
+**Rollback:**
+```sql
+-- boonz_master_foundation
+DROP TABLE IF EXISTS public.machine_field_notes;
+DROP TABLE IF EXISTS public.planned_swaps;
+DROP TABLE IF EXISTS public.boonz_context;
+ALTER TABLE public.product_mapping DROP COLUMN IF EXISTS mix_weight;
+-- add_approve_refill_plan_rpc
+DROP FUNCTION IF EXISTS public.approve_refill_plan(date, text[]);
+```
+FE rollback: revert `page.tsx` and `RefillPlanningTab.tsx` to previous state via git.
+
+---
+
 ## 2026-04-27 (v2) — Supplier consolidation + driver task filtering + not-purchased + audit trail
 **Phase / Article:** Post-fix procurement v2 / Articles 1, 4, 6
 **Applied to:** prod + repo
