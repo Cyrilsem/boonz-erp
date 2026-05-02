@@ -56,6 +56,7 @@ interface POAddition {
   boonz_product_id: string;
   qty: number;
   price_per_unit_aed: number | null;
+  expiry_date: string | null;
   status: string;
   created_at: string;
   boonz_products: { boonz_product_name: string };
@@ -370,6 +371,9 @@ export default function ProcurementPage() {
       warehouse_stock: addition.qty,
       status: "Active",
       snapshot_date: today,
+      expiration_date: addition.expiry_date ?? null,
+      warehouse_id: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85", // WH_CENTRAL
+      batch_id: `PO-ADDITION-${addition.addition_id.slice(0, 8)}`,
     });
 
     // Update po_additions

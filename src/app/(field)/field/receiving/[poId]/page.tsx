@@ -128,6 +128,7 @@ export default function ReceivingDetailPage() {
   );
   const [addQty, setAddQty] = useState(1);
   const [addPrice, setAddPrice] = useState<number>(0);
+  const [addExpiry, setAddExpiry] = useState<string>("");
   const [addSaving, setAddSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [additions, setAdditions] = useState<FieldAddition[]>([]);
@@ -504,6 +505,7 @@ export default function ReceivingDetailPage() {
       boonz_product_id: selectedProduct.product_id,
       qty: addQty,
       price_per_unit_aed: addPrice || null,
+      expiry_date: addExpiry || null,
       added_by: authUser?.id,
       status: "pending_receive",
     });
@@ -514,6 +516,7 @@ export default function ReceivingDetailPage() {
     setAddSearch("");
     setAddQty(1);
     setAddPrice(0);
+    setAddExpiry("");
     setToast("Added!");
     setTimeout(() => setToast(null), 2000);
     fetchData();
@@ -941,6 +944,7 @@ export default function ReceivingDetailPage() {
           setAddSearch("");
           setAddQty(1);
           setAddPrice(0);
+          setAddExpiry("");
         }}
         className="mt-4 w-full rounded-lg border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
       >
@@ -1029,6 +1033,17 @@ export default function ReceivingDetailPage() {
                       className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
                     />
                   </div>
+                </div>
+                <div className="mb-3">
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Expiry date
+                  </label>
+                  <input
+                    type="date"
+                    value={addExpiry}
+                    onChange={(e) => setAddExpiry(e.target.value)}
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                  />
                 </div>
                 <div className="flex gap-2">
                   <button
