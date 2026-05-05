@@ -3,7 +3,8 @@
 Inventory of all `SECURITY DEFINER` functions in the Boonz Supabase project (`eizcexopcuoycuosittm`), classified by role. The classification drives which functions need Phase A.5 patching (canonical writers) and which can be left alone.
 
 **Verified live** on 2026-04-25 via `pg_proc` query (45 DEFINER functions total).
-**Updated 2026-04-27:** +2 procurement canonical writers (`create_purchase_order`, `receive_purchase_order`). Total: 27 canonical writers.
+**Updated 2026-04-27:** +2 procurement canonical writers (`create_purchase_order`, `receive_purchase_order`).
+**Updated 2026-05-04:** +3 inventory operations (`transfer_warehouse_stock`, `log_manual_refill`, `adjust_pod_inventory`), +1 warehouse reconciliation (`adjust_warehouse_stock`). Total: 30+ canonical writers.
 
 **Phase A.5 complete (2026-04-26):** All 25 canonical writers patched (1 in A.5a, 24 in A.5b — see CHANGELOG and MIGRATIONS_REGISTRY for details). Every writer now tags its transaction with `app.via_rpc='true'` and `app.rpc_name='<fn>'` via `PERFORM set_config(...)` at the top of `BEGIN`, so the A.4 generic AFTER trigger captures `via_rpc=true, rpc_name=<fn>` on every protected-entity row.
 
@@ -51,16 +52,20 @@ These mutate at least one protected entity. Each must, by the end of Phase A.5:
 | `create_purchase_order` | `purchase_orders`, `driver_tasks`, `po_notifications` | ✅ 2026-04-27 — new canonical writer. Replaces FE direct inserts. Uses `po_number_seq` for race-safe numbering. Roles: field_staff, warehouse, operator_admin, superadmin, manager. |
 | `receive_purchase_order` | `purchase_orders`, `warehouse_inventory`, `po_additions`, `inventory_audit_log` | ✅ 2026-04-27 — new canonical writer. Fixes B-2 (no duplicate PO lines for multi-batch), B-3 (warehouse_inventory no longer written from FE), B-4 (po_additions fully received + inventoried). Roles: warehouse, operator_admin, superadmin, manager. |
 
-### Refill engine — NEW 2026-04-28
+### Refill engine — UPDATED 2026-05-04
 | Function | Writes to | Status |
 |---|---|---|
-| `auto_generate_refill_plan` | `refill_plan_output`, `refill_dispatching` (via `write_refill_plan`) | ✅ 2026-04-28 — replaces the 40-step AI-driven loop. Single call: runs triage, velocity, lifecycle, variant splits, swap candidates, write_refill_plan, dispatching mirror. Runtime < 2s for 10 machines. Args: `p_filter text`, `p_plan_date date`, `p_dry_run boolean`. |
+| `auto_generate_refill_plan` | `refill_plan_output`, `refill_dispatching` (via `write_refill_plan`), `shelf_configurations` (via `seed_shelf_configurations`) | ✅ **UPDATED 2026-05-04 (RPC A)** — added `p_machines text[]` param. When provided: bypasses health triage + LIMIT 10, processes exactly the listed machines. Auto-calls `seed_shelf_configurations` for machines with 0 shelf configs. Preserves packed dispatching rows. Args: `p_filter text`, `p_plan_date date`, `p_dry_run boolean`, `p_machines text[]`. |
 
-### Refill plan + dispatch
-| Function | Writes to | A.5 status |
+### Refill plan + dispatch — UPDATED 2026-05-04
+| Function | Writes to | Status |
 |---|---|---|
-| `approve_refill_plan` | `refill_plan_output` (status→approved), `refill_dispatching` | ✅ NEW 2026-04-30 — canonical approval gate. Args: `p_plan_date date, p_machine_names text[]`. Roles: operator_admin, superadmin, manager. Articles 1, 3, 4, 5, 8, 12. |
-| `write_refill_plan` | `refill_plan_output` | ✅ A.5b — patched 2026-04-26 |
+| `approve_refill_plan` | `refill_plan_output` (status→approved), `refill_dispatching` | ✅ **UPDATED 2026-05-04 (RPC E)** — loud errors. Pre-approve diagnostics detect missing shelf_configs, unmatched products, unmatched machines. Returns `alerts` jsonb array. Preserves packed dispatching rows (`AND packed=false` guard). Dispatch gap detection: warns when `rows_approved > dispatching_rows_written`. Args: `p_plan_date date, p_machine_names text[]`. Roles: operator_admin, superadmin, manager. Articles 1, 3, 4, 5, 8, 12. |
+| `write_refill_plan` | `refill_plan_output` | ✅ **UPDATED 2026-05-04 (RPC B)** — scoped delete. Extracts distinct machine_names from `p_lines` jsonb; only deletes pending rows for those machines (was: all pending for date). Returns `machines_affected` array. Articles 1, 4, 8, 12. |
+| `override_refill_quantity` | `refill_plan_output` | ✅ **NEW 2026-05-04 (RPC C)** — operator quantity override. Updates pending REFILL/ADD NEW rows for a specific machine+shelf. Multi-variant: proportional redistribution. Args: `p_plan_date date, p_machine_name text, p_shelf_code text, p_new_quantity int`. Roles: operator_admin, superadmin, manager. Articles 1, 4, 5, 8, 12. |
+| `inject_swap` | `refill_plan_output`, `refill_dispatching` | ✅ **NEW 2026-05-04 (RPC D)** — inject swap into live plan. Inserts REMOVE + ADD NEW rows as `approved`, creates dispatching rows. Preserves packed rows (`AND packed=false` guard). Validates machine, shelf_config, pod_product, boonz_product existence. Args: `p_plan_date date, p_machine_name text, p_shelf_code text, p_remove_pod_product text, p_add_pod_product text, p_add_boonz_product text, p_add_quantity int, p_comment text`. Roles: operator_admin, superadmin, manager. Articles 1, 4, 5, 8, 12. |
+| `seed_shelf_configurations` | `shelf_configurations` | ✅ **NEW 2026-05-04 (RPC F)** — auto-seed shelf_configurations from `v_live_shelf_stock`. Converts aisle codes (`0-A00`→`A01`). Idempotent via `ON CONFLICT DO NOTHING`. Args: `p_machine_name text`. Roles: operator_admin, superadmin, manager. Articles 1, 4, 8, 12. |
+| `cleanup_orphan_dispatching` | `refill_dispatching` (DELETE orphaned rows) | ✅ **NEW 2026-05-04** — deletes unpacked/not-picked-up dispatching rows that have no matching plan row (pending or approved). Scoped by date + optional machine_names. Used after `write_refill_plan` rewrites plan rows to clean stale dispatching. Args: `p_dispatch_date date, p_machine_names text[]`. Roles: operator_admin, superadmin, manager. Articles 1, 4, 8, 12. |
 | `write_dispatch_plan` | `dispatch_plan` | ✅ A.5b — patched 2026-04-26 |
 | `push_plan_to_dispatch` | `dispatch_plan`, `dispatch_lines` | ✅ A.5b — patched 2026-04-26 |
 | `pack_dispatch_line` | `dispatch_lines`, `warehouse_inventory` | ✅ A.5b — patched 2026-04-26 |
@@ -71,7 +76,31 @@ These mutate at least one protected entity. Each must, by the end of Phase A.5:
 
 > **Count check:** 26 listed above. The verified count is 25 — re-verify when patching A.5 (one of these may be a read-only helper that was misclassified, or two may be aliases). The Cody skill carries the canonical list as a JSON artifact in `cody/canonical_rpcs.json`.
 
-## Read-only helpers — 7 functions (no A.5 patching needed)
+### Warehouse-status propose-then-confirm — NEW 2026-05-04
+| Function | Writes to | Status |
+|---|---|---|
+| `confirm_warehouse_status_proposal(uuid, text)` | `warehouse_inventory` (status flip), `warehouse_inventory_status_proposal` (status→confirmed) | ✅ NEW 2026-05-04 — canonical confirm path. Roles: warehouse, operator_admin, superadmin, manager. Drift detection marks proposal `superseded` if live status diverged. Articles 1, 4, 5, 8. |
+| `reject_warehouse_status_proposal(uuid, text)` | `warehouse_inventory_status_proposal` (status→rejected) | ✅ NEW 2026-05-04 — canonical reject path. `warehouse_inventory.status` is NOT modified. Roles: warehouse, operator_admin, superadmin, manager. Articles 1, 4, 5, 8. |
+
+### Inventory operations — NEW 2026-05-04
+| Function | Writes to | Status |
+|---|---|---|
+| `transfer_warehouse_stock(uuid, uuid, jsonb, date, text)` | `warehouse_inventory` (source decrement + dest increment/insert), `inventory_audit_log` (both sides) | ✅ NEW 2026-05-04 — canonical inter-warehouse transfer. FIFO: picks oldest-expiry batches from source. Cold storage validation. Splits across batches if needed. Creates dest rows on first transfer. Args: `p_source_warehouse_id, p_dest_warehouse_id, p_lines [{boonz_product_id, qty, expiration_date}], p_transfer_date, p_reason`. Roles: warehouse, operator_admin, superadmin, manager. Articles 1, 4, 6, 8. |
+| `log_manual_refill(text, uuid, date, jsonb, text)` | `warehouse_inventory` (source decrement), `pod_inventory` (insert), `inventory_audit_log`, `pod_inventory_audit_log` | ✅ NEW 2026-05-04 — retroactive manual refill recording. FIFO warehouse decrement. Continues on WH shortfall (backlog cleanup — physical refill already happened). Args: `p_machine_name, p_source_warehouse_id, p_refill_date, p_lines [{shelf_code, boonz_product_id, qty, expiration_date}], p_reason`. Roles: warehouse, operator_admin, superadmin, manager. Articles 1, 4, 8. |
+| `adjust_pod_inventory(text, date, jsonb, text)` | `pod_inventory` (update or insert), `pod_inventory_audit_log` | ✅ NEW 2026-05-04 — manual pod inventory correction + FIFO cleanup. Matches existing rows by (machine, shelf, product, expiry). Updates current_stock, marks Depleted when qty=0 (no DELETE). Supports batch-level FIFO: multiple lines per shelf with different expiry dates. Args: `p_machine_name, p_snapshot_date, p_lines [{shelf_code, boonz_product_id, new_qty, expiration_date, batch_id}], p_reason`. Roles: warehouse, operator_admin, superadmin, manager. Articles 1, 4, 5, 8. |
+| `adjust_warehouse_stock(uuid, jsonb, date, text)` | `warehouse_inventory` (update or insert), `inventory_audit_log` | ✅ NEW 2026-05-04 — physical count reconciliation for warehouse inventory. Matches existing rows by `wh_inventory_id` or `(warehouse, product, expiry)`. Updates stock + consumer_stock + expiration_date + batch_id + status. Inserts new rows when no match. Unchanged-check includes expiry comparison (catches expiry-only corrections). Args: `p_warehouse_id, p_lines [{wh_inventory_id?, boonz_product_id, new_warehouse_stock, new_consumer_stock, expiration_date?, batch_id?, status?}], p_snapshot_date, p_reason`. Roles: warehouse, operator_admin, superadmin, manager. Articles 1, 4, 5, 8. |
+
+### Pickup — NEW 2026-05-04
+| Function | Writes to | Status |
+|---|---|---|
+| `mark_picked_up(uuid[])` | `refill_dispatching` (picked_up=true on packed=true rows only) | ✅ NEW 2026-05-04 — canonical pickup path. Replaces direct FE `refill_dispatching` UPDATE in `field/pickup/page.tsx`. Roles: field_staff, warehouse, operator_admin, superadmin, manager. Returns counts + skipped IDs (already picked up / not packed / not found). Articles 1, 3, 4, 5, 8. **Dormant** until tonight's FE deploy wires it. |
+
+### Terminal-to-machine history — NEW 2026-05-05
+| Function | Writes to | Status |
+|---|---|---|
+| `register_terminal_move(p_unique_terminal_id text, p_new_machine_id uuid, p_effective_from date, p_attributed_name text, p_attributed_venue_group text, p_notes text)` | `machine_terminal_history` (close open window via UPDATE, then INSERT new window) | ✅ NEW 2026-05-05 — canonical writer for terminal reassignments / machine renames. Validates inputs (NULL guards), FK existence on `machine_id`, role gate (operator_admin or superadmin). Returns `{closed_history_id, new_history_id}` jsonb. Audited via the generic `audit_log_write` trigger. Articles 1, 4, 8. Use whenever a physical Adyen terminal moves between machine_ids or a machine is renamed — downstream attribution views auto-correct. |
+
+## Read-only helpers — 8 functions (no A.5 patching needed)
 
 These do not mutate; they exist as DEFINER for RLS-bypass on read paths.
 
@@ -82,6 +111,7 @@ These do not mutate; they exist as DEFINER for RLS-bypass on read paths.
 - `get_refill_plan_for_date`
 - `get_settlement_for_partner`
 - `get_user_role` (returns role from `user_profiles` to FE)
+- `get_per_machine_performance(p_date_from date, p_date_to date, p_venue_group text, p_machine_names text[])` — **NEW 2026-05-05.** Returns a JSON array of per-attributed-machine WEIMI vs Adyen rollups. SECURITY INVOKER, LANGUAGE sql STABLE — RLS applies via `v_sales_history_attributed` and `v_adyen_transactions_attributed` (both `security_invoker = true`). Single greppable call site for `/app/performance` Sites & Machines and any per-machine dashboard. Splits repurposed machines automatically (e.g. ACTIVATE-2005 vs MPMCC-2005). Refund-netted `adyen_net_cash_aed` per row.
 
 ## Audit / system helpers — 4 functions (left as-is)
 
@@ -95,6 +125,13 @@ These do not mutate; they exist as DEFINER for RLS-bypass on read paths.
 - `auto_audit_warehouse_inventory` (UPDATE trigger)
 - `auto_audit_warehouse_inventory_insert` (INSERT trigger)
 - `handle_new_user` (auth trigger — creates `user_profiles` row on signup)
+
+## Trigger-only proposers — 2 functions (NEW 2026-05-04, NOT YET BOUND)
+
+These functions write to `warehouse_inventory_status_proposal` only — never UPDATE `warehouse_inventory.status`. They are bodies-only as of 2026-05-04 and will be bound to `warehouse_inventory` triggers in `m3b` post-dispatch tonight. Article 6 (revised) compliant: they propose, the manager confirms.
+
+- `propose_inactivate_on_zero_stock()` — fires AFTER UPDATE on `warehouse_inventory` when both stock columns just dropped to zero on an Active row. Idempotency guard skips duplicate pending proposals from the same proposer.
+- `propose_reactivate_on_stock_return()` — fires AFTER UPDATE/INSERT on `warehouse_inventory` when total stock just transitioned 0→>0 on an Inactive row (procurement / restock case). Same idempotency guard.
 
 ## Deprecated — 1 function (Phase A.2 complete)
 

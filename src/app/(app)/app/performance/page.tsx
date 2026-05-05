@@ -213,6 +213,7 @@ interface SaleRow {
   product_cost: number | null;
   actual_selling_price: number | null;
   internal_txn_sn: string | null;
+  machine_mapping: string | null; // WEIMI's at-time-of-sale machine name; survives renames.
   machines: { official_name: string; venue_group: string | null } | null;
 }
 
@@ -591,7 +592,7 @@ export default function PerformancePage() {
       let salesQuery = supabase
         .from("sales_history")
         .select(
-          "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, internal_txn_sn, machines!inner(official_name, venue_group)",
+          "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, internal_txn_sn, machine_mapping, machines!inner(official_name, venue_group)",
         )
         .eq("delivery_status", "Successful")
         .gte("transaction_date", `${dateFrom}T00:00:00+04:00`) // Dubai midnight
@@ -1100,6 +1101,10 @@ export default function PerformancePage() {
   }, [salesRows]);
 
   // ── machine data ──
+  // Key by machine_mapping (WEIMI's at-time-of-sale name), not machine_id.
+  // For repurposed machines this gives a separate row per identity:
+  // e.g. 4b235d37 produces two rows — MPMCC-2005-0000-W0 (Apr 23–27) and
+  // ACTIVATE-2005-0000-W0 (Apr 28+) — instead of collapsing into the current name.
   const machineData = useMemo(() => {
     const map: Record<
       string,
@@ -1112,13 +1117,15 @@ export default function PerformancePage() {
       }
     > = {};
     salesRows.forEach((r) => {
-      const id = r.machine_id;
+      const attributedName =
+        r.machine_mapping || r.machines?.official_name || r.machine_id;
+      const id = attributedName;
       if (!map[id])
         map[id] = {
           revenue: 0,
           units: 0,
           txns: 0,
-          name: r.machines?.official_name || id,
+          name: attributedName,
           group: r.machines?.venue_group || "Unknown",
         };
       map[id].revenue += r.total_amount || 0;

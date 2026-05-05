@@ -15,6 +15,157 @@ Format:
 
 ---
 
+## 2026-05-05 — Repurposed-machine attribution: `machine_terminal_history` + attributed view + per-machine RPC
+**Phase / Article:** A.4 / Constitution Articles 1, 2, 4, 7, 8, 12, 14
+**Applied to:** prod
+**Migration name:** `phaseA_a4_machine_terminal_history`, `phaseA_a4b_attributed_view_dedupe`, `phaseA_a4c_per_machine_performance_rpc`, `phaseA_a4d_vox_commercial_report_via_attributed_view`
+
+**Summary:** New versioned-history table `machine_terminal_history` (terminal-id × machine-id × date-range) with EXCLUDE-overlap constraint, RLS, and the generic A.3 audit trigger installed. Backfilled with 9 known terminal-to-machine windows: ACTIVATE-2005 chain (LLFP_2005 Feb 13-14 → MPMCC-2005-0000-W0 Apr 23-27 → ACTIVATE-2005-0000-W0 Apr 28+), MPMCC-1054/1058 ← ACTIVATEMCC-1054/1058 Apr 28 rebrands, IFLYMCC-1024 install, ALHQ-1016 stable. New canonical writer `register_terminal_move(text, uuid, date, text, text, text)` is the only path to add new windows; validates inputs + FK + role (operator_admin or superadmin). New view `v_adyen_transactions_attributed` (with `security_invoker = true`) joins Adyen rows through the history table to expose `attributed_machine_name`, `attributed_machine_id`, `attributed_venue_group`, `attribution_source` per row. Dedupe patch (`a4b`) restricts the machines join to `status='Active'` so stale Inactive terminal claims don't double-count. New read-only RPC `get_per_machine_performance(p_date_from, p_date_to, p_venue_group, p_machine_names)` returns a JSON array per attributed-machine combining WEIMI sales (via `v_sales_history_attributed`) with Adyen settled+refunded captures, including refund-netted `adyen_net_cash_aed`. Existing `get_vox_commercial_report` patched (`a4d`) to read Adyen via the new view and split SettledBulk vs RefundedBulk so partial refunds net out of captured. **Net effect:** repurposed machines now appear as separate rows in any per-machine report (e.g. ACTIVATE-2005 has 5 days at 1,087 AED under MPMCC-2005-0000-W0 and 7 days at 1,456.85 AED under ACTIVATE-2005-0000-W0 in the Feb 1 → May 4 window, instead of 12 days collapsed into one row). Validated by Cody (⚠️ Approve with revisions — all revisions applied: real ALHQ uuid, btree_gist extension, input/role validation, security_invoker on the view, audit trigger installed, terminology corrected from "append-only audit" to "versioned history"). FE wiring of `/app/performance` Sites & Machines tab patched separately (`src/app/(app)/app/performance/page.tsx` — `machineData` keys by `sales_history.machine_mapping` instead of `machine_id`). Pending: register_terminal_move callsite from a future "Rename machine" UI, wire `get_per_machine_performance` if/when the Sites & Machines tab needs Adyen-net-cash beside revenue.
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.get_per_machine_performance(date, date, text, text[]);
+DROP FUNCTION IF EXISTS public.register_terminal_move(text, uuid, date, text, text, text);
+DROP VIEW    IF EXISTS public.v_adyen_transactions_attributed;
+DROP TRIGGER IF EXISTS trg_mth_audit ON public.machine_terminal_history;
+DROP POLICY  IF EXISTS mth_authenticated_read ON public.machine_terminal_history;
+DROP POLICY  IF EXISTS mth_service_all       ON public.machine_terminal_history;
+DROP TABLE   IF EXISTS public.machine_terminal_history;
+-- restore the prior get_vox_commercial_report from migration history.
+```
+
+---
+
+## 2026-05-04 — Orphan dispatching cleanup RPC
+**Phase / Article:** Operational hardening / Articles 1, 4, 8, 12
+**Applied to:** prod
+**Migration name:** `cleanup_orphan_dispatching_rpc`
+
+**Summary:** New canonical-writer RPC `cleanup_orphan_dispatching(date, text[])` to delete orphaned `refill_dispatching` rows that have no matching plan row in `refill_plan_output`. This gap was surfaced operationally when `write_refill_plan` (RPC B) rewrote plan rows for 4 machines (MC-2004, MINDSHARE, WAVEMAKER, WPP) — the old plan's dispatching rows were left behind because `write_refill_plan` only touches the plan table. The RPC validates caller role (operator_admin, superadmin, manager), requires non-NULL `p_dispatch_date`, and JOINs through `machines` + `shelf_configurations` to match dispatching rows back to plan rows by `(plan_date, machine_id, shelf_id, action)`. Only deletes rows where `packed=false AND picked_up=false` (Article 12 — never touch packed/picked-up rows). Returns `{status, dispatch_date, machines_scoped, orphan_rows_deleted}`. Designed by Dara, reviewed by Cody (⚠️ Approve with revisions — revisions applied: role validation, NULL guard, JOIN rewrite from subquery to NOT EXISTS). First call deleted 8 orphaned swap dispatching rows across 4 machines for 2026-05-05.
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.cleanup_orphan_dispatching(date, text[]);
+```
+
+---
+
+## 2026-05-04 — Warehouse stock reconciliation RPC + bug fixes across 3 inventory RPCs
+**Phase / Article:** Operational hardening / Articles 1, 4, 5, 8
+**Applied to:** prod
+**Migration names:** `inventory_rpc_adjust_warehouse_stock`, `patch_adjust_warehouse_stock_update_expiry`, `fix_adjust_warehouse_stock_wh_name_col`, `fix_adjust_warehouse_stock_generated_col`, `patch_adjust_wh_stock_expiry_unchanged_check`, `fix_log_manual_refill_generated_delta`, `fix_log_manual_refill_audit_constraints`, `fix_transfer_warehouse_stock_generated_delta`
+
+**Summary:** New canonical-writer RPC `adjust_warehouse_stock` for physical count reconciliation of warehouse inventory. Matches existing rows by `wh_inventory_id` or `(warehouse, product, expiry)`, updates stock + consumer_stock + expiration_date + batch_id + status, inserts new rows when no match found. Unchanged-check includes expiry comparison (catches expiry-only corrections like mislabeled dates). Used to reconcile WH_MCC physical counts on 2026-05-04. Also fixed `inventory_audit_log.delta` generated-column bug in all 3 existing inventory RPCs (`adjust_warehouse_stock`, `log_manual_refill`, `transfer_warehouse_stock`) — the `delta` column is GENERATED ALWAYS and cannot be explicitly INSERTed. Fixed `log_manual_refill` pod_inventory_audit_log constraint violations: `operation` must be lowercase ('insert' not 'INSERT'), `source` must be from enum ('refill' not 'manual_refill').
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.adjust_warehouse_stock(uuid, jsonb, date, text);
+-- Then CREATE OR REPLACE log_manual_refill and transfer_warehouse_stock with pre-fix bodies
+```
+
+---
+
+## 2026-05-04 — Inventory operations: 3 new RPCs (transfer, manual refill, pod adjust)
+**Phase / Article:** Operational hardening / Articles 1, 4, 5, 6, 8
+**Applied to:** prod
+**Migration names:** `inventory_rpc_transfer_warehouse_stock`, `inventory_rpc_log_manual_refill`, `inventory_rpc_adjust_pod_inventory`
+
+**Summary:** Three new canonical-writer RPCs to close inventory management gaps. Designed by Dara, reviewed by Cody (Articles 1, 4, 5, 6, 8 — all pass). These enable the operator to: (1) transfer stock between warehouses (WH_CENTRAL → WH_MCC/WH_MM) with FIFO batch picking and cold-storage validation; (2) retroactively log manual refills that happened outside the system (backlog cleanup), decrementing source warehouse and creating pod_inventory entries; (3) correct pod_inventory via physical count reconciliation with batch-level FIFO support. All three write full audit trails to `inventory_audit_log` and/or `pod_inventory_audit_log`. Article 6 compliance verified: none of the three RPCs touch `warehouse_inventory.status` (the propose_inactivate trigger may fire when source stock hits zero, but that only proposes — manager confirms).
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.transfer_warehouse_stock(uuid, uuid, jsonb, date, text);
+DROP FUNCTION IF EXISTS public.log_manual_refill(text, uuid, date, jsonb, text);
+DROP FUNCTION IF EXISTS public.adjust_pod_inventory(text, date, jsonb, text);
+```
+
+---
+
+## 2026-05-04 — Refill pipeline hardening: 6 RPC changes (B, E, C, D, F, A)
+**Phase / Article:** Operational hardening / Articles 1, 4, 5, 8, 12
+**Applied to:** prod
+**Migration names:** `refill_b_scoped_write_refill_plan`, `refill_e_loud_approve_refill_plan`, `refill_c_override_refill_quantity`, `refill_d_inject_swap`, `refill_f_seed_shelf_configurations`, `refill_a_multi_machine_generate`
+
+**Summary:** Six coordinated RPC changes designed by Dara, reviewed by Cody (Articles 1, 2, 4, 5, 7, 8, 12, 14 — all pass), to eliminate the need for manual SQL in the refill pipeline. The operator (Claude / boonz-master skill) now works exclusively through RPCs for all plan mutations.
+
+1. **RPC B — `write_refill_plan` scoped delete.** The DELETE now only removes pending rows for machines present in `p_lines` (was: all pending for date). Fixes the "sequential per-machine calls destroy each other" bug. Returns `machines_affected` array.
+
+2. **RPC E — `approve_refill_plan` loud errors.** Pre-approve diagnostics detect missing `shelf_configurations`, unmatched `pod_products`/`boonz_products`, unmatched `machine_name`. Returns structured `alerts` jsonb array with impact descriptions. Dispatch gap detection: warns when `rows_approved > dispatching_rows_written`. Added `AND packed=false` guard to dispatching DELETE (never wipe packed rows).
+
+3. **RPC C — `override_refill_quantity` (NEW).** Operator quantity override for pending REFILL/ADD NEW rows. Multi-variant products: proportional redistribution. Single-variant: direct update. Appends `[QTY OVERRIDE]` comment for audit trail.
+
+4. **RPC D — `inject_swap` (NEW).** Inject a product swap into a live/approved plan. Inserts REMOVE + ADD NEW rows directly as `approved` + creates dispatching rows. Preserves packed dispatching rows. Full input validation: machine, shelf_config, pod_product, boonz_product existence checks with descriptive errors.
+
+5. **RPC F — `seed_shelf_configurations` (NEW).** Auto-seed `shelf_configurations` from `v_live_shelf_stock`. Converts aisle codes (`0-A00`→`A01`, `1-A00`→`B01`). Idempotent via `ON CONFLICT (machine_id, shelf_code) DO NOTHING`. Called automatically by `auto_generate_refill_plan` when a machine has 0 configs.
+
+6. **RPC A — `auto_generate_refill_plan` multi-machine.** New `p_machines text[]` parameter. When provided: bypasses health triage filter + LIMIT 10, processes exactly the listed machines. Auto-calls `seed_shelf_configurations` for machines with 0 configs. Added `AND packed=false` to dispatching DELETE. Old 3-param overload dropped.
+
+**Cody review:** ⚠️ Approve with revisions. All revisions applied: alerts are warnings not blockers (E), packed rows preserved (D/E/A), idempotent ON CONFLICT (F), role validation on all new RPCs (C/D/F). Constitution articles satisfied: 1 (each RPC is canonical for its operation type), 4 (GUCs + role + input validation), 5 (status transitions respected), 8 (audit trigger fires on all targets), 12 (forward-only CREATE OR REPLACE).
+
+**Verification:**
+- All 6 functions confirmed: `prosecdef=true`, `has_via_rpc=true`, `has_rpc_name=true`.
+- `auto_generate_refill_plan` has exactly one overload (4 params).
+- Old 3-param overload dropped cleanly.
+
+**Rollback:**
+```sql
+-- Reverse in opposite order
+DROP FUNCTION IF EXISTS public.auto_generate_refill_plan(text, date, boolean, text[]);
+-- Then CREATE OR REPLACE with old 3-param body (archived in this changelog git history)
+DROP FUNCTION IF EXISTS public.seed_shelf_configurations(text);
+DROP FUNCTION IF EXISTS public.inject_swap(date, text, text, text, text, text, int, text);
+DROP FUNCTION IF EXISTS public.override_refill_quantity(date, text, text, int);
+-- Then CREATE OR REPLACE approve_refill_plan + write_refill_plan with pre-B/E bodies
+```
+
+---
+
+## 2026-05-04 — Refill app issues Phase 1: propose-then-confirm + canonical pickup
+**Phase / Article:** Operational fix bundle / Articles 1, 2, 3, 4, 5, 6 (revised), 7, 8, 9, 12
+**Applied to:** prod (additive only — no live-flow behavior change today)
+**Migration names:** `m1_warehouse_inventory_status_proposal_table`, `m2_confirm_reject_warehouse_status_proposal_rpcs`, `m3_propose_status_change_functions_unbound`, `m4_mark_picked_up_rpc`, `m5_diagnostic_views`
+
+**Summary:** First wave of fixes for the 12 refill-app issues + Issue #13 (orphan dispatch machine names). All migrations today are strictly additive — they introduce new tables, functions, and views, but do NOT alter behavior of any existing pack/receive/dispatch flow. CS guardrail in effect: "do not alter or touch anything in the existing packing and dispatching of today; fix the issues and stress test along the way."
+
+1. **`warehouse_inventory_status_proposal` table (M1)** — Implements the propose-then-confirm pattern for `warehouse_inventory.status` mutations (Article 6 revised, see Amendment 002). Automated flows (triggers / RPCs / cron / n8n) write proposal rows here. The warehouse manager confirms or rejects via canonical RPCs. RLS: read for warehouse + admin roles, INSERT/UPDATE/DELETE blocked from authenticated. Universal audit trigger bound (Article 8).
+
+2. **`confirm_warehouse_status_proposal` + `reject_warehouse_status_proposal` RPCs (M2)** — Canonical write paths for the manager's confirm/reject decision. SECURITY DEFINER, validate role + inputs, set `app.via_rpc`, return JSON. Confirm path atomically flips `warehouse_inventory.status` and marks proposal `confirmed`. Drift detection: if `warehouse_inventory.status` changed since the proposal was filed, marks proposal `superseded` instead of confirming.
+
+3. **`propose_inactivate_on_zero_stock` + `propose_reactivate_on_stock_return` trigger functions (M3)** — Body created today, **NOT BOUND** to `warehouse_inventory`. Binding deferred to tonight's post-dispatch deploy (m3b) so today's pack/receive flow is untouched. Both functions write to the proposal table only; never UPDATE `warehouse_inventory.status` directly. Idempotency guard skips duplicate pending proposals.
+
+4. **`mark_picked_up(uuid[])` RPC (M4)** — Canonical write path for the field-driver pickup flow. Replaces direct `refill_dispatching` UPDATEs from `field/pickup/page.tsx`. Filters to `packed=true AND picked_up=false`; returns counts + skipped IDs for FE feedback. Sits dormant until tonight's FE deploy wires it.
+
+5. **Diagnostic views (M5)** — `v_pending_status_proposals` (manager UI surface), `v_orphan_dispatch_machine_names` (Issue #13: refill_plan_output rows whose machine_name doesn't resolve to `machines.official_name` — currently 4 rows: MPMCC-2005-0000-L0, ACTIVATEMCC-1058-0000-R0, ACTIVATEMCC_1054_0000_M0 (typo), JET-2001-3000-O1), `v_machines_without_shelf_config` (currently 2 rows: IRIS, LLFP — both `include_in_refill=false`, benign).
+
+**Constitution amendment (002):** Article 6 revised. The previous absolute rule ("`warehouse_inventory.status` may only be written by the warehouse manager — no trigger / function / cron / n8n / app may mutate it") is replaced with a propose-then-confirm rule that allows automated flows to PROPOSE status changes via the new proposal table, with manager confirmation as the gate. Silent direct UPDATE of `warehouse_inventory.status` from any trigger / RPC / cron / n8n / FE remains forbidden. See `06_amendment_002_article_6_propose_then_confirm.md`.
+
+**Today-safe verification:**
+- `warehouse_inventory` triggers unchanged (no new mutation triggers; lockdown holds).
+- `refill_dispatching` triggers unchanged (`enforce_packed_dispatch_immutability`, `tg_audit_refill_dispatching`, `trg_conserve_split_qty`, `trg_prevent_duplicate_unstarted_dispatch` all intact).
+- No FE deploy required to apply these migrations. RPCs sit dormant until tonight's FE deploy.
+
+**Rollback:**
+```sql
+-- M5
+DROP VIEW IF EXISTS public.v_machines_without_shelf_config;
+DROP VIEW IF EXISTS public.v_orphan_dispatch_machine_names;
+DROP VIEW IF EXISTS public.v_pending_status_proposals;
+-- M4
+DROP FUNCTION IF EXISTS public.mark_picked_up(uuid[]);
+-- M3
+DROP FUNCTION IF EXISTS public.propose_reactivate_on_stock_return();
+DROP FUNCTION IF EXISTS public.propose_inactivate_on_zero_stock();
+-- M2
+DROP FUNCTION IF EXISTS public.reject_warehouse_status_proposal(uuid, text);
+DROP FUNCTION IF EXISTS public.confirm_warehouse_status_proposal(uuid, text);
+-- M1
+DROP TABLE IF EXISTS public.warehouse_inventory_status_proposal;
+```
+
+**Pending tonight (post-dispatch deploy window):** m3b (bind triggers), FE updates to (a) wire `mark_picked_up`, (b) add `picked_up=false` filter in pickup page, (c) surface `v_pending_status_proposals` in the inventory page; conserve_split trigger swap; backfills.
+
+---
+
 ## 2026-04-30 — Boonz Master operational intelligence layer
 **Phase / Article:** Operational / Articles 1, 2, 3, 4, 5, 8, 12
 **Applied to:** prod + repo

@@ -31,6 +31,30 @@ Legend: ⏳ pending, ⏸️ blocked, ✅ applied, ⚠️ applied with caveats, �
 | `boonz_master_foundation` | 2, 3, 12 | ✅ Applied | 2026-04-30 | New tables: `boonz_context`, `planned_swaps`, `machine_field_notes`. Alter: `product_mapping.mix_weight`. Non-protected entities — no Appendix A addition required. |
 | `add_approve_refill_plan_rpc` | 1, 3, 4, 5, 8, 12 | ✅ Applied | 2026-04-30 | New canonical writer `approve_refill_plan(date, text[])`. Flips `refill_plan_output.operator_status` pending→approved + writes `refill_dispatching`. Roles: operator_admin, superadmin, manager. |
 
+## Refill App Issues — Phase 1 (2026-05-04)
+
+All migrations strictly additive — no live-flow behavior change today. Behavior changes (trigger binding, FE deploys, conserve_split swap, backfills) deferred to tonight's post-dispatch deploy window.
+
+| Migration name | Article(s) | Status | Applied | Notes |
+|---|---|---|---|---|
+| `m1_warehouse_inventory_status_proposal_table` | 1, 2, 3, 6 (revised), 7, 8, 12 | ✅ Applied | 2026-05-04 | New table + RLS + audit trigger for the propose-then-confirm pattern. Adds `warehouse_inventory_status_proposal` to Appendix A protected entities (via Amendment 002). |
+| `m2_confirm_reject_warehouse_status_proposal_rpcs` | 1, 4, 5, 8 | ✅ Applied | 2026-05-04 | Two new canonical writers: `confirm_warehouse_status_proposal(uuid, text)`, `reject_warehouse_status_proposal(uuid, text)`. Manager-confirmation gate for `warehouse_inventory.status` flips; drift detection marks proposal `superseded` when live row diverges. |
+| `m3_propose_status_change_functions_unbound` | 1, 4, 6 (revised), 8, 9 | ✅ Applied (function bodies) | 2026-05-04 | Two trigger functions created but **NOT BOUND** to `warehouse_inventory`. Binding migration `m3b` runs post-dispatch tonight. Functions write only to the proposal table; never UPDATE `warehouse_inventory.status`. |
+| `m4_mark_picked_up_rpc` | 1, 3, 4, 5, 8 | ✅ Applied | 2026-05-04 | New canonical writer `mark_picked_up(uuid[])` — replaces direct `refill_dispatching` UPDATE from `field/pickup/page.tsx`. RPC dormant until tonight's FE deploy wires it. |
+| `m5_diagnostic_views` | 9, 12 | ✅ Applied | 2026-05-04 | Three read-only views: `v_pending_status_proposals`, `v_orphan_dispatch_machine_names` (Issue #13: 4 orphan names), `v_machines_without_shelf_config` (2 rows, both benign — `include_in_refill=false`). `security_invoker=true` so RLS on underlying tables applies. |
+| `m3b_bind_warehouse_inventory_propose_triggers` | 6 (revised), 8 | ⏳ Pending | — | **Tonight, post-dispatch.** Binds `propose_inactivate_on_zero_stock` AFTER UPDATE on `warehouse_inventory` and `propose_reactivate_on_stock_return` AFTER UPDATE/INSERT on `warehouse_inventory`. |
+
+## A.4 — Repurposed-machine attribution (2026-05-05)
+
+Versioned-history table + Adyen attribution view + per-machine read-only RPC. Makes /app/performance and partner reports correctly split repurposed machines (e.g. ACTIVATE-2005 vs MPMCC-2005-0000-W0). Cody-reviewed; revisions applied.
+
+| Migration name | Article(s) | Status | Applied | Notes |
+|---|---|---|---|---|
+| `phaseA_a4_machine_terminal_history` | 1, 2, 4, 7, 8, 12, 14 | ✅ Applied | 2026-05-05 | New versioned-history table `machine_terminal_history` (terminal × machine × daterange, EXCLUDE-overlap constraint, RLS, generic audit trigger), 9 backfilled windows, new SECURITY DEFINER RPC `register_terminal_move`, new view `v_adyen_transactions_attributed` (security_invoker). Adds `machine_terminal_history` to protected entities. |
+| `phaseA_a4b_attributed_view_dedupe` | 12 | ✅ Applied | 2026-05-05 | Forward-only patch: restrict the view's machines join to `status='Active'` so stale Inactive terminal claims (WH3_* leftovers) don't double-match Adyen rows. |
+| `phaseA_a4c_per_machine_performance_rpc` | 12 | ✅ Applied | 2026-05-05 | New read-only RPC `get_per_machine_performance(date, date, text, text[])` returns JSON array per attributed-machine. LANGUAGE sql STABLE; SECURITY INVOKER (RLS via underlying views). Single greppable call site for any per-machine dashboard. |
+| `phaseA_a4d_vox_commercial_report_via_attributed_view` | 1, 12 | ✅ Applied | 2026-05-05 | Patches `get_vox_commercial_report` to read Adyen via `v_adyen_transactions_attributed`, split SettledBulk vs RefundedBulk, and net refund_returned out of captured. Site attribution unchanged (still via `sh.machine_mapping`). |
+
 ---
 
 ## How to add a new entry
