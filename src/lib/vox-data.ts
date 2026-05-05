@@ -116,36 +116,34 @@ export interface VoxConsumerReport {
   meta: VoxMeta;
 }
 
+// Pod buckets are derived in the RPC from machines.venue_group='VOX' + pod_location.
+// The FE keeps colour + label only; machine list is no longer hardcoded here.
 export const VOX_PODS: Record<
   string,
-  { machines: string[]; color: string; label: string; inception: string }
+  { color: string; label: string; inception: string }
 > = {
   Mercato: {
-    machines: ["VOXMM-1009-0100-V0", "VOXMM-1013-0101-B0"],
     color: "#3B82F6",
-    label: "VOXMM",
+    label: "Mercato Mall",
     inception: "06 Feb 2026",
   },
   Mirdif: {
-    machines: [
-      "VOXMCC-1009-0201-B0",
-      "VOXMCC-1011-0101-B0",
-      "VOXMCC-1012-0100-V0",
-      "VOXMCC-1017-0200-V0",
-    ],
     color: "#10B981",
-    label: "VOXMCC",
+    label: "Mirdif City Centre",
     inception: "19 Mar 2026",
   },
 };
-export const MACHINE_LABELS: Record<string, string> = {
-  "VOXMM-1009-0100-V0": "MRC M1 (VOX)",
-  "VOXMM-1013-0101-B0": "MRC M2 (Boonz)",
-  "VOXMCC-1009-0201-B0": "MRD M1 (Boonz)",
-  "VOXMCC-1011-0101-B0": "MRD M2 (Boonz)",
-  "VOXMCC-1012-0100-V0": "MRD M3 (VOX)",
-  "VOXMCC-1017-0200-V0": "MRD M4 (VOX)",
-};
+// Machine display label = first two segments of the official_name.
+// VOXMM-1009-0100-V0 → VOXMM-1009, ACTIVATE-2005-0000-W0 → ACTIVATE-2005, etc.
+// Drops the trailing pod-slot/serial segments so the label stays compact and consistent.
+export function shortMachine(name: string | null | undefined): string {
+  if (!name) return "—";
+  const parts = name.split("-");
+  return parts.length >= 2 ? `${parts[0]}-${parts[1]}` : name;
+}
+
+// MACHINE_LABELS exists only for explicit overrides; default is shortMachine().
+export const MACHINE_LABELS: Record<string, string> = {};
 export const WALLET_NAMES: Record<string, string> = {
   visa_applepay: "Apple Pay (Visa)",
   mc_applepay: "Apple Pay (MC)",

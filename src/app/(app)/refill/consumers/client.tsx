@@ -7,6 +7,7 @@ import {
   type VoxCommercialReport,
   VOX_PODS,
   MACHINE_LABELS,
+  shortMachine,
   WALLET_NAMES,
   FUND_COLORS,
   CARD_COLORS,
@@ -1041,8 +1042,7 @@ export default function ConsumerDashboardClient({
       <div className="vr">
         <nav>
           <div className="nb">
-            VOX<span style={{ color: MERC }}>MCC</span> /{" "}
-            <span style={{ color: MIRD }}>VOXMM</span>
+            MAFE
           </div>
           {tabs.map((t) => (
             <div
@@ -1238,7 +1238,7 @@ export default function ConsumerDashboardClient({
                     {S!.date_from} to {S!.date_to} {"\u00B7"}{" "}
                     {isC ? "Consolidated" : pods.join(" + ")}
                   </div>
-                  <h2>VOX Cinema Vending {"\u2014"} Consumer Report</h2>
+                  <h2>MAFE {"\u2014"} Consumer Report</h2>
                 </div>
                 <div className="sr">
                   {(isC
@@ -1480,7 +1480,7 @@ export default function ConsumerDashboardClient({
                           {ms.map((m) => (
                             <div key={m.machine} className="pr">
                               <span className="pl">
-                                {MACHINE_LABELS[m.machine] || m.machine}
+                                {MACHINE_LABELS[m.machine] || shortMachine(m.machine)}
                               </span>
                               <div className="pb">
                                 <div
@@ -1880,7 +1880,7 @@ export default function ConsumerDashboardClient({
                               color: t2.site === "Mercato" ? MERC : MIRD,
                             }}
                           >
-                            {MACHINE_LABELS[t2.machine] || t2.machine}
+                            {MACHINE_LABELS[t2.machine] || shortMachine(t2.machine)}
                           </td>
                           <td>
                             <span
@@ -2037,7 +2037,7 @@ export default function ConsumerDashboardClient({
               <div className="pg">
                 <div style={{ marginBottom: 16 }}>
                   <div className="sl">Financial Reconciliation</div>
-                  <h2>VOX Commercial Reconciliation</h2>
+                  <h2>MAFE Commercial Reconciliation</h2>
                 </div>
                 {cLoading && (
                   <div
@@ -2563,7 +2563,7 @@ export default function ConsumerDashboardClient({
                                         className="tm"
                                         style={{ color: isMerc ? MERC : MIRD }}
                                       >
-                                        {MACHINE_LABELS[t.machine] || t.machine}
+                                        {MACHINE_LABELS[t.machine] || shortMachine(t.machine)}
                                       </td>
                                       <td
                                         style={{
@@ -2696,8 +2696,8 @@ export default function ConsumerDashboardClient({
           </>
         )}
         <footer>
-          VOX Cinema Vending {"\u00B7"} Consumer Report {"\u00B7"} Boonz Smart
-          Vending {"\u00B7"} Supabase (Weimi + Adyen)
+          MAFE {"\u00B7"} Consumer Report {"\u00B7"} Boonz Smart Vending{" "}
+          {"\u00B7"} Supabase (Weimi + Adyen)
         </footer>
       </div>
     </>
