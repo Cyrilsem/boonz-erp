@@ -54,6 +54,7 @@ Versioned-history table + Adyen attribution view + per-machine read-only RPC. Ma
 | `phaseA_a4b_attributed_view_dedupe` | 12 | ✅ Applied | 2026-05-05 | Forward-only patch: restrict the view's machines join to `status='Active'` so stale Inactive terminal claims (WH3_* leftovers) don't double-match Adyen rows. |
 | `phaseA_a4c_per_machine_performance_rpc` | 12 | ✅ Applied | 2026-05-05 | New read-only RPC `get_per_machine_performance(date, date, text, text[])` returns JSON array per attributed-machine. LANGUAGE sql STABLE; SECURITY INVOKER (RLS via underlying views). Single greppable call site for any per-machine dashboard. |
 | `phaseA_a4d_vox_commercial_report_via_attributed_view` | 1, 12 | ✅ Applied | 2026-05-05 | Patches `get_vox_commercial_report` to read Adyen via `v_adyen_transactions_attributed`, split SettledBulk vs RefundedBulk, and net refund_returned out of captured. Site attribution unchanged (still via `sh.machine_mapping`). |
+| `phaseA_a4e_vox_consumer_report_join_by_machine_id` | 1, 12 | ✅ Applied | 2026-05-05 | Patches `get_vox_consumer_report` join from `selected_machines.machine_name = sales_history.machine_mapping` (current name) to `selected_machines.machine_id = sales_history.machine_id` (stable). Without this, sales rows whose `machine_mapping` was the historical name (e.g. `MPMCC-2005-0000-W0` Apr 23-27) were dropped because no current machine row had that `official_name`. The breakdown still uses `machine_mapping` so MPMCC-2005 appears as a separate row. Powers `/refill/consumers`. |
 
 ---
 
