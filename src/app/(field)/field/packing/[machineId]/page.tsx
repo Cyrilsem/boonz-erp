@@ -86,6 +86,7 @@ interface PackLine {
 interface MachineInfo {
   official_name: string;
   pod_location: string | null;
+  primary_warehouse_id?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -242,11 +243,18 @@ export default function PackingDetailPage() {
 
     const { data: machineData } = await supabase
       .from("machines")
-      .select("official_name, pod_location")
+      .select("official_name, pod_location, primary_warehouse_id")
       .eq("machine_id", machineId)
       .single();
 
     if (machineData) setMachine(machineData);
+    const primaryWarehouseId =
+      (machineData?.primary_warehouse_id as string | null) ?? null;
+    // WH_CENTRAL is the global cold-chain warehouse; cold products always come from there.
+    const WH_CENTRAL_ID = "4bebef68-9e36-4a5c-9c2c-142f8dbdae85";
+    const allowedWarehouseIds = primaryWarehouseId
+      ? [...new Set([primaryWarehouseId, WH_CENTRAL_ID])]
+      : [WH_CENTRAL_ID];
 
     // Fetch warehouse name map for source-warehouse display
     const { data: warehouseRows } = await supabase
@@ -445,6 +453,9 @@ export default function PackingDetailPage() {
     // Fetch Active warehouse batches for relevant boonz products only.
     // When allBoonzIds is empty (e.g. dispatch lines with null boonz_product_id),
     // skip the query entirely — no warehouse rows needed.
+    // Filter by the machine's allowed warehouses (primary + WH_CENTRAL for cold).
+    // Closes Issue #7 / #12: prevents Packing UI from commingling MM/MCC with Central
+    // for non-VOX machines (the GRIT Vitamin Well bug).
     const { data: rawBatchData } =
       allBoonzIds.length > 0
         ? await supabase
@@ -453,6 +464,7 @@ export default function PackingDetailPage() {
               "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
             )
             .in("boonz_product_id", allBoonzIds)
+            .in("warehouse_id", allowedWarehouseIds)
             .eq("status", "Active")
             .gt("warehouse_stock", 0)
             .order("expiration_date", { ascending: true, nullsFirst: false })
@@ -1262,6 +1274,32 @@ export default function PackingDetailPage() {
   // Removes without an Add New partner
   const standaloneRemoves = removeLines.slice(addNewLines.length);
 
+  // ── Internal move detection ────────────────────────────────────────────────
+  // When the same product appears as REMOVE on one shelf and ADD NEW on
+  // another shelf within the same machine, it's an internal move (product
+  // relocates inside the machine — no warehouse stock needed).
+  // Example: Ritz Cracker REMOVE from A06 + ADD NEW on A01 = driver just
+  // moves Ritz from shelf A06 to shelf A01.
+  const removeByPodProduct = new Map<
+    string,
+    { shelf_code: string; dispatch_id: string }
+  >();
+  for (const rl of removeLines) {
+    removeByPodProduct.set(rl.pod_product_id, {
+      shelf_code: rl.shelf_code,
+      dispatch_id: rl.dispatch_id,
+    });
+  }
+  // Map: ADD NEW dispatch_id → source shelf_code (where the product is being removed from)
+  const internalMoveAddIds = new Map<string, string>();
+  for (const pair of swapPairs) {
+    const al = pair.addLine;
+    const removeMatch = removeByPodProduct.get(al.pod_product_id);
+    if (removeMatch && removeMatch.shelf_code !== al.shelf_code) {
+      internalMoveAddIds.set(al.dispatch_id, removeMatch.shelf_code);
+    }
+  }
+
   // IDs for quick lookup
   const swapAddIds = new Set(addNewLines.map((l) => l.dispatch_id));
   const swapRemoveIds = new Set(
@@ -1412,6 +1450,86 @@ export default function PackingDetailPage() {
                 const fullyCommitted =
                   !isMix && addCommitted > 0 && totalBatchAvailable <= 0;
 
+                const isInternalMove = internalMoveAddIds.has(
+                  addLine.dispatch_id,
+                );
+                const sourceShelf = internalMoveAddIds.get(
+                  addLine.dispatch_id,
+                );
+
+                // ── INTERNAL MOVE: product relocating within the machine ──
+                if (isInternalMove) {
+                  return (
+                    <li
+                      key={`swap-${pairIdx}`}
+                      className={`rounded-lg border border-teal-200 bg-white p-0 overflow-hidden dark:border-teal-900 dark:bg-neutral-950 ${
+                        bothPacked
+                          ? "border-l-4 border-l-green-400"
+                          : "border-l-[3px] border-l-teal-400"
+                      }`}
+                    >
+                      {/* Internal move header */}
+                      <div className="flex items-center gap-2 bg-teal-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-teal-700 dark:bg-teal-950/30 dark:text-teal-400">
+                        <span className="text-sm">↩</span> MOVE WITHIN MACHINE
+                      </div>
+
+                      <div className="px-3 py-3">
+                        <p className="flex flex-wrap items-center gap-1.5 text-sm">
+                          <span className="font-medium">
+                            {addLine.display_name}
+                          </span>
+                          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                            · {addLine.recommended_qty} units
+                          </span>
+                        </p>
+
+                        {/* Move direction */}
+                        <div className="mt-2 flex items-center gap-2 rounded-lg bg-teal-50/60 px-3 py-2 dark:bg-teal-950/20">
+                          <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono font-semibold text-red-600 dark:bg-red-900/40 dark:text-red-400">
+                            {sourceShelf}
+                          </span>
+                          <span className="text-lg text-teal-500">→</span>
+                          <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-mono font-semibold text-green-600 dark:bg-green-900/40 dark:text-green-400">
+                            {addLine.shelf_code}
+                          </span>
+                        </div>
+
+                        <p className="mt-2 text-xs text-teal-600 dark:text-teal-400">
+                          No warehouse packing needed — driver moves product between shelves
+                        </p>
+
+                        {/* Auto-confirm button (no batch picker) */}
+                        {!isReadOnly && (
+                          <button
+                            onClick={() => {
+                              updateSwapAction(
+                                addLine.dispatch_id,
+                                removeLine?.dispatch_id ?? null,
+                                "packed",
+                              );
+                            }}
+                            className={`mt-2 w-full rounded-lg border py-2 text-xs font-semibold transition-colors ${
+                              bothPacked
+                                ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                                : "border-teal-300 bg-teal-600 text-white hover:bg-teal-700 dark:border-teal-800"
+                            }`}
+                          >
+                            {bothPacked
+                              ? "✓ Move confirmed"
+                              : "✓ Confirm move"}
+                          </button>
+                        )}
+                        {isReadOnly && bothPacked && (
+                          <p className="mt-2 text-xs font-medium text-green-600 dark:text-green-400">
+                            ✓ Move confirmed
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                }
+
+                // ── STANDARD SWAP: product comes from warehouse ───────────
                 return (
                   <li
                     key={`swap-${pairIdx}`}

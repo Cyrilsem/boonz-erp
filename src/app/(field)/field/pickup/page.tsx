@@ -32,11 +32,9 @@ export default function PickupPage() {
   const fetchMachines = useCallback(async () => {
     const supabase = createClient();
     const today = getDubaiDate();
-    const yesterday = new Date(Date.now() - 86400000)
-      .toISOString()
-      .split("T")[0];
 
-    // Only show machines where ALL lines are packed
+    // Today's packed-but-not-picked-up lines only.
+    // (Historical leftovers auto-release at 23:59 Dubai via the eod_auto_release_unpicked cron.)
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
@@ -48,9 +46,9 @@ export default function PickupPage() {
         pod_products(pod_product_name)
       `,
       )
-      .gte("dispatch_date", yesterday)
-      .lte("dispatch_date", today)
+      .eq("dispatch_date", today)
       .eq("include", true)
+      .eq("picked_up", false)
       .eq("dispatched", false);
 
     if (!lines || lines.length === 0) {
@@ -146,17 +144,26 @@ export default function PickupPage() {
   async function handleConfirmPickup(machineId: string) {
     setConfirming(machineId);
     const supabase = createClient();
-    const today = getDubaiDate();
-    const yesterday = new Date(Date.now() - 86400000)
-      .toISOString()
-      .split("T")[0];
 
-    await supabase
-      .from("refill_dispatching")
-      .update({ picked_up: true })
-      .eq("machine_id", machineId)
-      .gte("dispatch_date", yesterday)
-      .lte("dispatch_date", today);
+    // Gather every dispatch_id for this machine from current state.
+    const machine = machines.find((m) => m.machine_id === machineId);
+    const dispatchIds = machine?.lines.map((l) => l.dispatch_id) ?? [];
+    if (dispatchIds.length === 0) {
+      setConfirming(null);
+      return;
+    }
+
+    // Article 1 / Rule S1: route through the canonical RPC instead of direct table update.
+    const { error } = await supabase.rpc("mark_picked_up", {
+      p_dispatch_ids: dispatchIds,
+    });
+
+    if (error) {
+      console.error("mark_picked_up failed:", error);
+      alert(`Confirm pickup failed: ${error.message}`);
+      setConfirming(null);
+      return;
+    }
 
     setMachines((prev) =>
       prev.map((m) =>
