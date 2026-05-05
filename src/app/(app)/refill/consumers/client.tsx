@@ -1865,13 +1865,13 @@ export default function ConsumerDashboardClient({
                           <td
                             style={{
                               fontSize: 11,
-                              color: "#9a948e",
+                              color: "#1f2937",
                               whiteSpace: "nowrap",
                             }}
                           >
                             {t2.date}
                           </td>
-                          <td style={{ fontSize: 11, color: "#6b6860" }}>
+                          <td style={{ fontSize: 11, color: "#1f2937" }}>
                             {t2.time}
                           </td>
                           <td
@@ -1915,7 +1915,7 @@ export default function ConsumerDashboardClient({
                             style={{
                               fontSize: 10,
                               color:
-                                t2.card === "\u2014" ? "#9a948e" : "#9a948e",
+                                t2.card === "\u2014" ? "#9a948e" : "#1f2937",
                             }}
                           >
                             {t2.card}
@@ -1925,7 +1925,7 @@ export default function ConsumerDashboardClient({
                             style={{
                               fontSize: 10,
                               color:
-                                t2.wallet === "\u2014" ? "#9a948e" : "#6b6860",
+                                t2.wallet === "\u2014" ? "#9a948e" : "#1f2937",
                             }}
                           >
                             {t2.wallet}
@@ -1954,7 +1954,9 @@ export default function ConsumerDashboardClient({
                               style={
                                 t2.disc
                                   ? { color: "#F59E0B", fontWeight: 600 }
-                                  : { color: "#9a948e" }
+                                  : ha && t2.captured > 0
+                                    ? { color: "#1f2937", fontWeight: 500 }
+                                    : { color: "#9a948e" }
                               }
                             >
                               {ha && t2.captured > 0
@@ -1962,13 +1964,13 @@ export default function ConsumerDashboardClient({
                                 : "\u2014"}
                             </span>
                           </td>
-                          <td className="c" style={{ color: "#9a948e" }}>
+                          <td className="c" style={{ color: "#1f2937" }}>
                             {t2.units}
                           </td>
                           <td
                             style={{
                               fontSize: 11,
-                              color: "#9a948e",
+                              color: "#1f2937",
                               maxWidth: 220,
                             }}
                           >
