@@ -2477,25 +2477,35 @@ export default function ConsumerDashboardClient({
                         >
                           <div
                             style={{
-                              padding: "12px 16px",
+                              padding: "14px 18px",
                               borderBottom: "1px solid var(--border)",
-                              fontFamily: "var(--font-head)",
-                              fontSize: 10,
-                              fontWeight: 600,
-                              color: "var(--grey)",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.12em",
+                              display: "flex",
+                              alignItems: "baseline",
+                              gap: 10,
+                              background: "var(--surface2)",
                             }}
                           >
-                            Transaction Detail{" "}
                             <span
                               style={{
-                                color: "var(--grey2)",
-                                fontWeight: 500,
-                                marginLeft: 6,
+                                fontFamily: "var(--font-head)",
+                                fontSize: 14,
+                                fontWeight: 700,
+                                color: "var(--white)",
+                                letterSpacing: "-0.2px",
+                                textTransform: "none",
                               }}
                             >
-                              {"\u00B7"} {C.transactions.length.toLocaleString()} rows
+                              Transaction Detail
+                            </span>
+                            <span
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: "var(--grey)",
+                              }}
+                            >
+                              {C.transactions.length.toLocaleString()} rows
                             </span>
                           </div>
                           <div
