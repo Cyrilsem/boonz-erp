@@ -342,51 +342,57 @@ export default function ProcurementPage() {
 
   const [additionToast, setAdditionToast] = useState<string | null>(null);
 
+  // Issue #9: receive routes through receive_purchase_order_addition RPC.
+  // Operator can pick the receiving warehouse instead of hardcoded WH_CENTRAL.
   const handleReceiveAddition = async (addition: POAddition) => {
     setReceivingAddition(addition.addition_id);
     const supabase = createClient();
 
-    // Guard: check if already received to prevent duplicate WH rows
-    const { data: existing } = await supabase
-      .from("po_additions")
-      .select("status")
-      .eq("addition_id", addition.addition_id)
-      .single();
+    // Prompt operator to pick warehouse (default WH_CENTRAL)
+    const choice = window.prompt(
+      `Receive ${addition.qty}x ${addition.boonz_products.boonz_product_name} into which warehouse?\nType: WH_CENTRAL, WH_MM, or WH_MCC`,
+      "WH_CENTRAL",
+    );
+    if (!choice) {
+      setReceivingAddition(null);
+      return;
+    }
+    const WH_CODE_TO_ID: Record<string, string> = {
+      WH_CENTRAL: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85",
+      WH_MM: "0aef9ccf-32ad-4545-8413-29bebd931d0b",
+      WH_MCC: "4fcfb52c-271f-4aa7-a373-3495e3271cd3",
+    };
+    const warehouseId = WH_CODE_TO_ID[choice.trim().toUpperCase()];
+    if (!warehouseId) {
+      alert(`Unknown warehouse "${choice}". Use WH_CENTRAL / WH_MM / WH_MCC.`);
+      setReceivingAddition(null);
+      return;
+    }
 
-    if (existing?.status === "received") {
+    // Article 1 / Rule S1: canonical RPC (was direct .insert() — bypassed audit).
+    const { data, error } = await supabase.rpc(
+      "receive_purchase_order_addition",
+      {
+        p_addition_id: addition.addition_id,
+        p_warehouse_id: warehouseId,
+        p_expiry: addition.expiry_date ?? null,
+        p_batch_id: null, // RPC formats default batch_id
+      },
+    );
+
+    if (error) {
+      alert(`Receive failed: ${error.message}`);
+      setReceivingAddition(null);
+      return;
+    }
+    if (data?.status === "already_received") {
       setAdditionToast("Already received — no duplicate created");
       setTimeout(() => setAdditionToast(null), 3000);
       setReceivingAddition(null);
       return;
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const today = getDubaiDate();
-
-    // Insert into warehouse_inventory
-    await supabase.from("warehouse_inventory").insert({
-      boonz_product_id: addition.boonz_product_id,
-      warehouse_stock: addition.qty,
-      status: "Active",
-      snapshot_date: today,
-      expiration_date: addition.expiry_date ?? null,
-      warehouse_id: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85", // WH_CENTRAL
-      batch_id: `PO-ADDITION-${addition.addition_id.slice(0, 8)}`,
-    });
-
-    // Update po_additions
-    await supabase
-      .from("po_additions")
-      .update({
-        status: "received",
-        received_at: new Date().toISOString(),
-        received_by: user?.id,
-      })
-      .eq("addition_id", addition.addition_id);
-
-    // Optimistic: mark as received in local state (don't remove — show as received)
+    // Optimistic: mark as received in local state
     setPoAdditions((prev) =>
       prev.map((a) =>
         a.addition_id === addition.addition_id
@@ -397,7 +403,7 @@ export default function ProcurementPage() {
     setPendingAdditionsCount((prev) => Math.max(0, prev - 1));
     setReceivingAddition(null);
     setAdditionToast(
-      `✓ ${addition.qty} units of ${addition.boonz_products.boonz_product_name} added to warehouse`,
+      `✓ ${addition.qty}x ${addition.boonz_products.boonz_product_name} received into ${choice.trim().toUpperCase()}`,
     );
     setTimeout(() => setAdditionToast(null), 4000);
   };

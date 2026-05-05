@@ -1252,6 +1252,9 @@ export default function PackingDetailPage() {
   const skippedCount = lines.filter((l) => l.action === "skip").length;
   const pendingCount = lines.filter((l) => l.action === null).length;
   const isReadOnly = saved && !editingAfterSave;
+  // Issue #6: detect if this machine was already packed (DB-side) and no driver
+  // has picked it up yet — packer can re-pack with override.
+  const hasPriorPack = lines.some((l) => l.packed);
 
   // ── Group lines by action category ──────────────────────────────────────────
   // Separate returned items from active packing lines
@@ -1379,6 +1382,48 @@ export default function PackingDetailPage() {
           {machine.pod_location && (
             <p className="text-sm text-neutral-500">{machine.pod_location}</p>
           )}
+        </div>
+      )}
+
+      {/* Issue #6: re-pack override — only visible when prior pack exists */}
+      {hasPriorPack && machine && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-medium">Machine already packed today</p>
+              <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
+                Override clears the existing pack (returns stock to warehouse) and starts fresh.
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                if (
+                  !confirm(
+                    `Override all items packed for ${machine.official_name}? Stock will be returned to the warehouse.`,
+                  )
+                )
+                  return;
+                const supabase = createClient();
+                const today = getDubaiDate();
+                const { data, error } = await supabase.rpc("repack_machine", {
+                  p_machine_name: machine.official_name,
+                  p_dispatch_date: today,
+                  p_reason: "user_override_repack",
+                });
+                if (error) {
+                  alert(`Re-pack failed: ${error.message}`);
+                  return;
+                }
+                alert(
+                  `Re-pack done. Returned ${data?.returned_count ?? 0}, fresh dispatch rows: ${data?.fresh_dispatch_rows_created ?? 0}. Reloading…`,
+                );
+                window.location.reload();
+              }}
+              className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              Override & re-pack
+            </button>
+          </div>
         </div>
       )}
 
