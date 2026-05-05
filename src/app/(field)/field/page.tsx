@@ -66,6 +66,7 @@ interface PodExpiryKpis {
   expiring3: number;
   expiring7: number;
   expiring30: number;
+  toValidate: number; // Active rows with current_stock <= 0 — driver needs to physically check
 }
 
 // Per-machine stats used by both warehouse and driver branches
@@ -421,26 +422,35 @@ function WarehouseHome({
             value={podKpis.expired}
             label="Expired"
             cardStyle={kpiCardStyle(podKpis.expired, "critical")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=expired"
           />
           <StatCard
             value={podKpis.expiring3}
             label="< 3 days"
             cardStyle={kpiCardStyle(podKpis.expiring3, "high")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=3days"
           />
           <StatCard
             value={podKpis.expiring7}
             label="< 7 days"
             cardStyle={kpiCardStyle(podKpis.expiring7, "medium")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=7days"
           />
           <StatCard
             value={podKpis.expiring30}
             label="< 30 days"
             cardStyle={kpiCardStyle(podKpis.expiring30, "low")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=30days"
           />
+          <div className="col-span-2">
+            <StatCard
+              value={podKpis.toValidate}
+              label="To validate"
+              subLabel="Past expiry but stock = 0 — driver to verify"
+              cardStyle={kpiCardStyle(podKpis.toValidate, "medium")}
+              href="/field/pod-inventory?filter=to_validate"
+            />
+          </div>
         </div>
 
         {kpis.pendingPodReviews > 0 && (
@@ -603,26 +613,35 @@ function DriverHome({
             value={podKpis.expired}
             label="Expired"
             cardStyle={kpiCardStyle(podKpis.expired, "critical")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=expired"
           />
           <StatCard
             value={podKpis.expiring3}
             label="< 3 days"
             cardStyle={kpiCardStyle(podKpis.expiring3, "high")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=3days"
           />
           <StatCard
             value={podKpis.expiring7}
             label="< 7 days"
             cardStyle={kpiCardStyle(podKpis.expiring7, "medium")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=7days"
           />
           <StatCard
             value={podKpis.expiring30}
             label="< 30 days"
             cardStyle={kpiCardStyle(podKpis.expiring30, "low")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=30days"
           />
+          <div className="col-span-2">
+            <StatCard
+              value={podKpis.toValidate}
+              label="To validate"
+              subLabel="Past expiry but stock = 0 — verify on next visit"
+              cardStyle={kpiCardStyle(podKpis.toValidate, "medium")}
+              href="/field/pod-inventory?filter=to_validate"
+            />
+          </div>
         </div>
       </SectionCard>
 
@@ -821,26 +840,35 @@ function OperatorAdminHome({
             value={podKpis.expired}
             label="Expired"
             cardStyle={kpiCardStyle(podKpis.expired, "critical")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=expired"
           />
           <StatCard
             value={podKpis.expiring3}
             label="< 3 days"
             cardStyle={kpiCardStyle(podKpis.expiring3, "high")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=3days"
           />
           <StatCard
             value={podKpis.expiring7}
             label="< 7 days"
             cardStyle={kpiCardStyle(podKpis.expiring7, "medium")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=7days"
           />
           <StatCard
             value={podKpis.expiring30}
             label="< 30 days"
             cardStyle={kpiCardStyle(podKpis.expiring30, "low")}
-            href="/field/pod-inventory"
+            href="/field/pod-inventory?filter=30days"
           />
+          <div className="col-span-2">
+            <StatCard
+              value={podKpis.toValidate}
+              label="To validate"
+              subLabel="Past expiry but stock = 0 — driver to verify"
+              cardStyle={kpiCardStyle(podKpis.toValidate, "medium")}
+              href="/field/pod-inventory?filter=to_validate"
+            />
+          </div>
         </div>
       </SectionCard>
 
@@ -1086,7 +1114,7 @@ export default function FieldPage() {
             .eq("status", "pending"),
           supabase
             .from("pod_inventory")
-            .select("expiration_date")
+            .select("expiration_date, current_stock")
             .eq("status", "Active")
             .limit(10000),
           supabase
@@ -1153,15 +1181,26 @@ export default function FieldPage() {
           pendingAdditionsCount: pendingAdditionsCount ?? 0,
         });
 
-        // Pod inventory expiry KPIs
+        // Pod inventory expiry KPIs.
+        // Only count rows with real stock. Rows that are status=Active but
+        // current_stock<=0 AND past expiry are "ghost" rows — exposed via
+        // `toValidate` so a driver can confirm the slot state in person.
+        // (Active+stock<=0 with future expiry are normal "awaiting refill" slots
+        // and not surfaced.)
+        const podHasStock = (r: { current_stock: number | null }) =>
+          (Number(r.current_stock) || 0) > 0;
         setPodKpis({
           expired:
             podData?.filter(
-              (r) => r.expiration_date && r.expiration_date < today,
+              (r) =>
+                podHasStock(r) &&
+                r.expiration_date &&
+                r.expiration_date < today,
             ).length ?? 0,
           expiring3:
             podData?.filter(
               (r) =>
+                podHasStock(r) &&
                 r.expiration_date &&
                 r.expiration_date >= today &&
                 r.expiration_date <= todayPlus3,
@@ -1169,6 +1208,7 @@ export default function FieldPage() {
           expiring7:
             podData?.filter(
               (r) =>
+                podHasStock(r) &&
                 r.expiration_date &&
                 r.expiration_date > todayPlus3 &&
                 r.expiration_date <= todayPlus7,
@@ -1176,9 +1216,17 @@ export default function FieldPage() {
           expiring30:
             podData?.filter(
               (r) =>
+                podHasStock(r) &&
                 r.expiration_date &&
                 r.expiration_date > todayPlus7 &&
                 r.expiration_date <= todayPlus30,
+            ).length ?? 0,
+          toValidate:
+            podData?.filter(
+              (r) =>
+                !podHasStock(r) &&
+                r.expiration_date &&
+                r.expiration_date < today,
             ).length ?? 0,
         });
 
@@ -1270,18 +1318,26 @@ export default function FieldPage() {
 
         const { data: podData } = await supabase
           .from("pod_inventory")
-          .select("expiration_date")
+          .select("expiration_date, current_stock")
           .eq("status", "Active")
           .limit(10000);
 
+        // Only count rows with real stock. Rows that are status=Active but
+        // current_stock<=0 AND past expiry are surfaced as `toValidate`.
+        const podHasStock = (r: { current_stock: number | null }) =>
+          (Number(r.current_stock) || 0) > 0;
         setPodKpis({
           expired:
             podData?.filter(
-              (r) => r.expiration_date && r.expiration_date < today,
+              (r) =>
+                podHasStock(r) &&
+                r.expiration_date &&
+                r.expiration_date < today,
             ).length ?? 0,
           expiring3:
             podData?.filter(
               (r) =>
+                podHasStock(r) &&
                 r.expiration_date &&
                 r.expiration_date >= today &&
                 r.expiration_date <= todayPlus3d,
@@ -1289,6 +1345,7 @@ export default function FieldPage() {
           expiring7:
             podData?.filter(
               (r) =>
+                podHasStock(r) &&
                 r.expiration_date &&
                 r.expiration_date > todayPlus3d &&
                 r.expiration_date <= todayPlus7d,
@@ -1296,9 +1353,17 @@ export default function FieldPage() {
           expiring30:
             podData?.filter(
               (r) =>
+                podHasStock(r) &&
                 r.expiration_date &&
                 r.expiration_date > todayPlus7d &&
                 r.expiration_date <= todayPlus30d,
+            ).length ?? 0,
+          toValidate:
+            podData?.filter(
+              (r) =>
+                !podHasStock(r) &&
+                r.expiration_date &&
+                r.expiration_date < today,
             ).length ?? 0,
         });
       }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
@@ -31,7 +32,13 @@ interface DisplayGroup {
   items: PodRow[];
 }
 
-type PodFilter = "expired" | "3days" | "7days" | "30days" | "all";
+type PodFilter =
+  | "expired"
+  | "3days"
+  | "7days"
+  | "30days"
+  | "to_validate"
+  | "all";
 type GroupBy = "machine" | "product" | "category" | "none";
 type EditType =
   | "in_stock"
@@ -52,7 +59,17 @@ const FILTER_OPTIONS: { label: string; value: PodFilter }[] = [
   { label: "< 3 days", value: "3days" },
   { label: "< 7 days", value: "7days" },
   { label: "< 30 days", value: "30days" },
+  { label: "To validate", value: "to_validate" },
 ];
+
+const VALID_FILTERS: ReadonlySet<PodFilter> = new Set([
+  "all",
+  "expired",
+  "3days",
+  "7days",
+  "30days",
+  "to_validate",
+]);
 
 const GROUP_OPTIONS: { label: string; value: GroupBy }[] = [
   { label: "Machine", value: "machine" },
@@ -66,6 +83,7 @@ const DEFAULT_GROUP_BY: Record<PodFilter, GroupBy> = {
   "3days": "machine",
   "7days": "machine",
   "30days": "category",
+  to_validate: "machine",
   all: "machine",
 };
 
@@ -239,10 +257,18 @@ function rowProps(
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PodInventoryPage() {
+  const searchParams = useSearchParams();
+  const initialFilter: PodFilter = (() => {
+    const f = searchParams.get("filter");
+    return f && VALID_FILTERS.has(f as PodFilter) ? (f as PodFilter) : "all";
+  })();
+
   const [rows, setRows] = useState<PodRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<PodFilter>("all");
-  const [groupBy, setGroupBy] = useState<GroupBy>(DEFAULT_GROUP_BY["7days"]);
+  const [filter, setFilter] = useState<PodFilter>(initialFilter);
+  const [groupBy, setGroupBy] = useState<GroupBy>(
+    DEFAULT_GROUP_BY[initialFilter],
+  );
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("expiry");
@@ -303,6 +329,10 @@ export default function PodInventoryPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient();
 
+    // NOTE: we intentionally do NOT filter `current_stock > 0` at the DB layer.
+    // Active rows with current_stock <= 0 are "ghost" rows that the driver needs
+    // to physically validate — they're surfaced via the "To validate" pill.
+    // Regular pills (all / expired / 3-30 days) apply the stock>0 filter in JS.
     const { data } = await supabase
       .from("pod_inventory")
       .select(
@@ -318,7 +348,6 @@ export default function PodInventoryPage() {
       `,
       )
       .eq("status", "Active")
-      .gt("current_stock", 0)
       .order("expiration_date", { ascending: true })
       .limit(10000);
 
@@ -483,17 +512,24 @@ export default function PodInventoryPage() {
 
     result = result.filter((r) => {
       const days = daysUntilExpiry(r.expiration_date);
+      const hasStock = r.current_stock > 0;
       switch (filter) {
         case "expired":
-          return days !== null && days <= 0;
+          return hasStock && days !== null && days <= 0;
         case "3days":
-          return days !== null && days >= 0 && days <= 3;
+          return hasStock && days !== null && days >= 0 && days <= 3;
         case "7days":
-          return days !== null && days <= 7;
+          return hasStock && days !== null && days <= 7;
         case "30days":
-          return days !== null && days <= 30;
+          return hasStock && days !== null && days <= 30;
+        case "to_validate":
+          // ghost rows: status=Active, stock zeroed AND past expiry —
+          // driver must verify. Empty slots with future/no expiry are
+          // normal "awaiting refill" state and excluded.
+          return !hasStock && days !== null && days <= 0;
         case "all":
-          return true;
+          // exclude ghosts from "all" — they're a separate concern (the pill)
+          return hasStock;
       }
     });
 
@@ -531,29 +567,34 @@ export default function PodInventoryPage() {
     });
   }, [rows, filter, search, sortField, sortDir]);
 
-  // Filter counts (computed from all rows, ignoring current filter)
-  const filterCounts = useMemo(
-    () => ({
-      all: rows.length,
-      expired: rows.filter((r) => {
+  // Filter counts (computed from all rows, ignoring current filter).
+  // Stock-bearing rows feed the expiry pills; ghost rows (stock<=0) feed `to_validate`.
+  const filterCounts = useMemo(() => {
+    const real = rows.filter((r) => r.current_stock > 0);
+    return {
+      all: real.length,
+      expired: real.filter((r) => {
         const d = daysUntilExpiry(r.expiration_date);
         return d !== null && d <= 0;
       }).length,
-      "3days": rows.filter((r) => {
+      "3days": real.filter((r) => {
         const d = daysUntilExpiry(r.expiration_date);
         return d !== null && d >= 0 && d <= 3;
       }).length,
-      "7days": rows.filter((r) => {
+      "7days": real.filter((r) => {
         const d = daysUntilExpiry(r.expiration_date);
         return d !== null && d <= 7;
       }).length,
-      "30days": rows.filter((r) => {
+      "30days": real.filter((r) => {
         const d = daysUntilExpiry(r.expiration_date);
         return d !== null && d <= 30;
       }).length,
-    }),
-    [rows],
-  );
+      to_validate: rows.filter((r) => {
+        const d = daysUntilExpiry(r.expiration_date);
+        return r.current_stock <= 0 && d !== null && d <= 0;
+      }).length,
+    };
+  }, [rows]);
 
   // Step 2: distinct machine names
   const machineOptions = useMemo((): string[] => {
@@ -633,7 +674,12 @@ export default function PodInventoryPage() {
     [machineFiltered],
   );
 
-  const riskLabel = filter === "expired" ? "expired" : "at risk";
+  const riskLabel =
+    filter === "expired"
+      ? "expired"
+      : filter === "to_validate"
+        ? "to validate"
+        : "at risk";
 
   const summaryText = selectedMachine
     ? `${selectedMachine} · ${machineFiltered.length} items · ${totalUnits} units`
