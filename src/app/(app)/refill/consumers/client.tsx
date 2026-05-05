@@ -2479,14 +2479,24 @@ export default function ConsumerDashboardClient({
                             style={{
                               padding: "12px 16px",
                               borderBottom: "1px solid var(--border)",
-                              fontSize: 11,
+                              fontFamily: "var(--font-head)",
+                              fontSize: 10,
+                              fontWeight: 600,
                               color: "var(--grey)",
                               textTransform: "uppercase",
-                              letterSpacing: 1,
+                              letterSpacing: "0.12em",
                             }}
                           >
-                            Transaction Detail {"\u00B7"}{" "}
-                            {C.transactions.length} rows
+                            Transaction Detail{" "}
+                            <span
+                              style={{
+                                color: "var(--grey2)",
+                                fontWeight: 500,
+                                marginLeft: 6,
+                              }}
+                            >
+                              {"\u00B7"} {C.transactions.length.toLocaleString()} rows
+                            </span>
                           </div>
                           <div
                             className="tw"
