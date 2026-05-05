@@ -115,6 +115,7 @@ export default function ConsumerDashboardClient({
   const [tq, setTq] = useState("");
   const [txnDefaultOnly, setTxnDefaultOnly] = useState(false);
   const [txnPage, setTxnPage] = useState(0);
+  const [cq, setCq] = useState(""); // Commercial transaction-detail search
   const PAGE_SIZE = 50;
   const [dateFrom, setDateFrom] = useState("2026-02-06");
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
@@ -2477,14 +2478,99 @@ export default function ConsumerDashboardClient({
                           className="cd"
                           style={{ padding: 0, overflow: "hidden" }}
                         >
+                          {(() => {
+                            const cqLower = cq.trim().toLowerCase();
+                            const fmtDateLocal = (s: string) => {
+                              try {
+                                return new Date(s).toLocaleString("en-GB", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                });
+                              } catch {
+                                return s;
+                              }
+                            };
+                            const filteredTxns = cqLower
+                              ? C.transactions.filter((t) => {
+                                  const haystack = [
+                                    fmtDateLocal(t.txn_date),
+                                    t.site,
+                                    t.machine,
+                                    t.items,
+                                    (t as any).psp || t.psp_reference || "",
+                                    String(t.units),
+                                    String(t.total_amount),
+                                    String(t.captured_amount),
+                                    String(t.default_amount),
+                                    String(t.refunded_amount),
+                                    String(t.adyen_fees),
+                                    String(t.net_revenue),
+                                    String(t.boonz_share),
+                                    String(t.vox_share),
+                                    String(t.boonz_cogs),
+                                    t.matched ? "ok" : "no adyen",
+                                    Number(t.default_amount || 0) > 0 ? "default" : "",
+                                  ]
+                                    .join(" § ")
+                                    .toLowerCase();
+                                  return haystack.includes(cqLower);
+                                })
+                              : C.transactions;
+                            const downloadCsv = () => {
+                              const headers = [
+                                "Date","Site","Machine","Items","Qty","Total","Captured","Default","Refund",
+                                "Adyen Fees","Net Revenue","Boonz 20%","VOX 80%","Boonz COGS","PSP","Status",
+                              ];
+                              const escape = (v: any) => {
+                                const s = v === null || v === undefined ? "" : String(v);
+                                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                              };
+                              const rows = filteredTxns.map((t) => [
+                                fmtDateLocal(t.txn_date),
+                                t.site,
+                                t.machine,
+                                t.items,
+                                t.units,
+                                t.total_amount,
+                                t.captured_amount,
+                                t.default_amount,
+                                t.refunded_amount,
+                                t.adyen_fees,
+                                t.net_revenue,
+                                t.boonz_share,
+                                t.vox_share,
+                                t.boonz_cogs,
+                                t.psp_reference || "",
+                                Number(t.default_amount || 0) > 0
+                                  ? "DEFAULT"
+                                  : t.matched
+                                  ? "OK"
+                                  : "NO ADYEN",
+                              ].map(escape).join(","));
+                              const csv = [headers.join(","), ...rows].join("\n");
+                              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement("a");
+                              a.href = url;
+                              a.download = `mafe-transactions-${dateFrom}-to-${dateTo}.csv`;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                            };
+                            return (
+                              <>
                           <div
                             style={{
-                              padding: "14px 18px",
+                              padding: "12px 16px",
                               borderBottom: "1px solid var(--border)",
                               display: "flex",
-                              alignItems: "baseline",
-                              gap: 10,
+                              alignItems: "center",
+                              gap: 12,
                               background: "var(--surface2)",
+                              flexWrap: "wrap",
                             }}
                           >
                             <span
@@ -2494,7 +2580,6 @@ export default function ConsumerDashboardClient({
                                 fontWeight: 700,
                                 color: "var(--white)",
                                 letterSpacing: "-0.2px",
-                                textTransform: "none",
                               }}
                             >
                               Transaction Detail
@@ -2507,8 +2592,51 @@ export default function ConsumerDashboardClient({
                                 color: "var(--grey)",
                               }}
                             >
-                              {C.transactions.length.toLocaleString()} rows
+                              {cqLower
+                                ? `${filteredTxns.length.toLocaleString()} of ${C.transactions.length.toLocaleString()} rows`
+                                : `${C.transactions.length.toLocaleString()} rows`}
                             </span>
+                            <div style={{ flex: 1 }} />
+                            <input
+                              type="text"
+                              placeholder="Search machine, item, PSP, amount…"
+                              value={cq}
+                              onChange={(e) => setCq(e.target.value)}
+                              style={{
+                                padding: "6px 12px",
+                                borderRadius: 4,
+                                border: "1px solid var(--border)",
+                                background: "var(--surface)",
+                                color: "var(--white)",
+                                fontSize: 11,
+                                fontFamily: "var(--font-mono)",
+                                outline: "none",
+                                width: 260,
+                              }}
+                            />
+                            {cq && (
+                              <button
+                                onClick={() => setCq("")}
+                                className="cbb"
+                                title="Clear search"
+                                style={{ padding: "5px 10px" }}
+                              >
+                                ×
+                              </button>
+                            )}
+                            <button
+                              onClick={downloadCsv}
+                              className="cbb"
+                              title="Download CSV"
+                              style={{
+                                borderColor: MERC,
+                                color: MERC,
+                                background: `${MERC}10`,
+                                fontWeight: 600,
+                              }}
+                            >
+                              ↓ CSV
+                            </button>
                           </div>
                           <div
                             className="tw"
@@ -2542,10 +2670,10 @@ export default function ConsumerDashboardClient({
                                 </tr>
                               </thead>
                               <tbody>
-                                {C.transactions.map((t, i) => {
+                                {filteredTxns.map((t, i) => {
                                   const isDisc =
                                     Number(t.default_amount || 0) > 0;
-                                  const isUnmatched = !t.matched_adyen;
+                                  const isUnmatched = !t.matched;
                                   const rowStyle: React.CSSProperties = {
                                     ...(isDisc
                                       ? { background: "rgba(239,68,68,0.06)" }
@@ -2709,6 +2837,9 @@ export default function ConsumerDashboardClient({
                               </tbody>
                             </table>
                           </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </>
                     );

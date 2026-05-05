@@ -243,7 +243,7 @@ export interface VoxCommercialReport {
     vox_share: number;
     boonz_cogs: number;
     vox_net_dues: number;
-    matched_adyen: boolean;
+    matched: boolean;
     psp_reference: string | null;
     has_unknown_cost: boolean;
   }>;
