@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(data, {
       headers: {
-        "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        // Short cache so /refill/consumers stays close-to-live and matches /app/performance.
+        // 30s of edge cache + 60s SWR is enough to absorb traffic bursts without
+        // showing 5+ minute stale totals (which used to drift up to ~250 AED behind).
+        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
       },
     });
   } catch (err: any) {
