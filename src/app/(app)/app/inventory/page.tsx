@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import PendingProposalsPanel from "@/components/inventory/PendingProposalsPanel";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -385,6 +386,8 @@ export default function InventoryPage() {
 
   return (
     <div className="p-8 max-w-7xl" style={{ fontFamily: font }}>
+      {/* Pending status proposals — Issue #2 */}
+      <PendingProposalsPanel />
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
