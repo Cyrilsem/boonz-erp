@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
@@ -256,7 +256,27 @@ function rowProps(
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// Default export wraps the inner component in <Suspense>. Required by
+// Next.js App Router when useSearchParams() is used in a client component
+// — without it, the build fails the static-render bailout check.
 export default function PodInventoryPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <FieldHeader title="Machine Stock Expiry" />
+          <div className="flex items-center justify-center p-8">
+            <p className="text-neutral-500">Loading…</p>
+          </div>
+        </>
+      }
+    >
+      <PodInventoryPageInner />
+    </Suspense>
+  );
+}
+
+function PodInventoryPageInner() {
   const searchParams = useSearchParams();
   const initialFilter: PodFilter = (() => {
     const f = searchParams.get("filter");
