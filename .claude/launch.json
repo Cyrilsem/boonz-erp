@@ -1,11 +1,11 @@
 {
-  "servers": [
+  "version": "0.0.1",
+  "configurations": [
     {
-      "name": "boonz-erp",
-      "command": "npm run dev",
-      "cwd": ".",
-      "url": "http://localhost:3000",
-      "description": "Next.js 16 dev server (next dev)"
+      "name": "boonz-erp (Next.js dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
     }
   ]
 }

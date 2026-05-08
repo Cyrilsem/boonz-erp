@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase A · Step A3 · Before / After</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-card: #14181d;
+    --bg-card-elev: #1a1f25;
+    --bg-before: #1a1410;
+    --bg-after: #0f1a14;
+    --line: #232a32;
+    --line-soft: #1a2027;
+    --line-before: #3a2820;
+    --line-after: #1f3a2c;
+    --text: #e6ebf0;
+    --text-dim: #8a93a0;
+    --text-muted: #5b6470;
+    --accent: #6ee7b7;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --success: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; line-height: 1.55; font-size: 14px; }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "Menlo", Consolas, monospace; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; }
+
+  header.h { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 28px; }
+  header.h .eyebrow { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 8px; }
+  header.h h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header.h .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 12px; }
+  header.h .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-muted); font-size: 12px; }
+  header.h .meta strong { color: var(--text-dim); font-weight: 500; }
+
+  .banner {
+    background: rgba(52, 211, 153, 0.08);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 32px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .banner .check {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--success); color: #07090b;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px;
+    flex-shrink: 0;
+  }
+  .banner .text { flex: 1; }
+  .banner .text .title { font-size: 15px; font-weight: 500; color: var(--success); margin-bottom: 4px; }
+  .banner .text .body { color: var(--text-dim); font-size: 13.5px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 36px; }
+  .kpi { background: var(--bg-card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .kpi .label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .kpi .value { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
+  .kpi .sub { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+
+  h2.section { font-size: 18px; margin: 36px 0 16px; letter-spacing: -0.005em; }
+  h2.section .num { color: var(--text-muted); font-weight: 400; margin-right: 8px; }
+
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+  .ba .col { border-radius: 8px; padding: 18px 20px; }
+  .ba .before { background: var(--bg-before); border: 1px solid var(--line-before); }
+  .ba .after  { background: var(--bg-after);  border: 1px solid var(--line-after); }
+  .ba .col .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 10px; }
+  .ba .before .tag { color: #d97757; }
+  .ba .after  .tag { color: var(--accent); }
+  .ba .col h3 { margin: 0 0 6px; font-size: 14.5px; font-weight: 600; }
+  .ba .col p  { margin: 0 0 10px; color: var(--text-dim); font-size: 13.5px; }
+  .ba .col ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 13px; }
+  .ba .col ul li { margin: 4px 0; }
+
+  .article-pill {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 12px;
+    background: rgba(96, 165, 250, 0.12); color: var(--info); border: 1px solid rgba(96,165,250,0.3);
+    margin-right: 6px; font-weight: 500;
+  }
+
+  table.compact { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.compact th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  table.compact td { padding: 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-dim); }
+  table.compact td:first-child { color: var(--text); font-family: ui-monospace, monospace; font-size: 12.5px; }
+
+  .codeblock {
+    background: #0a0c0f; border: 1px solid var(--line); border-radius: 6px;
+    padding: 16px 18px; font-size: 12.5px; line-height: 1.6;
+    overflow-x: auto; color: #c5cdd4;
+  }
+  .codeblock .kw { color: #c084fc; }
+  .codeblock .fn { color: var(--accent); }
+  .codeblock .str { color: #fcd34d; }
+  .codeblock .cm { color: var(--text-muted); font-style: italic; }
+  .codeblock .num { color: #fbbf24; }
+
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  .schema-card {
+    background: var(--bg-card-elev);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .schema-card h4 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--accent); font-family: ui-monospace, monospace; }
+  .schema-card .col-row { display: grid; grid-template-columns: 180px 120px 1fr; gap: 10px; padding: 4px 0; font-size: 12.5px; border-bottom: 1px solid var(--line-soft); }
+  .schema-card .col-row:last-child { border-bottom: 0; }
+  .schema-card .col-row .name { color: var(--text); font-family: ui-monospace, monospace; }
+  .schema-card .col-row .type { color: var(--info); font-family: ui-monospace, monospace; font-size: 11.5px; }
+  .schema-card .col-row .desc { color: var(--text-dim); }
+
+  .pipe {
+    display: grid; grid-template-columns: 1fr 28px 1fr; gap: 8px; align-items: center;
+    background: var(--bg-card-elev); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 18px; margin: 10px 0;
+  }
+  .pipe .src, .pipe .dst { font-size: 13px; }
+  .pipe .src .lbl, .pipe .dst .lbl { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 4px; }
+  .pipe .arrow { color: var(--accent); text-align: center; font-size: 18px; }
+
+  footer.f { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--text-muted); font-size: 11.5px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="h">
+    <div class="eyebrow">Phase A · Step A3 · Backend Constitution</div>
+    <h1>Building the universal write ledger</h1>
+    <div class="subtitle">Every protected-table mutation will leave a fingerprint. Today, we built the ledger and the recording head — empty for now. Phase A.4 connects the protected tables to it; Phase A.5 makes the canonical RPCs identify themselves on the way in.</div>
+    <div class="meta">
+      <span><strong>Migration:</strong> <code>phaseA_a3_audit_log_infra</code></span>
+      <span><strong>Applied:</strong> 2026-04-26</span>
+      <span><strong>Articles:</strong> <span class="article-pill">Article 7</span> <span class="article-pill">Article 8</span> <span class="article-pill">Article 12</span></span>
+      <span><strong>Reviewed by:</strong> Cody</span>
+    </div>
+  </header>
+
+  <div class="banner">
+    <div class="check">✓</div>
+    <div class="text">
+      <div class="title">Approved and applied</div>
+      <div class="body">Created <code>write_audit_log</code> (RLS append-only) and <code>audit_log_write()</code> trigger function. Both are quiet — no rows yet, no triggers attached. They become live in A.4 when triggers go onto the 18 protected tables. Zero rows mutated. Zero FE behavior change.</div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="label">Tables created</div>
+      <div class="value">1</div>
+      <div class="sub"><code>write_audit_log</code></div>
+    </div>
+    <div class="kpi">
+      <div class="label">Functions created</div>
+      <div class="value">1</div>
+      <div class="sub"><code>audit_log_write()</code> (DEFINER)</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Indexes created</div>
+      <div class="value">3</div>
+      <div class="sub">+ 1 PK = 4 total</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Triggers installed</div>
+      <div class="value">0</div>
+      <div class="sub">Reserved for A.4</div>
+    </div>
+  </div>
+
+  <h2 class="section"><span class="num">01</span>The metaphor</h2>
+  <div class="ba">
+    <div class="col before">
+      <div class="tag">BEFORE</div>
+      <h3>A bank without security cameras</h3>
+      <p>If a row appears in <code>machines</code> tomorrow morning, we have no first-principles way to answer "who put it there, when, and via which code path". Some tables had ad-hoc audit (e.g., <code>warehouse_inventory_audit_log</code>) but the schemas, columns, and write paths varied. There was no single place to ask "show me everything that wrote to a protected table in the last hour".</p>
+      <ul>
+        <li>No <code>via_rpc</code> column anywhere → can't tell front-door from side-door writes.</li>
+        <li>No standard <code>actor + actor_role</code> capture → forensics are guess-work.</li>
+        <li>Audit was opt-in per table → tables added in 2026 had none.</li>
+      </ul>
+    </div>
+    <div class="col after">
+      <div class="tag">AFTER</div>
+      <h3>A bank with one ledger and a uniformed teller</h3>
+      <p>Every protected-table write — once A.4 wires it up — leaves a row in <code>write_audit_log</code> with a uniform shape: which table, which operation, which row, who did it, what role they had, whether they used the front door, and the full before/after row as JSON. Append-only at the policy level (RLS UPDATE/DELETE = false). Three indexes designed for the three questions we'll actually ask.</p>
+      <ul>
+        <li><strong>One ledger</strong> for all 18 protected entities.</li>
+        <li><strong>One trigger function</strong> (<code>audit_log_write</code>) — generic, parameterized by PK column.</li>
+        <li><strong>Bypass-detector index</strong>: partial index on <code>(via_rpc, occurred_at)</code> WHERE <code>via_rpc = false</code> — keeps it tiny, makes "find unauthorized writes" a millisecond query.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="section"><span class="num">02</span>The new schema</h2>
+  <div class="schema-card">
+    <h4>public.write_audit_log</h4>
+    <div class="col-row"><span class="name">audit_id</span><span class="type">uuid PK</span><span class="desc">gen_random_uuid()</span></div>
+    <div class="col-row"><span class="name">table_name</span><span class="type">text NOT NULL</span><span class="desc">e.g., 'machines', 'planogram', 'sales_lines'</span></div>
+    <div class="col-row"><span class="name">operation</span><span class="type">text NOT NULL</span><span class="desc">CHECK IN ('INSERT', 'UPDATE', 'DELETE')</span></div>
+    <div class="col-row"><span class="name">row_pk</span><span class="type">text NOT NULL</span><span class="desc">PK as text — schema-agnostic so one column fits all</span></div>
+    <div class="col-row"><span class="name">actor</span><span class="type">uuid NULL</span><span class="desc">auth.uid() if available, NULL for service_role</span></div>
+    <div class="col-row"><span class="name">actor_role</span><span class="type">text NULL</span><span class="desc">looked up from user_profiles at write time</span></div>
+    <div class="col-row"><span class="name">via_rpc</span><span class="type">boolean NOT NULL</span><span class="desc">true = canonical path; false = bypass</span></div>
+    <div class="col-row"><span class="name">rpc_name</span><span class="type">text NULL</span><span class="desc">e.g., 'add_new_machine' if via_rpc</span></div>
+    <div class="col-row"><span class="name">occurred_at</span><span class="type">timestamptz</span><span class="desc">DEFAULT now()</span></div>
+    <div class="col-row"><span class="name">payload</span><span class="type">jsonb NULL</span><span class="desc">{ old: {...}, new: {...} }</span></div>
+  </div>
+
+  <h2 class="section"><span class="num">03</span>How a write becomes a log row</h2>
+  <div class="pipe">
+    <div class="src">
+      <div class="lbl">SOURCE</div>
+      <div>FE / n8n / cron / RPC writes to a protected table</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="dst">
+      <div class="lbl">DESTINATION</div>
+      <div>AFTER trigger fires <code>audit_log_write()</code></div>
+    </div>
+  </div>
+  <div class="pipe">
+    <div class="src">
+      <div class="lbl">CONTEXT</div>
+      <div><code>app.via_rpc</code> + <code>app.rpc_name</code> session GUCs (set by canonical RPCs in A.5)</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="dst">
+      <div class="lbl">CAPTURED</div>
+      <div><code>via_rpc</code>, <code>rpc_name</code>, <code>actor</code>, <code>actor_role</code>, <code>row_pk</code>, full row payload</div>
+    </div>
+  </div>
+  <div class="pipe">
+    <div class="src">
+      <div class="lbl">RESULT</div>
+      <div>One row appended to <code>write_audit_log</code></div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="dst">
+      <div class="lbl">QUERYABLE</div>
+      <div><code>SELECT * FROM write_audit_log WHERE via_rpc = false ORDER BY occurred_at DESC LIMIT 100;</code></div>
+    </div>
+  </div>
+
+  <h2 class="section"><span class="num">04</span>The trigger function (excerpt)</h2>
+  <div class="codeblock"><span class="kw">CREATE OR REPLACE FUNCTION</span> public.<span class="fn">audit_log_write</span>()
+<span class="kw">RETURNS</span> trigger
+<span class="kw">LANGUAGE</span> plpgsql
+<span class="kw">SECURITY DEFINER</span>
+<span class="kw">AS</span> $$
+<span class="kw">DECLARE</span>
+  v_pk_col      text;
+  v_via_rpc     text;
+  v_rpc_name    text;
+  v_actor       uuid;
+  ...
+<span class="kw">BEGIN</span>
+  v_pk_col   := <span class="fn">COALESCE</span>(TG_ARGV[<span class="num">0</span>], <span class="str">'id'</span>);
+  v_via_rpc  := <span class="fn">current_setting</span>(<span class="str">'app.via_rpc'</span>,  <span class="kw">true</span>);
+  v_rpc_name := <span class="fn">current_setting</span>(<span class="str">'app.rpc_name'</span>, <span class="kw">true</span>);
+  v_actor    := <span class="fn">auth.uid</span>();
+
+  <span class="cm">-- ... extract PK from NEW or OLD via TG_ARGV[0] ...</span>
+  <span class="cm">-- ... build payload as jsonb ...</span>
+
+  <span class="kw">INSERT INTO</span> public.write_audit_log
+    (table_name, operation, row_pk, actor, actor_role, via_rpc, rpc_name, payload)
+  <span class="kw">VALUES</span>
+    (TG_TABLE_NAME, TG_OP, <span class="fn">COALESCE</span>(v_pk_val, <span class="str">'?'</span>),
+     v_actor, v_actor_role,
+     <span class="fn">COALESCE</span>(v_via_rpc = <span class="str">'true'</span>, <span class="kw">false</span>),
+     <span class="fn">NULLIF</span>(v_rpc_name, <span class="str">''</span>),
+     v_payload);
+
+  <span class="kw">RETURN</span> <span class="fn">COALESCE</span>(NEW, OLD);
+<span class="kw">END</span>;
+$$;</div>
+
+  <h2 class="section"><span class="num">05</span>RLS policies on <code>write_audit_log</code></h2>
+  <table class="compact">
+    <thead><tr><th>Policy</th><th>Operation</th><th>Rule</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>wal_select</td><td>SELECT</td><td><code>USING (true)</code> for authenticated</td><td>Anyone authenticated can read the audit trail.</td></tr>
+      <tr><td>wal_insert</td><td>INSERT</td><td><code>WITH CHECK (true)</code> for authenticated</td><td>Trigger fn (DEFINER) writes pass; FE never writes here directly.</td></tr>
+      <tr><td>wal_no_update</td><td>UPDATE</td><td><code>USING (false)</code></td><td>No one can edit a past audit row. Append-only.</td></tr>
+      <tr><td>wal_no_delete</td><td>DELETE</td><td><code>USING (false)</code></td><td>No one can erase the trail. Append-only.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 class="section"><span class="num">06</span>What's next</h2>
+  <div class="twocol">
+    <div class="schema-card" style="border-color: var(--line)">
+      <h4 style="color: var(--info)">A.4 — UP NEXT</h4>
+      <p style="color: var(--text-dim); font-size: 13.5px; margin: 0 0 8px">Install AFTER triggers on the 18 protected tables. Each trigger calls <code>audit_log_write()</code> with that table's PK column as <code>TG_ARGV[0]</code>. From this moment, every write is recorded.</p>
+      <p style="color: var(--text-muted); font-size: 12px; margin: 0">Articles: 1, 8 · Tables touched: 18 · Rows mutated: 0</p>
+    </div>
+    <div class="schema-card" style="border-color: var(--line)">
+      <h4 style="color: var(--info)">A.5 — AFTER A.4</h4>
+      <p style="color: var(--text-dim); font-size: 13.5px; margin: 0 0 8px">Patch the 25 canonical writers to set <code>app.via_rpc = 'true'</code> and <code>app.rpc_name</code> at function entry. After this, <code>via_rpc = false</code> in the audit log = a real bypass. The bypass index lights up the Phase B priority list.</p>
+      <p style="color: var(--text-muted); font-size: 12px; margin: 0">Articles: 1, 4, 8 · RPCs touched: 25 · Rows mutated: 0</p>
+    </div>
+  </div>
+
+  <footer class="f">
+    <div>Phase A · Step 3 of 7 · Boonz Backend Reform</div>
+    <div>Reviewed by Cody · Applied 2026-04-26</div>
+  </footer>
+</div>
+</body>
+</html>

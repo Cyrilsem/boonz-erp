@@ -147,12 +147,8 @@ export function RefillPlanningTab({
   generated: boolean;
   setGenerated: React.Dispatch<React.SetStateAction<boolean>>;
 }) {
-  const [filter, setFilter] = useState("all");
-  const [generating, setGenerating] = useState(false);
-  const [writing, setWriting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<PlanAlert[]>([]);
-  const [machineCount, setMachineCount] = useState(0);
   const [writeResult, setWriteResult] = useState<{
     ok: boolean;
     msg: string;
@@ -207,35 +203,6 @@ export function RefillPlanningTab({
     setGenerated(false);
   }, [planRows, removed, selectedDate, supabase, setPlanRows, setGenerated]);
 
-  // ── Generate (dry run) ───────────────────────────────────────────────────────
-  const generate = useCallback(async () => {
-    setGenerating(true);
-    setWriteResult(null);
-    setRemoved(new Set());
-    setEditedQty({});
-    setGenerated(false);
-
-    const { data, error } = await supabase.rpc("auto_generate_refill_plan", {
-      p_filter: filter,
-      p_plan_date: selectedDate,
-      p_dry_run: true,
-    });
-
-    setGenerating(false);
-    if (error) {
-      setWriteResult({ ok: false, msg: `Generation failed: ${error.message}` });
-      return;
-    }
-    if (data?.status === "error") {
-      setWriteResult({ ok: false, msg: `Error: ${data.error}` });
-      return;
-    }
-
-    setPlanRows(data?.rows ?? []);
-    setAlerts(data?.alerts ?? []);
-    setMachineCount(data?.machines ?? 0);
-    setGenerated(true);
-  }, [filter, selectedDate, supabase]);
 
   // ── Load pending plan ──────────────────────────────────────────────────────
   const loadPendingPlan = useCallback(async () => {
@@ -286,37 +253,6 @@ export function RefillPlanningTab({
     setLoadResult({ ok: true, msg: `Loaded ${rows.length} pending lines for ${selectedDate}` });
   }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
 
-  // ── Write plan ───────────────────────────────────────────────────────────────
-  const writePlan = useCallback(async () => {
-    setWriting(true);
-    setWriteResult(null);
-
-    const finalRows = planRows
-      .filter((_, idx) => !removed.has(idx))
-      .map((row, idx) => ({
-        ...row,
-        quantity: idx in editedQty ? editedQty[idx] : row.quantity,
-      }));
-
-    // write_refill_plan(p_plan_date, p_lines) → writes to refill_plan_output
-    // Dispatch mirror happens when operator approves the plan in Stock Snapshot tab
-    const { data, error } = await supabase.rpc("write_refill_plan", {
-      p_plan_date: selectedDate,
-      p_lines: finalRows,
-    });
-
-    setWriting(false);
-    if (error) {
-      setWriteResult({ ok: false, msg: `Write failed: ${error.message}` });
-    } else {
-      const result = data as { status?: string; lines_written?: number } | null;
-      const written = result?.lines_written ?? finalRows.length;
-      setWriteResult({
-        ok: true,
-        msg: `Plan written — ${written} lines for ${selectedDate}`,
-      });
-    }
-  }, [planRows, removed, editedQty, selectedDate, supabase]);
 
   // ── Add row ──────────────────────────────────────────────────────────────────
   const addRow = useCallback(() => {
@@ -373,34 +309,6 @@ export function RefillPlanningTab({
       {/* ── Controls ──────────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Filter */}
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white text-gray-900"
-          >
-            {FILTER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-
-          {/* Generate */}
-          <button
-            onClick={generate}
-            disabled={generating}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50 "
-          >
-            {generating && (
-              <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 5.373 0 12h4z" />
-              </svg>
-            )}
-            {generating ? "Generating…" : "Generate plan"}
-          </button>
-
           {/* Load pending plan */}
           <button
             onClick={loadPendingPlan}
@@ -420,31 +328,7 @@ export function RefillPlanningTab({
             </button>
           )}
 
-          {/* Save draft */}
-          {generated && activeRows.length > 0 && (
-            <button
-              onClick={writePlan}
-              disabled={writing}
-              className="ml-auto flex items-center gap-2 px-5 py-2 rounded-lg bg-green-700 text-white text-sm font-medium hover:bg-green-800 disabled:opacity-50"
-            >
-              {writing ? "Saving…" : `Save draft (${activeRows.length} lines)`}
-            </button>
-          )}
         </div>
-
-        {/* Write result */}
-        {writeResult && (
-          <div
-            className={`mt-3 rounded-lg px-3 py-2 text-sm font-medium ${
-              writeResult.ok
-                ? "bg-green-50 text-green-700 "
-                : "bg-red-50 text-red-700 "
-            }`}
-          >
-            {writeResult.ok ? "✓ " : "✗ "}
-            {writeResult.msg}
-          </div>
-        )}
 
         {/* Load result */}
         {loadResult && (
@@ -461,7 +345,7 @@ export function RefillPlanningTab({
         )}
 
         {/* Approve & Dispatch button */}
-        {writeResult?.ok && (
+        {generated && activeRows.length > 0 && (
           <button
             onClick={approvePlan}
             disabled={approving}
@@ -508,7 +392,7 @@ export function RefillPlanningTab({
       {generated && (
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[
-            ["Machines", machineCount],
+            ["Machines", Object.keys(byMachine).length],
             ["Lines", activeRows.length],
             ["Refill units", totalUnits],
             ["Swaps", swapCount],
@@ -525,15 +409,15 @@ export function RefillPlanningTab({
       )}
 
       {/* ── Empty state ────────────────────────────────────────────────────── */}
-      {!generated && !generating && (
+      {!generated && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-4xl mb-3">🧠</div>
           <p className="text-sm font-medium text-gray-600 mb-1">
-            Refill plan builder
+            Plans are generated by Claude
           </p>
           <p className="text-xs text-gray-400 max-w-sm">
-            Select a filter and click <strong>Generate plan</strong> to compute tomorrow&apos;s
-            refill plan. Review and edit before writing.
+            Run <strong>/refill-engine</strong> in Cowork to generate tomorrow&apos;s plan,
+            then click <strong>↓ Load pending plan</strong> to review and approve.
           </p>
         </div>
       )}

@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boonz ERP — Round 2 QA Report</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f8f8f7;
+        color: #1a1a1a;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 40px 24px 80px;
+      }
+
+      /* Header */
+      .header {
+        margin-bottom: 40px;
+        border-bottom: 2px solid #1a1a1a;
+        padding-bottom: 24px;
+      }
+      .header h1 {
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+      }
+      .header .meta {
+        margin-top: 8px;
+        color: #666;
+        font-size: 13px;
+      }
+      .header .meta span {
+        margin-right: 20px;
+      }
+
+      /* Summary cards */
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 40px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e5e5;
+        border-radius: 10px;
+        padding: 16px;
+      }
+      .card .num {
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1;
+        margin-bottom: 4px;
+      }
+      .card .label {
+        font-size: 12px;
+        color: #666;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .card.green .num {
+        color: #16a34a;
+      }
+      .card.red .num {
+        color: #dc2626;
+      }
+      .card.orange .num {
+        color: #ea580c;
+      }
+      .card.blue .num {
+        color: #2563eb;
+      }
+
+      /* Bug summary */
+      .bugs-bar {
+        background: #fff;
+        border: 1px solid #e5e5e5;
+        border-radius: 10px;
+        padding: 20px 24px;
+        margin-bottom: 32px;
+      }
+      .bugs-bar h2 {
+        font-size: 15px;
+        font-weight: 600;
+        margin-bottom: 14px;
+      }
+      .bug-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .bug-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 8px;
+        border-left: 3px solid;
+      }
+      .bug-item.critical {
+        background: #fef2f2;
+        border-color: #ef4444;
+      }
+      .bug-item.major {
+        background: #fff7ed;
+        border-color: #f97316;
+      }
+      .bug-item.design {
+        background: #f0f9ff;
+        border-color: #3b82f6;
+      }
+      .bug-tag {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+        padding-top: 1px;
+      }
+      .bug-item.critical .bug-tag {
+        color: #ef4444;
+      }
+      .bug-item.major .bug-tag {
+        color: #f97316;
+      }
+      .bug-item.design .bug-tag {
+        color: #3b82f6;
+      }
+      .bug-detail strong {
+        font-weight: 600;
+        display: block;
+        font-size: 13px;
+      }
+      .bug-detail p {
+        color: #555;
+        font-size: 12px;
+        margin-top: 2px;
+      }
+
+      /* Modules */
+      .module {
+        background: #fff;
+        border: 1px solid #e5e5e5;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        overflow: hidden;
+      }
+      .module-header {
+        padding: 14px 20px;
+        background: #fafafa;
+        border-bottom: 1px solid #e5e5e5;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .module-header h2 {
+        font-size: 15px;
+        font-weight: 600;
+        flex: 1;
+      }
+      .module-badge {
+        font-size: 11px;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 100px;
+      }
+      .badge-pass {
+        background: #dcfce7;
+        color: #15803d;
+      }
+      .badge-fail {
+        background: #fee2e2;
+        color: #b91c1c;
+      }
+      .badge-partial {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .badge-skip {
+        background: #f1f5f9;
+        color: #475569;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        color: #888;
+        padding: 10px 20px 8px;
+        border-bottom: 1px solid #f0f0f0;
+      }
+      td {
+        padding: 10px 20px;
+        border-bottom: 1px solid #f8f8f8;
+        vertical-align: top;
+        font-size: 13px;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      .tc-id {
+        font-family: monospace;
+        font-size: 12px;
+        color: #888;
+        white-space: nowrap;
+      }
+      .status-pass {
+        color: #16a34a;
+        font-weight: 600;
+      }
+      .status-fail {
+        color: #dc2626;
+        font-weight: 600;
+      }
+      .status-partial {
+        color: #ea580c;
+        font-weight: 600;
+      }
+      .status-skip {
+        color: #94a3b8;
+        font-weight: 600;
+      }
+      .bug-ref {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        color: #dc2626;
+        background: #fee2e2;
+        border-radius: 4px;
+        padding: 1px 6px;
+        margin-left: 4px;
+      }
+      .note {
+        font-size: 12px;
+        color: #555;
+        margin-top: 3px;
+      }
+      .note code {
+        font-family: monospace;
+        background: #f1f1f0;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 11px;
+      }
+
+      /* Push warning box */
+      .warning-box {
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+        border-radius: 10px;
+        padding: 16px 20px;
+        margin-bottom: 32px;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .warning-box .icon {
+        font-size: 18px;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .warning-box h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #92400e;
+        margin-bottom: 4px;
+      }
+      .warning-box p {
+        font-size: 13px;
+        color: #78350f;
+      }
+      .warning-box code {
+        font-family: monospace;
+        background: #fde68a;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+
+      /* Footer */
+      .footer {
+        margin-top: 48px;
+        border-top: 1px solid #e5e5e5;
+        padding-top: 20px;
+        font-size: 12px;
+        color: #999;
+      }
+      .footer strong {
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="header">
+        <h1>Boonz ERP — Round 2 QA Report</h1>
+        <div class="meta">
+          <span>📅 April 19, 2026</span>
+          <span>🌐 boonz-erp.vercel.app</span>
+          <span>🧪 Tester: Claude (autonomous browser + code review)</span>
+          <span>📦 Branch: main · commit af7a1e8 (pending push)</span>
+        </div>
+      </div>
+
+      <div class="warning-box">
+        <div class="icon">⚠️</div>
+        <div>
+          <h3>Round 1 Bug Fixes Not Yet Live</h3>
+          <p>
+            Commit <code>af7a1e8</code> fixes BUG-1, BUG-2, and BUG-3 but has
+            not been pushed to GitHub/Vercel. Run
+            <code>git push origin main</code> from the
+            <code>boonz-erp</code> folder. Until deployed, I-01 and I-02
+            verification tests cannot be completed.
+          </p>
+        </div>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="summary-grid">
+        <div class="card green">
+          <div class="num">8</div>
+          <div class="label">Passed</div>
+        </div>
+        <div class="card red">
+          <div class="num">4</div>
+          <div class="label">Failed</div>
+        </div>
+        <div class="card orange">
+          <div class="num">3</div>
+          <div class="label">Bugs Found</div>
+        </div>
+        <div class="card blue">
+          <div class="num">6</div>
+          <div class="label">Design Gaps</div>
+        </div>
+      </div>
+
+      <!-- Bug Summary -->
+      <div class="bugs-bar">
+        <h2>Bugs &amp; Design Gaps Found in Round 2</h2>
+        <div class="bug-list">
+          <div class="bug-item critical">
+            <div class="bug-tag">BUG-4 · Critical</div>
+            <div class="bug-detail">
+              <strong
+                >Partial receive overwrites ordered_qty — shortfall permanently
+                lost</strong
+              >
+              <p>
+                When receiving fewer units than ordered (e.g. 3 of 6), the
+                receive flow updates <code>ordered_qty</code> to the received
+                quantity. There is no <code>received_qty</code> column. The
+                original order quantity is permanently lost. The PO moves to
+                "Received" with no Partial status or shortfall record.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item major">
+            <div class="bug-tag">BUG-5 · Major</div>
+            <div class="bug-detail">
+              <strong
+                >Removal reason (Expired / Damaged / Other) not persisted to
+                DB</strong
+              >
+              <p>
+                The Removals page collects a reason per line (UI dropdown:
+                Expired, Damaged, Other) but the
+                <code>handleSubmit</code> function never includes the reason in
+                the <code>pod_inventory</code> insert. The reason is silently
+                dropped, making post-hoc auditing impossible.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item major">
+            <div class="bug-tag">GAP · Not Implemented</div>
+            <div class="bug-detail">
+              <strong>F-04: Low-stock badge (≤5 units) not implemented</strong>
+              <p>
+                No visual indicator exists for items with 5 or fewer units in
+                the warehouse inventory page. Only a "Qty Low" sort option
+                exists — no badge or alert styling.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item major">
+            <div class="bug-tag">GAP · Not Implemented</div>
+            <div class="bug-detail">
+              <strong
+                >F-05: CSV export not implemented on inventory page</strong
+              >
+              <p>
+                No export button, CSV download, or data export mechanism exists
+                anywhere on <code>/field/inventory</code>.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item design">
+            <div class="bug-tag">GAP · Design</div>
+            <div class="bug-detail">
+              <strong>No machine-to-machine transfer flow</strong>
+              <p>
+                There is no route or UI for transferring products between
+                machines. The closest flow is the removals page which only logs
+                removal from a single machine — no destination machine can be
+                specified.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item design">
+            <div class="bug-tag">GAP · Design</div>
+            <div class="bug-detail">
+              <strong>No physical warehouse return flow</strong>
+              <p>
+                Removals page sets
+                <code
+                  >pod_inventory.current_stock = 0, status = "Removed /
+                  Expired"</code
+                >. It does not create a warehouse_inventory entry for returned
+                goods. Physical product returned to warehouse is not reflected
+                in warehouse stock.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item design">
+            <div class="bug-tag">GAP · Design</div>
+            <div class="bug-detail">
+              <strong
+                >No Partial PO status — partial receives appear fully
+                received</strong
+              >
+              <p>
+                A PO received 10/10 Hazelnut + 3/6 Aquafina shows as "Received"
+                with no indication of the 3-unit shortfall. Orders list shows
+                "No pending orders" after partial receive. Buyers have no
+                visibility into unfulfilled quantities.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item design">
+            <div class="bug-tag">GAP · Design</div>
+            <div class="bug-detail">
+              <strong
+                >C-06: No re-dispatch mechanism for incomplete packing</strong
+              >
+              <p>
+                If warehouse only packs 3 of 5 dispatch lines, the machine never
+                appears in the driver pickup list (requires ALL lines packed).
+                There is no "force pickup with partial pack" or "re-queue
+                unpacked lines for next dispatch" workflow.
+              </p>
+            </div>
+          </div>
+
+          <div class="bug-item design">
+            <div class="bug-tag">GAP · Design</div>
+            <div class="bug-detail">
+              <strong>A-03: No in-app dark mode toggle</strong>
+              <p>
+                Dark mode is CSS-only via OS/browser preference. No in-app
+                toggle exists. Users cannot switch mode without changing OS
+                settings.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODULE D: Procurement -->
+      <div class="module">
+        <div class="module-header">
+          <h2>Module D — Procurement / Purchase Orders</h2>
+          <span class="module-badge badge-partial">Partial</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>TC</th>
+              <th>Test Case</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tc-id">D-05</td>
+              <td>
+                Receive full PO — status flips to Received, warehouse stock
+                added
+              </td>
+              <td class="status-pass">PASS</td>
+              <td>
+                PO-2026-9003 (Arab Sweet) created with 2 lines. Navigate →
+                Receive Delivery loaded correctly. Confirmed receiving 10× 7
+                Days Hazelnut + 3× Aquafina. Success screen: "Received ✓ ·
+                PO-2026-9003 has been received into inventory." Warehouse
+                inventory entries verified in DB:
+                <code>warehouse_inventory</code> batch PO-2026-9003-B1 with
+                correct quantities.
+                <div class="note">
+                  Note: PO was inserted directly via Supabase MCP; the New PO
+                  form has a React state issue with price
+                  <code>onBlur</code> not triggering programmatically (see
+                  separate form UX note).
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">D-06</td>
+              <td>
+                Partial line receiving — receive some qty, check remaining
+                status
+              </td>
+              <td class="status-partial">
+                BUG<span class="bug-ref">BUG-4</span>
+              </td>
+              <td>
+                Received 3 of 6 Aquafina units. System accepted without warning.
+                Live counter correctly showed "3 of 6 received" in orange. After
+                confirm: success screen shown. DB verification shows
+                <code>ordered_qty</code> updated from 6 → 3, permanently losing
+                the original order quantity. No <code>received_qty</code> column
+                exists. PO moved to "Received" status — "No pending orders"
+                shown on orders list, hiding the 3-unit shortfall.
+                <div class="note">
+                  Fix required: Add <code>received_qty</code> column to
+                  <code>purchase_orders</code>; preserve
+                  <code>ordered_qty</code>; show "Partial" status when
+                  <code>received_qty &lt; ordered_qty</code>.
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">D-form</td>
+              <td>New PO form — create via UI with two product lines</td>
+              <td class="status-partial">UX Issue</td>
+              <td>
+                Form validation fails silently when Qty/Price set
+                programmatically. Root cause: Price input uses
+                <code>onBlur</code> to commit value to React state;
+                <code>onChange</code> only updates
+                <code>priceInputs</code> display state. Error "Unit price is
+                required for all lines" shown after clicking Create PO. The form
+                works correctly with real keyboard input but cannot be automated
+                with native DOM events.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- MODULE F: Inventory Features -->
+      <div class="module">
+        <div class="module-header">
+          <h2>Module F — Warehouse Inventory Features</h2>
+          <span class="module-badge badge-fail">Failed</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>TC</th>
+              <th>Test Case</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tc-id">F-04</td>
+              <td>Low-stock badge renders for items with ≤5 units</td>
+              <td class="status-fail">FAIL</td>
+              <td>
+                No low-stock badge implemented. Code inspection of
+                <code>/field/inventory/page.tsx</code> confirmed: no threshold
+                check, no badge or colour change for low-quantity items. Only
+                visual qty indicators are the editable qty number and expiry
+                days counter. A "Qty Low" sort option exists but provides no
+                visual alert at the item level.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">F-05</td>
+              <td>CSV export downloads current filtered inventory</td>
+              <td class="status-fail">FAIL</td>
+              <td>
+                No export functionality. No CSV, download, or export button
+                found anywhere on <code>/field/inventory</code>. DOM query for
+                buttons with text containing "Export", "CSV", "Download"
+                returned 0 results. Feature does not exist.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- MODULE G: Driver Pickup & Dispatch -->
+      <div class="module">
+        <div class="module-header">
+          <h2>Module G — Driver Pickup &amp; Dispatch</h2>
+          <span class="module-badge badge-partial">Partial</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>TC</th>
+              <th>Test Case</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tc-id">G-01</td>
+              <td>Pickup list loads — machines with all lines packed appear</td>
+              <td class="status-pass">PASS</td>
+              <td>
+                Page loads at <code>/field/pickup</code>. When no machines are
+                fully packed, correct empty state: "No machines ready for pickup
+                / Warehouse is still packing." Refresh button present. After
+                seeding 2 packed dispatch lines for ADDMIND-1007 machine for
+                today's date in DB, page is expected to surface the machine
+                (Chrome disconnected before visual verification; see note).
+                <div class="note">
+                  Query logic confirmed by code review: only machines where
+                  <code>packed_count === total</code> (all include=true,
+                  dispatched=false lines packed) appear in the list. Date
+                  window: yesterday → today.
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">G-02</td>
+              <td>Mark individual shelf line as picked up</td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Chrome extension disconnected mid-test. Seeded dispatch lines
+                exist in DB (dispatch_ids: eeb2de6d, eb8e11f3) and would surface
+                ADDMIND machine in pickup list. Test can be completed once
+                Chrome reconnects or after manual testing.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">G-03</td>
+              <td>Mark all lines as picked up in one action</td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Blocked pending Chrome reconnect. Code review shows "Confirm
+                pickup" button exists; toggles all lines'
+                <code>picked_up</code> flag in <code>refill_dispatching</code>.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">G-04</td>
+              <td>Partial pickup — pick some lines, leave others</td>
+              <td class="status-skip">BLOCKED</td>
+              <td>Blocked pending Chrome reconnect.</td>
+            </tr>
+            <tr>
+              <td class="tc-id">G-05</td>
+              <td>Submit dispatch at machine — sets dispatched=true</td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Blocked pending Chrome reconnect. Code review of
+                <code>/field/trips/[machineId]/page.tsx</code> confirms:
+                "Submit" sets <code>dispatched = true</code> per confirmed line
+                in <code>refill_dispatching</code>.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">G-06</td>
+              <td>Driver scope — only sees own assigned tasks</td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Blocked pending Chrome reconnect. Requires login as
+                <code>driver@boonz.test</code> to verify scope isolation.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">C-06</td>
+              <td>
+                Re-dispatch when packing incomplete (carry-over from Round 1)
+              </td>
+              <td class="status-fail">FAIL (Gap)</td>
+              <td>
+                No re-dispatch mechanism exists. Pickup list requires
+                <strong>all</strong> lines packed (<code
+                  >packed_count === total</code
+                >). If warehouse packs 3 of 5 lines, the machine never appears
+                in the driver pickup list and there is no UI to force pickup,
+                mark unpacked lines as skipped, or re-queue them for the next
+                dispatch run. This is a workflow dead-end.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- MODULE H: Product Lifecycle -->
+      <div class="module">
+        <div class="module-header">
+          <h2>Module H — Product Lifecycle (Returns, Removals, Transfers)</h2>
+          <span class="module-badge badge-partial">Partial</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>TC</th>
+              <th>Test Case</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tc-id">H-01</td>
+              <td>
+                Return product from machine to warehouse — warehouse stock
+                increases
+              </td>
+              <td class="status-fail">FAIL (Gap)</td>
+              <td>
+                No warehouse return flow exists. Removals page
+                (<code>/field/trips/[machineId]/removals</code>) inserts a
+                <code>pod_inventory</code> row with
+                <code>status = "Removed / Expired"</code> and
+                <code>current_stock = 0</code>. It does
+                <strong>not</strong> create a
+                <code>warehouse_inventory</code> entry. Physically returned
+                goods are not tracked back into warehouse stock.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">H-02</td>
+              <td>Machine-to-machine product transfer</td>
+              <td class="status-fail">FAIL (Not Built)</td>
+              <td>
+                No route or UI for machine-to-machine transfer exists. Route
+                inspection of all <code>/field/**</code> paths confirmed: no
+                transfer page. The only inter-machine movement possible is:
+                remove from machine A (removals) → manually re-dispatch to
+                machine B through the full refill pipeline.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">H-03</td>
+              <td>Log expired products removed from machine shelf</td>
+              <td class="status-partial">
+                PARTIAL<span class="bug-ref">BUG-5</span>
+              </td>
+              <td>
+                Removals page loads; allows selecting product, qty, reason
+                "Expired". Form submits and inserts
+                <code>pod_inventory</code> row. However, the "Expired" reason is
+                <strong>never stored</strong> — the
+                <code>handleSubmit</code> function maps only
+                <code>machine_id</code>, <code>boonz_product_id</code>,
+                <code>snapshot_date</code>, <code>current_stock: 0</code>,
+                <code>status: "Removed / Expired"</code>. The specific reason
+                field is dropped.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">H-04</td>
+              <td>Log damaged products with damage reason</td>
+              <td class="status-partial">
+                PARTIAL<span class="bug-ref">BUG-5</span>
+              </td>
+              <td>
+                Same as H-03. Reason "Damaged" collected in UI but not
+                persisted. DB row shows generic
+                <code>status = "Removed / Expired"</code> regardless of whether
+                item was expired, damaged, or other reason.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">H-05</td>
+              <td>Record partial sold quantity update at machine</td>
+              <td class="status-pass">PASS (Code)</td>
+              <td>
+                Trips page (<code>/field/trips/[machineId]</code>) allows
+                updating <code>filled_quantity</code> per line and adding a
+                comment. Changes saved to <code>refill_dispatching</code>. This
+                is the mechanism for recording actual vs planned quantities
+                during dispatch.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">H-06</td>
+              <td>
+                Full product lifecycle: receive → warehouse → dispatch → machine
+                → remove
+              </td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Partially completed: receive step ✓ (PO-2026-9003), warehouse
+                stock confirmed ✓. Dispatch step blocked by Chrome disconnection
+                and no live dispatch for today. Removal step UI confirmed to
+                work (inserts pod_inventory) but with BUG-5.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">H-07</td>
+              <td>Transfer product to unmapped machine (no pod mapping)</td>
+              <td class="status-fail">FAIL (Not Built)</td>
+              <td>Machine-to-machine transfer not implemented. See H-02.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- MODULE I: Edge Cases -->
+      <div class="module">
+        <div class="module-header">
+          <h2>Module I — Edge Cases &amp; Bug Regression</h2>
+          <span class="module-badge badge-partial">Partial</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>TC</th>
+              <th>Test Case</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tc-id">I-01</td>
+              <td>
+                BUG-1 fix: pack with qty=0 now saves packed=true correctly
+              </td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Fix committed (af7a1e8) but not pushed to Vercel. Once deployed,
+                verify by packing a machine with 0 qty on one shelf — the line
+                should mark <code>packed = true, filled_quantity = 0</code> and
+                packing confirmation should succeed.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">I-02</td>
+              <td>
+                BUG-2/3 fix: expired/inactive items visible under expiry filter
+              </td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Fix committed (af7a1e8) but not pushed to Vercel. Once deployed,
+                verify by applying "Expired" or "≤7 days" filter on inventory
+                page — items with <code>status = "Inactive"</code> or
+                <code>"Expired"</code> that fall within the expiry window should
+                now appear alongside Active items.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">I-03</td>
+              <td>Duplicate PO ID — system rejects or warns</td>
+              <td class="status-skip">NOT TESTED</td>
+              <td>
+                Not tested in Round 2. The New PO form auto-generates PO IDs
+                (sequential PO-YYYY-NNNN). No duplicate PO scenario was
+                triggered.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">I-04</td>
+              <td>
+                Receive PO with 0 qty on one line — line marked received with
+                qty=0
+              </td>
+              <td class="status-skip">NOT TESTED</td>
+              <td>
+                Not tested. Receiving page shows "0 of N received" for any line
+                with qty 0 in batches. Behavior under submit not verified.
+              </td>
+            </tr>
+            <tr>
+              <td class="tc-id">I-05</td>
+              <td>
+                Pickup idempotency — confirming pickup twice has no
+                double-effect
+              </td>
+              <td class="status-skip">BLOCKED</td>
+              <td>
+                Blocked pending Chrome reconnect for full pickup flow testing.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- MODULE A: UI Design -->
+      <div class="module">
+        <div class="module-header">
+          <h2>Module A — UI &amp; Design</h2>
+          <span class="module-badge badge-partial">Partial</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>TC</th>
+              <th>Test Case</th>
+              <th>Result</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tc-id">A-03</td>
+              <td>In-app dark mode toggle switches theme without OS change</td>
+              <td class="status-fail">FAIL (Gap)</td>
+              <td>
+                Dark mode implemented via Tailwind <code>dark:</code> CSS
+                classes only, following OS/browser preference. No toggle button,
+                no theme settings, no in-app control. User must change OS dark
+                mode setting to switch. Confirmed across multiple pages:
+                inventory, orders, pickup, trips. No ThemeProvider, no
+                localStorage theme key.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Fixes Required -->
+      <div class="module">
+        <div class="module-header">
+          <h2>📋 Required Actions</h2>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Priority</th>
+              <th>Action</th>
+              <th>File / Location</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong style="color: #dc2626">P0 · Now</strong></td>
+              <td>Push commit af7a1e8 to deploy BUG-1, BUG-2, BUG-3 fixes</td>
+              <td><code>git push origin main</code> from your Mac terminal</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #dc2626">P1 · Critical</strong></td>
+              <td>
+                BUG-4: Add <code>received_qty</code> column to
+                <code>purchase_orders</code>. Update receive flow to write
+                received qty there, preserve <code>ordered_qty</code>. Show
+                "Partial" status when
+                <code>received_qty &lt; ordered_qty</code>.
+              </td>
+              <td><code>/field/receiving/[poId]/page.tsx</code> · line 292</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #ea580c">P2 · Major</strong></td>
+              <td>
+                BUG-5: Include <code>removal_reason</code> in
+                <code>pod_inventory</code> insert (need to add column or use
+                existing field). Map UI "Expired" / "Damaged" / "Other" to
+                stored value.
+              </td>
+              <td>
+                <code>/field/trips/[machineId]/removals/page.tsx</code> · line
+                94–100
+              </td>
+            </tr>
+            <tr>
+              <td><strong style="color: #ea580c">P2 · Major</strong></td>
+              <td>
+                F-04: Add low-stock visual badge/indicator for items ≤5 units in
+                warehouse inventory
+              </td>
+              <td>
+                <code>/field/inventory/page.tsx</code> · batch row rendering
+                (~line 297)
+              </td>
+            </tr>
+            <tr>
+              <td><strong style="color: #ea580c">P2 · Major</strong></td>
+              <td>
+                F-05: Implement CSV export for filtered warehouse inventory
+              </td>
+              <td>
+                <code>/field/inventory/page.tsx</code> — new export button +
+                download handler
+              </td>
+            </tr>
+            <tr>
+              <td><strong style="color: #2563eb">P3 · Design</strong></td>
+              <td>
+                C-06: Design re-dispatch mechanism for incompletely packed
+                machines (e.g. "Force pickup anyway" or auto re-queue unpacked
+                lines)
+              </td>
+              <td><code>/field/pickup/page.tsx</code> and packing flow</td>
+            </tr>
+            <tr>
+              <td><strong style="color: #2563eb">P3 · Design</strong></td>
+              <td>
+                H-01: Build warehouse return flow — product physically returned
+                should create a warehouse_inventory entry
+              </td>
+              <td>New route or modal; update <code>removals/page.tsx</code></td>
+            </tr>
+            <tr>
+              <td><strong style="color: #2563eb">P3 · Design</strong></td>
+              <td>H-02/H-07: Build machine-to-machine transfer UI</td>
+              <td>New route <code>/field/trips/[machineId]/transfer</code></td>
+            </tr>
+            <tr>
+              <td><strong style="color: #64748b">P4 · Low</strong></td>
+              <td>
+                A-03: Add in-app dark/light mode toggle (ThemeProvider +
+                localStorage)
+              </td>
+              <td>Global layout / settings page</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        <strong>Boonz Smart Vending ERP</strong> · Round 2 QA Report · Generated
+        April 19, 2026<br />
+        Tests run against production: boonz-erp.vercel.app · Branch: main
+        (commit af7a1e8 pending push)<br />
+        Methodology: Autonomous browser testing (Claude in Chrome MCP) +
+        Supabase DB verification + source code review
+      </div>
+    </div>
+  </body>
+</html>

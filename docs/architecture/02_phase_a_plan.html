@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Boonz Phase A · Stabilize the Perimeter</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-card: #14181d;
+    --bg-card-elev: #1a1f25;
+    --line: #232a32;
+    --line-soft: #1a2027;
+    --text: #e6ebf0;
+    --text-dim: #8a93a0;
+    --text-muted: #5b6470;
+    --accent: #6ee7b7;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --success: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; line-height: 1.55; font-size: 14px; }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "Menlo", Consolas, monospace; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 32px 96px; }
+
+  header.h { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 32px; }
+  header.h .eyebrow { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 8px; }
+  header.h h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header.h .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 0; }
+
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 0 0 36px; }
+  .kpi { background: var(--bg-card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .kpi .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px; }
+  .kpi .value { font-size: 20px; font-weight: 600; }
+  .kpi .value.green { color: var(--success); }
+  .kpi .value.amber { color: var(--warn); }
+
+  .summary {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 36px;
+  }
+  .summary table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .summary th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .summary td { padding: 12px 16px; border-bottom: 1px solid var(--line-soft); color: var(--text-dim); }
+  .summary tr:last-child td { border-bottom: 0; }
+  .summary td.title { color: var(--text); font-weight: 500; }
+  .summary td.step { color: var(--accent); font-family: ui-monospace, monospace; font-size: 12px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; letter-spacing: 0.04em; border: 1px solid var(--line); background: var(--bg-card-elev); color: var(--text-dim); }
+  .pill.low { color: var(--success); border-color: rgba(52, 211, 153, 0.3); }
+  .pill.med { color: var(--warn); border-color: rgba(251, 191, 36, 0.3); }
+  .pill.high { color: var(--danger); border-color: rgba(248, 113, 113, 0.3); }
+  .pill.pending { color: var(--text-muted); }
+  .pill.ready { color: var(--info); border-color: rgba(96, 165, 250, 0.3); }
+  .pill.done { color: var(--success); border-color: rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.1); }
+
+  section.step {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin-bottom: 18px;
+    overflow: hidden;
+  }
+  section.step header {
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  section.step header .left { display: flex; align-items: baseline; gap: 14px; }
+  section.step .step-num { color: var(--accent); font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; font-family: ui-monospace, monospace; }
+  section.step h3 { margin: 0; font-size: 16px; }
+  section.step .meta { display: flex; gap: 8px; }
+
+  section.step .body { padding: 18px 22px 22px; }
+  section.step .row { display: grid; grid-template-columns: 130px 1fr; gap: 6px 18px; margin-bottom: 12px; }
+  section.step .row .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; padding-top: 2px; }
+  section.step .row .v { color: var(--text-dim); font-size: 13.5px; }
+  section.step .row .v code { background: var(--bg-card-elev); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--text); }
+
+  pre.sql {
+    background: #07090b;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #d6dde4;
+    margin: 8px 0 4px;
+  }
+  pre.sql .k { color: #f59e0b; }
+  pre.sql .c { color: #6b7280; font-style: italic; }
+  pre.sql .s { color: #6ee7b7; }
+
+  .cutover {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 22px 26px;
+    margin-top: 36px;
+  }
+  .cutover h2 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 0 0 14px; font-weight: 500; }
+  .cutover ol { color: var(--text-dim); padding-left: 22px; margin: 0; font-size: 13.5px; }
+  .cutover ol li { margin-bottom: 8px; }
+  .cutover code { background: var(--bg-card-elev); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--text); }
+
+  .next {
+    margin-top: 28px;
+    padding: 22px 26px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 13.5px;
+  }
+  .next h2 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 0 0 12px; font-weight: 500; }
+  .next strong { color: var(--text); font-weight: 500; }
+
+  @media (max-width: 760px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    section.step .row { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="h">
+  <div class="eyebrow">Boonz ERP · Phase A · Backend Stabilization</div>
+  <h1>Stabilize the Perimeter</h1>
+  <div class="subtitle">Seven steps. Zero data rows touched. ~4 hours. Locks the write contract before any FE refactor.</div>
+</header>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">Steps</div><div class="value">7</div></div>
+  <div class="kpi"><div class="label">Articles enforced</div><div class="value">9 / 15</div></div>
+  <div class="kpi"><div class="label">Rows mutated</div><div class="value green">0</div></div>
+  <div class="kpi"><div class="label">Est. effort</div><div class="value">~4h</div></div>
+  <div class="kpi"><div class="label">Cutover</div><div class="value amber">Branch → Prod</div></div>
+</div>
+
+<div class="summary">
+  <table>
+    <thead>
+      <tr><th style="width:80px">Step</th><th>Goal</th><th style="width:120px">Risk</th><th style="width:100px">Time</th><th style="width:120px">Status</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="step">A1</td><td class="title">Enable RLS on planogram and pod_inventory_audit_log</td><td><span class="pill low">low</span></td><td>20 min</td><td><span class="pill ready">ready</span></td></tr>
+      <tr><td class="step">A2</td><td class="title">Deprecate rename_machine_in_place_legacy</td><td><span class="pill low">low</span></td><td>15 min</td><td><span class="pill ready">ready</span></td></tr>
+      <tr><td class="step">A3</td><td class="title">Create write_audit_log + audit_log_write helper</td><td><span class="pill low">low</span></td><td>30 min</td><td><span class="pill ready">ready</span></td></tr>
+      <tr><td class="step">A4</td><td class="title">Install write-audit triggers on protected tables</td><td><span class="pill low">low</span></td><td>30 min</td><td><span class="pill ready">ready</span></td></tr>
+      <tr><td class="step">A5</td><td class="title">Patch existing canonical RPCs to set app.via_rpc</td><td><span class="pill med">medium</span></td><td>45 min</td><td><span class="pill ready">ready</span></td></tr>
+      <tr><td class="step">A6</td><td class="title">Install governance.yml CI lint (warn mode)</td><td><span class="pill low">low</span></td><td>45 min</td><td><span class="pill ready">ready</span></td></tr>
+      <tr><td class="step">A7</td><td class="title">Commit Constitution + protected-entities registry</td><td><span class="pill low">low</span></td><td>15 min</td><td><span class="pill ready">ready</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a1">
+  <header>
+    <div class="left"><div class="step-num">A1</div><h3>Enable RLS on planogram and pod_inventory_audit_log</h3></div>
+    <div class="meta"><span class="pill low">low risk</span><span class="pill">Articles 2, 7</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Plug the two RLS gaps the audit flagged as HIGH. <code>planogram</code> drives refill behavior; <code>pod_inventory_audit_log</code> is supposed to be append-only.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v"><code>planogram</code>: enable RLS with permissive policies matching current behavior — tightening UPDATE/INSERT to via-RPC happens in Phase B once the FE migrates. <code>pod_inventory_audit_log</code>: enable RLS with INSERT-permitted, UPDATE/DELETE blocked — this is safe because the table is currently fed by triggers, not direct FE writes.</div></div>
+    <div class="row"><div class="k">Files</div><div class="v">New migration: <code>supabase/migrations/&lt;ts&gt;_phaseA_a1_rls_planogram_pia.sql</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Low. Verified: no FE flow currently writes <code>pod_inventory_audit_log</code> directly (it is trigger-fed). <code>planogram</code> uses permissive policies for now.</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v">Forward migration: <code>ALTER TABLE … DISABLE ROW LEVEL SECURITY;</code> + <code>DROP POLICY</code>.</div></div>
+
+<pre class="sql"><span class="c">-- A1: Enable RLS on planogram and pod_inventory_audit_log</span>
+<span class="c">-- Constitutional articles enforced: 2 (RLS mandatory) and 7 (audit logs append-only)</span>
+
+<span class="k">BEGIN</span>;
+
+<span class="c">-- ── planogram: drives refill engine, currently no RLS ──</span>
+<span class="k">ALTER TABLE</span> public.planogram <span class="k">ENABLE ROW LEVEL SECURITY</span>;
+
+<span class="k">DROP POLICY IF EXISTS</span> planogram_select <span class="k">ON</span> public.planogram;
+<span class="k">CREATE POLICY</span> planogram_select <span class="k">ON</span> public.planogram
+  <span class="k">FOR SELECT TO</span> authenticated <span class="k">USING</span> (<span class="k">true</span>);
+
+<span class="k">DROP POLICY IF EXISTS</span> planogram_insert <span class="k">ON</span> public.planogram;
+<span class="k">CREATE POLICY</span> planogram_insert <span class="k">ON</span> public.planogram
+  <span class="k">FOR INSERT TO</span> authenticated <span class="k">WITH CHECK</span> (<span class="k">true</span>);
+<span class="c">-- Phase B will tighten to: WITH CHECK (current_setting('app.via_rpc', true) = 'true')</span>
+
+<span class="k">DROP POLICY IF EXISTS</span> planogram_update <span class="k">ON</span> public.planogram;
+<span class="k">CREATE POLICY</span> planogram_update <span class="k">ON</span> public.planogram
+  <span class="k">FOR UPDATE TO</span> authenticated <span class="k">USING</span> (<span class="k">true</span>) <span class="k">WITH CHECK</span> (<span class="k">true</span>);
+
+<span class="k">DROP POLICY IF EXISTS</span> planogram_delete <span class="k">ON</span> public.planogram;
+<span class="k">CREATE POLICY</span> planogram_delete <span class="k">ON</span> public.planogram
+  <span class="k">FOR DELETE TO</span> authenticated <span class="k">USING</span> (<span class="k">true</span>);
+
+<span class="c">-- ── pod_inventory_audit_log: append-only ──</span>
+<span class="k">ALTER TABLE</span> public.pod_inventory_audit_log <span class="k">ENABLE ROW LEVEL SECURITY</span>;
+
+<span class="k">DROP POLICY IF EXISTS</span> pial_select <span class="k">ON</span> public.pod_inventory_audit_log;
+<span class="k">CREATE POLICY</span> pial_select <span class="k">ON</span> public.pod_inventory_audit_log
+  <span class="k">FOR SELECT TO</span> authenticated <span class="k">USING</span> (<span class="k">true</span>);
+
+<span class="k">DROP POLICY IF EXISTS</span> pial_insert <span class="k">ON</span> public.pod_inventory_audit_log;
+<span class="k">CREATE POLICY</span> pial_insert <span class="k">ON</span> public.pod_inventory_audit_log
+  <span class="k">FOR INSERT TO</span> authenticated <span class="k">WITH CHECK</span> (<span class="k">true</span>);
+
+<span class="c">-- block update / delete for everyone (append-only)</span>
+<span class="k">DROP POLICY IF EXISTS</span> pial_no_update <span class="k">ON</span> public.pod_inventory_audit_log;
+<span class="k">CREATE POLICY</span> pial_no_update <span class="k">ON</span> public.pod_inventory_audit_log
+  <span class="k">FOR UPDATE USING</span> (<span class="k">false</span>);
+
+<span class="k">DROP POLICY IF EXISTS</span> pial_no_delete <span class="k">ON</span> public.pod_inventory_audit_log;
+<span class="k">CREATE POLICY</span> pial_no_delete <span class="k">ON</span> public.pod_inventory_audit_log
+  <span class="k">FOR DELETE USING</span> (<span class="k">false</span>);
+
+<span class="k">COMMIT</span>;
+</pre>
+
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a2">
+  <header>
+    <div class="left"><div class="step-num">A2</div><h3>Deprecate rename_machine_in_place_legacy</h3></div>
+    <div class="meta"><span class="pill low">low risk</span><span class="pill">Article 13</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Close the back-door rename path that bypasses <code>machine_name_aliases</code> and would re-introduce the WEIMI ETL misattribution bug if called.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v">Mark <code>SECURITY INVOKER</code>, revoke <code>EXECUTE</code> from <code>authenticated</code> + <code>anon</code>, add deprecation <code>COMMENT</code>. Function is preserved for 90 days while we monitor <code>pg_stat_user_functions</code>; drop after zero calls.</div></div>
+    <div class="row"><div class="k">Files</div><div class="v">New migration: <code>supabase/migrations/&lt;ts&gt;_phaseA_a2_deprecate_rename_legacy.sql</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Low. We confirmed in the process map that all five historical renames are complete and the canonical path is <code>repurpose_machine</code>.</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v"><code>GRANT EXECUTE … TO authenticated;</code> and re-mark <code>SECURITY DEFINER</code>.</div></div>
+
+<pre class="sql"><span class="c">-- A2: Deprecate rename_machine_in_place_legacy</span>
+<span class="c">-- Constitutional article enforced: 13 (deprecation has a process)</span>
+
+<span class="k">BEGIN</span>;
+
+<span class="c">-- mark INVOKER so DEFINER privileges no longer leak through this path</span>
+<span class="k">ALTER FUNCTION</span> public.rename_machine_in_place_legacy(text, text) <span class="k">SECURITY INVOKER</span>;
+
+<span class="c">-- revoke execute from any role that could call it from the API</span>
+<span class="k">REVOKE EXECUTE ON FUNCTION</span> public.rename_machine_in_place_legacy(text, text) <span class="k">FROM</span> authenticated, anon, <span class="k">PUBLIC</span>;
+
+<span class="c">-- mark deprecated for the registry</span>
+<span class="k">COMMENT ON FUNCTION</span> public.rename_machine_in_place_legacy(text, text) <span class="k">IS</span>
+  <span class="s">'DEPRECATED 2026-04-25. Use repurpose_machine() instead. Removal target: 2026-07-25 if pg_stat_user_functions shows zero calls. See Article 13.'</span>;
+
+<span class="k">COMMIT</span>;
+</pre>
+
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a3">
+  <header>
+    <div class="left"><div class="step-num">A3</div><h3>Create write_audit_log + audit_log_write helper</h3></div>
+    <div class="meta"><span class="pill low">low risk</span><span class="pill">Articles 7, 8</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Build the audit infrastructure that everything else in Phase A and beyond will write to. This table powers the future Data Health tab.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v">Create <code>write_audit_log</code> with append-only RLS. Create <code>audit_log_write()</code> helper RPC and the generic <code>trg_protected_write_audit()</code> trigger function that A4 will attach to tables.</div></div>
+    <div class="row"><div class="k">Files</div><div class="v">New migration: <code>supabase/migrations/&lt;ts&gt;_phaseA_a3_write_audit_infra.sql</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Low. New table, new function. Nothing references it yet.</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v"><code>DROP TABLE write_audit_log CASCADE; DROP FUNCTION audit_log_write; DROP FUNCTION trg_protected_write_audit;</code></div></div>
+
+<pre class="sql"><span class="c">-- A3: write_audit_log + helpers</span>
+<span class="c">-- Constitutional articles enforced: 7 (append-only) and 8 (every RPC audits)</span>
+
+<span class="k">BEGIN</span>;
+
+<span class="k">CREATE TABLE IF NOT EXISTS</span> public.write_audit_log (
+  id          uuid <span class="k">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  at          timestamptz <span class="k">NOT NULL DEFAULT</span> now(),
+  caller_uid  uuid,
+  caller_role text,
+  via_rpc     boolean <span class="k">NOT NULL DEFAULT false</span>,
+  rpc_name    text,
+  op          text <span class="k">NOT NULL</span>,           <span class="c">-- INSERT | UPDATE | DELETE</span>
+  table_name  text <span class="k">NOT NULL</span>,
+  pk          text,
+  before      jsonb,
+  after       jsonb
+);
+
+<span class="k">CREATE INDEX IF NOT EXISTS</span> idx_wal_at <span class="k">ON</span> public.write_audit_log (at <span class="k">DESC</span>);
+<span class="k">CREATE INDEX IF NOT EXISTS</span> idx_wal_table_pk <span class="k">ON</span> public.write_audit_log (table_name, pk);
+<span class="k">CREATE INDEX IF NOT EXISTS</span> idx_wal_via_rpc_false <span class="k">ON</span> public.write_audit_log (at <span class="k">DESC</span>) <span class="k">WHERE</span> via_rpc = <span class="k">false</span>;
+
+<span class="k">ALTER TABLE</span> public.write_audit_log <span class="k">ENABLE ROW LEVEL SECURITY</span>;
+
+<span class="c">-- read: only superadmin / manager / finance (role lives in public.user_profiles)</span>
+<span class="k">DROP POLICY IF EXISTS</span> wal_select <span class="k">ON</span> public.write_audit_log;
+<span class="k">CREATE POLICY</span> wal_select <span class="k">ON</span> public.write_audit_log
+  <span class="k">FOR SELECT TO</span> authenticated
+  <span class="k">USING</span> (<span class="k">EXISTS</span> (
+    <span class="k">SELECT</span> <span class="s">1</span> <span class="k">FROM</span> public.user_profiles
+     <span class="k">WHERE</span> id = (<span class="k">SELECT</span> auth.uid())
+       <span class="k">AND</span> role = <span class="k">ANY</span> (<span class="k">ARRAY</span>[<span class="s">'superadmin'</span>, <span class="s">'manager'</span>, <span class="s">'finance'</span>])
+  ));
+
+<span class="c">-- insert: any authenticated (we want all writes recorded)</span>
+<span class="k">DROP POLICY IF EXISTS</span> wal_insert <span class="k">ON</span> public.write_audit_log;
+<span class="k">CREATE POLICY</span> wal_insert <span class="k">ON</span> public.write_audit_log
+  <span class="k">FOR INSERT TO</span> authenticated <span class="k">WITH CHECK</span> (<span class="k">true</span>);
+
+<span class="c">-- append-only: no update / delete for anyone</span>
+<span class="k">DROP POLICY IF EXISTS</span> wal_no_update <span class="k">ON</span> public.write_audit_log;
+<span class="k">CREATE POLICY</span> wal_no_update <span class="k">ON</span> public.write_audit_log <span class="k">FOR UPDATE USING</span> (<span class="k">false</span>);
+<span class="k">DROP POLICY IF EXISTS</span> wal_no_delete <span class="k">ON</span> public.write_audit_log;
+<span class="k">CREATE POLICY</span> wal_no_delete <span class="k">ON</span> public.write_audit_log <span class="k">FOR DELETE USING</span> (<span class="k">false</span>);
+
+<span class="c">-- helper called from canonical RPCs</span>
+<span class="k">CREATE OR REPLACE FUNCTION</span> public.audit_log_write(
+  p_op text, p_table text, p_pk text, p_before jsonb, p_after jsonb
+) <span class="k">RETURNS</span> void
+<span class="k">LANGUAGE</span> plpgsql
+<span class="k">SECURITY DEFINER</span>
+<span class="k">SET</span> search_path = public
+<span class="k">AS</span> $$
+<span class="k">BEGIN</span>
+  <span class="k">INSERT INTO</span> public.write_audit_log (caller_uid, caller_role, via_rpc, rpc_name, op, table_name, pk, before, after)
+  <span class="k">VALUES</span> (
+    auth.uid(),
+    (<span class="k">SELECT</span> role <span class="k">FROM</span> public.user_profiles <span class="k">WHERE</span> id = auth.uid()),
+    coalesce(current_setting(<span class="s">'app.via_rpc'</span>, <span class="k">true</span>) = <span class="s">'true'</span>, <span class="k">false</span>),
+    nullif(current_setting(<span class="s">'app.rpc_name'</span>, <span class="k">true</span>), <span class="s">''</span>),
+    p_op, p_table, p_pk, p_before, p_after
+  );
+<span class="k">END</span>;
+$$;
+
+<span class="c">-- generic trigger function for protected tables (used in A4)</span>
+<span class="k">CREATE OR REPLACE FUNCTION</span> public.trg_protected_write_audit() <span class="k">RETURNS</span> trigger
+<span class="k">LANGUAGE</span> plpgsql
+<span class="k">SECURITY DEFINER</span>
+<span class="k">SET</span> search_path = public
+<span class="k">AS</span> $$
+<span class="k">DECLARE</span>
+  v_pk text;
+  v_pk_col text := <span class="k">COALESCE</span>(TG_ARGV[<span class="s">0</span>], <span class="s">'id'</span>);
+<span class="k">BEGIN</span>
+  <span class="k">IF</span> TG_OP = <span class="s">'DELETE'</span> <span class="k">THEN</span>
+    <span class="k">EXECUTE</span> format(<span class="s">'SELECT ($1).%I::text'</span>, v_pk_col) <span class="k">INTO</span> v_pk <span class="k">USING</span> OLD;
+  <span class="k">ELSE</span>
+    <span class="k">EXECUTE</span> format(<span class="s">'SELECT ($1).%I::text'</span>, v_pk_col) <span class="k">INTO</span> v_pk <span class="k">USING</span> NEW;
+  <span class="k">END IF</span>;
+
+  <span class="k">PERFORM</span> public.audit_log_write(
+    TG_OP,
+    TG_TABLE_NAME,
+    v_pk,
+    <span class="k">CASE WHEN</span> TG_OP <span class="k">IN</span> (<span class="s">'UPDATE'</span>, <span class="s">'DELETE'</span>) <span class="k">THEN</span> to_jsonb(OLD) <span class="k">END</span>,
+    <span class="k">CASE WHEN</span> TG_OP <span class="k">IN</span> (<span class="s">'UPDATE'</span>, <span class="s">'INSERT'</span>) <span class="k">THEN</span> to_jsonb(NEW) <span class="k">END</span>
+  );
+
+<span class="c">  -- NOTE: caller_role is resolved via user_profiles join inside audit_log_write.</span>
+<span class="c">  -- service_role / cron contexts will record caller_role = NULL (no auth.uid()).</span>
+
+  <span class="k">RETURN COALESCE</span>(NEW, OLD);
+<span class="k">END</span>;
+$$;
+
+<span class="k">REVOKE EXECUTE ON FUNCTION</span> public.audit_log_write <span class="k">FROM PUBLIC</span>;
+<span class="k">REVOKE EXECUTE ON FUNCTION</span> public.trg_protected_write_audit() <span class="k">FROM PUBLIC</span>;
+
+<span class="k">COMMIT</span>;
+</pre>
+
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a4">
+  <header>
+    <div class="left"><div class="step-num">A4</div><h3>Install write-audit triggers on protected tables</h3></div>
+    <div class="meta"><span class="pill low">low risk</span><span class="pill">Article 8</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Make every write to a protected table land in <code>write_audit_log</code> with a <code>via_rpc</code> flag. This is the visibility layer — it does not block direct writes, it makes them visible.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v">Attach <code>trg_protected_write_audit</code> AFTER trigger to <code>machines</code>, <code>shelf_configurations</code>, <code>planogram</code>, <code>sim_cards</code>. Each trigger passes the PK column name as an argument. The first 24 hours of logs tell us exactly which UI paths still bypass the RPC layer.</div></div>
+    <div class="row"><div class="k">Files</div><div class="v">New migration: <code>supabase/migrations/&lt;ts&gt;_phaseA_a4_install_write_audit_triggers.sql</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Low. AFTER triggers — main statement still commits if trigger errors. Adds ~1 row per write on these tables (low volume, &lt;1k writes/day combined).</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v"><code>DROP TRIGGER … ON …</code> for each trigger.</div></div>
+
+<pre class="sql"><span class="c">-- A4: Install write-audit triggers on protected tables</span>
+<span class="c">-- Constitutional article enforced: 8 (every write recorded)</span>
+
+<span class="k">BEGIN</span>;
+
+<span class="k">DROP TRIGGER IF EXISTS</span> machines_write_audit <span class="k">ON</span> public.machines;
+<span class="k">CREATE TRIGGER</span> machines_write_audit
+  <span class="k">AFTER INSERT OR UPDATE OR DELETE ON</span> public.machines
+  <span class="k">FOR EACH ROW EXECUTE FUNCTION</span> public.trg_protected_write_audit(<span class="s">'machine_id'</span>);
+
+<span class="k">DROP TRIGGER IF EXISTS</span> shelf_configurations_write_audit <span class="k">ON</span> public.shelf_configurations;
+<span class="k">CREATE TRIGGER</span> shelf_configurations_write_audit
+  <span class="k">AFTER INSERT OR UPDATE OR DELETE ON</span> public.shelf_configurations
+  <span class="k">FOR EACH ROW EXECUTE FUNCTION</span> public.trg_protected_write_audit(<span class="s">'shelf_id'</span>);
+
+<span class="k">DROP TRIGGER IF EXISTS</span> planogram_write_audit <span class="k">ON</span> public.planogram;
+<span class="k">CREATE TRIGGER</span> planogram_write_audit
+  <span class="k">AFTER INSERT OR UPDATE OR DELETE ON</span> public.planogram
+  <span class="k">FOR EACH ROW EXECUTE FUNCTION</span> public.trg_protected_write_audit(<span class="s">'planogram_id'</span>);
+
+<span class="k">DROP TRIGGER IF EXISTS</span> sim_cards_write_audit <span class="k">ON</span> public.sim_cards;
+<span class="k">CREATE TRIGGER</span> sim_cards_write_audit
+  <span class="k">AFTER INSERT OR UPDATE OR DELETE ON</span> public.sim_cards
+  <span class="k">FOR EACH ROW EXECUTE FUNCTION</span> public.trg_protected_write_audit(<span class="s">'sim_id'</span>);
+
+<span class="k">COMMIT</span>;
+
+<span class="c">-- After 24 hours, the following query shows direct-write surface area:</span>
+<span class="c">-- SELECT table_name, count(*) FROM write_audit_log</span>
+<span class="c">--  WHERE at &gt; now() - interval '24 hours' AND via_rpc = false</span>
+<span class="c">--  GROUP BY 1 ORDER BY 2 DESC;</span>
+</pre>
+
+    <div class="row" style="margin-top:14px"><div class="k">Note on PK</div><div class="v">PK column names verified live against Supabase: <code>machines.machine_id</code>, <code>shelf_configurations.shelf_id</code>, <code>planogram.planogram_id</code>, <code>sim_cards.sim_id</code> — all UUID. Trigger arguments above match.</div></div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a5">
+  <header>
+    <div class="left"><div class="step-num">A5</div><h3>Patch existing canonical RPCs to set app.via_rpc</h3></div>
+    <div class="meta"><span class="pill med">medium risk</span><span class="pill">Article 4</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Make every existing canonical RPC tag itself in the audit log so we can distinguish RPC writes from direct writes.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v">Add two lines at the top of each canonical RPC body: <code>PERFORM set_config('app.via_rpc', 'true', true)</code> and <code>PERFORM set_config('app.rpc_name', '&lt;name&gt;', true)</code>. The <code>true</code> third arg scopes the setting to the current transaction.</div></div>
+    <div class="row"><div class="k">Functions</div><div class="v"><strong>25 canonical writers</strong> (verified live inventory): <code>add_new_machine</code>, <code>repurpose_machine</code>, <code>toggle_machine_refill</code>, <code>upsert_refill_stock_snapshot</code>, <code>upsert_daily_sales</code>, <code>upsert_pod_snapshot</code>, <code>upsert_aisle_snapshot</code>, <code>upsert_sales_lines</code>, <code>add_sanity_increment</code>, <code>auto_sanity_check</code>, <code>auto_decrement_pod_inventory</code>, <code>backfill_dispatch_boonz_product_ids</code>, <code>load_pod_staging_chunk</code>, <code>pack_dispatch_line</code>, <code>process_adyen_staging</code>, <code>process_weimi_staging</code>, <code>push_plan_to_dispatch</code>, <code>receive_dispatch_line</code>, <code>receive_all_dispatches_for_machine</code>, <code>refresh_product_scores</code>, <code>refresh_sales_aggregated</code>, <code>retry_staging_errors</code>, <code>return_dispatch_line</code>, <code>return_all_dispatches_for_machine</code>, <code>write_dispatch_plan</code>, <code>write_refill_plan</code>. <strong>Excluded</strong>: 7 read-only <code>get_*</code> helpers, 3 audit/system helpers, 3 trigger functions, 1 deprecated (<code>rename_machine_in_place_legacy</code> handled by A2).</div></div>
+    <div class="row"><div class="k">Files</div><div class="v">New migration: <code>supabase/migrations/&lt;ts&gt;_phaseA_a5_rpc_via_rpc_tagging.sql</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Medium. Touches existing RPCs that the FE already calls in production. Risk is regression in the body — mitigated by replacing the function with <code>CREATE OR REPLACE</code> using the same body plus the two-line prefix. No behavioral change.</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v"><code>CREATE OR REPLACE</code> with the previous body (kept in version control).</div></div>
+
+<pre class="sql"><span class="c">-- A5: Tag canonical RPCs with app.via_rpc and app.rpc_name</span>
+<span class="c">-- Pattern (apply to each canonical RPC):</span>
+
+<span class="c">-- Pattern: prepend two lines to each canonical RPC body. NO behavior change.</span>
+<span class="c">-- Live signature verified: toggle_machine_refill(p_machine_name text, p_include boolean) returns jsonb</span>
+
+<span class="k">CREATE OR REPLACE FUNCTION</span> public.toggle_machine_refill(
+  p_machine_name text,
+  p_include      boolean
+) <span class="k">RETURNS</span> jsonb
+<span class="k">LANGUAGE</span> plpgsql
+<span class="k">SECURITY DEFINER</span>
+<span class="k">SET</span> search_path = public
+<span class="k">AS</span> $$
+<span class="k">DECLARE</span>
+  v_result jsonb;
+<span class="k">BEGIN</span>
+  <span class="c">-- ── Phase A tagging (the only Phase A change) ──</span>
+  <span class="k">PERFORM</span> set_config(<span class="s">'app.via_rpc'</span>, <span class="s">'true'</span>, <span class="k">true</span>);
+  <span class="k">PERFORM</span> set_config(<span class="s">'app.rpc_name'</span>, <span class="s">'toggle_machine_refill'</span>, <span class="k">true</span>);
+
+  <span class="c">-- ── existing body (unchanged) ──</span>
+  <span class="k">UPDATE</span> public.machines
+     <span class="k">SET</span> include_in_refill = p_include
+   <span class="k">WHERE</span> official_name = p_machine_name
+   <span class="k">RETURNING</span> jsonb_build_object(
+     <span class="s">'machine_id'</span>, machine_id,
+     <span class="s">'machine_name'</span>, official_name,
+     <span class="s">'include_in_refill'</span>, include_in_refill
+   ) <span class="k">INTO</span> v_result;
+
+  <span class="k">RETURN</span> v_result;
+  <span class="c">-- (the trigger from A4 records the UPDATE in write_audit_log;</span>
+  <span class="c">--  via_rpc=true distinguishes this from a direct .update() in the FE)</span>
+<span class="k">END</span>;
+$$;
+
+<span class="c">-- Phase A patches all canonical writers (verified inventory: 25 functions).</span>
+<span class="c">-- Role validation per Article 4 is Phase B work — current RPCs have no role guards;</span>
+<span class="c">-- the Next.js middleware enforces role at the route level today.</span>
+</pre>
+
+    <div class="row" style="margin-top:14px"><div class="k">Verification</div><div class="v">After deploying, run a UI action that calls the RPC, then query <code>write_audit_log</code> for that PK — the row should have <code>via_rpc = true</code> and <code>rpc_name</code> populated. A direct <code>.update()</code> from the FE would log <code>via_rpc = false</code>, which is exactly the signal Phase B needs.</div></div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a6">
+  <header>
+    <div class="left"><div class="step-num">A6</div><h3>Install governance.yml CI lint (warn mode)</h3></div>
+    <div class="meta"><span class="pill low">low risk</span><span class="pill">Article 15</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Stand up the governance CI pipeline. Start in warn mode (annotates PRs but does not block) so the team can see the signal before failing builds.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v">Single GitHub Actions workflow with three jobs: <code>protected-write-lint</code>, <code>rls-coverage</code>, <code>rpc-audit-coverage</code>. Each prints findings; only fails the build if <code>FAIL_ON_VIOLATION=true</code> env is set (flipped to true after Phase B for each entity).</div></div>
+    <div class="row"><div class="k">Files</div><div class="v"><code>.github/workflows/governance.yml</code> · <code>scripts/governance/protected_write_lint.sh</code> · <code>scripts/governance/rls_coverage.sql</code> · <code>scripts/governance/rpc_audit_coverage.sql</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Zero. Warn mode does not block merges.</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v">Delete the workflow file.</div></div>
+
+<pre class="sql"><span class="c"># .github/workflows/governance.yml</span>
+name: Governance
+on: pull_request
+
+jobs:
+  protected-write-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect direct writes to protected tables
+        run: bash scripts/governance/protected_write_lint.sh
+        env:
+          PROTECTED_TABLES: <span class="s">"machines shelf_configurations planogram sim_cards sales settlements pod_inventory_audit_log warehouse_inventory"</span>
+          FAIL_ON_VIOLATION: <span class="s">"false"</span>  # warn mode in Phase A; flip to true per-entity in Phase B
+
+  rls-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations to ephemeral PG
+        run: scripts/governance/apply_to_ephemeral_pg.sh
+      - name: Check RLS on protected tables
+        run: psql <span class="s">"$EPHEMERAL_DB"</span> -f scripts/governance/rls_coverage.sql
+
+  rpc-audit-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply migrations to ephemeral PG
+        run: scripts/governance/apply_to_ephemeral_pg.sh
+      - name: Check every DEFINER calls audit_log_write
+        run: psql <span class="s">"$EPHEMERAL_DB"</span> -f scripts/governance/rpc_audit_coverage.sql
+</pre>
+
+<pre class="sql"><span class="c">#!/usr/bin/env bash</span>
+<span class="c"># scripts/governance/protected_write_lint.sh</span>
+set -e
+
+VIOLATIONS=0
+for table in $PROTECTED_TABLES; do
+  matches=$(grep -rEn "supabase\.from\(\"$table\"\)\.(update|insert|delete)" src/ \
+    --exclude-dir=node_modules --include=<span class="s">'*.ts'</span> --include=<span class="s">'*.tsx'</span> || true)
+  if [ -n <span class="s">"$matches"</span> ]; then
+    echo <span class="s">"::warning::Direct write to protected table '$table' detected:"</span>
+    echo <span class="s">"$matches"</span>
+    VIOLATIONS=$((VIOLATIONS + 1))
+  fi
+done
+
+if [ <span class="s">"$VIOLATIONS"</span> -gt <span class="s">"0"</span> ] && [ <span class="s">"$FAIL_ON_VIOLATION"</span> = <span class="s">"true"</span> ]; then
+  echo <span class="s">"$VIOLATIONS protected-table violation(s) found. Use the canonical RPC."</span>
+  exit 1
+fi
+</pre>
+
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="step" id="a7">
+  <header>
+    <div class="left"><div class="step-num">A7</div><h3>Commit Constitution + protected-entities registry</h3></div>
+    <div class="meta"><span class="pill low">low risk</span><span class="pill">Articles 13, 15</span></div>
+  </header>
+  <div class="body">
+    <div class="row"><div class="k">Goal</div><div class="v">Make the Constitution a citable artifact in the repo and create the registry files the CI scripts and articles reference.</div></div>
+    <div class="row"><div class="k">Strategy</div><div class="v">Drop the Constitution into <code>docs/architecture/CONSTITUTION.md</code> (port from the HTML). Add <code>docs/architecture/protected_entities.md</code> (machine-readable list parsed by CI). Add <code>docs/architecture/deprecated.md</code> with the legacy RPC entry.</div></div>
+    <div class="row"><div class="k">Files</div><div class="v"><code>docs/architecture/CONSTITUTION.md</code> · <code>docs/architecture/protected_entities.md</code> · <code>docs/architecture/deprecated.md</code> · PR template update at <code>.github/pull_request_template.md</code></div></div>
+    <div class="row"><div class="k">Risk</div><div class="v">Zero. Documentation only.</div></div>
+    <div class="row"><div class="k">Rollback</div><div class="v">Delete the files.</div></div>
+  </div>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<div class="cutover">
+  <h2>Cutover Plan</h2>
+  <ol>
+    <li><strong>Branch.</strong> Create a Supabase preview branch from <code>main</code> (Supabase MCP <code>create_branch</code>). All A1–A5 migrations apply there first.</li>
+    <li><strong>Apply A1 → A4 in order.</strong> Each is a separate migration file. Verify <code>SELECT count(*) FROM write_audit_log</code> climbs as soon as A4 lands.</li>
+    <li><strong>Smoke test.</strong> Trigger one machine update from <code>/admin/machines</code>; one repurpose from <code>/field/config/machines</code>; one stock refresh. Check <code>write_audit_log</code> on the branch — every row should appear, with <code>via_rpc</code> matching expectation.</li>
+    <li><strong>Apply A5</strong> (RPC tagging). Re-run the same smoke tests; <code>via_rpc = true</code> should now appear for the canonical RPC paths and remain <code>false</code> for the direct-update paths. This is the signal that fuels Phase B planning.</li>
+    <li><strong>Merge branch to prod</strong> via Supabase MCP <code>merge_branch</code>. Migrations apply transactionally.</li>
+    <li><strong>Deploy A6 + A7</strong> (CI + repo docs) as a single PR. Warn mode means it cannot break a merge.</li>
+    <li><strong>Observe for 48 hours.</strong> Daily check: <code>SELECT table_name, count(*) FROM write_audit_log WHERE at &gt; now() - interval '24h' AND via_rpc = false GROUP BY 1;</code> — this number is the Phase B prioritization signal.</li>
+  </ol>
+</div>
+
+<div class="next">
+  <h2>What Phase B looks like</h2>
+  <p>Once Phase A is stable for 48 hours, Phase B picks one entity at a time and migrates the FE to the canonical RPC. <strong>Order:</strong> <code>include_in_refill</code> toggle (smallest, two call sites) → machine status field → shelf configurations → planogram editor → sim_cards. Each entity gets one PR. Each PR flips <code>FAIL_ON_VIOLATION=true</code> for its entity in the CI lint, sealing the perimeter behind it. By the end of Phase B, the FE has one path per entity, the audit log has full RPC tagging, and the <code>FAIL_ON_VIOLATION</code> flag is true for every protected entity.</p>
+  <p>Phase C is the FE consolidation — merging <code>/app/admin/*</code> and <code>/field/config/*</code> into shared modules now that the write contract is sealed.</p>
+</div>
+
+</div>
+</body>
+</html>

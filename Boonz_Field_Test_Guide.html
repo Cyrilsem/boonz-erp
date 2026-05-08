@@ -1,0 +1,2351 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boonz ERP – Field App Test Guide</title>
+    <style>
+      :root {
+        --brand: #0369a1;
+        --brand-l: #0ea5e9;
+        --brand-bg: #dbeafe;
+        --dark: #0f172a;
+        --mid: #475569;
+        --light: #94a3b8;
+        --border: #cbd5e1;
+        --bg: #f8fafc;
+        --white: #ffffff;
+        --green: #16a34a;
+        --green-l: #dcfce7;
+        --red: #dc2626;
+        --red-l: #fee2e2;
+        --amber: #d97706;
+        --amber-l: #fef3c7;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 10pt;
+        color: var(--dark);
+        background: white;
+        line-height: 1.5;
+      }
+
+      /* ── Print styles ── */
+      @media print {
+        body {
+          font-size: 9pt;
+        }
+        .no-print {
+          display: none !important;
+        }
+        .page-break {
+          page-break-after: always;
+        }
+        h1.section-header {
+          page-break-before: always;
+        }
+        .module-a h1.section-header {
+          page-break-before: avoid;
+        }
+        a {
+          color: inherit;
+          text-decoration: none;
+        }
+      }
+
+      /* ── Page wrapper ── */
+      .page {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      /* ── Print button ── */
+      .print-btn {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 100;
+        background: var(--brand);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+      .print-btn:hover {
+        background: var(--brand-l);
+      }
+
+      /* ── Cover ── */
+      .cover-bar {
+        background: var(--brand);
+        color: white;
+        padding: 20px 24px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+      }
+      .cover-bar .logo {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+      }
+      .cover-bar .tagline {
+        font-size: 11px;
+        opacity: 0.75;
+        margin-top: 2px;
+      }
+      .cover-title {
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--dark);
+        line-height: 1.2;
+        margin-bottom: 6px;
+      }
+      .cover-sub {
+        font-size: 13px;
+        color: var(--mid);
+        margin-bottom: 20px;
+      }
+      .meta-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+      }
+      .meta-table td {
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        font-size: 9pt;
+      }
+      .meta-table td:first-child {
+        background: var(--bg);
+        font-weight: 600;
+        width: 130px;
+        color: var(--mid);
+      }
+      .info-box {
+        background: var(--brand-bg);
+        border-left: 4px solid var(--brand);
+        padding: 12px 16px;
+        border-radius: 4px;
+        font-size: 9pt;
+        margin-bottom: 16px;
+      }
+      .warn-box {
+        background: var(--amber-l);
+        border-left: 4px solid var(--amber);
+        padding: 10px 14px;
+        border-radius: 4px;
+        font-size: 9pt;
+        margin: 8px 0;
+      }
+      .pass-box {
+        background: var(--green-l);
+        border-left: 4px solid var(--green);
+        padding: 10px 14px;
+        border-radius: 4px;
+        font-size: 9pt;
+        margin: 8px 0;
+      }
+      .pass-box::before {
+        content: "✓ EXPECTED RESULT: ";
+        font-weight: 700;
+        color: var(--green);
+      }
+
+      /* ── Module index table ── */
+      .index-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 0;
+      }
+      .index-table th {
+        background: var(--brand);
+        color: white;
+        padding: 8px 10px;
+        text-align: left;
+        font-size: 9pt;
+      }
+      .index-table td {
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        font-size: 9pt;
+      }
+      .index-table tr:nth-child(even) td {
+        background: var(--bg);
+      }
+      .index-table td:first-child {
+        font-weight: 700;
+        text-align: center;
+        width: 32px;
+      }
+      .index-table .url {
+        font-family: monospace;
+        font-size: 8pt;
+        color: var(--brand);
+      }
+
+      /* ── Section headers ── */
+      h1.section-header {
+        background: var(--brand);
+        color: white;
+        padding: 12px 18px;
+        border-radius: 6px;
+        font-size: 14px;
+        margin: 28px 0 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      h1.section-header .url-tag {
+        font-family: monospace;
+        font-size: 9px;
+        opacity: 0.8;
+        font-weight: 400;
+      }
+      h2 {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--dark);
+        margin: 18px 0 8px;
+      }
+      h3 {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--mid);
+        margin: 12px 0 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      p {
+        margin-bottom: 8px;
+        font-size: 9.5pt;
+        color: var(--dark);
+      }
+
+      /* ── Step header ── */
+      .step-header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin: 16px 0 6px;
+      }
+      .step-num {
+        background: var(--brand);
+        color: white;
+        font-size: 8px;
+        font-weight: 800;
+        padding: 2px 7px;
+        border-radius: 10px;
+        white-space: nowrap;
+        letter-spacing: 0.3px;
+      }
+      .step-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--dark);
+      }
+      .step-url {
+        font-family: monospace;
+        font-size: 8pt;
+        color: var(--brand);
+        margin-top: 2px;
+        margin-bottom: 8px;
+      }
+
+      /* ── Callout boxes ── */
+      .callout {
+        display: flex;
+        gap: 0;
+        margin: 4px 0;
+        border-radius: 4px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+      .callout .num {
+        min-width: 28px;
+        background: var(--brand);
+        color: white;
+        font-weight: 800;
+        font-size: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .callout .text {
+        padding: 7px 12px;
+        font-size: 9pt;
+        background: var(--bg);
+        flex: 1;
+      }
+      .callout.green .num {
+        background: var(--green);
+      }
+      .callout.green .text {
+        background: var(--green-l);
+      }
+      .callout.red .num {
+        background: var(--red);
+      }
+      .callout.red .text {
+        background: var(--red-l);
+      }
+      .callout.amber .num {
+        background: var(--amber);
+      }
+      .callout.amber .text {
+        background: var(--amber-l);
+      }
+      .callout.tc .num {
+        background: var(--mid);
+        min-width: 52px;
+        font-size: 8px;
+      }
+      .callout.tc .text {
+        background: white;
+      }
+
+      /* ── Wireframe containers ── */
+      .wireframe {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg);
+        overflow: hidden;
+        margin: 12px 0;
+        font-family: -apple-system, sans-serif;
+      }
+      .wf-header {
+        background: #e2e8f0;
+        padding: 6px 10px;
+        font-size: 8px;
+        color: var(--mid);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--border);
+      }
+      .wf-url {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 2px 8px;
+        font-family: monospace;
+        font-size: 8px;
+        color: var(--brand);
+        flex: 1;
+      }
+      .wf-body {
+        padding: 12px;
+      }
+
+      /* ── Nav bar ── */
+      .wf-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: white;
+        border-bottom: 1px solid var(--border);
+        font-size: 9px;
+      }
+      .wf-nav .back {
+        color: var(--brand);
+      }
+      .wf-nav .title {
+        font-weight: 700;
+        font-size: 10px;
+      }
+      .wf-nav .action {
+        color: var(--brand);
+      }
+
+      /* ── Stat cards ── */
+      .stat-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+      .stat-card {
+        border-radius: 6px;
+        padding: 10px 12px;
+        border: 1px solid;
+      }
+      .stat-card .num {
+        font-size: 20px;
+        font-weight: 800;
+      }
+      .stat-card .label {
+        font-size: 8px;
+      }
+      .stat-green {
+        background: var(--green-l);
+        border-color: var(--green) !important;
+      }
+      .stat-green .num,
+      .stat-green .label {
+        color: var(--green);
+      }
+      .stat-red {
+        background: var(--red-l);
+        border-color: var(--red) !important;
+      }
+      .stat-red .num,
+      .stat-red .label {
+        color: var(--red);
+      }
+      .stat-amber {
+        background: var(--amber-l);
+        border-color: var(--amber) !important;
+      }
+      .stat-amber .num,
+      .stat-amber .label {
+        color: var(--amber);
+      }
+
+      /* ── Machine card ── */
+      .machine-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin: 4px 0;
+      }
+      .machine-card .mname {
+        font-weight: 700;
+        font-size: 10px;
+      }
+      .machine-card .msub {
+        font-size: 8px;
+        color: var(--mid);
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 8px;
+        font-weight: 700;
+      }
+      .badge-gray {
+        background: #e2e8f0;
+        color: var(--mid);
+      }
+      .badge-amber {
+        background: var(--amber-l);
+        color: var(--amber);
+      }
+      .badge-red {
+        background: var(--red-l);
+        color: var(--red);
+      }
+      .badge-green {
+        background: var(--green-l);
+        color: var(--green);
+      }
+
+      /* ── Packing detail ── */
+      .pack-item {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px 14px;
+        margin: 6px 0;
+      }
+      .pack-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .shelf-label {
+        background: var(--dark);
+        color: white;
+        font-size: 8px;
+        font-weight: 800;
+        padding: 2px 6px;
+        border-radius: 3px;
+      }
+      .item-name {
+        font-weight: 700;
+        font-size: 10px;
+      }
+      .fifo-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 6px 0;
+        font-size: 8.5px;
+      }
+      .fifo-table th {
+        background: var(--bg);
+        padding: 4px 8px;
+        text-align: left;
+        font-weight: 600;
+        color: var(--mid);
+        border-bottom: 1px solid var(--border);
+      }
+      .fifo-table td {
+        padding: 5px 8px;
+        border-bottom: 1px solid var(--bg);
+      }
+      .fifo-table .exp-early {
+        color: var(--red);
+        font-weight: 700;
+      }
+      .fifo-table .exp-later {
+        color: var(--amber);
+        font-weight: 700;
+      }
+      .fifo-table input {
+        width: 40px;
+        border: 1px solid var(--border);
+        border-radius: 3px;
+        padding: 2px 4px;
+        font-size: 8px;
+        text-align: center;
+      }
+      .fifo-table .age-red {
+        color: var(--amber);
+      }
+      .btn-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .btn {
+        padding: 6px 0;
+        border-radius: 4px;
+        font-size: 9px;
+        font-weight: 700;
+        text-align: center;
+        flex: 1;
+        cursor: pointer;
+        border: none;
+      }
+      .btn-dark {
+        background: var(--dark);
+        color: white;
+      }
+      .btn-green {
+        background: var(--green);
+        color: white;
+      }
+      .btn-gray {
+        background: #6b7280;
+        color: white;
+      }
+      .btn-full {
+        background: var(--dark);
+        color: white;
+        border-radius: 4px;
+        padding: 8px;
+        text-align: center;
+        font-size: 9px;
+        font-weight: 700;
+        margin-top: 8px;
+      }
+      .btn-blue {
+        background: var(--brand);
+        color: white;
+      }
+
+      /* ── Annotation badges ── */
+      .ann {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--red);
+        color: white;
+        font-size: 9px;
+        font-weight: 800;
+        margin-left: 4px;
+        vertical-align: middle;
+        flex-shrink: 0;
+      }
+      .ann.green {
+        background: var(--green);
+      }
+      .ann.blue {
+        background: var(--brand);
+      }
+      .ann.amber {
+        background: var(--amber);
+      }
+
+      /* ── Tabs ── */
+      .wf-tabs {
+        display: flex;
+        border-bottom: 1px solid var(--border);
+      }
+      .wf-tab {
+        flex: 1;
+        text-align: center;
+        padding: 8px;
+        font-size: 9px;
+        border-bottom: 2px solid transparent;
+        color: var(--light);
+      }
+      .wf-tab.active {
+        color: var(--dark);
+        font-weight: 700;
+        border-bottom-color: var(--dark);
+      }
+
+      /* ── PO card ── */
+      .po-card {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 6px 0;
+      }
+      .po-card .po-name {
+        font-weight: 700;
+        font-size: 10px;
+      }
+      .po-card .po-sub {
+        font-size: 8px;
+        color: var(--mid);
+      }
+      .po-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .fab {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--dark);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        position: relative;
+        margin-left: auto;
+      }
+
+      /* ── Receiving form ── */
+      .recv-item {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 14px;
+        margin: 6px 0;
+      }
+      .recv-label {
+        font-size: 8px;
+        color: var(--mid);
+        margin-bottom: 3px;
+      }
+      .recv-input {
+        display: flex;
+        gap: 8px;
+      }
+      .recv-input .field {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font-size: 8.5px;
+        background: white;
+      }
+      .recv-location {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 6px 8px;
+        font-size: 8.5px;
+        background: white;
+        margin-top: 8px;
+        width: 100%;
+      }
+      .recv-count {
+        font-size: 8px;
+        color: var(--green);
+        font-weight: 600;
+        margin-top: 4px;
+      }
+
+      /* ── Inventory row ── */
+      .inv-row {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 4px 0;
+      }
+      .inv-name {
+        font-weight: 700;
+        font-size: 9.5px;
+      }
+      .inv-cat {
+        font-size: 8px;
+        color: var(--mid);
+      }
+      .inv-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .exp-badge {
+        font-size: 8px;
+        padding: 2px 6px;
+        border-radius: 10px;
+        font-weight: 700;
+      }
+      .exp-red {
+        background: var(--red-l);
+        color: var(--red);
+      }
+      .exp-amber {
+        background: var(--amber-l);
+        color: var(--amber);
+      }
+      .inv-qty {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--dark);
+      }
+
+      /* ── Filter pills ── */
+      .filter-row {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        margin: 6px 0;
+      }
+      .pill {
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 8px;
+        font-weight: 600;
+        border: 1px solid var(--border);
+        cursor: pointer;
+      }
+      .pill.active {
+        background: var(--dark);
+        color: white;
+        border-color: var(--dark);
+      }
+      .pill.active-amber {
+        background: var(--dark);
+        color: white;
+      }
+      .search-bar {
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 6px 14px;
+        font-size: 9px;
+        color: var(--light);
+        margin-bottom: 8px;
+        width: 100%;
+        background: white;
+      }
+
+      /* ── Reference table ── */
+      .ref-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+      }
+      .ref-table th {
+        background: var(--brand);
+        color: white;
+        padding: 7px 10px;
+        text-align: left;
+        font-size: 9pt;
+      }
+      .ref-table td {
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+        font-size: 8.5pt;
+        vertical-align: top;
+      }
+      .ref-table tr:nth-child(even) td {
+        background: var(--bg);
+      }
+
+      hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 20px 0;
+      }
+      .small {
+        font-size: 8pt;
+        color: var(--mid);
+      }
+      .mono {
+        font-family: monospace;
+        font-size: 8pt;
+        color: var(--brand);
+      }
+      code {
+        font-family: monospace;
+        background: var(--bg);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 8pt;
+      }
+
+      /* page header/footer for print */
+      @page {
+        size: A4;
+        margin: 12mm 15mm 12mm 15mm;
+      }
+    </style>
+  </head>
+  <body>
+    <button class="print-btn no-print" onclick="window.print()">
+      🖨 Print / Save as PDF
+    </button>
+
+    <div class="page">
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  COVER PAGE                        ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <div class="cover-bar">
+        <div class="logo">BOONZ</div>
+        <div class="tagline">Smart Vending ERP</div>
+      </div>
+
+      <div class="cover-title">Field App Test Guide</div>
+      <div class="cover-sub">
+        Visual step-by-step instructions with annotated UI diagrams · April 2026
+      </div>
+
+      <table class="meta-table">
+        <tr>
+          <td>App URL</td>
+          <td><code>https://boonz-erp.vercel.app/field</code></td>
+        </tr>
+        <tr>
+          <td>Test Date</td>
+          <td>April 18, 2026</td>
+        </tr>
+        <tr>
+          <td>Environment</td>
+          <td>Production (Supabase: eizcexopcuoycuosittm, ap-south-1)</td>
+        </tr>
+        <tr>
+          <td>Scope</td>
+          <td>
+            Daily Refill Pipeline · Procurement &amp; Receiving · Inventory
+          </td>
+        </tr>
+        <tr>
+          <td>Test Login</td>
+          <td>cyrilsem@gmail.com (operator_admin)</td>
+        </tr>
+      </table>
+
+      <div class="info-box">
+        <strong>How to use:</strong> Each module shows the exact screen you'll
+        see with numbered callouts pointing to key elements. Follow the step
+        instructions, perform the action in the app, then record
+        <strong>PASS / FAIL / BLOCKED</strong> in the companion
+        <em>Boonz_Field_Test_Log.xlsx</em> file.
+      </div>
+
+      <h2 style="margin-top: 20px">Module Index</h2>
+      <table class="index-table">
+        <tr>
+          <th>Mod</th>
+          <th>Workflow</th>
+          <th>TC Range</th>
+          <th>URL</th>
+        </tr>
+        <tr>
+          <td>A</td>
+          <td>Dashboard Overview</td>
+          <td>A-01 – A-03</td>
+          <td class="url">/field</td>
+        </tr>
+        <tr>
+          <td>B</td>
+          <td>Packing</td>
+          <td>B-01 – B-10</td>
+          <td class="url">/field/packing</td>
+        </tr>
+        <tr>
+          <td>C</td>
+          <td>Pickup &amp; Dispatching</td>
+          <td>C-01 – C-06</td>
+          <td class="url">/field/pickup</td>
+        </tr>
+        <tr>
+          <td>D</td>
+          <td>Purchase Orders</td>
+          <td>D-01 – D-06</td>
+          <td class="url">/field/orders</td>
+        </tr>
+        <tr>
+          <td>E</td>
+          <td>Receiving Delivery</td>
+          <td>E-01 – E-08</td>
+          <td class="url">/field/receiving</td>
+        </tr>
+        <tr>
+          <td>F</td>
+          <td>Inventory Management</td>
+          <td>F-01 – F-05</td>
+          <td class="url">/field/inventory</td>
+        </tr>
+      </table>
+
+      <div class="page-break"></div>
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  MODULE A — DASHBOARD              ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <div class="module-a">
+        <h1 class="section-header">
+          MODULE A — Dashboard
+          <span class="url-tag">boonz-erp.vercel.app/field</span>
+        </h1>
+
+        <p>
+          The dashboard is your starting point. It shows live counts of today's
+          refill progress and procurement status at a glance.
+        </p>
+
+        <!-- Wireframe: Dashboard -->
+        <div class="wireframe">
+          <div class="wf-header">
+            <div style="display: flex; gap: 4px">
+              <div
+                style="
+                  width: 8px;
+                  height: 8px;
+                  border-radius: 50%;
+                  background: #f87171;
+                "
+              ></div>
+              <div
+                style="
+                  width: 8px;
+                  height: 8px;
+                  border-radius: 50%;
+                  background: #fbbf24;
+                "
+              ></div>
+              <div
+                style="
+                  width: 8px;
+                  height: 8px;
+                  border-radius: 50%;
+                  background: #34d399;
+                "
+              ></div>
+            </div>
+            <div class="wf-url">boonz-erp.vercel.app/field</div>
+          </div>
+          <div class="wf-body">
+            <div style="margin-bottom: 16px">
+              <div
+                style="font-size: 14px; font-weight: 800; color: var(--dark)"
+              >
+                Good morning, Cyril Semaan
+              </div>
+              <div style="font-size: 9px; color: var(--mid)">
+                Saturday, April 18, 2026
+              </div>
+            </div>
+
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+              "
+            >
+              <div
+                style="
+                  font-size: 9px;
+                  font-weight: 700;
+                  color: var(--mid);
+                  letter-spacing: 0.5px;
+                "
+              >
+                DAILY REFILLS
+              </div>
+              <div style="font-size: 9px; color: var(--brand)">View →</div>
+            </div>
+            <div class="stat-grid">
+              <div class="stat-card stat-green">
+                <div class="num">3 <span class="ann">1</span></div>
+                <div class="label">To refill today</div>
+              </div>
+              <div class="stat-card stat-red">
+                <div class="num">0/3 <span class="ann">2</span></div>
+                <div class="label">Machines packed</div>
+              </div>
+              <div class="stat-card stat-red">
+                <div class="num">0/3</div>
+                <div class="label">Machines picked up</div>
+              </div>
+              <div class="stat-card stat-red">
+                <div class="num">0/3</div>
+                <div class="label">Machines dispatched</div>
+              </div>
+            </div>
+
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                margin-top: 4px;
+              "
+            >
+              <div
+                style="
+                  font-size: 9px;
+                  font-weight: 700;
+                  color: var(--mid);
+                  letter-spacing: 0.5px;
+                "
+              >
+                PROCUREMENT
+              </div>
+              <div style="font-size: 9px; color: var(--brand)">View →</div>
+            </div>
+            <div class="stat-grid" style="margin-bottom: 8px">
+              <div class="stat-card stat-amber">
+                <div class="num">1</div>
+                <div class="label">Open orders · Pending delivery</div>
+              </div>
+              <div class="stat-card stat-green">
+                <div class="num">0</div>
+                <div class="label">Received today</div>
+              </div>
+            </div>
+            <div
+              style="
+                border: 2px dashed var(--brand);
+                border-radius: 6px;
+                padding: 8px;
+                text-align: center;
+                background: var(--brand-bg);
+                font-size: 9px;
+                color: var(--brand);
+                font-weight: 600;
+              "
+            >
+              + New Purchase Order <span class="ann">3</span>
+            </div>
+          </div>
+        </div>
+
+        <h3>Callout Legend</h3>
+        <div class="callout green">
+          <span class="num">1</span
+          ><span class="text"
+            ><strong>To refill today = 3</strong> — three test machines seeded.
+            Green background = all good, active machines.</span
+          >
+        </div>
+        <div class="callout red" style="margin-top: 4px">
+          <span class="num">2</span
+          ><span class="text"
+            ><strong>0/3 Machines packed</strong> — all red counters at the
+            start. They advance step-by-step as you complete each stage.</span
+          >
+        </div>
+        <div class="callout" style="margin-top: 4px">
+          <span class="num">3</span
+          ><span class="text"
+            ><strong>+ New Purchase Order</strong> — dashed blue button. Tap it
+            for TC D-01 to create a new PO.</span
+          >
+        </div>
+
+        <h2>Step-by-step</h2>
+        <div class="callout tc">
+          <span class="num">A-01</span
+          ><span class="text"
+            >Open <code>https://boonz-erp.vercel.app/field</code> — verify
+            greeting shows your name and today's date.</span
+          >
+        </div>
+        <div class="callout tc" style="margin-top: 4px">
+          <span class="num">A-02</span
+          ><span class="text"
+            >Check "To refill today" = <strong>3</strong>. Check "Machines
+            packed/picked up/dispatched" all show <strong>0/3</strong> in red.
+            This is the correct starting state.</span
+          >
+        </div>
+        <div class="callout tc" style="margin-top: 4px">
+          <span class="num">A-03</span
+          ><span class="text"
+            >Check Procurement: <strong>1 Open order</strong> (PO-TEST-001,
+            pending). <strong>0 Received today</strong>.</span
+          >
+        </div>
+        <div class="pass-box" style="margin-top: 8px">
+          Dashboard loads without errors. Counts: 3 refills, 0/3 packed, 0/3
+          picked up, 0/3 dispatched, 1 open PO.
+        </div>
+      </div>
+
+      <div class="page-break"></div>
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  MODULE B — PACKING                ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <h1 class="section-header">
+        MODULE B — Packing
+        <span class="url-tag">boonz-erp.vercel.app/field/packing</span>
+      </h1>
+
+      <p>
+        The warehouse operator opens each machine's packing detail, reviews the
+        FIFO-ordered items, adjusts pick quantities if needed, then marks each
+        shelf as Packed.
+      </p>
+
+      <div class="step-header">
+        <span class="step-num">STEP B-1</span>
+        <span class="step-title">Open the Packing List</span>
+      </div>
+      <div class="step-url">→ https://boonz-erp.vercel.app/field/packing</div>
+
+      <div class="wireframe">
+        <div class="wf-header">
+          <div style="display: flex; gap: 4px">
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #f87171;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fbbf24;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #34d399;
+              "
+            ></div>
+          </div>
+          <div class="wf-url">boonz-erp.vercel.app/field/packing</div>
+        </div>
+        <div style="padding: 0">
+          <div class="wf-nav">
+            <span class="back">← Back</span><span class="title">Packing</span
+            ><span></span>
+          </div>
+          <div style="padding: 8px 12px">
+            <div class="machine-card">
+              <div>
+                <div class="mname">
+                  HUAWEI-2003-0000-B1 <span class="ann">1</span>
+                </div>
+                <div class="msub">0/4 packed</div>
+              </div>
+              <span class="badge badge-gray">Packing</span>
+            </div>
+            <div class="machine-card">
+              <div>
+                <div class="mname">
+                  OMDCW-1021-0100-W0 <span class="ann">2</span>
+                </div>
+                <div class="msub">0/4 packed</div>
+              </div>
+              <span class="badge badge-gray">Packing</span>
+            </div>
+            <div class="machine-card">
+              <div>
+                <div class="mname">
+                  USH-1008-0000-W1 <span class="ann">3</span>
+                </div>
+                <div class="msub">0/2 packed</div>
+              </div>
+              <span class="badge badge-gray">Packing</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout red">
+        <span class="num">1</span
+        ><span class="text"
+          ><strong>HUAWEI-2003-0000-B1</strong> — 0/4 packed.
+          <strong>Tap this card</strong> to open packing detail. Contains the
+          FIFO test (Almarai Juice 2 batches).</span
+        >
+      </div>
+      <div class="callout" style="margin-top: 4px">
+        <span class="num">2</span
+        ><span class="text"
+          ><strong>OMDCW-1021-0100-W0</strong> — 0/4 packed. Contains a SWAP
+          scenario: Remove Caprice + Add New Barebells White Choc.</span
+        >
+      </div>
+      <div class="callout" style="margin-top: 4px">
+        <span class="num">3</span
+        ><span class="text"
+          ><strong>USH-1008-0000-W1</strong> — 0/2 packed. Simpler machine with
+          fewer lines.</span
+        >
+      </div>
+
+      <div class="step-header" style="margin-top: 20px">
+        <span class="step-num">STEP B-2</span>
+        <span class="step-title">Verify FIFO Ordering — HUAWEI</span>
+      </div>
+      <div class="step-url">
+        → https://boonz-erp.vercel.app/field/packing/[machine-id]
+      </div>
+
+      <div class="wireframe">
+        <div class="wf-header">
+          <div style="display: flex; gap: 4px">
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #f87171;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fbbf24;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #34d399;
+              "
+            ></div>
+          </div>
+          <div class="wf-url">
+            boonz-erp.vercel.app/field/packing/9db7a821-...
+          </div>
+        </div>
+        <div style="padding: 0">
+          <div class="wf-nav">
+            <span class="back">← Back</span
+            ><span class="title">Machine Detail</span
+            ><span class="action">Shelf View →</span>
+          </div>
+          <div style="padding: 10px 12px">
+            <div style="font-size: 13px; font-weight: 800; margin-bottom: 4px">
+              HUAWEI-2003-0000-B1
+            </div>
+            <div
+              style="
+                font-size: 9px;
+                color: var(--mid);
+                font-weight: 700;
+                margin-bottom: 10px;
+              "
+            >
+              📦 PACK THESE ITEMS
+              <span style="float: right; font-weight: 400">4 ITEMS</span>
+            </div>
+
+            <div class="pack-item">
+              <div class="pack-header">
+                <span class="shelf-label">A01</span>
+                <span class="item-name">Almarai Farm Select Juice Mix</span>
+                <span class="badge badge-amber" style="margin-left: auto"
+                  >⚠ Expires soon</span
+                >
+              </div>
+              <div style="font-size: 8px; color: var(--mid)">
+                Recommended: 6 units
+              </div>
+              <div
+                style="font-size: 8px; color: var(--brand); margin-bottom: 6px"
+              >
+                💬 FIFO test: pick EARLY batch first (exp 30-Apr)
+              </div>
+              <div style="font-size: 9px; font-weight: 700; margin-bottom: 4px">
+                ALMARAI JUICE - ORANGE
+              </div>
+              <table class="fifo-table">
+                <tr>
+                  <th>Expiry</th>
+                  <th>In Stock</th>
+                  <th>Pick Qty</th>
+                  <th>Age</th>
+                </tr>
+                <tr>
+                  <td class="exp-early">
+                    30 Apr 26
+                    <span
+                      class="ann"
+                      style="width: 14px; height: 14px; font-size: 8px"
+                      >1</span
+                    >
+                  </td>
+                  <td>3u</td>
+                  <td><input type="number" value="3" /></td>
+                  <td class="age-red">12d</td>
+                </tr>
+                <tr>
+                  <td class="exp-later">19 May 26</td>
+                  <td>4u</td>
+                  <td><input type="number" value="3" /></td>
+                  <td style="color: var(--mid)">31d</td>
+                </tr>
+                <tr style="background: var(--bg)">
+                  <td colspan="2" style="color: var(--mid); font-size: 8px">
+                    Total picked
+                  </td>
+                  <td><strong>6</strong></td>
+                  <td></td>
+                </tr>
+              </table>
+              <div class="btn-row">
+                <div class="btn btn-green">
+                  ✓ Packed
+                  <span
+                    class="ann green"
+                    style="width: 14px; height: 14px; font-size: 7px"
+                    >2</span
+                  >
+                </div>
+                <div class="btn btn-gray">
+                  ✗ Skip
+                  <span
+                    class="ann"
+                    style="
+                      width: 14px;
+                      height: 14px;
+                      font-size: 7px;
+                      background: var(--mid);
+                    "
+                    >3</span
+                  >
+                </div>
+              </div>
+            </div>
+
+            <div class="btn-full">Mark all as packed</div>
+            <div
+              class="btn-full"
+              style="background: var(--dark); margin-top: 4px; opacity: 0.5"
+            >
+              Confirm packing — 4 pending
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout red">
+        <span class="num">1</span
+        ><span class="text"
+          ><strong>FIFO order — critical check!</strong> The "30 Apr 26" batch
+          row must appear <em>above</em> "19 May 26". Earlier expiry = first
+          row. If order is reversed, that is a FAIL.</span
+        >
+      </div>
+      <div class="callout green" style="margin-top: 4px">
+        <span class="num">2</span
+        ><span class="text"
+          ><strong>✓ Packed button</strong> — after verifying quantities, tap
+          this to mark the shelf as packed. Shelf disappears from pending
+          count.</span
+        >
+      </div>
+      <div class="callout" style="margin-top: 4px">
+        <span class="num">3</span
+        ><span class="text"
+          ><strong>✗ Skip button</strong> — use to skip a shelf (out of stock or
+          problem item). Edge case test TC B-09.</span
+        >
+      </div>
+
+      <h2>All Packing Test Cases</h2>
+      <div class="callout tc">
+        <span class="num">B-01</span
+        ><span class="text"
+          >Packing list shows all 3 machines with 0/N packed status.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-02</span
+        ><span class="text"
+          >HUAWEI packing detail: A01 Almarai Juice shows FIFO — 30 Apr batch
+          listed <em>first</em>.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-03</span
+        ><span class="text"
+          >Multi-batch: A02 Be-kind Bar shows Batch A (6u) + Batch B (2u) = 8
+          total.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-04</span
+        ><span class="text"
+          >Adjust Pick Qty field down to 0 and tap Packed → shelf marked with 0
+          qty.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-05</span
+        ><span class="text"
+          >OMDCW has a SWAP row: "Remove" line for Caprice Hazelnut + "Add New"
+          for Barebells White Choc.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-06</span
+        ><span class="text"
+          >After tapping ✓ Packed on all 4 HUAWEI shelves → "Confirm packing"
+          button activates (no longer greyed out).</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-07</span
+        ><span class="text"
+          >Tap "Confirm packing — 4 pending" → machine status changes from 0/4
+          to 4/4 packed.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-08</span
+        ><span class="text"
+          >Dashboard "Machines packed" counter increments from 0/3 to 1/3 after
+          HUAWEI confirmed.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">B-09</span
+        ><span class="text"
+          >Skip one shelf on USH machine → machine still marks as fully complete
+          (skipped = done).</span
+        >
+      </div>
+      <div class="callout tc amber" style="margin-top: 3px">
+        <span class="num">B-10</span
+        ><span class="text"
+          >⚠ Edge: enter Pick Qty > In Stock value → check if UI warns or allows
+          overpick.</span
+        >
+      </div>
+      <div class="pass-box" style="margin-top: 8px">
+        All 3 machines show fully packed. Dashboard counter: 3/3 packed. Pickup
+        page becomes active.
+      </div>
+
+      <div class="page-break"></div>
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  MODULE C — PICKUP & DISPATCHING   ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <h1 class="section-header">
+        MODULE C — Pickup &amp; Dispatching
+        <span class="url-tag">/field/pickup → /field/dispatching</span>
+      </h1>
+
+      <p>
+        After packing, the driver picks machines up from the warehouse (marks
+        Picked Up), then drives to site and marks them Dispatched.
+      </p>
+
+      <div class="step-header">
+        <span class="step-num">STEP C-1</span>
+        <span class="step-title">Pickup Page — before packing complete</span>
+      </div>
+      <div class="step-url">→ https://boonz-erp.vercel.app/field/pickup</div>
+
+      <div class="wireframe">
+        <div class="wf-header">
+          <div style="display: flex; gap: 4px">
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #f87171;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fbbf24;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #34d399;
+              "
+            ></div>
+          </div>
+          <div class="wf-url">boonz-erp.vercel.app/field/pickup</div>
+        </div>
+        <div style="padding: 0">
+          <div class="wf-nav">
+            <span class="back">← Back</span><span class="title">Pickup</span
+            ><span class="action">↺ Refresh</span>
+          </div>
+          <div style="padding: 40px 12px; text-align: center">
+            <div
+              style="
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--mid);
+                margin-bottom: 6px;
+              "
+            >
+              No machines ready for pickup
+            </div>
+            <div style="font-size: 10px; color: var(--light)">
+              Warehouse is still packing
+            </div>
+            <div class="warn-box" style="margin-top: 16px; text-align: left">
+              <span
+                class="ann amber"
+                style="width: 14px; height: 14px; font-size: 7px"
+                >1</span
+              >
+              After all 3 machines are packed, they will appear here as cards
+              with a "Mark as Picked Up" button.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout amber">
+        <span class="num">1</span
+        ><span class="text"
+          ><strong>Empty state is correct!</strong> Before packing is complete,
+          this screen should show "Warehouse is still packing". Only after all
+          machines are fully packed do machine cards appear here.</span
+        >
+      </div>
+
+      <h2>Pickup &amp; Dispatch Test Cases</h2>
+      <div class="callout tc">
+        <span class="num">C-01</span
+        ><span class="text"
+          >Before packing: /field/pickup shows "No machines ready for pickup"
+          message.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">C-02</span
+        ><span class="text"
+          >After all 3 machines packed: Pickup page shows 3 machine cards ready
+          for pickup.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">C-03</span
+        ><span class="text"
+          >Tap "Mark as Picked Up" on HUAWEI → machine moves to Picked Up state.
+          Dashboard counter updates.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">C-04</span
+        ><span class="text"
+          >After picking up all 3 machines → Dispatching page shows machines
+          with a dispatch button.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">C-05</span
+        ><span class="text"
+          >Mark OMDCW as Dispatched → Dashboard "Machines dispatched" increments
+          to 1/3.</span
+        >
+      </div>
+      <div class="callout tc amber" style="margin-top: 3px">
+        <span class="num">C-06</span
+        ><span class="text"
+          >⚠ Edge: attempt to dispatch without first picking up → should be
+          blocked or auto-sequenced.</span
+        >
+      </div>
+      <div class="warn-box">
+        After dispatching, verify data in Supabase:
+        <code
+          >SELECT * FROM warehouse_inventory_movements WHERE created_at::date =
+          CURRENT_DATE ORDER BY created_at DESC LIMIT 10;</code
+        >
+      </div>
+      <div class="pass-box">
+        All 3 machines: picked up → dispatched. Dashboard: 3/3 dispatched
+        (green).
+      </div>
+
+      <div class="page-break"></div>
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  MODULE D — PURCHASE ORDERS        ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <h1 class="section-header">
+        MODULE D — Purchase Orders
+        <span class="url-tag">boonz-erp.vercel.app/field/orders</span>
+      </h1>
+
+      <p>
+        Test data includes two POs: <strong>PO-TEST-001</strong> (pending,
+        Jaleel Traders, 3 lines) and <strong>PO-TEST-002</strong> (already
+        received, Arab Sweet).
+      </p>
+
+      <div class="step-header">
+        <span class="step-num">STEP D-1</span>
+        <span class="step-title">Purchase Orders List</span>
+      </div>
+      <div class="step-url">→ https://boonz-erp.vercel.app/field/orders</div>
+
+      <div class="wireframe">
+        <div class="wf-header">
+          <div style="display: flex; gap: 4px">
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #f87171;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fbbf24;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #34d399;
+              "
+            ></div>
+          </div>
+          <div class="wf-url">boonz-erp.vercel.app/field/orders</div>
+        </div>
+        <div style="padding: 0">
+          <div class="wf-nav">
+            <span class="back">← Back</span
+            ><span class="title">Purchase Orders</span><span></span>
+          </div>
+          <div class="wf-tabs">
+            <div class="wf-tab active">Pending</div>
+            <div class="wf-tab">All orders</div>
+          </div>
+          <div style="padding: 8px 12px">
+            <div class="po-card">
+              <div>
+                <div class="po-name">PO-TEST-001</div>
+                <div class="po-sub">Jaleel Traders LLC</div>
+                <div class="po-sub">Apr 18, 2026 · 3 lines · 72 units</div>
+              </div>
+              <div class="po-actions">
+                <span class="badge badge-amber">Pending</span>
+                <button
+                  class="btn btn-dark"
+                  style="padding: 4px 10px; font-size: 8px; flex: unset"
+                >
+                  Receive
+                  <span
+                    class="ann"
+                    style="width: 14px; height: 14px; font-size: 7px"
+                    >1</span
+                  >
+                </button>
+              </div>
+            </div>
+            <div
+              style="display: flex; justify-content: flex-end; margin-top: 8px"
+            >
+              <div class="fab">
+                +
+                <span
+                  class="ann"
+                  style="
+                    position: absolute;
+                    top: -4px;
+                    right: -4px;
+                    width: 14px;
+                    height: 14px;
+                    font-size: 7px;
+                  "
+                  >2</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout red">
+        <span class="num">1</span
+        ><span class="text"
+          ><strong>Receive button</strong> — on PO-TEST-001 card. Tap to open
+          the receiving form for this PO. Also accessible via /field/receiving
+          list.</span
+        >
+      </div>
+      <div class="callout" style="margin-top: 4px">
+        <span class="num">2</span
+        ><span class="text"
+          ><strong>+ FAB button</strong> (bottom-right circle) — tap to create a
+          brand new purchase order. Used in TC D-01.</span
+        >
+      </div>
+
+      <h2>Purchase Order Test Cases</h2>
+      <div class="callout tc">
+        <span class="num">D-01</span
+        ><span class="text"
+          >Tap '+' FAB → New PO form opens. Fill in supplier, product, qty,
+          expected delivery. Save → PO appears in Pending tab.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">D-02</span
+        ><span class="text"
+          >"Pending" tab shows ONLY PO-TEST-001. PO-TEST-002 is NOT visible here
+          (it's already received).</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">D-03</span
+        ><span class="text"
+          >"All orders" tab shows both PO-TEST-001 (pending) AND PO-TEST-002
+          (received).</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">D-04</span
+        ><span class="text"
+          >Tap "Receive" on PO-TEST-001 → navigates to
+          /field/receiving/PO-TEST-001 with 3 line items visible.</span
+        >
+      </div>
+      <div class="callout tc amber" style="margin-top: 3px">
+        <span class="num">D-05</span
+        ><span class="text"
+          >⚠ Edge: create PO with quantity 0 → check validation prevents
+          saving.</span
+        >
+      </div>
+      <div class="callout tc amber" style="margin-top: 3px">
+        <span class="num">D-06</span
+        ><span class="text"
+          >⚠ Edge: PO-TEST-002 (received status) — verify no "Receive" button
+          visible, only view mode.</span
+        >
+      </div>
+      <div class="pass-box">
+        PO-TEST-001 visible in Pending tab with Receive button. PO-TEST-002
+        visible in All orders tab only.
+      </div>
+
+      <div class="page-break"></div>
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  MODULE E — RECEIVING              ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <h1 class="section-header">
+        MODULE E — Receiving Delivery
+        <span class="url-tag">boonz-erp.vercel.app/field/receiving</span>
+      </h1>
+
+      <p>
+        When a delivery arrives, staff opens the PO receiving form, enters
+        actual quantities per batch, sets expiry dates, assigns warehouse
+        locations, then confirms — this updates
+        <code>warehouse_inventory</code>.
+      </p>
+
+      <div class="step-header">
+        <span class="step-num">STEP E-1</span>
+        <span class="step-title">Fill in the Receiving Form</span>
+      </div>
+      <div class="step-url">
+        → https://boonz-erp.vercel.app/field/receiving/PO-TEST-001
+      </div>
+
+      <div class="wireframe">
+        <div class="wf-header">
+          <div style="display: flex; gap: 4px">
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #f87171;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fbbf24;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #34d399;
+              "
+            ></div>
+          </div>
+          <div class="wf-url">
+            boonz-erp.vercel.app/field/receiving/PO-TEST-001
+          </div>
+        </div>
+        <div style="padding: 0">
+          <div class="wf-nav">
+            <span class="back">← Back</span
+            ><span class="title">Receive Delivery</span><span></span>
+          </div>
+          <div style="padding: 8px 12px">
+            <div style="font-size: 12px; font-weight: 800">PO-TEST-001</div>
+            <div style="font-size: 9px; color: var(--mid); margin-bottom: 10px">
+              Jaleel Traders LLC · Apr 18, 2026
+            </div>
+
+            <div class="recv-item">
+              <div
+                style="font-weight: 700; font-size: 10px; margin-bottom: 6px"
+              >
+                Barebells - Caramel Cashew
+              </div>
+              <div
+                style="font-size: 8.5px; color: var(--mid); margin-bottom: 4px"
+              >
+                Ordered: 12 units
+              </div>
+              <div style="font-size: 9px; font-weight: 700; margin-bottom: 6px">
+                Batch 1
+              </div>
+              <div class="recv-input">
+                <div>
+                  <div class="recv-label">
+                    Qty
+                    <span
+                      class="ann blue"
+                      style="width: 14px; height: 14px; font-size: 7px"
+                      >2</span
+                    >
+                  </div>
+                  <div
+                    class="field"
+                    style="
+                      border: 1px solid var(--border);
+                      border-radius: 4px;
+                      padding: 5px 8px;
+                      font-size: 8.5px;
+                      background: white;
+                    "
+                  >
+                    12
+                  </div>
+                </div>
+                <div style="flex: 1">
+                  <div class="recv-label">
+                    Expiry date
+                    <span
+                      class="ann blue"
+                      style="width: 14px; height: 14px; font-size: 7px"
+                      >1</span
+                    >
+                  </div>
+                  <div
+                    class="field"
+                    style="
+                      border: 1px solid var(--border);
+                      border-radius: 4px;
+                      padding: 5px 8px;
+                      font-size: 8.5px;
+                      background: white;
+                    "
+                  >
+                    01/11/2026
+                  </div>
+                </div>
+              </div>
+              <div class="recv-count">12 of 12 received</div>
+              <div class="recv-label" style="margin-top: 6px">
+                Warehouse location
+                <span
+                  class="ann blue"
+                  style="width: 14px; height: 14px; font-size: 7px"
+                  >3</span
+                >
+              </div>
+              <div class="recv-location">Shelf C-3</div>
+              <div
+                style="
+                  font-size: 8px;
+                  color: var(--brand);
+                  margin-top: 6px;
+                  cursor: pointer;
+                "
+              >
+                + Add expiry batch
+              </div>
+            </div>
+
+            <div class="recv-item">
+              <div
+                style="font-weight: 700; font-size: 10px; margin-bottom: 4px"
+              >
+                Be-kind Bar - Hazelnut
+              </div>
+              <div style="font-size: 8px; color: var(--mid)">
+                Ordered: 24 units
+              </div>
+              <div style="font-size: 8px; color: var(--mid)">
+                [fields same as above]
+              </div>
+            </div>
+
+            <div class="btn-full btn-dark" style="margin-top: 8px">
+              Confirm receiving
+              <span
+                class="ann green"
+                style="width: 14px; height: 14px; font-size: 7px"
+                >4</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout blue">
+        <span class="num">1</span
+        ><span class="text"
+          ><strong>Expiry date field</strong> — enter the batch expiry date from
+          the delivery note. Format: MM/DD/YYYY. This drives FIFO ordering in
+          future packing runs.</span
+        >
+      </div>
+      <div class="callout blue" style="margin-top: 4px">
+        <span class="num">2</span
+        ><span class="text"
+          ><strong>Qty field</strong> — enter actual units received. Can differ
+          from ordered qty (partial delivery is OK).</span
+        >
+      </div>
+      <div class="callout blue" style="margin-top: 4px">
+        <span class="num">3</span
+        ><span class="text"
+          ><strong>Warehouse location</strong> — shelf label where this batch
+          will be stored (e.g., "Shelf C-3"). Used for picking later.</span
+        >
+      </div>
+      <div class="callout green" style="margin-top: 4px">
+        <span class="num">4</span
+        ><span class="text"
+          ><strong>Confirm receiving</strong> — black button at bottom. This
+          triggers a <code>warehouse_inventory</code> INSERT and marks the PO as
+          received.</span
+        >
+      </div>
+
+      <h2>Receiving Test Cases</h2>
+      <div class="callout tc">
+        <span class="num">E-01</span
+        ><span class="text"
+          >/field/receiving shows PO-TEST-001 with "3 items". Tap arrow to open
+          receiving form.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">E-02</span
+        ><span class="text"
+          >Receiving form shows 3 lines: Barebells Caramel Cashew (12u), Be-kind
+          Bar Hazelnut (24u), Barebells White Choc (12u).</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">E-03</span
+        ><span class="text"
+          >Enter correct expiry dates and quantities for all 3 lines. Tap
+          "Confirm receiving".</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">E-04</span
+        ><span class="text"
+          >After confirming: PO-TEST-001 disappears from /field/receiving list.
+          Status changes to received.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">E-05</span
+        ><span class="text"
+          >Verify in /field/inventory: new batch appears with the expiry date
+          and shelf location you entered.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">E-06</span
+        ><span class="text"
+          >Multi-batch: tap "+ Add expiry batch" to add a second batch for one
+          line with a different expiry date.</span
+        >
+      </div>
+      <div class="callout tc amber" style="margin-top: 3px">
+        <span class="num">E-07</span
+        ><span class="text"
+          >⚠ Edge: enter qty = 0 for one line → check if form allows partial
+          receive.</span
+        >
+      </div>
+      <div class="callout tc amber" style="margin-top: 3px">
+        <span class="num">E-08</span
+        ><span class="text"
+          >⚠ Edge: enter expiry date in the past → check if UI shows warning or
+          blocks confirmation.</span
+        >
+      </div>
+      <div class="warn-box">
+        After confirming, verify:
+        <code
+          >SELECT product_name, qty_in_stock, expiration_date, location FROM
+          warehouse_inventory WHERE created_at::date = CURRENT_DATE ORDER BY
+          created_at DESC LIMIT 5;</code
+        >
+      </div>
+      <div class="pass-box">
+        PO confirmed. New inventory batches visible in /field/inventory sorted
+        by expiry. PO status = received.
+      </div>
+
+      <div class="page-break"></div>
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  MODULE F — INVENTORY              ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <h1 class="section-header">
+        MODULE F — Inventory Management
+        <span class="url-tag">boonz-erp.vercel.app/field/inventory</span>
+      </h1>
+
+      <p>
+        The inventory view shows all warehouse stock with expiry filtering. Test
+        data includes expired items (Mezzmix Chocolate, Zigi Sea Salted) and
+        near-expiry items (Sun Blast Apple, 3 days left).
+      </p>
+
+      <div class="step-header">
+        <span class="step-num">STEP F-1</span>
+        <span class="step-title">Inventory List with Expiry Filters</span>
+      </div>
+      <div class="step-url">→ https://boonz-erp.vercel.app/field/inventory</div>
+
+      <div class="wireframe">
+        <div class="wf-header">
+          <div style="display: flex; gap: 4px">
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #f87171;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #fbbf24;
+              "
+            ></div>
+            <div
+              style="
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #34d399;
+              "
+            ></div>
+          </div>
+          <div class="wf-url">boonz-erp.vercel.app/field/inventory</div>
+        </div>
+        <div style="padding: 0">
+          <div class="wf-nav">
+            <span class="back">← Back</span><span class="title">Inventory</span
+            ><span class="action">+ Inventory Control</span>
+          </div>
+          <div style="padding: 8px 12px">
+            <div class="search-bar">🔍 Search products...</div>
+            <div class="filter-row">
+              <span class="pill">All</span>
+              <span class="pill active"
+                >Active
+                <span
+                  class="ann"
+                  style="width: 14px; height: 14px; font-size: 7px"
+                  >1</span
+                ></span
+              >
+              <span class="pill">Expired</span>
+              <span class="pill">Inactive</span>
+            </div>
+            <div class="filter-row">
+              <span class="pill">All</span>
+              <span class="pill">Expired</span>
+              <span class="pill">&lt;=3 days</span>
+              <span class="pill active"
+                >&lt;=7 days
+                <span
+                  class="ann amber"
+                  style="width: 14px; height: 14px; font-size: 7px"
+                  >2</span
+                ></span
+              >
+              <span class="pill">&lt;=30 days</span>
+            </div>
+            <div class="inv-row">
+              <div>
+                <div class="inv-name">Mezzmix - Chocolate</div>
+                <div class="inv-cat">Dips &amp; Crackers</div>
+              </div>
+              <div class="inv-right">
+                <span class="exp-badge exp-red">Expired</span
+                ><span class="inv-qty">1 units</span>
+              </div>
+            </div>
+            <div class="inv-row">
+              <div>
+                <div class="inv-name">Zigi - Sea Salted</div>
+                <div class="inv-cat">Nuts &amp; Dried Fruits</div>
+              </div>
+              <div class="inv-right">
+                <span class="exp-badge exp-red">Expired</span
+                ><span class="inv-qty">1 units</span>
+              </div>
+            </div>
+            <div class="inv-row">
+              <div>
+                <div class="inv-name">Sun Blast - Apple</div>
+                <div class="inv-cat">Juice</div>
+              </div>
+              <div class="inv-right">
+                <span class="exp-badge exp-amber">3d left</span
+                ><span class="inv-qty">3 units</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout red">
+        <span class="num">1</span
+        ><span class="text"
+          ><strong>Expired filter</strong> — tap to show ONLY expired items:
+          Mezzmix Chocolate (9 Apr) + Zigi Sea Salted (18 Apr). Both show red
+          "Expired" badge.</span
+        >
+      </div>
+      <div class="callout amber" style="margin-top: 4px">
+        <span class="num">2</span
+        ><span class="text"
+          ><strong>&lt;=7 days filter</strong> — shows items expiring within 7
+          days. Sun Blast Apple (21 Apr = 3d left) should appear with amber
+          badge.</span
+        >
+      </div>
+
+      <h2>Inventory Test Cases</h2>
+      <div class="callout tc">
+        <span class="num">F-01</span
+        ><span class="text"
+          >Default view (Active + &lt;=7 days): Sun Blast Apple shows "3d left"
+          badge in amber.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">F-02</span
+        ><span class="text"
+          >Tap "Expired" filter: only past-expiry items appear — Mezzmix Choc (9
+          Apr) + Zigi Sea Salted (18 Apr).</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">F-03</span
+        ><span class="text"
+          >Tap "&lt;=30 days" filter: all near-expiry items visible including
+          Almarai Juice (30 Apr).</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">F-04</span
+        ><span class="text"
+          >Type "Barebells" in search bar → only Barebells variants appear in
+          filtered list.</span
+        >
+      </div>
+      <div class="callout tc" style="margin-top: 3px">
+        <span class="num">F-05</span
+        ><span class="text"
+          >Tap "+ Inventory Control" (top right) → new stock count / audit page
+          opens.</span
+        >
+      </div>
+      <div class="pass-box">
+        Filters work correctly. Expired items highlighted red. Expiring-soon
+        items in amber. Search is live/responsive.
+      </div>
+
+      <hr />
+
+      <!-- ╔════════════════════════════════════╗ -->
+      <!-- ║  QUICK REFERENCE TABLE             ║ -->
+      <!-- ╚════════════════════════════════════╝ -->
+      <h1
+        style="
+          font-size: 16px;
+          font-weight: 800;
+          color: var(--brand);
+          margin: 24px 0 8px;
+        "
+      >
+        Quick Reference — Test Data
+      </h1>
+      <p>
+        Use this table to cross-reference what data is seeded in the system and
+        which TCs rely on it.
+      </p>
+
+      <table class="ref-table">
+        <tr>
+          <th>Item / PO</th>
+          <th>Details</th>
+          <th>Used in TCs</th>
+        </tr>
+        <tr>
+          <td>HUAWEI-2003-0000-B1</td>
+          <td>4 dispatch lines (A01–A04). Active &amp; seeded.</td>
+          <td>B-01 to B-08</td>
+        </tr>
+        <tr>
+          <td>OMDCW-1021-0100-W0</td>
+          <td>
+            4 lines incl. SWAP: Remove Caprice + Add Barebells White Choc.
+          </td>
+          <td>B-05, C-03</td>
+        </tr>
+        <tr>
+          <td>USH-1008-0000-W1</td>
+          <td>2 dispatch lines. Simpler machine.</td>
+          <td>B-09, C-05</td>
+        </tr>
+        <tr>
+          <td>Almarai Juice - Orange</td>
+          <td>2 FIFO batches: 30 Apr (3u) + 19 May (4u).</td>
+          <td>B-02</td>
+        </tr>
+        <tr>
+          <td>Be-kind Bar - Hazelnut</td>
+          <td>2 batches: Batch A (6u) + Batch B (2u) = 8u total.</td>
+          <td>B-03</td>
+        </tr>
+        <tr>
+          <td>PO-TEST-001</td>
+          <td>Pending. Jaleel Traders LLC. 3 lines / 72 units.</td>
+          <td>D-02, D-04, E-01–E-08</td>
+        </tr>
+        <tr>
+          <td>PO-TEST-002</td>
+          <td>Received. Arab Sweet. Visible in All Orders tab only.</td>
+          <td>D-03, D-06</td>
+        </tr>
+        <tr>
+          <td>Mezzmix - Chocolate</td>
+          <td>Expired: 9 Apr 2026. 1 unit in warehouse.</td>
+          <td>F-02</td>
+        </tr>
+        <tr>
+          <td>Zigi - Sea Salted</td>
+          <td>Expired: 18 Apr 2026. 1 unit in warehouse.</td>
+          <td>F-02</td>
+        </tr>
+        <tr>
+          <td>Sun Blast - Apple</td>
+          <td>Expiring: 21 Apr 2026 (3 days left). 3 units.</td>
+          <td>F-01</td>
+        </tr>
+      </table>
+
+      <div class="info-box" style="margin-top: 16px">
+        <strong>Log your findings:</strong> Use
+        <strong>Boonz_Field_Test_Log.xlsx</strong> to record PASS / FAIL /
+        BLOCKED / SKIP for each test case. Add notes on any unexpected behavior.
+        Bring completed logs to the test debrief session.
+      </div>
+
+      <div
+        style="
+          text-align: center;
+          margin-top: 24px;
+          padding: 12px;
+          background: var(--bg);
+          border-radius: 6px;
+        "
+      >
+        <div style="font-size: 9px; color: var(--mid)">
+          BOONZ SMART VENDING ERP · Field App Test Guide · April 2026 ·
+          CONFIDENTIAL — Internal use only
+        </div>
+      </div>
+    </div>
+    <!-- /.page -->
+  </body>
+</html>

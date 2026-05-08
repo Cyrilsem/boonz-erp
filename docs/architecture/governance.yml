@@ -1,0 +1,509 @@
+# =============================================================================
+# Boonz Backend Constitution — Article 15 Governance Configuration
+# =============================================================================
+#
+# This file is the machine-readable source of truth for the A.6 CI lint.
+# Every PR touching the boonz-erp repo (and every daily cron scan of n8n /
+# pg_cron / edge functions) is checked against this spec. Direct writes to
+# protected tables that bypass the canonical RPC are flagged.
+#
+# Schema fields:
+#   version              schema version (bump on breaking changes)
+#   mode                 'warn' | 'fail' — warn = comment only, fail = block PR
+#   cutover_date         ISO date when fail-mode goes live (null until Phase C)
+#   baseline_file        path to JSON baseline of pre-existing violations (warn
+#                          mode silences these; only NEW violations get noisy)
+#   protected_entities   array of protected table specs
+#   severity_levels      ERROR / WARN / ALLOW semantics
+#   write_detection      patterns + paths the lint scans
+#   ci_modes             behavior matrix for warn vs fail
+#   amendments_open      Article 15 amendment tickets yet to land
+#
+# Per-entity fields:
+#   name                 the table name AS IT EXISTS IN postgres (post Amend-001)
+#   appendix_a_alias     historical name from Constitution Appendix A, if renamed
+#   canonical_writers    {rpcs: [...], edge_functions: [...]}
+#   severity_per_surface severity for FE / n8n / edge-fn-other / pg_cron writes
+#   allow_list           [{path, line, reason, expiry}] — explicit exceptions
+#   notes                free-text architectural context
+#
+# Edits to this file are an Article 15 amendment by definition. PRs editing
+# governance.yml require a CHANGELOG entry citing the amendment number.
+#
+# =============================================================================
+
+version: 1
+mode: warn
+cutover_date: null  # set on Phase C kickoff; until then, mode=warn is enforced
+                     # regardless of this field's value (sanity guard in lint)
+baseline_file: docs/architecture/A.6_baseline.json
+
+# -----------------------------------------------------------------------------
+# Severity levels
+# -----------------------------------------------------------------------------
+
+severity_levels:
+  ERROR:
+    description: >
+      Forbidden direct write to a protected table. Must route through the
+      canonical RPC. In warn mode: PR comment (non-blocking) listing the
+      violation + the canonical RPC to call. In fail mode: PR is blocked.
+    warn_mode_action: comment
+    fail_mode_action: block
+  WARN:
+    description: >
+      Direct write tolerated under specific conditions (e.g., admin-only
+      surface that pre-dates the canonical RPC). Flagged in CI but never
+      blocks. Used during phased migration to avoid blocking on already-
+      known violations being actively rewired.
+    warn_mode_action: comment
+    fail_mode_action: comment
+  ALLOW:
+    description: >
+      Explicit, dated exception. Required fields: reason, expiry, owner.
+      The lint silences the matched line until expiry. Past-expiry ALLOW
+      entries auto-promote to ERROR.
+    warn_mode_action: silent
+    fail_mode_action: silent
+
+# -----------------------------------------------------------------------------
+# Protected entities (Constitution Appendix A — 18 entities)
+# -----------------------------------------------------------------------------
+
+protected_entities:
+
+  # ── Machine lifecycle ──────────────────────────────────────────────────────
+
+  - name: machines
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - add_new_machine
+        - repurpose_machine
+        - toggle_machine_refill
+      edge_functions:
+        - repurpose-machine  # thin wrapper around repurpose_machine RPC
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      §3.1 incident root (operator-admin in-place rename). B.x.3 closed the
+      MachineEditPanel Overview-tab path. B.x.3.b–g track the remaining
+      direct-write call sites for metadata, bulk status, and field-PWA inserts.
+
+  - name: shelf_configurations
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs: []
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      AMD-002 OPEN. No canonical writer exists. Until Dara designs
+      upsert_shelf_config, ALL writes are ERROR.
+
+  - name: planogram
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - add_new_machine       # creates initial planogram on machine creation
+        - repurpose_machine     # archives old + creates new planogram
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      Planogram is only mutated as a side-effect of machine lifecycle RPCs.
+      No standalone writer exists by design. AMD-006 may add a
+      reorder_planogram RPC if/when partner-driven planogram edits ship.
+
+  - name: sim_cards
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs: []
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      AMD-003 OPEN. No canonical writer. MachineEditPanel.tsx:383-428 has
+      a current direct write — flagged for B.x.5 once writer is designed.
+
+  - name: slots
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - add_new_machine
+        - repurpose_machine
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: Slots are only mutated as a side-effect of machine lifecycle.
+
+  - name: slot_lifecycle
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - add_new_machine        # creates initial lifecycle rows
+        - repurpose_machine      # archives lifecycle on repurpose
+        - refresh_product_scores # writes lifecycle scores on cron
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      Cron-driven score writes go through refresh_product_scores. Any direct
+      write to slot_lifecycle from FE or n8n is ERROR.
+
+  # ── Inventory ──────────────────────────────────────────────────────────────
+
+  - name: pod_inventory
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - upsert_pod_snapshot
+        - upsert_aisle_snapshot
+        - auto_decrement_pod_inventory
+        - receive_dispatch_line
+        - receive_all_dispatches_for_machine
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: null
+
+  - name: pod_inventory_audit_log
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - auto_decrement_pod_inventory  # only legal source per Article 7
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      Append-only log (Article 7). RLS blocks UPDATE/DELETE. INSERT only via
+      auto_decrement_pod_inventory which is DEFINER and bypasses the
+      authenticated INSERT block.
+
+  - name: warehouse_inventory
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - upsert_refill_stock_snapshot
+        - add_sanity_increment
+        - auto_sanity_check
+        - pack_dispatch_line
+        - return_dispatch_line
+        - return_all_dispatches_for_machine
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      ARTICLE 6 SPECIAL RULE: warehouse_inventory.STATUS is manager-only.
+      No RPC may write that column except the warehouse-manager UI path.
+      The lint additionally column-checks any UPDATE on warehouse_inventory
+      that touches `status` and flags ERROR regardless of writer.
+
+  - name: warehouse_inventory_audit_log
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - log_wh_mutation              # legacy, deprecation Article 13 monitor
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      Append-only. log_wh_mutation deprecated 2026-04-25, scheduled DROP
+      2026-07-24. Generic A.4 trigger writes to write_audit_log instead.
+
+  # ── Sales / telemetry ──────────────────────────────────────────────────────
+
+  - name: sales_history
+    appendix_a_alias: daily_sales,sales_lines  # reconciled by Amendment 001
+    canonical_writers:
+      rpcs:
+        - upsert_daily_sales
+        - upsert_sales_lines
+        - process_adyen_staging
+        - process_weimi_staging
+        - retry_staging_errors
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      Amendment 001 unified daily_sales + sales_lines into sales_history.
+      Lint should match BOTH the new name AND the old aliases (FE / n8n
+      may still reference old names; that itself is a violation).
+
+  - name: sales_history_aggregated
+    appendix_a_alias: sales_aggregated  # reconciled by Amendment 001
+    canonical_writers:
+      rpcs:
+        - refresh_sales_aggregated  # runs on */10 * * * * cron
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: null
+
+  - name: settlements
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs: []
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      AMD-004 OPEN. No canonical writer. Settlement runs are currently
+      manual SQL — that itself is a Constitution violation. Dara to design
+      compute_partner_settlement RPC.
+
+  # ── Refill plan + dispatch ─────────────────────────────────────────────────
+
+  - name: refill_plan_output
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - write_refill_plan
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list:
+      - path: .claude/skills/refill-engine/SKILL.md
+        line: null
+        reason: >
+          Refill-engine skill is the service_role caller. B.x.1 will refactor
+          it to call write_refill_plan instead of direct INSERT. Until then,
+          this is the only legal direct writer.
+        expiry: 2026-05-15  # B.x.1 land-by date; auto-promotes to ERROR after
+        owner: stax
+    notes: >
+      §3.2 incident scope. 180 direct writes from refill-engine skill. RLS
+      tightening (B.x.4) is gated on B.x.1 + B.x.4-pre Studio lockdown.
+
+  - name: dispatch_plan
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - write_dispatch_plan
+        - push_plan_to_dispatch
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: null
+
+  - name: dispatch_lines
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - push_plan_to_dispatch
+        - pack_dispatch_line
+        - receive_dispatch_line
+        - receive_all_dispatches_for_machine
+        - return_dispatch_line
+        - return_all_dispatches_for_machine
+        - backfill_dispatch_boonz_product_ids
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: null
+
+  # ── Audit ──────────────────────────────────────────────────────────────────
+
+  - name: write_audit_log
+    appendix_a_alias: null
+    canonical_writers:
+      rpcs:
+        - audit_log_write  # generic AFTER trigger function (Article 8)
+      edge_functions: []
+    severity_per_surface:
+      fe: ERROR
+      n8n: ERROR
+      edge_function_other: ERROR
+      pg_cron: ERROR
+    allow_list: []
+    notes: >
+      Append-only by Article 7. RLS blocks UPDATE/DELETE for ALL roles.
+      The only INSERT path is the generic AFTER trigger fired by canonical
+      writers that have set app.via_rpc.
+
+# -----------------------------------------------------------------------------
+# Write-detection surface
+# -----------------------------------------------------------------------------
+
+write_detection:
+
+  fe:
+    paths:
+      - boonz-erp/src/**/*.ts
+      - boonz-erp/src/**/*.tsx
+    excluded_paths:
+      - boonz-erp/src/types/**       # type defs are not writes
+      - boonz-erp/src/**/*.test.ts
+      - boonz-erp/src/**/*.test.tsx
+    write_patterns:
+      # %TABLE% is templated per protected entity (including appendix_a_alias)
+      - '\.from\([''"]%TABLE%[''"]\)\.update\('
+      - '\.from\([''"]%TABLE%[''"]\)\.insert\('
+      - '\.from\([''"]%TABLE%[''"]\)\.upsert\('
+      - '\.from\([''"]%TABLE%[''"]\)\.delete\('
+
+  n8n:
+    source: supabase_introspection
+    query: |
+      -- The lint script runs this against the n8n metadata schema.
+      -- Replace %TABLE% with each protected entity name + alias.
+      SELECT workflow_id, node_name, query
+      FROM n8n_workflows_nodes
+      WHERE node_type IN ('postgres', 'supabase')
+        AND query ~* '\b(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?%TABLE%\b';
+    note: >
+      n8n introspection requires service_role read access on n8n_workflows_*
+      metadata tables. If that's not exposed, lint falls back to scanning
+      exported workflow JSON in boonz-erp/n8n/exports/*.json.
+
+  edge_functions:
+    paths:
+      - boonz-erp/supabase/functions/**/*.ts
+    excluded_functions:
+      # These are the canonical thin-wrapper edge fns (Article 9 compliant).
+      - repurpose-machine
+    write_patterns:
+      - '\.from\([''"]%TABLE%[''"]\)\.(update|insert|upsert|delete)\('
+
+  pg_cron:
+    source: supabase_introspection
+    query: |
+      SELECT jobid, schedule, command
+      FROM cron.job
+      WHERE command ~* '\b(INSERT INTO|UPDATE|DELETE FROM)\s+(public\.)?%TABLE%\b';
+    note: >
+      Cron jobs that call RPCs (e.g., SELECT refresh_sales_aggregated()) are
+      compliant. Only direct INSERT/UPDATE/DELETE in cron.command is flagged.
+
+  warehouse_inventory_status_special:
+    description: >
+      Article 6 — warehouse_inventory.status is manager-only. Lint MUST
+      additionally flag any write to warehouse_inventory that mentions the
+      `status` column, even via a canonical writer, unless the writer is
+      explicitly on the allow_list for status mutation. As of v1, NO writer
+      is allowed to mutate status from automation.
+    additional_pattern: '\.from\([''"]warehouse_inventory[''"]\)\.update\([^)]*status[^)]*\)'
+    severity: ERROR
+
+# -----------------------------------------------------------------------------
+# CI behavior matrix
+# -----------------------------------------------------------------------------
+
+ci_modes:
+  warn:
+    description: >
+      Day-1 mode. Lint runs on every PR. ERROR-severity violations are
+      posted as a PR comment. Pre-existing violations (in baseline_file)
+      are silenced — only NEW violations introduced by the PR are shown
+      under "NEW VIOLATIONS". Old violations are listed under "BASELINE
+      (pre-existing — Phase B queue)".
+    blocks_pr: false
+    posts_comment: true
+    silences_baseline: true
+    daily_cron_scan: true   # additionally scans n8n + pg_cron daily for drift
+    daily_cron_output: docs/architecture/A.6_drift_$(date).md  # markdown report
+                                                                # committed to repo
+
+  fail:
+    description: >
+      Phase C target mode. Lint runs on every PR. ERROR-severity violations
+      block the PR. Baseline file is no longer silenced — every entry must
+      have either landed (and disappeared from the codebase) or been moved
+      to the explicit allow_list with a reason and expiry. Cutover requires
+      a 14-day grace window where new violations are loud-warned but not
+      yet blocked.
+    blocks_pr: true
+    posts_comment: true
+    silences_baseline: false
+    grace_period_days: 14
+    grace_period_starts_on: cutover_date
+    daily_cron_scan: true
+
+# -----------------------------------------------------------------------------
+# Open Article 15 amendments
+# -----------------------------------------------------------------------------
+
+amendments_open:
+  - id: AMD-002
+    title: Design canonical writer for shelf_configurations
+    owner: dara
+    blocks_lint_fail_mode: true
+  - id: AMD-003
+    title: Design canonical writer for sim_cards
+    owner: dara
+    blocks_lint_fail_mode: true
+  - id: AMD-004
+    title: Design compute_partner_settlement RPC for settlements table
+    owner: dara
+    blocks_lint_fail_mode: true
+  - id: AMD-005
+    title: Resolve product_scores — add to Appendix A or remove A.5 patching
+    owner: cody
+    blocks_lint_fail_mode: false
+  - id: AMD-006
+    title: Reorder_planogram RPC if partner-driven planogram edits ship
+    owner: dara
+    blocks_lint_fail_mode: false

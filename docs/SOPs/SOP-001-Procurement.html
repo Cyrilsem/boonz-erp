@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SOP-001 — Procurement Flow · Boonz ERP</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --card: #191c26;
+  --border: #272b38;
+  --text: #e8eaf0;
+  --muted: #64697a;
+  --dim: #9196a4;
+  --driver: #3b82f6;
+  --driver-bg: rgba(59,130,246,0.09);
+  --driver-bd: rgba(59,130,246,0.28);
+  --ops: #8b5cf6;
+  --ops-bg: rgba(139,92,246,0.09);
+  --ops-bd: rgba(139,92,246,0.28);
+  --wh: #10b981;
+  --wh-bg: rgba(16,185,129,0.09);
+  --wh-bd: rgba(16,185,129,0.28);
+  --sys: #f59e0b;
+  --sys-bg: rgba(245,158,11,0.09);
+  --sys-bd: rgba(245,158,11,0.28);
+  --danger: #ef4444;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:ui-sans-serif,-apple-system,system-ui,sans-serif;font-size:13px;line-height:1.5;padding:28px 16px 64px;}
+
+/* Header */
+.hd{text-align:center;margin-bottom:24px;}
+.hd .sop-tag{display:inline-block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;padding:3px 10px;border-radius:4px;background:rgba(139,92,246,.15);color:#c4b5fd;margin-bottom:10px;}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px;}
+.hd p{font-size:11px;color:var(--muted);}
+
+/* Legend */
+.leg{display:flex;justify-content:center;flex-wrap:wrap;gap:16px;margin-bottom:28px;}
+.leg-i{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;}
+.leg-dot{width:9px;height:9px;border-radius:50%;}
+
+/* Phase label */
+.phase{display:flex;align-items:center;gap:8px;margin:22px 0 12px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);}
+.phase::before,.phase::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* Step */
+.step{display:flex;align-items:flex-start;margin-bottom:4px;position:relative;}
+.step-left{display:flex;flex-direction:column;align-items:center;width:44px;flex-shrink:0;}
+.step-num{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;border:2px solid;background:var(--bg);flex-shrink:0;z-index:1;}
+.step-vline{width:2px;background:var(--border);flex:1;min-height:8px;}
+.step-card{flex:1;border-radius:10px;padding:12px 14px;border:1px solid var(--border);margin-left:4px;margin-bottom:2px;}
+
+.step.driver .step-num{border-color:var(--driver);color:var(--driver);}
+.step.ops    .step-num{border-color:var(--ops);   color:var(--ops);}
+.step.wh     .step-num{border-color:var(--wh);    color:var(--wh);}
+.step.sys    .step-num{border-color:var(--sys);   color:var(--sys);}
+
+.step.driver .step-card{background:var(--driver-bg);border-color:var(--driver-bd);}
+.step.ops    .step-card{background:var(--ops-bg);   border-color:var(--ops-bd);}
+.step.wh     .step-card{background:var(--wh-bg);    border-color:var(--wh-bd);}
+.step.sys    .step-card{background:var(--sys-bg);   border-color:var(--sys-bd);}
+
+.who{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:3px;opacity:.7;}
+.step.driver .who{color:var(--driver);}
+.step.ops    .who{color:var(--ops);}
+.step.wh     .who{color:var(--wh);}
+.step.sys    .who{color:var(--sys);}
+
+.step-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;}
+.step-desc{font-size:11px;color:var(--dim);line-height:1.6;}
+.step-desc b{color:#c4c9d6;font-weight:600;}
+
+.tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:7px;}
+.tag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.04em;text-transform:uppercase;}
+.tag-app{background:rgba(59,130,246,.15);color:#93c5fd;}
+.tag-db{background:rgba(245,158,11,.15);color:#fcd34d;}
+.tag-auto{background:rgba(16,185,129,.15);color:#6ee7b7;}
+
+/* Arrow */
+.arrow{text-align:left;padding-left:22px;color:var(--muted);font-size:15px;line-height:1;margin:1px 0;}
+
+/* Branch */
+.branch{border:1px solid var(--border);border-radius:10px;background:var(--card);overflow:hidden;margin-bottom:4px;}
+.branch-hd{padding:8px 14px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:rgba(255,255,255,.02);border-bottom:1px solid var(--border);}
+.branch-cols{display:grid;grid-template-columns:1fr 1px 1fr;}
+.branch-div{background:var(--border);}
+.branch-col{padding:12px 14px;}
+.branch-col-title{font-size:11px;font-weight:700;margin-bottom:6px;}
+.branch-col ul{padding-left:14px;}
+.branch-col li{font-size:11px;color:var(--dim);margin-bottom:3px;line-height:1.45;}
+.branch-col li b{color:#c4c9d6;}
+
+/* Sub-branch */
+.sub-branch{border:1px solid var(--border);border-radius:9px;overflow:hidden;margin-bottom:4px;}
+.sub-branch-hd{padding:7px 13px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:rgba(255,255,255,.02);border-bottom:1px solid var(--border);}
+.sub-cols{display:grid;grid-template-columns:1fr 1px 1fr;}
+.sub-div{background:var(--border);}
+.sub-col{padding:11px 13px;}
+.sub-col-title{font-size:10px;font-weight:700;margin-bottom:5px;}
+.sub-col ul{padding-left:13px;}
+.sub-col li{font-size:10px;color:var(--dim);margin-bottom:3px;line-height:1.4;}
+.sub-col li b{color:#c4c9d6;}
+
+/* End state */
+.end{text-align:center;padding:18px;border-radius:10px;background:var(--wh-bg);border:1px solid var(--wh-bd);margin-top:4px;}
+.end .icon{font-size:28px;margin-bottom:6px;display:block;}
+.end .title{font-size:15px;font-weight:700;color:#6ee7b7;margin-bottom:4px;}
+.end .desc{font-size:11px;color:var(--muted);line-height:1.6;}
+
+/* Reference tables */
+.ref-section{margin-top:28px;}
+.ref-section h2{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:7px 10px;border-bottom:1px solid var(--border);}
+td{padding:9px 10px;border-bottom:1px solid rgba(39,43,56,.6);color:var(--dim);vertical-align:top;}
+td:first-child{color:var(--text);font-weight:500;}
+tr:last-child td{border-bottom:none;}
+.badge{display:inline-block;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;letter-spacing:.04em;}
+.badge-yes{background:rgba(16,185,129,.15);color:#6ee7b7;}
+.badge-no{background:rgba(100,105,122,.15);color:var(--muted);}
+.badge-walk{background:rgba(59,130,246,.15);color:#93c5fd;}
+.badge-del{background:rgba(139,92,246,.15);color:#c4b5fd;}
+
+/* Footer */
+.footer{margin-top:24px;padding:12px 14px;border:1px solid var(--border);border-radius:9px;background:var(--card);display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.footer-label{font-size:10px;font-weight:600;color:#c4c9d6;margin-bottom:2px;}
+.footer-val{font-size:10px;color:var(--dim);}
+
+/* Max width */
+.wrap{max-width:600px;margin:0 auto;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="hd">
+  <div class="sop-tag">SOP-001 · Boonz ERP</div>
+  <h1>🛒 Procurement Flow</h1>
+  <p>End-to-end process · Live as of 2026-04-28 · Who does what, step by step</p>
+</div>
+
+<div class="leg">
+  <div class="leg-i"><div class="leg-dot" style="background:var(--ops)"></div> Operator / Manager</div>
+  <div class="leg-i"><div class="leg-dot" style="background:var(--driver)"></div> Driver</div>
+  <div class="leg-i"><div class="leg-dot" style="background:var(--wh)"></div> Warehouse</div>
+  <div class="leg-i"><div class="leg-dot" style="background:var(--sys)"></div> System (auto)</div>
+</div>
+
+<!-- Phase 1 -->
+<div class="phase">Phase 1 — Order Creation</div>
+
+<div class="step ops">
+  <div class="step-left"><div class="step-num">1</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Operator / Manager</div>
+    <div class="step-title">📋 Create Purchase Order</div>
+    <div class="step-desc">Open <b>/field/orders/new</b>. Select supplier, add products + quantities. Hit <b>Create PO</b>.</div>
+    <div class="tags"><span class="tag tag-app">Field App</span><span class="tag tag-db">Saved to DB</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="branch">
+  <div class="branch-hd">⚡ System checks supplier type automatically</div>
+  <div class="branch-cols">
+    <div class="branch-col">
+      <div class="branch-col-title" style="color:var(--driver)">🚗 Walk-in supplier</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Union Coop · Carrefour · Arab Sweet · Merich</div>
+      <ul>
+        <li>Driver task created in <b>/field/tasks</b></li>
+        <li>Driver notified immediately</li>
+        <li>No email sent</li>
+      </ul>
+    </div>
+    <div class="branch-div"></div>
+    <div class="branch-col">
+      <div class="branch-col-title" style="color:var(--ops)">📧 Supplier delivery</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px;">Champions · EATCO · General Food…</div>
+      <ul>
+        <li>PO email sent to supplier</li>
+        <li>No driver task by default</li>
+        <li>Tick <b>🚨 Emergency</b> box to force one</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<!-- Phase 2 -->
+<div class="phase">Phase 2 — Driver Collection (Walk-in only)</div>
+
+<div class="step driver">
+  <div class="step-left"><div class="step-num">2</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Driver</div>
+    <div class="step-title">📱 See task on phone</div>
+    <div class="step-desc">Open <b>/field/tasks</b>. Task shows supplier, all products + quantities ordered.</div>
+    <div class="tags"><span class="tag tag-app">Field App</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="step driver">
+  <div class="step-left"><div class="step-num">3</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Driver</div>
+    <div class="step-title">👍 Acknowledge before leaving</div>
+    <div class="step-desc">Tap <b>Acknowledge</b>. Status → <b>On my way</b>. Operator sees this in real-time on the orders list.</div>
+    <div class="tags"><span class="tag tag-db">Status updated</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="step driver">
+  <div class="step-left"><div class="step-num">4</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Driver</div>
+    <div class="step-title">🛍️ Buy at the store</div>
+    <div class="step-desc">Expand each product. Select outcome: <b>Full · Partial · Not available · Other</b>. Enter qty if partial.</div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="step driver">
+  <div class="step-left"><div class="step-num">5</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Driver</div>
+    <div class="step-title">✅ Mark as collected</div>
+    <div class="step-desc">All product outcomes must be filled — button activates only when done. Status → <b>Collected</b>. Outcome saved per product.</div>
+    <div class="tags"><span class="tag tag-db">Outcome logged</span><span class="tag tag-auto">Audit recorded</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="step sys">
+  <div class="step-left"><div class="step-num" style="font-size:8px;letter-spacing:-.02em;">AUTO</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">System — automatic</div>
+    <div class="step-title">🔄 Orders list shows "In transit"</div>
+    <div class="step-desc"><b>/field/orders</b> shows <b>📦 In transit — awaiting WH receipt</b>. Operator knows goods are on the way.</div>
+    <div class="tags"><span class="tag tag-auto">Automatic</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<!-- Phase 3 -->
+<div class="phase">Phase 3 — Warehouse Receipt</div>
+
+<div class="step wh">
+  <div class="step-left"><div class="step-num">6</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Warehouse</div>
+    <div class="step-title">📦 Open PO to receive</div>
+    <div class="step-desc">Go to <b>Pending orders</b> → tap PO → tap <b>Receive</b>. Driver's field report shown per product — qty hints pre-filled.</div>
+    <div class="tags"><span class="tag tag-app">Field App</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="step wh">
+  <div class="step-left"><div class="step-num">7</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Warehouse</div>
+    <div class="step-title">🏷️ Fill in quantities per product</div>
+    <div class="step-desc">For each line: <b>received qty</b>, <b>expiry date</b> (multiple batches OK), <b>warehouse location</b>, <b>price per unit</b>.</div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="sub-branch">
+  <div class="sub-branch-hd">📋 For items the driver couldn't buy</div>
+  <div class="sub-cols">
+    <div class="sub-col">
+      <div class="sub-col-title" style="color:var(--danger)">✗ Mark as "Not purchased"</div>
+      <ul>
+        <li>Tap <b>Mark not purchased</b> on the line</li>
+        <li>Card turns red — no stock added</li>
+        <li>Line closes with <b>outcome = not_purchased</b></li>
+        <li>Never shows as "pending" again</li>
+        <li>Auto-toggled if driver said "not available"</li>
+      </ul>
+    </div>
+    <div class="sub-div"></div>
+    <div class="sub-col">
+      <div class="sub-col-title" style="color:var(--sys)">⚠️ Partial delivery</div>
+      <ul>
+        <li>Enter actual qty received</li>
+        <li>Driver hint shows expected qty</li>
+        <li>Closes with <b>received_qty &lt; ordered_qty</b></li>
+        <li>Shortfall visible in order history</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<div class="step wh">
+  <div class="step-left"><div class="step-num">8</div><div class="step-vline"></div></div>
+  <div class="step-card">
+    <div class="who">Warehouse</div>
+    <div class="step-title">✔️ Confirm receiving</div>
+    <div class="step-desc">Tap <b>Confirm receiving</b> — activates only when at least one line is actionable. All field additions also inventoried in the same action.</div>
+    <div class="tags"><span class="tag tag-db">WH stock updated</span><span class="tag tag-auto">Audit recorded</span></div>
+  </div>
+</div>
+
+<div class="arrow">↓</div>
+
+<!-- Phase 4 -->
+<div class="phase">Phase 4 — Complete</div>
+
+<div class="end">
+  <span class="icon">🏪</span>
+  <div class="title">Stock is live in the warehouse</div>
+  <div class="desc">Each batch tracked with expiry date, location, and cost price.<br/>Full audit trail: PO created → driver collected → WH received. Ready for the refill engine.</div>
+</div>
+
+<!-- Supplier reference table -->
+<div class="ref-section">
+  <h2>Supplier Reference</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Supplier</th>
+        <th>Code</th>
+        <th>Type</th>
+        <th>Driver Task?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Union Coop</td><td>SUP_005</td><td><span class="badge badge-walk">Walk-in</span></td><td>✅ Always</td></tr>
+      <tr><td>Carrefour</td><td>SUP_011</td><td><span class="badge badge-walk">Walk-in</span></td><td>✅ Always</td></tr>
+      <tr><td>Arab Sweet</td><td>SUP_007</td><td><span class="badge badge-walk">Walk-in</span></td><td>✅ Always</td></tr>
+      <tr><td>Merich Global</td><td>SUP_001</td><td><span class="badge badge-walk">Walk-in</span></td><td>✅ Always</td></tr>
+      <tr><td>Champions Food</td><td>SUP_003</td><td><span class="badge badge-del">Supplier delivery</span></td><td>❌ Unless emergency</td></tr>
+      <tr><td>EATCO</td><td>SUP_002</td><td><span class="badge badge-del">Supplier delivery</span></td><td>❌ Unless emergency</td></tr>
+      <tr><td>General Food Chocolate</td><td>SUP_004</td><td><span class="badge badge-del">Supplier delivery</span></td><td>❌ Unless emergency</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Audit events -->
+<div class="ref-section">
+  <h2>Audit Trail — Events Logged Automatically</h2>
+  <table>
+    <thead><tr><th>Event</th><th>Trigger</th></tr></thead>
+    <tbody>
+      <tr><td>po_created</td><td>PO submitted via Create PO</td></tr>
+      <tr><td>task_assigned</td><td>Driver task created</td></tr>
+      <tr><td>task_acknowledged</td><td>Driver taps Acknowledge</td></tr>
+      <tr><td>task_collected</td><td>Driver marks as collected</td></tr>
+      <tr><td>goods_received</td><td>WH confirms receipt</td></tr>
+      <tr><td>line_not_purchased</td><td>WH marks a line as not purchased</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Quick reference footer -->
+<div class="footer" style="margin-top:24px;">
+  <div>
+    <div class="footer-label">Pages used (field app)</div>
+    <div class="footer-val">/orders/new · /tasks · /orders · /receiving/[PO]</div>
+  </div>
+  <div>
+    <div class="footer-label">Walk-in suppliers</div>
+    <div class="footer-val">Union Coop · Carrefour · Arab Sweet · Merich</div>
+  </div>
+  <div>
+    <div class="footer-label">purchase_outcome values</div>
+    <div class="footer-val">received · not_purchased · null (pending)</div>
+  </div>
+  <div>
+    <div class="footer-label">Document</div>
+    <div class="footer-val">SOP-001 · Boonz ERP · 2026-04-28</div>
+  </div>
+</div>
+
+</div><!-- end .wrap -->
+</body>
+</html>

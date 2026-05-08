@@ -1,0 +1,782 @@
+{
+  "name": "BOONZ DAILY SALES ENHANCED 23/04/26",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 23,
+              "triggerAtMinute": 59
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [-4560, 2256],
+      "id": "38dd2439-6c9c-4f6e-9def-a608ae204f53",
+      "name": "Schedule 23:"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg-1",
+              "name": "BASE_URL",
+              "value": "https://micron.weimi24.com/v8/third-center-web",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [-4352, 2256],
+      "id": "5c17217f-0ad4-4751-bcb1-e3c8f0ce09b6",
+      "name": "Config1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const appId = $vars.WEIMI_APP_ID;\nconst secret = $vars.WEIMI_SECRET_KEY;\nconst paramsObj = { goodsIds: \"\" };\nconst paramJson = JSON.stringify(paramsObj);\nconst nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);\nconst timestamp = Date.now().toString();\nconst rawString = `secretKey=${secret},nonce=${nonce},timestamp=${timestamp},appId=${appId},paramJson=${paramJson}`;\nreturn { appId, nonce, timestamp, paramJson, rawString, url: $('Config1').first().json.BASE_URL + '/ext/goods-info' };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-4128, 2064],
+      "id": "1d9ef790-3078-4b06-988a-7e702ebe85b6",
+      "name": "Sign Prices1"
+    },
+    {
+      "parameters": {
+        "type": "SHA1",
+        "value": "={{ $json.rawString }}",
+        "dataPropertyName": "sign"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [-3904, 2064],
+      "id": "5e03c88e-8bbd-412b-9194-5e90a0ce7adc",
+      "name": "Hash Prices1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "goodsIds",
+              "value": "="
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Client-Type",
+              "value": "EXTERNAL"
+            },
+            {
+              "name": "SIGN",
+              "value": "={{ $json.sign }}"
+            },
+            {
+              "name": "TIMESTAMP",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "NONCE",
+              "value": "={{ $json.nonce }}"
+            },
+            {
+              "name": "APP_ID",
+              "value": "={{ $json.appId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-3680, 2064],
+      "id": "66df8b8c-95fe-4429-b3b0-758083dc7002",
+      "name": "Get All Prices1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const appId = $vars.WEIMI_APP_ID;\nconst secret = $vars.WEIMI_SECRET_KEY;\nconst paramsObj = { deviceCodes: \"\" };\nconst paramJson = JSON.stringify(paramsObj);\nconst nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);\nconst timestamp = Date.now().toString();\nconst rawString = `secretKey=${secret},nonce=${nonce},timestamp=${timestamp},appId=${appId},paramJson=${paramJson}`;\nreturn { appId, nonce, timestamp, paramJson, rawString, url: $('Config1').first().json.BASE_URL + '/ext/device-profile' };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-4128, 2256],
+      "id": "564ecc70-d989-4d15-9f05-f9ec91585748",
+      "name": "Sign Devices1"
+    },
+    {
+      "parameters": {
+        "type": "SHA1",
+        "value": "={{ $json.rawString }}",
+        "dataPropertyName": "sign"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [-3904, 2256],
+      "id": "177c4a81-49b1-4aea-bb49-3e7e18357f61",
+      "name": "Hash Devices1"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "deviceCodes"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Client-Type",
+              "value": "EXTERNAL"
+            },
+            {
+              "name": "SIGN",
+              "value": "={{ $json.sign }}"
+            },
+            {
+              "name": "TIMESTAMP",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "NONCE",
+              "value": "={{ $json.nonce }}"
+            },
+            {
+              "name": "APP_ID",
+              "value": "={{ $json.appId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-3680, 2256],
+      "id": "f44d1398-9772-453b-b694-3a9021f0abd5",
+      "name": "Get All Devices1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.list",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [-3504, 2256],
+      "id": "bba65fc1-3b65-464c-91a2-e2965c6c8e31",
+      "name": "Split Devices1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f1",
+              "leftValue": "={{ $json.deviceName }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f2",
+              "leftValue": "={{ $json.deviceName }}",
+              "rightValue": "WH",
+              "operator": {
+                "type": "string",
+                "operation": "notStartsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [-3344, 2256],
+      "id": "3c684204-8d38-4697-90b2-4c5f6a389405",
+      "name": "Filter Devices1",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const appId = $vars.WEIMI_APP_ID;\nconst secret = $vars.WEIMI_SECRET_KEY;\nconst paramsObj = {\"current\": 1, \"size\": 1000};\nconst paramJson = JSON.stringify(paramsObj);\nconst nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);\nconst timestamp = Date.now().toString();\nconst rawString = `secretKey=${secret},nonce=${nonce},timestamp=${timestamp},appId=${appId},paramJson=${paramJson}`;\nreturn { appId, nonce, timestamp, paramJson, rawString, url: $('Config1').first().json.BASE_URL + '/ext/today-order-page' };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-4128, 2464],
+      "id": "952a2366-a2b0-4f11-8c4a-e0a96a31bd86",
+      "name": "Sign Orders1"
+    },
+    {
+      "parameters": {
+        "type": "SHA1",
+        "value": "={{ $json.rawString }}",
+        "dataPropertyName": "sign"
+      },
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [-3904, 2464],
+      "id": "75bcb732-0d54-4526-8d8d-5a0fffd61b32",
+      "name": "Hash Orders1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Client-Type",
+              "value": "EXTERNAL"
+            },
+            {
+              "name": "SIGN",
+              "value": "={{ $json.sign }}"
+            },
+            {
+              "name": "TIMESTAMP",
+              "value": "={{ $json.timestamp }}"
+            },
+            {
+              "name": "NONCE",
+              "value": "={{ $json.nonce }}"
+            },
+            {
+              "name": "APP_ID",
+              "value": "={{ $json.appId }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.paramJson }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [-3680, 2464],
+      "id": "71863931-5a54-4b38-8a36-dc30c8eaadf5",
+      "name": "Get Daily Transactions1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.records",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [-3504, 2464],
+      "id": "2f22f666-edfc-49de-8d4f-d2c967c89402",
+      "name": "Split Orders1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = [];\n\nconst deviceNode = $('Split Devices1').all();\nconst deviceNameMap = {};\ndeviceNode.forEach(item => {\n  if (item.json.deviceCode) {\n    deviceNameMap[item.json.deviceCode] = item.json.deviceName;\n  }\n});\n\nlet priceMap = {};\ntry {\n  const priceData = $('Get All Prices1').first().json.data || [];\n  priceData.forEach(machine => {\n    if (machine.aisles) {\n      machine.aisles.forEach(product => {\n        const key = `${machine.deviceCode}_${product.goodsId}`;\n        priceMap[key] = product.price;\n      });\n    }\n  });\n} catch (error) {\n  console.log('Price fetch skipped or failed: ' + error);\n}\n\nconst transactions = $input.all();\n\nfor (const transaction of transactions) {\n  const record = transaction.json;\n  const currentDeviceCode = record.deviceCode;\n  const deviceName = deviceNameMap[currentDeviceCode] || 'Unknown Machine';\n\n  if (record.detailList && Array.isArray(record.detailList)) {\n    let itemCounter = 1;\n\n    for (const product of record.detailList) {\n      const totalPaid = product.payAmount ? product.payAmount / 100 : 0;\n      const salePrice = product.salePrice\n        ? product.salePrice / 100\n        : (product.goodsPrice ? product.goodsPrice / 100 : 0);\n\n      const lookupKey = `${currentDeviceCode}_${product.goodsId}`;\n      const unitPriceCents = priceMap[lookupKey];\n\n      let unitPrice = 0;\n      let calculatedQty = 1;\n\n      if (unitPriceCents && unitPriceCents > 0) {\n        unitPrice = unitPriceCents / 100;\n        calculatedQty = Math.round(totalPaid / unitPrice) || 1;\n      } else if (salePrice > 0) {\n        unitPrice = salePrice;\n        calculatedQty = 1;\n      } else {\n        unitPrice = totalPaid;\n        calculatedQty = 1;\n      }\n\n      // total_amount = unit price × qty (line total, not unit price alone)\n      const lineTotalAmount = Math.round(unitPrice * calculatedQty * 100) / 100;\n\n      let adjustedTime = product.shipmentTime;\n      if (adjustedTime) {\n        let dt = new Date(adjustedTime.replace(' ', 'T'));\n        dt.setHours(dt.getHours() - 4);\n        let yyyy = dt.getFullYear();\n        let mm = String(dt.getMonth() + 1).padStart(2, '0');\n        let dd = String(dt.getDate()).padStart(2, '0');\n        let hh = String(dt.getHours()).padStart(2, '0');\n        let min = String(dt.getMinutes()).padStart(2, '0');\n        let sec = String(dt.getSeconds()).padStart(2, '0');\n        adjustedTime = `${yyyy}-${mm}-${dd} ${hh}:${min}:${sec}`;\n      }\n\n      results.push({\n        'Machine ID':               currentDeviceCode,\n        'Machine Name':             deviceName,\n        'Item Rank':                `item${itemCounter}`,\n        'Internal transaction S/N': record.tradeNoIn || record.tradeNo || record.orderId,\n        'Product name':             product.goodsName,\n        'Unit Price':               unitPrice,\n        'Qty':                      calculatedQty,\n        'Paid amount':              totalPaid,\n        'Total amount':             lineTotalAmount,\n        'Delivery status':          product.shipmentStatus === 1 ? 'Successful' : 'Failed',\n        'Time':                     adjustedTime,\n      });\n\n      itemCounter++;\n    }\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-3344, 2464],
+      "id": "be10dc1f-5e20-4a91-bd91-b19211bc9817",
+      "name": "ETL: Transform to Item Detail1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ═══════════════════════════════════════════════════════════\n// UNIFIED REPORT BUILDER (UPDATED)\n// Now includes Total Sales, Paid Amount, and Variance columns\n// Adds ALLMCC superset group (any machine name containing 'MCC')\n// ═══════════════════════════════════════════════════════════\nconst items = $input.all();\nconst today = new Date().toLocaleDateString('en-GB');\n\n// ── Helper: build full HTML report from a set of items ──\nfunction buildReport(rows) {\n  const totalSales = rows.reduce((s, r) => s + (r.json['Total amount'] || 0), 0);\n  const totalPaid = rows.reduce((s, r) => s + (r.json['Paid amount'] || 0), 0);\n  const totalDelta = totalSales - totalPaid;\n  const totalQty = rows.reduce((s, r) => s + (r.json['Qty'] || 0), 0);\n  const uniqueM = [...new Set(rows.map(r => r.json['Machine Name']))].length;\n  const okCount = rows.filter(r => r.json['Delivery status'] === 'Successful').length;\n\n  // Flow A: Summary\n  const summary = `Today's sales: ${totalQty} items sold across ${uniqueM} machines, generating AED ${totalPaid.toFixed(2)} in revenue with ${okCount} successful deliveries.`;\n\n  // Flow B: By machine table\n  const machAgg = {};\n  rows.forEach(r => {\n    const mn = r.json['Machine Name'];\n    if (!machAgg[mn]) machAgg[mn] = { sales: 0, paid: 0, qty: 0 };\n    machAgg[mn].sales += r.json['Total amount'] || 0;\n    machAgg[mn].paid += r.json['Paid amount'] || 0;\n    machAgg[mn].qty += r.json['Qty'] || 0;\n  });\n  const sortedMach = Object.entries(machAgg).sort((a,b) => b[1].paid - a[1].paid);\n  let flowB = '<h4>Sales Summary by Machine</h4><table border=\"1\" cellpadding=\"5\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%\">';\n  flowB += '<tr style=\"background:#f2f2f2\"><th>Machine Name</th><th>Total Sales (AED)</th><th>Paid Amount (AED)</th><th>Variance (AED)</th><th>Total Quantity</th></tr>';\n  sortedMach.forEach(([mn, d]) => {\n    const delta = d.sales - d.paid;\n    flowB += `<tr><td>${mn}</td><td>AED ${d.sales.toFixed(2)}</td><td>AED ${d.paid.toFixed(2)}</td><td>AED ${delta.toFixed(2)}</td><td>${d.qty}</td></tr>`;\n  });\n  flowB += '</table><br/>';\n\n  // Flow D: By product table\n  const prodAgg = {};\n  rows.forEach(r => {\n    const pn = r.json['Product name'];\n    if (!prodAgg[pn]) prodAgg[pn] = { sales: 0, paid: 0, qty: 0 };\n    prodAgg[pn].sales += r.json['Total amount'] || 0;\n    prodAgg[pn].paid += r.json['Paid amount'] || 0;\n    prodAgg[pn].qty += r.json['Qty'] || 0;\n  });\n  const sortedProd = Object.entries(prodAgg).sort((a,b) => b[1].paid - a[1].paid);\n  let gq = 0, gs = 0, gp = 0;\n  let flowD = '<div style=\"font-family:Arial,sans-serif;color:#333\"><h4>Total Sales by Product (All Machines)</h4>';\n  flowD += '<table border=\"1\" cellpadding=\"5\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%\">';\n  flowD += '<tr style=\"background:#f8f9fa;text-align:left\"><th>Product Name</th><th>Total Quantity</th><th>Total Sales (AED)</th><th>Paid Amount (AED)</th><th>Variance (AED)</th></tr>';\n  sortedProd.forEach(([pn, d]) => {\n    const delta = d.sales - d.paid;\n    flowD += `<tr><td>${pn}</td><td>${d.qty}</td><td>${d.sales.toFixed(2)} AED</td><td>${d.paid.toFixed(2)} AED</td><td>${delta.toFixed(2)} AED</td></tr>`;\n    gq += d.qty; gs += d.sales; gp += d.paid;\n  });\n  const gd = gs - gp;\n  flowD += `<tr style=\"font-weight:bold;background:#f0f0f0\"><td>GRAND TOTAL</td><td>${gq}</td><td>${gs.toFixed(2)} AED</td><td>${gp.toFixed(2)} AED</td><td>${gd.toFixed(2)} AED</td></tr></table></div>`;\n\n  // Flow C: Machine detail\n  const machDetail = {};\n  rows.forEach(r => {\n    const mn = r.json['Machine Name'], pn = r.json['Product name'];\n    if (!machDetail[mn]) machDetail[mn] = { prods: {}, ts: 0, tp: 0, tq: 0 };\n    if (!machDetail[mn].prods[pn]) machDetail[mn].prods[pn] = { s: 0, p: 0, q: 0 };\n    machDetail[mn].prods[pn].s += r.json['Total amount'] || 0;\n    machDetail[mn].prods[pn].p += r.json['Paid amount'] || 0;\n    machDetail[mn].prods[pn].q += r.json['Qty'] || 0;\n    machDetail[mn].ts += r.json['Total amount'] || 0;\n    machDetail[mn].tp += r.json['Paid amount'] || 0;\n    machDetail[mn].tq += r.json['Qty'] || 0;\n  });\n  const sortedDetail = Object.entries(machDetail).sort((a,b) => b[1].tp - a[1].tp);\n  let flowC = '<h4>Detailed Items Sold by Machine</h4>';\n  sortedDetail.forEach(([mn, md]) => {\n    flowC += `<h3>${mn}</h3><table border=\"1\" cellpadding=\"5\" cellspacing=\"0\" style=\"border-collapse:collapse;width:100%;margin-bottom:20px\">`;\n    flowC += '<tr style=\"background:#f2f2f2;text-align:left\"><th>Product Name</th><th>Quantity</th><th>Sales (AED)</th><th>Paid Amount (AED)</th><th>Variance (AED)</th></tr>';\n    Object.entries(md.prods).sort((a,b) => b[1].p - a[1].p).forEach(([pn, pd]) => {\n      const delta = pd.s - pd.p;\n      flowC += `<tr><td>${pn}</td><td>${pd.q}</td><td>${pd.s.toFixed(2)} AED</td><td>${pd.p.toFixed(2)} AED</td><td>${delta.toFixed(2)} AED</td></tr>`;\n    });\n    const mdDelta = md.ts - md.tp;\n    flowC += `<tr style=\"font-weight:bold;background:#f0f0f0\"><td>TOTAL</td><td>${md.tq}</td><td>${md.ts.toFixed(2)} AED</td><td>${md.tp.toFixed(2)} AED</td><td>${mdDelta.toFixed(2)} AED</td></tr></table>`;\n  });\n\n  return `<h3>Daily Sales Report</h3><p>${summary}</p><br/>${flowB}<br/>${flowD}<br/>${flowC}`;\n}\n\n// ── Build Telegram message ──\nfunction buildTelegram(rows) {\n  if (!rows.length) return '📊 <b>Daily Sales Report</b>\\n\\nNo sales recorded for today yet.';\n  const machines = {};\n  let gt = 0, gq = 0;\n  rows.forEach(r => {\n    const mn = r.json['Machine Name'], pn = r.json['Product name'];\n    if (!machines[mn]) machines[mn] = { prods: {}, tp: 0, tq: 0 };\n    if (!machines[mn].prods[pn]) machines[mn].prods[pn] = { p: 0, q: 0 };\n    machines[mn].prods[pn].p += r.json['Paid amount'] || 0;\n    machines[mn].prods[pn].q += r.json['Qty'] || 0;\n    machines[mn].tp += r.json['Paid amount'] || 0;\n    machines[mn].tq += r.json['Qty'] || 0;\n    gt += r.json['Paid amount'] || 0;\n    gq += r.json['Qty'] || 0;\n  });\n  let txt = `📊 <b>Daily Sales Report</b>\\n💰 <b>Grand Total:</b> ${gq} items | ${gt.toFixed(2)} AED\\n\\n`;\n  Object.entries(machines).sort((a,b) => b[1].tp - a[1].tp).forEach(([mn, md]) => {\n    txt += `🤖 <b>${mn}</b>\\n<i>Total: ${md.tq} items | ${md.tp.toFixed(2)} AED</i>\\n`;\n    Object.entries(md.prods).sort((a,b) => b[1].p - a[1].p).forEach(([pn, pd]) => {\n      txt += `▪️ ${pn}: ${pd.q} qty (${pd.p.toFixed(2)} AED)\\n`;\n    });\n    txt += '\\n';\n  });\n  return txt;\n}\n\n// ── Split items by machine group ──\nconst voxmcc = items.filter(i => (i.json['Machine Name'] || '').includes('VOXMCC'));\nconst voxmm = items.filter(i => (i.json['Machine Name'] || '').includes('VOXM') && !(i.json['Machine Name'] || '').includes('VOXMCC'));\nconst omd = items.filter(i => (i.json['Machine Name'] || '').includes('OMD'));\nconst iris = items.filter(i => (i.json['Machine Name'] || '').includes('IRIS'));\n// ALLMCC = superset of every machine whose name contains 'MCC' (includes VOXMCC and any other MCC-tagged machine)\nconst allmcc = items.filter(i => (i.json['Machine Name'] || '').includes('MCC'));\n\n// ── Build all outputs ──\nreturn [{\n  json: {\n    // Per-group reports (only if group has data)\n    voxmcc_html: voxmcc.length ? buildReport(voxmcc) : null,\n    voxmcc_subject: voxmcc.length ? `Daily Sales Report - VOXMCC - ${today}` : null,\n    voxmm_html: voxmm.length ? buildReport(voxmm) : null,\n    voxmm_subject: voxmm.length ? `Daily Sales Report - VOXMM - ${today}` : null,\n    omd_html: omd.length ? buildReport(omd) : null,\n    omd_subject: omd.length ? `Daily Sales Report - OMD - ${today}` : null,\n    iris_html: iris.length ? buildReport(iris) : null,\n    iris_subject: iris.length ? `Daily Sales Report - IRIS - ${today}` : null,\n    // ALLMCC (superset) report\n    allmcc_html: allmcc.length ? buildReport(allmcc) : null,\n    allmcc_subject: allmcc.length ? `Daily Sales Report - ALL MCC - ${today}` : null,\n    // Combined report\n    all_html: buildReport(items),\n    all_subject: `Daily Sales Report - ${today}`,\n    // Telegram\n    telegramText: buildTelegram(items)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-3008, 2320],
+      "id": "f0036eef-3013-4392-b861-3fdfc11e84fa",
+      "name": "Build All Reports1"
+    },
+    {
+      "parameters": {
+        "chatId": "7707049890",
+        "text": "={{ $json.telegramText }}",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [-2736, 2128],
+      "id": "b2b2d4d8-f892-477d-8eb9-e1d9126006e2",
+      "name": "Send Telegram1",
+      "webhookId": "f012e7c6-e61f-412a-8e71-c4f65998ef17",
+      "credentials": {
+        "telegramApi": {
+          "id": "nEbKVMS9GMJXOI44",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "cyril@boonz.me",
+        "subject": "={{ $json.omd_subject }}",
+        "message": "={{ $json.omd_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-2736, 2912],
+      "id": "b9d1177f-2cac-4088-86c9-6c57f5bec041",
+      "name": "Email: OMD1",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "webhookId": "a8529ac9-495f-440c-919f-47a7e2a0c48b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "T4vLKjllqtFr4sYi",
+          "name": "Gmail account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "cyril@boonz.me",
+        "subject": "={{ $json.iris_subject }}",
+        "message": "={{ $json.iris_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-2736, 3120],
+      "id": "af25bbc4-e622-45f4-b9cb-a5ba5e212ca5",
+      "name": "Email: IRIS1",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "webhookId": "d52a08de-eea7-432d-a7d9-28018880e3b3",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "T4vLKjllqtFr4sYi",
+          "name": "Gmail account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "### FETCH: 3 Weimi API calls (prices, devices, orders)\nIdentical auth pattern as original workflow.\nCredentials from n8n Variables.",
+        "height": 100,
+        "width": 500
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-4160, 1968],
+      "id": "d1a728a8-1cce-49a0-abda-ae7b7e625c12",
+      "name": "Note: Fetch1"
+    },
+    {
+      "parameters": {
+        "content": "### TRANSFORM + DB + REPORTS\nSingle code node builds ALL reports.\n72 nodes → 30 nodes.\nSupabase upsert runs in parallel.",
+        "height": 100,
+        "width": 500
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-4112, 2304],
+      "id": "37fa91bb-192a-4fe4-b01d-6e97d758abc2",
+      "name": "Note: Reports1"
+    },
+    {
+      "parameters": {
+        "content": "### SEND: 6 emails + 1 Telegram\nVOXMCC → MAF MCC team\nVOXMM → MAF MM team\nALLMCC → superset (all MCC machines, incl. VOXMCC) — test recipient\nOMD → cyril\nIRIS → cyril\nAll → cyril + raffy\nTelegram → 7707049890",
+        "height": 160,
+        "width": 300
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-2768, 2000],
+      "id": "4bb1cac5-a0b1-4be6-bc16-a84c11bcce0f",
+      "name": "Note: Send1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (!items.length) return [{ json: { p_items: [] } }];\n\nconst payload = items.map(i => ({\n  internal_txn_sn: i.json['Internal transaction S/N'],\n  machine_name: i.json['Machine Name'],\n  product_name: i.json['Product name'],\n  unit_price: String(i.json['Unit Price']),\n  qty: String(i.json['Qty']),\n  paid_amount: String(i.json['Paid amount']),\n  total_amount: String(i.json['Total amount']),\n  delivery_status: i.json['Delivery status'],\n  time: i.json['Time'],\n  item_rank: i.json['Item Rank']\n}));\n\nreturn [{ json: { p_items: payload } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-3120, 2912],
+      "id": "5fc35f2c-0035-42aa-8319-1ecdc2855fbf",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://eizcexopcuoycuosittm.supabase.co/rest/v1/rpc/upsert_daily_sales",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpMultipleHeadersAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [-2960, 2912],
+      "id": "07a87757-01f7-4a6b-85a8-893c295636cc",
+      "name": "Supabase Upsert1",
+      "credentials": {
+        "httpMultipleHeadersAuth": {
+          "id": "9PoVwQo9QWWDOMPo",
+          "name": "Multiple Headers Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "cyril@boonz.me;juliet.castillo@maf.ae;mmd.management@maf.ae;heena.ajaz@maf.ae",
+        "subject": "={{ $json.voxmm_subject }}",
+        "message": "={{ $json.voxmm_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-2736, 2720],
+      "id": "f649c0cd-aa65-4467-971e-8af468711350",
+      "name": "Email: VOXMM1",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "webhookId": "bd6aa6c2-b937-401a-a955-b017ecdabc2f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "T4vLKjllqtFr4sYi",
+          "name": "Gmail account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "simran.jeet@maf.ae;cyril@boonz.me;mcc.management@maf.ae;angelica.cayetano@maf.ae;Hussam.Elakabawy@maf.ae",
+        "subject": "={{ $json.voxmcc_subject }}",
+        "message": "={{ $json.voxmcc_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-2736, 2528],
+      "id": "d477d58e-2aec-42b1-ab3b-83e23aaa8902",
+      "name": "Email: VOXMCC1",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "webhookId": "ad8ce9e5-ed24-4298-9579-abec9edfae86",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "T4vLKjllqtFr4sYi",
+          "name": "Gmail account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "cyril@boonz.me",
+        "subject": "={{ $json.allmcc_subject }}",
+        "message": "={{ $json.allmcc_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-2736, 3328],
+      "id": "c3e7f0a1-9b2d-4e8c-8f11-aa1e7c6d0b42",
+      "name": "Email: ALLMCC1",
+      "alwaysOutputData": true,
+      "executeOnce": true,
+      "webhookId": "7a9b1c2d-3e4f-5061-7281-93a4b5c6d7e8",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "T4vLKjllqtFr4sYi",
+          "name": "Gmail account 2"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "cyril@boonz.me;raffy@boonz.me",
+        "subject": "={{ $json.all_subject }}",
+        "message": "={{ $json.all_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [-2736, 2320],
+      "id": "e0cfdec2-4031-4ce1-9d3b-c9f78f118294",
+      "name": "Email: All Machines1",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "webhookId": "733334df-372d-4103-afa6-2179bf8c40aa",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "T4vLKjllqtFr4sYi",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule 23:": {
+      "main": [
+        [
+          {
+            "node": "Config1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config1": {
+      "main": [
+        [
+          {
+            "node": "Sign Prices1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sign Devices1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Sign Orders1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Prices1": {
+      "main": [
+        [
+          {
+            "node": "Hash Prices1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Prices1": {
+      "main": [
+        [
+          {
+            "node": "Get All Prices1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Devices1": {
+      "main": [
+        [
+          {
+            "node": "Hash Devices1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Devices1": {
+      "main": [
+        [
+          {
+            "node": "Get All Devices1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Devices1": {
+      "main": [
+        [
+          {
+            "node": "Split Devices1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Devices1": {
+      "main": [
+        [
+          {
+            "node": "Filter Devices1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Orders1": {
+      "main": [
+        [
+          {
+            "node": "Hash Orders1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash Orders1": {
+      "main": [
+        [
+          {
+            "node": "Get Daily Transactions1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Daily Transactions1": {
+      "main": [
+        [
+          {
+            "node": "Split Orders1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Orders1": {
+      "main": [
+        [
+          {
+            "node": "ETL: Transform to Item Detail1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ETL: Transform to Item Detail1": {
+      "main": [
+        [
+          {
+            "node": "Build All Reports1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build All Reports1": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: All Machines1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: VOXMCC1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: VOXMM1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email: ALLMCC1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Supabase Upsert1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "a6358e1e-2490-46bc-972e-3143d061adc9",
+  "meta": {
+    "instanceId": "edfd5198d4b96a1beb7bf3eafddc33d4279b4e8a792ddc663c17b2f88c3942b9"
+  },
+  "id": "97TmWoiGxXk5OA5q",
+  "tags": []
+}

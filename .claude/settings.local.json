@@ -72,7 +72,16 @@
       "mcp__9317327f-7b25-403a-addf-077dcb3de768__execute_sql",
       "mcp__9317327f-7b25-403a-addf-077dcb3de768__apply_migration",
       "Bash(ls -la \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/\")",
-      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/\" \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/route/\")"
+      "Bash(ls \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/consumers/\" \"/Users/cyrilsemaan/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp/src/app/\\(app\\)/refill/route/\")",
+      "Bash(sed -i.bak '3131,3442d' \"src/app/\\(app\\)/app/performance/page.tsx\")",
+      "Bash(rm \"src/app/\\(app\\)/app/performance/page.tsx.bak\")",
+      "Bash(wc -l \"src/app/\\(app\\)/app/performance/page.tsx\")",
+      "Bash(npx supabase:*)",
+      "Bash(wc -l \"src/app/\\(field\\)/field/inventory/page.tsx\" \"src/app/\\(field\\)/field/components/field-header.tsx\" \"src/app/layout.tsx\")",
+      "Bash(bash git-commit-cc15.sh)",
+      "Read(//Users/cyrilsemaan/Desktop/public_html/assets/**)",
+      "Read(//Users/cyrilsemaan/Downloads/boonz-website/project/assets/**)",
+      "Read(//Users/cyrilsemaan/Downloads/boonz-website/project/uploads/**)"
     ]
   }
 }

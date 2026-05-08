@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase A · Step A2 · Before / After</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-card: #14181d;
+    --bg-card-elev: #1a1f25;
+    --bg-before: #1a1410;
+    --bg-after: #0f1a14;
+    --line: #232a32;
+    --line-soft: #1a2027;
+    --line-before: #3a2820;
+    --line-after: #1f3a2c;
+    --text: #e6ebf0;
+    --text-dim: #8a93a0;
+    --text-muted: #5b6470;
+    --accent: #6ee7b7;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --success: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; line-height: 1.55; font-size: 14px; }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "Menlo", Consolas, monospace; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; }
+
+  header.h { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 28px; }
+  header.h .eyebrow { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 8px; }
+  header.h h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header.h .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 12px; }
+  header.h .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-muted); font-size: 12px; }
+  header.h .meta strong { color: var(--text-dim); font-weight: 500; }
+
+  .banner {
+    background: rgba(52, 211, 153, 0.08);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 32px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .banner .check {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--success); color: #07090b;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px;
+    flex-shrink: 0;
+  }
+  .banner .text { flex: 1; }
+  .banner .text .title { font-size: 15px; font-weight: 500; color: var(--success); margin-bottom: 4px; }
+  .banner .text .body { color: var(--text-dim); font-size: 13.5px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 36px; }
+  .kpi { background: var(--bg-card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .kpi .label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .kpi .value { font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
+  .kpi .sub { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+
+  h2.section { font-size: 18px; margin: 36px 0 16px; letter-spacing: -0.005em; }
+  h2.section .num { color: var(--text-muted); font-weight: 400; margin-right: 8px; }
+
+  .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+  .ba .col { border-radius: 8px; padding: 18px 20px; }
+  .ba .before { background: var(--bg-before); border: 1px solid var(--line-before); }
+  .ba .after  { background: var(--bg-after);  border: 1px solid var(--line-after); }
+  .ba .col .tag { font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 10px; }
+  .ba .before .tag { color: #d97757; }
+  .ba .after  .tag { color: var(--accent); }
+  .ba .col h3 { margin: 0 0 6px; font-size: 14.5px; font-weight: 600; }
+  .ba .col p  { margin: 0 0 10px; color: var(--text-dim); font-size: 13.5px; }
+  .ba .col ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 13px; }
+  .ba .col ul li { margin: 4px 0; }
+  .ba .col .grant {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 11.5px;
+    margin: 2px 4px 2px 0;
+  }
+  .ba .before .grant { background: rgba(248, 113, 113, 0.15); color: #fca5a5; border: 1px solid rgba(248,113,113,0.3); }
+  .ba .after  .grant { background: rgba(110, 231, 183, 0.12); color: var(--accent); border: 1px solid rgba(110,231,183,0.3); }
+  .ba .after  .grant.gone { background: rgba(91, 100, 112, 0.15); color: var(--text-muted); border: 1px solid var(--line); text-decoration: line-through; }
+
+  .article-pill {
+    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 12px;
+    background: rgba(96, 165, 250, 0.12); color: var(--info); border: 1px solid rgba(96,165,250,0.3);
+    margin-right: 6px; font-weight: 500;
+  }
+
+  table.compact { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.compact th { text-align: left; color: var(--text-muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  table.compact td { padding: 10px; border-bottom: 1px solid var(--line-soft); color: var(--text-dim); }
+  table.compact td:first-child { color: var(--text); font-family: ui-monospace, monospace; font-size: 12.5px; }
+
+  .codeblock {
+    background: #0a0c0f; border: 1px solid var(--line); border-radius: 6px;
+    padding: 16px 18px; font-size: 12.5px; line-height: 1.6;
+    overflow-x: auto; color: #c5cdd4;
+  }
+  .codeblock .kw { color: #c084fc; }
+  .codeblock .fn { color: var(--accent); }
+  .codeblock .str { color: #fcd34d; }
+  .codeblock .cm { color: var(--text-muted); font-style: italic; }
+
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  .door {
+    display: flex; align-items: stretch; gap: 0;
+    margin: 14px 0;
+    border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .door .lane { flex: 1; padding: 14px 16px; }
+  .door .lane.label { background: var(--bg-card-elev); flex: 0 0 130px; border-right: 1px solid var(--line); color: var(--text-dim); font-size: 12px; }
+  .door .lane.before { background: var(--bg-before); border-right: 1px solid var(--line); }
+  .door .lane.after { background: var(--bg-after); }
+  .door .lane .cap { font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 6px; }
+  .door .lane.before .cap { color: #d97757; }
+  .door .lane.after  .cap { color: var(--accent); }
+  .door .lane .body { font-size: 13px; color: var(--text); }
+  .door .lane .body .x { color: var(--danger); }
+  .door .lane .body .ok { color: var(--success); }
+
+  footer.f { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--text-muted); font-size: 11.5px; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="h">
+    <div class="eyebrow">Phase A · Step A2 · Backend Constitution</div>
+    <h1>Closing the side door on legacy machine rename</h1>
+    <div class="subtitle">Deprecating <code>rename_machine_in_place_legacy</code> by reduction of privilege — not deletion. The function stays in place; the front door (FE / API) loses its key. Calendar reminder: full DROP on 2026-07-24.</div>
+    <div class="meta">
+      <span><strong>Migration:</strong> <code>phaseA_a2_deprecate_rename_machine_legacy</code></span>
+      <span><strong>Applied:</strong> 2026-04-25</span>
+      <span><strong>Articles:</strong> <span class="article-pill">Article 13</span> <span class="article-pill">Article 1</span></span>
+      <span><strong>Reviewed by:</strong> Cody</span>
+    </div>
+  </header>
+
+  <div class="banner">
+    <div class="check">✓</div>
+    <div class="text">
+      <div class="title">Approved and applied</div>
+      <div class="body">Caller scan returned zero. Function moved to <code>SECURITY INVOKER</code>. <code>EXECUTE</code> revoked from <code>anon</code> and <code>authenticated</code>. <code>service_role</code> retains EXECUTE through the 90-day monitor window. Zero rows mutated. Zero FE behavior change.</div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi">
+      <div class="label">FE callers blocked</div>
+      <div class="value">2</div>
+      <div class="sub"><code>anon</code> + <code>authenticated</code></div>
+    </div>
+    <div class="kpi">
+      <div class="label">Code references found</div>
+      <div class="value">0</div>
+      <div class="sub">src · engines · n8n · cron · triggers</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Rows mutated</div>
+      <div class="value">0</div>
+      <div class="sub">Privilege change only</div>
+    </div>
+    <div class="kpi">
+      <div class="label">Days to scheduled DROP</div>
+      <div class="value">90</div>
+      <div class="sub">2026-07-24 if zero invocations</div>
+    </div>
+  </div>
+
+  <h2 class="section"><span class="num">01</span>The metaphor</h2>
+  <div class="ba">
+    <div class="col before">
+      <div class="tag">BEFORE</div>
+      <h3>A working spare key under the doormat</h3>
+      <p>Anyone with a session token (<code>authenticated</code>) could walk in through the back door and call the legacy rename function. <code>SECURITY DEFINER</code> meant it ran as the database owner — full bypass of RLS — even if the canonical replacement <code>repurpose_machine</code> already existed.</p>
+      <ul>
+        <li>The function was <strong>still capable of writing</strong> to <code>machines</code> with no role check.</li>
+        <li>If a forgotten FE bookmark or a third-party script still hit this RPC, the rename would succeed silently.</li>
+        <li>Two write paths to <code>machines</code> existed for the same business operation — a violation of Article 1.</li>
+      </ul>
+    </div>
+    <div class="col after">
+      <div class="tag">AFTER</div>
+      <h3>Spare key removed; door welded for FE; manager-only override</h3>
+      <p>The function is now <code>SECURITY INVOKER</code>, and <code>EXECUTE</code> has been revoked from both <code>anon</code> and <code>authenticated</code>. The FE cannot call it. <code>service_role</code> keeps EXECUTE for the 90-day monitor as an emergency escape — visible in the migration log if anyone uses it.</p>
+      <ul>
+        <li><strong>One write path</strong> to <code>machines</code> for identity transitions: <code>repurpose_machine</code>.</li>
+        <li>Function comment now reads <code>DEPRECATED 2026-04-25</code> with the scheduled DROP date.</li>
+        <li>Calendar reminder for 2026-07-24: revoke <code>service_role</code> EXECUTE, then DROP.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 class="section"><span class="num">02</span>What changed in <code>pg_proc</code></h2>
+  <table class="compact">
+    <thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>prosecdef</td>
+        <td>true (DEFINER)</td>
+        <td>false (INVOKER)</td>
+      </tr>
+      <tr>
+        <td>EXECUTE grants</td>
+        <td>
+          <span class="grant" style="background:rgba(248,113,113,0.15);color:#fca5a5;border:1px solid rgba(248,113,113,0.3)">postgres</span>
+          <span class="grant" style="background:rgba(248,113,113,0.15);color:#fca5a5;border:1px solid rgba(248,113,113,0.3)">anon</span>
+          <span class="grant" style="background:rgba(248,113,113,0.15);color:#fca5a5;border:1px solid rgba(248,113,113,0.3)">authenticated</span>
+          <span class="grant" style="background:rgba(248,113,113,0.15);color:#fca5a5;border:1px solid rgba(248,113,113,0.3)">service_role</span>
+        </td>
+        <td>
+          <span class="grant" style="background:rgba(110,231,183,0.12);color:#6ee7b7;border:1px solid rgba(110,231,183,0.3)">postgres</span>
+          <span class="grant" style="background:rgba(91,100,112,0.15);color:#5b6470;border:1px solid #232a32;text-decoration:line-through">anon</span>
+          <span class="grant" style="background:rgba(91,100,112,0.15);color:#5b6470;border:1px solid #232a32;text-decoration:line-through">authenticated</span>
+          <span class="grant" style="background:rgba(110,231,183,0.12);color:#6ee7b7;border:1px solid rgba(110,231,183,0.3)">service_role</span>
+        </td>
+      </tr>
+      <tr>
+        <td>Comment</td>
+        <td><span style="color:#fca5a5">"LEGACY: ... Use only for backwards-compat with existing field PWA flows."</span></td>
+        <td><span style="color:#6ee7b7">"DEPRECATED 2026-04-25 ... DROP scheduled for 2026-07-24."</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="section"><span class="num">03</span>Effective access by role</h2>
+
+  <div class="door">
+    <div class="lane label">FE user (<code>authenticated</code>)</div>
+    <div class="lane before">
+      <div class="cap">BEFORE</div>
+      <div class="body"><span class="ok">✓</span> Can call. Function runs as DB owner. Writes <code>machines</code>, <code>slots</code>, <code>slot_lifecycle</code>, <code>planogram</code>.</div>
+    </div>
+    <div class="lane after">
+      <div class="cap">AFTER</div>
+      <div class="body"><span class="x">✗</span> Permission denied at the EXECUTE check. No row mutation possible.</div>
+    </div>
+  </div>
+
+  <div class="door">
+    <div class="lane label">Anon visitor (<code>anon</code>)</div>
+    <div class="lane before">
+      <div class="cap">BEFORE</div>
+      <div class="body"><span class="ok">✓</span> Held EXECUTE. Reachable from any unauthenticated session.</div>
+    </div>
+    <div class="lane after">
+      <div class="cap">AFTER</div>
+      <div class="body"><span class="x">✗</span> Permission denied.</div>
+    </div>
+  </div>
+
+  <div class="door">
+    <div class="lane label">n8n / edge fn (<code>service_role</code>)</div>
+    <div class="lane before">
+      <div class="cap">BEFORE</div>
+      <div class="body"><span class="ok">✓</span> Held EXECUTE. Could call.</div>
+    </div>
+    <div class="lane after">
+      <div class="cap">AFTER</div>
+      <div class="body"><span class="ok">✓</span> Still holds EXECUTE — escape hatch for the 90-day monitor. Will be revoked on 2026-07-24.</div>
+    </div>
+  </div>
+
+  <h2 class="section"><span class="num">04</span>The migration that made it happen</h2>
+  <div class="codeblock"><span class="cm">-- Phase A.2 — deprecate rename_machine_in_place_legacy
+-- Constitution Article 13: deprecation by reduction of privilege, not by DROP.
+-- Constitution Article 1: canonical replacement is repurpose_machine.
+-- Caller scan (2026-04-25): zero callers in src, engines, scripts, n8n, cron, triggers, or other DEFINERs.</span>
+
+<span class="kw">ALTER FUNCTION</span> public.<span class="fn">rename_machine_in_place_legacy</span>(uuid, text, text, text, text, boolean, date, text)
+  <span class="kw">SECURITY INVOKER</span>;
+
+<span class="kw">REVOKE EXECUTE ON FUNCTION</span> public.<span class="fn">rename_machine_in_place_legacy</span>(uuid, text, text, text, text, boolean, date, text)
+  <span class="kw">FROM</span> PUBLIC, anon, authenticated;
+
+<span class="kw">COMMENT ON FUNCTION</span> public.<span class="fn">rename_machine_in_place_legacy</span>(uuid, text, text, text, text, boolean, date, text) <span class="kw">IS</span>
+  <span class="str">'DEPRECATED 2026-04-25 (Phase A.2). Replaced by repurpose_machine. ...'</span>;</div>
+
+  <h2 class="section"><span class="num">05</span>Rollback (if needed before 2026-07-24)</h2>
+  <div class="codeblock"><span class="kw">ALTER FUNCTION</span> public.<span class="fn">rename_machine_in_place_legacy</span>(uuid, text, text, text, text, boolean, date, text)
+  <span class="kw">SECURITY DEFINER</span>;
+
+<span class="kw">GRANT EXECUTE ON FUNCTION</span> public.<span class="fn">rename_machine_in_place_legacy</span>(uuid, text, text, text, text, boolean, date, text)
+  <span class="kw">TO</span> anon, authenticated;
+
+<span class="kw">COMMENT ON FUNCTION</span> public.<span class="fn">rename_machine_in_place_legacy</span>(uuid, text, text, text, text, boolean, date, text) <span class="kw">IS</span>
+  <span class="str">'LEGACY: Older rename-in-place pattern...'</span>;</div>
+
+  <h2 class="section"><span class="num">06</span>What's next</h2>
+  <div class="twocol">
+    <div class="ba" style="margin-bottom:0;display:block">
+      <div class="col after" style="background:var(--bg-card);border-color:var(--line)">
+        <div class="tag" style="color:var(--info)">A.3 — UP NEXT</div>
+        <h3>Build the universal audit ledger</h3>
+        <p>Create <code>write_audit_log</code> table (RLS append-only), <code>audit_log_write()</code> helper, and the generic <code>trg_protected_write_audit</code> trigger. After A.4 installs the trigger, every protected-table write — whether via canonical RPC or direct (which we still don't block in Phase A) — leaves a fingerprint we can read.</p>
+        <ul><li>Articles: 7, 8</li><li>Tables touched: 0 (creates new <code>write_audit_log</code>)</li></ul>
+      </div>
+    </div>
+    <div class="ba" style="margin-bottom:0;display:block">
+      <div class="col after" style="background:var(--bg-card);border-color:var(--line)">
+        <div class="tag" style="color:var(--warn)">CALENDAR</div>
+        <h3>2026-07-24 — DROP the legacy function</h3>
+        <p>If the 90-day monitor window passes with zero invocations from <code>service_role</code>, revoke its EXECUTE and DROP the function. Update RPC_REGISTRY (move from "Deprecated" to gone), CHANGELOG entry, and confirm in Supabase migrations.</p>
+        <ul><li>Articles: 13</li><li>Watch: <code>pg_stat_user_functions</code> row for <code>rename_machine_in_place_legacy</code></li></ul>
+      </div>
+    </div>
+  </div>
+
+  <footer class="f">
+    <div>Phase A · Step 2 of 7 · Boonz Backend Reform</div>
+    <div>Reviewed by Cody · Applied 2026-04-25</div>
+  </footer>
+</div>
+</body>
+</html>

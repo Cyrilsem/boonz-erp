@@ -1,0 +1,1003 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Boonz ERP – QA Test Report · April 18, 2026</title>
+    <style>
+      :root {
+        --brand: #0369a1;
+        --dark: #0f172a;
+        --mid: #475569;
+        --light: #94a3b8;
+        --border: #cbd5e1;
+        --bg: #f8fafc;
+        --green: #16a34a;
+        --green-l: #dcfce7;
+        --red: #dc2626;
+        --red-l: #fee2e2;
+        --amber: #d97706;
+        --amber-l: #fef3c7;
+        --blue-l: #dbeafe;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 10pt;
+        color: var(--dark);
+        background: #fff;
+        line-height: 1.55;
+      }
+      @media print {
+        .no-print {
+          display: none !important;
+        }
+        .page-break {
+          page-break-after: always;
+        }
+        @page {
+          size: A4;
+          margin: 12mm 15mm;
+        }
+      }
+      .page {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 28px 24px;
+      }
+      .print-btn {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        background: var(--brand);
+        color: #fff;
+        border: none;
+        padding: 9px 18px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      /* Cover */
+      .cover-bar {
+        background: var(--brand);
+        color: #fff;
+        padding: 18px 22px;
+        border-radius: 8px;
+        margin-bottom: 22px;
+      }
+      .cover-bar .logo {
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+      }
+      .cover-bar .sub {
+        font-size: 10px;
+        opacity: 0.75;
+      }
+      h1.report-title {
+        font-size: 26px;
+        font-weight: 800;
+        color: var(--dark);
+        margin-bottom: 4px;
+      }
+      .report-sub {
+        font-size: 12px;
+        color: var(--mid);
+        margin-bottom: 18px;
+      }
+
+      /* Scorecard */
+      .scorecard {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin: 18px 0;
+      }
+      .score-card {
+        border-radius: 8px;
+        padding: 14px 16px;
+        border: 1px solid;
+      }
+      .score-card .num {
+        font-size: 28px;
+        font-weight: 800;
+      }
+      .score-card .lbl {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 2px;
+      }
+      .sc-pass {
+        background: var(--green-l);
+        border-color: var(--green) !important;
+        color: var(--green);
+      }
+      .sc-fail {
+        background: var(--red-l);
+        border-color: var(--red) !important;
+        color: var(--red);
+      }
+      .sc-open {
+        background: var(--amber-l);
+        border-color: var(--amber) !important;
+        color: var(--amber);
+      }
+      .sc-total {
+        background: var(--blue-l);
+        border-color: var(--brand) !important;
+        color: var(--brand);
+      }
+
+      hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 20px 0;
+      }
+      h2 {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--brand);
+        margin: 24px 0 10px;
+      }
+      h3 {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--dark);
+        margin: 14px 0 6px;
+      }
+      p {
+        margin-bottom: 8px;
+        font-size: 9.5pt;
+      }
+
+      /* Bug cards */
+      .bug-card {
+        border-radius: 8px;
+        border: 1.5px solid var(--red);
+        padding: 14px 16px;
+        margin: 10px 0;
+        background: var(--red-l);
+      }
+      .bug-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .bug-id {
+        background: var(--red);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 800;
+        padding: 3px 8px;
+        border-radius: 10px;
+      }
+      .bug-title {
+        font-weight: 700;
+        font-size: 11px;
+        color: var(--dark);
+      }
+      .bug-note {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-size: 9pt;
+        font-style: italic;
+        color: var(--mid);
+        margin: 6px 0;
+      }
+      .bug-note::before {
+        content: '"';
+        margin-right: 2px;
+      }
+      .bug-note::after {
+        content: '"';
+        margin-left: 2px;
+      }
+      .bug-analysis {
+        font-size: 9pt;
+        color: var(--dark);
+        margin-top: 6px;
+      }
+      .fix-box {
+        background: #fff;
+        border-left: 3px solid var(--brand);
+        padding: 8px 12px;
+        margin-top: 8px;
+        font-size: 9pt;
+      }
+      .fix-box strong {
+        color: var(--brand);
+      }
+
+      /* Doubt/warning card */
+      .warn-card {
+        border-radius: 8px;
+        border: 1.5px solid var(--amber);
+        padding: 14px 16px;
+        margin: 10px 0;
+        background: var(--amber-l);
+      }
+      .warn-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .warn-id {
+        background: var(--amber);
+        color: #fff;
+        font-size: 9px;
+        font-weight: 800;
+        padding: 3px 8px;
+        border-radius: 10px;
+      }
+      .warn-title {
+        font-weight: 700;
+        font-size: 11px;
+        color: var(--dark);
+      }
+
+      /* Module results table */
+      .results-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+        font-size: 9pt;
+      }
+      .results-table th {
+        background: var(--brand);
+        color: #fff;
+        padding: 7px 10px;
+        text-align: left;
+      }
+      .results-table td {
+        padding: 6px 10px;
+        border: 1px solid var(--border);
+      }
+      .results-table tr:nth-child(even) td {
+        background: var(--bg);
+      }
+      .results-table .section td {
+        background: var(--blue-l);
+        font-weight: 700;
+        color: var(--brand);
+      }
+      .pass {
+        color: var(--green);
+        font-weight: 700;
+      }
+      .fail {
+        color: var(--red);
+        font-weight: 700;
+      }
+      .open {
+        color: var(--amber);
+        font-weight: 700;
+      }
+      .tag-pass {
+        background: var(--green-l);
+        color: var(--green);
+        padding: 2px 7px;
+        border-radius: 10px;
+        font-size: 8px;
+        font-weight: 700;
+      }
+      .tag-fail {
+        background: var(--red-l);
+        color: var(--red);
+        padding: 2px 7px;
+        border-radius: 10px;
+        font-size: 8px;
+        font-weight: 700;
+      }
+      .tag-open {
+        background: var(--amber-l);
+        color: var(--amber);
+        padding: 2px 7px;
+        border-radius: 10px;
+        font-size: 8px;
+        font-weight: 700;
+      }
+      .tag-doubt {
+        background: var(--blue-l);
+        color: var(--brand);
+        padding: 2px 7px;
+        border-radius: 10px;
+        font-size: 8px;
+        font-weight: 700;
+      }
+
+      .action-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+        font-size: 9pt;
+      }
+      .action-table th {
+        background: var(--dark);
+        color: #fff;
+        padding: 7px 10px;
+        text-align: left;
+      }
+      .action-table td {
+        padding: 7px 10px;
+        border: 1px solid var(--border);
+        vertical-align: top;
+      }
+      .action-table tr:nth-child(even) td {
+        background: var(--bg);
+      }
+      .priority-high {
+        color: var(--red);
+        font-weight: 700;
+      }
+      .priority-med {
+        color: var(--amber);
+        font-weight: 700;
+      }
+
+      .info-box {
+        background: var(--blue-l);
+        border-left: 4px solid var(--brand);
+        padding: 10px 14px;
+        border-radius: 4px;
+        font-size: 9pt;
+        margin: 8px 0;
+      }
+      .footer-note {
+        text-align: center;
+        color: var(--mid);
+        font-size: 8pt;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <button class="print-btn no-print" onclick="window.print()">
+      🖨 Print / Save as PDF
+    </button>
+    <div class="page">
+      <!-- COVER -->
+      <div class="cover-bar">
+        <div class="logo">BOONZ</div>
+        <div class="sub">Smart Vending ERP · QA Test Report</div>
+      </div>
+      <h1 class="report-title">Field App QA — Test Session Report</h1>
+      <div class="report-sub">
+        Tester: Simran Purusharthi &nbsp;·&nbsp; Date: April 18, 2026
+        &nbsp;·&nbsp; App: boonz-erp.vercel.app/field
+      </div>
+
+      <!-- SCORECARD -->
+      <div class="scorecard">
+        <div class="score-card sc-total">
+          <div class="num">38</div>
+          <div class="lbl">Total TCs</div>
+        </div>
+        <div class="score-card sc-pass">
+          <div class="num">31</div>
+          <div class="lbl">Passed (81.6%)</div>
+        </div>
+        <div class="score-card sc-fail">
+          <div class="num">3</div>
+          <div class="lbl">Failed</div>
+        </div>
+        <div class="score-card sc-open">
+          <div class="num">4</div>
+          <div class="lbl">Not run</div>
+        </div>
+      </div>
+
+      <div class="info-box">
+        <strong>Simran's summary:</strong> "Everything is working fine overall.
+        However, there are a few points where I've added comments. The ones
+        marked as FAIL are not allowing me to proceed, so those need to be
+        checked. Also, the procurement scenarios I need to test are currently
+        not available here — I have doubts."
+      </div>
+
+      <hr />
+
+      <!-- BUGS SECTION -->
+      <h2>🔴 Confirmed Bugs — 3 Issues to Fix</h2>
+
+      <div class="bug-card">
+        <div class="bug-header">
+          <span class="bug-id">BUG-1 · B-04</span>
+          <span class="bug-title">Qty Adjust to Zero — Not Saving</span>
+          <span
+            style="
+              margin-left: auto;
+              font-size: 8.5px;
+              color: var(--red);
+              font-weight: 700;
+            "
+            >MODULE B: PACKING · /field/packing/[id]</span
+          >
+        </div>
+        <div class="bug-note">
+          While editing pickup qty, its not saving 0 as pick up qty
+        </div>
+        <div class="bug-analysis">
+          <strong>What she tested:</strong> Set the pick quantity to 0 in the
+          packing detail screen and tapped "Packed" — the value was not
+          persisting as 0. <br /><br />
+          <strong>Likely root cause:</strong> The packing form may treat qty=0
+          as falsy/empty and either revert to the original quantity or block the
+          save. This is a validation or mutation issue in the packing
+          confirmation logic. Check if the <code>refill_dispatching</code> row
+          update rejects zero-quantity writes.
+        </div>
+        <div class="fix-box">
+          <strong>To investigate:</strong> Check the packing detail mutation
+          handler — the code likely has a guard like
+          <code>if (!qty) return</code> that filters out 0 as falsy. Change to
+          <code>if (qty === undefined || qty === null) return</code>. Also check
+          if Supabase RLS or a DB constraint rejects <code>qty = 0</code> on
+          <code>refill_dispatching</code>.
+        </div>
+      </div>
+
+      <div class="bug-card">
+        <div class="bug-header">
+          <span class="bug-id">BUG-2 · F-01</span>
+          <span class="bug-title"
+            >Zigi Sea Salted Not Appearing — Default Inventory View</span
+          >
+          <span
+            style="
+              margin-left: auto;
+              font-size: 8.5px;
+              color: var(--red);
+              font-weight: 700;
+            "
+            >MODULE F: INVENTORY · /field/inventory</span
+          >
+        </div>
+        <div class="bug-note">Zigi is not showing</div>
+        <div class="bug-analysis">
+          <strong>What she tested:</strong> Default inventory view (Active
+          filter, &lt;=7 days expiry) — Zigi Sea Salted (seeded with expiry 18
+          Apr 2026 = today) is not visible. <br /><br />
+          <strong>Likely root cause:</strong> The item expires
+          <em>today</em> (Apr 18). The query likely uses
+          <code>expiration_date &lt; CURRENT_DATE</code> for "expired" (strictly
+          less than = yesterday or earlier), meaning today's items fall in a
+          grey zone — not yet in "expired" and also not in "active near-expiry."
+          The <code>expiry_warning</code> column on the seeded row is
+          <code>NULL</code> (not <code>'expired'</code>), so it does not match
+          the Expired filter either.
+        </div>
+        <div class="fix-box">
+          <strong>To investigate:</strong> Run
+          <code
+            >SELECT id, product_name, expiration_date, expiry_warning,
+            qty_in_stock FROM warehouse_inventory WHERE product_name ILIKE
+            '%zigi%';</code
+          >
+          to confirm the row exists and check its
+          <code>expiry_warning</code> value. The inventory query likely needs
+          <code>expiration_date &lt;= CURRENT_DATE</code> for the expired filter
+          (inclusive of today). Also verify the item wasn't consumed by the
+          dispatching workflow.
+        </div>
+      </div>
+
+      <div class="bug-card">
+        <div class="bug-header">
+          <span class="bug-id">BUG-3 · F-02</span>
+          <span class="bug-title">Expired Filter — Not Showing Items</span>
+          <span
+            style="
+              margin-left: auto;
+              font-size: 8.5px;
+              color: var(--red);
+              font-weight: 700;
+            "
+            >MODULE F: INVENTORY · /field/inventory</span
+          >
+        </div>
+        <div class="bug-note">Its not showing</div>
+        <div class="bug-analysis">
+          <strong>What she tested:</strong> Tapped the "Expired" filter pill in
+          inventory — no items appeared (expected: Mezzmix Chocolate + Zigi Sea
+          Salted). <br /><br />
+          <strong>Likely root cause:</strong> Same boundary issue as BUG-2.
+          Additionally, Mezzmix Chocolate (seeded expiry 9 Apr) should
+          definitely be showing — if neither item appears under "Expired," the
+          filter query may have a deeper issue, possibly the
+          <code>expiry_warning = 'expired'</code> column filter is being used
+          instead of date comparison, and neither seeded row has
+          <code>expiry_warning = 'expired'</code> set (both were seeded with
+          <code>NULL</code>).
+        </div>
+        <div class="fix-box">
+          <strong>To investigate:</strong> Run
+          <code
+            >SELECT product_name, expiration_date, expiry_warning FROM
+            warehouse_inventory WHERE expiration_date &lt;= CURRENT_DATE;</code
+          >
+          — if rows exist here but the Expired filter shows nothing, the UI
+          query is using <code>expiry_warning = 'expired'</code> instead of date
+          comparison. Either update the seed data to set
+          <code>expiry_warning = 'expired'</code> on those rows, or fix the
+          filter query to compare against <code>expiration_date</code> directly.
+        </div>
+      </div>
+
+      <hr />
+
+      <!-- DOUBTS SECTION -->
+      <h2>🟡 Open Items &amp; Doubts — Needs Follow-up</h2>
+
+      <div class="warn-card">
+        <div class="warn-header">
+          <span class="warn-id">DOUBT · Module D</span>
+          <span class="warn-title"
+            >Procurement Scenarios — "Not available, I have doubts"</span
+          >
+        </div>
+        <p>
+          <strong>Simran flagged:</strong> All 6 Module D tests (D-01 through
+          D-06) are logged as PASS in the Excel, but she explicitly noted that
+          "procurement scenarios I need to test are currently not available
+          here." This means she likely marked PASS without being able to fully
+          validate some scenarios.
+        </p>
+        <p><strong>Most likely gaps:</strong></p>
+        <ul style="margin: 4px 0 8px 18px; font-size: 9.5pt">
+          <li>
+            <strong>D-05</strong> (PO with Zero Qty) — requires creating a new
+            PO and testing validation, which may require Operator Admin access
+            or the UI doesn't surface the validation clearly.
+          </li>
+          <li>
+            <strong>D-06</strong> (PO-TEST-002 No Receive Button) — she may not
+            have noticed PO-TEST-002 in the All Orders tab since it's already
+            received.
+          </li>
+          <li>
+            General: she may have been uncertain about whether changes she made
+            (receiving PO-TEST-001) affected later tests (E-01 to E-08 were all
+            marked PASS, suggesting she did complete receiving — this is
+            positive).
+          </li>
+        </ul>
+        <div class="fix-box">
+          <strong>Action:</strong> Schedule a 30-min call with Simran to walk
+          through Module D tests D-05 and D-06 specifically, and confirm she saw
+          PO-TEST-002 in the All Orders tab. Verify DB state:
+          <code
+            >SELECT po_number, status FROM purchase_orders WHERE po_number IN
+            (9001, 9002);</code
+          >
+        </div>
+      </div>
+
+      <div class="warn-card">
+        <div class="warn-header">
+          <span class="warn-id">NOT RUN · 4 TCs</span>
+          <span class="warn-title">A-03, C-06, F-04, F-05 — Not Tested</span>
+        </div>
+        <ul style="margin: 4px 0 8px 18px; font-size: 9.5pt">
+          <li>
+            <strong>A-03</strong> (Dashboard Procurement) — Left blank. Likely
+            an oversight; should be a quick recheck.
+          </li>
+          <li>
+            <strong>C-06</strong> (Dispatch Without Pickup) — Edge case, not
+            tested. Low priority but should be logged.
+          </li>
+          <li>
+            <strong>F-04</strong> (Inventory Search) — Not tested. Could be
+            because she stopped after finding F-01/F-02 bugs.
+          </li>
+          <li>
+            <strong>F-05</strong> (Inventory Control Button) — Not tested. Same
+            reason.
+          </li>
+        </ul>
+      </div>
+
+      <hr />
+
+      <!-- FULL RESULTS TABLE -->
+      <h2>📋 Full Test Results by Module</h2>
+
+      <table class="results-table">
+        <tr>
+          <th style="width: 60px">TC ID</th>
+          <th>Test Name</th>
+          <th style="width: 80px">Status</th>
+          <th>Notes</th>
+        </tr>
+
+        <tr class="section">
+          <td colspan="4">MODULE A — Dashboard</td>
+        </tr>
+        <tr>
+          <td>A-01</td>
+          <td>Dashboard Load</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>A-02</td>
+          <td>Dashboard Refill Count</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>A-03</td>
+          <td>Dashboard Procurement</td>
+          <td><span class="tag-open">NOT RUN</span></td>
+          <td>Left blank — oversight</td>
+        </tr>
+
+        <tr class="section">
+          <td colspan="4">MODULE B — Packing</td>
+        </tr>
+        <tr>
+          <td>B-01</td>
+          <td>Packing List - 3 Machines</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>B-02</td>
+          <td>FIFO Batch Order (HUAWEI)</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>30 Apr batch correctly first</td>
+        </tr>
+        <tr>
+          <td>B-03</td>
+          <td>Multi-Batch Pick (Be-kind Bar)</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr style="background: var(--red-l)">
+          <td>B-04</td>
+          <td>Qty Adjust to Zero</td>
+          <td><span class="tag-fail">FAIL</span></td>
+          <td>
+            "While editing pickup qty, its not saving 0 as pick up qty" → BUG-1
+          </td>
+        </tr>
+        <tr>
+          <td>B-05</td>
+          <td>SWAP Row (OMDCW)</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>B-06</td>
+          <td>Confirm Button Activates</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>B-07</td>
+          <td>Confirm Packing</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>B-08</td>
+          <td>Dashboard Counter Update</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>B-09</td>
+          <td>Skip Shelf (USH)</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>B-10</td>
+          <td>Overpick Edge Case</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+
+        <tr class="section">
+          <td colspan="4">MODULE C — Pickup &amp; Dispatching</td>
+        </tr>
+        <tr>
+          <td>C-01</td>
+          <td>Pickup Before Packing</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>C-02</td>
+          <td>Pickup After All Packed</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>C-03</td>
+          <td>Mark Picked Up</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>C-04</td>
+          <td>Dispatch Page Active</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>C-05</td>
+          <td>Mark Dispatched</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>C-06</td>
+          <td>Dispatch Without Pickup (edge)</td>
+          <td><span class="tag-open">NOT RUN</span></td>
+          <td>Edge case not tested</td>
+        </tr>
+
+        <tr class="section">
+          <td colspan="4">MODULE D — Purchase Orders</td>
+        </tr>
+        <tr>
+          <td>D-01</td>
+          <td>Create New PO</td>
+          <td><span class="tag-doubt">PASS*</span></td>
+          <td>
+            Marked PASS — Simran flagged doubts on procurement availability
+          </td>
+        </tr>
+        <tr>
+          <td>D-02</td>
+          <td>Pending Tab Filter</td>
+          <td><span class="tag-doubt">PASS*</span></td>
+          <td>Marked PASS*</td>
+        </tr>
+        <tr>
+          <td>D-03</td>
+          <td>All Orders Tab</td>
+          <td><span class="tag-doubt">PASS*</span></td>
+          <td>Marked PASS*</td>
+        </tr>
+        <tr>
+          <td>D-04</td>
+          <td>Tap Receive Button</td>
+          <td><span class="tag-doubt">PASS*</span></td>
+          <td>Marked PASS*</td>
+        </tr>
+        <tr>
+          <td>D-05</td>
+          <td>PO with Zero Qty (edge)</td>
+          <td><span class="tag-doubt">PASS*</span></td>
+          <td>Marked PASS* — needs verification</td>
+        </tr>
+        <tr>
+          <td>D-06</td>
+          <td>PO-TEST-002 No Receive Button</td>
+          <td><span class="tag-doubt">PASS*</span></td>
+          <td>Marked PASS* — needs verification</td>
+        </tr>
+
+        <tr class="section">
+          <td colspan="4">MODULE E — Receiving</td>
+        </tr>
+        <tr>
+          <td>E-01</td>
+          <td>Receiving List Shows PO</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-02</td>
+          <td>Receiving Form 3 Lines</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-03</td>
+          <td>Fill &amp; Confirm Receiving</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-04</td>
+          <td>PO Disappears After Confirm</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-05</td>
+          <td>New Batch in Inventory</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-06</td>
+          <td>Multi-Batch Receive</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-07</td>
+          <td>Partial Receive (qty=0)</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>E-08</td>
+          <td>Past Expiry Date</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+
+        <tr class="section">
+          <td colspan="4">MODULE F — Inventory</td>
+        </tr>
+        <tr style="background: var(--red-l)">
+          <td>F-01</td>
+          <td>Default View Near-Expiry</td>
+          <td><span class="tag-fail">FAIL</span></td>
+          <td>"Zigi is not showing" → BUG-2</td>
+        </tr>
+        <tr style="background: var(--red-l)">
+          <td>F-02</td>
+          <td>Expired Filter</td>
+          <td><span class="tag-fail">FAIL</span></td>
+          <td>"Its not showing" → BUG-3 (same root cause as BUG-2)</td>
+        </tr>
+        <tr>
+          <td>F-03</td>
+          <td>&lt;=30 Days Filter</td>
+          <td><span class="tag-pass">PASS</span></td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>F-04</td>
+          <td>Search Filter</td>
+          <td><span class="tag-open">NOT RUN</span></td>
+          <td>Not tested (likely stopped after F-02 fail)</td>
+        </tr>
+        <tr>
+          <td>F-05</td>
+          <td>Inventory Control Button</td>
+          <td><span class="tag-open">NOT RUN</span></td>
+          <td>Not tested</td>
+        </tr>
+      </table>
+      <p style="font-size: 8pt; color: var(--mid)">
+        * PASS with doubt — Simran marked these PASS but flagged procurement
+        module as "not available." Needs re-verification.
+      </p>
+
+      <hr />
+
+      <!-- ACTION PLAN -->
+      <h2>⚡ Prioritised Action Plan</h2>
+
+      <table class="action-table">
+        <tr>
+          <th>#</th>
+          <th>Priority</th>
+          <th>Action</th>
+          <th>Owner</th>
+        </tr>
+        <tr>
+          <td>1</td>
+          <td class="priority-high">HIGH — Blocker</td>
+          <td>
+            <strong>Fix BUG-2 &amp; BUG-3 (Inventory expiry filter).</strong>
+            Both bugs share the same root cause: the expired filter query likely
+            uses <code>expiry_warning = 'expired'</code> instead of date
+            comparison. Check the inventory page query and either (a) fix the
+            filter to use <code>expiration_date &lt;= CURRENT_DATE</code>, or
+            (b) backfill <code>expiry_warning = 'expired'</code> on past-date
+            rows via a trigger or scheduled job. Also update the seed data
+            script.
+          </td>
+          <td>Dev</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td class="priority-high">HIGH — Blocker</td>
+          <td>
+            <strong>Fix BUG-1 (Qty = 0 not saving in packing).</strong> Find the
+            packing confirmation mutation — likely a falsy check
+            <code>if (!qty)</code> is blocking zero. Change to strict null
+            check. Confirm with Simran whether the zero qty was supposed to skip
+            the shelf or pack with 0 units.
+          </td>
+          <td>Dev</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td class="priority-med">MEDIUM</td>
+          <td>
+            <strong>Clarify Module D procurement doubts.</strong> Run a quick
+            15-min session with Simran to confirm she tested D-05 (Zero Qty PO
+            validation) and D-06 (PO-TEST-002 read-only). Verify DB state for
+            both POs. If she couldn't access the "Create PO" flow, check field
+            staff role permissions.
+          </td>
+          <td>Cyril + Simran</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td class="priority-med">MEDIUM</td>
+          <td>
+            <strong>Re-run 4 untested TCs</strong> once bugs are fixed: A-03
+            (Dashboard Procurement), C-06 (Dispatch Without Pickup), F-04
+            (Search Filter), F-05 (Inventory Control Button).
+          </td>
+          <td>Simran</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td style="color: var(--mid); font-weight: 700">LOW</td>
+          <td>
+            <strong>Re-run F-01 and F-02</strong> after the inventory filter fix
+            to confirm the bugs are resolved.
+          </td>
+          <td>Simran</td>
+        </tr>
+      </table>
+
+      <hr />
+
+      <!-- WHAT'S WORKING -->
+      <h2>✅ What's Working Well</h2>
+      <p>
+        The core daily operations pipeline passed end-to-end with no blockers:
+      </p>
+      <ul style="margin: 6px 0 10px 18px; font-size: 9.5pt; line-height: 1.8">
+        <li>
+          <strong>Full packing workflow</strong> (B-01 to B-03, B-05 to B-10) —
+          FIFO ordering, multi-batch picking, SWAP rows, confirm packing all
+          working correctly.
+        </li>
+        <li>
+          <strong>Full pickup &amp; dispatch pipeline</strong> (C-01 to C-05) —
+          machines move correctly through each state and dashboard counters
+          update in real time.
+        </li>
+        <li>
+          <strong>Full receiving workflow</strong> (E-01 to E-08) — PO receiving
+          form, multi-batch entry, inventory update, PO status change all
+          working correctly.
+        </li>
+        <li>
+          <strong>Procurement list view</strong> (D-01 to D-04) — POs visible in
+          correct tabs, Receive button navigates correctly.
+        </li>
+        <li>
+          <strong>Inventory &lt;=30 days filter</strong> (F-03) — working
+          correctly.
+        </li>
+      </ul>
+      <p>
+        The test data was correctly seeded and available — Simran was able to
+        run 34 out of 38 tests, with only 4 left untested.
+      </p>
+
+      <div class="footer-note">
+        Boonz Smart Vending ERP · QA Test Report · April 18, 2026 · CONFIDENTIAL
+        — Internal use only
+      </div>
+    </div>
+  </body>
+</html>

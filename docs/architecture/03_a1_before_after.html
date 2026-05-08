@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phase A · Step A1 · Before / After</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-card: #14181d;
+    --bg-card-elev: #1a1f25;
+    --bg-before: #1a1410;
+    --bg-after: #0f1a14;
+    --line: #232a32;
+    --line-soft: #1a2027;
+    --line-before: #3a2820;
+    --line-after: #1f3a2c;
+    --text: #e6ebf0;
+    --text-dim: #8a93a0;
+    --text-muted: #5b6470;
+    --accent: #6ee7b7;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --success: #34d399;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; line-height: 1.55; font-size: 14px; }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "Menlo", Consolas, monospace; }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; }
+
+  header.h { border-bottom: 1px solid var(--line); padding-bottom: 24px; margin-bottom: 28px; }
+  header.h .eyebrow { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 8px; }
+  header.h h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header.h .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 12px; }
+  header.h .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-muted); font-size: 12px; }
+  header.h .meta strong { color: var(--text-dim); font-weight: 500; }
+
+  .banner {
+    background: rgba(52, 211, 153, 0.08);
+    border: 1px solid rgba(52, 211, 153, 0.3);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 32px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .banner .check {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--success); color: #07090b;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 18px;
+    flex-shrink: 0;
+  }
+  .banner .text { flex: 1; }
+  .banner .text .title { font-size: 15px; font-weight: 500; color: var(--success); margin-bottom: 4px; }
+  .banner .text .body { color: var(--text-dim); font-size: 13.5px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 0 0 36px; }
+  .kpi { background: var(--bg-card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .kpi .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 8px; }
+  .kpi .value { font-size: 22px; font-weight: 600; }
+  .kpi .value.green { color: var(--success); }
+  .kpi .delta { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+
+  h2.section { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.2em; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); font-weight: 500; }
+
+  .compare-card {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  }
+  .compare-card > .head { padding: 16px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .compare-card > .head h3 { margin: 0; font-size: 16px; font-family: ui-monospace, monospace; color: var(--accent); }
+  .compare-card > .head .sub { color: var(--text-dim); font-size: 12.5px; }
+  .compare-card > .grid { display: grid; grid-template-columns: 1fr 50px 1fr; }
+  .compare-card .col { padding: 20px 22px; }
+  .compare-card .col.before { background: var(--bg-before); border-right: 1px solid var(--line); }
+  .compare-card .col.after { background: var(--bg-after); border-left: 1px solid var(--line); }
+  .compare-card .arrow {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-card-elev);
+    color: var(--text-muted);
+    font-size: 22px;
+  }
+
+  .col .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 14px; }
+  .col.before .label { color: var(--danger); }
+  .col.after .label { color: var(--success); }
+
+  .stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; color: var(--text-dim); }
+  .stat:last-child { border-bottom: 0; }
+  .stat .v { color: var(--text); font-family: ui-monospace, monospace; font-size: 12.5px; }
+  .stat .v.disabled { color: var(--danger); }
+  .stat .v.enabled { color: var(--success); }
+
+  .policies { margin-top: 14px; }
+  .policies .p {
+    background: var(--bg-card-elev);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  .policies .p .name { color: var(--text); font-family: ui-monospace, monospace; }
+  .policies .p .effect { font-size: 11px; }
+  .policies .p .effect.allow { color: var(--text-dim); }
+  .policies .p .effect.block { color: var(--danger); font-weight: 500; }
+  .policies .none { color: var(--text-muted); font-style: italic; padding: 4px 0; font-size: 13px; }
+
+  .plain {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 22px 26px;
+    margin: 28px 0;
+  }
+  .plain h3 { font-size: 14px; margin: 0 0 14px; color: var(--text); }
+  .plain p { color: var(--text-dim); font-size: 13.5px; margin: 0 0 12px; }
+  .plain p:last-child { margin-bottom: 0; }
+  .plain p strong { color: var(--text); font-weight: 500; }
+  .plain code { background: var(--bg-card-elev); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--text); }
+
+  .next, .rollback {
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 22px 0;
+    color: var(--text-dim);
+    font-size: 13.5px;
+  }
+  .next { border-color: rgba(96, 165, 250, 0.3); background: rgba(96, 165, 250, 0.04); }
+  .rollback { border-color: rgba(251, 191, 36, 0.3); background: rgba(251, 191, 36, 0.03); }
+  .next h3, .rollback h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 0 0 10px; font-weight: 500; }
+  .next h3 { color: var(--info); }
+  .rollback h3 { color: var(--warn); }
+  .rollback pre { background: #07090b; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; font-size: 12px; color: #d6dde4; overflow-x: auto; margin: 8px 0 0; }
+
+  @media (max-width: 860px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .compare-card > .grid { grid-template-columns: 1fr; }
+    .compare-card .col.before { border-right: 0; border-bottom: 1px solid var(--line); }
+    .compare-card .col.after { border-left: 0; }
+    .compare-card .arrow { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="h">
+  <div class="eyebrow">Boonz ERP · Phase A · Step A1 · Live Migration Result</div>
+  <h1>Before / After: RLS Perimeter on planogram and pod_inventory_audit_log</h1>
+  <div class="subtitle">Migration applied to BOONZ SUPA prod at 2026-04-25. This page captures exactly what changed.</div>
+  <div class="meta">
+    <span><strong>Migration</strong> phaseA_a1_rls_planogram_pia</span>
+    <span><strong>Articles enforced</strong> 2 · 7</span>
+    <span><strong>Tables touched</strong> 2</span>
+    <span><strong>Rows mutated</strong> 0</span>
+  </div>
+</header>
+
+<div class="banner">
+  <div class="check">✓</div>
+  <div class="text">
+    <div class="title">Migration applied successfully · zero rows mutated</div>
+    <div class="body">RLS framework is now active on both tables. Current FE behavior is unchanged — every authenticated user can still read/write planogram exactly as before. The audit log can no longer be silently rewritten.</div>
+  </div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="label">Tables now RLS-protected</div><div class="value green">2 / 2</div><div class="delta">+2 vs before</div></div>
+  <div class="kpi"><div class="label">Policies created</div><div class="value">8</div><div class="delta">+8 vs before</div></div>
+  <div class="kpi"><div class="label">Total rows touched</div><div class="value green">0</div><div class="delta">3,442 rows preserved</div></div>
+  <div class="kpi"><div class="label">FE behavior change</div><div class="value green">none</div><div class="delta">permissive policies on planogram</div></div>
+</div>
+
+<h2 class="section">Side-by-side · planogram</h2>
+
+<div class="compare-card">
+  <div class="head">
+    <h3>public.planogram</h3>
+    <div class="sub">555 rows · drives the refill engine · was missing RLS (audit HIGH)</div>
+  </div>
+  <div class="grid">
+    <div class="col before">
+      <div class="label">Before · 2026-04-25 (pre-migration)</div>
+      <div class="stat"><span>RLS state</span><span class="v disabled">DISABLED</span></div>
+      <div class="stat"><span>Policies</span><span class="v">0</span></div>
+      <div class="stat"><span>Row count</span><span class="v">555</span></div>
+      <div class="policies">
+        <div class="none">No policies. Any authenticated user could SELECT, INSERT, UPDATE or DELETE any planogram row directly.</div>
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col after">
+      <div class="label">After · migration applied</div>
+      <div class="stat"><span>RLS state</span><span class="v enabled">ENABLED</span></div>
+      <div class="stat"><span>Policies</span><span class="v">4</span></div>
+      <div class="stat"><span>Row count</span><span class="v">555</span></div>
+      <div class="policies">
+        <div class="p"><span class="name">planogram_select</span><span class="effect allow">authenticated · allow</span></div>
+        <div class="p"><span class="name">planogram_insert</span><span class="effect allow">authenticated · allow</span></div>
+        <div class="p"><span class="name">planogram_update</span><span class="effect allow">authenticated · allow</span></div>
+        <div class="p"><span class="name">planogram_delete</span><span class="effect allow">authenticated · allow</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="plain">
+  <h3>What this means in plain language</h3>
+  <p><strong>Before:</strong> the planogram table accepted reads and writes from anyone with a valid login because RLS was switched off. There was no enforcement layer the database could check.</p>
+  <p><strong>After:</strong> RLS is on, with four policies that currently allow every authenticated user to read, insert, update and delete — the same effective permissions as before. <strong>Nothing in the FE changes.</strong> What changed is structural: the framework is now active, so in <strong>Phase B</strong> we can tighten one policy at a time (e.g., "UPDATE only allowed when called via the canonical RPC") without ever touching the rows themselves.</p>
+  <p>Think of it as installing the door frame. The door is still wide open. But now there's somewhere to hang the lock.</p>
+</div>
+
+<h2 class="section">Side-by-side · pod_inventory_audit_log</h2>
+
+<div class="compare-card">
+  <div class="head">
+    <h3>public.pod_inventory_audit_log</h3>
+    <div class="sub">2,887 rows · the mutation log for pod inventory · was append-only by convention only (audit HIGH)</div>
+  </div>
+  <div class="grid">
+    <div class="col before">
+      <div class="label">Before · 2026-04-25 (pre-migration)</div>
+      <div class="stat"><span>RLS state</span><span class="v disabled">DISABLED</span></div>
+      <div class="stat"><span>Policies</span><span class="v">0</span></div>
+      <div class="stat"><span>Row count</span><span class="v">2,887</span></div>
+      <div class="policies">
+        <div class="none">No policies. Any authenticated user could DELETE or rewrite the audit trail. "Append-only" was a naming convention, not an enforcement.</div>
+      </div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="col after">
+      <div class="label">After · migration applied</div>
+      <div class="stat"><span>RLS state</span><span class="v enabled">ENABLED</span></div>
+      <div class="stat"><span>Policies</span><span class="v">4</span></div>
+      <div class="stat"><span>Row count</span><span class="v">2,887</span></div>
+      <div class="policies">
+        <div class="p"><span class="name">pial_select</span><span class="effect allow">authenticated · allow</span></div>
+        <div class="p"><span class="name">pial_insert</span><span class="effect allow">authenticated · allow</span></div>
+        <div class="p"><span class="name">pial_no_update</span><span class="effect block">all roles · BLOCKED</span></div>
+        <div class="p"><span class="name">pial_no_delete</span><span class="effect block">all roles · BLOCKED</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="plain">
+  <h3>What this means in plain language</h3>
+  <p><strong>Before:</strong> the audit log was append-only in name only. Anyone with database access could DELETE rows from the audit trail — which defeats the purpose of having an audit log in the first place.</p>
+  <p><strong>After:</strong> the audit log is now genuinely append-only. INSERT still works (the existing trigger that writes to it continues to function). UPDATE and DELETE are <strong>blocked at the database layer for every role</strong>. The only writer in the system today (<code>auto_decrement_pod_inventory</code>) runs with elevated privileges so it bypasses RLS — which is correct, because it's the legitimate writer. Everything else is now locked out.</p>
+  <p>Think of it as turning a paper logbook into one of those bound notebooks where you can't tear pages out without leaving evidence. New entries still go on. Old entries can't disappear.</p>
+</div>
+
+<h2 class="section">What was actually executed</h2>
+
+<div class="rollback" style="border-color: rgba(110, 231, 183, 0.3); background: rgba(110, 231, 183, 0.04);">
+  <h3 style="color: var(--accent);">Migration applied · phaseA_a1_rls_planogram_pia</h3>
+<pre>-- planogram: enable RLS + 4 permissive policies (no behavior change)
+ALTER TABLE public.planogram ENABLE ROW LEVEL SECURITY;
+CREATE POLICY planogram_select ON public.planogram FOR SELECT TO authenticated USING (true);
+CREATE POLICY planogram_insert ON public.planogram FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY planogram_update ON public.planogram FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY planogram_delete ON public.planogram FOR DELETE TO authenticated USING (true);
+
+-- pod_inventory_audit_log: enable RLS + append-only policies (UPDATE/DELETE blocked)
+ALTER TABLE public.pod_inventory_audit_log ENABLE ROW LEVEL SECURITY;
+CREATE POLICY pial_select ON public.pod_inventory_audit_log FOR SELECT TO authenticated USING (true);
+CREATE POLICY pial_insert ON public.pod_inventory_audit_log FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY pial_no_update ON public.pod_inventory_audit_log FOR UPDATE USING (false);
+CREATE POLICY pial_no_delete ON public.pod_inventory_audit_log FOR DELETE USING (false);</pre>
+</div>
+
+<div class="rollback">
+  <h3>Rollback (if anything looks wrong)</h3>
+  <p>This single migration reverses A1 entirely. Run it via Supabase SQL editor or have me run it.</p>
+<pre>ALTER TABLE public.planogram DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS planogram_select ON public.planogram;
+DROP POLICY IF EXISTS planogram_insert ON public.planogram;
+DROP POLICY IF EXISTS planogram_update ON public.planogram;
+DROP POLICY IF EXISTS planogram_delete ON public.planogram;
+
+ALTER TABLE public.pod_inventory_audit_log DISABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS pial_select ON public.pod_inventory_audit_log;
+DROP POLICY IF EXISTS pial_insert ON public.pod_inventory_audit_log;
+DROP POLICY IF EXISTS pial_no_update ON public.pod_inventory_audit_log;
+DROP POLICY IF EXISTS pial_no_delete ON public.pod_inventory_audit_log;</pre>
+</div>
+
+<div class="next">
+  <h3>What's next</h3>
+  <p><strong>Observe for 24 hours.</strong> No FE changes were made, so nothing should have broken. If you spot any error in the FE around planogram editing or pod inventory in the next day, ping me and we roll back the relevant policy. Otherwise we proceed to A2 (deprecate <code>rename_machine_in_place_legacy</code>) using the same playbook: I show you the SQL, apply it, capture before/after, render the diff. A2 is even smaller than A1 — it's a single function-level metadata change with zero behavior impact.</p>
+  <p>Phase A · 1 of 7 steps complete · 2 of 15 articles now enforced.</p>
+</div>
+
+</div>
+</body>
+</html>

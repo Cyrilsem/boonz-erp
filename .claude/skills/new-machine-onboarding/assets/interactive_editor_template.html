@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Boonz · Planogram Editor — {{MACHINE_NAME}}</title>
+<style>
+  :root {
+    --bg: #0a0d0b;
+    --panel: #141a14;
+    --panel-2: #1a211a;
+    --line: #22291f;
+    --line-2: #2c3528;
+    --ink: #eaece1;
+    --ink-2: #a9b09a;
+    --ink-3: #737a68;
+    --boonz: #1f4d3a;
+    --gold: #c9a25b;
+    --hero: #7fb069;
+    --warn: #d97757;
+    --error: #c1473d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    padding: 24px 32px 80px;
+    min-height: 100vh;
+  }
+  header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+  h1 .machine {
+    color: var(--gold);
+  }
+  .meta {
+    font-size: 12px;
+    color: var(--ink-3);
+    font-family: "JetBrains Mono", monospace;
+  }
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  button {
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line-2);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  button:hover {
+    background: var(--panel-2);
+    border-color: var(--gold);
+  }
+  button.primary {
+    background: var(--boonz);
+    border-color: var(--hero);
+    color: white;
+  }
+  button.primary:hover {
+    background: var(--hero);
+  }
+  .door-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .door-grid.double {
+    grid-template-columns: 1fr 1fr;
+  }
+  .door {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px;
+  }
+  .door-title {
+    font-size: 13px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 14px;
+    font-family: "JetBrains Mono", monospace;
+  }
+  .shelf {
+    margin-bottom: 12px;
+  }
+  .shelf-label {
+    font-size: 10px;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+    font-family: "JetBrains Mono", monospace;
+    letter-spacing: 1px;
+  }
+  .shelf-row {
+    display: grid;
+    gap: 6px;
+  }
+  .shelf-1, .shelf-2 { grid-template-columns: repeat(4, 1fr); }
+  .shelf-3, .shelf-4 { grid-template-columns: repeat(3, 1fr); }
+  .shelf-5 { grid-template-columns: repeat(2, 1fr); }
+
+  .slot {
+    background: var(--panel-2);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    padding: 8px;
+    transition: border-color 0.15s;
+    position: relative;
+  }
+  .slot:focus-within {
+    border-color: var(--gold);
+  }
+  .slot.invalid {
+    border-color: var(--error);
+  }
+  .slot.warn {
+    border-color: var(--warn);
+  }
+  .slot-id {
+    font-size: 9px;
+    color: var(--ink-3);
+    font-family: "JetBrains Mono", monospace;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+  .slot input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    color: var(--ink);
+    font-size: 12px;
+    padding: 2px 0;
+    font-family: inherit;
+    outline: none;
+  }
+  .slot input.product {
+    font-weight: 500;
+  }
+  .slot input.price,
+  .slot input.capacity {
+    color: var(--ink-2);
+    font-size: 11px;
+  }
+  .slot .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .slot .row label {
+    font-size: 9px;
+    color: var(--ink-3);
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+  }
+  .summary {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+  .summary-stat {
+    font-size: 13px;
+  }
+  .summary-stat .k {
+    color: var(--ink-3);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+    font-family: "JetBrains Mono", monospace;
+  }
+  .summary-stat .v {
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .summary-stat .v.warn { color: var(--warn); }
+  .summary-stat .v.error { color: var(--error); }
+  .footer-msg {
+    color: var(--ink-3);
+    font-size: 11px;
+    margin-top: 18px;
+    text-align: center;
+    font-family: "JetBrains Mono", monospace;
+  }
+  datalist { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Boonz · <span class="machine">{{MACHINE_NAME}}</span> Planogram Editor</h1>
+  <div class="meta">{{POD_FORMAT}} · {{LOCATION_TYPE}} · {{VENUE_GROUP}}</div>
+</header>
+
+<div class="summary" id="summary"></div>
+
+<div class="toolbar">
+  <button class="primary" onclick="exportCSV()">Export Locked CSV</button>
+  <button onclick="resetToDefaults()">Reset to Recommendations</button>
+  <button onclick="clearStorage()">Clear Saved State</button>
+  <span class="meta" id="autosave-status" style="margin-left:auto;"></span>
+</div>
+
+<div id="door-grid" class="door-grid"></div>
+
+<div class="footer-msg">
+  Edits autosave to localStorage. Lock by exporting the CSV — that's the input for Phase 7.
+</div>
+
+<datalist id="pod-products"></datalist>
+
+<script>
+// ─── Configuration injected by the skill at template time ────────────────────
+// Replace these with the actual values when generating the editor.
+const CONFIG = {
+  machine_name: "{{MACHINE_NAME}}",
+  pod_format: "{{POD_FORMAT}}",         // 'single-door' | 'double-door'
+  location_type: "{{LOCATION_TYPE}}",
+  venue_group: "{{VENUE_GROUP}}",
+  source_of_supply: "{{SOURCE_OF_SUPPLY}}",
+  lead_slug: "{{LEAD_SLUG}}",
+  machine_index: {{MACHINE_INDEX}},
+  // Recommendations: array of { pod_product_name, recommended_selling_price, default_capacity, shelf_hint }
+  recommendations: {{RECOMMENDATIONS_JSON}},
+  // All canonical pod_product_names for autocomplete validation:
+  pod_products_catalog: {{POD_PRODUCTS_JSON}},
+  // Shelf capacity registry: array of { shelf, product_type, default_capacity }
+  shelf_registry: {{SHELF_REGISTRY_JSON}}
+};
+
+// ─── Pod-26 layout schema ────────────────────────────────────────────────────
+const SHELF_LAYOUT = [
+  { shelf: 1, slots: 4, label: "Shelf 1 — bars/biscuits", lane: "narrow" },
+  { shelf: 2, slots: 4, label: "Shelf 2 — yogurt/dips/cans-narrow", lane: "narrow" },
+  { shelf: 3, slots: 3, label: "Shelf 3 — chips/popcorn", lane: "medium" },
+  { shelf: 4, slots: 3, label: "Shelf 4 — cans 330ml", lane: "wide" },
+  { shelf: 5, slots: 2, label: "Shelf 5 — bottles", lane: "extra-wide" }
+];
+
+// ─── State ───────────────────────────────────────────────────────────────────
+const STORAGE_KEY = `planogram_${CONFIG.lead_slug}_m${CONFIG.machine_index}`;
+let state = {};
+
+function makeSlotKey(door, shelf, position) {
+  return `${door}-${shelf}-${position}`;
+}
+
+function initStateFromRecommendations() {
+  const doors = CONFIG.pod_format === "double-door" ? ["L", "R"] : ["L"];
+  const recommendations = CONFIG.recommendations || [];
+  let recIdx = 0;
+
+  doors.forEach(door => {
+    SHELF_LAYOUT.forEach(({ shelf, slots }) => {
+      for (let pos = 1; pos <= slots; pos++) {
+        const key = makeSlotKey(door, shelf, pos);
+        const rec = recommendations[recIdx++] || {};
+        state[key] = {
+          slot_code: `${door === "R" ? "F" : ""}${String.fromCharCode(64 + shelf)}${String(pos).padStart(2, "0")}`,
+          door, shelf, position: pos,
+          pod_product_name: rec.pod_product_name || "",
+          price: rec.recommended_selling_price || "",
+          capacity: rec.default_capacity || ""
+        };
+      }
+    });
+  });
+}
+
+function loadState() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      state = JSON.parse(saved);
+      return true;
+    } catch (e) { console.warn("Bad localStorage state, resetting"); }
+  }
+  initStateFromRecommendations();
+  return false;
+}
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  document.getElementById("autosave-status").textContent = `saved · ${new Date().toLocaleTimeString()}`;
+}
+
+// ─── Validation ──────────────────────────────────────────────────────────────
+function validateSlot(slot) {
+  const issues = [];
+  if (!slot.pod_product_name) {
+    issues.push({ severity: "warn", msg: "empty" });
+    return issues;
+  }
+  if (!CONFIG.pod_products_catalog.includes(slot.pod_product_name)) {
+    issues.push({ severity: "error", msg: "not in pod_products" });
+  }
+  if (!slot.price || isNaN(slot.price) || slot.price <= 0) {
+    issues.push({ severity: "error", msg: "invalid price" });
+  }
+  if (!slot.capacity || isNaN(slot.capacity) || slot.capacity <= 0) {
+    issues.push({ severity: "error", msg: "invalid capacity" });
+  }
+  return issues;
+}
+
+function checkDuplicates() {
+  const counts = {};
+  Object.values(state).forEach(s => {
+    if (s.pod_product_name) {
+      counts[s.pod_product_name] = (counts[s.pod_product_name] || 0) + 1;
+    }
+  });
+  return Object.entries(counts).filter(([name, n]) => n > 1);
+}
+
+// ─── Rendering ───────────────────────────────────────────────────────────────
+function render() {
+  const doorGrid = document.getElementById("door-grid");
+  doorGrid.innerHTML = "";
+  doorGrid.classList.toggle("double", CONFIG.pod_format === "double-door");
+
+  const doors = CONFIG.pod_format === "double-door" ? ["L", "R"] : ["L"];
+  doors.forEach(door => {
+    const doorEl = document.createElement("div");
+    doorEl.className = "door";
+    doorEl.innerHTML = `<div class="door-title">${door === "L" ? "Left Door" : "Right Door"}</div>`;
+
+    SHELF_LAYOUT.forEach(({ shelf, slots, label }) => {
+      const shelfEl = document.createElement("div");
+      shelfEl.className = "shelf";
+      shelfEl.innerHTML = `<div class="shelf-label">${label}</div>`;
+      const row = document.createElement("div");
+      row.className = `shelf-row shelf-${shelf}`;
+      for (let pos = 1; pos <= slots; pos++) {
+        const key = makeSlotKey(door, shelf, pos);
+        const s = state[key];
+        const issues = validateSlot(s);
+        const slotEl = document.createElement("div");
+        const sev = issues.find(i => i.severity === "error") ? "invalid"
+                  : issues.find(i => i.severity === "warn") ? "warn" : "";
+        slotEl.className = `slot ${sev}`;
+        slotEl.innerHTML = `
+          <div class="slot-id">${s.slot_code}</div>
+          <input class="product" list="pod-products" placeholder="pod_product_name"
+                 value="${escapeHtml(s.pod_product_name)}"
+                 onchange="updateField('${key}', 'pod_product_name', this.value)" />
+          <div class="row">
+            <input class="price" type="number" step="0.01" placeholder="price"
+                   value="${s.price}"
+                   onchange="updateField('${key}', 'price', this.value)" />
+            <input class="capacity" type="number" placeholder="cap"
+                   value="${s.capacity}"
+                   onchange="updateField('${key}', 'capacity', this.value)" />
+          </div>
+        `;
+        row.appendChild(slotEl);
+      }
+      shelfEl.appendChild(row);
+      doorEl.appendChild(shelfEl);
+    });
+    doorGrid.appendChild(doorEl);
+  });
+
+  renderSummary();
+}
+
+function renderSummary() {
+  const totalSlots = Object.keys(state).length;
+  const filledSlots = Object.values(state).filter(s => s.pod_product_name).length;
+  let errors = 0, warns = 0;
+  Object.values(state).forEach(s => {
+    const issues = validateSlot(s);
+    errors += issues.filter(i => i.severity === "error").length;
+    warns += issues.filter(i => i.severity === "warn").length;
+  });
+  const dupes = checkDuplicates();
+  const totalCapacity = Object.values(state).reduce((sum, s) => sum + (Number(s.capacity) || 0), 0);
+
+  document.getElementById("summary").innerHTML = `
+    <div class="summary-stat"><div class="k">Slots</div><div class="v">${filledSlots} / ${totalSlots}</div></div>
+    <div class="summary-stat"><div class="k">Total capacity</div><div class="v">${totalCapacity}</div></div>
+    <div class="summary-stat"><div class="k">Errors</div><div class="v ${errors > 0 ? 'error' : ''}">${errors}</div></div>
+    <div class="summary-stat"><div class="k">Empty slots</div><div class="v ${warns > 0 ? 'warn' : ''}">${warns}</div></div>
+    <div class="summary-stat"><div class="k">Duplicate SKUs</div><div class="v ${dupes.length > 0 ? 'warn' : ''}">${dupes.length}</div></div>
+  `;
+}
+
+function updateField(key, field, value) {
+  state[key][field] = value;
+  saveState();
+  render();
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+// ─── Export / Reset ──────────────────────────────────────────────────────────
+function exportCSV() {
+  const errors = Object.values(state).flatMap(validateSlot).filter(i => i.severity === "error").length;
+  if (errors > 0 && !confirm(`There are ${errors} validation errors. Export anyway?`)) return;
+
+  const rows = [["machine_name","door","shelf","position","slot_code","pod_product_name","price","capacity"]];
+  Object.values(state).forEach(s => {
+    rows.push([
+      CONFIG.machine_name,
+      s.door, s.shelf, s.position, s.slot_code,
+      s.pod_product_name, s.price, s.capacity
+    ]);
+  });
+  const csv = rows.map(r => r.map(c => {
+    const v = String(c ?? "");
+    return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  }).join(",")).join("\n");
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${CONFIG.machine_name}_planogram.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function resetToDefaults() {
+  if (!confirm("Reset all slots to recommendations?")) return;
+  initStateFromRecommendations();
+  saveState();
+  render();
+}
+
+function clearStorage() {
+  if (!confirm("Clear saved state for this machine?")) return;
+  localStorage.removeItem(STORAGE_KEY);
+  initStateFromRecommendations();
+  render();
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+function init() {
+  const datalist = document.getElementById("pod-products");
+  (CONFIG.pod_products_catalog || []).forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    datalist.appendChild(opt);
+  });
+  loadState();
+  render();
+}
+init();
+</script>
+</body>
+</html>

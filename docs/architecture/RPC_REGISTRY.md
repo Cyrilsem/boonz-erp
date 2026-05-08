@@ -99,10 +99,14 @@ These mutate at least one protected entity. Each must, by the end of Phase A.5:
 | Function | Writes to | Status |
 |---|---|---|
 | `register_terminal_move(p_unique_terminal_id text, p_new_machine_id uuid, p_effective_from date, p_attributed_name text, p_attributed_venue_group text, p_notes text)` | `machine_terminal_history` (close open window via UPDATE, then INSERT new window) | ✅ NEW 2026-05-05 — canonical writer for terminal reassignments / machine renames. Validates inputs (NULL guards), FK existence on `machine_id`, role gate (operator_admin or superadmin). Returns `{closed_history_id, new_history_id}` jsonb. Audited via the generic `audit_log_write` trigger. Articles 1, 4, 8. Use whenever a physical Adyen terminal moves between machine_ids or a machine is renamed — downstream attribution views auto-correct. |
+| `propose_rotation_plan(p_horizon_days int DEFAULT 21, p_min_fit_score numeric DEFAULT 50.0, p_max_proposals_per_source int DEFAULT 3, p_dry_run boolean DEFAULT false)` | `rotation_proposals` (INSERT pending rows) | ✅ NEW 2026-05-06 — Engine 2 main loop. Iterates `v_warehouse_at_risk` (urgent buckets only), scores every active machine via `score_machine_for_product`, INSERTs top-N pending proposals. `trigger_reason='expiry_risk'`, `proposal_type='wh_to_machine'` in Phase B.2b. System-callable (cron via service_role) and operator-callable. Articles 1, 4, 8. First run: 21 inserts, 3 dedup-skips, 0 hard-blocks-below-threshold, 21s wall-clock. |
+| `apply_rotation_proposal(p_proposal_id uuid, p_plan_date date, p_notes text DEFAULT NULL)` | `rotation_proposals` (UPDATE pending → applied) | ✅ NEW 2026-05-06 — CS approval path. Validates pending status, sets `applied_to_plan_date`, `reviewed_at`, `reviewed_by`. Operator-only (no system bypass). **Phase B prototype: status flip only — does NOT create a planned_swaps row. Phase C wires it into the refill engine.** Articles 1, 4, 5, 8. |
+| `reject_rotation_proposal(p_proposal_id uuid, p_reason text)` | `rotation_proposals` (UPDATE pending → rejected) | ✅ NEW 2026-05-06 — CS veto path. Captures p_reason in notes for downstream weight-tuning analysis. Operator-only. Articles 1, 4, 5, 8. |
+| `mark_proposals_expired(p_age_days int DEFAULT 3)` | `rotation_proposals` (UPDATE pending → expired) | ✅ NEW 2026-05-06 — daily housekeeping. System-callable (pg_cron via service_role) and operator-callable. Articles 1, 4, 5, 8, 11 (cron wiring pending Phase B.3). |
 
-## Read-only helpers — 8 functions (no A.5 patching needed)
+## Read-only helpers — 9 functions (no A.5 patching needed)
 
-These do not mutate; they exist as DEFINER for RLS-bypass on read paths.
+These do not mutate; they exist as DEFINER for RLS-bypass on read paths (with the exception of the INVOKER ones noted below — newer additions prefer INVOKER per Cody Article 4 default).
 
 - `get_active_planogram`
 - `get_machine_planogram`
@@ -112,6 +116,7 @@ These do not mutate; they exist as DEFINER for RLS-bypass on read paths.
 - `get_settlement_for_partner`
 - `get_user_role` (returns role from `user_profiles` to FE)
 - `get_per_machine_performance(p_date_from date, p_date_to date, p_venue_group text, p_machine_names text[])` — **NEW 2026-05-05.** Returns a JSON array of per-attributed-machine WEIMI vs Adyen rollups. SECURITY INVOKER, LANGUAGE sql STABLE — RLS applies via `v_sales_history_attributed` and `v_adyen_transactions_attributed` (both `security_invoker = true`). Single greppable call site for `/app/performance` Sites & Machines and any per-machine dashboard. Splits repurposed machines automatically (e.g. ACTIVATE-2005 vs MPMCC-2005). Refund-netted `adyen_net_cash_aed` per row.
+- `score_machine_for_product(p_target_machine_id uuid, p_boonz_product_id uuid, p_horizon_days int DEFAULT 21, p_proposed_qty int DEFAULT 5)` — **NEW 2026-05-05.** Engine 2 fit scorer. Returns `{score, hard_block, breakdown}` jsonb where score is 0-100 and breakdown carries per-component scores (throughput 35%, archetype_fit 20%, location_fit 15%, open_capacity 15%, urgency 10%) plus the inputs that drove them. SECURITY INVOKER, LANGUAGE sql STABLE — reads `v_machine_absorption_capacity`. Hard cutoffs surface as `hard_block` reason: `machine_excluded`, `machine_inactive`, `travel_scope_vox_locked`. Called by `propose_rotation_plan` (Phase B.2b) and ad-hoc by operators reviewing rotation candidates.
 
 ## Audit / system helpers — 4 functions (left as-is)
 

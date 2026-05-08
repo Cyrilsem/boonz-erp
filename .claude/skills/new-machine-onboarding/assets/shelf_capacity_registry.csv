@@ -1,0 +1,16 @@
+shelf,lane_width,slot_count,product_type,default_capacity,examples,notes
+Shelf 1,narrow (4-wide),4,Bars / nuts (≤80g),6,"Zigi, Krambals, Loacker",Stack-deep snack bars
+Shelf 1,narrow (4-wide),4,Protein bars (1 lane each),12,"Barebells, Be-kind Bar Protein",Slim profile allows 12-deep
+Shelf 1,narrow (4-wide),4,Biscuit boxes (100-200g),6,"Nutella T12, McVities, Loacker box",Wider boxes
+Shelf 2,narrow (4-wide),4,Yogurt / dip cups,4,"Activia Mix & Go, Smart Gourmet Hummus",Squat refrigerated cups
+Shelf 2,narrow (4-wide),4,Cake / pastry pieces,6,"Sabahoo Cake, Organic Larder Rice Cake",Single-portion cakes
+Shelf 2,narrow (4-wide),4,Refreshment cans (330ml),8,"Perrier Regular, Ice Tea",Slim cans fit narrow lane
+Shelf 2,narrow (4-wide),4,Catch-all bars (single-door),15,"Chocolate Bar (catch-all), Snack Bar (catch-all)",Tightly stacked bars
+Shelf 2,narrow (4-wide),4,Catch-all bars (double-door),25,"Chocolate Bar, Snack Bar (double-door variant)",Larger lane allows 25
+Shelf 3,medium (3-wide),3,Chips / crackers,6,"Hunter, Krambals, Sunbites",Standard crisp pack
+Shelf 3,medium (3-wide),3,Popcorn / specialty,4,"Dubai Popcorn, G&H Popped Chips",Bulkier bags
+Shelf 3,medium (3-wide),3,High-volume bars (double-door extension),25,"Snack Bar (double-door extension)",Same as Shelf 2 high-volume
+Shelf 4,wide (3-wide),3,Standard cans (330ml),12,"Pepsi Regular, Coca Cola Regular, Red Bull",Standard can lane
+Shelf 4,wide (3-wide),3,Premium can / extended lane (330ml),14,"Coca Cola Zero, Red Bull (double-door extension)",Slightly longer lane
+Shelf 5,extra-wide (2-wide),2,Small water bottle (500ml),18,"Al Ain Zero",Tight stack of small bottles
+Shelf 5,extra-wide (2-wide),2,Functional drink bottle (540ml),15,"Vitamin Well",Bigger bottle = lower capacity

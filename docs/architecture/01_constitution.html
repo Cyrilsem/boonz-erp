@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Boonz Backend Constitution · v1.0</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --bg-card: #14181d;
+    --bg-card-elev: #1a1f25;
+    --line: #232a32;
+    --line-soft: #1a2027;
+    --text: #e6ebf0;
+    --text-dim: #8a93a0;
+    --text-muted: #5b6470;
+    --accent: #6ee7b7;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; padding: 0; }
+  body { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; line-height: 1.55; font-size: 14px; }
+  code, pre { font-family: ui-monospace, "JetBrains Mono", "Menlo", Consolas, monospace; }
+
+  .wrap { max-width: 920px; margin: 0 auto; padding: 56px 32px 96px; }
+
+  header.h { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 36px; }
+  header.h .eyebrow { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; margin-bottom: 8px; }
+  header.h h1 { font-size: 32px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header.h .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 18px; }
+  header.h .meta { display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-muted); font-size: 12px; }
+  header.h .meta span strong { color: var(--text-dim); font-weight: 500; }
+
+  .preamble {
+    border-left: 2px solid var(--accent);
+    padding: 4px 0 4px 18px;
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: 0 0 44px;
+  }
+  .preamble strong { color: var(--text); }
+
+  .toc {
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 44px;
+  }
+  .toc h2 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.14em; margin: 0 0 12px; font-weight: 500; }
+  .toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+  .toc li { margin-bottom: 6px; font-size: 13px; }
+  .toc a { color: var(--text-dim); text-decoration: none; border-bottom: 1px dotted transparent; }
+  .toc a:hover { color: var(--text); border-bottom-color: var(--text-muted); }
+
+  section.theme { margin: 44px 0 12px; }
+  section.theme > h2 {
+    font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.2em;
+    margin: 0 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft);
+    font-weight: 500;
+  }
+
+  article.art {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg-card);
+    padding: 22px 26px 20px;
+    margin-bottom: 16px;
+  }
+  article.art header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
+  article.art .num { color: var(--accent); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 600; min-width: 78px; }
+  article.art h3 { font-size: 17px; margin: 0; letter-spacing: -0.005em; }
+  article.art .stmt { font-size: 14.5px; margin: 0 0 16px; color: var(--text); }
+  article.art .row { display: grid; grid-template-columns: 110px 1fr; gap: 8px 18px; margin-top: 10px; }
+  article.art .row .k { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; padding-top: 2px; }
+  article.art .row .v { color: var(--text-dim); font-size: 13.5px; }
+  article.art .row .v code { background: var(--bg-card-elev); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--text); }
+
+  .appendix {
+    margin-top: 56px;
+    padding: 22px 26px;
+    background: var(--bg-card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .appendix h2 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 0 0 16px; font-weight: 500; }
+  .appendix h3 { font-size: 14px; margin: 22px 0 8px; }
+  .appendix p { color: var(--text-dim); font-size: 13.5px; margin: 6px 0 10px; }
+  .appendix ul { color: var(--text-dim); font-size: 13.5px; margin: 0; padding-left: 22px; }
+  .appendix li { margin-bottom: 4px; }
+  .appendix code { background: var(--bg-card-elev); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--text); }
+
+  .sig {
+    margin-top: 56px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+    color: var(--text-muted);
+    font-size: 12px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 16px;
+  }
+
+  @media print {
+    body { background: white; color: black; }
+    .wrap { max-width: 100%; padding: 0; }
+    article.art, .appendix, .toc { background: white; border-color: #ddd; break-inside: avoid; }
+    header.h { border-color: #ddd; }
+    .preamble { border-color: black; color: #333; }
+    a { color: black; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="h">
+  <div class="eyebrow">Boonz ERP · Architecture · Foundational Document</div>
+  <h1>Backend Constitution</h1>
+  <div class="subtitle">The invariants the Boonz backend must hold. Every change is measured against these.</div>
+  <div class="meta">
+    <span><strong>Version</strong> 1.0</span>
+    <span><strong>Effective</strong> 2026-04-25</span>
+    <span><strong>Owner</strong> CS</span>
+    <span><strong>Status</strong> Draft for ratification</span>
+  </div>
+</header>
+
+<p class="preamble">
+  <strong>Why this exists.</strong> The Boonz ERP has accumulated multiple write paths to the same entities, dormant tables, deprecated RPCs that still execute, and parallel admin surfaces between <code>/app</code> and <code>/field</code>. The cause is not bad code; it is the absence of a written contract. This document is that contract. It makes the wrong thing impossible by writing the rules into the database and the CI pipeline. From the moment it ratifies, every PR either enforces an article, violates one (rejected), or proposes a new one (deliberate). Patches stop being cheap.
+</p>
+
+<div class="toc">
+  <h2>Table of Articles</h2>
+  <ol>
+    <li><a href="#a1">Article 1 — One canonical write path per entity</a></li>
+    <li><a href="#a2">Article 2 — RLS is mandatory on protected tables</a></li>
+    <li><a href="#a3">Article 3 — `authenticated` role is write-restricted</a></li>
+    <li><a href="#a4">Article 4 — SECURITY DEFINER functions explicitly validate</a></li>
+    <li><a href="#a5">Article 5 — Status fields are state machines</a></li>
+    <li><a href="#a6">Article 6 — Manager-only fields are manager-only everywhere</a></li>
+    <li><a href="#a7">Article 7 — Audit logs are append-only</a></li>
+    <li><a href="#a8">Article 8 — Every RPC writes to write_audit_log</a></li>
+    <li><a href="#a9">Article 9 — Edge functions are stateless</a></li>
+    <li><a href="#a10">Article 10 — n8n calls the RPC layer</a></li>
+    <li><a href="#a11">Article 11 — Cron jobs call RPCs</a></li>
+    <li><a href="#a12">Article 12 — Migrations are forward-only and idempotent</a></li>
+    <li><a href="#a13">Article 13 — Deprecation has a process</a></li>
+    <li><a href="#a14">Article 14 — No snapshot tables when a view suffices</a></li>
+    <li><a href="#a15">Article 15 — PRs declare invariants and CI enforces</a></li>
+  </ol>
+</div>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="theme">
+  <h2>I · Write Paths</h2>
+
+  <article class="art" id="a1">
+    <header><div class="num">Article 1</div><h3>One canonical write path per entity</h3></header>
+    <p class="stmt">For every protected entity (Appendix A), there is exactly one <code>SECURITY DEFINER</code> RPC that performs writes. The UI, edge functions, n8n, and cron all call only that RPC.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Multiple write paths are how silent drift happens. We currently have three UIs writing <code>machines</code> directly while a canonical <code>add_new_machine()</code> RPC sits unused.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">CI lint blocks <code>.update("&lt;protected&gt;")</code> and <code>.insert("&lt;protected&gt;")</code> outside of the RPC layer. <code>REVOKE INSERT, UPDATE, DELETE ON &lt;protected&gt; FROM authenticated</code>.</div></div>
+  </article>
+
+  <article class="art" id="a2">
+    <header><div class="num">Article 2</div><h3>RLS is mandatory on protected tables</h3></header>
+    <p class="stmt">Every table holding user data, financial data, audit logs, or operational state has Row Level Security enabled with explicit policies for each role that may read or write.</p>
+    <div class="row"><div class="k">Why</div><div class="v">"Append-only by convention" is not append-only. <code>pod_inventory_audit_log</code> currently has 2,887 rows and no RLS — any authenticated user can DELETE the audit trail.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v"><code>pg_class.relrowsecurity = true</code> for every table in Appendix A. Supabase advisor <code>rls_disabled_in_public</code> check must pass weekly.</div></div>
+  </article>
+
+  <article class="art" id="a3">
+    <header><div class="num">Article 3</div><h3>The `authenticated` role is write-restricted</h3></header>
+    <p class="stmt">The <code>authenticated</code> role has SELECT-only on protected tables (subject to RLS). All <code>INSERT</code>/<code>UPDATE</code>/<code>DELETE</code> goes through <code>SECURITY DEFINER</code> RPCs.</p>
+    <div class="row"><div class="k">Why</div><div class="v">When the role can write directly, RLS policies must cover every column-level guard themselves; this is brittle and incomplete in practice.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v"><code>REVOKE INSERT, UPDATE, DELETE ON &lt;protected&gt; FROM authenticated</code> is part of the migration that creates each canonical RPC.</div></div>
+  </article>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="theme">
+  <h2>II · Validation</h2>
+
+  <article class="art" id="a4">
+    <header><div class="num">Article 4</div><h3>SECURITY DEFINER functions explicitly validate</h3></header>
+    <p class="stmt">Every <code>SECURITY DEFINER</code> function checks the caller's role/claim, validates inputs against business rules, and sets <code>app.via_rpc = 'true'</code> and <code>app.rpc_name = '&lt;name&gt;'</code> for the duration of its work.</p>
+    <div class="row"><div class="k">Why</div><div class="v">DEFINER without validation is just a privilege escalation. The session vars are how the write-audit trigger distinguishes RPC writes from direct writes.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">Function lint: every <code>SECURITY DEFINER</code> body must contain <code>set_config('app.via_rpc', 'true', true)</code> and at least one <code>auth.uid()</code> or <code>auth.jwt()</code> reference.</div></div>
+  </article>
+
+  <article class="art" id="a5">
+    <header><div class="num">Article 5</div><h3>Status fields are state machines</h3></header>
+    <p class="stmt">Status columns (<code>machines.status</code>, <code>slots.status</code>, <code>pod_inventory.status</code>, <code>warehouse_inventory.status</code>, etc.) only accept transitions defined in the RPC layer. The <code>CHECK</code> constraint enumerates valid values; the RPC enumerates valid transitions.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Free-form status writes are how machines end up in invalid states ("Pending" with no warehouse, "Active" with no Adyen store).</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">No FE writes status directly. Each protected entity has a <code>set_&lt;entity&gt;_status(target_state)</code> RPC that validates the transition from the current state.</div></div>
+  </article>
+
+  <article class="art" id="a6">
+    <header><div class="num">Article 6</div><h3>Manager-only fields are manager-only everywhere</h3></header>
+    <p class="stmt"><code>warehouse_inventory.status</code> is set only by the warehouse manager via the canonical RPC. No trigger, function, cron, n8n sync, or app flow may write it.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Status drives refill-engine eligibility. Auto-mutation silently corrupts the refill pool. (Existing rule, formalized.)</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">Trigger raises <code>EXCEPTION</code> if the column is changed by any source other than the canonical RPC, identified via <code>app.rpc_name = 'set_warehouse_status'</code>.</div></div>
+  </article>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="theme">
+  <h2>III · Audit</h2>
+
+  <article class="art" id="a7">
+    <header><div class="num">Article 7</div><h3>Audit logs are append-only</h3></header>
+    <p class="stmt">Tables ending in <code>_audit_log</code> and tables tagged <code>append_only</code> in Appendix A have RLS policies allowing <code>INSERT</code> only. <code>UPDATE</code> and <code>DELETE</code> are blocked for every role, including <code>service_role</code> (which uses a separate retention RPC for legitimate purges).</p>
+    <div class="row"><div class="k">Why</div><div class="v">An audit log that can be rewritten is not an audit log.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v"><code>CREATE POLICY no_update FOR UPDATE USING (false)</code> and the equivalent for <code>DELETE</code>. Retention is performed by a dedicated <code>SECURITY DEFINER</code> RPC that records its own deletion event before deleting.</div></div>
+  </article>
+
+  <article class="art" id="a8">
+    <header><div class="num">Article 8</div><h3>Every RPC writes to write_audit_log</h3></header>
+    <p class="stmt">Every canonical write RPC inserts a row into <code>write_audit_log</code> containing caller UID, caller role, action, target table, target PK, before/after JSON, and timestamp before returning.</p>
+    <div class="row"><div class="k">Why</div><div class="v">This is the data feed for the future Data Health tab. It also makes incident reconstruction possible.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">Helper <code>audit_log_write(p_op, p_table, p_pk, p_before, p_after)</code> is called from every RPC. Lint flags RPCs that don't.</div></div>
+  </article>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="theme">
+  <h2>IV · Surfaces</h2>
+
+  <article class="art" id="a9">
+    <header><div class="num">Article 9</div><h3>Edge functions are stateless</h3></header>
+    <p class="stmt">Edge functions authenticate the caller, validate input shape, and call an RPC. No business logic, no direct table writes, no caching of business state.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Logic in edge functions is invisible to the database — it cannot be enforced by RLS, cannot be replayed, cannot be audited consistently.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">Edge function lint: no <code>.from(...)</code>/<code>.update</code>/<code>.insert</code>/<code>.delete</code> calls outside of <code>.rpc(...)</code>.</div></div>
+  </article>
+
+  <article class="art" id="a10">
+    <header><div class="num">Article 10</div><h3>n8n calls the RPC layer</h3></header>
+    <p class="stmt">All n8n write workflows go through <code>SECURITY DEFINER</code> RPCs using a dedicated <code>n8n_writer</code> service token. n8n does not perform direct table writes.</p>
+    <div class="row"><div class="k">Why</div><div class="v">When n8n bypasses the RPC layer, the audit log misses entire categories of writes (Weimi sales, stock refresh, etc.).</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">The <code>n8n_writer</code> role has <code>EXECUTE</code> on canonical RPCs but no <code>INSERT</code>/<code>UPDATE</code>/<code>DELETE</code> on protected tables.</div></div>
+  </article>
+
+  <article class="art" id="a11">
+    <header><div class="num">Article 11</div><h3>Cron jobs call RPCs</h3></header>
+    <p class="stmt"><code>pg_cron</code> jobs invoke <code>SECURITY DEFINER</code> RPCs only. No <code>UPDATE</code>/<code>INSERT</code> SQL appears in a <code>cron.job</code> schedule directly.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Cron jobs that mutate tables directly are a hidden surface that nobody reviews. They have been the source of silent failures (e.g. evaluate-lifecycle stale since 2026-04-10).</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">Audit query checks <code>cron.job.command</code> for non-RPC mutation patterns; flagged jobs are rewritten.</div></div>
+  </article>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="theme">
+  <h2>V · Schema Hygiene</h2>
+
+  <article class="art" id="a12">
+    <header><div class="num">Article 12</div><h3>Migrations are forward-only and idempotent</h3></header>
+    <p class="stmt">Every migration is forward-only. To "rollback" a change, write a new forward migration that reverses it. Migrations use <code>IF NOT EXISTS</code> / <code>IF EXISTS</code> so re-running them is safe.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Reverting migrations is how branches diverge from prod. Forward-only with idempotency means any environment can be replayed from migration history.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">PR template requires "what does this change" and "how to undo" (which is the next forward migration). No <code>git revert</code> on merged migration commits without a follow-up forward migration.</div></div>
+  </article>
+
+  <article class="art" id="a13">
+    <header><div class="num">Article 13</div><h3>Deprecation has a process</h3></header>
+    <p class="stmt">When an RPC, table, or column is deprecated: (1) marked deprecated in the migration, (2) <code>SECURITY DEFINER</code> changed to <code>SECURITY INVOKER</code> for functions, (3) <code>EXECUTE</code> revoked from <code>authenticated</code>, (4) <code>pg_stat_user_functions</code> monitored for 90 days. Only after zero calls for 90 days is the object dropped.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Surprise removals break n8n and external integrations we did not know about.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">A "Deprecated registry" lives in <code>docs/architecture/deprecated.md</code> with each item, deprecation date, expected removal date, and last-call timestamp.</div></div>
+  </article>
+
+  <article class="art" id="a14">
+    <header><div class="num">Article 14</div><h3>No snapshot tables when a view suffices</h3></header>
+    <p class="stmt">New tables that materialize a query result for performance reasons require ADR signoff. Existing snapshot tables (<code>machine_summary</code>, <code>refill_dispatch_plan</code>, <code>daily_pipeline_runs</code>, etc.) are scheduled for retirement in favor of views or materialized views with explicit refresh semantics.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Snapshot tables go stale silently. <code>machine_summary</code> is currently 44 days stale, <code>refill_dispatch_plan</code> dead since 2026-04-01, with FE pages still pointing at them.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v">Snapshot-table audit weekly; any table whose latest row is &gt;7 days stale is flagged in the Data Health tab.</div></div>
+  </article>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<section class="theme">
+  <h2>VI · Process</h2>
+
+  <article class="art" id="a15">
+    <header><div class="num">Article 15</div><h3>Every PR declares invariants and CI enforces</h3></header>
+    <p class="stmt">Every PR description names which articles it touches (or "none"). CI runs three governance checks on every PR: <code>protected-write-lint</code>, <code>rls-coverage</code>, <code>rpc-audit-coverage</code>.</p>
+    <div class="row"><div class="k">Why</div><div class="v">Governance without enforcement is decoration. Lint catches drift before it ships, not in retrospect at audit time.</div></div>
+    <div class="row"><div class="k">Enforcement</div><div class="v"><code>.github/workflows/governance.yml</code> runs on every PR. Failures block merge. Bypass requires a one-line ADR pinned in the PR.</div></div>
+  </article>
+</section>
+
+<!-- ─────────────────────────────────────────────── -->
+<div class="appendix">
+  <h2>Appendix A — Protected Entities (v1)</h2>
+  <p>The protected entity list is the scope of every article in the Constitution. New entities are added via PR. Removal requires ADR.</p>
+
+  <h3>Core entities (RLS + canonical RPC required)</h3>
+  <ul>
+    <li><code>machines</code> · <code>machine_name_aliases</code> · <code>machine_terminal_history</code> · <code>shelf_configurations</code> · <code>planogram</code> · <code>sim_cards</code></li>
+    <li><code>slots</code> · <code>slot_lifecycle</code></li>
+    <li><code>pod_inventory</code> · <code>warehouse_inventory</code></li>
+    <li><code>sales</code> and all <code>sales_*</code> · <code>settlements</code> · <code>partner_payouts</code></li>
+    <li><code>refill_plan_output</code> · <code>refill_instructions</code> (until retired) · <code>rotation_proposals</code></li>
+    <li><code>venue_groups</code> · <code>venues</code> · <code>warehouses</code></li>
+  </ul>
+  <p style="font-size:0.9em;color:#666;margin-top:8px"><em>Amendment 003 (2026-05-05):</em> <code>rotation_proposals</code> added under Article 15. Engine 2 (Rotation Planner) write surface — append-only via DEFINER RPCs, FORCE RLS, status FSM. See migration <code>phaseB_rotation_proposals_table</code>.</p>
+  <p style="font-size:0.9em;color:#666"><em>Amendment 004 (2026-05-05):</em> <code>machine_terminal_history</code> formally added under Article 15. A.4 migration created the table with the protected posture; this entry codifies it in the appendix.</p>
+
+  <h3>Append-only logs (INSERT-only RLS)</h3>
+  <ul>
+    <li><code>write_audit_log</code> (new, created in Phase A)</li>
+    <li><code>pod_inventory_audit_log</code></li>
+    <li><code>lifecycle_data_quality_flags</code></li>
+    <li>Any future <code>*_audit_log</code> table</li>
+  </ul>
+
+  <h3>Excluded (intentionally permissive)</h3>
+  <ul>
+    <li>Reference/lookup tables (<code>boonz_products</code>, <code>pod_products</code>, <code>product_mapping</code>, <code>holiday_calendar</code>)</li>
+    <li>Read-only views (<code>v_device_status_current</code>, etc.)</li>
+  </ul>
+
+  <h2 style="margin-top:32px">Appendix B — CI Checks (v1)</h2>
+  <p>Three checks run on every PR via <code>.github/workflows/governance.yml</code>:</p>
+  <ul>
+    <li><strong>protected-write-lint</strong> — fails if the diff contains <code>supabase.from("&lt;protected&gt;").update|insert|delete</code> outside of <code>supabase/functions/</code> or paths whitelisted in <code>docs/architecture/lint-allowlist.md</code>.</li>
+    <li><strong>rls-coverage</strong> — fails if any table in Appendix A has <code>relrowsecurity = false</code> after migrations are applied to the PR's preview branch.</li>
+    <li><strong>rpc-audit-coverage</strong> — fails if any new <code>SECURITY DEFINER</code> function does not call <code>audit_log_write()</code> at least once.</li>
+  </ul>
+
+  <h2 style="margin-top:32px">Appendix C — Amendment Process</h2>
+  <p>This Constitution is amended via PR. Each amendment must include:</p>
+  <ul>
+    <li>The article being added, removed, or modified.</li>
+    <li>A one-paragraph rationale (why the existing article is insufficient).</li>
+    <li>The migration or CI change that enforces the new article.</li>
+    <li>Signoff by the codebase owner (CS) before merge.</li>
+  </ul>
+  <p>Amendments take effect at merge. Existing code is brought into compliance via the next phase plan, not retroactively in the same PR.</p>
+</div>
+
+<div class="sig">
+  <span>Boonz ERP · Backend Constitution v1.0</span>
+  <span>Ratification target: 2026-04-26</span>
+</div>
+
+</div>
+</body>
+</html>

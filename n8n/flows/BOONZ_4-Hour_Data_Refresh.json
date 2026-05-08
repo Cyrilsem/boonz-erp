@@ -1,0 +1,95 @@
+{
+  "name": "BOONZ: 4-Hour Data Refresh",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://eizcexopcuoycuosittm.supabase.co/functions/v1/refresh-stage1",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpMultipleHeadersAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"lookback_days\": 1}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "2352fb97-253a-4a8e-b656-4c49947e09eb",
+      "name": "Refresh Stage ",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "credentials": {
+        "httpMultipleHeadersAuth": {
+          "id": "9PoVwQo9QWWDOMPo",
+          "name": "Multiple Headers Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "7707049890",
+        "text": "=🔄 *Boonz Data Refresh*\n━━━━━━━━━━━━━━━━━━━━\n📊 Sales synced: {{ $json.sales.upserted }} new\n🏪 Machines covered: {{ $json.machines_covered }}\n🗂️ Slots normalised: {{ $json.aisles.upserted }} ({{ $json.aisles.machines }} machines)\n📦 FIFO: {{ $json.pod_inventory_decrement.sales_processed }} processed\n⏱️ Duration: {{ $json.duration_seconds }}s\n🕐 Next refresh in ~4 hours",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "a8287ccb-9e5e-45f3-91f8-93dd245a6ad6",
+      "name": "Telegram Notify",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [480, 0],
+      "webhookId": "a45b9711-0eda-48b9-8be3-664acb908e32",
+      "credentials": {
+        "telegramApi": {
+          "id": "nEbKVMS9GMJXOI44",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 2 },
+            { "triggerAtHour": 10 },
+            { "triggerAtHour": 14 },
+            { "triggerAtHour": 18 }
+          ]
+        }
+      },
+      "id": "ffdfcfc4-6d48-480c-977a-384b3dad2287",
+      "name": "Every 4 Hours (2AM-6PM UAE)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Refresh Stage ": {
+      "main": [[{ "node": "Telegram Notify", "type": "main", "index": 0 }]]
+    },
+    "Every 4 Hours (2AM-6PM UAE)": {
+      "main": [[{ "node": "Refresh Stage ", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "instanceId": "edfd5198d4b96a1beb7bf3eafddc33d4279b4e8a792ddc663c17b2f88c3942b9"
+  },
+  "tags": []
+}
