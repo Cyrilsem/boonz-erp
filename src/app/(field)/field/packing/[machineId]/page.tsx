@@ -959,6 +959,40 @@ export default function PackingDetailPage() {
         );
       }
     }
+
+    // Top-up: when a pinned batch capped down (e.g. previously packed against a
+    // batch whose stock has since shrunk), FIFO-fill the shortfall across the
+    // remaining batches so total picked still matches recommended_qty.
+    for (const line of mergedList) {
+      if (line.action === "packed") continue; // don't touch confirmed packs
+      if (line.recommended_qty <= 0) continue;
+      const batches = line.singleBatches ?? [];
+      if (batches.length === 0) continue;
+      const dispatchId = line.dispatch_id;
+      const current = initBatchPickQtys[dispatchId] ?? {};
+      const totalNow = Object.values(current).reduce((s, v) => s + v, 0);
+      let shortfall = line.recommended_qty - totalNow;
+      if (shortfall <= 0) continue;
+      // FIFO-fill from the earliest expiry batches that still have headroom
+      for (const b of batches) {
+        if (shortfall <= 0) break;
+        const info = whBatchInfoMap.get(b.wh_inventory_id);
+        if (!info) continue;
+        const bk = `${info.boonz_product_id}|||${info.expiry ?? "null"}`;
+        const committed = committedBatchMap.get(bk) ?? 0;
+        const rawStock = whIdToStock.get(b.wh_inventory_id) ?? 0;
+        const available = Math.max(0, rawStock - committed);
+        const alreadyPicked = current[b.wh_inventory_id] ?? 0;
+        const headroom = Math.max(0, available - alreadyPicked);
+        const add = Math.min(headroom, shortfall);
+        if (add > 0) {
+          initBatchPickQtys[dispatchId][b.wh_inventory_id] =
+            alreadyPicked + add;
+          shortfall -= add;
+        }
+      }
+    }
+
     setBatchPickQtys(initBatchPickQtys);
 
     const allResolved =
