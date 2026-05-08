@@ -13,15 +13,23 @@ const VALID_LOCATION_TYPES = new Set([
   "warehouse",
 ]);
 
+// Phase B.1.1: machines within MACHINE_RAMP_DAYS of their first sale (or
+// creation if no sales yet) are too young to judge — signals get overridden
+// to "RAMPING" so we don't prematurely brand products as DEAD/ROTATE OUT.
+const MACHINE_RAMP_DAYS = 30;
+
+// Phase B.1.1: simplified band logic. The previous version had gaps at
+// score=4.5 + trend outside [3.5, 6.5] that fell through to DEAD by accident.
+// New rule: any score ≥4.5 floors to KEEP regardless of trend; only DOUBLE
+// DOWN / KEEP GROWING require trend confirmation.
 function getSignal(score: number, trend: number): string {
   if (score >= 8.5 && trend > 5) return "DOUBLE DOWN";
   if (score >= 6.5 && trend > 5) return "KEEP GROWING";
-  if (score >= 4.5 && score < 8.5 && trend >= 3.5 && trend <= 6.5)
-    return "KEEP";
-  if (score >= 2.5 && score < 4.5 && trend > 5) return "WATCH";
-  if (score >= 2.5 && score < 4.5 && trend <= 5) return "WIND DOWN";
-  if (score >= 1.0 && score < 2.5) return "ROTATE OUT";
-  return "DEAD \u2014 SWAP NOW";
+  if (score >= 4.5) return "KEEP";
+  if (score >= 2.5 && trend > 5) return "WATCH";
+  if (score >= 2.5) return "WIND DOWN";
+  if (score >= 1.0) return "ROTATE OUT";
+  return "DEAD — SWAP NOW";
 }
 
 function median(arr: number[]): number {
@@ -83,13 +91,31 @@ function r2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+// ─── Phase B.1 helpers ──────────────────────────────────────────────────
+// Resolver: normalize a pod product name for fuzzy equality (trim, lowercase,
+// collapse internal whitespace). Mirrors what would have lived in SQL as
+// pod_product_name_normalize() — kept in TS so the resolver and the rest of
+// evaluate-lifecycle's reality-builder stay co-located.
+function normalizeName(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+// Convert WEIMI snapshot's "A1" / "A15" → padded "A01" / "A15"
+function padShelf(code: string | null | undefined): string {
+  const m = /^([A-Z])(\d+)$/.exec(code ?? "");
+  return m
+    ? `${m[1]}${String(m[2]).padStart(2, "0")}`
+    : (code ?? "").toUpperCase();
+}
+
 Deno.serve(async (_req) => {
   const t0 = Date.now();
   try {
     // ── Fetch all reference data in parallel ──────────────────────────────────
     const [
       machinesRes,
-      planogramRes,
+      snapshotsRes,
+      shelfConfigsRes,
       podsRes,
       salesRes,
       podInvRes,
@@ -97,14 +123,20 @@ Deno.serve(async (_req) => {
     ] = await Promise.all([
       supabase
         .from("machines")
-        .select("machine_id,official_name,location_type,include_in_refill")
+        .select(
+          "machine_id,official_name,location_type,include_in_refill,created_at",
+        )
         .eq("include_in_refill", true)
         .limit(10000),
       supabase
-        .from("planogram")
-        .select("machine_id,shelf_id,shelf_code,pod_product_id,effective_from")
-        .eq("is_active", true)
-        .not("pod_product_id", "is", null)
+        .from("weimi_aisle_snapshots")
+        .select("machine_id,slot_code,product_name,current_stock,snapshot_at")
+        .order("snapshot_at", { ascending: false })
+        .limit(20000),
+      supabase
+        .from("shelf_configurations")
+        .select("machine_id,shelf_id,shelf_code,is_phantom")
+        .eq("is_phantom", false)
         .limit(10000),
       supabase
         .from("pod_products")
@@ -129,30 +161,125 @@ Deno.serve(async (_req) => {
         .limit(10000),
     ]);
 
+    // Phase B.1.2: all-time first-sale-per-machine, separate from the 62-day
+    // velocity window. This is the ramping check's truth source.
+    const firstSaleRes = await supabase
+      .from("v_machine_first_sale")
+      .select("machine_id,first_sale_at")
+      .limit(10000);
+
     const machines = machinesRes.data ?? [];
-    const planogram = planogramRes.data ?? [];
+    const snapshots = snapshotsRes.data ?? [];
+    const shelfConfigs = shelfConfigsRes.data ?? [];
     const pods = podsRes.data ?? [];
     const sales = salesRes.data ?? [];
     const podInv = podInvRes.data ?? [];
     const nameConv = nameConvRes.data ?? [];
+    const firstSales = firstSaleRes.data ?? [];
 
     // Lookup maps
     const machineMap = new Map(machines.map((m) => [m.machine_id, m]));
     const podByName = new Map(
-      pods.map((p) => [p.pod_product_name.toLowerCase(), p.pod_product_id]),
+      pods.map((p) => [normalizeName(p.pod_product_name), p.pod_product_id]),
     );
     const nameAlias = new Map(
       nameConv.map((n) => [
-        n.original_name?.toLowerCase(),
-        n.official_name?.toLowerCase(),
+        normalizeName(n.original_name ?? ""),
+        normalizeName(n.official_name ?? ""),
       ]),
     );
 
     const resolvePodId = (name: string): string | null => {
-      const lo = name.toLowerCase();
+      const k = normalizeName(name);
       return (
-        podByName.get(lo) ?? podByName.get(nameAlias.get(lo) ?? "") ?? null
+        podByName.get(k) ?? podByName.get(nameAlias.get(k) ?? "") ?? null
       );
+    };
+
+    // ── Phase 0.5: Build "reality" array from latest snapshot per (machine, slot)
+    // This is the equivalent of the old `planogram` array.
+    const shelfIdMap = new Map<string, string>();
+    for (const sc of shelfConfigs) {
+      if (sc.machine_id && sc.shelf_code) {
+        shelfIdMap.set(`${sc.machine_id}:${sc.shelf_code}`, sc.shelf_id);
+      }
+    }
+
+    const latestSnap = new Map<string, typeof snapshots[0]>();
+    for (const s of snapshots) {
+      const k = `${s.machine_id}:${s.slot_code}`;
+      if (!latestSnap.has(k)) latestSnap.set(k, s); // pre-sorted DESC
+    }
+
+    type RealitySlot = {
+      machine_id: string;
+      shelf_id: string;
+      shelf_code: string;
+      pod_product_id: string;
+    };
+    const reality: RealitySlot[] = [];
+    const dqUnresolvedShelf: Array<Record<string, unknown>> = [];
+    const dqUnresolvedProduct: Array<Record<string, unknown>> = [];
+
+    for (const snap of latestSnap.values()) {
+      const shelf_code = padShelf(snap.slot_code);
+      const shelf_id = shelfIdMap.get(`${snap.machine_id}:${shelf_code}`);
+      if (!shelf_id) {
+        dqUnresolvedShelf.push({
+          flag_type: "UNRESOLVED_SHELF_ID",
+          severity: "warning",
+          scope: "machine",
+          machine_id: snap.machine_id,
+          message: `Snapshot slot_code=${snap.slot_code} (→ ${shelf_code}) has no shelf_configurations row.`,
+        });
+        continue;
+      }
+      const pid = resolvePodId(snap.product_name ?? "");
+      if (!pid) {
+        dqUnresolvedProduct.push({
+          flag_type: "UNRESOLVED_POD_PRODUCT_NAME",
+          severity: "warning",
+          scope: "machine",
+          machine_id: snap.machine_id,
+          message: `Snapshot product_name "${snap.product_name}" at ${shelf_code} does not resolve to any pod_product_id.`,
+        });
+        continue;
+      }
+      reality.push({
+        machine_id: snap.machine_id,
+        shelf_id,
+        shelf_code,
+        pod_product_id: pid,
+      });
+    }
+
+    // ── Phase B.1.2: Per-machine ALL-TIME first sale date for ramping check ──
+    // Sourced from v_machine_first_sale (full-history aggregate), not the
+    // 62-day velocity window — fixes the B.1.1 bug where mature machines with
+    // a quiet patch in the window were mis-flagged as ramping.
+    const firstSaleByMachine = new Map<string, Date>();
+    for (const r of firstSales) {
+      if (r.machine_id && r.first_sale_at) {
+        firstSaleByMachine.set(r.machine_id, new Date(r.first_sale_at));
+      }
+    }
+    const isRampingMachine = (machineId: string): boolean => {
+      const m = machineMap.get(machineId);
+      if (!m) return false;
+      const firstSale = firstSaleByMachine.get(machineId);
+      if (firstSale) {
+        const days = (Date.now() - firstSale.getTime()) / 86400000;
+        return days < MACHINE_RAMP_DAYS;
+      }
+      // No sales ever — fall back to creation date for brand-new machines
+      // that haven't sold yet. Mature machines with no sales fall through
+      // to MACHINE_DARK, not RAMPING.
+      if (m.created_at) {
+        const days =
+          (Date.now() - new Date(m.created_at).getTime()) / 86400000;
+        if (days < MACHINE_RAMP_DAYS) return true;
+      }
+      return false;
     };
 
     // ── Dark machines (0 sales in 14d) ────────────────────────────────────────
@@ -168,12 +295,15 @@ Deno.serve(async (_req) => {
         .map((m) => m.machine_id),
     );
 
-    // ── Phase 1: Auto-discovery ───────────────────────────────────────────────
+    // ── Phase 1: Existing slot_lifecycle state (full ledger including is_current=false)
     const [existingSlotsRes, existingProductsRes] = await Promise.all([
       supabase
         .from("slot_lifecycle")
-        .select("machine_id,shelf_id,score,first_seen_at")
-        .limit(10000),
+        .select(
+          "machine_id,shelf_id,pod_product_id,score,first_seen_at,is_current",
+        )
+        .eq("archived", false)
+        .limit(20000),
       supabase
         .from("product_lifecycle_global")
         .select("pod_product_id")
@@ -181,12 +311,21 @@ Deno.serve(async (_req) => {
     ]);
 
     const existingSlots = existingSlotsRes.data ?? [];
-    const existingSlotKeys = new Set(
-      existingSlots.map((s) => `${s.machine_id}:${s.shelf_id}`),
+    const existingByLedger = new Map(
+      existingSlots.map((s) => [
+        `${s.machine_id}:${s.shelf_id}:${s.pod_product_id}`,
+        s,
+      ]),
     );
-    const existingSlotMap = new Map(
-      existingSlots.map((s) => [`${s.machine_id}:${s.shelf_id}`, s]),
-    );
+    const currentByLocator = new Map<string, string>();
+    for (const s of existingSlots) {
+      if (s.is_current)
+        currentByLocator.set(`${s.machine_id}:${s.shelf_id}`, s.pod_product_id);
+    }
+    const newByLocator = new Map<string, string>();
+    for (const r of reality) {
+      newByLocator.set(`${r.machine_id}:${r.shelf_id}`, r.pod_product_id);
+    }
     const existingProdIds = new Set(
       (existingProductsRes.data ?? []).map((p) => p.pod_product_id),
     );
@@ -197,29 +336,50 @@ Deno.serve(async (_req) => {
       new_products: 0,
       new_families: 0,
       archived_slots: 0,
+      rotations: 0,
     };
 
-    // New slots
-    const planogramKeys = new Set(
-      planogram.map((p) => `${p.machine_id}:${p.shelf_id}`),
-    );
-    const newSlotRows = planogram.filter(
-      (p) => !existingSlotKeys.has(`${p.machine_id}:${p.shelf_id}`),
-    );
-    disc.new_slots = newSlotRows.length;
-    for (let i = 0; i < newSlotRows.length; i += 100) {
-      await supabase.from("slot_lifecycle").upsert(
-        newSlotRows.slice(i, i + 100).map((p) => ({
-          machine_id: p.machine_id,
-          shelf_id: p.shelf_id,
-          shelf_code: p.shelf_code ?? "",
-          pod_product_id: p.pod_product_id,
-          score: 5.0,
-          signal: "KEEP",
-        })),
-        { onConflict: "machine_id,shelf_id" },
-      );
+    const nowIso = new Date().toISOString();
+
+    // ── Phase 1.5: Detect rotations — flip prior is_current=false ────────────
+    const rotationsToClose: Array<{
+      machine_id: string;
+      shelf_id: string;
+      pod_product_id: string;
+    }> = [];
+    for (const [locator, oldPid] of currentByLocator) {
+      const newPid = newByLocator.get(locator);
+      if (newPid && newPid !== oldPid) {
+        const [machine_id, shelf_id] = locator.split(":");
+        rotationsToClose.push({ machine_id, shelf_id, pod_product_id: oldPid });
+      }
     }
+    for (const r of rotationsToClose) {
+      await supabase
+        .from("slot_lifecycle")
+        .update({ is_current: false, rotated_out_at: nowIso })
+        .eq("machine_id", r.machine_id)
+        .eq("shelf_id", r.shelf_id)
+        .eq("pod_product_id", r.pod_product_id);
+    }
+    disc.rotations = rotationsToClose.length;
+
+    // ── Phase 1.6: Archive slots whose shelf_id vanished from shelf_configurations
+    const stillConfiguredShelfIds = new Set(
+      shelfConfigs.map((sc) => sc.shelf_id),
+    );
+    const toArchive = existingSlots.filter(
+      (s) => s.is_current && !stillConfiguredShelfIds.has(s.shelf_id),
+    );
+    for (const s of toArchive) {
+      await supabase
+        .from("slot_lifecycle")
+        .update({ archived: true, rotated_out_at: nowIso })
+        .eq("machine_id", s.machine_id)
+        .eq("shelf_id", s.shelf_id)
+        .eq("pod_product_id", s.pod_product_id);
+    }
+    disc.archived_slots = toArchive.length;
 
     // New products
     const newProdRows = pods.filter(
@@ -237,25 +397,17 @@ Deno.serve(async (_req) => {
       );
     }
 
-    // Archive removed slots
-    const toArchive = existingSlots.filter(
-      (s) => !planogramKeys.has(`${s.machine_id}:${s.shelf_id}`),
-    );
-    for (const s of toArchive) {
-      await supabase
-        .from("slot_lifecycle")
-        .update({ archived: true })
-        .eq("machine_id", s.machine_id)
-        .eq("shelf_id", s.shelf_id);
-      disc.archived_slots++;
-    }
-
     // ── Phase 2: DQ flags (resolve stale, insert fresh) ──────────────────────
-    // Resolve stale machine-scope flags
     await supabase
       .from("lifecycle_data_quality_flags")
-      .update({ resolved_at: new Date().toISOString() })
-      .in("flag_type", ["MACHINE_DARK", "UNNORMALIZED_LOCATION"])
+      .update({ resolved_at: nowIso })
+      .in("flag_type", [
+        "MACHINE_DARK",
+        "UNNORMALIZED_LOCATION",
+        "UNRESOLVED_SHELF_ID",
+        "UNRESOLVED_POD_PRODUCT_NAME",
+        "MACHINE_RAMPING",
+      ])
       .is("resolved_at", null);
 
     const dqFlags: Array<{
@@ -287,16 +439,41 @@ Deno.serve(async (_req) => {
           message: `location_type '${m.location_type}' is null or unnormalized`,
         });
       }
+      // Phase B.1.1: surface machines in their post-launch ramp window.
+      if (isRampingMachine(m.machine_id)) {
+        const firstSale = firstSaleByMachine.get(m.machine_id);
+        const daysSinceFirstSale = firstSale
+          ? Math.floor((Date.now() - firstSale.getTime()) / 86400000)
+          : null;
+        const daysSinceCreation = m.created_at
+          ? Math.floor(
+              (Date.now() - new Date(m.created_at).getTime()) / 86400000,
+            )
+          : null;
+        dqFlags.push({
+          flag_type: "MACHINE_RAMPING",
+          severity: "info",
+          scope: "machine",
+          machine_id: m.machine_id,
+          message: firstSale
+            ? `${m.official_name} ramping — ${daysSinceFirstSale}/${MACHINE_RAMP_DAYS}d since first sale. Lifecycle signal capped at RAMPING.`
+            : `${m.official_name} active but not yet selling — ${daysSinceCreation ?? "?"}d since deployment. Lifecycle signal = RAMPING.`,
+        });
+      }
     }
 
-    for (let i = 0; i < dqFlags.length; i += 25) {
+    const allMachineDq = [
+      ...dqFlags,
+      ...dqUnresolvedShelf,
+      ...dqUnresolvedProduct,
+    ];
+    for (let i = 0; i < allMachineDq.length; i += 25) {
       await supabase
         .from("lifecycle_data_quality_flags")
-        .insert(dqFlags.slice(i, i + 25));
+        .insert(allMachineDq.slice(i, i + 25));
     }
 
     // ── Phase 3: Build sales map & compute scores ─────────────────────────────
-    // sales map: `${machine_id}:${pod_product_id}` → DailySales
     const salesMap = new Map<string, DailySales>();
     for (const s of sales) {
       const pid = resolvePodId(s.pod_product_name);
@@ -308,12 +485,11 @@ Deno.serve(async (_req) => {
       ds.set(d, (ds.get(d) ?? 0) + Number(s.qty));
     }
 
-    // Active slots to score (must have valid location_type)
-    const scorableSlots = planogram.filter(
-      (p) =>
-        p.pod_product_id &&
+    // Active slots to score (must have valid location_type) — built from reality
+    const scorableSlots = reality.filter(
+      (r) =>
         VALID_LOCATION_TYPES.has(
-          machineMap.get(p.machine_id)?.location_type ?? "",
+          machineMap.get(r.machine_id)?.location_type ?? "",
         ),
     );
 
@@ -326,11 +502,11 @@ Deno.serve(async (_req) => {
       cons: number;
       daily: DailySales;
     };
-    const vMap = new Map<string, VData>(); // slot key → velocities
+    const vMap = new Map<string, VData>();
     for (const slot of scorableSlots) {
       const daily =
         salesMap.get(`${slot.machine_id}:${slot.pod_product_id}`) ?? new Map();
-      vMap.set(`${slot.machine_id}:${slot.shelf_id}`, {
+      vMap.set(`${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`, {
         v7: velocityN(daily, 7),
         v14: velocityN(daily, 14),
         v30: velocityN(daily, 30),
@@ -341,13 +517,15 @@ Deno.serve(async (_req) => {
     }
 
     // Build archetype baselines: (location_type:pod_product_id) → [v30 from non-dark machines]
-    const arcMap = new Map<string, number[]>(); // `${locType}:${podId}` → velocities
-    const allArcMap = new Map<string, number[]>(); // `${podId}` → all velocities (fallback)
+    const arcMap = new Map<string, number[]>();
+    const allArcMap = new Map<string, number[]>();
     for (const slot of scorableSlots) {
       if (darkMachines.has(slot.machine_id)) continue;
       const m = machineMap.get(slot.machine_id);
       if (!m?.location_type) continue;
-      const v = vMap.get(`${slot.machine_id}:${slot.shelf_id}`);
+      const v = vMap.get(
+        `${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`,
+      );
       if (!v) continue;
       const k1 = `${m.location_type}:${slot.pod_product_id}`;
       const k2 = slot.pod_product_id!;
@@ -357,17 +535,14 @@ Deno.serve(async (_req) => {
       allArcMap.get(k2)!.push(v.v30);
     }
 
-    // DQ: LOW_CONFIDENCE_BASELINE
     const lowBaselineFlags: typeof dqFlags = [];
-    const podBaselineMap = new Map<string, { flag: boolean }>(); // track per product
+    const podBaselineMap = new Map<string, { flag: boolean }>();
 
-    // Second pass: compute scores
     const today = new Date().toISOString().split("T")[0];
     const slotUpdates: Record<string, unknown>[] = [];
     const slotHistory: Record<string, unknown>[] = [];
     const slotDqFlags: typeof dqFlags = [];
 
-    // For global aggregation: pod_product_id → { wScore, wV, totalV30, trendSum, trendCount, machineIds }
     const globalAgg = new Map<
       string,
       {
@@ -387,10 +562,9 @@ Deno.serve(async (_req) => {
 
     for (const slot of scorableSlots) {
       const m = machineMap.get(slot.machine_id)!;
-      const slotKey = `${slot.machine_id}:${slot.shelf_id}`;
-      const v = vMap.get(slotKey)!;
+      const ledgerKey = `${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`;
+      const v = vMap.get(ledgerKey)!;
 
-      // Archetype baseline
       const arcKey = `${m.location_type}:${slot.pod_product_id}`;
       const arcVelocities = arcMap.get(arcKey) ?? [];
       let baseline: number;
@@ -419,13 +593,12 @@ Deno.serve(async (_req) => {
       const cc = v.cons;
       let score = r2(vc * 0.6 + tc * 0.25 + cc * 0.15);
 
-      const existingSlot = existingSlotMap.get(slotKey);
+      const existingSlot = existingByLedger.get(ledgerKey);
       const firstSeen = existingSlot?.first_seen_at ?? new Date().toISOString();
       const ageD = Math.floor(
         (Date.now() - new Date(firstSeen).getTime()) / 86400000,
       );
 
-      // Cap for new slots
       if (ageD < 14) {
         score = Math.min(score, 4.5);
         slotDqFlags.push({
@@ -438,7 +611,6 @@ Deno.serve(async (_req) => {
         });
       }
 
-      // Velocity outlier
       if (v.v30 > 50) {
         slotDqFlags.push({
           flag_type: "VELOCITY_OUTLIER",
@@ -456,7 +628,9 @@ Deno.serve(async (_req) => {
         else if (prevScore - score >= 0.5) slotScoreDelta.down++;
       }
 
-      const signal = getSignal(score, tc);
+      const rawSignal = getSignal(score, tc);
+      // Phase B.1.1: machines within ramp window never get DEAD/ROTATE OUT
+      const signal = isRampingMachine(slot.machine_id) ? "RAMPING" : rawSignal;
 
       slotUpdates.push({
         machine_id: slot.machine_id,
@@ -474,7 +648,9 @@ Deno.serve(async (_req) => {
         archetype_baseline_velocity: r2(baseline),
         signal,
         slot_age_days: ageD,
-        last_evaluated_at: new Date().toISOString(),
+        last_evaluated_at: nowIso,
+        is_current: true,
+        rotated_in_at: nowIso,
       });
 
       slotHistory.push({
@@ -487,7 +663,6 @@ Deno.serve(async (_req) => {
         velocity_30d: r2(v.v30),
       });
 
-      // Aggregate for global
       const pid = slot.pod_product_id!;
       if (!globalAgg.has(pid)) {
         globalAgg.set(pid, {
@@ -516,12 +691,12 @@ Deno.serve(async (_req) => {
       slotsEval++;
     }
 
-    // Batch upsert slot_lifecycle
+    // Batch upsert slot_lifecycle with the new ledger key
     for (let i = 0; i < slotUpdates.length; i += 100) {
       await supabase
         .from("slot_lifecycle")
         .upsert(slotUpdates.slice(i, i + 100), {
-          onConflict: "machine_id,shelf_id",
+          onConflict: "machine_id,shelf_id,pod_product_id",
         });
     }
 
@@ -551,7 +726,6 @@ Deno.serve(async (_req) => {
       const totalV30 = agg ? r2(agg.totalV30) : 0;
       const machineCount = agg ? agg.machines.size : 0;
 
-      // Best/worst location_type by avg score
       let bestLoc: string | null = null,
         worstLoc: string | null = null;
       let bestScore = -1,
@@ -581,7 +755,7 @@ Deno.serve(async (_req) => {
         signal,
         best_location_type: bestLoc,
         worst_location_type: worstLoc,
-        last_evaluated_at: new Date().toISOString(),
+        last_evaluated_at: nowIso,
       });
 
       prodHistory.push({
@@ -658,7 +832,7 @@ Deno.serve(async (_req) => {
 
     // ── Summary ───────────────────────────────────────────────────────────────
     const flagCounts: Record<string, number> = {};
-    for (const f of [...dqFlags, ...allSlotFlags]) {
+    for (const f of [...allMachineDq, ...allSlotFlags]) {
       flagCounts[f.flag_type.toLowerCase()] =
         (flagCounts[f.flag_type.toLowerCase()] ?? 0) + 1;
     }

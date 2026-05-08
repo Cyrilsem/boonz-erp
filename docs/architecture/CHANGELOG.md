@@ -15,6 +15,177 @@ Format:
 
 ---
 
+## 2026-05-08 — Phase B.1.2: All-time first-sale view fix for ramping detection
+**Phase / Article:** B.1.2 / Constitution Articles 2, 9, 12
+**Applied to:** prod
+**Migration name:** `phaseB_b1_2_machine_first_sale_view`
+
+**Summary:** B.1.1 derived per-machine first-sale-date from the same 62-day sales window already loaded for velocity computation. That window-min is **not** the same as all-time first-sale: a mature machine with a quiet patch in the window (e.g., WAVEMAKER-1006 and WPP-1002, both first-sold 2025-09-26 but with no sales between Mar 6 and Apr 14, 2026) reported a within-window first-sale of 2026-04-14 — falsely flagging them RAMPING after B.1.1 deploy. B.1.2 adds a dedicated read-only view `v_machine_first_sale` (`SELECT machine_id, MIN(transaction_date), MAX(transaction_date), COUNT(*) FROM sales_history WHERE delivery_status='Successful' GROUP BY machine_id`), declared `SECURITY INVOKER` so caller RLS applies. Edge fn `evaluate-lifecycle/index.ts` now reads from this view to populate `firstSaleByMachine`, replacing the window-min derivation. The fallback to `machines.created_at` for never-sold machines is preserved. Verified post-deploy: WAVEMAKER (224d) and WPP (224d) correctly classify as mature and receive normal signals; six genuinely-young machines (ACTIVATE-2005 15d, ACTIVATEMCC-1037 6d, IFLYMCC-1024 5d, MPMCC-1054 6d, MPMCC-1058 8d, NOVO-1023 13d) correctly remain RAMPING.
+
+**Article 9 status:** Same pre-existing debt — edge fn does business logic + direct writes. Tracked under the same Phase B follow-up.
+
+**Rollback:**
+```sql
+-- Revert evaluate-lifecycle/index.ts to v10 (B.1.1 derivation from sales window).
+-- Then drop the view:
+DROP VIEW IF EXISTS public.v_machine_first_sale;
+```
+
+---
+
+## 2026-05-08 — Phase B.1.1: Machine ramping + signal band fix
+**Phase / Article:** B.1.1 / Constitution Articles 1, 3, 9, 15
+**Applied to:** prod (edge fn) + repo (FE — pending Vercel deploy)
+**Migration name:** none — code-only patch
+
+**Summary:** Two related fixes to `evaluate-lifecycle/index.ts` after CS observed newly-deployed VOX machines (MPMCC-1058, MPMCC-1054, ACTIVATEMCC-1037, ACTIVATE-2005) being categorized as DEAD/ROTATE OUT despite being only 6–14 days post-first-sale. **Fix 1: Machine ramping protection.** New constant `MACHINE_RAMP_DAYS=30`. New helper `isRampingMachine()` derives per-machine first-sale-date from the existing 62-day sales window with `machines.created_at` as fallback (preserves the distinction between truly-young machines and long-dark mature machines — the latter continue to flag MACHINE_DARK, not RAMPING). When a machine is within its ramp window, its slot signals override to a new `RAMPING` value regardless of computed score/trend. New DQ flag type `MACHINE_RAMPING` surfaces affected machines (severity=info; days-since-first-sale or days-since-creation logged in message). The `lifecycle_data_quality_flags` resolve-stale list expanded to include `MACHINE_RAMPING`. **Fix 2: Score-band gap closure.** Previous `getSignal` had three orphan bands that fell through to DEAD by accident: (a) `score≥4.5 && score<8.5 && trend<3.5`, (b) `score≥4.5 && score<8.5 && trend>6.5`, (c) `score≥6.5 && trend≤5`. Simplified band logic so any `score≥4.5` floors to KEEP regardless of trend; only DOUBLE DOWN and KEEP GROWING still require trend confirmation (>5). This was the proximate cause of MPMCC-1058's slots being flagged DEAD at the cap-induced score=4.5. **FE:** added `RAMPING: "#3b82f6"` (blue) to `SIGNAL_COLORS`; added `RAMPING` to `sigOrder` legend list; matrix points now render in distinct blue with proper tooltip badging via existing `getSignalColor` plumbing. **Verification:** triggered `trigger_lifecycle_eval()` post-deploy, confirmed MPMCC-1058 / MPMCC-1054 / ACTIVATEMCC-1037 / ACTIVATE-2005 now show signal=RAMPING for all slots, mature machines (NOVO-1023, OMDCW-1021) unaffected.
+
+**Article 9 status:** Same pre-existing debt as B.1 — edge fn does business logic + direct writes inline. No new debt entry; the B.1 known-debt note already covers the additional logic. Still tracked under the same Phase B follow-up to wrap evaluate-lifecycle in a `compute_and_apply_lifecycle()` SECURITY DEFINER RPC.
+
+**Behavior changes (Article 15 disclosure):**
+- `score≥4.5 && score<8.5 && trend<3.5` was DEAD → now KEEP.
+- `score≥4.5 && score<8.5 && trend>6.5` was DEAD → now KEEP.
+- `score≥6.5 && trend≤5` was DEAD → now KEEP (or KEEP GROWING if trend>5, unchanged).
+- All slots at machines within 30-day ramp window now signal=RAMPING regardless of computed score/trend.
+
+**Rollback:**
+```ts
+// Revert evaluate-lifecycle/index.ts:
+// 1. Remove MACHINE_RAMP_DAYS, isRampingMachine helper, firstSaleByMachine map.
+// 2. Revert getSignal to the pre-B.1.1 trend-band-gated version.
+// 3. Remove RAMPING override at the slotUpdates push site.
+// 4. Remove MACHINE_RAMPING from the resolve-stale list and from the dqFlags emit loop.
+// 5. Remove RAMPING from FE SIGNAL_COLORS and sigOrder.
+```
+Existing slot_lifecycle.signal values containing "RAMPING" will be overwritten on the next cron tick after rollback. No DDL involved.
+
+---
+
+## 2026-05-07 — Phase B.1: Lifecycle reality anchor (snapshot-driven, ledger PK)
+**Phase / Article:** B.1 / Constitution Articles 1, 2, 3, 7, 9, 12, 14
+**Applied to:** prod
+**Migration name:** `phaseB_b1_lifecycle_reality_anchor`
+
+**Summary:** Repoints the lifecycle scoring engine off `planogram` (frozen seed since April 2026, no FE writer) onto `weimi_aisle_snapshots` (refreshed every ~6h by the WEIMI integration) for the runtime "what product is in this slot" question. Planogram retains its single legitimate runtime job: deployment-time seeding by `new-machine-onboarding`. To preserve product-level score history when slots rotate, `slot_lifecycle` is converted from a (machine, shelf) snapshot to a (machine, shelf, product) ledger: three new columns (`is_current` boolean default true, `rotated_in_at` timestamptz default now(), `rotated_out_at` timestamptz nullable), constraint rotation from `UNIQUE (machine_id, shelf_id)` to `UNIQUE (machine_id, shelf_id, pod_product_id)`, and a partial unique index `uq_slot_lifecycle_current_per_slot` on `(machine_id, shelf_id) WHERE is_current=true AND archived=false` to enforce the "exactly one current product per live slot" invariant. Two indexes added to `lifecycle_score_history` for per-slot-per-product history queries. Pre-flight DO-block aborts cleanly if existing data violates the new invariant. The companion `evaluate-lifecycle/index.ts` diff replaces the planogram read with a snapshot + shelf_configurations read, normalizes WEIMI's "A1"/"A15" slot codes to padded "A01"/"A15" shelf codes (with TS-side resolver `padShelf` and `normalizeName` for product-name matching trim+lowercase+collapse-whitespace), detects rotations by comparing the new dominant product per (machine, shelf) to the existing `is_current=true` row and flipping the prior row to `is_current=false, rotated_out_at=now()`, and upserts new scores with the new ledger conflict key. New DQ flag types `UNRESOLVED_SHELF_ID` and `UNRESOLVED_POD_PRODUCT_NAME` surface unresolvable snapshot rows for ops attention. Lifecycle FE matrix at `src/app/(app)/app/lifecycle/page.tsx` filters to `is_current=true` by default with a "Show rotated-out products" toolbar toggle that overlays prior products as faded points with dashed strokes and rotation timestamps in tooltips. Cleared lockstep release: migration → edge fn deploy → FE deploy → cron tick verification.
+
+**Origin context:** The original B.1 design was justified by an inflated 92% drift number that came from a SQL normalization bug on my end (treating `0-A14` as shelf `A14` rather than `A15` — WEIMI's sales feed uses zero-indexed slot labels, snapshot/shelf_configurations use one-indexed). After correction, real drift is ~9% (mostly recent rotations the snapshot has already caught up with). The schema design survives because keeping rotated-out products visible on the matrix and preserving their score history is independently valuable. Snapshot anchoring eliminates the need for `v_current_slot_assignment`, `v_unresolved_sales_product_names`, and `pod_product_name_normalize` (the sales-anchored design's helpers) — the snapshot already says what's currently in each slot, so no 30-day sales aggregation is required. CS approved Scope B (planogram retired from runtime hot path); refill engine retirement is filed as `phaseB_b2_refill_engine_planogram_retirement`.
+
+**Known debt: evaluate-lifecycle Article 9 conformance.** The edge fn does business logic (velocity / trend / consistency / score / signal / rotation-detection / archive-detection) and direct writes to `slot_lifecycle`, `lifecycle_score_history`, `lifecycle_data_quality_flags`, `product_lifecycle_global`. This violates Article 9 ("Edge functions are HTTP wrappers around RPCs. No business logic. No direct table writes."). It is pre-existing and was not introduced by B.1; B.1 deepens it by adding rotation-detection logic. Tracked as Phase B follow-up: convert evaluate-lifecycle to wrap a SECURITY DEFINER RPC `compute_and_apply_lifecycle()` so writes flow through Article 4 / Article 8 plumbing.
+
+**Code locality note.** Pod product name normalization moved from a planned SQL `pod_product_name_normalize(text)` IMMUTABLE helper into Deno (`evaluate-lifecycle/index.ts:normalizeName`). This is a maintainability tradeoff: future tweaks to the resolver (e.g., adding alias rules, handling new WEIMI conventions) require redeploying the edge fn rather than executing a migration. Update site is `supabase/functions/evaluate-lifecycle/index.ts`.
+
+**Rollback:**
+```sql
+-- Note: rolling back to (machine_id, shelf_id) UNIQUE will fail if any (machine, shelf)
+-- has multiple non-archived rows. The edge fn must be reverted to its pre-B.1 version
+-- BEFORE the schema rollback so no further rotation rows are created. Then:
+DROP INDEX IF EXISTS public.uq_slot_lifecycle_current_per_slot;
+DROP INDEX IF EXISTS public.idx_lifecycle_hist_slot_product_date;
+DROP INDEX IF EXISTS public.idx_lifecycle_hist_product_machine_date;
+ALTER TABLE public.slot_lifecycle DROP CONSTRAINT IF EXISTS slot_lifecycle_machine_shelf_product_uk;
+-- Manually delete is_current=false rows OR consolidate, then:
+ALTER TABLE public.slot_lifecycle ADD CONSTRAINT slot_lifecycle_machine_id_shelf_id_key UNIQUE (machine_id, shelf_id);
+ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS is_current;
+ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS rotated_out_at;
+ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS rotated_in_at;
+```
+
+---
+
+## 2026-05-06 — Phase B.2b: Engine 2 canonical writers (4 RPCs) + score function multi-row patch
+**Phase / Article:** B.2b / Constitution Articles 1, 4, 5, 8, 12
+**Applied to:** prod
+**Migration name:** `phaseB2a_fix_score_function_multi_row`, `phaseB2b_engine2_rpcs`
+
+**Summary:** Engine 2 is now end-to-end live as a read-write engine. Four DEFINER canonical writers for `rotation_proposals`: (1) `propose_rotation_plan(horizon_days, min_fit_score, max_per_source, dry_run)` — main loop iterating `v_warehouse_at_risk` for urgent buckets, scoring every active machine via `score_machine_for_product`, INSERTing top-N as pending proposals (`trigger_reason='expiry_risk'`, `proposal_type='wh_to_machine'` in B.2b; other reasons/types are future expansion). (2) `apply_rotation_proposal(proposal_id, plan_date, notes)` — CS approval; **Phase B prototype flips status only — does NOT create a planned_swaps row, that's Phase C wiring into the refill engine.** (3) `reject_rotation_proposal(proposal_id, reason)` — CS veto, captures reason in notes. (4) `mark_proposals_expired(age_days)` — daily housekeeping. All four set `app.via_rpc='true'` + `app.rpc_name=<name>`, validate inputs (NULL/range/FK), role-gate via `user_profiles`. System-callable functions (propose, mark_expired) bypass role gate when `auth.uid() IS NULL` so cron via `service_role` works; operator-only functions (apply, reject) require authenticated operator role with no bypass. `propose_rotation_plan` handles dedup via the partial unique index `uq_rp_active_source_target` — `unique_violation` is caught and counted as `skipped_dedup`. **Pre-emptive fix:** `phaseB2a_fix_score_function_multi_row` patched `score_machine_for_product` because `v_machine_absorption_capacity` returns multiple rows per (machine, boonz_product) pair when a boonz SKU is the global default for ≥2 pod_products (multi-variant scenario) — `DISTINCT ON (machine_id, boonz_product_id) … ORDER BY pod_product_id NULLS LAST` collapses the ctx CTE to one deterministic row. **First production run produced 21 pending proposals in 21s wall-clock**, 3 dedup-skips, 0 hard-blocks below threshold. Top scores: Vitamin Well Antioxidant→VOXMCC-1009 (82.7), Vitamin Well Care→VOXMCC-1009 (81.2), Vitamin Well Antioxidant→VOXMCC-1011 (81.1). Engine 2 routes the WH_MCC Vitamin Well stack toward the high-throughput VOX entertainment machines that already sell it — exactly the conduit pattern CS specified. **Article 8 verified end-to-end:** 21 audit rows in `write_audit_log` with `via_rpc=true`, `rpc_name='propose_rotation_plan'`, `operation='INSERT'`. Cody approved without revisions. **Phase B.3 follow-up:** pg_cron wiring (04:00 Dubai for propose, 03:00 for mark_expired) is a separate migration with its own Article 11 review.
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.mark_proposals_expired(int);
+DROP FUNCTION IF EXISTS public.reject_rotation_proposal(uuid, text);
+DROP FUNCTION IF EXISTS public.apply_rotation_proposal(uuid, date, text);
+DROP FUNCTION IF EXISTS public.propose_rotation_plan(int, numeric, int, boolean);
+-- The fix to score_machine_for_product is forward-only; no rollback needed.
+-- Pending proposals can be cleared via:
+-- DELETE blocked at RLS — would need to drop RLS policies first OR mark them all 'expired' via mark_proposals_expired(0).
+```
+
+---
+
+## 2026-05-05 — Phase B.2a: score_machine_for_product (Engine 2 fit scorer)
+**Phase / Article:** B.2a / Constitution Article 12 (read-only INVOKER, no protected-entity writes)
+**Applied to:** prod
+**Migration name:** `phaseB2a_score_machine_for_product`
+
+**Summary:** First Engine 2 RPC. Read-only `SECURITY INVOKER` function returning a `{score, hard_block, breakdown}` jsonb for routing a `boonz_product` to a target machine. 0-100 score combining five weighted components: throughput rank (35%), archetype/slot signal fit (20%), location_type fit using `product_lifecycle_global.best_location_type` / `worst_location_type` (15%), open shelf capacity vs proposed qty (15%), and urgency from projected days-to-sell vs horizon (10%). Hard cutoffs surface as `hard_block` reason: `no_pair_in_view`, `machine_excluded` (include_in_refill=false), `machine_inactive`, and `travel_scope_vox_locked` (the 8 VOX-locked SKUs from `engines/refill/guardrails/travel-scope.md` cannot route to non-VOX venue_groups). Reads `v_machine_absorption_capacity` (Phase A.5 view) — single source of truth, no parallel velocity computation. Cody review verdict ⚠️ Approve with revisions; both revisions applied (COALESCE guard on the throughput formula for the single-machine-fleet edge case where NULLIF would silently null the whole score; TODO comment in the function body marking the hardcoded VOX-locked list as a Phase C refactor target — should become a `travel_scope_locks` config table). Smoke tests: (1) Vitamin Well Upgrade → VOXMCC-1009 returned 69.94 with sensible breakdown (throughput 35 + location 15 + archetype 10 + capacity 7.5 + urgency 2.44); (2) Aquafina → VML returned 0 with `hard_block: travel_scope_vox_locked`; (3) ranking Vitamin Well across the fleet produced VOXMCC-1011 (74.68) > VOXMCC-1009 (69.94) > OMDBB (55.23) > office machines (~50) — top-2 are the highest-throughput VOX entertainment machines that already sell the product, exactly where Engine 2 should route at-risk warehouse stock. Function added to `RPC_REGISTRY.md` under Read-only helpers (now 9 functions). Phase B.2b (`propose_rotation_plan` DEFINER + 3 transition RPCs) is the next migration.
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.score_machine_for_product(uuid, uuid, int, int);
+```
+
+---
+
+## 2026-05-05 — Constitution Amendment 003 + 004: Appendix A additions
+**Phase / Article:** Article 15 amendment
+**Applied to:** repo (`01_constitution.html`)
+**Migration name:** n/a (constitutive doc edit)
+
+**Summary:** Two protected entities added to Appendix A. **Amendment 003:** `rotation_proposals` — Engine 2 (Rotation Planner) write surface. Append-only via DEFINER RPCs, FORCE ROW LEVEL SECURITY, status FSM (pending → applied | rejected | expired | superseded). Created in migration `phaseB_rotation_proposals_table`. **Amendment 004:** `machine_terminal_history` — created in A.4 with the protected posture but never formally promoted in the appendix; this entry codifies it. CS approved both 2026-05-05. Cody's `SKILL.md` protected entity list also updated to match (lives in the plugin install path outside the BOONZ BRAIN repo, updated through the plugin maintenance channel).
+
+**Rollback:** Edit `01_constitution.html` to revert Appendix A entries. The protected status of these tables in production code (RLS, FORCE, RPCs) is independent of the appendix listing.
+
+---
+
+## 2026-05-05 — Phase B.1: rotation_proposals write surface
+**Phase / Article:** B.1 / Constitution Articles 1, 2, 5, 7, 8, 12, 14, 15
+**Applied to:** prod
+**Migration name:** `phaseB_rotation_proposals_table`
+
+**Summary:** Engine 2 (Rotation Planner) gets its output queue. New table `rotation_proposals` with three proposal types (`wh_to_machine`, `machine_to_machine`, `shelf_substitute`), source/target FKs, snapshot-at-proposal scoring fields (`machine_fit_score`, `projected_days_to_sell`, `scoring_breakdown` jsonb), and a 5-state status FSM (`pending → applied | rejected | expired | superseded`). Five CHECK constraints enforce type-conditional integrity: `rp_source_consistency` (wh/machine source matches type), `rp_shelf_required_for_substitute`, `rp_substitute_changes_product` (target ≠ source for substitutes; = source for routing types), `rp_review_consistency` (applied/rejected require reviewed_at), `rp_applied_has_plan_date`. RLS enabled AND **forced** (per Cody — without FORCE, DEFINERs could DELETE; FORCE makes the table truly append-only). Four policies: select-allow, insert/update/delete-block at WITH CHECK/USING false. Five indexes: `idx_rp_pending_proposed_at` (FE morning brief), `idx_rp_target_machine_pending` (per-machine pane), `uq_rp_active_source_target` (partial unique for dedup, COALESCEs nullable source columns to sentinel UUID), `idx_rp_proposed_at_all` (history), `idx_rp_linked_swap_id` (swap-back lookup). Universal audit trigger `tg_audit_rotation_proposals` calls `audit_log_write('proposal_id')` on every INSERT/UPDATE/DELETE — same pattern as `machine_terminal_history`, `pod_inventory`, `slot_lifecycle`, etc. Cody review verdict ⚠️ Approve with revisions; all three revisions applied (FORCE RLS, audit trigger, articles header). Bodies for the five canonical writers (`propose_rotation_plan` DEFINER, `apply_rotation_proposal` DEFINER, `reject_rotation_proposal` DEFINER, `mark_proposals_expired` DEFINER, `score_machine_for_product` INVOKER) ship in Phase B.2 with separate Cody review. Until those exist, no writes happen — the table sits empty by design.
+
+**Rollback:**
+```sql
+DROP TRIGGER IF EXISTS tg_audit_rotation_proposals ON public.rotation_proposals;
+DROP TABLE IF EXISTS public.rotation_proposals;
+```
+
+---
+
+## 2026-05-05 — Manual lifecycle_archetype flips post-A.5 bootstrap
+**Phase / Article:** A.5 follow-up / Constitution Article 5 (state machine — manual transition by CS)
+**Applied to:** prod
+**Migration name:** n/a (direct SQL by CS, per Cody's note that until Phase B's transition RPC ships, manual SQL by CS is the allowed path)
+
+**Summary:** Bootstrap rule used "first attributable sale" as lifetime proxy, which mis-tagged a few mature SKUs as UNCLASSIFIED because their `product_mapping` was repointed recently. CS spot-checked the bootstrap distribution and authorized three manual corrections: **UNCLASSIFIED → ALWAYS_ON** for Pepsi - Regular (124 sales/30d), Perrier - Regular (19 sales/30d), SF Pancake - Chocolate Cream (8 sales/30d). **UNCLASSIFIED → TRIAL** for all SKUs of brands Healthy Cola (6 SKUs), Fade Fit (5 SKUs), Fade Fit Balade (2 SKUs) — these are newer brands CS is actively testing. Final distribution: 147 ALWAYS_ON, 17 TRIAL, 115 UNCLASSIFIED. Brands Nada Protein, Hayatna, Dunkin were also flagged for phase-out by CS but `lifecycle_archetype` is the wrong axis — phase-out belongs in `portfolio_strategy.md §6` alongside 7days, Sabahoo, YoPro, or in a future `boonz_products.phase_out_bias` column. Tracked as a separate followup; left as UNCLASSIFIED for now.
+
+**Rollback:**
+```sql
+UPDATE public.boonz_products SET lifecycle_archetype = 'UNCLASSIFIED'
+ WHERE boonz_product_name IN ('Pepsi - Regular','Perrier - Regular','SF Pancake - Chocolate Cream');
+UPDATE public.boonz_products SET lifecycle_archetype = 'UNCLASSIFIED'
+ WHERE product_brand IN ('Healthy Cola','Fade Fit','Fade Fit Balade');
+```
+
+---
+
+## 2026-05-05 — Optimizer Brain Phase A foundations: lifecycle_archetype + at-risk + absorption views
+**Phase / Article:** A.5 / Constitution Articles 2, 6, 12, 14
+**Applied to:** prod
+**Migration name:** `phaseA_optimizer_foundations`, `phaseA_optimizer_foundations_fix_urgency_bucket`
+
+**Summary:** First migration of the Optimizer Brain build (Engine 2 — Rotation Planner per the Bible). Phase A is read-only intelligence; no new write paths. Three pieces landed: (1) `boonz_products.lifecycle_archetype text NOT NULL DEFAULT 'UNCLASSIFIED'` with CHECK enum (HYPE | ALWAYS_ON | SEASONAL | TRIAL | UNCLASSIFIED) and a partial index excluding the default value. The bootstrap UPDATE auto-tagged the catalog using product lifetime and velocity per CS rule (≥30d in catalog AND velocity > 0 → ALWAYS_ON; <30d → TRIAL; else UNCLASSIFIED) — final distribution 144 ALWAYS_ON / 4 TRIAL / 131 UNCLASSIFIED, with HYPE and SEASONAL reserved for future manual promotion. (2) `v_warehouse_at_risk` view exposes warehouse stock × expiration × full Engine 1 (`product_lifecycle_global`) signal context, with an `urgency_bucket` column (expired / urgent_0_7d / soon_7_30d / medium_30_60d / long_60_90d / safe_90d_plus / no_expiry_set). 171 active rows. (3) `v_machine_absorption_capacity` view exposes per (machine, boonz_product) absorption profile — throughput rank, open shelf capacity, slot-level signal/score/velocity/recommendation pulled directly from `slot_lifecycle` (no parallel computation against `v_sales_history_attributed`), plus catalog-level passthrough. 8,845 rows. GRANT SELECT to `authenticated` only (Cody revision dropped `anon`). Audit attribution via `SET LOCAL app.via_rpc / app.rpc_name` so the bootstrap UPDATE is traceable. Cody review: ⚠️ Approve with revisions — all four revisions applied (anon dropped, SET LOCAL added, article header added, SSOT comment corrected). **Followup migration `phaseA_optimizer_foundations_fix_urgency_bucket` applied immediately:** the original CASE used `INTERVAL '7'` etc. without unit, which Postgres parses as 7 *seconds*. All 171 rows had landed in `safe_90d_plus`. Patched to integer arithmetic (`CURRENT_DATE + 7`); post-fix distribution reflects real expiry pressure (1 urgent_0_7d, 8 soon_7_30d, 13 medium_30_60d, 19 long_60_90d, 130 safe_90d_plus). **Phase B (next):** archetype-transition RPC + `score_machine_for_product` SECURITY DEFINER + `propose_rotation_plan` RPC + `rotation_proposals` write table. Until Phase B ships, mutations to `boonz_products.lifecycle_archetype` happen via direct SQL by CS only.
+
+**Rollback:**
+```sql
+DROP VIEW IF EXISTS public.v_machine_absorption_capacity;
+DROP VIEW IF EXISTS public.v_warehouse_at_risk;
+DROP INDEX IF EXISTS public.idx_boonz_products_archetype_active;
+ALTER TABLE public.boonz_products DROP COLUMN IF EXISTS lifecycle_archetype;
+```
+
+---
+
 ## 2026-05-05 — Repurposed-machine attribution: `machine_terminal_history` + attributed view + per-machine RPC
 **Phase / Article:** A.4 / Constitution Articles 1, 2, 4, 7, 8, 12, 14
 **Applied to:** prod

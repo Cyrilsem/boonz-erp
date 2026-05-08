@@ -29,6 +29,8 @@ const SIGNAL_COLORS: Record<string, string> = {
   "WIND DOWN": "#fb923c",
   "ROTATE OUT": "#f87171",
   "DEAD — SWAP NOW": "#dc2626",
+  // Phase B.1.1: provisional signal — machine in 30-day post-launch ramp window
+  RAMPING: "#3b82f6",
 };
 
 const SEVERITY_PILL: Record<string, string> = {
@@ -118,6 +120,10 @@ interface SlotPoint {
   signal: string;
   /** Pre-computed cluster colour; used when toggleA=cluster+toggleB=machine */
   clusterColor: string;
+  /** Phase B.1: ledger flags. is_current=false means the product rotated out of this slot. */
+  is_current: boolean;
+  rotated_out_at: string | null;
+  rotated_in_at: string | null;
 }
 
 /** One dot per product family — cluster+overall mode */
@@ -304,9 +310,18 @@ export default function LifecyclePage() {
   const [toggleB, setToggleB] = useState<ToggleB>("overall");
   const [productId, setProductId] = useState<string | null>(null);
   const [clusterId, setClusterId] = useState<string | null>(null);
-  /** null = "All machines"; string = specific machine */
-  const [machineId, setMachineId] = useState<string | null>(null);
+  /** Phase B.1.3: multi-machine selection. Empty set during initial load
+   * (interpreted as "all"), then populated to all active machine_ids once
+   * scatterMachines loads. URL persists as ?machines=id1,id2 only when not all. */
+  const [selectedMachineIds, setSelectedMachineIds] = useState<Set<string>>(
+    new Set(),
+  );
+  /** Tracks whether the user has touched the multi-select. If false, we
+   * auto-include any newly-discovered machine. If true, we respect user intent. */
+  const [machineSelectionTouched, setMachineSelectionTouched] = useState(false);
   const [showSingletons, setShowSingletons] = useState(false);
+  /** Phase B.1: when true, the matrix overlays rotated-out products (is_current=false) as faded points */
+  const [showRotatedOut, setShowRotatedOut] = useState(false);
   /** Top-of-tab search — filters both chart dots and deviation table */
   const [searchQuery, setSearchQuery] = useState("");
   /** Score range filter [min, max] — default [0, 10] means no filter */
@@ -340,8 +355,22 @@ export default function LifecyclePage() {
     if (pid) setProductId(pid);
     const cid = p.get("cluster");
     if (cid) setClusterId(cid);
-    const mid = p.get("machine");
-    if (mid) setMachineId(mid);
+    // Phase B.1.3: machines is comma-separated list of UUIDs.
+    // If absent → "all" (selectedMachineIds will default to scatterMachines).
+    // If present → user has explicitly narrowed; respect it.
+    const machinesParam = p.get("machines");
+    if (machinesParam) {
+      const ids = machinesParam.split(",").filter(Boolean);
+      setSelectedMachineIds(new Set(ids));
+      setMachineSelectionTouched(true);
+    } else {
+      // Backward compat: old single-machine ?machine=<uuid>
+      const oldMid = p.get("machine");
+      if (oldMid) {
+        setSelectedMachineIds(new Set([oldMid]));
+        setMachineSelectionTouched(true);
+      }
+    }
     setShowSingletons(p.get("singletons") === "1");
 
     const q = p.get("q");
@@ -363,7 +392,10 @@ export default function LifecyclePage() {
       const s = p.get("scope");
       if (s === "machine") setToggleB("machine");
       const oldMid = p.get("machine_id");
-      if (oldMid) setMachineId(oldMid);
+      if (oldMid) {
+        setSelectedMachineIds(new Set([oldMid]));
+        setMachineSelectionTouched(true);
+      }
       const oldPid = p.get("pod_product_id");
       if (oldPid) setProductId(oldPid);
       const oldFid = p.get("family_id");
@@ -380,7 +412,14 @@ export default function LifecyclePage() {
       p.set("toggleB", toggleB);
       if (productId) p.set("product", productId);
       if (clusterId) p.set("cluster", clusterId);
-      if (toggleB === "machine" && machineId) p.set("machine", machineId);
+      // Phase B.1.3: only persist machines list if user has narrowed it.
+      if (
+        toggleB === "machine" &&
+        machineSelectionTouched &&
+        selectedMachineIds.size > 0
+      ) {
+        p.set("machines", Array.from(selectedMachineIds).join(","));
+      }
       if (toggleA === "cluster" && showSingletons) p.set("singletons", "1");
       if (searchQuery) p.set("q", searchQuery);
       if (scoreRange[0] !== 0) p.set("scoreMin", scoreRange[0].toString());
@@ -400,7 +439,8 @@ export default function LifecyclePage() {
     toggleB,
     productId,
     clusterId,
-    machineId,
+    selectedMachineIds,
+    machineSelectionTouched,
     showSingletons,
     searchQuery,
     scoreRange,
@@ -474,6 +514,7 @@ export default function LifecyclePage() {
       "WIND DOWN",
       "ROTATE OUT",
       "DEAD — SWAP NOW",
+      "RAMPING",
     ];
     setSignalDist(
       sigOrder
@@ -517,10 +558,10 @@ export default function LifecyclePage() {
         supabase
           .from("slot_lifecycle")
           .select(
-            "machine_id,pod_product_id,shelf_code,shelf_id,score,trend_component,signal,velocity_30d",
+            "machine_id,pod_product_id,shelf_code,shelf_id,score,trend_component,signal,velocity_30d,is_current,rotated_out_at,rotated_in_at",
           )
           .eq("archived", false)
-          .limit(10000),
+          .limit(20000),
         supabase
           .from("machines")
           .select("machine_id,official_name,location_type,include_in_refill")
@@ -604,13 +645,15 @@ export default function LifecyclePage() {
     setClusterColors(colorRecord);
 
     // ── All slots (machine-scope modes) ──────────────────────────────────
+    // Phase B.1: ledger may include is_current=false rows (rotated-out products).
+    // Aggregation key now includes shelf_id so each ledger row stays distinct.
     const builtSlots: SlotPoint[] = slots.flatMap((s) => {
       const machine = machineMap.get(s.machine_id ?? "");
       const pod = podMap.get(s.pod_product_id ?? "");
       const fid = pod?.product_family_id ?? null;
       const fam = fid ? familyMap.get(fid) : null;
-      const aggrKey = `${s.machine_id ?? ""}:${s.pod_product_id ?? ""}`;
-      const jid = `${s.machine_id ?? ""}:${s.shelf_id ?? s.shelf_code ?? ""}`;
+      const aggrKey = `${s.machine_id ?? ""}:${s.shelf_id ?? ""}:${s.pod_product_id ?? ""}`;
+      const jid = `${s.machine_id ?? ""}:${s.shelf_id ?? s.shelf_code ?? ""}:${s.pod_product_id ?? ""}`;
       const rx = Number(s.score),
         ry = Number(s.trend_component);
       const sc = s.shelf_code ?? "—";
@@ -637,6 +680,9 @@ export default function LifecyclePage() {
           clusterColor: fid
             ? (colorRecord[fid] ?? SINGLETON_COLOR)
             : SINGLETON_COLOR,
+          is_current: s.is_current ?? true,
+          rotated_out_at: s.rotated_out_at ?? null,
+          rotated_in_at: s.rotated_in_at ?? null,
         },
       ];
     });
@@ -805,8 +851,10 @@ export default function LifecyclePage() {
             toggleB={toggleB}
             productId={productId}
             clusterId={clusterId}
-            machineId={machineId}
+            selectedMachineIds={selectedMachineIds}
+            machineSelectionTouched={machineSelectionTouched}
             showSingletons={showSingletons}
+            showRotatedOut={showRotatedOut}
             searchQuery={searchQuery}
             onToggleAChange={(a) => {
               setToggleA(a);
@@ -815,12 +863,16 @@ export default function LifecyclePage() {
             }}
             onToggleBChange={(b) => {
               setToggleB(b);
-              setMachineId(null);
+              // Don't clear machine selection on toggle change — it's persistent.
             }}
             onProductChange={setProductId}
             onClusterChange={setClusterId}
-            onMachineChange={setMachineId}
+            onSelectedMachineIdsChange={(ids) => {
+              setSelectedMachineIds(ids);
+              setMachineSelectionTouched(true);
+            }}
             onShowSingletonsChange={setShowSingletons}
+            onShowRotatedOutChange={setShowRotatedOut}
             onSearchQueryChange={setSearchQuery}
             scoreRange={scoreRange}
             trendRange={trendRange}
@@ -995,6 +1047,138 @@ function OverviewTab({
   );
 }
 
+// ── Machine Chip Filter (Phase B.1.3) ───────────────────────────────────────
+// Multi-select for the Local scope. Default behavior: when `touched=false`,
+// behaves as "all included" without any explicit selection — UI shows a single
+// "All machines" badge. Once the user opens the popover and changes anything,
+// the parent flips `touched=true` and the actual `selectedMachineIds` set is
+// honored.
+
+function MachineChipFilter({
+  machines,
+  selectedMachineIds,
+  touched,
+  onChange,
+}: {
+  machines: MachineOption[];
+  selectedMachineIds: Set<string>;
+  touched: boolean;
+  onChange: (ids: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const allIds = useMemo(
+    () => machines.map((m) => m.machine_id),
+    [machines],
+  );
+
+  // The "effective" selection. If untouched, treat as all.
+  const effective = touched ? selectedMachineIds : new Set(allIds);
+  const allSelected = effective.size === machines.length;
+  const noneSelected = effective.size === 0;
+
+  const summary = touched
+    ? noneSelected
+      ? "No machines"
+      : allSelected
+        ? "All machines"
+        : `${effective.size} of ${machines.length} machines`
+    : "All machines";
+
+  const toggleOne = (id: string) => {
+    const next = new Set(effective);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-neutral-500">Machines</label>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs text-left text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      >
+        <span>{summary}</span>
+        <span className="text-neutral-400">{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div className="rounded border border-neutral-200 bg-white p-2 shadow-sm dark:border-neutral-800 dark:bg-neutral-950">
+          <div className="mb-2 flex flex-wrap gap-1 text-[10px]">
+            <button
+              type="button"
+              onClick={() => onChange(new Set(allIds))}
+              className="rounded bg-neutral-100 px-2 py-0.5 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(new Set())}
+              className="rounded bg-neutral-100 px-2 py-0.5 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+            >
+              None
+            </button>
+          </div>
+          <div className="grid max-h-52 grid-cols-1 gap-1 overflow-y-auto">
+            {machines.map((m) => {
+              const checked = effective.has(m.machine_id);
+              return (
+                <label
+                  key={m.machine_id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-neutral-50 dark:hover:bg-neutral-900"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleOne(m.machine_id)}
+                    className="h-3.5 w-3.5 rounded"
+                  />
+                  <span className="truncate text-neutral-700 dark:text-neutral-300">
+                    {m.official_name}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Inline chip preview when popover is closed and selection is narrowed */}
+      {!open && touched && !allSelected && !noneSelected && (
+        <div className="flex flex-wrap gap-1">
+          {machines
+            .filter((m) => effective.has(m.machine_id))
+            .slice(0, 6)
+            .map((m) => (
+              <span
+                key={m.machine_id}
+                className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+              >
+                {m.official_name}
+                <button
+                  type="button"
+                  onClick={() => toggleOne(m.machine_id)}
+                  className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-100"
+                  aria-label={`Remove ${m.official_name}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          {effective.size > 6 && (
+            <span className="text-[10px] text-neutral-500">
+              +{effective.size - 6} more
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Searchable Select ─────────────────────────────────────────────────────────
 
 function SearchableSelect({
@@ -1123,15 +1307,18 @@ function ScatterTab({
   toggleB,
   productId,
   clusterId,
-  machineId,
+  selectedMachineIds,
+  machineSelectionTouched,
   showSingletons,
+  showRotatedOut,
   searchQuery,
   onToggleAChange,
   onToggleBChange,
   onProductChange,
   onClusterChange,
-  onMachineChange,
+  onSelectedMachineIdsChange,
   onShowSingletonsChange,
+  onShowRotatedOutChange,
   onSearchQueryChange,
   scoreRange,
   trendRange,
@@ -1148,8 +1335,10 @@ function ScatterTab({
   toggleB: ToggleB;
   productId: string | null;
   clusterId: string | null;
-  machineId: string | null;
+  selectedMachineIds: Set<string>;
+  machineSelectionTouched: boolean;
   showSingletons: boolean;
+  showRotatedOut: boolean;
   searchQuery: string;
   scoreRange: [number, number];
   trendRange: [number, number];
@@ -1157,8 +1346,9 @@ function ScatterTab({
   onToggleBChange: (b: ToggleB) => void;
   onProductChange: (id: string | null) => void;
   onClusterChange: (id: string | null) => void;
-  onMachineChange: (id: string | null) => void;
+  onSelectedMachineIdsChange: (ids: Set<string>) => void;
   onShowSingletonsChange: (v: boolean) => void;
+  onShowRotatedOutChange: (v: boolean) => void;
   onSearchQueryChange: (q: string) => void;
   onScoreRangeChange: (v: [number, number]) => void;
   onTrendRangeChange: (v: [number, number]) => void;
@@ -1193,7 +1383,14 @@ function ScatterTab({
   // Clear selection when any filter or search changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [toggleA, toggleB, machineId, productId, clusterId, debouncedSearch]);
+  }, [
+    toggleA,
+    toggleB,
+    selectedMachineIds,
+    productId,
+    clusterId,
+    debouncedSearch,
+  ]);
 
   // ── Point ID helper ───────────────────────────────────────────────────
   function getPointId(pt: AnyChartPoint): string {
@@ -1303,15 +1500,27 @@ function ScatterTab({
 
     // ── machine mode — filter then aggregate by product × machine ─────
     let rows = allSlots;
-    if (machineId) rows = rows.filter((s) => s.machine_id === machineId);
+    // Phase B.1.3: multi-machine filter. If untouched, show all (no filter).
+    if (machineSelectionTouched && selectedMachineIds.size > 0) {
+      rows = rows.filter((s) => selectedMachineIds.has(s.machine_id));
+    } else if (machineSelectionTouched && selectedMachineIds.size === 0) {
+      // User explicitly emptied the selection → show nothing.
+      rows = [];
+    }
     if (toggleA === "product" && productId)
       rows = rows.filter((s) => s.pod_product_id === productId);
     if (toggleA === "cluster" && clusterId)
       rows = rows.filter((s) => s.product_family_id === clusterId);
+    // Phase B.1: hide rotated-out products by default; aggregation key
+    // includes shelf_id when rotated-outs are visible so the dots stay distinct.
+    if (!showRotatedOut) rows = rows.filter((s) => s.is_current);
 
     const aggregated = aggregateSlots(
       rows,
-      (s) => `${s.machine_id}:${s.pod_product_id}`,
+      (s) =>
+        showRotatedOut
+          ? `${s.machine_id}:${s.shelf_code}:${s.pod_product_id}:${s.is_current ? "C" : "R"}`
+          : `${s.machine_id}:${s.pod_product_id}`,
     );
 
     if (debouncedSearch) {
@@ -1329,8 +1538,10 @@ function ScatterTab({
     toggleB,
     productId,
     clusterId,
-    machineId,
+    selectedMachineIds,
+    machineSelectionTouched,
     showSingletons,
+    showRotatedOut,
     overallPts,
     allSlots,
     allClusterPts,
@@ -1446,8 +1657,10 @@ function ScatterTab({
   const filteredDevRows = useMemo(() => {
     let rows = deviationRows;
     // Scope filter
-    if (toggleB === "machine" && machineId)
-      rows = rows.filter((r) => r.machine_id === machineId);
+    if (toggleB === "machine" && machineSelectionTouched) {
+      if (selectedMachineIds.size === 0) rows = [];
+      else rows = rows.filter((r) => selectedMachineIds.has(r.machine_id));
+    }
     // Group filter
     if (toggleA === "product" && productId)
       rows = rows.filter((r) => r.pod_product_id === productId);
@@ -1510,7 +1723,8 @@ function ScatterTab({
     deviationRows,
     toggleA,
     toggleB,
-    machineId,
+    selectedMachineIds,
+    machineSelectionTouched,
     productId,
     familyMemberIds,
     debouncedSearch,
@@ -1529,7 +1743,14 @@ function ScatterTab({
 
   useEffect(() => {
     setDevPage(0);
-  }, [toggleA, toggleB, machineId, productId, clusterId, debouncedSearch]);
+  }, [
+    toggleA,
+    toggleB,
+    selectedMachineIds,
+    productId,
+    clusterId,
+    debouncedSearch,
+  ]);
 
   function toggleSort(col: keyof DeviationRow) {
     if (devSortCol === col)
@@ -1626,7 +1847,9 @@ function ScatterTab({
 
   // ── Deviation table description ───────────────────────────────────────
   const devDesc = [
-    toggleB === "machine" && machineId ? "filtered to machine" : null,
+    toggleB === "machine" && machineSelectionTouched
+      ? `filtered to ${selectedMachineIds.size} machine${selectedMachineIds.size === 1 ? "" : "s"}`
+      : null,
     toggleA === "product" && productId ? "filtered to product" : null,
     toggleA === "cluster" && clusterId ? "filtered to cluster" : null,
   ]
@@ -1762,6 +1985,19 @@ function ScatterTab({
               Show singleton families
             </label>
           )}
+
+          {/* Phase B.1: rotated-out toggle — only useful in machine view */}
+          {toggleB === "machine" && (
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
+              <input
+                type="checkbox"
+                checked={showRotatedOut}
+                onChange={(e) => onShowRotatedOutChange(e.target.checked)}
+                className="h-3.5 w-3.5 rounded"
+              />
+              Show rotated-out products
+            </label>
+          )}
         </div>
 
         {/* ── Column B ── */}
@@ -1780,24 +2016,21 @@ function ScatterTab({
                       : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
                   }`}
                 >
-                  {b === "overall" ? "Overall" : "Machine"}
+                  {b === "overall" ? "Global" : "Local"}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Dropdown B — only when Machine scope */}
-          <SearchableSelect
-            label="Machine"
-            value={machineId}
-            onChange={onMachineChange}
-            options={machines.map((m) => ({
-              value: m.machine_id,
-              label: m.official_name,
-            }))}
-            allLabel="All machines"
-            disabled={toggleB === "overall"}
-          />
+          {/* Phase B.1.3: multi-machine chip filter — only useful in Local scope */}
+          {toggleB === "machine" && (
+            <MachineChipFilter
+              machines={machines}
+              selectedMachineIds={selectedMachineIds}
+              touched={machineSelectionTouched}
+              onChange={onSelectedMachineIdsChange}
+            />
+          )}
 
           {/* Dot count */}
           <p className="text-xs text-neutral-400">{dotCount()}</p>
@@ -1947,6 +2180,16 @@ function ScatterTab({
                                 Shelf: {d.shelf_code}
                               </p>
                             )}
+                            {(d as SlotPoint).is_current === false && (
+                              <p className="mb-1 text-xs font-medium text-amber-600 dark:text-amber-500">
+                                ROTATED OUT
+                                {(d as SlotPoint).rotated_out_at
+                                  ? ` · ${new Date(
+                                      (d as SlotPoint).rotated_out_at!,
+                                    ).toLocaleDateString()}`
+                                  : ""}
+                              </p>
+                            )}
                           </>
                         )}
                         <div className="space-y-0.5 text-neutral-700 dark:text-neutral-300">
@@ -1991,6 +2234,10 @@ function ScatterTab({
                       const id = getPointId(payload);
                       const color = dotColor(payload);
                       const isSelected = selectedIds.has(id);
+                      // Phase B.1: rotated-out points render faded with dashed outline
+                      const isRotatedOut =
+                        toggleB === "machine" &&
+                        (payload as SlotPoint).is_current === false;
                       return (
                         <g
                           style={{ cursor: "pointer" }}
@@ -2008,8 +2255,17 @@ function ScatterTab({
                             cx={cx}
                             cy={cy}
                             r={isSelected ? r + 2 : r}
-                            fill={color}
-                            fillOpacity={isSelected ? 0.92 : 0.75}
+                            fill={isRotatedOut ? "#9CA3AF" : color}
+                            fillOpacity={
+                              isRotatedOut
+                                ? 0.4
+                                : isSelected
+                                  ? 0.92
+                                  : 0.75
+                            }
+                            stroke={isRotatedOut ? "#6B7280" : "transparent"}
+                            strokeWidth={isRotatedOut ? 1 : 0}
+                            strokeDasharray={isRotatedOut ? "3 2" : undefined}
                           />
                           {isSelected && (
                             <circle
@@ -2181,7 +2437,8 @@ function ScatterTab({
                         !productId
                       ) {
                         onToggleBChange("machine");
-                        onMachineChange(row.machine_id);
+                        // Phase B.1.3: drilling into a single machine narrows the multi-select to just this one.
+                        onSelectedMachineIdsChange(new Set([row.machine_id]));
                       }
                     }}
                     className={`${
