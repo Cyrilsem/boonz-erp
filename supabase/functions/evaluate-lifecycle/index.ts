@@ -255,6 +255,32 @@ Deno.serve(async (_req) => {
       });
     }
 
+    // ── Phase B.5: Auto-archive ghost rows for inactive/excluded machines ───
+    // Any slot_lifecycle row whose machine is NOT include_in_refill=true should
+    // not appear in the matrix. Archive them so they don't accumulate as
+    // machines get deactivated. The `machines` array above already filters by
+    // include_in_refill=true, so any row outside its set is a ghost.
+    const activeMachineIds = new Set(machines.map((m) => m.machine_id));
+    const { data: ghostRows } = await supabase
+      .from("slot_lifecycle")
+      .select("machine_id")
+      .eq("archived", false)
+      .limit(20000);
+    const ghostMachineIds = Array.from(
+      new Set(
+        (ghostRows ?? [])
+          .filter((r) => !activeMachineIds.has(r.machine_id))
+          .map((r) => r.machine_id),
+      ),
+    );
+    if (ghostMachineIds.length > 0) {
+      await supabase
+        .from("slot_lifecycle")
+        .update({ archived: true, rotated_out_at: new Date().toISOString() })
+        .in("machine_id", ghostMachineIds)
+        .eq("archived", false);
+    }
+
     // ── Ramping check (B.1.2) ────────────────────────────────────────────────
     const firstSaleByMachine = new Map<string, Date>();
     for (const r of firstSales) {
@@ -484,8 +510,12 @@ Deno.serve(async (_req) => {
       ds.set(d, (ds.get(d) ?? 0) + Number(s.qty));
     }
 
+    // Phase B.4: skip dark machines (no sales in 14d) — their slots have v30=0
+    // across the board and would just pollute the matrix with score=0.41/DEAD
+    // signals. They're already surfaced via the MACHINE_DARK DQ flag above.
     const scorableSlots = reality.filter(
       (r) =>
+        !darkMachines.has(r.machine_id) &&
         VALID_LOCATION_TYPES.has(
           machineMap.get(r.machine_id)?.location_type ?? "",
         ),

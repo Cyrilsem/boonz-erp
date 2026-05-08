@@ -157,11 +157,15 @@ interface DeviationRow {
   global_score: number;
   deviation: number;
   signal: string;
+  /** Phase B.4: hide rotated-out rows from deviation table by default. */
+  is_current: boolean;
 }
 
 interface MachineOption {
   machine_id: string;
   official_name: string;
+  /** Phase B.4: dark machines (no sales in 14d) are excluded from default selection. */
+  is_dark?: boolean;
 }
 interface ProductOption {
   pod_product_id: string;
@@ -547,8 +551,14 @@ export default function LifecyclePage() {
     scatterLoaded.current = true;
     const supabase = createClient();
 
-    const [globRes, slotsRes, machinesRes, podsRes, familiesRes] =
-      await Promise.all([
+    const [
+      globRes,
+      slotsRes,
+      machinesRes,
+      lastSalesRes,
+      podsRes,
+      familiesRes,
+    ] = await Promise.all([
         supabase
           .from("product_lifecycle_global")
           .select(
@@ -566,6 +576,11 @@ export default function LifecyclePage() {
           .from("machines")
           .select("machine_id,official_name,location_type,include_in_refill")
           .limit(10000),
+        // Phase B.4: per-machine last-sale to flag dark machines
+        supabase
+          .from("v_machine_first_sale")
+          .select("machine_id,last_sale_at")
+          .limit(10000),
         supabase
           .from("pod_products")
           .select("pod_product_id,pod_product_name,product_family_id")
@@ -579,10 +594,32 @@ export default function LifecyclePage() {
     const globs = globRes.data ?? [];
     const slots = slotsRes.data ?? [];
     const machines = machinesRes.data ?? [];
+    const lastSales = lastSalesRes.data ?? [];
     const pods = podsRes.data ?? [];
     const families = familiesRes.data ?? [];
 
-    const machineMap = new Map(machines.map((m) => [m.machine_id, m]));
+    // Phase B.4: per-machine last_sale_at lookup → flag dark machines (no sales in 14d)
+    const lastSaleByMachine = new Map<string, Date>();
+    for (const r of lastSales) {
+      if (r.machine_id && r.last_sale_at) {
+        lastSaleByMachine.set(r.machine_id, new Date(r.last_sale_at));
+      }
+    }
+    const cut14 = Date.now() - 14 * 86400000;
+    const isDarkMachine = (machineId: string): boolean => {
+      const ls = lastSaleByMachine.get(machineId);
+      return !ls || ls.getTime() < cut14;
+    };
+
+    // Phase B.5: only build maps from currently-active, refill-enabled machines.
+    // slot_lifecycle rows referencing inactive machines (ghosts) get filtered
+    // downstream because their machine_id won't be in machineMap.
+    const activeMachineRows = machines.filter(
+      (m) => m.include_in_refill === true,
+    );
+    const machineMap = new Map(
+      activeMachineRows.map((m) => [m.machine_id, m]),
+    );
     const podMap = new Map(pods.map((p) => [p.pod_product_id, p]));
     const globMap = new Map(globs.map((g) => [g.pod_product_id, g]));
     const familyMap = new Map(families.map((f) => [f.product_family_id, f]));
@@ -647,7 +684,9 @@ export default function LifecyclePage() {
     // ── All slots (machine-scope modes) ──────────────────────────────────
     // Phase B.1: ledger may include is_current=false rows (rotated-out products).
     // Aggregation key now includes shelf_id so each ledger row stays distinct.
+    // Phase B.5: skip slots whose machine is inactive/excluded (ghosts).
     const builtSlots: SlotPoint[] = slots.flatMap((s) => {
+      if (!machineMap.has(s.machine_id ?? "")) return [];
       const machine = machineMap.get(s.machine_id ?? "");
       const pod = podMap.get(s.pod_product_id ?? "");
       const fid = pod?.product_family_id ?? null;
@@ -689,7 +728,9 @@ export default function LifecyclePage() {
     setAllSlots(builtSlots);
 
     // ── Deviation table rows ──────────────────────────────────────────────
+    // Phase B.5: skip slots whose machine is inactive/excluded.
     const devRows: DeviationRow[] = slots.flatMap((s) => {
+      if (!machineMap.has(s.machine_id ?? "")) return [];
       const glob = globMap.get(s.pod_product_id ?? "");
       if (!glob) return [];
       const machine = machineMap.get(s.machine_id ?? "");
@@ -714,18 +755,22 @@ export default function LifecyclePage() {
           global_score: globalScore,
           deviation: Math.round((localScore - globalScore) * 100) / 100,
           signal: s.signal ?? "KEEP",
+          is_current: s.is_current ?? true,
         },
       ];
     });
     setDeviationRows(devRows);
 
     // ── Machine list ──────────────────────────────────────────────────────
+    // Phase B.4: tag is_dark so MachineChipFilter can exclude from default
+    // selection and show a "Dark" badge in the popover.
     setScatterMachines(
       machines
         .filter((m) => m.include_in_refill)
         .map((m) => ({
           machine_id: m.machine_id,
           official_name: m.official_name,
+          is_dark: isDarkMachine(m.machine_id),
         }))
         .sort((a, b) => a.official_name.localeCompare(b.official_name)),
     );
@@ -1071,19 +1116,29 @@ function MachineChipFilter({
     () => machines.map((m) => m.machine_id),
     [machines],
   );
+  // Phase B.4: dark machines (no sales in 14d) excluded from default selection.
+  // User can re-include via the popover.
+  const activeIds = useMemo(
+    () => machines.filter((m) => !m.is_dark).map((m) => m.machine_id),
+    [machines],
+  );
+  const darkCount = machines.filter((m) => m.is_dark).length;
 
-  // The "effective" selection. If untouched, treat as all.
-  const effective = touched ? selectedMachineIds : new Set(allIds);
-  const allSelected = effective.size === machines.length;
+  // The "effective" selection. If untouched → active machines only (excluding dark).
+  const effective = touched ? selectedMachineIds : new Set(activeIds);
+  const totalActive = activeIds.length;
+  const allActiveSelected =
+    effective.size === totalActive &&
+    activeIds.every((id) => effective.has(id));
   const noneSelected = effective.size === 0;
 
   const summary = touched
     ? noneSelected
       ? "No machines"
-      : allSelected
-        ? "All machines"
+      : allActiveSelected && effective.size === totalActive
+        ? `${totalActive} active${darkCount > 0 ? ` (${darkCount} dark hidden)` : ""}`
         : `${effective.size} of ${machines.length} machines`
-    : "All machines";
+    : `${totalActive} active${darkCount > 0 ? ` (${darkCount} dark hidden)` : ""}`;
 
   const toggleOne = (id: string) => {
     const next = new Set(effective);
@@ -1109,10 +1164,17 @@ function MachineChipFilter({
           <div className="mb-2 flex flex-wrap gap-1 text-[10px]">
             <button
               type="button"
+              onClick={() => onChange(new Set(activeIds))}
+              className="rounded bg-neutral-100 px-2 py-0.5 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+            >
+              Active only
+            </button>
+            <button
+              type="button"
               onClick={() => onChange(new Set(allIds))}
               className="rounded bg-neutral-100 px-2 py-0.5 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700"
             >
-              All
+              All (incl. dark)
             </button>
             <button
               type="button"
@@ -1136,9 +1198,20 @@ function MachineChipFilter({
                     onChange={() => toggleOne(m.machine_id)}
                     className="h-3.5 w-3.5 rounded"
                   />
-                  <span className="truncate text-neutral-700 dark:text-neutral-300">
+                  <span
+                    className={`truncate ${
+                      m.is_dark
+                        ? "text-neutral-400 italic dark:text-neutral-500"
+                        : "text-neutral-700 dark:text-neutral-300"
+                    }`}
+                  >
                     {m.official_name}
                   </span>
+                  {m.is_dark && (
+                    <span className="ml-auto rounded bg-red-50 px-1 py-0.5 text-[9px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                      DARK
+                    </span>
+                  )}
                 </label>
               );
             })}
@@ -1147,7 +1220,7 @@ function MachineChipFilter({
       )}
 
       {/* Inline chip preview when popover is closed and selection is narrowed */}
-      {!open && touched && !allSelected && !noneSelected && (
+      {!open && touched && !allActiveSelected && !noneSelected && (
         <div className="flex flex-wrap gap-1">
           {machines
             .filter((m) => effective.has(m.machine_id))
@@ -1656,6 +1729,11 @@ function ScatterTab({
 
   const filteredDevRows = useMemo(() => {
     let rows = deviationRows;
+    // Phase B.4: hide rotated-out rows by default. The matrix toggle
+    // "Show rotated-out products" applies to the table too.
+    if (toggleB === "machine" && !showRotatedOut) {
+      rows = rows.filter((r) => r.is_current);
+    }
     // Scope filter
     if (toggleB === "machine" && machineSelectionTouched) {
       if (selectedMachineIds.size === 0) rows = [];
@@ -1725,6 +1803,7 @@ function ScatterTab({
     toggleB,
     selectedMachineIds,
     machineSelectionTouched,
+    showRotatedOut,
     productId,
     familyMemberIds,
     debouncedSearch,
