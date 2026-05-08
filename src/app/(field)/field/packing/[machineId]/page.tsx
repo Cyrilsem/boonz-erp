@@ -1320,13 +1320,37 @@ export default function PackingDetailPage() {
 
   const sections: ActionSection[] = [];
 
-  // Section 1: Pack these items — Refill lines only (+ Add, misc non-swap/non-remove)
-  if (refillLines.length > 0) {
+  // Some Refill lines are actually product-change swaps (planner emits them with
+  // SWAP/REPLACES/ROTATE-flavor comments). Pull those out into a dedicated section
+  // so the warehouse manager can see them clearly separated from plain refills.
+  const swapCommentPattern = /SWAP\s*(OUT|IN)|REPLACES|ROTATE\s*OUT/i;
+  const swapStyleRefills = refillLines.filter(
+    (l) => l.dispatch_comment && swapCommentPattern.test(l.dispatch_comment),
+  );
+  const plainRefills = refillLines.filter(
+    (l) => !l.dispatch_comment || !swapCommentPattern.test(l.dispatch_comment),
+  );
+
+  // Section 1: Pack these items — plain refills only
+  if (plainRefills.length > 0) {
     sections.push({
       key: "pack",
       icon: "📦",
       title: "Pack these items",
-      lines: refillLines,
+      lines: plainRefills,
+    });
+  }
+
+  // Section 1.5: Swap-style refills (product change / flavor rotation)
+  // These pick from warehouse (the NEW product going INTO the machine).
+  // The OLD product being replaced is implicitly removed from the machine and
+  // does NOT come from warehouse stock.
+  if (swapStyleRefills.length > 0) {
+    sections.push({
+      key: "swap-style",
+      icon: "🔄",
+      title: "Swaps / product changes",
+      lines: swapStyleRefills,
     });
   }
 
@@ -1452,7 +1476,7 @@ export default function PackingDetailPage() {
             className={`mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide ${
               section.key === "remove"
                 ? "text-red-600 dark:text-red-400"
-                : section.key === "swap"
+                : section.key === "swap" || section.key === "swap-style"
                   ? "text-blue-600 dark:text-blue-400"
                   : section.key === "returned"
                     ? "text-neutral-400 dark:text-neutral-500"
