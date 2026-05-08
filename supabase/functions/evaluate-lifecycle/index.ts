@@ -625,10 +625,14 @@ Deno.serve(async (_req) => {
 
       const productAvg = productPerMachineAvg.get(slot.pod_product_id) ?? 0;
 
-      // B.3: Local spectrum — 5.0 = at product's per-machine avg, 10.0 = 2× avg.
+      // B.6: Local spectrum — 5.0 = at product's per-machine avg, 10.0 = 2× avg.
+      // Zero-velocity slots are DEAD regardless of product anchor — never score
+      // them as "neutral 5.0" just because the product is also dead.
       let spectrum_ratio: number;
-      if (productAvg <= 0) {
-        spectrum_ratio = 1.0; // neutral — no anchor available
+      if (v.v30 <= 0) {
+        spectrum_ratio = 0; // slot has no sales → score 0 → DEAD/ROTATE OUT
+      } else if (productAvg <= 0) {
+        spectrum_ratio = 2; // slot has sales but no global anchor → top of spectrum
       } else {
         spectrum_ratio = v.v30 / productAvg;
       }
