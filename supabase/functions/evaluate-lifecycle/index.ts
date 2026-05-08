@@ -18,6 +18,11 @@ const VALID_LOCATION_TYPES = new Set([
 // to "RAMPING" so we don't prematurely brand products as DEAD/ROTATE OUT.
 const MACHINE_RAMP_DAYS = 30;
 
+// Phase B.7: products within their first 30 days of being seen anywhere
+// (sales OR snapshot, whichever is earlier) get a RAMPING grace — same
+// semantic as machine ramping, applied at the product level.
+const PRODUCT_RAMP_DAYS = 30;
+
 // Phase B.3: EMA blend factor for compound scoring with memory.
 // α=0.67 → recent ≈ 2× historical (the "compound upwards/downwards" pattern CS asked for).
 const EMA_ALPHA = 0.67;
@@ -173,6 +178,12 @@ Deno.serve(async (_req) => {
       .select("machine_id,first_sale_at")
       .limit(10000);
 
+    // Phase B.7: per-product first-seen (earlier of first sale OR first snapshot).
+    const productFirstSeenRes = await supabase
+      .from("v_product_first_seen")
+      .select("pod_product_id,first_seen_at")
+      .limit(10000);
+
     const machines = machinesRes.data ?? [];
     const snapshots = snapshotsRes.data ?? [];
     const shelfConfigs = shelfConfigsRes.data ?? [];
@@ -181,6 +192,7 @@ Deno.serve(async (_req) => {
     const podInv = podInvRes.data ?? [];
     const nameConv = nameConvRes.data ?? [];
     const firstSales = firstSaleRes.data ?? [];
+    const productFirstSeen = productFirstSeenRes.data ?? [];
 
     const machineMap = new Map(machines.map((m) => [m.machine_id, m]));
     const podByName = new Map(
@@ -263,7 +275,7 @@ Deno.serve(async (_req) => {
     const activeMachineIds = new Set(machines.map((m) => m.machine_id));
     const { data: ghostRows } = await supabase
       .from("slot_lifecycle")
-      .select("machine_id")
+      .select("machine_id,first_seen_at")
       .eq("archived", false)
       .limit(20000);
     const ghostMachineIds = Array.from(
@@ -279,6 +291,55 @@ Deno.serve(async (_req) => {
         .update({ archived: true, rotated_out_at: new Date().toISOString() })
         .in("machine_id", ghostMachineIds)
         .eq("archived", false);
+    }
+
+    // Phase B.7: archive repurpose-ghost rows on every cron tick (rows whose
+    // first_seen_at predates the machine's repurposed_at — leftovers from the
+    // prior identity that survived the repurpose).
+    const repurposeMap = new Map<string, Date>();
+    for (const m of machines) {
+      // Note: machinesRes already filters include_in_refill=true, so repurposed
+      // machines that are still active are in here (they get repurposed but stay
+      // include_in_refill=true with the new identity).
+      // We need to load all machines (including non-refill) for this check, but
+      // for now this covers the active-after-repurpose case.
+    }
+    const { data: repurposedMachines } = await supabase
+      .from("machines")
+      .select("machine_id,repurposed_at")
+      .not("repurposed_at", "is", null)
+      .limit(10000);
+    for (const m of repurposedMachines ?? []) {
+      if (m.machine_id && m.repurposed_at) {
+        repurposeMap.set(m.machine_id, new Date(m.repurposed_at));
+      }
+    }
+    const repurposeGhostIds: Array<{
+      machine_id: string;
+      first_seen_at: string;
+    }> = [];
+    for (const r of ghostRows ?? []) {
+      const repDate = repurposeMap.get(r.machine_id);
+      if (repDate && r.first_seen_at && new Date(r.first_seen_at) < repDate) {
+        repurposeGhostIds.push({
+          machine_id: r.machine_id,
+          first_seen_at: r.first_seen_at,
+        });
+      }
+    }
+    if (repurposeGhostIds.length > 0) {
+      const ghostMids = Array.from(
+        new Set(repurposeGhostIds.map((g) => g.machine_id)),
+      );
+      for (const mid of ghostMids) {
+        const cutoff = repurposeMap.get(mid)!.toISOString();
+        await supabase
+          .from("slot_lifecycle")
+          .update({ archived: true, rotated_out_at: new Date().toISOString() })
+          .eq("machine_id", mid)
+          .eq("archived", false)
+          .lt("first_seen_at", cutoff);
+      }
     }
 
     // ── Ramping check (B.1.2) ────────────────────────────────────────────────
@@ -302,6 +363,20 @@ Deno.serve(async (_req) => {
         if (days < MACHINE_RAMP_DAYS) return true;
       }
       return false;
+    };
+
+    // Phase B.7: per-product first-seen map → isRampingProduct check.
+    const firstSeenByProduct = new Map<string, Date>();
+    for (const r of productFirstSeen) {
+      if (r.pod_product_id && r.first_seen_at) {
+        firstSeenByProduct.set(r.pod_product_id, new Date(r.first_seen_at));
+      }
+    }
+    const isRampingProduct = (pid: string): boolean => {
+      const fs = firstSeenByProduct.get(pid);
+      if (!fs) return true; // never seen → treat as new (defensive)
+      const days = (Date.now() - fs.getTime()) / 86400000;
+      return days < PRODUCT_RAMP_DAYS;
     };
 
     // ── Dark machines (0 sales in 14d) ───────────────────────────────────────
@@ -681,7 +756,13 @@ Deno.serve(async (_req) => {
 
       const tc = v.trend;
       const rawSignal = getSignalV2(score, tc);
-      const signal = isRampingMachine(slot.machine_id) ? "RAMPING" : rawSignal;
+      // Phase B.7: signal RAMPING if EITHER the machine OR the product is in
+      // its first 30 days. Either way, we don't want to drop the product.
+      const signal =
+        isRampingMachine(slot.machine_id) ||
+        isRampingProduct(slot.pod_product_id)
+          ? "RAMPING"
+          : rawSignal;
 
       slotUpdates.push({
         machine_id: slot.machine_id,
@@ -778,7 +859,11 @@ Deno.serve(async (_req) => {
         }
       }
 
-      const signal = getSignalV2(score, globalTrend);
+      const rawProdSignal = getSignalV2(score, globalTrend);
+      // Phase B.7: products in their first 30 days (anywhere) signal RAMPING
+      const signal = isRampingProduct(pod.pod_product_id)
+        ? "RAMPING"
+        : rawProdSignal;
 
       prodUpdates.push({
         pod_product_id: pod.pod_product_id,
