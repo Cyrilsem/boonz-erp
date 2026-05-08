@@ -18,17 +18,21 @@ const VALID_LOCATION_TYPES = new Set([
 // to "RAMPING" so we don't prematurely brand products as DEAD/ROTATE OUT.
 const MACHINE_RAMP_DAYS = 30;
 
-// Phase B.1.1: simplified band logic. The previous version had gaps at
-// score=4.5 + trend outside [3.5, 6.5] that fell through to DEAD by accident.
-// New rule: any score ≥4.5 floors to KEEP regardless of trend; only DOUBLE
-// DOWN / KEEP GROWING require trend confirmation.
-function getSignal(score: number, trend: number): string {
-  if (score >= 8.5 && trend > 5) return "DOUBLE DOWN";
-  if (score >= 6.5 && trend > 5) return "KEEP GROWING";
-  if (score >= 4.5) return "KEEP";
-  if (score >= 2.5 && trend > 5) return "WATCH";
-  if (score >= 2.5) return "WIND DOWN";
-  if (score >= 1.0) return "ROTATE OUT";
+// Phase B.3: EMA blend factor for compound scoring with memory.
+// α=0.67 → recent ≈ 2× historical (the "compound upwards/downwards" pattern CS asked for).
+const EMA_ALPHA = 0.67;
+
+// Phase B.3: signalV2 — hard-gate on both score AND trend.
+// Score is now velocity-only (Global = rank-percentile, Local = spectrum-vs-product-avg).
+// Trend is a separate axis. DOUBLE DOWN / KEEP GROWING require BOTH to clear.
+function getSignalV2(score: number, trend: number): string {
+  if (score >= 8 && trend >= 7) return "DOUBLE DOWN";
+  if (score >= 6 && trend >= 7) return "KEEP GROWING";
+  if (score >= 4 && trend >= 4) return "KEEP";
+  if (score >= 4 && trend < 4) return "WIND DOWN";
+  if (score >= 2 && trend >= 7) return "WATCH";
+  if (score >= 2) return "WIND DOWN";
+  if (score >= 1) return "ROTATE OUT";
   return "DEAD — SWAP NOW";
 }
 
@@ -91,16 +95,19 @@ function r2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-// ─── Phase B.1 helpers ──────────────────────────────────────────────────
-// Resolver: normalize a pod product name for fuzzy equality (trim, lowercase,
-// collapse internal whitespace). Mirrors what would have lived in SQL as
-// pod_product_name_normalize() — kept in TS so the resolver and the rest of
-// evaluate-lifecycle's reality-builder stay co-located.
+function clip01_10(n: number): number {
+  return Math.max(0, Math.min(10, n));
+}
+
+function ema(today: number, prior: number | null): number {
+  if (prior === null || isNaN(prior)) return r2(today);
+  return r2(EMA_ALPHA * today + (1 - EMA_ALPHA) * prior);
+}
+
 function normalizeName(s: string | null | undefined): string {
   return (s ?? "").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-// Convert WEIMI snapshot's "A1" / "A15" → padded "A01" / "A15"
 function padShelf(code: string | null | undefined): string {
   const m = /^([A-Z])(\d+)$/.exec(code ?? "");
   return m
@@ -111,7 +118,6 @@ function padShelf(code: string | null | undefined): string {
 Deno.serve(async (_req) => {
   const t0 = Date.now();
   try {
-    // ── Fetch all reference data in parallel ──────────────────────────────────
     const [
       machinesRes,
       snapshotsRes,
@@ -161,8 +167,7 @@ Deno.serve(async (_req) => {
         .limit(10000),
     ]);
 
-    // Phase B.1.2: all-time first-sale-per-machine, separate from the 62-day
-    // velocity window. This is the ramping check's truth source.
+    // Phase B.1.2: all-time first-sale-per-machine for ramping detection.
     const firstSaleRes = await supabase
       .from("v_machine_first_sale")
       .select("machine_id,first_sale_at")
@@ -177,7 +182,6 @@ Deno.serve(async (_req) => {
     const nameConv = nameConvRes.data ?? [];
     const firstSales = firstSaleRes.data ?? [];
 
-    // Lookup maps
     const machineMap = new Map(machines.map((m) => [m.machine_id, m]));
     const podByName = new Map(
       pods.map((p) => [normalizeName(p.pod_product_name), p.pod_product_id]),
@@ -188,7 +192,6 @@ Deno.serve(async (_req) => {
         normalizeName(n.official_name ?? ""),
       ]),
     );
-
     const resolvePodId = (name: string): string | null => {
       const k = normalizeName(name);
       return (
@@ -196,8 +199,7 @@ Deno.serve(async (_req) => {
       );
     };
 
-    // ── Phase 0.5: Build "reality" array from latest snapshot per (machine, slot)
-    // This is the equivalent of the old `planogram` array.
+    // ── Reality builder (snapshot-anchored, B.1) ────────────────────────────
     const shelfIdMap = new Map<string, string>();
     for (const sc of shelfConfigs) {
       if (sc.machine_id && sc.shelf_code) {
@@ -208,7 +210,7 @@ Deno.serve(async (_req) => {
     const latestSnap = new Map<string, typeof snapshots[0]>();
     for (const s of snapshots) {
       const k = `${s.machine_id}:${s.slot_code}`;
-      if (!latestSnap.has(k)) latestSnap.set(k, s); // pre-sorted DESC
+      if (!latestSnap.has(k)) latestSnap.set(k, s);
     }
 
     type RealitySlot = {
@@ -253,10 +255,7 @@ Deno.serve(async (_req) => {
       });
     }
 
-    // ── Phase B.1.2: Per-machine ALL-TIME first sale date for ramping check ──
-    // Sourced from v_machine_first_sale (full-history aggregate), not the
-    // 62-day velocity window — fixes the B.1.1 bug where mature machines with
-    // a quiet patch in the window were mis-flagged as ramping.
+    // ── Ramping check (B.1.2) ────────────────────────────────────────────────
     const firstSaleByMachine = new Map<string, Date>();
     for (const r of firstSales) {
       if (r.machine_id && r.first_sale_at) {
@@ -271,9 +270,6 @@ Deno.serve(async (_req) => {
         const days = (Date.now() - firstSale.getTime()) / 86400000;
         return days < MACHINE_RAMP_DAYS;
       }
-      // No sales ever — fall back to creation date for brand-new machines
-      // that haven't sold yet. Mature machines with no sales fall through
-      // to MACHINE_DARK, not RAMPING.
       if (m.created_at) {
         const days =
           (Date.now() - new Date(m.created_at).getTime()) / 86400000;
@@ -282,7 +278,7 @@ Deno.serve(async (_req) => {
       return false;
     };
 
-    // ── Dark machines (0 sales in 14d) ────────────────────────────────────────
+    // ── Dark machines (0 sales in 14d) ───────────────────────────────────────
     const cut14 = Date.now() - 14 * 86400000;
     const activeMachines = new Set(
       sales
@@ -295,7 +291,7 @@ Deno.serve(async (_req) => {
         .map((m) => m.machine_id),
     );
 
-    // ── Phase 1: Existing slot_lifecycle state (full ledger including is_current=false)
+    // ── Existing slot_lifecycle state (for EMA prior + rotation detection) ──
     const [existingSlotsRes, existingProductsRes] = await Promise.all([
       supabase
         .from("slot_lifecycle")
@@ -306,7 +302,7 @@ Deno.serve(async (_req) => {
         .limit(20000),
       supabase
         .from("product_lifecycle_global")
-        .select("pod_product_id")
+        .select("pod_product_id,score")
         .limit(10000),
     ]);
 
@@ -326,8 +322,11 @@ Deno.serve(async (_req) => {
     for (const r of reality) {
       newByLocator.set(`${r.machine_id}:${r.shelf_id}`, r.pod_product_id);
     }
-    const existingProdIds = new Set(
-      (existingProductsRes.data ?? []).map((p) => p.pod_product_id),
+    const existingProductScores = new Map<string, number>(
+      (existingProductsRes.data ?? []).map((p) => [
+        p.pod_product_id,
+        Number(p.score),
+      ]),
     );
 
     const disc = {
@@ -341,7 +340,7 @@ Deno.serve(async (_req) => {
 
     const nowIso = new Date().toISOString();
 
-    // ── Phase 1.5: Detect rotations — flip prior is_current=false ────────────
+    // ── Phase 1.5: Detect rotations — flip prior is_current=false ───────────
     const rotationsToClose: Array<{
       machine_id: string;
       shelf_id: string;
@@ -364,7 +363,7 @@ Deno.serve(async (_req) => {
     }
     disc.rotations = rotationsToClose.length;
 
-    // ── Phase 1.6: Archive slots whose shelf_id vanished from shelf_configurations
+    // ── Phase 1.6: Archive slots whose shelf_id vanished ────────────────────
     const stillConfiguredShelfIds = new Set(
       shelfConfigs.map((sc) => sc.shelf_id),
     );
@@ -381,7 +380,8 @@ Deno.serve(async (_req) => {
     }
     disc.archived_slots = toArchive.length;
 
-    // New products
+    // New product seeds (unchanged from prior phases)
+    const existingProdIds = new Set(existingProductScores.keys());
     const newProdRows = pods.filter(
       (p) => !existingProdIds.has(p.pod_product_id),
     );
@@ -397,7 +397,7 @@ Deno.serve(async (_req) => {
       );
     }
 
-    // ── Phase 2: DQ flags (resolve stale, insert fresh) ──────────────────────
+    // ── Phase 2: DQ flags (resolve stale, insert fresh) ─────────────────────
     await supabase
       .from("lifecycle_data_quality_flags")
       .update({ resolved_at: nowIso })
@@ -439,7 +439,6 @@ Deno.serve(async (_req) => {
           message: `location_type '${m.location_type}' is null or unnormalized`,
         });
       }
-      // Phase B.1.1: surface machines in their post-launch ramp window.
       if (isRampingMachine(m.machine_id)) {
         const firstSale = firstSaleByMachine.get(m.machine_id);
         const daysSinceFirstSale = firstSale
@@ -473,7 +472,7 @@ Deno.serve(async (_req) => {
         .insert(allMachineDq.slice(i, i + 25));
     }
 
-    // ── Phase 3: Build sales map & compute scores ─────────────────────────────
+    // ── Phase 3a (B.3): Build per-(machine,product) sales velocity ─────────
     const salesMap = new Map<string, DailySales>();
     for (const s of sales) {
       const pid = resolvePodId(s.pod_product_name);
@@ -485,7 +484,6 @@ Deno.serve(async (_req) => {
       ds.set(d, (ds.get(d) ?? 0) + Number(s.qty));
     }
 
-    // Active slots to score (must have valid location_type) — built from reality
     const scorableSlots = reality.filter(
       (r) =>
         VALID_LOCATION_TYPES.has(
@@ -493,7 +491,6 @@ Deno.serve(async (_req) => {
         ),
     );
 
-    // First pass: compute velocities
     type VData = {
       v7: number;
       v14: number;
@@ -516,46 +513,77 @@ Deno.serve(async (_req) => {
       });
     }
 
-    // Build archetype baselines: (location_type:pod_product_id) → [v30 from non-dark machines]
-    const arcMap = new Map<string, number[]>();
-    const allArcMap = new Map<string, number[]>();
+    // ── Phase 3b (B.3): Per-product totals BEFORE per-slot scoring ────────
+    // For each pod_product, aggregate v30 across its current slots and count
+    // unique machines. This is the input to per_machine_avg_v30 for both Global
+    // formula and Local spectrum.
+    type ProductAgg = {
+      total_v30: number;
+      machine_set: Set<string>;
+      ramping_machine_set: Set<string>;
+      trend_sum: number;
+      trend_cnt: number;
+      best_loc: Map<string, number[]>;
+    };
+    const productAgg = new Map<string, ProductAgg>();
     for (const slot of scorableSlots) {
-      if (darkMachines.has(slot.machine_id)) continue;
-      const m = machineMap.get(slot.machine_id);
-      if (!m?.location_type) continue;
       const v = vMap.get(
         `${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`,
       );
       if (!v) continue;
-      const k1 = `${m.location_type}:${slot.pod_product_id}`;
-      const k2 = slot.pod_product_id!;
-      if (!arcMap.has(k1)) arcMap.set(k1, []);
-      arcMap.get(k1)!.push(v.v30);
-      if (!allArcMap.has(k2)) allArcMap.set(k2, []);
-      allArcMap.get(k2)!.push(v.v30);
+      const m = machineMap.get(slot.machine_id);
+      if (!m?.location_type) continue;
+      let agg = productAgg.get(slot.pod_product_id);
+      if (!agg) {
+        agg = {
+          total_v30: 0,
+          machine_set: new Set(),
+          ramping_machine_set: new Set(),
+          trend_sum: 0,
+          trend_cnt: 0,
+          best_loc: new Map(),
+        };
+        productAgg.set(slot.pod_product_id, agg);
+      }
+      agg.total_v30 += v.v30;
+      agg.machine_set.add(slot.machine_id);
+      if (isRampingMachine(slot.machine_id))
+        agg.ramping_machine_set.add(slot.machine_id);
+      agg.trend_sum += v.trend;
+      agg.trend_cnt++;
+      if (!agg.best_loc.has(m.location_type))
+        agg.best_loc.set(m.location_type, []);
     }
 
-    const lowBaselineFlags: typeof dqFlags = [];
-    const podBaselineMap = new Map<string, { flag: boolean }>();
+    // Compute per_machine_avg_v30 per product (for Global rank + Local spectrum)
+    const productPerMachineAvg = new Map<string, number>();
+    for (const [pid, agg] of productAgg) {
+      const machineCount = agg.machine_set.size;
+      const avg = machineCount > 0 ? agg.total_v30 / machineCount : 0;
+      productPerMachineAvg.set(pid, avg);
+    }
 
+    // ── Phase 3c (B.3): Compute Global rank-percentile across all products ──
+    // Sort products by per_machine_avg_v30 DESC, assign 1-indexed rank.
+    // score_raw = (1 - (rank-1)/(N-1)) * 10 → top product = 10, bottom = 0.
+    const productEntriesSorted = [...productPerMachineAvg.entries()].sort(
+      (a, b) => b[1] - a[1],
+    );
+    const N = productEntriesSorted.length;
+    const productGlobalRank = new Map<string, number>();
+    const productGlobalRawScore = new Map<string, number>();
+    productEntriesSorted.forEach(([pid, _avg], idx) => {
+      const rank = idx + 1;
+      productGlobalRank.set(pid, rank);
+      const raw = N > 1 ? (1 - (rank - 1) / (N - 1)) * 10 : 5.0;
+      productGlobalRawScore.set(pid, raw);
+    });
+
+    // ── Phase 3d (B.3): Per-slot scoring with spectrum + EMA ───────────────
     const today = new Date().toISOString().split("T")[0];
     const slotUpdates: Record<string, unknown>[] = [];
     const slotHistory: Record<string, unknown>[] = [];
     const slotDqFlags: typeof dqFlags = [];
-
-    const globalAgg = new Map<
-      string,
-      {
-        wScore: number;
-        wV: number;
-        totalV30: number;
-        trendSum: number;
-        trendCnt: number;
-        machines: Set<string>;
-        bestLocScore: Map<string, number[]>;
-        worstLocScore: Map<string, number[]>;
-      }
-    >();
 
     let slotsEval = 0;
     const slotScoreDelta = { up: 0, down: 0 };
@@ -565,33 +593,16 @@ Deno.serve(async (_req) => {
       const ledgerKey = `${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`;
       const v = vMap.get(ledgerKey)!;
 
-      const arcKey = `${m.location_type}:${slot.pod_product_id}`;
-      const arcVelocities = arcMap.get(arcKey) ?? [];
-      let baseline: number;
-      let lowConfBaseline = false;
-      if (arcVelocities.length >= 3) {
-        baseline = Math.max(0.1, median(arcVelocities));
+      const productAvg = productPerMachineAvg.get(slot.pod_product_id) ?? 0;
+
+      // B.3: Local spectrum — 5.0 = at product's per-machine avg, 10.0 = 2× avg.
+      let spectrum_ratio: number;
+      if (productAvg <= 0) {
+        spectrum_ratio = 1.0; // neutral — no anchor available
       } else {
-        const all = allArcMap.get(slot.pod_product_id!) ?? [];
-        baseline = all.length > 0 ? Math.max(0.1, median(all)) : 0.5;
-        lowConfBaseline = true;
+        spectrum_ratio = v.v30 / productAvg;
       }
-
-      if (lowConfBaseline && !podBaselineMap.has(slot.pod_product_id!)) {
-        podBaselineMap.set(slot.pod_product_id!, { flag: true });
-        lowBaselineFlags.push({
-          flag_type: "LOW_CONFIDENCE_BASELINE",
-          severity: "info",
-          scope: "product",
-          pod_product_id: slot.pod_product_id,
-          message: `Archetype baseline for this product computed from < 3 slots in ${m.location_type}`,
-        });
-      }
-
-      const vc = Math.min(10, (v.v30 / baseline) * 5);
-      const tc = v.trend;
-      const cc = v.cons;
-      let score = r2(vc * 0.6 + tc * 0.25 + cc * 0.15);
+      let local_score_raw = clip01_10(spectrum_ratio * 5);
 
       const existingSlot = existingByLedger.get(ledgerKey);
       const firstSeen = existingSlot?.first_seen_at ?? new Date().toISOString();
@@ -599,8 +610,9 @@ Deno.serve(async (_req) => {
         (Date.now() - new Date(firstSeen).getTime()) / 86400000,
       );
 
+      // Slot-age cap: still applies for new slots (< 14d)
       if (ageD < 14) {
-        score = Math.min(score, 4.5);
+        local_score_raw = Math.min(local_score_raw, 4.5);
         slotDqFlags.push({
           flag_type: "INSUFFICIENT_DATA",
           severity: "info",
@@ -622,14 +634,19 @@ Deno.serve(async (_req) => {
         });
       }
 
-      const prevScore = existingSlot?.score ? Number(existingSlot.score) : null;
-      if (prevScore !== null) {
-        if (score - prevScore >= 0.5) slotScoreDelta.up++;
-        else if (prevScore - score >= 0.5) slotScoreDelta.down++;
+      // EMA blend with prior slot score
+      const priorScore = existingSlot?.score
+        ? Number(existingSlot.score)
+        : null;
+      const score = ema(local_score_raw, priorScore);
+
+      if (priorScore !== null) {
+        if (score - priorScore >= 0.5) slotScoreDelta.up++;
+        else if (priorScore - score >= 0.5) slotScoreDelta.down++;
       }
 
-      const rawSignal = getSignal(score, tc);
-      // Phase B.1.1: machines within ramp window never get DEAD/ROTATE OUT
+      const tc = v.trend;
+      const rawSignal = getSignalV2(score, tc);
       const signal = isRampingMachine(slot.machine_id) ? "RAMPING" : rawSignal;
 
       slotUpdates.push({
@@ -638,14 +655,17 @@ Deno.serve(async (_req) => {
         shelf_code: slot.shelf_code ?? "",
         pod_product_id: slot.pod_product_id,
         score,
-        previous_score: prevScore,
-        velocity_component: r2(vc),
+        local_score_raw: r2(local_score_raw),
+        spectrum_ratio: r2(spectrum_ratio),
+        product_avg_v30_at_score_time: r2(productAvg),
+        previous_score: priorScore,
+        velocity_component: r2(local_score_raw),
         trend_component: r2(tc),
-        consistency_component: r2(cc),
+        consistency_component: r2(v.cons),
         velocity_7d: r2(v.v7),
         velocity_14d: r2(v.v14),
         velocity_30d: r2(v.v30),
-        archetype_baseline_velocity: r2(baseline),
+        archetype_baseline_velocity: r2(productAvg),
         signal,
         slot_age_days: ageD,
         last_evaluated_at: nowIso,
@@ -661,37 +681,12 @@ Deno.serve(async (_req) => {
         snapshot_date: today,
         score,
         velocity_30d: r2(v.v30),
+        score_kind: "v2_split_global_local",
       });
-
-      const pid = slot.pod_product_id!;
-      if (!globalAgg.has(pid)) {
-        globalAgg.set(pid, {
-          wScore: 0,
-          wV: 0,
-          totalV30: 0,
-          trendSum: 0,
-          trendCnt: 0,
-          machines: new Set(),
-          bestLocScore: new Map(),
-          worstLocScore: new Map(),
-        });
-      }
-      const agg = globalAgg.get(pid)!;
-      const weight = Math.max(v.v30, 0.01);
-      agg.wScore += score * weight;
-      agg.wV += weight;
-      agg.totalV30 += v.v30;
-      agg.trendSum += tc;
-      agg.trendCnt++;
-      agg.machines.add(slot.machine_id);
-      if (!agg.bestLocScore.has(m.location_type))
-        agg.bestLocScore.set(m.location_type, []);
-      agg.bestLocScore.get(m.location_type)!.push(score);
 
       slotsEval++;
     }
 
-    // Batch upsert slot_lifecycle with the new ledger key
     for (let i = 0; i < slotUpdates.length; i += 100) {
       await supabase
         .from("slot_lifecycle")
@@ -700,55 +695,64 @@ Deno.serve(async (_req) => {
         });
     }
 
-    // Batch insert history
     for (let i = 0; i < slotHistory.length; i += 25) {
       await supabase
         .from("lifecycle_score_history")
         .insert(slotHistory.slice(i, i + 25));
     }
 
-    // Insert slot DQ flags
-    const allSlotFlags = [...lowBaselineFlags, ...slotDqFlags];
-    for (let i = 0; i < allSlotFlags.length; i += 25) {
+    for (let i = 0; i < slotDqFlags.length; i += 25) {
       await supabase
         .from("lifecycle_data_quality_flags")
-        .insert(allSlotFlags.slice(i, i + 25));
+        .insert(slotDqFlags.slice(i, i + 25));
     }
 
-    // ── Phase 4: Global product aggregation ──────────────────────────────────
+    // ── Phase 4 (B.3): Global product upsert with rank-percentile + EMA ────
     const prodUpdates: Record<string, unknown>[] = [];
     const prodHistory: Record<string, unknown>[] = [];
 
     for (const pod of pods) {
-      const agg = globalAgg.get(pod.pod_product_id);
-      const globalScore = agg ? r2(agg.wScore / agg.wV) : 5.0;
-      const globalTrend = agg ? r2(agg.trendSum / agg.trendCnt) : 5.0;
-      const totalV30 = agg ? r2(agg.totalV30) : 0;
-      const machineCount = agg ? agg.machines.size : 0;
+      const agg = productAgg.get(pod.pod_product_id);
+      const perMachineAvg = productPerMachineAvg.get(pod.pod_product_id) ?? 0;
+      const rawScore = productGlobalRawScore.get(pod.pod_product_id) ?? 0;
+      const rank = productGlobalRank.get(pod.pod_product_id) ?? null;
+      const totalV30 = agg ? r2(agg.total_v30) : 0;
+      const machineCount = agg ? agg.machine_set.size : 0;
+      const rampingCount = agg ? agg.ramping_machine_set.size : 0;
+      const globalTrend = agg && agg.trend_cnt > 0
+        ? r2(agg.trend_sum / agg.trend_cnt)
+        : 5.0;
 
-      let bestLoc: string | null = null,
-        worstLoc: string | null = null;
-      let bestScore = -1,
-        worstScore = 11;
+      // EMA blend
+      const priorScore = existingProductScores.get(pod.pod_product_id) ?? null;
+      const score = ema(rawScore, priorScore);
+
+      // best/worst location_type by avg slot score (still useful as a flag)
+      let bestLoc: string | null = null;
+      let worstLoc: string | null = null;
       if (agg) {
-        for (const [loc, scores] of agg.bestLocScore) {
-          const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
-          if (avg > bestScore) {
-            bestScore = avg;
-            bestLoc = loc;
-          }
-          if (avg < worstScore) {
-            worstScore = avg;
-            worstLoc = loc;
-          }
+        const locAvgs: [string, number][] = [];
+        for (const [loc, scores] of agg.best_loc) {
+          if (scores.length === 0) continue;
+          const a = scores.reduce((s, x) => s + x, 0) / scores.length;
+          locAvgs.push([loc, a]);
+        }
+        if (locAvgs.length) {
+          locAvgs.sort((a, b) => b[1] - a[1]);
+          bestLoc = locAvgs[0][0];
+          worstLoc = locAvgs[locAvgs.length - 1][0];
         }
       }
 
-      const signal = getSignal(globalScore, globalTrend);
+      const signal = getSignalV2(score, globalTrend);
 
       prodUpdates.push({
         pod_product_id: pod.pod_product_id,
-        score: globalScore,
+        score,
+        score_raw: r2(rawScore),
+        global_rank: rank,
+        per_machine_avg_v30: r2(perMachineAvg),
+        ramping_machine_count: rampingCount,
         trend_component: globalTrend,
         machine_count: machineCount,
         total_velocity_30d: totalV30,
@@ -762,8 +766,9 @@ Deno.serve(async (_req) => {
         scope: "product",
         pod_product_id: pod.pod_product_id,
         snapshot_date: today,
-        score: globalScore,
+        score,
         velocity_30d: totalV30,
+        score_kind: "v2_split_global_local",
       });
     }
 
@@ -780,7 +785,7 @@ Deno.serve(async (_req) => {
         .insert(prodHistory.slice(i, i + 25));
     }
 
-    // ── Phase 5: Family aggregation ───────────────────────────────────────────
+    // ── Phase 5: Family aggregation (unchanged) ────────────────────────────
     const { data: families } = await supabase
       .from("product_families")
       .select("product_family_id")
@@ -822,6 +827,7 @@ Deno.serve(async (_req) => {
         snapshot_date: today,
         score: famScore,
         velocity_30d: r2(totalV),
+        score_kind: "v2_split_global_local",
       });
     }
     for (let i = 0; i < famHistory.length; i += 25) {
@@ -830,9 +836,8 @@ Deno.serve(async (_req) => {
         .insert(famHistory.slice(i, i + 25));
     }
 
-    // ── Summary ───────────────────────────────────────────────────────────────
     const flagCounts: Record<string, number> = {};
-    for (const f of [...allMachineDq, ...allSlotFlags]) {
+    for (const f of [...allMachineDq, ...slotDqFlags]) {
       flagCounts[f.flag_type.toLowerCase()] =
         (flagCounts[f.flag_type.toLowerCase()] ?? 0) + 1;
     }

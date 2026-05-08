@@ -15,6 +15,49 @@ Format:
 
 ---
 
+## 2026-05-08 — Phase B.3: Lifecycle scoring redesign (Global rank-percentile + Local spectrum + EMA + signalV2)
+**Phase / Article:** B.3 / Constitution Articles 9, 12, 13, 14, 15
+**Applied to:** prod
+**Migration name:** `phaseB_b3_lifecycle_scoring_redesign`
+
+**Summary:** Splits the lifecycle scoring engine into two distinct formulas — `product_lifecycle_global.score` is now rank-percentile across all stocked products by per-machine-average velocity, and `slot_lifecycle.score` is now a ratio-spectrum centered on each product's own per-machine global average (5.0 = at avg, 10.0 = 2× avg). Both scores are EMA-blended with prior value (α=0.67 → recent ≈ 2× historical, satisfying CS's "compound upward/downward" intuition). Signal logic shifts to `getSignalV2` — DOUBLE DOWN and KEEP GROWING now require BOTH score AND trend to clear thresholds (hard-gate), eliminating the case where high-volume-but-flat products were branded DOUBLE DOWN. RAMPING flag bubbles from slot to product level via new `product_lifecycle_global.ramping_machine_count` column. **First post-deploy verification:** Aquafina (92.27 u/day total, 7 machines, 13.18/machine avg) now ranks #1 with score_raw=10.00. Evian Sparkling (0.27 u/day, 2 machines, 0.135/machine avg) now ranks #36 with score_raw=5.39 — exactly the per-machine apples-to-apples ranking CS asked for. Edge fn `evaluate-lifecycle/index.ts` deployed v12 with phase reorder (per-product totals computed BEFORE per-slot scoring so each slot can read its product's per-machine avg as the spectrum anchor). Six new observability columns added across `product_lifecycle_global` and `slot_lifecycle` for audit (per_machine_avg_v30, global_rank, score_raw, ramping_machine_count, local_score_raw, spectrum_ratio, product_avg_v30_at_score_time). New view `v_product_lifecycle_global_enriched` (SECURITY INVOKER) joins product+family+ramping markers for the Global matrix FE consumer. `lifecycle_score_history.score_kind` enum tags new rows as 'v2_split_global_local' for forward-compat traceability.
+
+**Behavior changes (Article 15 disclosure):**
+1. `product_lifecycle_global.score` formula changed from velocity-weighted-average-of-cohort-relative-scores to rank-percentile of per_machine_avg_v30 across all products with machine_count > 0. Top product = 10, bottom = 0, evenly distributed by rank.
+2. `slot_lifecycle.score` formula changed from cohort-baseline-relative to product-portfolio-spectrum (5.0 = at product's per-machine avg, 10.0 = 2× avg, 0.0 = zero). Spectrum ratio capped at 2× before scoring.
+3. Both scores now EMA-blended with prior value: `new_score = 0.67 × computed_today + 0.33 × prior`. New rows bootstrap with prior=computed (no memory yet, converges over ~3 cron ticks).
+4. `getSignalV2` replaces `getSignal`. Hard-gate: DOUBLE DOWN requires score≥8 AND trend≥7; KEEP GROWING requires score≥6 AND trend≥7; KEEP requires score≥4 AND trend≥4 (or score≥4 AND trend<4 → WIND DOWN). Eliminates the score=4.5 dead-band orphan from B.1.1.
+
+**Article 9 status (extends prior known-debt note from B.1, B.1.1, B.1.2):** `evaluate-lifecycle` continues to do business logic + direct writes inline. B.3 adds three new logic blocks to that footprint: (a) per-product aggregation phase (Phase 3b/3c) before per-slot scoring, (b) rank-percentile computation across the product universe (Phase 3c), (c) EMA blend on both score paths (Phases 3d + 4), (d) RAMPING bubble counting per product (Phase 3b). Same Phase B follow-up to wrap evaluate-lifecycle in a `compute_and_apply_lifecycle()` SECURITY DEFINER RPC absorbs all of these. Tracked under Task 21.
+
+**Deploy checklist (operational note from Cody review):**
+- Migration applied first (additive columns only, no data backfill — new columns NULL on existing rows).
+- Edge fn v12 deployed second.
+- `trigger_lifecycle_eval()` invoked manually post-deploy to populate new columns within ~30s. Verified: 77 products updated, Aquafina ranked #1 as expected.
+- One-time score-shock: every product/slot's score shifted from old formula to new. EMA smooths the second tick onward. Subsequent cron runs converge each score to its new equilibrium over ~3 ticks.
+
+**Code locality note (extends B.1.1 note):** Phase reorder logic, rank-percentile, EMA, RAMPING bubble all live in Deno (`evaluate-lifecycle/index.ts`). Update site for any future signal/score formula tweaks: same file, search for `getSignalV2`, `productGlobalRawScore`, `ema`, `ramping_machine_set`.
+
+**Rollback:**
+```sql
+-- Revert evaluate-lifecycle to v11 first (blob in Edge Function dashboard).
+-- Then drop the additive columns:
+DROP VIEW IF EXISTS public.v_product_lifecycle_global_enriched;
+DROP INDEX IF EXISTS public.idx_slot_lifecycle_product_score;
+DROP INDEX IF EXISTS public.idx_product_lifecycle_global_rank;
+ALTER TABLE public.lifecycle_score_history DROP COLUMN IF EXISTS score_kind;
+ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS product_avg_v30_at_score_time;
+ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS spectrum_ratio;
+ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS local_score_raw;
+ALTER TABLE public.product_lifecycle_global DROP COLUMN IF EXISTS ramping_machine_count;
+ALTER TABLE public.product_lifecycle_global DROP COLUMN IF EXISTS score_raw;
+ALTER TABLE public.product_lifecycle_global DROP COLUMN IF EXISTS global_rank;
+ALTER TABLE public.product_lifecycle_global DROP COLUMN IF EXISTS per_machine_avg_v30;
+-- Existing score values are EMA-blended with new formula; reverting fully requires retrigger after rollback.
+```
+
+---
+
 ## 2026-05-08 — Phase B.1.2: All-time first-sale view fix for ramping detection
 **Phase / Article:** B.1.2 / Constitution Articles 2, 9, 12
 **Applied to:** prod
