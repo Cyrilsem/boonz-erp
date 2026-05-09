@@ -159,6 +159,8 @@ interface DeviationRow {
   signal: string;
   /** Phase B.4: hide rotated-out rows from deviation table by default. */
   is_current: boolean;
+  /** Phase B.11: when this slot rotated out — used to render "Nd ago" badge. */
+  rotated_out_at: string | null;
 }
 
 interface MachineOption {
@@ -756,6 +758,7 @@ export default function LifecyclePage() {
           deviation: Math.round((localScore - globalScore) * 100) / 100,
           signal: s.signal ?? "KEEP",
           is_current: s.is_current ?? true,
+          rotated_out_at: s.rotated_out_at ?? null,
         },
       ];
     });
@@ -1705,6 +1708,9 @@ function ScatterTab({
   ]);
 
   // ── Deviation table ───────────────────────────────────────────────────
+  // Phase B.11: trend_component column added — signal is gated on score AND
+  // trend, so the matrix needs to expose both for the deviation reading
+  // to be self-explanatory (e.g. "high score + low trend → WIND DOWN").
   const DEV_COLS: (keyof DeviationRow)[] = [
     "product_name",
     "family_name",
@@ -1713,6 +1719,7 @@ function ScatterTab({
     "location_type",
     "velocity",
     "local_score",
+    "trend_component",
     "global_score",
     "deviation",
     "signal",
@@ -2470,11 +2477,13 @@ function ScatterTab({
                                 ? "Vel/day"
                                 : col === "local_score"
                                   ? "Local"
-                                  : col === "global_score"
-                                    ? "Global"
-                                    : col === "deviation"
-                                      ? "Deviation"
-                                      : "Signal"}
+                                  : col === "trend_component"
+                                    ? "Trend"
+                                    : col === "global_score"
+                                      ? "Global"
+                                      : col === "deviation"
+                                        ? "Deviation"
+                                        : "Signal"}
                     {devSortCol === col && (
                       <span className="ml-1">
                         {devSortDir === "asc" ? "↑" : "↓"}
@@ -2506,6 +2515,22 @@ function ScatterTab({
                       : (row.family_id ?? "")
                     : `${row.machine_id}:${row.pod_product_id}`;
                 const isRowSelected = selectedIds.has(selId);
+                // Phase B.11: trend cell color reflects acceleration vs decline.
+                const trendColor =
+                  row.trend_component >= 7
+                    ? "#16a34a" // green — sustained accel
+                    : row.trend_component < 4
+                      ? "#dc2626" // red — sustained decline
+                      : "#a3a3a3"; // grey — neutral
+                // Phase B.11: rotated-out rows visually muted + "Nd ago" badge,
+                // so users can tell live signals from historical at a glance.
+                const isRotatedOut = !row.is_current;
+                const rotatedDaysAgo = row.rotated_out_at
+                  ? Math.floor(
+                      (Date.now() - new Date(row.rotated_out_at).getTime()) /
+                        86400000,
+                    )
+                  : null;
                 return (
                   <tr
                     key={i}
@@ -2526,7 +2551,16 @@ function ScatterTab({
                       !productId
                         ? "cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-900"
                         : ""
-                    } ${devBg} ${isRowSelected ? "ring-1 ring-inset ring-blue-300 dark:ring-blue-700" : ""}`}
+                    } ${devBg} ${isRowSelected ? "ring-1 ring-inset ring-blue-300 dark:ring-blue-700" : ""} ${
+                      isRotatedOut
+                        ? "bg-neutral-50/60 italic opacity-60 dark:bg-neutral-900/40"
+                        : ""
+                    }`}
+                    title={
+                      isRotatedOut
+                        ? `Rotated out${rotatedDaysAgo !== null ? ` ${rotatedDaysAgo}d ago` : ""} — score & signal frozen at last evaluation`
+                        : undefined
+                    }
                   >
                     <td className="max-w-[140px] truncate px-3 py-2 font-medium text-neutral-800 dark:text-neutral-200">
                       {row.product_name}
@@ -2538,8 +2572,15 @@ function ScatterTab({
                         </span>
                       )}
                     </td>
-                    <td className="max-w-[130px] truncate px-3 py-2 text-neutral-600 dark:text-neutral-400">
-                      {row.machine_name}
+                    <td className="max-w-[160px] truncate px-3 py-2 text-neutral-600 dark:text-neutral-400">
+                      <span>{row.machine_name}</span>
+                      {isRotatedOut && (
+                        <span className="ml-1.5 inline-block rounded bg-neutral-200 px-1 py-0.5 align-middle text-[9px] font-medium uppercase not-italic tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                          {rotatedDaysAgo !== null
+                            ? `rotated ${rotatedDaysAgo}d ago`
+                            : "rotated out"}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 font-mono text-neutral-500">
                       {row.shelf_code}
@@ -2552,6 +2593,17 @@ function ScatterTab({
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
                       {row.local_score.toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span
+                        className="inline-block rounded px-1.5 py-0.5 font-mono font-medium"
+                        style={{
+                          color: trendColor,
+                          backgroundColor: trendColor + "22",
+                        }}
+                      >
+                        {row.trend_component.toFixed(2)}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-neutral-500">
                       {row.global_score.toFixed(2)}
