@@ -27,6 +27,15 @@ const PRODUCT_RAMP_DAYS = 30;
 // α=0.67 → recent ≈ 2× historical (the "compound upwards/downwards" pattern CS asked for).
 const EMA_ALPHA = 0.67;
 
+// Phase B.9: trend EMA is slower than score EMA — trend should be earned over weeks,
+// not whipped by a single week. α=0.4 → priorTrend weighted 1.5× heavier than today.
+const TREND_EMA_ALPHA = 0.4;
+
+// Phase B.9: products/slots reach the full [0, 10] trend band only after 60 days.
+// Younger entities are capped to a narrower band centered on 5 — they haven't
+// earned the right to be classed as "trendy" or "dying" yet.
+const TREND_MATURITY_FULL_DAYS = 60;
+
 // Phase B.3: signalV2 — hard-gate on both score AND trend.
 // Score is now velocity-only (Global = rank-percentile, Local = spectrum-vs-product-avg).
 // Trend is a separate axis. DOUBLE DOWN / KEEP GROWING require BOTH to clear.
@@ -61,6 +70,7 @@ function velocityN(daily: DailySales, days: number): number {
   return total / days;
 }
 
+// Legacy: kept for audit, no longer used in scoring. Replaced by trendV2 (B.9).
 function trendComponent(daily: DailySales): number {
   let last14 = 0,
     prior14 = 0;
@@ -80,6 +90,49 @@ function trendComponent(daily: DailySales): number {
   if (pct >= -0.1) return 5;
   if (pct >= -0.5) return 5 - ((Math.abs(pct) - 0.1) / 0.4) * 5;
   return 0;
+}
+
+// Phase B.9: trend = sustained-acceleration across multiple windows, capped by
+// time-in-market, and EMA-smoothed. 10 has to be earned across 60+ days of
+// consistent v7>v14>v30>v60. Young products sit near 5 until they prove duration.
+function trendV2(
+  daily: DailySales,
+  ageDays: number,
+  priorTrend: number | null,
+): number {
+  // 1) Multi-window acceleration count
+  const v7 = velocityN(daily, 7);
+  const v14 = velocityN(daily, 14);
+  const v30 = velocityN(daily, 30);
+  const v60 = velocityN(daily, 60);
+
+  let accel = 0;
+  let decel = 0;
+  // Pair 1: v7 vs v14 — recent week vs trailing fortnight
+  if (v14 > 0 && v7 > v14 * 1.1) accel++;
+  if (v14 > 0 && v7 < v14 * 0.9) decel++;
+  // Pair 2: v14 vs v30 — fortnight vs month
+  if (v30 > 0 && v14 > v30 * 1.1) accel++;
+  if (v30 > 0 && v14 < v30 * 0.9) decel++;
+  // Pair 3: v30 vs v60 — month vs two-months
+  if (v60 > 0 && v30 > v60 * 1.1) accel++;
+  if (v60 > 0 && v30 < v60 * 0.9) decel++;
+
+  const net = Math.max(-3, Math.min(3, accel - decel));
+  const rawTrend = 5 + (net / 3) * 5; // -3 → 0, 0 → 5, +3 → 10
+
+  // 2) Time-in-market cap
+  const maturity = Math.max(
+    0,
+    Math.min(1, ageDays / TREND_MATURITY_FULL_DAYS),
+  );
+  const ceiling = 5 + 5 * maturity;
+  const floor = 5 - 5 * maturity;
+  const capped = Math.max(floor, Math.min(ceiling, rawTrend));
+
+  // 3) EMA smoothing on the trend itself — slow movement both directions
+  if (priorTrend === null || isNaN(priorTrend)) return r2(capped);
+  return r2(TREND_EMA_ALPHA * capped + (1 - TREND_EMA_ALPHA) * priorTrend);
 }
 
 function consistencyComponent(daily: DailySales): number {
@@ -393,17 +446,18 @@ Deno.serve(async (_req) => {
     );
 
     // ── Existing slot_lifecycle state (for EMA prior + rotation detection) ──
+    // Phase B.9: also pull prior trend_component so we can EMA-smooth it.
     const [existingSlotsRes, existingProductsRes] = await Promise.all([
       supabase
         .from("slot_lifecycle")
         .select(
-          "machine_id,shelf_id,pod_product_id,score,first_seen_at,is_current",
+          "machine_id,shelf_id,pod_product_id,score,trend_component,first_seen_at,is_current",
         )
         .eq("archived", false)
         .limit(20000),
       supabase
         .from("product_lifecycle_global")
-        .select("pod_product_id,score")
+        .select("pod_product_id,score,trend_component")
         .limit(10000),
     ]);
 
@@ -428,6 +482,12 @@ Deno.serve(async (_req) => {
         p.pod_product_id,
         Number(p.score),
       ]),
+    );
+    // Phase B.9: prior trend_component lookup for EMA smoothing.
+    const existingProductTrends = new Map<string, number>(
+      (existingProductsRes.data ?? [])
+        .filter((p) => p.trend_component !== null)
+        .map((p) => [p.pod_product_id, Number(p.trend_component)]),
     );
 
     const disc = {
@@ -575,14 +635,22 @@ Deno.serve(async (_req) => {
 
     // ── Phase 3a (B.3): Build per-(machine,product) sales velocity ─────────
     const salesMap = new Map<string, DailySales>();
+    // Phase B.8: also build a per-product daily sales map (across ALL machines)
+    // so the global trend reflects fleet-wide trajectory, not just current slots.
+    const productSalesMap = new Map<string, DailySales>();
     for (const s of sales) {
       const pid = resolvePodId(s.pod_product_name);
       if (!pid) continue;
+      const d = s.transaction_date.substring(0, 10);
+      const qty = Number(s.qty);
       const k = `${s.machine_id}:${pid}`;
       if (!salesMap.has(k)) salesMap.set(k, new Map());
       const ds = salesMap.get(k)!;
-      const d = s.transaction_date.substring(0, 10);
-      ds.set(d, (ds.get(d) ?? 0) + Number(s.qty));
+      ds.set(d, (ds.get(d) ?? 0) + qty);
+      // Per-product aggregation
+      if (!productSalesMap.has(pid)) productSalesMap.set(pid, new Map());
+      const pds = productSalesMap.get(pid)!;
+      pds.set(d, (pds.get(d) ?? 0) + qty);
     }
 
     // Phase B.4: skip dark machines (no sales in 14d) — their slots have v30=0
@@ -596,11 +664,12 @@ Deno.serve(async (_req) => {
         ),
     );
 
+    // Phase B.9: trend is now computed lazily inside the per-slot and per-product
+    // scoring loops where age + priorTrend are available. vMap stores raw daily.
     type VData = {
       v7: number;
       v14: number;
       v30: number;
-      trend: number;
       cons: number;
       daily: DailySales;
     };
@@ -612,7 +681,6 @@ Deno.serve(async (_req) => {
         v7: velocityN(daily, 7),
         v14: velocityN(daily, 14),
         v30: velocityN(daily, 30),
-        trend: trendComponent(daily),
         cons: consistencyComponent(daily),
         daily,
       });
@@ -626,8 +694,6 @@ Deno.serve(async (_req) => {
       total_v30: number;
       machine_set: Set<string>;
       ramping_machine_set: Set<string>;
-      trend_sum: number;
-      trend_cnt: number;
       best_loc: Map<string, number[]>;
     };
     const productAgg = new Map<string, ProductAgg>();
@@ -644,8 +710,6 @@ Deno.serve(async (_req) => {
           total_v30: 0,
           machine_set: new Set(),
           ramping_machine_set: new Set(),
-          trend_sum: 0,
-          trend_cnt: 0,
           best_loc: new Map(),
         };
         productAgg.set(slot.pod_product_id, agg);
@@ -654,8 +718,6 @@ Deno.serve(async (_req) => {
       agg.machine_set.add(slot.machine_id);
       if (isRampingMachine(slot.machine_id))
         agg.ramping_machine_set.add(slot.machine_id);
-      agg.trend_sum += v.trend;
-      agg.trend_cnt++;
       if (!agg.best_loc.has(m.location_type))
         agg.best_loc.set(m.location_type, []);
     }
@@ -754,7 +816,12 @@ Deno.serve(async (_req) => {
         else if (priorScore - score >= 0.5) slotScoreDelta.down++;
       }
 
-      const tc = v.trend;
+      // Phase B.9: trend computed with slot age + EMA against prior slot trend
+      const priorSlotTrend =
+        existingSlot?.trend_component != null
+          ? Number(existingSlot.trend_component)
+          : null;
+      const tc = trendV2(v.daily, ageD, priorSlotTrend);
       const rawSignal = getSignalV2(score, tc);
       // Phase B.7: signal RAMPING if EITHER the machine OR the product is in
       // its first 30 days. Either way, we don't want to drop the product.
@@ -834,8 +901,19 @@ Deno.serve(async (_req) => {
       const totalV30 = agg ? r2(agg.total_v30) : 0;
       const machineCount = agg ? agg.machine_set.size : 0;
       const rampingCount = agg ? agg.ramping_machine_set.size : 0;
-      const globalTrend = agg && agg.trend_cnt > 0
-        ? r2(agg.trend_sum / agg.trend_cnt)
+      // Phase B.8: global trend uses fleet-wide product velocity (not avg of
+      // current-slot trends) so historical machines factor into the trajectory.
+      // Phase B.9: trendV2 — sustained-acceleration across 4 windows, capped by
+      // product time-in-market, EMA-smoothed against priorTrend.
+      const productDaily = productSalesMap.get(pod.pod_product_id);
+      const fs = firstSeenByProduct.get(pod.pod_product_id);
+      const productAgeD = fs
+        ? (Date.now() - fs.getTime()) / 86400000
+        : 0;
+      const priorProductTrend =
+        existingProductTrends.get(pod.pod_product_id) ?? null;
+      const globalTrend = productDaily
+        ? trendV2(productDaily, productAgeD, priorProductTrend)
         : 5.0;
 
       // EMA blend
