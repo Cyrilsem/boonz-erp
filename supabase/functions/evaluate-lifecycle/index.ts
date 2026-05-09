@@ -690,8 +690,12 @@ Deno.serve(async (_req) => {
     // For each pod_product, aggregate v30 across its current slots and count
     // unique machines. This is the input to per_machine_avg_v30 for both Global
     // formula and Local spectrum.
+    // Phase B.10: aggregate per-product to compute per-slot AND per-machine
+    // averages. Global rank + Local spectrum now both anchor on per_slot_avg
+    // (the per-facing productivity), which keeps the two views consistent.
     type ProductAgg = {
       total_v30: number;
+      slot_count: number;
       machine_set: Set<string>;
       ramping_machine_set: Set<string>;
       best_loc: Map<string, number[]>;
@@ -708,6 +712,7 @@ Deno.serve(async (_req) => {
       if (!agg) {
         agg = {
           total_v30: 0,
+          slot_count: 0,
           machine_set: new Set(),
           ramping_machine_set: new Set(),
           best_loc: new Map(),
@@ -715,6 +720,7 @@ Deno.serve(async (_req) => {
         productAgg.set(slot.pod_product_id, agg);
       }
       agg.total_v30 += v.v30;
+      agg.slot_count += 1;
       agg.machine_set.add(slot.machine_id);
       if (isRampingMachine(slot.machine_id))
         agg.ramping_machine_set.add(slot.machine_id);
@@ -722,18 +728,24 @@ Deno.serve(async (_req) => {
         agg.best_loc.set(m.location_type, []);
     }
 
-    // Compute per_machine_avg_v30 per product (for Global rank + Local spectrum)
+    // Phase B.10: per_slot_avg is the new anchor. per_machine_avg kept for
+    // backward compat (still written to DB for FE during transition).
+    const productPerSlotAvg = new Map<string, number>();
     const productPerMachineAvg = new Map<string, number>();
     for (const [pid, agg] of productAgg) {
+      const slotCount = agg.slot_count;
       const machineCount = agg.machine_set.size;
-      const avg = machineCount > 0 ? agg.total_v30 / machineCount : 0;
-      productPerMachineAvg.set(pid, avg);
+      productPerSlotAvg.set(pid, slotCount > 0 ? agg.total_v30 / slotCount : 0);
+      productPerMachineAvg.set(
+        pid,
+        machineCount > 0 ? agg.total_v30 / machineCount : 0,
+      );
     }
 
-    // ── Phase 3c (B.3): Compute Global rank-percentile across all products ──
-    // Sort products by per_machine_avg_v30 DESC, assign 1-indexed rank.
-    // score_raw = (1 - (rank-1)/(N-1)) * 10 → top product = 10, bottom = 0.
-    const productEntriesSorted = [...productPerMachineAvg.entries()].sort(
+    // ── Phase 3c (B.10): Global rank-percentile across all products by per_slot.
+    // Sort products by per_slot_avg_v30 DESC, assign 1-indexed rank.
+    // score_raw = (1 - (rank-1)/(N-1)) * 10 → top per-facing earner = 10, bottom = 0.
+    const productEntriesSorted = [...productPerSlotAvg.entries()].sort(
       (a, b) => b[1] - a[1],
     );
     const N = productEntriesSorted.length;
@@ -760,9 +772,11 @@ Deno.serve(async (_req) => {
       const ledgerKey = `${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`;
       const v = vMap.get(ledgerKey)!;
 
-      const productAvg = productPerMachineAvg.get(slot.pod_product_id) ?? 0;
+      // Phase B.10: Local spectrum now anchors on per_slot_avg (matches Global
+      // rank base) so Global hero status maps onto Local slot story consistently.
+      const productAvg = productPerSlotAvg.get(slot.pod_product_id) ?? 0;
 
-      // B.6: Local spectrum — 5.0 = at product's per-machine avg, 10.0 = 2× avg.
+      // B.6: Local spectrum — 5.0 = at product's per-slot avg, 10.0 = 2× avg.
       // Zero-velocity slots are DEAD regardless of product anchor — never score
       // them as "neutral 5.0" just because the product is also dead.
       let spectrum_ratio: number;
@@ -896,9 +910,11 @@ Deno.serve(async (_req) => {
     for (const pod of pods) {
       const agg = productAgg.get(pod.pod_product_id);
       const perMachineAvg = productPerMachineAvg.get(pod.pod_product_id) ?? 0;
+      const perSlotAvg = productPerSlotAvg.get(pod.pod_product_id) ?? 0;
       const rawScore = productGlobalRawScore.get(pod.pod_product_id) ?? 0;
       const rank = productGlobalRank.get(pod.pod_product_id) ?? null;
       const totalV30 = agg ? r2(agg.total_v30) : 0;
+      const slotCount = agg ? agg.slot_count : 0;
       const machineCount = agg ? agg.machine_set.size : 0;
       const rampingCount = agg ? agg.ramping_machine_set.size : 0;
       // Phase B.8: global trend uses fleet-wide product velocity (not avg of
@@ -949,6 +965,8 @@ Deno.serve(async (_req) => {
         score_raw: r2(rawScore),
         global_rank: rank,
         per_machine_avg_v30: r2(perMachineAvg),
+        per_slot_avg_v30: r2(perSlotAvg),
+        slot_count: slotCount,
         ramping_machine_count: rampingCount,
         trend_component: globalTrend,
         machine_count: machineCount,
