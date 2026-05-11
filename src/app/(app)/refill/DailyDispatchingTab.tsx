@@ -560,9 +560,17 @@ export function DailyDispatchingTab({
             ) : (
               machines.map((m) => {
                 const isExpanded = expandedMachines.has(m.machine_id);
+                // 3-stage progress: pack + pickup + dispatch each contribute 1/3
+                // of the bar. e.g. all packed + all picked up + none dispatched = ~66%.
                 const dispatchPct =
                   m.total > 0
-                    ? Math.round((m.dispatched_count / m.total) * 100)
+                    ? Math.round(
+                        ((m.packed_count +
+                          m.picked_up_count +
+                          m.dispatched_count) /
+                          (m.total * 3)) *
+                          100,
+                      )
                     : 0;
                 const allDone = m.dispatched_count === m.total;
 
