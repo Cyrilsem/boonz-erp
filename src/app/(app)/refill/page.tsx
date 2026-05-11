@@ -580,6 +580,16 @@ export default function RefillPage() {
     return counts;
   }, [machineHealth]);
 
+  // Normalize a shelf/slot code so single-digit numbers are zero-padded:
+  // "A1" → "A01", "B7" → "B07", "A12" → "A12" (untouched). This is for display
+  // and stable lexicographic sort (A01, A02, ... A09, A10, A11 in order).
+  const normalizeSlot = (raw: string | null | undefined): string => {
+    if (!raw) return "—";
+    const m = raw.match(/^([A-Za-z]+)(\d+)$/);
+    if (!m) return raw;
+    return `${m[1]}${m[2].padStart(2, "0")}`;
+  };
+
   const sortedSlots = useMemo(() => {
     const sorted = [...machineSlots];
     switch (modalSort) {
@@ -597,6 +607,10 @@ export default function RefillPage() {
         });
         break;
       default:
+        // Default = sort by Slot (A01, A02, ... A10, A11, B01, ...)
+        sorted.sort((a, b) =>
+          normalizeSlot(a.slot).localeCompare(normalizeSlot(b.slot)),
+        );
         break;
     }
     return sorted;
@@ -1824,7 +1838,7 @@ export default function RefillPage() {
                                 }`}
                               >
                                 <td className="py-1.5 pr-2 font-mono text-xs text-gray-600">
-                                  {s.slot}
+                                  {normalizeSlot(s.slot)}
                                 </td>
                                 {/* Product */}
                                 <td className="py-1.5 px-2 text-xs max-w-[160px]">
