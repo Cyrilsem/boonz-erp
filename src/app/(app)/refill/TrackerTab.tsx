@@ -23,6 +23,28 @@ type ActionItem = {
 
 type FilterType = "all" | "bug" | "driver_feedback" | "intent" | "decommission" | "task" | "other";
 type FilterStatus = "all" | "open" | "in_progress" | "done" | "dismissed";
+type Category = "tech" | "refill" | "products" | "others";
+
+const CATEGORIES: { key: Category; label: string; icon: string; types: string[] }[] = [
+  { key: "tech", label: "Tech", icon: "🛠", types: ["bug"] },
+  { key: "refill", label: "Refill", icon: "🚚", types: ["driver_feedback", "task"] },
+  { key: "products", label: "Products", icon: "📦", types: ["decommission", "intent"] },
+  { key: "others", label: "Others", icon: "📋", types: ["other"] },
+];
+
+const CATEGORY_COLORS: Record<Category, { bg: string; border: string; header: string }> = {
+  tech: { bg: "#fef2f2", border: "#fecaca", header: "#991b1b" },
+  refill: { bg: "#eff6ff", border: "#bfdbfe", header: "#1e40af" },
+  products: { bg: "#fff7ed", border: "#fed7aa", header: "#9a3412" },
+  others: { bg: "#f9fafb", border: "#e5e7eb", header: "#6b7280" },
+};
+
+function getCategory(type: string): Category {
+  for (const cat of CATEGORIES) {
+    if (cat.types.includes(type)) return cat.key;
+  }
+  return "others";
+}
 
 const TYPE_LABELS: Record<string, string> = {
   bug: "Bug",
@@ -66,7 +88,7 @@ export function TrackerTab() {
 
   const [items, setItems] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState<FilterType>("all");
+  const [filterCategory, setFilterCategory] = useState<"all" | Category>("all");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("open");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -87,13 +109,16 @@ export function TrackerTab() {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (filterType !== "all") query = query.eq("type", filterType);
+    if (filterCategory !== "all") {
+      const cat = CATEGORIES.find((c) => c.key === filterCategory);
+      if (cat) query = query.in("type", cat.types);
+    }
     if (filterStatus !== "all") query = query.eq("status", filterStatus);
 
     const { data, error } = await query;
     if (!error && data) setItems(data as ActionItem[]);
     setLoading(false);
-  }, [filterType, filterStatus]);
+  }, [filterCategory, filterStatus]);
 
   useEffect(() => {
     fetchItems();
@@ -271,13 +296,18 @@ export function TrackerTab() {
         }}
       >
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {(["all", "bug", "driver_feedback", "decommission", "intent", "task"] as FilterType[]).map(
-            (t) => (
-              <button key={t} onClick={() => setFilterType(t)} style={btnStyle(filterType === t)}>
-                {t === "all" ? "All types" : TYPE_LABELS[t] || t}
-              </button>
-            )
-          )}
+          <button onClick={() => setFilterCategory("all")} style={btnStyle(filterCategory === "all")}>All</button>
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.key}
+              onClick={() => setFilterCategory(cat.key)}
+              style={filterCategory === cat.key
+                ? { ...btnStyle(false), background: CATEGORY_COLORS[cat.key].bg, color: CATEGORY_COLORS[cat.key].header, borderColor: CATEGORY_COLORS[cat.key].border, fontWeight: 700 }
+                : btnStyle(false)}
+            >
+              {cat.icon} {cat.label}
+            </button>
+          ))}
         </div>
         <div style={{ display: "flex", gap: 6 }}>
           {(["all", "open", "in_progress", "done", "dismissed"] as FilterStatus[]).map(
@@ -391,68 +421,99 @@ export function TrackerTab() {
         </div>
       )}
 
-      {/* ── Items list ─────────────────────────────────────────────────── */}
+      {/* ── Items list — grouped by category ────────────────────────── */}
       {loading ? (
         <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>Loading...</div>
       ) : items.length === 0 ? (
         <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>No action items match filters</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {items.map((item) => (
-            <div
-              key={item.action_id}
-              style={{
-                background: "#fff",
-                border: "1px solid #e8e4de",
-                borderRadius: 8,
-                padding: "14px 18px",
-                borderLeft: `4px solid ${PRIORITY_COLORS[item.priority]?.text || "#6b6860"}`,
-              }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  {badge(TYPE_COLORS[item.type] || TYPE_COLORS.other, TYPE_LABELS[item.type] || item.type)}
-                  {badge(PRIORITY_COLORS[item.priority] || PRIORITY_COLORS.medium, item.priority)}
-                  {badge(STATUS_COLORS[item.status] || STATUS_COLORS.open, item.status.replace("_", " "))}
-                  {item.machine_name && (
-                    <span style={{ fontSize: 11, color: "#6b6860", fontFamily: "monospace" }}>{item.machine_name}</span>
-                  )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {CATEGORIES.map((cat) => {
+            const catItems = items.filter((i) => getCategory(i.type) === cat.key);
+            if (catItems.length === 0) return null;
+            const colors = CATEGORY_COLORS[cat.key];
+            return (
+              <div key={cat.key}>
+                {/* ── Category header ── */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 10,
+                    paddingBottom: 8,
+                    borderBottom: `2px solid ${colors.border}`,
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>{cat.icon}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.header, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                    {cat.label}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: colors.header, background: colors.bg, padding: "2px 8px", borderRadius: 10 }}>
+                    {catItems.length}
+                  </span>
                 </div>
-                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                  {item.status === "open" && (
-                    <button onClick={() => updateStatus(item.action_id, "in_progress")} style={{ fontSize: 11, padding: "3px 8px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
-                      Start
-                    </button>
-                  )}
-                  {(item.status === "open" || item.status === "in_progress") && (
-                    <button onClick={() => updateStatus(item.action_id, "done")} style={{ fontSize: 11, padding: "3px 8px", background: "#d1fae5", color: "#065f46", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
-                      Done
-                    </button>
-                  )}
-                  <button onClick={() => startEdit(item)} style={{ fontSize: 11, padding: "3px 8px", background: "#f5f3ee", color: "#6b6860", border: "none", borderRadius: 4, cursor: "pointer" }}>
-                    Edit
-                  </button>
-                  <button onClick={() => updateStatus(item.action_id, "dismissed")} style={{ fontSize: 11, padding: "3px 8px", background: "#f3f4f6", color: "#9ca3af", border: "none", borderRadius: 4, cursor: "pointer" }}>
-                    Dismiss
-                  </button>
+                {/* ── Category items ── */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {catItems.map((item) => (
+                    <div
+                      key={item.action_id}
+                      style={{
+                        background: "#fff",
+                        border: "1px solid #e8e4de",
+                        borderRadius: 8,
+                        padding: "14px 18px",
+                        borderLeft: `4px solid ${PRIORITY_COLORS[item.priority]?.text || "#6b6860"}`,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          {badge(TYPE_COLORS[item.type] || TYPE_COLORS.other, TYPE_LABELS[item.type] || item.type)}
+                          {badge(PRIORITY_COLORS[item.priority] || PRIORITY_COLORS.medium, item.priority)}
+                          {badge(STATUS_COLORS[item.status] || STATUS_COLORS.open, item.status.replace("_", " "))}
+                          {item.machine_name && (
+                            <span style={{ fontSize: 11, color: "#6b6860", fontFamily: "monospace" }}>{item.machine_name}</span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                          {item.status === "open" && (
+                            <button onClick={() => updateStatus(item.action_id, "in_progress")} style={{ fontSize: 11, padding: "3px 8px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
+                              Start
+                            </button>
+                          )}
+                          {(item.status === "open" || item.status === "in_progress") && (
+                            <button onClick={() => updateStatus(item.action_id, "done")} style={{ fontSize: 11, padding: "3px 8px", background: "#d1fae5", color: "#065f46", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
+                              Done
+                            </button>
+                          )}
+                          <button onClick={() => startEdit(item)} style={{ fontSize: 11, padding: "3px 8px", background: "#f5f3ee", color: "#6b6860", border: "none", borderRadius: 4, cursor: "pointer" }}>
+                            Edit
+                          </button>
+                          <button onClick={() => updateStatus(item.action_id, "dismissed")} style={{ fontSize: 11, padding: "3px 8px", background: "#f3f4f6", color: "#9ca3af", border: "none", borderRadius: 4, cursor: "pointer" }}>
+                            Dismiss
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#0a0a0a", marginBottom: 4 }}>
+                        {item.title}
+                      </div>
+                      {item.description && (
+                        <div style={{ fontSize: 12, color: "#6b6860", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                          {item.description}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
+                        <span>Created {new Date(item.created_at).toLocaleDateString()}</span>
+                        {item.assignee && <span>Assignee: {item.assignee}</span>}
+                        {item.due_date && <span>Due: {item.due_date}</span>}
+                        {item.source && <span>Source: {item.source}</span>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: "#0a0a0a", marginBottom: 4 }}>
-                {item.title}
-              </div>
-              {item.description && (
-                <div style={{ fontSize: 12, color: "#6b6860", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                  {item.description}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
-                <span>Created {new Date(item.created_at).toLocaleDateString()}</span>
-                {item.assignee && <span>Assignee: {item.assignee}</span>}
-                {item.due_date && <span>Due: {item.due_date}</span>}
-                {item.source && <span>Source: {item.source}</span>}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

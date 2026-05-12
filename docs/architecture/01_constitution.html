@@ -297,11 +297,13 @@
     <li><code>slots</code> · <code>slot_lifecycle</code></li>
     <li><code>pod_inventory</code> · <code>warehouse_inventory</code></li>
     <li><code>sales</code> and all <code>sales_*</code> · <code>settlements</code> · <code>partner_payouts</code></li>
-    <li><code>refill_plan_output</code> · <code>refill_instructions</code> (until retired) · <code>rotation_proposals</code></li>
+    <li><code>refill_plan_output</code> · <code>refill_instructions</code> (until retired) · <code>rotation_proposals</code> · <code>daily_plan_drafts</code> · <code>strategic_intents</code></li>
     <li><code>venue_groups</code> · <code>venues</code> · <code>warehouses</code></li>
   </ul>
   <p style="font-size:0.9em;color:#666;margin-top:8px"><em>Amendment 003 (2026-05-05):</em> <code>rotation_proposals</code> added under Article 15. Engine 2 (Rotation Planner) write surface — append-only via DEFINER RPCs, FORCE RLS, status FSM. See migration <code>phaseB_rotation_proposals_table</code>.</p>
   <p style="font-size:0.9em;color:#666"><em>Amendment 004 (2026-05-05):</em> <code>machine_terminal_history</code> formally added under Article 15. A.4 migration created the table with the protected posture; this entry codifies it in the appendix.</p>
+  <p style="font-size:0.9em;color:#666"><em>Amendment 005 (2026-05-06):</em> <code>daily_plan_drafts</code> added under Article 15. Shared draft surface where ENGINE ADD, ENGINE SWAP, and ENGINE EXPIRY_OPT_PUSH write; ENGINE FINALIZE consumes and writes the canonical <code>refill_plan_output</code>. FORCE RLS, append-only, audit-trigger, schema-level engine orthogonality (<code>dpd_engine_action_match</code> CHECK). See migration <code>phaseC2_daily_plan_drafts</code>.</p>
+  <p style="font-size:0.9em;color:#666"><em>Amendment 006 (2026-05-06):</em> <code>strategic_intents</code> added under Article 15. Strategic todo queue — multi-cycle action plans written by PRODUCT OPT / EXPIRY OPT / MACHINE OPT / OPERATOR. ADD and SWAP read this queue and decide which intents to advance each cycle. Status FSM (queued / in_progress / completed / abandoned / expired / blocked). Progress reflects ONLY what was approved + applied (not what was drafted), updated by <code>reconcile_intent_progress</code> as sole writer. FORCE RLS, append-only. See migration <code>phaseD0_strategic_intents</code>.</p>
 
   <h3>Append-only logs (INSERT-only RLS)</h3>
   <ul>
