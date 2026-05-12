@@ -7,6 +7,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { getDubaiDate } from "@/lib/utils/date";
 import { DailyDispatchingTab } from "./DailyDispatchingTab";
 import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
+import { TrackerTab } from "./TrackerTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -220,7 +221,7 @@ const tierColors: Record<string, { card: string; bar: string }> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RefillPage() {
-  const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching">("snapshot");
+  const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching" | "tracker">("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
   // ── Hoisted refill planning state (persists across tab switches) ──────────────
@@ -847,6 +848,7 @@ export default function RefillPage() {
             ["snapshot", "Stock Snapshot"],
             ["planning", "Refill Planning"],
             ["dispatching", "Refill Dispatch"],
+            ["tracker", "Tracker"],
           ] as const
         ).map(([t, label]) => (
           <button
@@ -892,6 +894,9 @@ export default function RefillPage() {
           setGenerated={setGenerated}
         />
       )}
+
+      {/* ── Tracker tab — Layer A action items ─────────────────────────────── */}
+      {tab === "tracker" && <TrackerTab />}
 
       {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
       <div style={{ display: tab === "snapshot" ? undefined : "none" }}>
