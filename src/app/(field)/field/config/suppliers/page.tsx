@@ -9,18 +9,21 @@ import { FieldHeader } from "@/app/(field)/components/field-header";
 
 const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
 
-type FilterTab = "all" | "active" | "inactive" | "suspended";
+type FilterTab = "all" | "Active" | "Inactive" | "Onboarding";
 
 interface Supplier {
-  id: string;
+  supplier_id: string;
   supplier_name: string;
   supplier_code: string | null;
+  supplier_acronym: string | null;
   status: string | null;
   contact_person: string | null;
-  email: string | null;
-  phone: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
   address: string | null;
   country: string | null;
+  category: string | null;
+  products_supplied: string | null;
   payment_terms: string | null;
   payment_type: string | null;
   currency: string | null;
@@ -30,20 +33,24 @@ interface Supplier {
   contract_start_date: string | null;
   contract_end_date: string | null;
   notes: string | null;
+  procurement_type: string;
   updated_at: string | null;
 }
 
-type SupplierDraft = Omit<Supplier, "id">;
+type SupplierDraft = Omit<Supplier, "supplier_id">;
 
 const EMPTY_DRAFT: SupplierDraft = {
   supplier_name: "",
   supplier_code: "",
-  status: "active",
+  supplier_acronym: "",
+  status: "Active",
   contact_person: "",
-  email: "",
-  phone: "",
+  contact_email: "",
+  contact_phone: "",
   address: "",
-  country: "",
+  country: "UAE",
+  category: "",
+  products_supplied: "",
   payment_terms: "",
   payment_type: "",
   currency: "AED",
@@ -53,11 +60,20 @@ const EMPTY_DRAFT: SupplierDraft = {
   contract_start_date: "",
   contract_end_date: "",
   notes: "",
+  procurement_type: "supplier_delivered",
   updated_at: null,
 };
 
-function generateCode(n: number) {
-  return `SUP_0${String(n + 1).padStart(2, "0")}`;
+function generateCode(existing: Supplier[]): string {
+  const used = new Set(
+    existing
+      .map((s) => s.supplier_code ?? "")
+      .filter((c) => /^SUP_\d{3}$/.test(c))
+      .map((c) => parseInt(c.slice(4), 10)),
+  );
+  let n = 1;
+  while (used.has(n)) n++;
+  return `SUP_${String(n).padStart(3, "0")}`;
 }
 
 export default function SuppliersPage() {
@@ -113,22 +129,25 @@ export default function SuppliersPage() {
   }
 
   function openRow(s: Supplier) {
-    if (expandedId === s.id) {
+    if (expandedId === s.supplier_id) {
       setExpandedId(null);
       return;
     }
-    setExpandedId(s.id);
+    setExpandedId(s.supplier_id);
     setDrafts((prev) => ({
       ...prev,
-      [s.id]: {
+      [s.supplier_id]: {
         supplier_name: s.supplier_name ?? "",
         supplier_code: s.supplier_code ?? "",
-        status: s.status ?? "active",
+        supplier_acronym: s.supplier_acronym ?? "",
+        status: s.status ?? "Active",
         contact_person: s.contact_person ?? "",
-        email: s.email ?? "",
-        phone: s.phone ?? "",
+        contact_email: s.contact_email ?? "",
+        contact_phone: s.contact_phone ?? "",
         address: s.address ?? "",
-        country: s.country ?? "",
+        country: s.country ?? "UAE",
+        category: s.category ?? "",
+        products_supplied: s.products_supplied ?? "",
         payment_terms: s.payment_terms ?? "",
         payment_type: s.payment_type ?? "",
         currency: s.currency ?? "AED",
@@ -138,6 +157,7 @@ export default function SuppliersPage() {
         contract_start_date: s.contract_start_date ?? "",
         contract_end_date: s.contract_end_date ?? "",
         notes: s.notes ?? "",
+        procurement_type: s.procurement_type ?? "supplier_delivered",
         updated_at: null,
       },
     }));
@@ -161,14 +181,14 @@ export default function SuppliersPage() {
     const { error } = await supabase
       .from("suppliers")
       .update(payload)
-      .eq("id", id);
+      .eq("supplier_id", id);
     setSaving((prev) => ({ ...prev, [id]: false }));
     if (error) {
       setSaveMsg((prev) => ({ ...prev, [id]: `Error: ${error.message}` }));
     } else {
       setSaveMsg((prev) => ({ ...prev, [id]: "Saved ✓" }));
       setSuppliers((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, ...payload } : s)),
+        prev.map((s) => (s.supplier_id === id ? { ...s, ...payload } : s)),
       );
       setTimeout(() => setSaveMsg((prev) => ({ ...prev, [id]: "" })), 2000);
     }
@@ -183,7 +203,7 @@ export default function SuppliersPage() {
     setAddError("");
     const supabase = createClient();
     const code =
-      newDraft.supplier_code?.trim() || generateCode(suppliers.length);
+      newDraft.supplier_code?.trim() || generateCode(suppliers);
     const payload = {
       ...newDraft,
       supplier_code: code,
@@ -203,18 +223,19 @@ export default function SuppliersPage() {
 
   const filtered = suppliers.filter((s) => {
     if (filter === "all") return true;
-    return (s.status ?? "active") === filter;
+    return (s.status ?? "Active") === filter;
   });
 
   const STATUS_COLORS: Record<string, string> = {
-    active:
+    Active:
       "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    inactive:
+    Inactive:
       "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
-    suspended: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+    Onboarding:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   };
 
-  const FILTER_TABS: FilterTab[] = ["all", "active", "inactive", "suspended"];
+  const FILTER_TABS: FilterTab[] = ["all", "Active", "Inactive", "Onboarding"];
 
   function FieldGroup({
     label,
@@ -281,12 +302,30 @@ export default function SuppliersPage() {
           <Field label="Status">
             <select
               className={inputCls}
-              value={draft.status ?? "active"}
+              value={draft.status ?? "Active"}
               onChange={(e) => onChange({ status: e.target.value })}
             >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+              <option value="Onboarding">Onboarding</option>
+              <option value="Suspended">Suspended</option>
+            </select>
+          </Field>
+          <Field label="Acronym">
+            <input
+              className={inputCls}
+              value={draft.supplier_acronym ?? ""}
+              onChange={(e) => onChange({ supplier_acronym: e.target.value })}
+            />
+          </Field>
+          <Field label="Procurement Type">
+            <select
+              className={inputCls}
+              value={draft.procurement_type ?? "supplier_delivered"}
+              onChange={(e) => onChange({ procurement_type: e.target.value })}
+            >
+              <option value="supplier_delivered">Supplier delivered</option>
+              <option value="walk_in">Walk-in</option>
             </select>
           </Field>
         </FieldGroup>
@@ -303,16 +342,16 @@ export default function SuppliersPage() {
             <input
               className={inputCls}
               type="email"
-              value={draft.email ?? ""}
-              onChange={(e) => onChange({ email: e.target.value })}
+              value={draft.contact_email ?? ""}
+              onChange={(e) => onChange({ contact_email: e.target.value })}
             />
           </Field>
           <Field label="Phone">
             <input
               className={inputCls}
               type="tel"
-              value={draft.phone ?? ""}
-              onChange={(e) => onChange({ phone: e.target.value })}
+              value={draft.contact_phone ?? ""}
+              onChange={(e) => onChange({ contact_phone: e.target.value })}
             />
           </Field>
           <Field label="Address">
@@ -328,6 +367,24 @@ export default function SuppliersPage() {
               className={inputCls}
               value={draft.country ?? ""}
               onChange={(e) => onChange({ country: e.target.value })}
+            />
+          </Field>
+        </FieldGroup>
+
+        <FieldGroup label="Catalog">
+          <Field label="Category">
+            <input
+              className={inputCls}
+              value={draft.category ?? ""}
+              onChange={(e) => onChange({ category: e.target.value })}
+            />
+          </Field>
+          <Field label="Products Supplied">
+            <textarea
+              className={inputCls}
+              rows={2}
+              value={draft.products_supplied ?? ""}
+              onChange={(e) => onChange({ products_supplied: e.target.value })}
             />
           </Field>
         </FieldGroup>
@@ -488,14 +545,15 @@ export default function SuppliersPage() {
         )}
 
         {filtered.map((s) => {
-          const isOpen = expandedId === s.id;
-          const draft = drafts[s.id];
+          const isOpen = expandedId === s.supplier_id;
+          const draft = drafts[s.supplier_id];
+          const statusKey = s.status ?? "Active";
           const statusColor =
-            STATUS_COLORS[s.status ?? "active"] ?? STATUS_COLORS.active;
+            STATUS_COLORS[statusKey] ?? STATUS_COLORS.Active;
 
           return (
             <div
-              key={s.id}
+              key={s.supplier_id}
               className="overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
             >
               {/* Row header */}
@@ -513,7 +571,7 @@ export default function SuppliersPage() {
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusColor}`}
                   >
-                    {s.status ?? "active"}
+                    {s.status ?? "Active"}
                   </span>
                   <span className="text-neutral-400">{isOpen ? "▲" : "▼"}</span>
                 </div>
@@ -524,23 +582,23 @@ export default function SuppliersPage() {
                 <div className="border-t border-neutral-100 px-4 pb-4 pt-2 dark:border-neutral-800">
                   <SupplierForm
                     draft={draft}
-                    onChange={(patch) => patchDraft(s.id, patch)}
+                    onChange={(patch) => patchDraft(s.supplier_id, patch)}
                   />
 
-                  {saveMsg[s.id] && (
+                  {saveMsg[s.supplier_id] && (
                     <p
-                      className={`mt-3 text-sm ${saveMsg[s.id].startsWith("Error") ? "text-red-500" : "text-green-600"}`}
+                      className={`mt-3 text-sm ${saveMsg[s.supplier_id].startsWith("Error") ? "text-red-500" : "text-green-600"}`}
                     >
-                      {saveMsg[s.id]}
+                      {saveMsg[s.supplier_id]}
                     </p>
                   )}
 
                   <button
-                    disabled={saving[s.id]}
-                    onClick={() => save(s.id)}
+                    disabled={saving[s.supplier_id]}
+                    onClick={() => save(s.supplier_id)}
                     className="mt-3 w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                   >
-                    {saving[s.id] ? "Saving…" : "Save Changes"}
+                    {saving[s.supplier_id] ? "Saving…" : "Save Changes"}
                   </button>
                 </div>
               )}
