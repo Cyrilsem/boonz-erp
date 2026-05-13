@@ -107,6 +107,9 @@ export function TrackerTab() {
     let query = supabase
       .from("action_tracker")
       .select("*")
+      // Cache-bust: append a no-op filter that changes every call.
+      // PostgREST treats this as a different URL so the browser HTTP cache misses.
+      .gte("created_at", "1970-01-01")
       .order("created_at", { ascending: false });
 
     if (filterCategory !== "all") {
@@ -120,9 +123,39 @@ export function TrackerTab() {
     setLoading(false);
   }, [filterCategory, filterStatus]);
 
+  // Fetch on mount + on filter change
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
+
+  // BUG-011: re-fetch when window regains focus so users always see fresh data
+  // when they switch back from another tab / app
+  useEffect(() => {
+    const onFocus = () => fetchItems();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [fetchItems]);
+
+  // BUG-011: Supabase realtime — refetch whenever a row changes
+  useEffect(() => {
+    const channel = supabase
+      .channel("action_tracker_changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "action_tracker" },
+        () => {
+          fetchItems();
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchItems, supabase]);
 
   const updateStatus = async (id: string, newStatus: string) => {
     const updates: Record<string, unknown> = {
@@ -320,7 +353,7 @@ export function TrackerTab() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16, display: "flex", gap: 8, alignItems: "center" }}>
         <button
           onClick={() => {
             setEditingId(null);
@@ -345,6 +378,24 @@ export function TrackerTab() {
           }}
         >
           {showForm ? "Cancel" : "+ Add action item"}
+        </button>
+        {/* BUG-011: manual refresh */}
+        <button
+          onClick={() => fetchItems()}
+          disabled={loading}
+          title="Force-refresh from database"
+          style={{
+            padding: "8px 16px",
+            fontSize: 13,
+            fontWeight: 500,
+            background: "#fff",
+            color: "#6b6860",
+            border: "1px solid #e8e4de",
+            borderRadius: 6,
+            cursor: loading ? "wait" : "pointer",
+          }}
+        >
+          ↻ Refresh
         </button>
       </div>
 

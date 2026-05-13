@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import PendingProposalsPanel from "@/components/inventory/PendingProposalsPanel";
+import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -386,6 +387,8 @@ export default function InventoryPage() {
 
   return (
     <div className="p-8 max-w-7xl" style={{ fontFamily: font }}>
+      {/* BUG-010: Returns awaiting WH approval (driver confirmed via driver_confirm_remove) */}
+      <PendingRemoveApprovalsPanel />
       {/* Pending status proposals — Issue #2 */}
       <PendingProposalsPanel />
       {/* Header */}

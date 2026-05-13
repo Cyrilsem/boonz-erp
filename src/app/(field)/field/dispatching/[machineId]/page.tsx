@@ -25,8 +25,13 @@ interface DispatchPhoto {
 /** Driver outcome recorded for a dispatch line (UI-only, not stored as-is in DB) */
 type LineAction = "added" | "returned" | null;
 
+/** Planned action from refill_dispatching.action — drives label + RPC routing */
+type DispatchAction = "Refill" | "Add New" | "Remove";
+
 interface DispatchLine {
   dispatch_id: string;
+  /** Planned action (Refill/Add New/Remove) — determines UI labels + which RPC to call */
+  dispatch_action: DispatchAction;
   boonz_product_id: string | null;
   shelf_id: string | null;
   shelf_code: string | null;
@@ -46,6 +51,8 @@ interface DispatchLine {
   from_warehouse_name: string | null;
   comment: string;
   action: LineAction;
+  /** Driver-side confirmation flag for Remove (BUG-010) */
+  driver_confirmed: boolean;
 }
 
 const RETURN_REASONS = [
@@ -85,6 +92,18 @@ export default function DispatchingDetailPage() {
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [returnNotice, setReturnNotice] = useState<string | null>(null);
 
+  // BUG-010 #3: Driver can add extra Remove rows when planned line collapses
+  // multi-variant returns (e.g. YoPro Vanilla 6u plan but actual is 2 Van + 2 Choco + 2 Straw).
+  const [extraReturnOpen, setExtraReturnOpen] = useState(false);
+  const [extraReturnShelf, setExtraReturnShelf] = useState<string | null>(null);
+  const [extraReturnSearch, setExtraReturnSearch] = useState("");
+  const [extraReturnQty, setExtraReturnQty] = useState(1);
+  const [extraReturnAdding, setExtraReturnAdding] = useState(false);
+  const [productOptions, setProductOptions] = useState<
+    Array<{ product_id: string; boonz_product_name: string }>
+  >([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
+
   // Photos
   const [beforePhoto, setBeforePhoto] = useState<DispatchPhoto | null>(null);
   const [afterPhoto, setAfterPhoto] = useState<DispatchPhoto | null>(null);
@@ -120,6 +139,7 @@ export default function DispatchingDetailPage() {
       .select(
         `
         dispatch_id,
+        action,
         boonz_product_id,
         shelf_id,
         quantity,
@@ -130,6 +150,8 @@ export default function DispatchingDetailPage() {
         expiry_date,
         expiry_warning,
         from_warehouse_id,
+        driver_confirmed_at,
+        driver_confirmed_qty,
         comment,
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
@@ -150,22 +172,30 @@ export default function DispatchingDetailPage() {
         } | null;
         const isDispatched = !!line.dispatched;
         const isReturned = !!(line.returned as boolean | null);
+        const driverConfirmed = !!(line as Record<string, unknown>).driver_confirmed_at;
         let action: LineAction = null;
         if (isDispatched) action = "added";
         if (isReturned) action = "returned";
+        if (driverConfirmed && !isReturned) action = "added"; // REMOVE: driver confirmed removal
         const whId =
           ((line as Record<string, unknown>).from_warehouse_id as
             | string
             | null) ?? null;
+        // BUG-010 fix #2: auto-populate filled_qty with planned quantity on load
+        // so driver only has to edit if reality differs.
+        const planned = line.quantity ?? 0;
+        const driverQty = ((line as Record<string, unknown>).driver_confirmed_qty as number | null) ?? null;
+        const filledQtyDefault = driverQty ?? (line.filled_quantity != null && line.filled_quantity > 0 ? line.filled_quantity : planned);
         return {
           dispatch_id: line.dispatch_id,
+          dispatch_action: ((line.action as string) ?? "Refill") as DispatchAction,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
           shelf_id: (line.shelf_id as string | null) ?? null,
           shelf_code: shelf?.shelf_code ?? null,
           pod_product_name: product?.pod_product_name ?? null,
           boonz_product_name: null,
-          quantity: line.quantity ?? 0,
-          filled_qty: line.filled_quantity ?? line.quantity ?? 0,
+          quantity: planned,
+          filled_qty: filledQtyDefault,
           dispatched: isDispatched,
           returned: isReturned,
           return_reason: (line.return_reason as string | null) ?? "",
@@ -177,6 +207,7 @@ export default function DispatchingDetailPage() {
           from_warehouse_name: whId ? (whNameMap.get(whId) ?? null) : null,
           comment: (line.comment as string | null) ?? "",
           action,
+          driver_confirmed: driverConfirmed,
         };
       });
       // Resolve boonz_product_name for each line so the driver sees the
@@ -354,6 +385,66 @@ export default function DispatchingDetailPage() {
     );
   }
 
+  // BUG-010 #3: search boonz_products for the Add Return Row modal
+  const searchBoonzProducts = useCallback(async (q: string) => {
+    if (q.length < 2) {
+      setProductOptions([]);
+      return;
+    }
+    setProductSearchLoading(true);
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("boonz_products")
+      .select("product_id, boonz_product_name")
+      .ilike("boonz_product_name", `%${q}%`)
+      .limit(20);
+    setProductOptions(
+      (data ?? []) as Array<{ product_id: string; boonz_product_name: string }>,
+    );
+    setProductSearchLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => searchBoonzProducts(extraReturnSearch), 200);
+    return () => clearTimeout(timer);
+  }, [extraReturnSearch, searchBoonzProducts]);
+
+  // Insert a sibling Remove row for the multi-variant split case
+  async function handleAddExtraReturn(productId: string, productName: string) {
+    if (!extraReturnShelf || extraReturnQty <= 0) return;
+    setExtraReturnAdding(true);
+    const supabase = createClient();
+    const today = getDubaiDate();
+    const shelfLine = lines.find((l) => l.shelf_code === extraReturnShelf);
+    const { error } = await supabase.from("refill_dispatching").insert({
+      machine_id: machineId,
+      shelf_id: shelfLine?.shelf_id ?? null,
+      pod_product_id: null,
+      boonz_product_id: productId,
+      dispatch_date: today,
+      action: "Remove",
+      quantity: extraReturnQty,
+      filled_quantity: 0,
+      include: true,
+      packed: true,
+      picked_up: true,
+      dispatched: false,
+      returned: false,
+      item_added: false,
+      comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${productName}`,
+    });
+    if (error) {
+      alert(`Could not add return row: ${error.message}`);
+    } else {
+      setExtraReturnOpen(false);
+      setExtraReturnSearch("");
+      setExtraReturnQty(1);
+      setExtraReturnShelf(null);
+      await fetchData();
+    }
+    setExtraReturnAdding(false);
+  }
+
   function handleMarkAllAdded() {
     setLines((prev) =>
       prev.map((l) => ({
@@ -385,14 +476,28 @@ export default function DispatchingDetailPage() {
 
     for (const line of lines) {
       if (line.action === "added") {
-        // B2: receive_dispatch_line RPC handles pod_inventory INSERT and
-        // returns any unfilled units back to warehouse_inventory in one txn.
+        // BUG-010 routing: For REMOVE actions, "added" semantically means
+        // "driver successfully removed from machine". Route to driver_confirm_remove
+        // which stamps driver_confirmed_qty WITHOUT yet crediting warehouse_stock
+        // or archiving pod_inventory. WH manager approves later in Inventory tab.
+        const isRemove = line.dispatch_action === "Remove";
+        const rpcName = isRemove ? "driver_confirm_remove" : "receive_dispatch_line";
+        const rpcArgs = isRemove
+          ? {
+              p_dispatch_id: line.dispatch_id,
+              p_qty_removed: line.filled_qty,
+              p_batch_breakdown: null,
+              p_driver_id: null,
+              p_notes: line.comment.trim() || null,
+            }
+          : {
+              p_dispatch_id: line.dispatch_id,
+              p_filled_quantity: line.filled_qty,
+            };
+
         const { data: rpcData, error: rpcErr } = await supabase.rpc(
-          "receive_dispatch_line",
-          {
-            p_dispatch_id: line.dispatch_id,
-            p_filled_quantity: line.filled_qty,
-          },
+          rpcName,
+          rpcArgs,
         );
 
         if (rpcErr) {
@@ -546,9 +651,16 @@ export default function DispatchingDetailPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-medium">
-                      ×{line.filled_qty || line.quantity}
-                    </span>
+                    {/* BUG-010 #5: show -N for Remove rows (retraction), ×N otherwise */}
+                    {line.dispatch_action === "Remove" ? (
+                      <span className="text-sm font-medium text-rose-700 dark:text-rose-400">
+                        −{line.filled_qty || line.quantity}
+                      </span>
+                    ) : (
+                      <span className="text-sm font-medium">
+                        ×{line.filled_qty || line.quantity}
+                      </span>
+                    )}
                     {line.expiry_date && (
                       <span className="text-xs text-neutral-400">
                         {formatDMY(line.expiry_date)}
@@ -794,7 +906,24 @@ export default function DispatchingDetailPage() {
                     />
                   </div>
 
-                  {/* Action toggle */}
+                  {/* Action badge — show planned action type so driver knows what's expected */}
+                  <div className="mb-2 flex items-center gap-2 text-xs">
+                    {line.dispatch_action === "Remove" ? (
+                      <span className="rounded bg-rose-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                        REMOVE
+                      </span>
+                    ) : line.dispatch_action === "Add New" ? (
+                      <span className="rounded bg-purple-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
+                        ADD NEW
+                      </span>
+                    ) : (
+                      <span className="rounded bg-sky-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
+                        REFILL
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Action toggle — labels depend on the planned action */}
                   {!isReadOnly && (
                     <div className="mb-2 flex gap-2">
                       <button
@@ -805,7 +934,9 @@ export default function DispatchingDetailPage() {
                             : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
                         }`}
                       >
-                        ✓ Added to machine
+                        {line.dispatch_action === "Remove"
+                          ? "✓ Removed from machine"
+                          : "✓ Added to machine"}
                       </button>
                       <button
                         onClick={() =>
@@ -817,7 +948,9 @@ export default function DispatchingDetailPage() {
                             : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
                         }`}
                       >
-                        ↩ Returned
+                        {line.dispatch_action === "Remove"
+                          ? "↩ Could not remove"
+                          : "↩ Returned"}
                       </button>
                     </div>
                   )}
@@ -869,8 +1002,89 @@ export default function DispatchingDetailPage() {
               );
             })}
           </ul>
+          {/* BUG-010 #3: split a planned return into multiple sibling variants */}
+          {!isReadOnly && (
+            <button
+              onClick={() => {
+                setExtraReturnShelf(shelfCode);
+                setExtraReturnOpen(true);
+                setExtraReturnSearch("");
+                setExtraReturnQty(1);
+              }}
+              className="mt-2 w-full rounded-lg border border-dashed border-rose-300 py-2 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
+            >
+              + Add another return on shelf {shelfCode} (different variant)
+            </button>
+          )}
         </div>
       ))}
+
+      {/* BUG-010 #3: Add-extra-return modal */}
+      {extraReturnOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
+          <div className="w-full max-w-md rounded-t-2xl bg-white p-4 dark:bg-neutral-900 sm:rounded-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-bold">
+                Add return — shelf {extraReturnShelf}
+              </h2>
+              <button
+                onClick={() => setExtraReturnOpen(false)}
+                className="rounded p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-neutral-500">
+              Use this when the planned return collapses multiple variants
+              (e.g. plan said 6 YoPro Vanilla but you have 2 Van + 2 Choco + 2 Straw).
+            </p>
+            <input
+              type="text"
+              value={extraReturnSearch}
+              onChange={(e) => setExtraReturnSearch(e.target.value)}
+              placeholder="Search product name…"
+              autoFocus
+              className="mb-2 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
+            />
+            {productSearchLoading && (
+              <p className="mb-2 text-xs text-neutral-400">Searching…</p>
+            )}
+            {productOptions.length > 0 && (
+              <ul className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-950">
+                {productOptions.map((opt) => (
+                  <li key={opt.product_id}>
+                    <button
+                      onClick={() =>
+                        handleAddExtraReturn(opt.product_id, opt.boonz_product_name)
+                      }
+                      disabled={extraReturnAdding || extraReturnQty <= 0}
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-950/30"
+                    >
+                      {opt.boonz_product_name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <label className="mb-3 block text-xs text-neutral-500">
+              Qty to return
+              <input
+                type="number"
+                min={1}
+                value={extraReturnQty}
+                onChange={(e) =>
+                  setExtraReturnQty(parseFloat(e.target.value) || 0)
+                }
+                className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
+              />
+            </label>
+            <p className="text-xs text-neutral-400">
+              Tap a product above to add it as an extra REMOVE row on this shelf.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Bottom bar ── */}
       <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
