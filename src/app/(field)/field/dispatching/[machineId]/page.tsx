@@ -33,6 +33,8 @@ interface DispatchLine {
   /** Planned action (Refill/Add New/Remove) — determines UI labels + which RPC to call */
   dispatch_action: DispatchAction;
   boonz_product_id: string | null;
+  /** pod_product (variant family) — used to scope the "+ Add return" picker to siblings */
+  pod_product_id: string | null;
   shelf_id: string | null;
   shelf_code: string | null;
   pod_product_name: string | null;
@@ -94,11 +96,21 @@ export default function DispatchingDetailPage() {
 
   // BUG-010 #3: Driver can add extra Remove rows when planned line collapses
   // multi-variant returns (e.g. YoPro Vanilla 6u plan but actual is 2 Van + 2 Choco + 2 Straw).
+  // Modal scope = boonz_products mapped to the SAME pod_product as the source line.
   const [extraReturnOpen, setExtraReturnOpen] = useState(false);
-  const [extraReturnShelf, setExtraReturnShelf] = useState<string | null>(null);
-  const [extraReturnSearch, setExtraReturnSearch] = useState("");
+  const [extraReturnSourceLine, setExtraReturnSourceLine] = useState<{
+    dispatch_id: string;
+    shelf_id: string | null;
+    shelf_code: string | null;
+    pod_product_id: string | null;
+    pod_product_name: string | null;
+  } | null>(null);
   const [extraReturnQty, setExtraReturnQty] = useState(1);
   const [extraReturnAdding, setExtraReturnAdding] = useState(false);
+  const [extraReturnSelected, setExtraReturnSelected] = useState<{
+    product_id: string;
+    boonz_product_name: string;
+  } | null>(null);
   const [productOptions, setProductOptions] = useState<
     Array<{ product_id: string; boonz_product_name: string }>
   >([]);
@@ -141,6 +153,7 @@ export default function DispatchingDetailPage() {
         dispatch_id,
         action,
         boonz_product_id,
+        pod_product_id,
         shelf_id,
         quantity,
         filled_quantity,
@@ -190,6 +203,7 @@ export default function DispatchingDetailPage() {
           dispatch_id: line.dispatch_id,
           dispatch_action: ((line.action as string) ?? "Refill") as DispatchAction,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
+          pod_product_id: ((line as Record<string, unknown>).pod_product_id as string | null) ?? null,
           shelf_id: (line.shelf_id as string | null) ?? null,
           shelf_code: shelf?.shelf_code ?? null,
           pod_product_name: product?.pod_product_name ?? null,
@@ -385,42 +399,56 @@ export default function DispatchingDetailPage() {
     );
   }
 
-  // BUG-010 #3: search boonz_products for the Add Return Row modal
-  const searchBoonzProducts = useCallback(async (q: string) => {
-    if (q.length < 2) {
+  // BUG-010 #3: load sibling boonz_products for the source line's pod_product
+  // via product_mapping. Same pod = same shelf row family (e.g. all YoPro variants).
+  const loadSiblingProducts = useCallback(async (podProductId: string | null) => {
+    if (!podProductId) {
       setProductOptions([]);
       return;
     }
     setProductSearchLoading(true);
     const supabase = createClient();
     const { data } = await supabase
-      .from("boonz_products")
-      .select("product_id, boonz_product_name")
-      .ilike("boonz_product_name", `%${q}%`)
-      .limit(20);
-    setProductOptions(
-      (data ?? []) as Array<{ product_id: string; boonz_product_name: string }>,
-    );
+      .from("product_mapping")
+      .select(
+        `boonz_product_id, status, boonz_products(product_id, boonz_product_name)`,
+      )
+      .eq("pod_product_id", podProductId)
+      .eq("status", "Active");
+    const seen = new Set<string>();
+    const options: Array<{ product_id: string; boonz_product_name: string }> = [];
+    for (const row of data ?? []) {
+      const bp = (row as Record<string, unknown>).boonz_products as {
+        product_id: string;
+        boonz_product_name: string;
+      } | null;
+      if (bp && !seen.has(bp.product_id)) {
+        seen.add(bp.product_id);
+        options.push({ product_id: bp.product_id, boonz_product_name: bp.boonz_product_name });
+      }
+    }
+    options.sort((a, b) => a.boonz_product_name.localeCompare(b.boonz_product_name));
+    setProductOptions(options);
     setProductSearchLoading(false);
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => searchBoonzProducts(extraReturnSearch), 200);
-    return () => clearTimeout(timer);
-  }, [extraReturnSearch, searchBoonzProducts]);
+    if (extraReturnOpen && extraReturnSourceLine?.pod_product_id) {
+      loadSiblingProducts(extraReturnSourceLine.pod_product_id);
+    }
+  }, [extraReturnOpen, extraReturnSourceLine, loadSiblingProducts]);
 
   // Insert a sibling Remove row for the multi-variant split case
-  async function handleAddExtraReturn(productId: string, productName: string) {
-    if (!extraReturnShelf || extraReturnQty <= 0) return;
+  async function handleConfirmExtraReturn() {
+    if (!extraReturnSourceLine || !extraReturnSelected || extraReturnQty <= 0) return;
     setExtraReturnAdding(true);
     const supabase = createClient();
     const today = getDubaiDate();
-    const shelfLine = lines.find((l) => l.shelf_code === extraReturnShelf);
     const { error } = await supabase.from("refill_dispatching").insert({
       machine_id: machineId,
-      shelf_id: shelfLine?.shelf_id ?? null,
-      pod_product_id: null,
-      boonz_product_id: productId,
+      shelf_id: extraReturnSourceLine.shelf_id,
+      pod_product_id: extraReturnSourceLine.pod_product_id,
+      boonz_product_id: extraReturnSelected.product_id,
       dispatch_date: today,
       action: "Remove",
       quantity: extraReturnQty,
@@ -431,15 +459,16 @@ export default function DispatchingDetailPage() {
       dispatched: false,
       returned: false,
       item_added: false,
-      comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${productName}`,
+      comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${extraReturnSelected.boonz_product_name}`,
     });
     if (error) {
       alert(`Could not add return row: ${error.message}`);
     } else {
       setExtraReturnOpen(false);
-      setExtraReturnSearch("");
+      setExtraReturnSourceLine(null);
+      setExtraReturnSelected(null);
       setExtraReturnQty(1);
-      setExtraReturnShelf(null);
+      setProductOptions([]);
       await fetchData();
     }
     setExtraReturnAdding(false);
@@ -952,6 +981,27 @@ export default function DispatchingDetailPage() {
                           ? "↩ Could not remove"
                           : "↩ Returned"}
                       </button>
+                      {/* BUG-010 #3: per-line trigger for multi-variant split — only for REMOVE */}
+                      {line.dispatch_action === "Remove" && (
+                        <button
+                          onClick={() => {
+                            setExtraReturnSourceLine({
+                              dispatch_id: line.dispatch_id,
+                              shelf_id: line.shelf_id,
+                              shelf_code: line.shelf_code,
+                              pod_product_id: line.pod_product_id,
+                              pod_product_name: line.pod_product_name,
+                            });
+                            setExtraReturnSelected(null);
+                            setExtraReturnQty(1);
+                            setExtraReturnOpen(true);
+                          }}
+                          title="Add a sibling variant return (e.g. YoPro Choco + Strawberry alongside Vanilla)"
+                          className="shrink-0 rounded-lg border border-dashed border-rose-300 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                        >
+                          + Add variant
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1002,33 +1052,30 @@ export default function DispatchingDetailPage() {
               );
             })}
           </ul>
-          {/* BUG-010 #3: split a planned return into multiple sibling variants */}
-          {!isReadOnly && (
-            <button
-              onClick={() => {
-                setExtraReturnShelf(shelfCode);
-                setExtraReturnOpen(true);
-                setExtraReturnSearch("");
-                setExtraReturnQty(1);
-              }}
-              className="mt-2 w-full rounded-lg border border-dashed border-rose-300 py-2 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
-            >
-              + Add another return on shelf {shelfCode} (different variant)
-            </button>
-          )}
         </div>
       ))}
 
-      {/* BUG-010 #3: Add-extra-return modal */}
-      {extraReturnOpen && (
+      {/* BUG-010 #3: Add-extra-return modal — variants only (same pod_product) */}
+      {extraReturnOpen && extraReturnSourceLine && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center">
           <div className="w-full max-w-md rounded-t-2xl bg-white p-4 dark:bg-neutral-900 sm:rounded-2xl">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-bold">
-                Add return — shelf {extraReturnShelf}
-              </h2>
+              <div>
+                <h2 className="text-base font-bold">
+                  Add variant — shelf {extraReturnSourceLine.shelf_code}
+                </h2>
+                {extraReturnSourceLine.pod_product_name && (
+                  <p className="text-xs text-neutral-500">
+                    Variants of: {extraReturnSourceLine.pod_product_name}
+                  </p>
+                )}
+              </div>
               <button
-                onClick={() => setExtraReturnOpen(false)}
+                onClick={() => {
+                  setExtraReturnOpen(false);
+                  setExtraReturnSelected(null);
+                  setExtraReturnSourceLine(null);
+                }}
                 className="rounded p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 aria-label="Close"
               >
@@ -1038,33 +1085,37 @@ export default function DispatchingDetailPage() {
             <p className="mb-3 text-xs text-neutral-500">
               Use this when the planned return collapses multiple variants
               (e.g. plan said 6 YoPro Vanilla but you have 2 Van + 2 Choco + 2 Straw).
+              Only variants of this shelf&apos;s pod are shown.
             </p>
-            <input
-              type="text"
-              value={extraReturnSearch}
-              onChange={(e) => setExtraReturnSearch(e.target.value)}
-              placeholder="Search product name…"
-              autoFocus
-              className="mb-2 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
-            />
+
             {productSearchLoading && (
-              <p className="mb-2 text-xs text-neutral-400">Searching…</p>
+              <p className="mb-2 text-xs text-neutral-400">Loading variants…</p>
+            )}
+            {!productSearchLoading && productOptions.length === 0 && (
+              <p className="mb-2 text-xs text-neutral-400">
+                No variants mapped to this pod.
+              </p>
             )}
             {productOptions.length > 0 && (
               <ul className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-950">
-                {productOptions.map((opt) => (
-                  <li key={opt.product_id}>
-                    <button
-                      onClick={() =>
-                        handleAddExtraReturn(opt.product_id, opt.boonz_product_name)
-                      }
-                      disabled={extraReturnAdding || extraReturnQty <= 0}
-                      className="block w-full px-3 py-2 text-left text-sm hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-950/30"
-                    >
-                      {opt.boonz_product_name}
-                    </button>
-                  </li>
-                ))}
+                {productOptions.map((opt) => {
+                  const selected = extraReturnSelected?.product_id === opt.product_id;
+                  return (
+                    <li key={opt.product_id}>
+                      <button
+                        onClick={() => setExtraReturnSelected(opt)}
+                        className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
+                          selected
+                            ? "bg-rose-100 font-semibold text-rose-800 dark:bg-rose-950/50 dark:text-rose-200"
+                            : "hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                        }`}
+                      >
+                        {selected ? "● " : ""}
+                        {opt.boonz_product_name}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <label className="mb-3 block text-xs text-neutral-500">
@@ -1079,9 +1130,21 @@ export default function DispatchingDetailPage() {
                 className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
               />
             </label>
-            <p className="text-xs text-neutral-400">
-              Tap a product above to add it as an extra REMOVE row on this shelf.
-            </p>
+            <button
+              onClick={handleConfirmExtraReturn}
+              disabled={
+                !extraReturnSelected ||
+                extraReturnQty <= 0 ||
+                extraReturnAdding
+              }
+              className="w-full rounded-lg bg-rose-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {extraReturnAdding
+                ? "Adding…"
+                : extraReturnSelected
+                  ? `Confirm — add ${extraReturnQty} × ${extraReturnSelected.boonz_product_name}`
+                  : "Select a variant first"}
+            </button>
           </div>
         </div>
       )}
