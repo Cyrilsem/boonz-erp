@@ -50,6 +50,8 @@ interface PackLine {
   action: LineAction;
   /** DB packed boolean — true if this line was already packed+saved in a prior session */
   packed: boolean;
+  /** DB dispatched boolean — true once driver has dispatched. Hard lock on Override & re-pack. */
+  dispatched: boolean;
   fifo_expiry: string | null;
   /** Saved expiry_date from the DB (set when line was previously packed) */
   expiry_date: string | null;
@@ -278,6 +280,7 @@ export default function PackingDetailPage() {
         quantity,
         filled_quantity,
         packed,
+        dispatched,
         returned,
         return_reason,
         expiry_date,
@@ -699,6 +702,7 @@ export default function PackingDetailPage() {
         filled_quantity: (line.filled_quantity as number | null) ?? null,
         action: isPacked ? "packed" : null,
         packed: isPacked,
+        dispatched: !!line.dispatched,
         fifo_expiry: fifo.primary_expiry,
         expiry_date: (line.expiry_date as string | null) ?? null,
         allocations: fifo.allocations,
@@ -1289,6 +1293,10 @@ export default function PackingDetailPage() {
   // Issue #6: detect if this machine was already packed (DB-side) and no driver
   // has picked it up yet — packer can re-pack with override.
   const hasPriorPack = lines.some((l) => l.packed);
+  // Dispatch gate: once any line is dispatched, repack is forbidden (matches
+  // backend repack_machine guard added 2026-05-13). Returning stock to WH
+  // would lie about physical reality.
+  const isDispatchLocked = lines.some((l) => l.dispatched);
 
   // ── Group lines by action category ──────────────────────────────────────────
   // Separate returned items from active packing lines
@@ -1443,8 +1451,17 @@ export default function PackingDetailPage() {
         </div>
       )}
 
-      {/* Issue #6: re-pack override — only visible when prior pack exists */}
-      {hasPriorPack && machine && (
+      {/* Issue #6: re-pack override — only visible when prior pack exists AND not yet dispatched */}
+      {hasPriorPack && machine && isDispatchLocked && (
+        <div className="mb-4 rounded-lg border border-neutral-300 bg-neutral-50 p-3 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
+          <p className="font-medium">Already dispatched — repack disabled</p>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
+            One or more items for this machine have been dispatched today. Use the Inventory tools to correct any errors.
+          </p>
+        </div>
+      )}
+
+      {hasPriorPack && machine && !isDispatchLocked && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -1470,6 +1487,12 @@ export default function PackingDetailPage() {
                 });
                 if (error) {
                   alert(`Re-pack failed: ${error.message}`);
+                  return;
+                }
+                // Backend may refuse via the dispatch-gate (or other RPC-level errors)
+                // by returning a jsonb envelope { status:'error', error:<code>, message }.
+                if (data?.status === "error") {
+                  alert(data?.message ?? `Re-pack refused: ${data?.error ?? "unknown"}`);
                   return;
                 }
                 alert(
