@@ -15,6 +15,7 @@ import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
 import Tour from "../../components/onboarding/tour";
+import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
 
 interface InventoryRow {
   wh_inventory_id: string;
@@ -1562,6 +1563,9 @@ export default function InventoryPage() {
         />
       )}
       <div className="px-4 py-4">
+        {/* BUG-010: Returns awaiting WH-side approval (driver_confirm_remove → wh_approve_remove_receipt) */}
+        <PendingRemoveApprovalsPanel />
+
         {/* Control mode message */}
         {controlMessage && (
           <div className="mb-3 rounded-lg bg-green-100 px-3 py-2 text-sm font-medium text-green-800 dark:bg-green-900 dark:text-green-200">

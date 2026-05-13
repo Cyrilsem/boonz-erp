@@ -31,6 +31,9 @@ export default function PendingRemoveApprovalsPanel() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  // Per-row expiry override. WH manager must supply when dispatch.expiry is NULL,
+  // so we can build a p_batch_breakdown and clear the BUG-007 hardened guard.
+  const [expiryOverrides, setExpiryOverrides] = useState<Record<string, string>>({});
 
   const fetchRows = useCallback(async () => {
     const supabase = createClient();
@@ -71,17 +74,37 @@ export default function PendingRemoveApprovalsPanel() {
     const supabase = createClient();
     const verifiedQty =
       overrides[row.dispatch_id] ?? row.driver_confirmed_qty;
+
+    // Resolve expiry: explicit override > dispatch.expiry > require WH input
+    const chosenExpiry =
+      expiryOverrides[row.dispatch_id] ||
+      row.dispatch_expiry ||
+      "";
+    if (!chosenExpiry) {
+      alert(
+        "Enter an expiry date for this batch (the dispatch had no expiry). " +
+          "The receipt will be credited to that batch in warehouse_inventory.",
+      );
+      setActing(null);
+      return;
+    }
+
+    // Build a single-batch breakdown so receive_dispatch_line takes PATH A
+    // (no BUG-007 NULL-expiry guard). The wh_inventory row is created if missing.
+    const breakdown = [{ expiry: chosenExpiry, qty: verifiedQty }];
+
     const reason =
       verifiedQty === row.driver_confirmed_qty
-        ? "WH manager verified — qty matches driver count"
-        : `WH manager verified — adjusted from driver count ${row.driver_confirmed_qty} to ${verifiedQty}`;
+        ? `WH manager verified — qty matches driver count, batch ${chosenExpiry}`
+        : `WH manager verified — adjusted ${row.driver_confirmed_qty}→${verifiedQty}, batch ${chosenExpiry}`;
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
     const { error } = await supabase.rpc("wh_approve_remove_receipt", {
       p_dispatch_id: row.dispatch_id,
       p_actual_qty: verifiedQty,
-      p_batch_breakdown: null,
+      p_batch_breakdown: breakdown,
       p_approved_by: user?.id ?? null,
       p_reason: reason,
     });
@@ -164,6 +187,32 @@ export default function PendingRemoveApprovalsPanel() {
                 {drifted && (
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                     Δ {editedQty - row.driver_confirmed_qty}
+                  </span>
+                )}
+              </div>
+              {/* BUG-010 #4: expiry input — required when dispatch.expiry is NULL, else pre-fills */}
+              <div className="mb-3 flex items-center gap-2 text-xs">
+                <label className="flex items-center gap-2 text-neutral-500">
+                  Batch expiry:
+                  <input
+                    type="date"
+                    value={
+                      expiryOverrides[row.dispatch_id] ??
+                      row.dispatch_expiry ??
+                      ""
+                    }
+                    onChange={(e) =>
+                      setExpiryOverrides((prev) => ({
+                        ...prev,
+                        [row.dispatch_id]: e.target.value,
+                      }))
+                    }
+                    className="rounded border border-neutral-300 px-2 py-1 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                  />
+                </label>
+                {!row.dispatch_expiry && !expiryOverrides[row.dispatch_id] && (
+                  <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-800 dark:bg-rose-900/40 dark:text-rose-300">
+                    Required — dispatch had no expiry
                   </span>
                 )}
               </div>
