@@ -55,6 +55,8 @@ interface DispatchLine {
   action: LineAction;
   /** Driver-side confirmation flag for Remove (BUG-010) */
   driver_confirmed: boolean;
+  /** True if this line was added by the driver via the "+ Add variant" modal — can be removed inline */
+  driver_added: boolean;
 }
 
 const RETURN_REASONS = [
@@ -107,6 +109,7 @@ export default function DispatchingDetailPage() {
   } | null>(null);
   const [extraReturnQty, setExtraReturnQty] = useState(1);
   const [extraReturnAdding, setExtraReturnAdding] = useState(false);
+  const [extraReturnExpiry, setExtraReturnExpiry] = useState<string>("");
   const [extraReturnSelected, setExtraReturnSelected] = useState<{
     product_id: string;
     boonz_product_name: string;
@@ -222,6 +225,7 @@ export default function DispatchingDetailPage() {
           comment: (line.comment as string | null) ?? "",
           action,
           driver_confirmed: driverConfirmed,
+          driver_added: ((line.comment as string | null) ?? "").startsWith("[DRIVER ADDED]"),
         };
       });
       // Resolve boonz_product_name for each line so the driver sees the
@@ -441,6 +445,10 @@ export default function DispatchingDetailPage() {
   // Insert a sibling Remove row for the multi-variant split case
   async function handleConfirmExtraReturn() {
     if (!extraReturnSourceLine || !extraReturnSelected || extraReturnQty <= 0) return;
+    if (!extraReturnExpiry) {
+      alert("Pick an expiry date for this variant so the return can credit warehouse correctly.");
+      return;
+    }
     setExtraReturnAdding(true);
     const supabase = createClient();
     const today = getDubaiDate();
@@ -459,7 +467,8 @@ export default function DispatchingDetailPage() {
       dispatched: false,
       returned: false,
       item_added: false,
-      comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${extraReturnSelected.boonz_product_name}`,
+      expiry_date: extraReturnExpiry,  // BUG-010 #3b: stamps expiry so return/receive doesn't hit BUG-007 NULL-expiry guard
+      comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${extraReturnSelected.boonz_product_name} (exp ${extraReturnExpiry})`,
     });
     if (error) {
       alert(`Could not add return row: ${error.message}`);
@@ -468,10 +477,26 @@ export default function DispatchingDetailPage() {
       setExtraReturnSourceLine(null);
       setExtraReturnSelected(null);
       setExtraReturnQty(1);
+      setExtraReturnExpiry("");
       setProductOptions([]);
       await fetchData();
     }
     setExtraReturnAdding(false);
+  }
+
+  // BUG-010 #3: undo a driver-added variant before save
+  async function handleRemoveExtraReturn(dispatchId: string) {
+    if (!confirm("Remove this driver-added variant from the dispatch?")) return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("refill_dispatching")
+      .delete()
+      .eq("dispatch_id", dispatchId);
+    if (error) {
+      alert(`Could not remove line: ${error.message}`);
+      return;
+    }
+    await fetchData();
   }
 
   function handleMarkAllAdded() {
@@ -870,14 +895,33 @@ export default function DispatchingDetailPage() {
                   key={line.dispatch_id}
                   className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                 >
-                  {/* Product name + expiry */}
+                  {/* Product name + expiry + remove (driver-added only) */}
                   <div className="mb-2 flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium">
-                      {line.boonz_product_name ??
-                        line.pod_product_name ??
-                        "Unknown product"}
-                    </p>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
+                    <div className="flex flex-1 items-start gap-2 min-w-0">
+                      <p className="text-sm font-medium">
+                        {line.boonz_product_name ??
+                          line.pod_product_name ??
+                          "Unknown product"}
+                      </p>
+                      {line.driver_added && (
+                        <span className="shrink-0 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                          Added by driver
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-start gap-1.5">
+                      {/* BUG-010 #3: × to remove a driver-added variant line before save */}
+                      {line.driver_added && !isReadOnly && (
+                        <button
+                          onClick={() => handleRemoveExtraReturn(line.dispatch_id)}
+                          title="Remove this driver-added variant"
+                          aria-label="Remove this driver-added variant"
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    <div className="flex flex-col items-end gap-1">
                       {/* Expiry: engine flag takes precedence over date-based style */}
                       {line.expiry_warning === "expired" ? (
                         <span className="rounded px-1 py-0.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">
@@ -898,6 +942,7 @@ export default function DispatchingDetailPage() {
                           📦 {line.from_warehouse_name}
                         </span>
                       )}
+                    </div>
                     </div>
                   </div>
 
@@ -994,6 +1039,9 @@ export default function DispatchingDetailPage() {
                             });
                             setExtraReturnSelected(null);
                             setExtraReturnQty(1);
+                            // Default expiry to the source line's expiry if it has one,
+                            // else leave empty so driver must enter from the physical pack
+                            setExtraReturnExpiry(line.expiry_date ?? "");
                             setExtraReturnOpen(true);
                           }}
                           title="Add a sibling variant return (e.g. YoPro Choco + Strawberry alongside Vanilla)"
@@ -1118,32 +1166,50 @@ export default function DispatchingDetailPage() {
                 })}
               </ul>
             )}
-            <label className="mb-3 block text-xs text-neutral-500">
-              Qty to return
-              <input
-                type="number"
-                min={1}
-                value={extraReturnQty}
-                onChange={(e) =>
-                  setExtraReturnQty(parseFloat(e.target.value) || 0)
-                }
-                className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
-              />
-            </label>
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <label className="block text-xs text-neutral-500">
+                Qty to return
+                <input
+                  type="number"
+                  min={1}
+                  value={extraReturnQty}
+                  onChange={(e) =>
+                    setExtraReturnQty(parseFloat(e.target.value) || 0)
+                  }
+                  className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
+                />
+              </label>
+              <label className="block text-xs text-neutral-500">
+                Expiry on pack
+                <input
+                  type="date"
+                  value={extraReturnExpiry}
+                  onChange={(e) => setExtraReturnExpiry(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-950"
+                />
+              </label>
+            </div>
+            <p className="mb-3 text-[11px] text-neutral-400">
+              Read the expiry off the physical pack — needed so WH stock credit
+              lands on the right batch row.
+            </p>
             <button
               onClick={handleConfirmExtraReturn}
               disabled={
                 !extraReturnSelected ||
                 extraReturnQty <= 0 ||
+                !extraReturnExpiry ||
                 extraReturnAdding
               }
               className="w-full rounded-lg bg-rose-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {extraReturnAdding
                 ? "Adding…"
-                : extraReturnSelected
-                  ? `Confirm — add ${extraReturnQty} × ${extraReturnSelected.boonz_product_name}`
-                  : "Select a variant first"}
+                : !extraReturnSelected
+                  ? "Select a variant first"
+                  : !extraReturnExpiry
+                    ? "Enter expiry date"
+                    : `Confirm — add ${extraReturnQty} × ${extraReturnSelected.boonz_product_name}`}
             </button>
           </div>
         </div>
