@@ -157,6 +157,12 @@ These do not mutate; they exist as DEFINER for RLS-bypass on read paths (with th
 - `auto_audit_warehouse_inventory_insert` (INSERT trigger)
 - `handle_new_user` (auth trigger — creates `user_profiles` row on signup)
 
+## System-of-record propagation triggers — 1 function (NEW 2026-05-14)
+
+These trigger functions cascade authoritative state from a parent table to dependent snapshot columns. They are NOT new canonical writers under Article 1 — they touch ONLY snapshot fields, never state-machine columns, and they're gated by an explicit FK on the dependent row. SECURITY DEFINER with pinned `search_path`. Set `app.via_rpc='true'` + `app.rpc_name` so the universal audit trigger attributes the cascaded UPDATE.
+
+- `sync_dispatch_expiry_from_pinned_wh()` — **NEW (2026-05-14, BUG-012 structural fix).** Bound `AFTER UPDATE OF expiration_date ON warehouse_inventory FOR EACH ROW`. When the wh row's `expiration_date` changes (typical trigger: WEIMI snapshot re-ingest or warehouse-manager correction), propagates the new value to every un-finalized `refill_dispatching` row pinned to this wh row via `from_wh_inventory_id` (`item_added=false AND returned=false`). Touches only `expiry_date` — never identity or state columns. Emits `info` `monitoring_alerts` row with `source='bug012_expiry_sync'` summarising rows synced. Owner=postgres. Satisfies Constitution Articles 1 (system-of-record propagation, not a new canonical writer), 4 (validates DISTINCT change and sets audit GUCs), 8 (universal audit picks up the cascade). See `CHANGELOG.md` entry dated 2026-05-14.
+
 ## Trigger-only proposers — 2 functions (NEW 2026-05-04, NOT YET BOUND)
 
 These functions write to `warehouse_inventory_status_proposal` only — never UPDATE `warehouse_inventory.status`. They are bodies-only as of 2026-05-04 and will be bound to `warehouse_inventory` triggers in `m3b` post-dispatch tonight. Article 6 (revised) compliant: they propose, the manager confirms.

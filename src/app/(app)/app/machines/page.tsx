@@ -560,13 +560,27 @@ export default function MachinesPage() {
     return ["All", ...Array.from(set).sort()];
   }, [machines]);
 
+  // Device Number = the numeric suffix of adyen_store_code (e.g. "BOONZ_82160817" -> "82160817").
+  // It's how operators identify the physical device in the field / Adyen back office.
+  const deviceNumber = useCallback((m: Machine): string | null => {
+    if (!m.adyen_store_code) return null;
+    return m.adyen_store_code.replace(/^BOONZ_/i, "");
+  }, []);
+
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return machines.filter((m) => {
-      if (
-        search &&
-        !m.official_name.toLowerCase().includes(search.toLowerCase())
-      )
-        return false;
+      if (q) {
+        // Match on official_name OR Device Number (the stripped adyen_store_code).
+        // Also match the raw adyen_store_code so pasting "BOONZ_82160817" works.
+        const nameHit = m.official_name.toLowerCase().includes(q);
+        const dev = deviceNumber(m);
+        const devHit = dev !== null && dev.toLowerCase().includes(q);
+        const storeHit =
+          !!m.adyen_store_code &&
+          m.adyen_store_code.toLowerCase().includes(q);
+        if (!nameHit && !devHit && !storeHit) return false;
+      }
       if (statusFilter !== "All") {
         const isActive = m.status?.toLowerCase() === "active";
         if (statusFilter === "Active" && !isActive) return false;
@@ -575,7 +589,7 @@ export default function MachinesPage() {
       if (groupFilter !== "All" && m.venue_group !== groupFilter) return false;
       return true;
     });
-  }, [machines, search, statusFilter, groupFilter]);
+  }, [machines, search, statusFilter, groupFilter, deviceNumber]);
 
   // ── Edit helpers ────────────────────────────────────────────────────────────
 
@@ -1205,7 +1219,7 @@ export default function MachinesPage() {
       >
         <input
           type="text"
-          placeholder="Search machines\u2026"
+          placeholder="Search by name or device number\u2026"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           style={{
@@ -1213,7 +1227,7 @@ export default function MachinesPage() {
             borderRadius: 8,
             padding: "7px 12px",
             fontSize: 14,
-            width: 240,
+            width: 280,
             outline: "none",
             color: "#0a0a0a",
             background: "white",
@@ -1277,6 +1291,7 @@ export default function MachinesPage() {
             <tr style={{ borderBottom: "1px solid #e8e4de" }}>
               {[
                 "Name",
+                "Device #",
                 "Group",
                 "Location",
                 "Adyen Status",
@@ -1304,7 +1319,7 @@ export default function MachinesPage() {
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                  {[200, 80, 140, 100, 60, 50, 70].map((w, j) => (
+                  {[200, 90, 80, 140, 100, 60, 50, 70].map((w, j) => (
                     <td key={j} className="px-4 py-3">
                       <div
                         className="animate-pulse rounded"
@@ -1317,7 +1332,7 @@ export default function MachinesPage() {
             ) : filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-10 text-center"
                   style={{ color: "#6b6860" }}
                 >
@@ -1360,6 +1375,18 @@ export default function MachinesPage() {
                       style={{ fontWeight: 600, color: "#24544a" }}
                     >
                       {m.official_name}
+                    </td>
+                    <td
+                      className="px-4 py-3"
+                      style={{
+                        color: "#6b6860",
+                        fontFamily:
+                          "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        fontSize: 12,
+                      }}
+                      title={m.adyen_store_code ?? undefined}
+                    >
+                      {deviceNumber(m) ?? "—"}
                     </td>
                     <td className="px-4 py-3" style={{ color: "#6b6860" }}>
                       {m.venue_group ?? "\u2014"}

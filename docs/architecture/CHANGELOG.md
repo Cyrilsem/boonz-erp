@@ -15,6 +15,30 @@ Format:
 
 ---
 
+## 2026-05-14 — BUG-012: phantom dispatch.expiry_date — structural fix
+**Phase / Article:** D bugfix / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod
+**Migration names:** `phaseD_bug012_sync_dispatch_expiry_from_pinned_wh`, `phaseD_bug012_receive_return_effective_expiry`
+
+**Summary:** Closes the root cause of BUG-012 (phantom expiries surfaced in the 14-May report). At pack time `pack_dispatch_line` snapshots `wh_inventory.expiration_date` into `refill_dispatching.expiry_date`. Between pack time and receive/return, the WEIMI snapshot ingest can mutate the source wh row's `expiration_date` (real-world batch correction, supplier re-issue, manager edit) — leaving the dispatch row holding a stale snapshot. Downstream the engine's phantom-expiry detector flagged these as "no Active wh_inventory row matches", and the receive/return RPCs occasionally inserted new wh rows with the stale snapshot instead of crediting the live batch.
+
+**Fix part 1 — cascade trigger.** New `sync_dispatch_expiry_from_pinned_wh()` SECURITY DEFINER trigger function (owner=postgres, `SET search_path = public, pg_temp`). Bound `AFTER UPDATE OF expiration_date ON warehouse_inventory FOR EACH ROW`. When fired, sets `app.via_rpc='true'` + `app.rpc_name='sync_dispatch_expiry_from_pinned_wh'` + `app.mutation_reason` (Article 4 + 8), then UPDATEs every un-finalized (`item_added=false AND returned=false`) refill_dispatching row pinned via `from_wh_inventory_id` to the new expiration_date. Emits an `info` `monitoring_alerts` row with `source='bug012_expiry_sync'` summarising rows synced. Universal audit picks up the cascaded UPDATE attributed to the trigger function. `protect_packed_dispatch_row` doesn't gate `expiry_date`, so packed rows are correctly updated. `detect_phantom_dispatch_expiry` self-heals because post-sync the dispatch.expiry_date matches the live wh batch.
+
+**Fix part 2 — RPC effective-expiry resolution.** `receive_dispatch_line` and `return_dispatch_line` now compute `v_effective_expiry` once near the top via explicit branch: `IF v_dispatch.from_wh_inventory_id IS NOT NULL THEN SELECT expiration_date FROM warehouse_inventory ... ELSE v_dispatch.expiry_date`. Every downstream lookup, WH replenish, overfill subtract, REMOVE breakdown path B, REMOVE FEFO fallback, pod_inventory insert, and consumer drain match uses `v_effective_expiry` instead of `v_dispatch.expiry_date`. Pinned rows always read the live wh row; legacy un-pinned rows fall back to the snapshot. Return jsonb now includes `effective_expiry` for debug visibility.
+
+**Backfill.** 4 stale rows identified pre-deploy (2 NULL-snapshot, 2 date-shift) and synced via one-shot UPDATE attributed to `app.rpc_name='bug012_backfill_cascade'`. Invariant `dispatch.expiry_date = pinned wh.expiration_date` now holds across all 33 pinned open rows.
+
+**Live test.** Toggled one wh row's expiration_date forward 7 days then reverted. Both events fired the cascade; `monitoring_alerts.bug012_expiry_sync` captured both with `dispatch_rows_synced=1` each. `write_audit_log` shows 4 UPDATE rows attributed to `bug012_backfill_cascade` and 2 to `sync_dispatch_expiry_from_pinned_wh`, all with `via_rpc=true`.
+
+**Rollback:**
+```sql
+-- Restore prior RPC bodies from write_audit_log payload or the session transcript.
+DROP TRIGGER IF EXISTS trg_sync_dispatch_expiry_from_pinned_wh ON public.warehouse_inventory;
+DROP FUNCTION IF EXISTS public.sync_dispatch_expiry_from_pinned_wh();
+```
+
+---
+
 ## 2026-05-11 — Bugfix: return_dispatch_line + receive_dispatch_line (3 bugs)
 **Phase / Article:** B.3 bugfix / Constitution Articles 1, 4, 8, 12
 **Applied to:** prod

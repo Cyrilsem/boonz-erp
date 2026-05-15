@@ -690,40 +690,122 @@ export default function DispatchingDetailPage() {
                 {machine?.official_name ?? ""} · {formatDMY(today)}
               </p>
             </div>
-            <ul className="divide-y divide-green-100 dark:divide-green-900/50">
-              {lines.map((line) => (
-                <li
-                  key={line.dispatch_id}
-                  className="flex items-center justify-between px-4 py-2.5"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-xs font-mono text-green-600 dark:bg-green-900/40 dark:text-green-400">
-                      {line.shelf_code ?? "—"}
-                    </span>
-                    <span className="text-sm truncate">
-                      {line.boonz_product_name ?? line.pod_product_name ?? "—"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {/* BUG-010 #5: show -N for Remove rows (retraction), ×N otherwise */}
-                    {line.dispatch_action === "Remove" ? (
-                      <span className="text-sm font-medium text-rose-700 dark:text-rose-400">
-                        −{line.filled_qty || line.quantity}
-                      </span>
-                    ) : (
-                      <span className="text-sm font-medium">
-                        ×{line.filled_qty || line.quantity}
-                      </span>
-                    )}
-                    {line.expiry_date && (
-                      <span className="text-xs text-neutral-400">
-                        {formatDMY(line.expiry_date)}
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {/* BUG-012 / multi-variant summary fix: group by shelf so the driver
+                sees the TOTAL physical units placed on each shelf, not each
+                variant's residual share in isolation. When a shelf only has
+                one row, render as before. When a shelf has multiple rows
+                (parent + driver-added children), surface the shelf-total
+                header so the confirmation doesn't read as partial. */}
+            {(() => {
+              const groups = new Map<string, DispatchLine[]>();
+              for (const l of lines) {
+                const key = l.shelf_code ?? "—";
+                const existing = groups.get(key) ?? [];
+                existing.push(l);
+                groups.set(key, existing);
+              }
+              const orderedShelves = Array.from(groups.entries()).sort((a, b) =>
+                a[0].localeCompare(b[0]),
+              );
+              return (
+                <ul className="divide-y divide-green-100 dark:divide-green-900/50">
+                  {orderedShelves.map(([shelfCode, shelfLines]) => {
+                    const multi = shelfLines.length > 1;
+                    // Compute Refill/Add total and Remove total separately so
+                    // a mixed shelf doesn't claim "12 added" when half is a return.
+                    const addTotal = shelfLines
+                      .filter((l) => l.dispatch_action !== "Remove")
+                      .reduce(
+                        (sum, l) => sum + (l.filled_qty || l.quantity || 0),
+                        0,
+                      );
+                    const removeTotal = shelfLines
+                      .filter((l) => l.dispatch_action === "Remove")
+                      .reduce(
+                        (sum, l) => sum + (l.filled_qty || l.quantity || 0),
+                        0,
+                      );
+                    return (
+                      <li key={shelfCode} className="px-4 py-2.5">
+                        {multi && (
+                          <div className="mb-1 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-xs font-mono font-bold text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                                {shelfCode}
+                              </span>
+                              <span className="text-xs uppercase tracking-wide text-green-700 dark:text-green-400">
+                                Shelf total
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs font-semibold">
+                              {addTotal > 0 && (
+                                <span className="text-green-700 dark:text-green-300">
+                                  ×{addTotal}
+                                </span>
+                              )}
+                              {removeTotal > 0 && (
+                                <span className="text-rose-700 dark:text-rose-400">
+                                  −{removeTotal}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        <ul
+                          className={
+                            multi
+                              ? "ml-1 space-y-1 border-l-2 border-green-200 pl-3 dark:border-green-900/60"
+                              : ""
+                          }
+                        >
+                          {shelfLines.map((line) => (
+                            <li
+                              key={line.dispatch_id}
+                              className="flex items-center justify-between"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                {!multi && (
+                                  <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-xs font-mono text-green-600 dark:bg-green-900/40 dark:text-green-400">
+                                    {line.shelf_code ?? "—"}
+                                  </span>
+                                )}
+                                <span
+                                  className={
+                                    multi
+                                      ? "text-sm truncate text-neutral-600 dark:text-neutral-300"
+                                      : "text-sm truncate"
+                                  }
+                                >
+                                  {line.boonz_product_name ??
+                                    line.pod_product_name ??
+                                    "—"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {line.dispatch_action === "Remove" ? (
+                                  <span className="text-sm font-medium text-rose-700 dark:text-rose-400">
+                                    −{line.filled_qty || line.quantity}
+                                  </span>
+                                ) : (
+                                  <span className="text-sm font-medium">
+                                    ×{line.filled_qty || line.quantity}
+                                  </span>
+                                )}
+                                {line.expiry_date && (
+                                  <span className="text-xs text-neutral-400">
+                                    {formatDMY(line.expiry_date)}
+                                  </span>
+                                )}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              );
+            })()}
           </div>
           <button
             onClick={() => window.history.back()}
