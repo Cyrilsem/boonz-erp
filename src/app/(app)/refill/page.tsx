@@ -8,6 +8,7 @@ import { getDubaiDate } from "@/lib/utils/date";
 import { DailyDispatchingTab } from "./DailyDispatchingTab";
 import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
 import { TrackerTab } from "./TrackerTab";
+import { SignalsTab } from "./SignalsTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ const tierColors: Record<string, { card: string; bar: string }> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RefillPage() {
-  const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching" | "tracker">("snapshot");
+  const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching" | "tracker" | "signals">("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
   // ── Hoisted refill planning state (persists across tab switches) ──────────────
@@ -849,6 +850,7 @@ export default function RefillPage() {
             ["planning", "Refill Planning"],
             ["dispatching", "Refill Dispatch"],
             ["tracker", "Tracker"],
+            ["signals", "Signals"],
           ] as const
         ).map(([t, label]) => (
           <button
@@ -897,6 +899,9 @@ export default function RefillPage() {
 
       {/* ── Tracker tab — Layer A action items ─────────────────────────────── */}
       {tab === "tracker" && <TrackerTab />}
+
+      {/* ── Signals tab — all decision-feeding data sources ───────────────── */}
+      {tab === "signals" && <SignalsTab />}
 
       {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
       <div style={{ display: tab === "snapshot" ? undefined : "none" }}>
