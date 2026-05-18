@@ -15,6 +15,89 @@ Format:
 
 ---
 
+## 2026-05-18 — Native machine-to-machine transfers (swap_between_machines)
+**Phase / Article:** D (M2M transfers) / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod
+**Migration name:** `phaseD_swap_between_machines`
+
+**Summary:** Native M2M transfer infrastructure. Previously, machine-to-machine product moves were hacked via unlinked Remove + Add New dispatch lines with free-text comments — the packing FE couldn't distinguish M2M from real swaps, WH stock was incorrectly deducted by `pack_dispatch_line`, and pod_inventory wasn't adjusted. The new `swap_between_machines(source_machine_id, dest_machine_id, transfers jsonb, plan_date, comment)` RPC atomically creates a matched Remove + Add New dispatch pair with `is_m2m=true, packed=true, dispatched=false` (zero WH stock movement). Pod_inventory is NOT adjusted at plan creation — deferred to driver confirmation via `receive_dispatch_line` (see `phaseD_m2m_deferred_pod_adjustment`). Net-zero guaranteed by construction. Companion `acknowledge_m2m_transfer(transfer_id)` lets the WH manager confirm awareness (sets `wh_approved_at/by`). Three new columns on `refill_dispatching`: `is_m2m boolean`, `m2m_partner_id uuid` (bidirectional partner link), `m2m_transfer_id uuid` (groups a logical transfer). Two partial indexes for M2M lookups. New partial unique index `idx_pod_inv_active_shelf` on `pod_inventory(machine_id, shelf_id, boonz_product_id) WHERE status='Active'` enables the dest-machine upsert — required dedup of 1,415 stale duplicate Active rows first (archived as Inactive with `removal_reason='archived_2026-05-18_m2m_dedup'`). Updated `conserve_split_dispatch_quantity` trigger to skip M2M rows (prevents false parent-decrement on packed M2M inserts). Dara-designed, Cody-reviewed (4 revisions applied: qty>0 validation, audit trigger verification, partial unique index, explicit NULL on from_warehouse_id).
+
+**Rollback:** `ALTER TABLE refill_dispatching DROP COLUMN is_m2m, DROP COLUMN m2m_partner_id, DROP COLUMN m2m_transfer_id; DROP INDEX idx_pod_inv_active_shelf; DROP FUNCTION swap_between_machines; DROP FUNCTION acknowledge_m2m_transfer;` + restore original `conserve_split_dispatch_quantity` function body (remove the `is_m2m` early-return guard).
+
+---
+
+## 2026-05-18 — M2M deferred pod_inventory adjustment
+**Phase / Article:** D (M2M transfers, fix) / Constitution Articles 1, 4, 8
+**Applied to:** prod
+**Migration name:** `phaseD_m2m_deferred_pod_adjustment`
+
+**Summary:** Corrects the M2M lifecycle to match regular refill flow — pod_inventory adjustments are deferred to driver confirmation (via `receive_dispatch_line`) rather than happening at plan creation time. Two changes: (1) `swap_between_machines` no longer touches `pod_inventory`; dispatch lines are now created with `dispatched=false` (was `true`) so they flow through the normal pickup → receive lifecycle; machine names resolved for the return note ("Start at source"). (2) `receive_dispatch_line` gains an M2M-aware early branch at the top: for M2M Remove, decrements `pod_inventory.current_stock` by `filled_quantity` (archives row only if stock hits 0); for M2M Add New, upserts via `ON CONFLICT` on the new `idx_pod_inv_active_shelf` partial unique index. Both paths skip all warehouse stock operations (no consumer_stock drain, no WH credit/debit). Returns early with `is_m2m: true` and `m2m_transfer_id` in the response. Regular (non-M2M) flow is untouched below the early-return block.
+
+**Rollback:** Restore previous `swap_between_machines` body (with pod_inventory ops and `dispatched=true`) + restore previous `receive_dispatch_line` body (without the M2M branch). The original bodies are in migration `phaseD_swap_between_machines`.
+
+---
+
+## 2026-05-18 — Phase F day-3: Conductor, Gate 0, Edit RPCs, Picker v2/v3, MPMCC backfill
+**Phase / Article:** F (Conductor + Gate 0) + bugfix / Constitution Articles 1, 2, 4, 7, 8, 12
+
+**Applied to:** prod + repo
+**Migration names:** `phaseF_edit_rpcs_with_audit` (v1..v6 column fixes), `phaseF_gate_zero_machines_to_visit`, `phaseF_gate_zero_status_constraint_and_backfill`, `phaseF_picker_v2_quality_fixes`, `phaseF_picker_v3_visit_attempts_count`, `phaseF_backfill_mpmcc_2026-05-14_pragmatic`
+
+**Summary:** Major Phase F day-3. Three orthogonal workstreams shipped: (1) **Gen 3 Conductor** — new `boonz-master-3` skill replaces the Phase D monolith, routes natural language to four `boonz-pico-*` sub-skills, enforces explicit Gate 0 / Gate 1 / Gate 2 green lights, no auto-engine runs. Old `boonz-master` archived as `boonz-legacy`. (2) **Edit + re-stitch RPCs** so CS can change a plan after Gate 1 without breaking dispatching. (3) **Gate 0 between Stage 1 and Stage 2** — CS confirms the picked machine list before the engine runs. Plus four picker-quality fixes that cut the candidate list in half. Plus a pragmatic backfill of 17 stuck dispatch rows from a 2026-05-14 EOD-misrelease incident on MPMCC-1054 / 1058.
+
+**Edit RPCs** (`phaseF_edit_rpcs_with_audit` v1..v6). New canonical writers `edit_pod_refill_row(plan_date, machine_id, shelf_id, pod_product_id, action, new_qty, reason, conductor_session)` (qty-only edit; 5-tuple PK addressing; refuses if any linked refill_plan_output row past pending; appends to `reasoning` jsonb), `stop_pod_refill_row(...)` (thin wrapper, qty→0), `restitch_after_edits(plan_date, dry_run)` (scoped re-stitch — only touches operator_status=pending boonz rows, delegates to existing `stitch_pod_to_boonz`). Plus read-only INVOKER function `find_substitutes_for_shelf(plan_date, machine_id, shelf_id, anchor_pod_product_id, top_n, aggressiveness_pct)` — Pearson top-N with a 0–100 aggressiveness knob (0–33 per-machine only, 34–66 + loc_type, 67–100 + category fallback). New table `pod_refill_plan_audit` with RLS + no-update/no-delete policies. New columns on `pod_refill_plan`: `edited_at`, `edited_by`. **Scope deferred to v2**: changing `pod_product_id` or `action` requires DELETE+INSERT because they're part of the 5-tuple PK. Cody-reviewed with 7 findings, all addressed before apply. v2..v6 are forward-only column-name fixes discovered during smoke tests (`machines.location_type` not `loc_type`; `correlation_pod_per_loc_type.location_type`; `refill_plan_output.generated_at` not `created_at`; `pod_products.product_category` not `category`; `pod_products.status` doesn't exist — switched to `is_catchall=false`; `warehouse_inventory.warehouse_stock + consumer_stock` not `stock_units`; plus `#variable_conflict use_column` to resolve OUT-column vs table-column ambiguity).
+
+**Gate 0** (`phaseF_gate_zero_machines_to_visit`). New canonical writers `confirm_machines_to_visit(plan_date)` (flips picked rows confirmed_at=now()), `unpick_machine_to_visit(plan_date, machine_id, reason)` (drop a machine, status→cs_dropped), `pick_machine_manually(plan_date, machine_id, reason)` (add a machine, status=cs_added with auto-confirm). Plus helper `_assert_gate_zero(plan_date)` that raises `Gate 0 not passed: N machine(s) picked but unconfirmed` if any `picked` row lacks `confirmed_at`. Patched `engine_add_pod` and `engine_swap_pod` with `PERFORM public._assert_gate_zero(p_plan_date)` near the top — the engine literally cannot run until CS confirms. Engine reads also widened from `status='picked'` to `status IN ('picked','cs_added')` so CS-manual additions go through Stage 2. New columns on `machines_to_visit`: `confirmed_at`, `confirmed_by`, `dropped_at`, `dropped_by`, `dropped_reason`, `manual_pick_reason`. Generic audit trigger already in place via `tg_audit_machines_to_visit` so Article 8 covered automatically.
+
+**Status constraint widen + backfill** (`phaseF_gate_zero_status_constraint_and_backfill`). Caught a latent bug — `machines_to_visit.status` CHECK constraint only allowed `('picked','superseded')`, which would have caused every `unpick_machine_to_visit` / `pick_machine_manually` to fail on first call. Widened to `('picked','cs_added','cs_dropped','completed','superseded')`. Backfilled 52 historical `picked` rows (2026-05-12 + 2026-05-13) to `status='completed', confirmed_at=picked_at, confirmed_by='system_backfill_2026-05-18'` so the conductor's "what's pending Gate 0" query doesn't dredge stale rows forever. CS-approved this Decision 1 inline.
+
+**Picker quality** (`phaseF_picker_v2_quality_fixes` + `phaseF_picker_v3_visit_attempts_count`). Five Stage-1 false-positive patterns surfaced from preview analysis: (1) `active_intents` counted fleet-wide intents (`scope_machine_ids IS NULL`) against every machine, making "intent" a constant +15 — every machine showed `active_intents=3` after the 3 active decommission intents (Ritz + 2 Loacker variants). Fix: count an intent only when its `scope_pod_product_id` is actually deployed on a slot of this machine. (2) `days_since_visit` produced garbage (`999` for NULL last-visit, `-26867` from a corrupted future-dated `dispatch_date` on WH1-2002). Fix: clamp to `[0, 365]`. (3) No velocity floor — WAVEMAKER picked with 81% dead slots but only 3 units sold last 7d. Fix: require `units_last_7d >= 5 OR is_ramping OR active_intent_count > 0` (true ramping + targeted intent exempt). (4) `is_ramping` window too permissive — IFLYMCC, MPMCC-1054/1058 stuck "ramping" at 30–36 days since visit. Fix: window 30d → 14d (per CS feedback — AMZ machines installed yesterday still ramping; older "ramping" expires). (5) `WH1-2002` (a warehouse facility) was in the route. Fix: flipped `include_in_refill=false` on the row. **v3** then added a second predicate change: `last_visit_date` now uses `MAX(dispatch_date) WHERE (picked_up=true OR returned=true)` so EOD-auto-released visits still count as visit attempts (otherwise MPMCC-1054/1058 would re-mis-flag stale every day — see backfill below). New column `units_last_7d` on `machines_to_visit` for debugging. Preview comparison: 30 candidates → 29 after v2/v3, but the "intent" tag now fires on only 12 of 29 (the ones actually carrying decommissioned products), `WH1-2002`/`WAVEMAKER` gone, MPMCC machines correctly show `days_since_visit=5`.
+
+**MPMCC-1054 / 1058 backfill** (`phaseF_backfill_mpmcc_2026-05-14_pragmatic`). Root cause: on 2026-05-14 the driver physically loaded both machines, but the driver app never flipped `refill_dispatching.picked_up=true`. At 23:59 Dubai the `eod_auto_release_unpicked` cron classified all 17 rows as unpicked and ran `return_dispatch_line` on each, bouncing `warehouse_stock` back. Result: WH overstated, pod_inventory understated, picker mis-flagged both machines as 35-day-stale (despite live sales). After review, CS chose **B-pragmatic** path — flip flags + credit `pod_inventory` to reality, leave WH untouched (overstated by ~5 days, WEIMI snapshots will reconcile). DO block (1) called `receive_dispatch_line(dispatch_id, quantity)` on the 15 Refill / Add-New rows after first clearing `returned=false` (drains `consumer_stock` where reserved, inserts `pod_inventory` rows, no WH change because consumer pool was already 0 post-return); (2) for the Pepsi Remove row manually flipped flags + marked `pod_inventory` Inactive with skip on WH (EOD bounce already produced the correct +13 credit for a Remove); (3) marked the 1 orphan Popit-Mix row (never packed) `include=false` with a reason note. Verified: all 16 active rows now `picked_up=true, returned=false, item_added=true`; pod_inventory shows +42 units across MPMCC-1054 (Haribo 2, M&M 2, Maltesers 2, Popit 11, Ritz 10, Sun Blast 9, VOX Lollies 6) and +18 units across MPMCC-1058 (Aquafina 6, Krambals 2, Leibniz Zoo 1, Skittles 2, VOX Lollies 7). Root cause (driver-app sync gap) filed as Stax follow-up task #67. WEIMI-vs-pod_inventory reconciliation sweep filed as task #68.
+
+**Cron change.** Old engine cron (`orchestrate_refill_plan` at 8pm Dubai) was already absent from pg_cron (no rollback needed). New cron `phaseF_stage1_prep_8pm_dubai` (jobid=13, `0 16 * * *` UTC = 20:00 Dubai daily) runs `pick_machines_for_refill(CURRENT_DATE + 1)` only. Stage 2 / Gate 1 / stitch / push-to-drivers all driven by CS via `boonz-master-3` — no autonomous engine runs. Per CS direction Decision 2 (Option C+).
+
+**Skills change** (file-only, no migration). Source updated in `BOONZ BRAIN/new-skills/`: archived `boonz-master/SKILL.md` → `boonz-legacy/SKILL.md` with frontmatter retitled and narrow trigger list (won't fire on generic operational language). New `boonz-master-3/SKILL.md` written from scratch — conductor for Gen 3, routes to the four `boonz-pico-*` sub-skills, handhold flow + Gate 0 + edit playbook + diagnostic patterns. Pico-skills README refreshed to list 5 skills (master-3 + 4 pico) plus legacy fallback. Edit RPC design preserved at `BOONZ BRAIN/edit_rpcs_design.md` for reference.
+
+**Rollback:**
+```sql
+-- Edit RPCs
+DROP FUNCTION IF EXISTS public.edit_pod_refill_row(date, uuid, uuid, uuid, text, int, text, text);
+DROP FUNCTION IF EXISTS public.stop_pod_refill_row(date, uuid, uuid, uuid, text, text);
+DROP FUNCTION IF EXISTS public.find_substitutes_for_shelf(date, uuid, uuid, uuid, int, int);
+DROP FUNCTION IF EXISTS public.restitch_after_edits(date, boolean);
+DROP TABLE IF EXISTS public.pod_refill_plan_audit;
+ALTER TABLE public.pod_refill_plan DROP COLUMN IF EXISTS edited_at, DROP COLUMN IF EXISTS edited_by;
+
+-- Gate 0
+DROP FUNCTION IF EXISTS public._assert_gate_zero(date);
+DROP FUNCTION IF EXISTS public.confirm_machines_to_visit(date);
+DROP FUNCTION IF EXISTS public.unpick_machine_to_visit(date, uuid, text);
+DROP FUNCTION IF EXISTS public.pick_machine_manually(date, uuid, text);
+-- For engine_add_pod / engine_swap_pod / pick_machines_for_refill: restore prior bodies from
+--   write_audit_log payload or the session transcript at edd21a03.
+ALTER TABLE public.machines_to_visit
+  DROP COLUMN IF EXISTS confirmed_at, DROP COLUMN IF EXISTS confirmed_by,
+  DROP COLUMN IF EXISTS dropped_at,   DROP COLUMN IF EXISTS dropped_by,
+  DROP COLUMN IF EXISTS dropped_reason, DROP COLUMN IF EXISTS manual_pick_reason,
+  DROP COLUMN IF EXISTS units_last_7d;
+ALTER TABLE public.machines_to_visit DROP CONSTRAINT IF EXISTS machines_to_visit_status_check;
+ALTER TABLE public.machines_to_visit ADD CONSTRAINT machines_to_visit_status_check
+  CHECK (status = ANY (ARRAY['picked'::text, 'superseded'::text]));
+
+-- Cron
+SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
+
+-- MPMCC backfill is data-mutation — NOT mechanically reversible. To approximate undo:
+--   * UPDATE refill_dispatching SET returned=true, picked_up=false, item_added=false
+--     WHERE dispatch_date='2026-05-14' AND machine_id IN (MPMCC-1054, MPMCC-1058);
+--   * UPDATE pod_inventory SET status='Inactive', removal_reason='rollback_backfill_2026-05-18'
+--     WHERE batch_id ILIKE 'DISPATCH-2026-05-14%';
+--   No clean way to undo Pepsi pod_inventory inactivation without finding original rows.
+```
+
+---
+
 ## 2026-05-14 — BUG-012: phantom dispatch.expiry_date — structural fix
 **Phase / Article:** D bugfix / Constitution Articles 1, 4, 8, 12
 **Applied to:** prod

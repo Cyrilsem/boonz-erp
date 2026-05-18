@@ -83,6 +83,12 @@ interface PackLine {
   returned: boolean;
   /** Reason recorded when item was returned */
   return_reason: string | null;
+  /** True if this is a machine-to-machine transfer line (no WH action needed) */
+  is_m2m: boolean;
+  /** Groups the paired Remove+Add New lines of a single M2M transfer */
+  m2m_transfer_id: string | null;
+  /** Bidirectional link to the partner dispatch line */
+  m2m_partner_id: string | null;
 }
 
 interface MachineInfo {
@@ -288,6 +294,9 @@ export default function PackingDetailPage() {
         from_warehouse_id,
         action,
         comment,
+        is_m2m,
+        m2m_transfer_id,
+        m2m_partner_id,
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name)
       `,
@@ -743,6 +752,11 @@ export default function PackingDetailPage() {
         return_reason:
           ((line as Record<string, unknown>).return_reason as string | null) ??
           null,
+        is_m2m: !!((line as Record<string, unknown>).is_m2m as boolean | null),
+        m2m_transfer_id:
+          ((line as Record<string, unknown>).m2m_transfer_id as string | null) ?? null,
+        m2m_partner_id:
+          ((line as Record<string, unknown>).m2m_partner_id as string | null) ?? null,
       };
     });
 
@@ -1060,6 +1074,9 @@ export default function PackingDetailPage() {
     const warnings: string[] = [];
 
     for (const line of lines) {
+      // Skip M2M lines — they are born packed=true and need no WH action
+      if (line.is_m2m) continue;
+
       if (line.action === "packed") {
         // ── B3.1 RPC-only path ───────────────────────────────────────────
         // pack_dispatch_line does: WH→consumer reservation, parent qty
@@ -1303,13 +1320,27 @@ export default function PackingDetailPage() {
   const returnedLines = lines.filter((l) => l.returned);
   const activeLines = lines.filter((l) => !l.returned);
 
+  // ── M2M transfer lines — separate from regular swap pairing ───────────────
+  const m2mLines = activeLines.filter((l) => l.is_m2m);
+  const nonM2mLines = activeLines.filter((l) => !l.is_m2m);
+
+  // Group M2M lines by transfer_id for display
+  const m2mByTransfer = new Map<string, PackLine[]>();
+  for (const ml of m2mLines) {
+    const tid = ml.m2m_transfer_id ?? "__orphan__";
+    const arr = m2mByTransfer.get(tid) || [];
+    arr.push(ml);
+    m2mByTransfer.set(tid, arr);
+  }
+
   // Pair Add New ↔ Remove by SHELF (not by position — position-based pairing
   // created cross-shelf nonsense like "Remove Loacker A03 → Add KitKat B04").
-  const addNewLines = activeLines.filter(
+  // M2M lines are excluded — they show in their own section.
+  const addNewLines = nonM2mLines.filter(
     (l) => l.dispatch_action === "Add New",
   );
-  const removeLines = activeLines.filter((l) => l.dispatch_action === "Remove");
-  const refillLines = activeLines.filter(
+  const removeLines = nonM2mLines.filter((l) => l.dispatch_action === "Remove");
+  const refillLines = nonM2mLines.filter(
     (l) => l.dispatch_action !== "Add New" && l.dispatch_action !== "Remove",
   );
 
@@ -1439,7 +1470,17 @@ export default function PackingDetailPage() {
     });
   }
 
-  // Section 4: Previously returned items (read-only history)
+  // Section 4: M2M transfers (no WH packing needed — info only)
+  if (m2mLines.length > 0) {
+    sections.push({
+      key: "m2m",
+      icon: "🔀",
+      title: "M2M Transfers",
+      lines: m2mLines,
+    });
+  }
+
+  // Section 5: Previously returned items (read-only history)
   if (returnedLines.length > 0) {
     sections.push({
       key: "returned",
@@ -1556,16 +1597,20 @@ export default function PackingDetailPage() {
                 ? "text-red-600 dark:text-red-400"
                 : section.key === "swap" || section.key === "swap-style"
                   ? "text-blue-600 dark:text-blue-400"
-                  : section.key === "returned"
-                    ? "text-neutral-400 dark:text-neutral-500"
-                    : "text-neutral-700 dark:text-neutral-300"
+                  : section.key === "m2m"
+                    ? "text-teal-600 dark:text-teal-400"
+                    : section.key === "returned"
+                      ? "text-neutral-400 dark:text-neutral-500"
+                      : "text-neutral-700 dark:text-neutral-300"
             }`}
           >
             <span className="text-base">{section.icon}</span> {section.title}
             <span className="ml-auto text-xs font-normal text-neutral-400">
               {section.key === "swap"
                 ? `${swapPairs.length} pair${swapPairs.length !== 1 ? "s" : ""}`
-                : `${section.lines.length} item${section.lines.length !== 1 ? "s" : ""}`}
+                : section.key === "m2m"
+                  ? `${m2mByTransfer.size} transfer${m2mByTransfer.size !== 1 ? "s" : ""}`
+                  : `${section.lines.length} item${section.lines.length !== 1 ? "s" : ""}`}
             </span>
           </h2>
           <ul className="space-y-2">
@@ -2041,8 +2086,82 @@ export default function PackingDetailPage() {
                 );
               })}
 
+            {/* ── M2M TRANSFER SECTION: info-only cards grouped by transfer ── */}
+            {section.key === "m2m" &&
+              Array.from(m2mByTransfer.entries()).map(([tid, transferLines]) => {
+                const removeLine = transferLines.find(
+                  (l) => l.dispatch_action === "Remove",
+                );
+                const addLine = transferLines.find(
+                  (l) =>
+                    l.dispatch_action === "Add New" ||
+                    l.dispatch_action === "Add" ||
+                    l.dispatch_action === "Refill",
+                );
+                // The comment contains the route info (e.g. "M2M: AMZ-1029 → AMZ-1057")
+                const routeLabel =
+                  removeLine?.dispatch_comment ??
+                  addLine?.dispatch_comment ??
+                  "Machine-to-machine transfer";
+                return (
+                  <li
+                    key={tid}
+                    className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-800/40 dark:bg-teal-950/20"
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="rounded bg-teal-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:bg-teal-900/50 dark:text-teal-400">
+                        M2M Transfer
+                      </span>
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                        {routeLabel}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {transferLines.map((tl) => {
+                        const isRemove = tl.dispatch_action === "Remove";
+                        return (
+                          <div
+                            key={tl.dispatch_id}
+                            className="flex items-center gap-2 rounded bg-white/60 px-3 py-2 text-sm dark:bg-neutral-900/40"
+                          >
+                            <span className="font-mono text-xs text-neutral-400 shrink-0">
+                              {tl.shelf_code}
+                            </span>
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                                isRemove
+                                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
+                                  : "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400"
+                              }`}
+                            >
+                              {tl.dispatch_action}
+                            </span>
+                            <span className="flex-1 truncate">
+                              {tl.display_name}
+                            </span>
+                            <span
+                              className={`shrink-0 ml-2 tabular-nums ${
+                                isRemove
+                                  ? "text-rose-600 font-medium"
+                                  : "text-neutral-500"
+                              }`}
+                            >
+                              {isRemove ? `−${tl.recommended_qty}` : `×${tl.recommended_qty}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-2 text-xs text-teal-600 dark:text-teal-400">
+                      No packing required — driver handles at machine
+                    </p>
+                  </li>
+                );
+              })}
+
             {/* ── PACK / REMOVE SECTIONS: individual cards ── */}
             {section.key !== "swap" &&
+              section.key !== "m2m" &&
               section.lines.map((line) => {
                 // ── Previously returned: read-only greyed card ────────────
                 if (section.key === "returned") {

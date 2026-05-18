@@ -17,6 +17,10 @@ interface PickupLine {
   filled_quantity: number;
   dispatched: boolean;
   returned: boolean;
+  /** True if this is a machine-to-machine transfer (no WH packing was needed) */
+  is_m2m: boolean;
+  /** Route comment for M2M lines (e.g. "M2M: AMZ-1029 → AMZ-1057") */
+  comment: string | null;
 }
 
 interface PickupMachine {
@@ -44,7 +48,7 @@ export default function PickupPage() {
       .select(
         `
         dispatch_id, machine_id, action, packed, picked_up, quantity,
-        filled_quantity, dispatched, returned,
+        filled_quantity, dispatched, returned, is_m2m, comment,
         machines!inner(official_name),
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
@@ -93,6 +97,8 @@ export default function PickupPage() {
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
         dispatched: !!(line.dispatched as boolean | null),
         returned: !!(line.returned as boolean | null),
+        is_m2m: !!((line as Record<string, unknown>).is_m2m as boolean | null),
+        comment: ((line as Record<string, unknown>).comment as string | null) ?? null,
       };
 
       if (existing) {
@@ -280,25 +286,33 @@ export default function PickupPage() {
                         <span className="rounded bg-rose-50 px-1.5 py-0.5 font-semibold uppercase text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
                           Remove
                         </span>
+                        <span className="rounded bg-teal-50 px-1.5 py-0.5 font-semibold uppercase text-teal-700 dark:bg-teal-950/40 dark:text-teal-400">
+                          M2M
+                        </span>
                         <span className="text-neutral-400">·</span>
                         <span className="text-neutral-500">
-                          Pack only Refill + Add new. Remove = collect from machine.
+                          Pack only Refill + Add new. Remove = collect. M2M = machine swap, no pack needed.
                         </span>
                       </div>
                       <ul className="mt-3 space-y-1">
                         {machine.lines.map((line) => {
-                          const actionBadge =
-                            line.dispatch_action === "Remove"
+                          const actionBadge = line.is_m2m
+                            ? "teal"
+                            : line.dispatch_action === "Remove"
                               ? "rose"
                               : line.dispatch_action === "Add New"
                                 ? "purple"
                                 : "sky";
                           const badgeClass = {
+                            teal: "bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400",
                             rose: "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400",
                             purple:
                               "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400",
                             sky: "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400",
                           }[actionBadge];
+                          const badgeLabel = line.is_m2m
+                            ? `M2M ${line.dispatch_action}`
+                            : line.dispatch_action;
                           const qty =
                             line.filled_quantity > 0
                               ? line.filled_quantity
@@ -314,22 +328,33 @@ export default function PickupPage() {
                           return (
                             <li
                               key={line.dispatch_id}
-                              className="flex items-center gap-2 rounded bg-neutral-50 px-3 py-2 text-sm dark:bg-neutral-900"
+                              className={`flex flex-col gap-1 rounded px-3 py-2 text-sm ${
+                                line.is_m2m
+                                  ? "bg-teal-50/50 dark:bg-teal-950/10"
+                                  : "bg-neutral-50 dark:bg-neutral-900"
+                              }`}
                             >
-                              <span className="font-mono text-xs text-neutral-400 shrink-0">
-                                {line.shelf_code ?? "—"}
-                              </span>
-                              <span
-                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${badgeClass}`}
-                              >
-                                {line.dispatch_action}
-                              </span>
-                              <span className="flex-1 truncate">
-                                {line.pod_product_name}
-                              </span>
-                              <span className={`shrink-0 ml-2 ${qtyClass}`}>
-                                {qtyDisplay}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs text-neutral-400 shrink-0">
+                                  {line.shelf_code ?? "—"}
+                                </span>
+                                <span
+                                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${badgeClass}`}
+                                >
+                                  {badgeLabel}
+                                </span>
+                                <span className="flex-1 truncate">
+                                  {line.pod_product_name}
+                                </span>
+                                <span className={`shrink-0 ml-2 ${qtyClass}`}>
+                                  {qtyDisplay}
+                                </span>
+                              </div>
+                              {line.is_m2m && line.comment && (
+                                <p className="text-[11px] text-teal-600 dark:text-teal-400 pl-7">
+                                  {line.comment}
+                                </p>
+                              )}
                             </li>
                           );
                         })}
