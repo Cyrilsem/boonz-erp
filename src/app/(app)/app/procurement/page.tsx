@@ -62,7 +62,20 @@ interface POAddition {
   boonz_products: { boonz_product_name: string };
 }
 
-type TabFilter = "pending" | "all";
+type TabFilter = "pending" | "all" | "demand";
+
+interface DemandRow {
+  boonz_product_id: string;
+  boonz_product_name: string;
+  pod_product_name: string;
+  product_category: string;
+  split_pct: number;
+  sales_14d: number;
+  variant_demand_14d: number;
+  wh_stock: number;
+  gap: number;
+  suggested_qty: number;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -106,6 +119,44 @@ export default function ProcurementPage() {
   const [newDate, setNewDate] = useState(getDubaiDate());
   const [newLines, setNewLines] = useState<NewPOLine[]>([]);
   const [newSaving, setNewSaving] = useState(false);
+
+  // Demand tab state
+  const [demandRows, setDemandRows] = useState<DemandRow[]>([]);
+  const [demandLoading, setDemandLoading] = useState(false);
+  const [demandLoaded, setDemandLoaded] = useState(false);
+  const [selectedDemandIds, setSelectedDemandIds] = useState<Set<string>>(new Set());
+  const [demandDraftSupplier, setDemandDraftSupplier] = useState("");
+  const [demandDraftSaving, setDemandDraftSaving] = useState(false);
+  const [demandToast, setDemandToast] = useState<string | null>(null);
+
+  const loadDemand = useCallback(async () => {
+    setDemandLoading(true);
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("get_procurement_demand", {
+      p_lookback_days: 14,
+      p_buffer_pct: 0.10,
+    });
+    if (!error) {
+      setDemandRows((data ?? []) as DemandRow[]);
+      setDemandLoaded(true);
+    }
+    setDemandLoading(false);
+  }, []);
+
+  const handleTabChange = useCallback((t: TabFilter) => {
+    setTab(t);
+    if (t === "demand" && !demandLoaded) loadDemand();
+    // Load suppliers for the "Create Draft PO" flow if not already loaded
+    if (t === "demand" && suppliers.length === 0) {
+      const supabase = createClient();
+      supabase
+        .from("suppliers")
+        .select("supplier_id, supplier_name")
+        .order("supplier_name")
+        .limit(10000)
+        .then(({ data }) => setSuppliers(data ?? []));
+    }
+  }, [demandLoaded, loadDemand, suppliers.length]);
 
   const fetchOrders = useCallback(async () => {
     const supabase = createClient();
@@ -223,6 +274,93 @@ export default function ProcurementPage() {
     setSuppliers(suppRes.data ?? []);
     setProducts(prodRes.data ?? []);
   }, []);
+
+  const toggleDemandRow = (id: string) => {
+    setSelectedDemandIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllDemand = () => {
+    if (selectedDemandIds.size === demandRows.length) {
+      setSelectedDemandIds(new Set());
+    } else {
+      setSelectedDemandIds(new Set(demandRows.map((r) => r.boonz_product_id)));
+    }
+  };
+
+  const createDraftPOFromDemand = async () => {
+    if (!demandDraftSupplier || selectedDemandIds.size === 0) return;
+    setDemandDraftSaving(true);
+    const supabase = createClient();
+
+    const { data: lastPo } = await supabase
+      .from("purchase_orders")
+      .select("po_number")
+      .not("po_number", "is", null)
+      .order("po_number", { ascending: false })
+      .limit(1)
+      .single();
+    const nextNumber = (lastPo?.po_number ?? 9016) + 1;
+    const poId = `PO-${new Date().getFullYear()}-${nextNumber}`;
+    const today = getDubaiDate();
+
+    const rows = demandRows
+      .filter((r) => selectedDemandIds.has(r.boonz_product_id))
+      .map((r) => ({
+        po_id: poId,
+        po_number: nextNumber,
+        supplier_id: demandDraftSupplier,
+        boonz_product_id: r.boonz_product_id,
+        purchase_date: today,
+        ordered_qty: r.suggested_qty,
+        price_per_unit_aed: null,
+        total_price_aed: null,
+        expiry_date: null,
+      }));
+
+    const { error: insertErr } = await supabase
+      .from("purchase_orders")
+      .insert(rows)
+      .select();
+
+    if (insertErr) {
+      setDemandDraftSaving(false);
+      alert(`Failed to create draft PO: ${insertErr.message}`);
+      return;
+    }
+
+    // Create driver task
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const productNames = rows
+        .map((r) => {
+          const row = demandRows.find((d) => d.boonz_product_id === r.boonz_product_id);
+          return `${row?.boonz_product_name ?? r.boonz_product_id} x${r.ordered_qty}`;
+        })
+        .join(", ");
+      await supabase.from("driver_tasks").insert({
+        po_id: poId,
+        po_number: nextNumber,
+        supplier_id: demandDraftSupplier,
+        status: "pending",
+        created_by: user.id,
+        notes: productNames,
+      });
+    }
+
+    setDemandDraftSaving(false);
+    setSelectedDemandIds(new Set());
+    setDemandDraftSupplier("");
+    setDemandToast(`✓ Draft PO #${nextNumber} created with ${rows.length} line${rows.length !== 1 ? "s" : ""}`);
+    setTimeout(() => setDemandToast(null), 4000);
+    // Refresh orders list
+    setLoading(true);
+    await fetchOrders();
+  };
 
   const addNewLine = () => {
     setNewLines((prev) => [
@@ -429,6 +567,27 @@ export default function ProcurementPage() {
 
   return (
     <div className="p-8 max-w-7xl">
+      {/* Demand toast */}
+      {demandToast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 200,
+            background: "#24544a",
+            color: "white",
+            padding: "10px 20px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          }}
+        >
+          {demandToast}
+        </div>
+      )}
       {/* Addition toast */}
       {additionToast && (
         <div
@@ -496,44 +655,76 @@ export default function ProcurementPage() {
         className="flex items-center gap-3 flex-wrap mb-6"
         style={{ borderBottom: "1px solid #e8e4de", paddingBottom: 16 }}
       >
-        {(["pending", "all"] as const).map((t) => (
+        {(["pending", "all", "demand"] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => handleTabChange(t)}
             style={{
               border: "1px solid #e8e4de",
               borderRadius: 8,
               padding: "7px 14px",
               fontSize: 13,
               fontWeight: tab === t ? 600 : 400,
-              background: tab === t ? "#0a0a0a" : "white",
+              background: tab === t ? (t === "demand" ? "#24544a" : "#0a0a0a") : "white",
               color: tab === t ? "white" : "#6b6860",
               cursor: "pointer",
             }}
           >
-            {t === "pending" ? `Pending (${pendingCount})` : "All Orders"}
+            {t === "pending"
+              ? `Pending (${pendingCount})`
+              : t === "all"
+              ? "All Orders"
+              : "⚡ Demand"}
           </button>
         ))}
-        <input
-          type="text"
-          placeholder="Search supplier or PO ID…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            border: "1px solid #e8e4de",
-            borderRadius: 8,
-            padding: "7px 12px",
-            fontSize: 14,
-            width: 260,
-            outline: "none",
-            color: "#0a0a0a",
-            background: "white",
-          }}
-        />
-        {!loading && (
+        {tab !== "demand" && (
+          <>
+            <input
+              type="text"
+              placeholder="Search supplier or PO ID…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{
+                border: "1px solid #e8e4de",
+                borderRadius: 8,
+                padding: "7px 12px",
+                fontSize: 14,
+                width: 260,
+                outline: "none",
+                color: "#0a0a0a",
+                background: "white",
+              }}
+            />
+            {!loading && (
+              <span style={{ marginLeft: "auto", fontSize: 13, color: "#6b6860" }}>
+                {displayed.length} result{displayed.length !== 1 ? "s" : ""}
+              </span>
+            )}
+          </>
+        )}
+        {tab === "demand" && !demandLoading && demandLoaded && (
           <span style={{ marginLeft: "auto", fontSize: 13, color: "#6b6860" }}>
-            {displayed.length} result{displayed.length !== 1 ? "s" : ""}
+            {demandRows.length} SKU{demandRows.length !== 1 ? "s" : ""} need restocking
           </span>
+        )}
+        {tab === "demand" && (
+          <button
+            onClick={loadDemand}
+            disabled={demandLoading}
+            style={{
+              marginLeft: tab === "demand" ? 0 : "auto",
+              border: "1px solid #e8e4de",
+              borderRadius: 8,
+              padding: "7px 14px",
+              fontSize: 12,
+              fontWeight: 500,
+              background: "white",
+              color: "#6b6860",
+              cursor: demandLoading ? "not-allowed" : "pointer",
+            }}
+          >
+            {demandLoading ? "Loading…" : "↻ Refresh"}
+          </button>
         )}
       </div>
 
@@ -555,7 +746,221 @@ export default function ProcurementPage() {
         </div>
       )}
 
+      {/* ── Demand Tab View ─────────────────────────────────────────────────── */}
+      {tab === "demand" && (
+        <>
+          <div
+            style={{
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              color: "#065f46",
+              marginBottom: 14,
+            }}
+          >
+            Demand based on last 14 days of sales · VOX-sourced products excluded · Suggested qty includes 10% buffer
+          </div>
+
+          <div
+            style={{
+              background: "white",
+              border: "1px solid #e8e4de",
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ borderBottom: "1px solid #e8e4de" }}>
+                  <th className="px-4 py-3" style={{ width: 36 }}>
+                    <input
+                      type="checkbox"
+                      checked={demandRows.length > 0 && selectedDemandIds.size === demandRows.length}
+                      onChange={toggleAllDemand}
+                      style={{ cursor: "pointer" }}
+                    />
+                  </th>
+                  {["Product", "Category", "14d Sales", "Variant Demand", "WH Stock", "Gap", "Suggested Qty"].map((h) => (
+                    <th
+                      key={h}
+                      className="text-left px-3 py-3"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "#6b6860",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {demandLoading ? (
+                  Array.from({ length: 8 }).map((_, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                      {[36, 200, 100, 80, 80, 80, 70, 80].map((w, j) => (
+                        <td key={j} className="px-3 py-3">
+                          <div
+                            className="animate-pulse rounded"
+                            style={{ height: 13, width: w, background: "#f0ede8" }}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : demandRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center" style={{ color: "#6b6860" }}>
+                      No procurement demand detected — all products are sufficiently stocked.
+                    </td>
+                  </tr>
+                ) : (
+                  demandRows.map((r) => {
+                    const isSelected = selectedDemandIds.has(r.boonz_product_id);
+                    const gapPct = r.variant_demand_14d > 0 ? r.gap / r.variant_demand_14d : 0;
+                    const gapColor = gapPct > 0.75 ? "#dc2626" : gapPct > 0.4 ? "#d97706" : "#0a0a0a";
+                    return (
+                      <tr
+                        key={r.boonz_product_id}
+                        style={{
+                          borderBottom: "1px solid #f5f2ee",
+                          background: isSelected ? "#f0fdf4" : undefined,
+                          cursor: "pointer",
+                        }}
+                        onClick={() => toggleDemandRow(r.boonz_product_id)}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "#faf9f7";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "transparent";
+                        }}
+                      >
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleDemandRow(r.boonz_product_id)}
+                            style={{ cursor: "pointer" }}
+                          />
+                        </td>
+                        <td className="px-3 py-3">
+                          <div style={{ fontWeight: 600, color: "#24544a", fontSize: 13 }}>{r.boonz_product_name}</div>
+                          <div style={{ fontSize: 11, color: "#6b6860", marginTop: 1 }}>{r.pod_product_name}</div>
+                        </td>
+                        <td className="px-3 py-3" style={{ color: "#6b6860", fontSize: 12 }}>{r.product_category ?? "—"}</td>
+                        <td className="px-3 py-3" style={{ color: "#0a0a0a", fontSize: 13 }}>{r.sales_14d.toFixed(0)}</td>
+                        <td className="px-3 py-3" style={{ color: "#0a0a0a", fontSize: 13 }}>
+                          {r.variant_demand_14d.toFixed(0)}
+                          {r.split_pct < 100 && (
+                            <span style={{ fontSize: 10, color: "#6b6860", marginLeft: 4 }}>({r.split_pct}%)</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3" style={{ color: r.wh_stock === 0 ? "#dc2626" : "#0a0a0a", fontSize: 13, fontWeight: r.wh_stock === 0 ? 700 : 400 }}>
+                          {r.wh_stock.toFixed(0)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span style={{ fontWeight: 700, color: gapColor, fontSize: 13 }}>{r.gap.toFixed(0)}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            style={{
+                              display: "inline-block",
+                              background: "#fef9ee",
+                              border: "1px solid #fbbf24",
+                              borderRadius: 6,
+                              padding: "2px 10px",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: "#92400e",
+                            }}
+                          >
+                            {r.suggested_qty.toFixed(0)}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Create Draft PO bar */}
+          {selectedDemandIds.size > 0 && (
+            <div
+              style={{
+                position: "fixed",
+                bottom: 24,
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "white",
+                border: "1px solid #e8e4de",
+                borderRadius: 12,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                padding: "14px 20px",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                zIndex: 30,
+                minWidth: 480,
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: "#0a0a0a", whiteSpace: "nowrap" }}>
+                {selectedDemandIds.size} product{selectedDemandIds.size !== 1 ? "s" : ""} selected
+              </span>
+              <select
+                value={demandDraftSupplier}
+                onChange={(e) => setDemandDraftSupplier(e.target.value)}
+                style={{
+                  flex: 1,
+                  border: "1px solid #e8e4de",
+                  borderRadius: 8,
+                  padding: "7px 10px",
+                  fontSize: 13,
+                  color: "#0a0a0a",
+                  background: "white",
+                }}
+              >
+                <option value="">Select supplier…</option>
+                {suppliers.map((s) => (
+                  <option key={s.supplier_id} value={s.supplier_id}>{s.supplier_name}</option>
+                ))}
+              </select>
+              <button
+                onClick={createDraftPOFromDemand}
+                disabled={demandDraftSaving || !demandDraftSupplier}
+                style={{
+                  background: demandDraftSaving || !demandDraftSupplier ? "#e8e4de" : "#24544a",
+                  color: demandDraftSaving || !demandDraftSupplier ? "#6b6860" : "white",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "8px 18px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: demandDraftSaving || !demandDraftSupplier ? "not-allowed" : "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {demandDraftSaving ? "Creating…" : "Create Draft PO →"}
+              </button>
+              <button
+                onClick={() => setSelectedDemandIds(new Set())}
+                style={{ background: "none", border: "none", color: "#6b6860", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2 }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Table */}
+      {tab !== "demand" && (
       <div
         style={{
           background: "white",
@@ -720,6 +1125,7 @@ export default function ProcurementPage() {
           </tbody>
         </table>
       </div>
+      )}
 
       {/* ── PO Detail Drawer ───────────────────────────────────────────────── */}
       {selectedPO && (
