@@ -1303,7 +1303,8 @@ export default function PackingDetailPage() {
   const returnedLines = lines.filter((l) => l.returned);
   const activeLines = lines.filter((l) => !l.returned);
 
-  // Pair Add New ↔ Remove by position (engine generates matched pairs)
+  // Pair Add New ↔ Remove by SHELF (not by position — position-based pairing
+  // created cross-shelf nonsense like "Remove Loacker A03 → Add KitKat B04").
   const addNewLines = activeLines.filter(
     (l) => l.dispatch_action === "Add New",
   );
@@ -1312,12 +1313,32 @@ export default function PackingDetailPage() {
     (l) => l.dispatch_action !== "Add New" && l.dispatch_action !== "Remove",
   );
 
-  const swapPairs = addNewLines.map((addLine, i) => ({
-    addLine,
-    removeLine: removeLines[i] ?? null,
-  }));
-  // Removes without an Add New partner
-  const standaloneRemoves = removeLines.slice(addNewLines.length);
+  // Group removes by shelf_code so we can pair within the same shelf
+  const removesByShelf = new Map<string, PackLine[]>();
+  for (const rl of removeLines) {
+    const key = rl.shelf_code ?? "__none__";
+    const arr = removesByShelf.get(key) || [];
+    arr.push(rl);
+    removesByShelf.set(key, arr);
+  }
+
+  // Track which removes get paired so we can find standalone ones
+  const pairedRemoveIds = new Set<string>();
+
+  const swapPairs = addNewLines.map((addLine) => {
+    const shelfKey = addLine.shelf_code ?? "__none__";
+    const candidates = removesByShelf.get(shelfKey) || [];
+    // Find the first unpaired remove on the same shelf
+    const removeLine =
+      candidates.find((rl) => !pairedRemoveIds.has(rl.dispatch_id)) ?? null;
+    if (removeLine) pairedRemoveIds.add(removeLine.dispatch_id);
+    return { addLine, removeLine };
+  });
+
+  // Removes without an Add New partner on the same shelf
+  const standaloneRemoves = removeLines.filter(
+    (rl) => !pairedRemoveIds.has(rl.dispatch_id),
+  );
 
   // ── Internal move detection ────────────────────────────────────────────────
   // When the same product appears as REMOVE on one shelf and ADD NEW on
