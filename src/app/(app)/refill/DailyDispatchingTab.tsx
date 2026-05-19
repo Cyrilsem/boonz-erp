@@ -170,7 +170,7 @@ export function DailyDispatchingTab({
     const { data } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!inner(official_name, pod_location, venue_group), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
+        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
       )
       .eq("dispatch_date", queryDate)
       .eq("include", true)

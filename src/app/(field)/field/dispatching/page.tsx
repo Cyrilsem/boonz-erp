@@ -40,7 +40,7 @@ export default function DispatchingPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, picked_up, dispatched, returned, quantity, filled_quantity, expiry_date, machines!inner(official_name, pod_location), shelf_configurations(shelf_code), pod_products(pod_product_name)",
+        "dispatch_id, machine_id, picked_up, dispatched, returned, quantity, filled_quantity, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location), shelf_configurations(shelf_code), pod_products(pod_product_name)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);

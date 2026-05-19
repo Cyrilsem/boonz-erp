@@ -75,7 +75,7 @@ export default function TripsPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, packed, picked_up, dispatched, machines!inner(official_name, pod_location, pod_address)",
+        "dispatch_id, machine_id, packed, picked_up, dispatched, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, pod_address)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);

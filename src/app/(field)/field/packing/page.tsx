@@ -26,7 +26,9 @@ export default function PackingPage() {
 
     const { data: lines } = await supabase
       .from("refill_dispatching")
-      .select("dispatch_id, machine_id, packed, machines!inner(official_name)")
+      .select(
+        "dispatch_id, machine_id, packed, machines!refill_dispatching_machine_id_fkey!inner(official_name)",
+      )
       .eq("dispatch_date", today)
       .eq("include", true);
 

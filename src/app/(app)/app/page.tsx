@@ -95,7 +95,7 @@ export default function AppPage() {
           .from("refill_dispatching")
           .select(
             `dispatch_id, dispatch_date, quantity, filled_quantity,
-             machines!inner(official_name),
+             machines!refill_dispatching_machine_id_fkey!inner(official_name),
              pod_products(pod_product_name)`,
           )
           .eq("dispatched", true)

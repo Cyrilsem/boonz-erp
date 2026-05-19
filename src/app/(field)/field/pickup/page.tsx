@@ -49,7 +49,7 @@ export default function PickupPage() {
         `
         dispatch_id, machine_id, action, packed, picked_up, quantity,
         filled_quantity, dispatched, returned, is_m2m, comment,
-        machines!inner(official_name),
+        machines!refill_dispatching_machine_id_fkey!inner(official_name),
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
       `,
