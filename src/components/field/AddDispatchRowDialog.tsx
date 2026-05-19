@@ -6,10 +6,10 @@ import {
   searchBoonzProducts,
   listWarehouses,
   listActiveMachines,
-  WH_CENTRAL_ID,
   type EditRole,
   type SourceKind,
 } from "@/app/(field)/field/_actions/dispatch-edits";
+import { WH_CENTRAL_ID } from "@/lib/dispatch-constants";
 
 interface Props {
   open: boolean;
@@ -40,7 +40,9 @@ export function AddDispatchRowDialog({
   const [error, setError] = useState<string | null>(null);
 
   const [shelfCode, setShelfCode] = useState(initialShelfCode);
-  const [action, setAction] = useState<"Refill" | "Add New" | "Remove">("Refill");
+  const [action, setAction] = useState<"Refill" | "Add New" | "Remove">(
+    "Refill",
+  );
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<
     { product_id: string; boonz_product_name: string }[]
@@ -166,7 +168,10 @@ export function AddDispatchRowDialog({
               {machineName} · {dispatchDate}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
             ✕
           </button>
         </div>
@@ -228,7 +233,8 @@ export function AddDispatchRowDialog({
           )}
           {selectedProduct && (
             <p className="text-xs text-blue-700">
-              ✓ Selected: {selectedProduct.boonz_product_name} — start typing to change
+              ✓ Selected: {selectedProduct.boonz_product_name} — start typing to
+              change
             </p>
           )}
 
@@ -310,7 +316,9 @@ export function AddDispatchRowDialog({
         </div>
 
         {error && (
-          <p className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          <p className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
         )}
 
         <div className="mt-4 flex justify-end gap-2">

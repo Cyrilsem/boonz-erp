@@ -10,10 +10,10 @@ import {
   searchBoonzProducts,
   listWarehouses,
   listActiveMachines,
-  WH_CENTRAL_ID,
   type EditRole,
   type SourceKind,
 } from "@/app/(field)/field/_actions/dispatch-edits";
+import { WH_CENTRAL_ID } from "@/lib/dispatch-constants";
 
 type EditTab = "qty" | "shelf" | "product" | "source" | "remove";
 
@@ -171,7 +171,10 @@ export function DispatchEditDialog({
               {currentBoonzName} · shelf {currentShelfCode} · {currentQty} units
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
             ✕
           </button>
         </div>
@@ -315,8 +318,9 @@ export function DispatchEditDialog({
         {tab === "remove" && (
           <div className="space-y-3">
             <p className="text-sm text-red-600">
-              This will mark the row as excluded from dispatch (soft-remove). The row
-              persists for audit. WH manager only — must be before driver picks up.
+              This will mark the row as excluded from dispatch (soft-remove).
+              The row persists for audit. WH manager only — must be before
+              driver picks up.
             </p>
           </div>
         )}
@@ -334,7 +338,9 @@ export function DispatchEditDialog({
             />
           </label>
           {error && (
-            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
           )}
           <div className="flex justify-end gap-2">
             <button

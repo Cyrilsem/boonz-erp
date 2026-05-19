@@ -5,7 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type EditRole = "driver" | "warehouse_manager" | "operator_admin" | "superadmin" | "manager";
+export type EditRole =
+  | "driver"
+  | "warehouse_manager"
+  | "operator_admin"
+  | "superadmin"
+  | "manager";
 // SourceKind: only "wh" (Warehouse) and "m2m" (From another machine) are user-pickable.
 // "truck_transfer" and "unknown" remain DB-valid for legacy rows but are no longer exposed in the FE.
 export type SourceKind = "wh" | "m2m";
@@ -48,7 +53,8 @@ export async function editDispatchShelf(input: {
   reason?: string;
   revalidate?: string;
 }): Promise<ActionResult> {
-  if (!input.newShelfCode.trim()) return { ok: false, error: "Shelf code required" };
+  if (!input.newShelfCode.trim())
+    return { ok: false, error: "Shelf code required" };
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("edit_dispatch_shelf", {
     p_dispatch_id: input.dispatchId,
@@ -188,9 +194,6 @@ export async function listWarehouses() {
     .order("name");
   return { ok: !error, data: data ?? [], error: error?.message };
 }
-
-/** WH_CENTRAL UUID — used as the default selection in the source picker. */
-export const WH_CENTRAL_ID = "4bebef68-9e36-4a5c-9c2c-142f8dbdae85";
 
 export async function listActiveMachines() {
   const supabase = await createClient();

@@ -204,7 +204,8 @@ export default function DispatchingDetailPage() {
         } | null;
         const isDispatched = !!line.dispatched;
         const isReturned = !!(line.returned as boolean | null);
-        const driverConfirmed = !!(line as Record<string, unknown>).driver_confirmed_at;
+        const driverConfirmed = !!(line as Record<string, unknown>)
+          .driver_confirmed_at;
         let action: LineAction = null;
         if (isDispatched) action = "added";
         if (isReturned) action = "returned";
@@ -216,13 +217,24 @@ export default function DispatchingDetailPage() {
         // BUG-010 fix #2: auto-populate filled_qty with planned quantity on load
         // so driver only has to edit if reality differs.
         const planned = line.quantity ?? 0;
-        const driverQty = ((line as Record<string, unknown>).driver_confirmed_qty as number | null) ?? null;
-        const filledQtyDefault = driverQty ?? (line.filled_quantity != null && line.filled_quantity > 0 ? line.filled_quantity : planned);
+        const driverQty =
+          ((line as Record<string, unknown>).driver_confirmed_qty as
+            | number
+            | null) ?? null;
+        const filledQtyDefault =
+          driverQty ??
+          (line.filled_quantity != null && line.filled_quantity > 0
+            ? line.filled_quantity
+            : planned);
         return {
           dispatch_id: line.dispatch_id,
-          dispatch_action: ((line.action as string) ?? "Refill") as DispatchAction,
+          dispatch_action: ((line.action as string) ??
+            "Refill") as DispatchAction,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
-          pod_product_id: ((line as Record<string, unknown>).pod_product_id as string | null) ?? null,
+          pod_product_id:
+            ((line as Record<string, unknown>).pod_product_id as
+              | string
+              | null) ?? null,
           shelf_id: (line.shelf_id as string | null) ?? null,
           shelf_code: shelf?.shelf_code ?? null,
           pod_product_name: product?.pod_product_name ?? null,
@@ -241,7 +253,9 @@ export default function DispatchingDetailPage() {
           comment: (line.comment as string | null) ?? "",
           action,
           driver_confirmed: driverConfirmed,
-          driver_added: ((line.comment as string | null) ?? "").startsWith("[DRIVER ADDED]"),
+          driver_added: ((line.comment as string | null) ?? "").startsWith(
+            "[DRIVER ADDED]",
+          ),
         };
       });
       // Resolve boonz_product_name for each line so the driver sees the
@@ -421,36 +435,45 @@ export default function DispatchingDetailPage() {
 
   // BUG-010 #3: load sibling boonz_products for the source line's pod_product
   // via product_mapping. Same pod = same shelf row family (e.g. all YoPro variants).
-  const loadSiblingProducts = useCallback(async (podProductId: string | null) => {
-    if (!podProductId) {
-      setProductOptions([]);
-      return;
-    }
-    setProductSearchLoading(true);
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("product_mapping")
-      .select(
-        `boonz_product_id, status, boonz_products(product_id, boonz_product_name)`,
-      )
-      .eq("pod_product_id", podProductId)
-      .eq("status", "Active");
-    const seen = new Set<string>();
-    const options: Array<{ product_id: string; boonz_product_name: string }> = [];
-    for (const row of data ?? []) {
-      const bp = (row as Record<string, unknown>).boonz_products as {
-        product_id: string;
-        boonz_product_name: string;
-      } | null;
-      if (bp && !seen.has(bp.product_id)) {
-        seen.add(bp.product_id);
-        options.push({ product_id: bp.product_id, boonz_product_name: bp.boonz_product_name });
+  const loadSiblingProducts = useCallback(
+    async (podProductId: string | null) => {
+      if (!podProductId) {
+        setProductOptions([]);
+        return;
       }
-    }
-    options.sort((a, b) => a.boonz_product_name.localeCompare(b.boonz_product_name));
-    setProductOptions(options);
-    setProductSearchLoading(false);
-  }, []);
+      setProductSearchLoading(true);
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("product_mapping")
+        .select(
+          `boonz_product_id, status, boonz_products(product_id, boonz_product_name)`,
+        )
+        .eq("pod_product_id", podProductId)
+        .eq("status", "Active");
+      const seen = new Set<string>();
+      const options: Array<{ product_id: string; boonz_product_name: string }> =
+        [];
+      for (const row of data ?? []) {
+        const bp = (row as Record<string, unknown>).boonz_products as {
+          product_id: string;
+          boonz_product_name: string;
+        } | null;
+        if (bp && !seen.has(bp.product_id)) {
+          seen.add(bp.product_id);
+          options.push({
+            product_id: bp.product_id,
+            boonz_product_name: bp.boonz_product_name,
+          });
+        }
+      }
+      options.sort((a, b) =>
+        a.boonz_product_name.localeCompare(b.boonz_product_name),
+      );
+      setProductOptions(options);
+      setProductSearchLoading(false);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (extraReturnOpen && extraReturnSourceLine?.pod_product_id) {
@@ -460,9 +483,12 @@ export default function DispatchingDetailPage() {
 
   // Insert a sibling Remove row for the multi-variant split case
   async function handleConfirmExtraReturn() {
-    if (!extraReturnSourceLine || !extraReturnSelected || extraReturnQty <= 0) return;
+    if (!extraReturnSourceLine || !extraReturnSelected || extraReturnQty <= 0)
+      return;
     if (!extraReturnExpiry) {
-      alert("Pick an expiry date for this variant so the return can credit warehouse correctly.");
+      alert(
+        "Pick an expiry date for this variant so the return can credit warehouse correctly.",
+      );
       return;
     }
     setExtraReturnAdding(true);
@@ -483,7 +509,7 @@ export default function DispatchingDetailPage() {
       dispatched: false,
       returned: false,
       item_added: false,
-      expiry_date: extraReturnExpiry,  // BUG-010 #3b: stamps expiry so return/receive doesn't hit BUG-007 NULL-expiry guard
+      expiry_date: extraReturnExpiry, // BUG-010 #3b: stamps expiry so return/receive doesn't hit BUG-007 NULL-expiry guard
       comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${extraReturnSelected.boonz_product_name} (exp ${extraReturnExpiry})`,
     });
     if (error) {
@@ -551,7 +577,9 @@ export default function DispatchingDetailPage() {
         // which stamps driver_confirmed_qty WITHOUT yet crediting warehouse_stock
         // or archiving pod_inventory. WH manager approves later in Inventory tab.
         const isRemove = line.dispatch_action === "Remove";
-        const rpcName = isRemove ? "driver_confirm_remove" : "receive_dispatch_line";
+        const rpcName = isRemove
+          ? "driver_confirm_remove"
+          : "receive_dispatch_line";
         const rpcArgs = isRemove
           ? {
               p_dispatch_id: line.dispatch_id,
@@ -732,10 +760,12 @@ export default function DispatchingDetailPage() {
                     // `l.filled_qty || l.quantity` fell back to planned qty when
                     // filled_qty was 0, falsely showing returned items as placed.
                     const addedLines = shelfLines.filter(
-                      (l) => l.dispatch_action !== "Remove" && l.action === "added",
+                      (l) =>
+                        l.dispatch_action !== "Remove" && l.action === "added",
                     );
                     const removedLines = shelfLines.filter(
-                      (l) => l.dispatch_action === "Remove" && l.action === "added",
+                      (l) =>
+                        l.dispatch_action === "Remove" && l.action === "added",
                     );
                     const returnedLines = shelfLines.filter(
                       (l) => l.action === "returned",
@@ -833,11 +863,12 @@ export default function DispatchingDetailPage() {
                                     ×{line.filled_qty}
                                   </span>
                                 )}
-                                {line.expiry_date && line.action !== "returned" && (
-                                  <span className="text-xs text-neutral-400">
-                                    {formatDMY(line.expiry_date)}
-                                  </span>
-                                )}
+                                {line.expiry_date &&
+                                  line.action !== "returned" && (
+                                    <span className="text-xs text-neutral-400">
+                                      {formatDMY(line.expiry_date)}
+                                    </span>
+                                  )}
                               </div>
                             </li>
                           ))}
@@ -1008,312 +1039,327 @@ export default function DispatchingDetailPage() {
       {shelves.map(([shelfCode, shelfLines], idx) => {
         const multi = shelfLines.length > 1;
         // Add (Refill / Add New) totals and Remove totals tracked separately.
-        const addLines = shelfLines.filter((l) => l.dispatch_action !== "Remove");
-        const removeLines = shelfLines.filter((l) => l.dispatch_action === "Remove");
+        const addLines = shelfLines.filter(
+          (l) => l.dispatch_action !== "Remove",
+        );
+        const removeLines = shelfLines.filter(
+          (l) => l.dispatch_action === "Remove",
+        );
         const addPlanned = addLines.reduce((s, l) => s + (l.quantity || 0), 0);
         const addFilled = addLines.reduce((s, l) => s + (l.filled_qty || 0), 0);
-        const removePlanned = removeLines.reduce((s, l) => s + (l.quantity || 0), 0);
+        const removePlanned = removeLines.reduce(
+          (s, l) => s + (l.quantity || 0),
+          0,
+        );
         return (
-        <div
-          key={shelfCode}
-          {...(idx === 0 ? { "data-tour": "dispatch-lines" } : {})}
-          className="mb-4"
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
-              Shelf {shelfCode}
-            </h2>
-            {!isReadOnly && (
-              <button
-                onClick={() => setAddingToShelf(shelfCode ?? "")}
-                title="Add unplanned product to this shelf"
-                className="shrink-0 rounded border border-dashed border-blue-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition-colors hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/30"
-              >
-                + Add product
-              </button>
-            )}
-            {multi && (
-              <div className="flex shrink-0 items-center gap-1.5 text-xs">
-                <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                  Total
-                </span>
-                {addPlanned > 0 && (
-                  <span
-                    className={
-                      addFilled === addPlanned
-                        ? "rounded bg-green-100 px-1.5 py-0.5 font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-300"
-                        : "rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
-                    }
-                    title={
-                      addFilled === addPlanned
-                        ? `Packed ${addFilled} of ${addPlanned} planned across ${addLines.length} variants`
-                        : `Planned ${addPlanned} · packed ${addFilled} so far across ${addLines.length} variants`
-                    }
-                  >
-                    ×{addFilled}
-                    {addFilled !== addPlanned && (
-                      <span className="opacity-70"> / {addPlanned}</span>
-                    )}
-                  </span>
-                )}
-                {removePlanned > 0 && (
-                  <span
-                    className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
-                    title={`Remove ${removePlanned} across ${removeLines.length} variants`}
-                  >
-                    −{removePlanned}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          <ul className="space-y-2">
-            {shelfLines.map((line) => {
-              const expiryStyle = getExpiryStyle(line.expiry_date);
-              const isMixed = line.boonz_product_id
-                ? mixedDateProducts.has(line.boonz_product_id)
-                : false;
-              const invWarning = invWarnings[line.dispatch_id];
-
-              const borderClass =
-                line.action === "added"
-                  ? "border-l-4 border-l-green-400"
-                  : line.action === "returned"
-                    ? "border-l-4 border-l-amber-400"
-                    : "";
-
-              return (
-                <li
-                  key={line.dispatch_id}
-                  className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
+          <div
+            key={shelfCode}
+            {...(idx === 0 ? { "data-tour": "dispatch-lines" } : {})}
+            className="mb-4"
+          >
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+                Shelf {shelfCode}
+              </h2>
+              {!isReadOnly && (
+                <button
+                  onClick={() => setAddingToShelf(shelfCode ?? "")}
+                  title="Add unplanned product to this shelf"
+                  className="shrink-0 rounded border border-dashed border-blue-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition-colors hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/30"
                 >
-                  {/* Product name + expiry + remove (driver-added only) */}
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div className="flex flex-1 items-start gap-2 min-w-0">
-                      <p className="text-sm font-medium">
-                        {line.boonz_product_name ??
-                          line.pod_product_name ??
-                          "Unknown product"}
+                  + Add product
+                </button>
+              )}
+              {multi && (
+                <div className="flex shrink-0 items-center gap-1.5 text-xs">
+                  <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                    Total
+                  </span>
+                  {addPlanned > 0 && (
+                    <span
+                      className={
+                        addFilled === addPlanned
+                          ? "rounded bg-green-100 px-1.5 py-0.5 font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                          : "rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                      }
+                      title={
+                        addFilled === addPlanned
+                          ? `Packed ${addFilled} of ${addPlanned} planned across ${addLines.length} variants`
+                          : `Planned ${addPlanned} · packed ${addFilled} so far across ${addLines.length} variants`
+                      }
+                    >
+                      ×{addFilled}
+                      {addFilled !== addPlanned && (
+                        <span className="opacity-70"> / {addPlanned}</span>
+                      )}
+                    </span>
+                  )}
+                  {removePlanned > 0 && (
+                    <span
+                      className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                      title={`Remove ${removePlanned} across ${removeLines.length} variants`}
+                    >
+                      −{removePlanned}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+            <ul className="space-y-2">
+              {shelfLines.map((line) => {
+                const expiryStyle = getExpiryStyle(line.expiry_date);
+                const isMixed = line.boonz_product_id
+                  ? mixedDateProducts.has(line.boonz_product_id)
+                  : false;
+                const invWarning = invWarnings[line.dispatch_id];
+
+                const borderClass =
+                  line.action === "added"
+                    ? "border-l-4 border-l-green-400"
+                    : line.action === "returned"
+                      ? "border-l-4 border-l-amber-400"
+                      : "";
+
+                return (
+                  <li
+                    key={line.dispatch_id}
+                    className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
+                  >
+                    {/* Product name + expiry + remove (driver-added only) */}
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="flex flex-1 items-start gap-2 min-w-0">
+                        <p className="text-sm font-medium">
+                          {line.boonz_product_name ??
+                            line.pod_product_name ??
+                            "Unknown product"}
+                        </p>
+                        {line.driver_added && (
+                          <span className="shrink-0 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                            Added by driver
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-start gap-1.5">
+                        {/* Phase F edit affordance — driver can correct qty/shelf/product pre-receive */}
+                        {!isReadOnly && line.action !== "added" && (
+                          <button
+                            onClick={() =>
+                              setEditingDispatch({
+                                dispatch_id: line.dispatch_id,
+                                quantity: line.filled_qty || line.quantity,
+                                shelf_code: line.shelf_code ?? "",
+                                boonz_product_name:
+                                  line.boonz_product_name ??
+                                  line.pod_product_name ??
+                                  "—",
+                                source_kind: "unknown",
+                                allowed_tabs: ["qty", "shelf", "product"],
+                              })
+                            }
+                            title="Edit qty / shelf / product"
+                            aria-label="Edit dispatch row"
+                            className="flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                          >
+                            ✎
+                          </button>
+                        )}
+                        {/* BUG-010 #3: × to remove a driver-added variant line before save */}
+                        {line.driver_added && !isReadOnly && (
+                          <button
+                            onClick={() =>
+                              handleRemoveExtraReturn(line.dispatch_id)
+                            }
+                            title="Remove this driver-added variant"
+                            aria-label="Remove this driver-added variant"
+                            className="flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                          >
+                            ✕
+                          </button>
+                        )}
+                        <div className="flex flex-col items-end gap-1">
+                          {/* Expiry: engine flag takes precedence over date-based style */}
+                          {line.expiry_warning === "expired" ? (
+                            <span className="rounded px-1 py-0.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">
+                              ⚠ EXPIRED
+                            </span>
+                          ) : line.expiry_warning === "expiring_soon" ? (
+                            <span className="rounded px-1 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                              ⚠ Expires soon
+                            </span>
+                          ) : line.expiry_date ? (
+                            <span className={`text-xs ${expiryStyle.qtyColor}`}>
+                              {formatDMY(line.expiry_date)}
+                            </span>
+                          ) : null}
+                          {/* Warehouse source badge */}
+                          {line.from_warehouse_name && (
+                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+                              📦 {line.from_warehouse_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isMixed && (
+                      <p className="mb-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                        ⚠ Mixed dates — load oldest first
                       </p>
-                      {line.driver_added && (
-                        <span className="shrink-0 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
-                          Added by driver
+                    )}
+
+                    {invWarning && (
+                      <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
+                        {invWarning}
+                      </p>
+                    )}
+
+                    {/* Qty */}
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-xs text-neutral-500">
+                        Planned: {line.quantity}
+                      </span>
+                      <span className="text-xs text-neutral-400">·</span>
+                      <label className="text-xs text-neutral-500">
+                        Filled:
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={line.filled_qty}
+                        onChange={(e) =>
+                          updateFilledQty(
+                            line.dispatch_id,
+                            parseFloat(e.target.value) || 0,
+                          )
+                        }
+                        disabled={isReadOnly}
+                        className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                      />
+                    </div>
+
+                    {/* Action badge — show planned action type so driver knows what's expected */}
+                    <div className="mb-2 flex items-center gap-2 text-xs">
+                      {line.dispatch_action === "Remove" ? (
+                        <span className="rounded bg-rose-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                          REMOVE
+                        </span>
+                      ) : line.dispatch_action === "Add New" ? (
+                        <span className="rounded bg-purple-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
+                          ADD NEW
+                        </span>
+                      ) : (
+                        <span className="rounded bg-sky-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
+                          REFILL
                         </span>
                       )}
                     </div>
-                    <div className="flex shrink-0 items-start gap-1.5">
-                      {/* Phase F edit affordance — driver can correct qty/shelf/product pre-receive */}
-                      {!isReadOnly && line.action !== "added" && (
+
+                    {/* Action toggle — labels depend on the planned action */}
+                    {!isReadOnly && (
+                      <div className="mb-2 flex gap-2">
                         <button
                           onClick={() =>
-                            setEditingDispatch({
-                              dispatch_id: line.dispatch_id,
-                              quantity: line.filled_qty || line.quantity,
-                              shelf_code: line.shelf_code ?? "",
-                              boonz_product_name:
-                                line.boonz_product_name ?? line.pod_product_name ?? "—",
-                              source_kind: "unknown",
-                              allowed_tabs: ["qty", "shelf", "product"],
-                            })
+                            updateAction(line.dispatch_id, "added")
                           }
-                          title="Edit qty / shelf / product"
-                          aria-label="Edit dispatch row"
-                          className="flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                          className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
+                            line.action === "added"
+                              ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                              : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                          }`}
                         >
-                          ✎
+                          {line.dispatch_action === "Remove"
+                            ? "✓ Removed from machine"
+                            : "✓ Added to machine"}
                         </button>
-                      )}
-                      {/* BUG-010 #3: × to remove a driver-added variant line before save */}
-                      {line.driver_added && !isReadOnly && (
                         <button
-                          onClick={() => handleRemoveExtraReturn(line.dispatch_id)}
-                          title="Remove this driver-added variant"
-                          aria-label="Remove this driver-added variant"
-                          className="flex h-6 w-6 items-center justify-center rounded-full border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                          onClick={() =>
+                            updateAction(line.dispatch_id, "returned")
+                          }
+                          className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
+                            line.action === "returned"
+                              ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                              : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                          }`}
                         >
-                          ✕
+                          {line.dispatch_action === "Remove"
+                            ? "↩ Could not remove"
+                            : "↩ Returned"}
                         </button>
+                        {/* BUG-010 #3: per-line trigger for multi-variant split — only for REMOVE */}
+                        {line.dispatch_action === "Remove" && (
+                          <button
+                            onClick={() => {
+                              setExtraReturnSourceLine({
+                                dispatch_id: line.dispatch_id,
+                                shelf_id: line.shelf_id,
+                                shelf_code: line.shelf_code,
+                                pod_product_id: line.pod_product_id,
+                                pod_product_name: line.pod_product_name,
+                              });
+                              setExtraReturnSelected(null);
+                              setExtraReturnQty(1);
+                              // Default expiry to the source line's expiry if it has one,
+                              // else leave empty so driver must enter from the physical pack
+                              setExtraReturnExpiry(line.expiry_date ?? "");
+                              setExtraReturnOpen(true);
+                            }}
+                            title="Add a sibling variant return (e.g. YoPro Choco + Strawberry alongside Vanilla)"
+                            className="shrink-0 rounded-lg border border-dashed border-rose-300 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                          >
+                            + Add variant
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Return reason (if returned) */}
+                    {line.action === "returned" && !isReadOnly && (
+                      <div className="mb-2">
+                        <label className="mb-0.5 block text-xs text-neutral-500">
+                          Return reason
+                        </label>
+                        <select
+                          value={line.return_reason}
+                          onChange={(e) =>
+                            updateReturnReason(line.dispatch_id, e.target.value)
+                          }
+                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                        >
+                          <option value="">Select reason…</option>
+                          {RETURN_REASONS.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Read-only return reason */}
+                    {line.action === "returned" &&
+                      isReadOnly &&
+                      line.return_reason && (
+                        <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
+                          Reason: {line.return_reason}
+                        </p>
                       )}
-                    <div className="flex flex-col items-end gap-1">
-                      {/* Expiry: engine flag takes precedence over date-based style */}
-                      {line.expiry_warning === "expired" ? (
-                        <span className="rounded px-1 py-0.5 text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400">
-                          ⚠ EXPIRED
-                        </span>
-                      ) : line.expiry_warning === "expiring_soon" ? (
-                        <span className="rounded px-1 py-0.5 text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-                          ⚠ Expires soon
-                        </span>
-                      ) : line.expiry_date ? (
-                        <span className={`text-xs ${expiryStyle.qtyColor}`}>
-                          {formatDMY(line.expiry_date)}
-                        </span>
-                      ) : null}
-                      {/* Warehouse source badge */}
-                      {line.from_warehouse_name && (
-                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-                          📦 {line.from_warehouse_name}
-                        </span>
-                      )}
-                    </div>
-                    </div>
-                  </div>
 
-                  {isMixed && (
-                    <p className="mb-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                      ⚠ Mixed dates — load oldest first
-                    </p>
-                  )}
-
-                  {invWarning && (
-                    <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
-                      {invWarning}
-                    </p>
-                  )}
-
-                  {/* Qty */}
-                  <div className="mb-2 flex items-center gap-2">
-                    <span className="text-xs text-neutral-500">
-                      Planned: {line.quantity}
-                    </span>
-                    <span className="text-xs text-neutral-400">·</span>
-                    <label className="text-xs text-neutral-500">Filled:</label>
+                    {/* Comment */}
                     <input
-                      type="number"
-                      min={0}
-                      value={line.filled_qty}
+                      type="text"
+                      value={line.comment}
                       onChange={(e) =>
-                        updateFilledQty(
-                          line.dispatch_id,
-                          parseFloat(e.target.value) || 0,
-                        )
+                        updateComment(line.dispatch_id, e.target.value)
                       }
                       disabled={isReadOnly}
-                      className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                      placeholder="Add a note…"
+                      className="w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 placeholder:text-neutral-400 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
                     />
-                  </div>
-
-                  {/* Action badge — show planned action type so driver knows what's expected */}
-                  <div className="mb-2 flex items-center gap-2 text-xs">
-                    {line.dispatch_action === "Remove" ? (
-                      <span className="rounded bg-rose-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
-                        REMOVE
-                      </span>
-                    ) : line.dispatch_action === "Add New" ? (
-                      <span className="rounded bg-purple-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-purple-700 dark:bg-purple-950/40 dark:text-purple-400">
-                        ADD NEW
-                      </span>
-                    ) : (
-                      <span className="rounded bg-sky-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
-                        REFILL
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Action toggle — labels depend on the planned action */}
-                  {!isReadOnly && (
-                    <div className="mb-2 flex gap-2">
-                      <button
-                        onClick={() => updateAction(line.dispatch_id, "added")}
-                        className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
-                          line.action === "added"
-                            ? "border-green-400 bg-green-50 text-green-700 dark:bg-green-950/40 dark:text-green-400"
-                            : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                        }`}
-                      >
-                        {line.dispatch_action === "Remove"
-                          ? "✓ Removed from machine"
-                          : "✓ Added to machine"}
-                      </button>
-                      <button
-                        onClick={() =>
-                          updateAction(line.dispatch_id, "returned")
-                        }
-                        className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
-                          line.action === "returned"
-                            ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-                            : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                        }`}
-                      >
-                        {line.dispatch_action === "Remove"
-                          ? "↩ Could not remove"
-                          : "↩ Returned"}
-                      </button>
-                      {/* BUG-010 #3: per-line trigger for multi-variant split — only for REMOVE */}
-                      {line.dispatch_action === "Remove" && (
-                        <button
-                          onClick={() => {
-                            setExtraReturnSourceLine({
-                              dispatch_id: line.dispatch_id,
-                              shelf_id: line.shelf_id,
-                              shelf_code: line.shelf_code,
-                              pod_product_id: line.pod_product_id,
-                              pod_product_name: line.pod_product_name,
-                            });
-                            setExtraReturnSelected(null);
-                            setExtraReturnQty(1);
-                            // Default expiry to the source line's expiry if it has one,
-                            // else leave empty so driver must enter from the physical pack
-                            setExtraReturnExpiry(line.expiry_date ?? "");
-                            setExtraReturnOpen(true);
-                          }}
-                          title="Add a sibling variant return (e.g. YoPro Choco + Strawberry alongside Vanilla)"
-                          className="shrink-0 rounded-lg border border-dashed border-rose-300 px-2.5 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/30"
-                        >
-                          + Add variant
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Return reason (if returned) */}
-                  {line.action === "returned" && !isReadOnly && (
-                    <div className="mb-2">
-                      <label className="mb-0.5 block text-xs text-neutral-500">
-                        Return reason
-                      </label>
-                      <select
-                        value={line.return_reason}
-                        onChange={(e) =>
-                          updateReturnReason(line.dispatch_id, e.target.value)
-                        }
-                        className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
-                      >
-                        <option value="">Select reason…</option>
-                        {RETURN_REASONS.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Read-only return reason */}
-                  {line.action === "returned" &&
-                    isReadOnly &&
-                    line.return_reason && (
-                      <p className="mb-2 text-xs text-amber-600 dark:text-amber-400">
-                        Reason: {line.return_reason}
-                      </p>
-                    )}
-
-                  {/* Comment */}
-                  <input
-                    type="text"
-                    value={line.comment}
-                    onChange={(e) =>
-                      updateComment(line.dispatch_id, e.target.value)
-                    }
-                    disabled={isReadOnly}
-                    placeholder="Add a note…"
-                    className="w-full rounded border border-neutral-200 px-2 py-1 text-xs text-neutral-600 placeholder:text-neutral-400 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400"
-                  />
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         );
       })}
 
@@ -1345,8 +1391,8 @@ export default function DispatchingDetailPage() {
               </button>
             </div>
             <p className="mb-3 text-xs text-neutral-500">
-              Use this when the planned return collapses multiple variants
-              (e.g. plan said 6 YoPro Vanilla but you have 2 Van + 2 Choco + 2 Straw).
+              Use this when the planned return collapses multiple variants (e.g.
+              plan said 6 YoPro Vanilla but you have 2 Van + 2 Choco + 2 Straw).
               Only variants of this shelf&apos;s pod are shown.
             </p>
 
@@ -1361,7 +1407,8 @@ export default function DispatchingDetailPage() {
             {productOptions.length > 0 && (
               <ul className="mb-3 max-h-56 overflow-y-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-950">
                 {productOptions.map((opt) => {
-                  const selected = extraReturnSelected?.product_id === opt.product_id;
+                  const selected =
+                    extraReturnSelected?.product_id === opt.product_id;
                   return (
                     <li key={opt.product_id}>
                       <button
@@ -1481,7 +1528,12 @@ export default function DispatchingDetailPage() {
           currentQty={editingDispatch.quantity}
           currentShelfCode={editingDispatch.shelf_code}
           currentBoonzName={editingDispatch.boonz_product_name}
-          currentSourceKind={editingDispatch.source_kind}
+          currentSourceKind={
+            editingDispatch.source_kind === "wh" ||
+            editingDispatch.source_kind === "m2m"
+              ? editingDispatch.source_kind
+              : undefined
+          }
           editRole="driver"
           allowedTabs={editingDispatch.allowed_tabs}
           revalidate={`/field/dispatching/${machineId}`}

@@ -267,7 +267,9 @@ export default function PackingDetailPage() {
 
     const { data: machineData } = await supabase
       .from("machines")
-      .select("official_name, pod_location, primary_warehouse_id, adyen_store_code")
+      .select(
+        "official_name, pod_location, primary_warehouse_id, adyen_store_code",
+      )
       .eq("machine_id", machineId)
       .single();
 
@@ -770,9 +772,12 @@ export default function PackingDetailPage() {
           null,
         is_m2m: !!((line as Record<string, unknown>).is_m2m as boolean | null),
         m2m_transfer_id:
-          ((line as Record<string, unknown>).m2m_transfer_id as string | null) ?? null,
+          ((line as Record<string, unknown>).m2m_transfer_id as
+            | string
+            | null) ?? null,
         m2m_partner_id:
-          ((line as Record<string, unknown>).m2m_partner_id as string | null) ?? null,
+          ((line as Record<string, unknown>).m2m_partner_id as string | null) ??
+          null,
       };
     });
 
@@ -1551,7 +1556,8 @@ export default function PackingDetailPage() {
         <div className="mb-4 rounded-lg border border-neutral-300 bg-neutral-50 p-3 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
           <p className="font-medium">Already dispatched — repack disabled</p>
           <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-            One or more items for this machine have been dispatched today. Use the Inventory tools to correct any errors.
+            One or more items for this machine have been dispatched today. Use
+            the Inventory tools to correct any errors.
           </p>
         </div>
       )}
@@ -1562,7 +1568,8 @@ export default function PackingDetailPage() {
             <div>
               <p className="font-medium">Machine already packed today</p>
               <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-                Override clears the existing pack (returns stock to warehouse) and starts fresh.
+                Override clears the existing pack (returns stock to warehouse)
+                and starts fresh.
               </p>
             </div>
             <button
@@ -1587,7 +1594,10 @@ export default function PackingDetailPage() {
                 // Backend may refuse via the dispatch-gate (or other RPC-level errors)
                 // by returning a jsonb envelope { status:'error', error:<code>, message }.
                 if (data?.status === "error") {
-                  alert(data?.message ?? `Re-pack refused: ${data?.error ?? "unknown"}`);
+                  alert(
+                    data?.message ??
+                      `Re-pack refused: ${data?.error ?? "unknown"}`,
+                  );
                   return;
                 }
                 alert(
@@ -1678,9 +1688,7 @@ export default function PackingDetailPage() {
                 const isInternalMove = internalMoveAddIds.has(
                   addLine.dispatch_id,
                 );
-                const sourceShelf = internalMoveAddIds.get(
-                  addLine.dispatch_id,
-                );
+                const sourceShelf = internalMoveAddIds.get(addLine.dispatch_id);
 
                 // ── INTERNAL MOVE: product relocating within the machine ──
                 if (isInternalMove) {
@@ -1720,7 +1728,8 @@ export default function PackingDetailPage() {
                         </div>
 
                         <p className="mt-2 text-xs text-teal-600 dark:text-teal-400">
-                          No warehouse packing needed — driver moves product between shelves
+                          No warehouse packing needed — driver moves product
+                          between shelves
                         </p>
 
                         {/* Auto-confirm button (no batch picker) */}
@@ -1739,9 +1748,7 @@ export default function PackingDetailPage() {
                                 : "border-teal-300 bg-teal-600 text-white hover:bg-teal-700 dark:border-teal-800"
                             }`}
                           >
-                            {bothPacked
-                              ? "✓ Move confirmed"
-                              : "✓ Confirm move"}
+                            {bothPacked ? "✓ Move confirmed" : "✓ Confirm move"}
                           </button>
                         )}
                         {isReadOnly && bothPacked && (
@@ -2121,76 +2128,80 @@ export default function PackingDetailPage() {
 
             {/* ── M2M TRANSFER SECTION: info-only cards grouped by transfer ── */}
             {section.key === "m2m" &&
-              Array.from(m2mByTransfer.entries()).map(([tid, transferLines]) => {
-                const removeLine = transferLines.find(
-                  (l) => l.dispatch_action === "Remove",
-                );
-                const addLine = transferLines.find(
-                  (l) =>
-                    l.dispatch_action === "Add New" ||
-                    l.dispatch_action === "Add" ||
-                    l.dispatch_action === "Refill",
-                );
-                // The comment contains the route info (e.g. "M2M: AMZ-1029 → AMZ-1057")
-                const routeLabel =
-                  removeLine?.dispatch_comment ??
-                  addLine?.dispatch_comment ??
-                  "Machine-to-machine transfer";
-                return (
-                  <li
-                    key={tid}
-                    className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-800/40 dark:bg-teal-950/20"
-                  >
-                    <div className="mb-2 flex items-center gap-2">
-                      <span className="rounded bg-teal-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:bg-teal-900/50 dark:text-teal-400">
-                        M2M Transfer
-                      </span>
-                      <span className="text-xs text-neutral-500 dark:text-neutral-400">
-                        {routeLabel}
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      {transferLines.map((tl) => {
-                        const isRemove = tl.dispatch_action === "Remove";
-                        return (
-                          <div
-                            key={tl.dispatch_id}
-                            className="flex items-center gap-2 rounded bg-white/60 px-3 py-2 text-sm dark:bg-neutral-900/40"
-                          >
-                            <span className="font-mono text-xs text-neutral-400 shrink-0">
-                              {tl.shelf_code}
-                            </span>
-                            <span
-                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
-                                isRemove
-                                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
-                                  : "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400"
-                              }`}
+              Array.from(m2mByTransfer.entries()).map(
+                ([tid, transferLines]) => {
+                  const removeLine = transferLines.find(
+                    (l) => l.dispatch_action === "Remove",
+                  );
+                  const addLine = transferLines.find(
+                    (l) =>
+                      l.dispatch_action === "Add New" ||
+                      l.dispatch_action === "Add" ||
+                      l.dispatch_action === "Refill",
+                  );
+                  // The comment contains the route info (e.g. "M2M: AMZ-1029 → AMZ-1057")
+                  const routeLabel =
+                    removeLine?.dispatch_comment ??
+                    addLine?.dispatch_comment ??
+                    "Machine-to-machine transfer";
+                  return (
+                    <li
+                      key={tid}
+                      className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-800/40 dark:bg-teal-950/20"
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="rounded bg-teal-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-teal-700 dark:bg-teal-900/50 dark:text-teal-400">
+                          M2M Transfer
+                        </span>
+                        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                          {routeLabel}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {transferLines.map((tl) => {
+                          const isRemove = tl.dispatch_action === "Remove";
+                          return (
+                            <div
+                              key={tl.dispatch_id}
+                              className="flex items-center gap-2 rounded bg-white/60 px-3 py-2 text-sm dark:bg-neutral-900/40"
                             >
-                              {tl.dispatch_action}
-                            </span>
-                            <span className="flex-1 truncate">
-                              {tl.display_name}
-                            </span>
-                            <span
-                              className={`shrink-0 ml-2 tabular-nums ${
-                                isRemove
-                                  ? "text-rose-600 font-medium"
-                                  : "text-neutral-500"
-                              }`}
-                            >
-                              {isRemove ? `−${tl.recommended_qty}` : `×${tl.recommended_qty}`}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="mt-2 text-xs text-teal-600 dark:text-teal-400">
-                      No packing required — driver handles at machine
-                    </p>
-                  </li>
-                );
-              })}
+                              <span className="font-mono text-xs text-neutral-400 shrink-0">
+                                {tl.shelf_code}
+                              </span>
+                              <span
+                                className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                                  isRemove
+                                    ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
+                                    : "bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400"
+                                }`}
+                              >
+                                {tl.dispatch_action}
+                              </span>
+                              <span className="flex-1 truncate">
+                                {tl.display_name}
+                              </span>
+                              <span
+                                className={`shrink-0 ml-2 tabular-nums ${
+                                  isRemove
+                                    ? "text-rose-600 font-medium"
+                                    : "text-neutral-500"
+                                }`}
+                              >
+                                {isRemove
+                                  ? `−${tl.recommended_qty}`
+                                  : `×${tl.recommended_qty}`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-xs text-teal-600 dark:text-teal-400">
+                        No packing required — driver handles at machine
+                      </p>
+                    </li>
+                  );
+                },
+              )}
 
             {/* ── PACK / REMOVE SECTIONS: individual cards ── */}
             {section.key !== "swap" &&
@@ -2857,11 +2868,7 @@ export default function PackingDetailPage() {
                                 ? "wh"
                                 : "unknown",
                               picked_up: false,
-                              allowed_tabs: [
-                                "qty",
-                                "source",
-                                "remove",
-                              ],
+                              allowed_tabs: ["qty", "source", "remove"],
                             })
                           }
                           title="Edit qty / source / remove"
@@ -2983,7 +2990,12 @@ export default function PackingDetailPage() {
           currentQty={editingDispatch.quantity}
           currentShelfCode={editingDispatch.shelf_code}
           currentBoonzName={editingDispatch.boonz_product_name}
-          currentSourceKind={editingDispatch.source_kind}
+          currentSourceKind={
+            editingDispatch.source_kind === "wh" ||
+            editingDispatch.source_kind === "m2m"
+              ? editingDispatch.source_kind
+              : undefined
+          }
           editRole="warehouse_manager"
           allowedTabs={editingDispatch.allowed_tabs}
           revalidate={`/field/packing/${machineId}`}
