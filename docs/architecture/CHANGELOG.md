@@ -37,6 +37,82 @@ Format:
 
 ---
 
+## 2026-05-19 (afternoon) — Picker v5 sibling score + FE filled-vs-planned fix
+**Phase / Article:** F bugfix / Constitution Articles 4, 12
+
+**Applied to:** prod (DB) + repo (FE)
+**Migration name:** `phaseF_picker_v5_sibling_score`
+
+**Summary:** Two small follow-ups before tomorrow's refill cycle. (1) `pick_machines_for_refill` v5: sibling-only picks were inheriting `priority_score=0` from `with_score` (because their severity computes to `'skip'`), making them invisible in priority-sorted views. v5 computes a soft sibling score in `final_picks` using the half-threshold conditions that pulled the sibling in: `empty_shelves_count>0` → 8, `fill_pct<70` → 6, `days_since_visit>=7` → 5, `expired_skus_7d>0` → 6, `active_intent_count>0` → 5. Max 30, ranks below 'medium' (25) so primary picks always win. Smoke test on 2026-05-20 plan: 23 primary picks, no sibling-only triggered, but the soft-score logic is now in place for when they do appear. Closes task #17 (Phase F day-1 nit).
+
+**FE fix — dispatch-complete summary** (`src/app/(field)/field/dispatching/[machineId]/page.tsx`): the post-save summary was using `(l.filled_qty || l.quantity)` for shelf-total aggregation and per-line render. When `filled_qty=0` (driver returned the line), the `||` fallback to `quantity` falsely displayed the planned units as if they were placed. IFLY 2026-05-19: Fade Fit Hazelnut ×4 + Peanut Butter ×4 showed as "added" when both were returned (only Salted Caramel ×3 + Dark Chocolate ×1 actually went in). Fix: aggregate from `filled_qty` only (no fallback), filter on `line.action === "added"` for add/remove totals, add a new `returnedTotal` shown with `↩` amber badge. Per-line render now distinguishes `↩{quantity}` (returned) from `×{filled_qty}` (placed) from `−{filled_qty}` (removed). `line.action` is correctly re-derived from DB on reload (dispatched=true → "added", returned=true → "returned"). Closes task #75.
+
+**Rollback:**
+```sql
+-- Restore picker v4 body from session transcript at edd21a03 or write_audit_log.
+```
+FE rollback: `git revert` the commit.
+
+---
+
+## 2026-05-19 — Phase F dispatch editing: 6 RPCs + edit_log + source traceability + receive UPSERT
+**Phase / Article:** F / Constitution Articles 1 (revised by Amendment 005), 2, 4, 5, 7, 8, 12, 15
+**Applied to:** prod
+**Migration names:** `phaseF_receive_dispatch_line_upsert_active_pod_row`, `phaseF_dispatch_editing_schema`, `phaseF_dispatch_editing_rpcs`
+
+**Summary:** Three migrations to unblock the driver/WH manager workflow and give them real editing affordances. Driven by two incidents today on VOXMCC-1005 (Ice Tea Peach blocked at A07) and IFLYMCC-1024 (driver loaded 4 Fade Fit Coconut + 10 7up, neither in the dispatch plan; multi-variant Fade Fit returned because driver substituted). Dara designed the schema, Cody approved with 4 revisions, Stax FE design queued for tomorrow.
+
+**Fix #1 — `receive_dispatch_line` UPSERT (`phaseF_receive_dispatch_line_upsert_active_pod_row`).** The recent `idx_pod_inv_active_shelf` unique index (`(machine_id, shelf_id, boonz_product_id) WHERE status='Active'`) was added during MPMCC backfill prep and rejected the straight INSERT in `receive_dispatch_line` whenever a prior Active row existed on the shelf for the same boonz_product. Driver got `Receive failed: duplicate key value violates unique constraint "idx_pod_inv_active_shelf"`. Fix: archive existing Active rows via a CTE (`status='Inactive'`, `removal_reason='merged_into_dispatch_<date>_<dispatch_id>'`), then INSERT the new row with summed `current_stock` and `LEAST(new_expiry, old_expiry)` for FEFO worst-case. Smoke test on the stuck VOX A07 Ice Tea Peach dispatch (3 + 10 = 13 units after merge): old row archived with traceable reason, new row Active with batch_id `MERGED-DISPATCH-2026-05-19`. Driver unblocked.
+
+**Fix #2 — dispatch editing schema (`phaseF_dispatch_editing_schema`).** Eleven new columns on `refill_dispatching`: `original_quantity`, `original_boonz_product_id`, `original_shelf_id` (nullable due to legacy data — 2,824 rows had NULL shelf_id, 646 NULL boonz_product_id, 53 NULL quantity); `edit_count int NOT NULL DEFAULT 0`; `last_edited_by`, `last_edited_by_role`, `last_edited_at`; `source_kind text NOT NULL DEFAULT 'unknown'` (CHECK in `wh | m2m | truck_transfer | unknown`); `source_warehouse_id`, `source_machine_id`; `created_by_edit boolean`. Type-conditional CHECK enforces `source_kind`↔FK consistency (e.g. `m2m` requires `source_machine_id`, `wh` requires `source_warehouse_id`). Backfill: 29,715 rows got `original_quantity = quantity`; 29,388 got real `source_kind` (m2m from `is_m2m=true`, wh from `from_warehouse_id`, else unknown). New protected table `refill_dispatching_edit_log` (Amendment 003 11th entity) with append-only RLS + generic audit trigger. Four new indexes on each table for the FE's hot paths (edited rows per machine, recent activity, per-user audit, edit_kind filter).
+
+**Fix #3 — six new canonical writers (`phaseF_dispatch_editing_rpcs`).** All SECURITY DEFINER, role-gated against actual `user_profiles.role` (the `p_edit_role` parameter is audit-only, not authorization), set `app.via_rpc`/`app.rpc_name`, validate inputs, lock the target row with `SELECT ... FOR UPDATE`, write to `refill_dispatching_edit_log`. State-machine guards per Cody's R1:
+
+| RPC | Allowed when | Audit role parameter accepts |
+|---|---|---|
+| `edit_dispatch_qty(...)` | `item_added=false` | driver, warehouse_manager, operator_admin, superadmin, manager |
+| `edit_dispatch_shelf(...)` | `picked_up=true AND item_added=false` | driver, operator_admin, superadmin, manager (WH manager rejected) |
+| `edit_dispatch_product(...)` | `picked_up=true AND item_added=false` | driver, operator_admin, superadmin, manager. Resolves pod_product_id via machine-aware product_mapping (per-machine wins). |
+| `add_dispatch_row(...)` | always | driver, warehouse_manager, operator_admin, superadmin, manager. Validates shelf exists on planogram; resolves pod_product_id; hard-refuses m2m if source machine has no active pod_inventory > 0 for the product. |
+| `remove_dispatch_row(...)` | `picked_up=false` | warehouse_manager, operator_admin, superadmin, manager (driver rejected). Soft-remove via `include=false`. |
+| `set_dispatch_source(...)` | `item_added=false` | warehouse_manager, operator_admin, superadmin, manager. Same m2m hard-refuse validation. |
+
+`restore_dispatch_row` was rejected by Cody R2 (rewriting `item_added=true` history is dangerous). Post-receive corrections must go through `adjust_pod_inventory` directly with explicit per-row sign-off.
+
+**Amendment 003 expanded (11th entity).** `refill_dispatching_edit_log` appended to the protected entity list. Pending ratification.
+
+**Amendment 005 filed.** Revises Article 1 to allow multiple narrow-concern canonical writers on high-traffic protected entities (`refill_dispatching`, `pod_inventory`, `warehouse_inventory`, `refill_plan_output`). Codifies the precedent that's been operationally true since before Phase A — the literal "exactly one canonical write path" was always shorthand for "no uncontrolled paths." Doc-only commit, no SQL.
+
+**Tomorrow's Stax work.** FE design for driver app + WH packing app to actually use these RPCs. Filed as task #79. Plus task #75 (display planned-vs-filled fix) and #76 (driver substitution UX).
+
+**Rollback:**
+```sql
+-- RPCs
+DROP FUNCTION IF EXISTS public.edit_dispatch_qty(uuid, numeric, text, text, text);
+DROP FUNCTION IF EXISTS public.edit_dispatch_shelf(uuid, text, text, text, text);
+DROP FUNCTION IF EXISTS public.edit_dispatch_product(uuid, uuid, text, text, text);
+DROP FUNCTION IF EXISTS public.add_dispatch_row(uuid, text, uuid, numeric, text, date, text, uuid, uuid, text, text, text);
+DROP FUNCTION IF EXISTS public.remove_dispatch_row(uuid, text, text, text);
+DROP FUNCTION IF EXISTS public.set_dispatch_source(uuid, text, uuid, uuid, text, text, text);
+
+-- Edit log table + RLS + trigger
+DROP TRIGGER IF EXISTS tg_audit_refill_dispatching_edit_log ON public.refill_dispatching_edit_log;
+DROP TABLE IF EXISTS public.refill_dispatching_edit_log;
+
+-- Schema columns (this will fail if any new rows reference them; check first)
+ALTER TABLE public.refill_dispatching
+  DROP COLUMN IF EXISTS original_quantity, DROP COLUMN IF EXISTS original_boonz_product_id,
+  DROP COLUMN IF EXISTS original_shelf_id, DROP COLUMN IF EXISTS edit_count,
+  DROP COLUMN IF EXISTS last_edited_by, DROP COLUMN IF EXISTS last_edited_by_role,
+  DROP COLUMN IF EXISTS last_edited_at, DROP COLUMN IF EXISTS source_kind,
+  DROP COLUMN IF EXISTS source_warehouse_id, DROP COLUMN IF EXISTS source_machine_id,
+  DROP COLUMN IF EXISTS created_by_edit;
+
+-- receive_dispatch_line: restore the pre-UPSERT body from write_audit_log or session transcript.
+```
+
+---
+
 ## 2026-05-18 (PM) — Phase F bugfix: machine-aware product_mapping JOINs
 **Phase / Article:** F bugfix / Constitution Articles 1, 12
 

@@ -13,6 +13,8 @@ This folder is the canonical reference for the Boonz backend reform. Every docum
 | `05_a3_before_after.html` | Side-by-side dashboard of what A3 created (`write_audit_log` ledger + `audit_log_write()` trigger fn). | Reference |
 | `06_amendment_001_appendix_a_reconciliation.md` | Article 15 amendment: reconcile Constitution Appendix A names with the live schema. Filed after A.4 install discovered 6 ghost names. | Draft (pending ratification) |
 | `07_amendment_002_article_6_propose_then_confirm.md` | Article 15 amendment: revise Article 6 (warehouse_inventory.status manager-only) to a propose-then-confirm pattern. Adds `warehouse_inventory_status_proposal` to Appendix A. Filed 2026-05-04 alongside Phase 1 of refill-app issues fix. | Draft (pending ratification) |
+| `08_amendment_003_phase_f_protected_entities.md` | Article 15 amendment: add 11 Phase F tables to Appendix A — `machines_to_visit`, `pod_refills`, `pod_swaps`, `pod_refill_plan`, `pod_refill_plan_audit`, `strategic_machine_tags`, `strategic_intent_threats`, `correlation_pod_per_machine`, `correlation_pod_per_loc_type`, `pod_inventory_drift_proposal` (added 2026-05-18), `refill_dispatching_edit_log` (added 2026-05-19). Filed 2026-05-18, last amended 2026-05-19. | Draft (pending ratification) |
+| `09_amendment_005_narrow_concern_canonical_writers.md` | Article 15 amendment: revise Article 1 to allow multiple canonical writers on high-traffic protected entities (`refill_dispatching`, `pod_inventory`, `warehouse_inventory`, `refill_plan_output`) under a narrow-concern criterion. Codifies de-facto precedent. Filed 2026-05-19 alongside dispatch editing migration (Cody R3). | Draft (pending ratification) |
 | `CHANGELOG.md` | Human-readable running log of every architecture-level edit (what / when / why / rollback). | Living |
 | `MIGRATIONS_REGISTRY.md` | Index of all Supabase migrations applied as part of this reform, mapped back to the Constitution article they enforce. | Living |
 | `RPC_REGISTRY.md` | The 25 canonical writers, 7 read-only helpers, 3 audit/system, 3 trigger-only, plus the deprecation list. The classification that drives Phase A.5. | Living |
@@ -50,4 +52,4 @@ This folder is the canonical reference for the Boonz backend reform. Every docum
 - Code repo: this repo, `boonz-erp/`
 - The Cody skill (CTO advisor): `/.claude/skills/cody/SKILL.md` (in user-level skills dir, not committed here)
 
-— Last updated: 2026-04-26
+— Last updated: 2026-05-19 (Phase F dispatch editing — 6 RPCs + edit log + source tracking; Amendment 003 expanded to 11 entities; Amendment 005 filed)

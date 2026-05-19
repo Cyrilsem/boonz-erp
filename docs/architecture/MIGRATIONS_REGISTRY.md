@@ -75,6 +75,38 @@ Gen 3 conductor (`boonz-master-3`) lands as the single natural-language interfac
 
 **Data hygiene.** `UPDATE machines SET include_in_refill=false WHERE official_name='WH1-2002-0000-W0'` — warehouse facility shouldn't be in the refill route.
 
+### F.dispatch_edit (2026-05-19) — Driver / WH manager editing on refill_dispatching
+
+Following the VOX A07 Ice Tea collision and IFLY-1024 Coconut/7up incident, three migrations to (a) fix `receive_dispatch_line` against the active-shelf unique index, (b) extend `refill_dispatching` with editing + source-traceability columns, (c) add 6 canonical edit writers. Dara-designed, Cody-revised (4 revisions: state-machine guards in RPCs, restore_dispatch_row rejected, Amendment 003 expanded, Amendment 005 filed).
+
+| Migration name | Article(s) | Status | Applied | Notes |
+|---|---|---|---|---|
+| `phaseF_receive_dispatch_line_upsert_active_pod_row` | 1, 4, 8, 12 | ✅ Applied | 2026-05-19 | `receive_dispatch_line` Refill/Add New / Add path now archives existing Active pod_inventory row(s) for the same (machine, shelf, boonz_product) via a CTE, sums their `current_stock`, takes MIN expiration_date for FEFO worst-case, then INSERTs the merged row. Fixes the `idx_pod_inv_active_shelf` UNIQUE conflict that blocked drivers refilling shelves with leftover stock. Smoke test on VOX A07 Ice Tea Peach (3 + 10 = 13 units after merge, old row Inactive with `merged_into_dispatch_*` reason). |
+| `phaseF_dispatch_editing_schema` | 1, 2, 7, 8, 12, 15 | ✅ Applied | 2026-05-19 | 11 new columns on `refill_dispatching`: `original_quantity / original_boonz_product_id / original_shelf_id` (nullable; legacy data has NULLs); `edit_count int DEFAULT 0`; `last_edited_by / last_edited_by_role / last_edited_at`; `source_kind text DEFAULT 'unknown'`; `source_warehouse_id / source_machine_id`; `created_by_edit boolean`. Type-conditional `source_consistency` CHECK (NOT VALID so legacy passes). 5 FKs (boonz / shelf / user_profiles / warehouses / machines) with appropriate ON DELETE rules. Backfill: 29,715 rows got `original_quantity = quantity`; 29,388 got real `source_kind`. New protected table `refill_dispatching_edit_log` with append-only RLS + generic audit trigger. 4 partial indexes per table for FE hot paths. Amendment 003 expanded to 11 entities. |
+| `phaseF_dispatch_editing_rpcs` | 1, 4, 5, 7, 8, 12 | ✅ Applied | 2026-05-19 | Six new canonical writers: `edit_dispatch_qty`, `edit_dispatch_shelf` (driver-only), `edit_dispatch_product` (driver-only), `add_dispatch_row`, `remove_dispatch_row` (WH-manager-only), `set_dispatch_source`. All SECURITY DEFINER, role check against `user_profiles.role` (not parameter), set `app.via_rpc` / `app.rpc_name` GUCs, validate inputs (FK existence, enum, range), `SELECT FOR UPDATE` on target row, state-machine guards per Cody R1 (item_added=false universally; picked_up=true for driver edits; picked_up=false for remove). M2M source hard-refuses if source machine has no Active pod_inventory > 0 for the product (per Cody open question). `restore_dispatch_row` rejected by Cody R2 — rewriting `item_added=true` history is dangerous; post-receive corrections go through `adjust_pod_inventory` instead. |
+| `phaseF_picker_v5_sibling_score` | 4, 12 | ✅ Applied | 2026-05-19 | Sibling-only picks in `pick_machines_for_refill` were inheriting `priority_score=0` from `with_score` (severity='skip'). v5 computes a soft sibling score in `final_picks` using the half-threshold conditions that pulled the sibling in: empty_shelves_count>0 → 8, fill_pct<70 → 6, days_since_visit>=7 → 5, expired_skus_7d>0 → 6, active_intent_count>0 → 5. Max 30, ranks below 'medium' (25). Closes task #17. |
+
+**Amendment 005 filed** (`09_amendment_005_narrow_concern_canonical_writers.md`) — revises Article 1 to allow multiple narrow-concern canonical writers on high-traffic protected entities. Doc-only commit, no SQL. Pending CS ratification.
+
+### F.0 day 3 PM (2026-05-18) — Machine-aware product_mapping JOIN fixes
+
+Discovered during the reconciler design pass: `product_mapping` is correctly modeled as per-machine (38 machines × ~140 products = ~5,500 rows; UNIQUE constraint on `(pod_product_id, boonz_product_id, machine_id)` enforces correctness), but production queries that JOIN pm without scoping on `machine_id` silently fan out by N× where N = per-machine mappings for the SKU (~24× average). Two HIGH-severity fixes shipped; three MEDIUM/LOW queued for tomorrow.
+
+| Migration name | Article(s) | Status | Applied | Notes |
+|---|---|---|---|---|
+| `phaseF_fix_v_warehouse_pod_rollup_machine_aware_dedupe` | 12 | ✅ Applied | 2026-05-18 | View definition rewrite. Subquery `pm_distinct AS (SELECT DISTINCT pod_product_id, boonz_product_id FROM product_mapping WHERE status='Active')` before the join to warehouse_inventory. `total_stock` no longer multiplied by per-machine pm count. Before/after on 10 high-mapping pods: every value dropped exactly 24× (e.g. Soft Drinks Mix 3,216→134; Vitamin Well 1,200→48). Downstream consumers (`engine_add_pod` wh_avail cap, `engine_swap_pod` `wpr.total_stock>0` filter, ops queries) automatically pick up correct numbers. SECURITY INVOKER view, no DEFINER changes — no Cody review needed. |
+| `phaseF_stitch_v8_machine_aware_pm_joins` | 1, 4, 12 | ✅ Applied | 2026-05-18 | Two CTEs inside `stitch_pod_to_boonz` fixed. **`remove_lines`**: switched `JOIN public.product_mapping pm ON pm.boonz_product_id=pil.boonz_product_id AND pm.pod_product_id=a.pod_product_id AND pm.status='Active'` to an `EXISTS` clause with `(pm.machine_id IS NULL OR pm.machine_id = a.machine_id)` — no fan-out, just a filter validating the pod→boonz mapping. **`demand`** (procurement alerts): added `DISTINCT ON (plan_date, machine_id, shelf_id, pod_product_id, pm.boonz_product_id) ORDER BY (pm.machine_id = prp.machine_id) DESC NULLS LAST, pm.is_global_default DESC` so per-machine wins over global when both match. `pull_raw` and `m_raw` were already machine-aware (use the same ROW_NUMBER pattern from Phase F day 2) and left unchanged. Engine version flipped `v7_sequential_redist` → `v8_machine_aware_pm`. Smoke test against the 2026-05-12 approved plan: 265 lines built, 38 deviations, 47 procurement alerts, 1.1s. |
+
+**Tasks queued for tomorrow (not yet applied):**
+
+| Task | Severity | Target |
+|---|---|---|
+| #72 — `engine_swap_pod` qty subqueries | MEDIUM | Pass 1 + Pass 2 qty_out/qty_in subqueries do `JOIN v_pod_inventory_latest ⋈ product_mapping` without machine scoping. Inflates the SUM. |
+| #73 — `find_substitutes_for_shelf` | MEDIUM (display) | wh_stock_units column returned to CS/FE is inflated by same fanout. |
+| #17 — sibling-only picks `priority_score=0` | LOW | Phase F day 1 nit. Sibling pass doesn't re-score; minor display issue. |
+
+**What this changes in production going forward.** `engine_add_pod` will hit `clamp_reason='capped_by_wh'` correctly on tight-stock products (was previously rare because wh_avail was 24× inflated). Cross-fleet allocations stop exceeding real WH. Stitch REMOVE/M2W output drops from N× duplicates to 1× per (shelf, boonz variant). Procurement alerts sharpen and stop double-counting.
+
 ## D.M2M — Machine-to-machine transfers (2026-05-18)
 
 Native M2M infrastructure replacing the broken Remove+Add New comment-based hack. Dara-designed (columns on refill_dispatching, not a new table), Cody-reviewed (4 revisions), Stax UX-designed (separate M2M section in packing FE with acknowledgment flow).
