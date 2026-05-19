@@ -124,6 +124,10 @@ type MachineHealth = {
   machine_strategy: string;
   dead_stock_count: number;
   local_hero_count: number;
+  days_since_visit: number | null;
+  pending_swap_count: number;
+  is_picked_tomorrow: boolean;
+  picker_reasons: string[] | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -209,15 +213,20 @@ function strategyTooltip(strategy: string | null): string {
   return strategy;
 }
 
-const tierColors: Record<string, { card: string; bar: string }> = {
-  critical: { card: "bg-red-50 border-red-300", bar: "bg-red-400" },
-  warning: { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" },
-  healthy: { card: "bg-green-50 border-green-200", bar: "bg-green-400" },
-  excluded: {
-    card: "bg-gray-50 border-gray-200 opacity-50",
-    bar: "bg-gray-200",
-  },
-};
+function labelCardColors(label: string): { card: string; bar: string } {
+  if (label.includes("Zombie"))
+    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (label.includes("At Risk"))
+    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
+  if (label.includes("Ramp-Up"))
+    return { card: "bg-blue-50 border-blue-300", bar: "bg-blue-400" };
+  if (label.includes("Star"))
+    return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
+  if (label.includes("Stable"))
+    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  // excluded / unknown fallback
+  return { card: "bg-gray-50 border-gray-200 opacity-50", bar: "bg-gray-200" };
+}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -545,6 +554,20 @@ export default function RefillPage() {
   );
 
   const sortedMachines = useMemo(() => {
+    const labelOrder: Record<string, number> = {
+      Zombie: 0,
+      "At Risk": 1,
+      "Ramp-Up": 2,
+      Star: 3,
+      Stable: 4,
+    };
+    const labelRank = (label: string): number => {
+      for (const key of Object.keys(labelOrder)) {
+        if (label.includes(key)) return labelOrder[key];
+      }
+      return 99;
+    };
+
     const sorted = [...machineHealth];
     switch (sortBy) {
       case "stock":
@@ -562,7 +585,9 @@ export default function RefillPage() {
         break;
       default:
         sorted.sort(
-          (a, b) => a.health_sort - b.health_sort || a.fill_pct - b.fill_pct,
+          (a, b) =>
+            labelRank(a.machine_health_label) - labelRank(b.machine_health_label) ||
+            a.fill_pct - b.fill_pct,
         );
     }
     return sorted.sort((a, b) => {
@@ -577,7 +602,16 @@ export default function RefillPage() {
   const tierCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const m of machineHealth) {
-      counts[m.health_tier] = (counts[m.health_tier] ?? 0) + 1;
+      const label = m.machine_health_label ?? "Unknown";
+      // Normalize: extract the base label (Zombie, At Risk, Ramp-Up, Star, Stable)
+      let key = "Other";
+      if (label.includes("Zombie")) key = "Zombie";
+      else if (label.includes("At Risk")) key = "At Risk";
+      else if (label.includes("Ramp-Up")) key = "Ramp-Up";
+      else if (label.includes("Star")) key = "Star";
+      else if (label.includes("Stable")) key = "Stable";
+      else if (m.health_tier === "excluded") key = "Excluded";
+      counts[key] = (counts[key] ?? 0) + 1;
     }
     return counts;
   }, [machineHealth]);
@@ -1151,24 +1185,34 @@ export default function RefillPage() {
                   Machine health
                 </h2>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  {tierCounts.critical != null && (
+                  {tierCounts["Zombie"] != null && (
                     <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">
-                      {tierCounts.critical} critical
+                      {tierCounts["Zombie"]} zombie
                     </span>
                   )}
-                  {tierCounts.warning != null && (
+                  {tierCounts["At Risk"] != null && (
                     <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                      {tierCounts.warning} warning
+                      {tierCounts["At Risk"]} at risk
                     </span>
                   )}
-                  {tierCounts.healthy != null && (
+                  {tierCounts["Ramp-Up"] != null && (
+                    <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                      {tierCounts["Ramp-Up"]} ramp-up
+                    </span>
+                  )}
+                  {tierCounts["Star"] != null && (
                     <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
-                      {tierCounts.healthy} healthy
+                      {tierCounts["Star"]} star
                     </span>
                   )}
-                  {tierCounts.excluded != null && (
+                  {tierCounts["Stable"] != null && (
+                    <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">
+                      {tierCounts["Stable"]} stable
+                    </span>
+                  )}
+                  {tierCounts["Excluded"] != null && (
                     <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">
-                      {tierCounts.excluded} excluded
+                      {tierCounts["Excluded"]} excluded
                     </span>
                   )}
                 </div>
@@ -1204,7 +1248,9 @@ export default function RefillPage() {
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
               {sortedMachines.map((m) => {
-                const tc = tierColors[m.health_tier] ?? tierColors.excluded;
+                const tc = m.health_tier === "excluded"
+                  ? { card: "bg-gray-50 border-gray-200 opacity-50", bar: "bg-gray-200" }
+                  : labelCardColors(m.machine_health_label ?? "");
 
                 return (
                   <button
@@ -1213,14 +1259,19 @@ export default function RefillPage() {
                     onClick={() => setSelectedMachine(m.machine_name)}
                     className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
                   >
-                    {/* Health label badge */}
-                    {m.machine_health_label && (
-                      <div
-                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded mb-1 inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
-                      >
-                        {m.machine_health_label}
-                      </div>
-                    )}
+                    {/* Health label badge + picked-tomorrow indicator */}
+                    <div className="flex items-center gap-1 mb-1">
+                      {m.machine_health_label && (
+                        <div
+                          className={`text-[9px] font-semibold px-1.5 py-0.5 rounded inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
+                        >
+                          {m.machine_health_label}
+                        </div>
+                      )}
+                      {m.is_picked_tomorrow && (
+                        <span title="Picked for tomorrow" className="text-[11px] leading-none">🎯</span>
+                      )}
+                    </div>
                     <div className="mb-0.5">
                       <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
                         {m.machine_name}
@@ -1245,8 +1296,18 @@ export default function RefillPage() {
                         style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
                       />
                     </div>
-                    {/* Quick stats: velocity + dead/hero */}
+                    {/* Quick stats: runway + visit + velocity + dead/hero + swaps */}
                     <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
+                      {m.days_until_empty != null && m.days_until_empty < 999 && (
+                        <span className={m.days_until_empty <= 3 ? "text-red-600 font-medium" : ""}>
+                          {m.days_until_empty}d runway
+                        </span>
+                      )}
+                      {m.days_since_visit != null && (
+                        <span className={m.days_since_visit >= 7 ? "text-amber-600 font-medium" : ""}>
+                          {m.days_since_visit}d ago
+                        </span>
+                      )}
                       {m.daily_velocity > 0 && (
                         <span>↗ {m.daily_velocity.toFixed(1)}/day</span>
                       )}
@@ -1263,12 +1324,17 @@ export default function RefillPage() {
                       {m.slots_at_zero > 0 && (
                         <span
                           className={
-                            m.health_tier === "critical"
+                            m.machine_health_label?.includes("Zombie")
                               ? "text-red-600 font-medium"
                               : ""
                           }
                         >
                           {m.slots_at_zero} empty
+                        </span>
+                      )}
+                      {m.pending_swap_count > 0 && (
+                        <span className="text-purple-600 font-medium">
+                          📌 {m.pending_swap_count} swaps
                         </span>
                       )}
                     </div>
