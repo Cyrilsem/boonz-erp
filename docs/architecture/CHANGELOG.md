@@ -37,6 +37,44 @@ Format:
 
 ---
 
+## 2026-05-18 (PM) — Phase F bugfix: machine-aware product_mapping JOINs
+**Phase / Article:** F bugfix / Constitution Articles 1, 12
+
+**Applied to:** prod
+**Migration names:** `phaseF_fix_v_warehouse_pod_rollup_machine_aware_dedupe`, `phaseF_stitch_v8_machine_aware_pm_joins`
+
+**Summary:** Discovered during the Phase F reconciler design pass: production code that JOINs `pod_inventory` (or `warehouse_inventory`) to `product_mapping` was not scoping by `machine_id`. `product_mapping` is correctly modeled as per-machine — 38 machines × ~140 products = ~5,500 rows seeded 2026-03-21 — and the existing UNIQUE constraint on `(pod_product_id, boonz_product_id, machine_id)` enforces correctness. **The data is fine.** Production *queries*, however, were silently fanning out by N× (N = per-machine mappings for the SKU, ~24× on average) wherever they joined pm without filtering on machine_id. This inflated `wh_avail` in Stage 2a, produced duplicate REMOVE lines in Stage 3 Stitch, and was masking real WH shortage all the way back to Phase F day 1. Two fixes shipped this afternoon; three more queued for tomorrow.
+
+**Fix #1 — `v_warehouse_pod_rollup`.** View previously did `JOIN warehouse_inventory wi ⋈ product_mapping pm ... GROUP BY pm.pod_product_id` with no dedupe on pm. SUM(`wi.warehouse_stock`) was multiplied by the count of per-machine pm rows for each boonz_product. Fix: subquery `pm_distinct AS (SELECT DISTINCT pod_product_id, boonz_product_id FROM product_mapping WHERE status='Active')` before the join. Before/after measurement across 10 high-mapping products (Soft Drinks Mix, Krambals & Zigi, Krambals, Tamreem Date Ball, Al Ain Water, Pepsi Mix, Pepsi Black, Chocolate Bar, Snack Bar, Vitamin Well): each dropped from a number in the 1,200–3,200 range to a number in the 48–134 range — exactly 24× reduction in every case, matching the per-machine seeding factor. Vitamin Well went from "1,200 units fleet-wide" (looked comfortable) to "48 units, earliest_active_expiry 2026-06-07" (tight, three weeks). Downstream consumers (`engine_add_pod` wh_avail cap, `engine_swap_pod` Pass 2 filter `wpr.total_stock > 0`, any ops query reading total_stock) automatically pick up the correct numbers.
+
+**Fix #2 — `stitch_pod_to_boonz` v8.** Two CTEs inside the function had the same JOIN pattern. **(a) `remove_lines`** joined `v_pod_inventory_latest ⋈ product_mapping` without machine scoping, fanning REMOVE/M2W output by N×. Switched the pm join to an `EXISTS` clause with `(pm.machine_id IS NULL OR pm.machine_id = a.machine_id)` — no fan-out, just a filter proving the boonz→pod mapping is valid. **(b) `demand`** (procurement-alert CTE) already had machine scoping but no ROW_NUMBER dedupe — double-counted when both per-machine and global pm rows matched. Added `DISTINCT ON (plan_date, machine_id, shelf_id, pod_product_id, pm.boonz_product_id) ... ORDER BY (pm.machine_id = prp.machine_id) DESC NULLS LAST, pm.is_global_default DESC` to keep one pm row per (prp_row, boonz_product), preferring per-machine over global. `pull_raw` and `m_raw` were already correct (use the same ROW_NUMBER pattern) — left unchanged. Smoke test against the 2026-05-12 approved plan: 265 lines built, 38 deviations, 47 procurement alerts, 1.1s. Function version flipped from `v7_sequential_redist` to `v8_machine_aware_pm`.
+
+**Three more fixes queued (tasks #72, #73, #17).** `engine_swap_pod` qty subqueries (MEDIUM — same fanout in Pass 1/Pass 2 qty_out/qty_in), `find_substitutes_for_shelf` wh_stock_units (MEDIUM — display only, inflates the WH stock column shown to CS in the substitute search), and the sibling-priority-score=0 nit (LOW — Phase F day 1 todo). Deferred to allow observation of tomorrow's first refill cycle running on the fixed views.
+
+**What this changes in production going forward.**
+- `engine_add_pod` will hit `clamp_reason='capped_by_wh'` on products with real WH constraints (was previously rare because wh_avail was 24× inflated). Expect smaller REFILL qtys on tight-stock products.
+- Cross-fleet allocations will no longer exceed real WH. Stitch deviations should drop and procurement alerts should sharpen.
+- REMOVE/M2W stitched output drops from N× duplicates to 1× per (shelf, boonz variant). Past stitched plans that included REMOVE lines may have had wasted-CPU duplicates downstream; new plans are clean.
+
+**Rollback:**
+```sql
+-- Restore the pre-fix view body
+CREATE OR REPLACE VIEW public.v_warehouse_pod_rollup AS
+ SELECT pm.pod_product_id,
+    sum(wi.warehouse_stock)::integer AS total_stock,
+    count(DISTINCT wi.wh_inventory_id) FILTER (WHERE wi.status = 'Active'::text AND wi.warehouse_stock > 0::numeric) AS active_batches,
+    min(wi.expiration_date) FILTER (WHERE wi.status = 'Active'::text AND wi.warehouse_stock > 0::numeric) AS earliest_active_expiry
+   FROM product_mapping pm
+     JOIN warehouse_inventory wi ON wi.boonz_product_id = pm.boonz_product_id
+  WHERE pm.status = 'Active'::text AND wi.status = 'Active'::text
+  GROUP BY pm.pod_product_id;
+
+-- Restore stitch_pod_to_boonz to v7 — body retrievable from write_audit_log payload or
+-- session transcript at edd21a03.
+```
+
+---
+
 ## 2026-05-18 — Phase F day-3: Conductor, Gate 0, Edit RPCs, Picker v2/v3, MPMCC backfill
 **Phase / Article:** F (Conductor + Gate 0) + bugfix / Constitution Articles 1, 2, 4, 7, 8, 12
 
@@ -94,6 +132,37 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 --   * UPDATE pod_inventory SET status='Inactive', removal_reason='rollback_backfill_2026-05-18'
 --     WHERE batch_id ILIKE 'DISPATCH-2026-05-14%';
 --   No clean way to undo Pepsi pod_inventory inactivation without finding original rows.
+```
+
+---
+
+## 2026-05-19 — v_live_shelf_stock duplicate shelf rows — 3-layer fix
+**Phase / Article:** E bugfix / Constitution Articles 1, 4, 12, 14
+**Applied to:** prod
+**Migration names:** `phaseE_v_live_shelf_stock_dedup_layer1`, `phaseE_dedup_product_name_conventions_and_unique`
+
+**Summary:** Aisle-info modal on `/app/machines/[id]` rendered shelves repeated 6× (ACTIVATEMCC-1037 A15/A16 each showed "Evian 1L 2/6" six times). Fleet-wide sweep found 39 affected shelf rows across 8 machines, 26 products, 79 phantom rows total. Two independent fan-out sources, fixed in three layers.
+
+**Cause A — `product_name_conventions` duplicate rows.** Table had no `UNIQUE (original_name, official_name)` constraint. An upstream re-runner (n8n or migration script) had been re-inserting the same name-mapping pairs since 2026-03 — 1017 total rows reduced to 174 distinct pairs (843 duplicate rows). When a WEIMI shelf row's `goods_name_raw` lacked an exact match in `pod_products` (Evian 1L → "Evian - 1L", Coco Max - Regular → "Coco Max", M&M bag → "M&M Bags", Oreo Minis → "Oreo Mini"), the view's tier3 JOIN multiplied output by 6×.
+
+**Cause B — `weimi_device_status` alternate machine_ids.** ALJLT-1015, JET-1016, LLFP-2005 each had snapshots under two `machine_id`s (current + historic from a repurpose era). The view's `DISTINCT ON (machine_id)` preserved both, leaking 2× rows.
+
+**Layer 1 fix (`phaseE_v_live_shelf_stock_dedup_layer1`).** `CREATE OR REPLACE VIEW v_live_shelf_stock`. Two changes: (1) `latest_snapshots` CTE now uses `DISTINCT ON (device_name)` ORDER BY snapshot_at DESC so alternate-machine_id rows collapse to the freshest. (2) Final SELECT wraps the tier-union in `DISTINCT ON (machine_id, cabinet_index, layer_label, slot_name)` ORDER BY snapshot_at DESC + match_method preference (direct > case_insensitive > conventions > unmatched) so any residual fan-out collapses to one row per physical slot, freshest first. DISTINCT can only reduce rows — engine consumers (Picker v4, Engine v7, Stitch v9 deployed 2026-05-19) now see correct stock counts where they were previously inflated by 6× or 2× on affected shelves. Verified `SELECT COUNT(*) FROM (… GROUP BY machine_name, slot_name, goods_name_raw HAVING COUNT(*)>1)` returns 0 fleet-wide.
+
+**Layer 2 + 3 fix (`phaseE_dedup_product_name_conventions_and_unique`).** Single migration that (a) deletes 843 duplicate `product_name_conventions` rows keeping the earliest `created_at` per (original_name, official_name) pair via `ROW_NUMBER() OVER PARTITION BY ... ORDER BY created_at ASC, id::text ASC`, and (b) adds `UNIQUE (original_name, official_name)` constraint so future re-runners get a `unique_violation` instead of silently growing the table. Attributed via `app.rpc_name='phaseE_dedup_product_name_conventions'` so universal audit captured the DELETE. Negative test confirmed the constraint blocks re-insert of an existing pair.
+
+**Weimi orphan-snapshot delete deliberately skipped.** The "orphan" machine_ids are alternate entries for the same physical device — they have forensic value for lifecycle and repurpose-era attribution. Layer 1 view-level dedup is sufficient; deleting weimi history would harm `machine_terminal_history` lineage with zero FE/engine benefit.
+
+**Downstream impact assessment.** Engine code paths reading `v_live_shelf_stock` (Picker, Engine ADD/SWAP, Stitch) previously saw inflated stock readings for the 26 affected products. The view fix is monotonic-decreasing in row count — no engine logic can break from receiving fewer rows. Any logic relying on the inflation was already producing wrong numbers; it now produces correct ones.
+
+**Rollback:**
+```sql
+-- Layer 2/3 (data cleanup is irreversible; constraint can be dropped):
+ALTER TABLE public.product_name_conventions DROP CONSTRAINT product_name_conventions_pair_unique;
+-- Layer 1 (revert view to pre-fix tier definitions):
+-- Re-create v_live_shelf_stock from the pg_get_viewdef snapshot at b35c86de era
+-- (saved in session transcript). NOT recommended — pre-fix view was producing
+-- silently wrong data.
 ```
 
 ---
