@@ -6,6 +6,7 @@ import {
   searchBoonzProducts,
   listWarehouses,
   listActiveMachines,
+  WH_CENTRAL_ID,
   type EditRole,
   type SourceKind,
 } from "@/app/(field)/field/_actions/dispatch-edits";
@@ -51,12 +52,14 @@ export function AddDispatchRowDialog({
   const [quantity, setQuantity] = useState<number>(1);
   const [sourceKind, setSourceKind] = useState<SourceKind>("wh");
   const [warehouses, setWarehouses] = useState<
-    { warehouse_id: string; name: string; code: string }[]
+    { warehouse_id: string; name: string; display_name?: string | null }[]
   >([]);
-  const [machines, setMachines] = useState<
+  // Full active-machines list (incl. current). We filter at render time depending on action.
+  const [allMachines, setAllMachines] = useState<
     { machine_id: string; official_name: string }[]
   >([]);
-  const [sourceWh, setSourceWh] = useState<string>("");
+  // Default warehouse to WH_CENTRAL so the picker is never empty
+  const [sourceWh, setSourceWh] = useState<string>(WH_CENTRAL_ID);
   const [sourceMachine, setSourceMachine] = useState<string>("");
   const [reason, setReason] = useState("");
 
@@ -66,14 +69,38 @@ export function AddDispatchRowDialog({
       const w = await listWarehouses();
       if (w.ok) setWarehouses(w.data);
       const m = await listActiveMachines();
-      if (m.ok) setMachines(m.data.filter((mm) => mm.machine_id !== machineId));
+      if (m.ok) setAllMachines(m.data);
     })();
   }, [open, machineId]);
+
+  // When action flips to/from "Remove", auto-default the source for machine-to-warehouse returns.
+  // Remove = the current machine is the source (driver removing product from the machine).
+  useEffect(() => {
+    if (action === "Remove") {
+      setSourceKind("m2m");
+      setSourceMachine(machineId);
+    } else if (sourceMachine === machineId) {
+      // Reset stale Remove-mode selection if user switches back
+      setSourceMachine("");
+    }
+  }, [action, machineId]);
+
+  // Machine list visible in the picker:
+  // - Remove action: include the CURRENT machine (so source can be the one we're removing from)
+  // - Refill / Add New: exclude the current machine (M2M from another machine only)
+  const machines =
+    action === "Remove"
+      ? allMachines
+      : allMachines.filter((mm) => mm.machine_id !== machineId);
 
   if (!open) return null;
 
   async function handleSearchProducts(q: string) {
     setProductQuery(q);
+    // If the user starts editing after a selection, clear the selection so they can re-pick
+    if (selectedProduct && q !== selectedProduct.boonz_product_name) {
+      setSelectedProduct(null);
+    }
     if (q.length < 2) {
       setProductResults([]);
       return;
@@ -100,8 +127,8 @@ export function AddDispatchRowDialog({
       setError("WH source: pick a warehouse");
       return;
     }
-    if ((sourceKind === "m2m" || sourceKind === "truck_transfer") && !sourceMachine) {
-      setError(`${sourceKind} source: pick a source machine`);
+    if (sourceKind === "m2m" && !sourceMachine) {
+      setError("M2M source: pick a source machine");
       return;
     }
 
@@ -115,8 +142,7 @@ export function AddDispatchRowDialog({
         dispatchDate,
         sourceKind,
         sourceWarehouseId: sourceKind === "wh" ? sourceWh : undefined,
-        sourceMachineId:
-          sourceKind === "m2m" || sourceKind === "truck_transfer" ? sourceMachine : undefined,
+        sourceMachineId: sourceKind === "m2m" ? sourceMachine : undefined,
         editRole,
         reason: reason || undefined,
         revalidate,
@@ -178,7 +204,9 @@ export function AddDispatchRowDialog({
               value={productQuery}
               onChange={(e) => handleSearchProducts(e.target.value)}
               placeholder="Type 2+ characters to search"
-              className="mt-1 w-full rounded border px-2 py-1"
+              className={`mt-1 w-full rounded border px-2 py-1 ${
+                selectedProduct ? "bg-blue-50" : ""
+              }`}
             />
           </label>
           {productResults.length > 0 && !selectedProduct && (
@@ -199,18 +227,9 @@ export function AddDispatchRowDialog({
             </ul>
           )}
           {selectedProduct && (
-            <div className="rounded bg-blue-50 px-3 py-2 text-sm">
-              ✓ {selectedProduct.boonz_product_name}{" "}
-              <button
-                onClick={() => {
-                  setSelectedProduct(null);
-                  setProductQuery("");
-                }}
-                className="ml-2 text-xs text-blue-700 underline"
-              >
-                change
-              </button>
-            </div>
+            <p className="text-xs text-blue-700">
+              ✓ Selected: {selectedProduct.boonz_product_name} — start typing to change
+            </p>
           )}
 
           <label className="block text-sm">
@@ -230,11 +249,16 @@ export function AddDispatchRowDialog({
               value={sourceKind}
               onChange={(e) => setSourceKind(e.target.value as SourceKind)}
               className="mt-1 w-full rounded border px-2 py-1"
+              disabled={action === "Remove"}
             >
               <option value="wh">Warehouse</option>
-              <option value="m2m">From another machine (M2M)</option>
-              <option value="truck_transfer">Truck transfer</option>
+              <option value="m2m">From another machine</option>
             </select>
+            {action === "Remove" && (
+              <span className="text-xs text-slate-500">
+                Returns are sourced from this machine — locked.
+              </span>
+            )}
           </label>
 
           {sourceKind === "wh" && (
@@ -245,17 +269,16 @@ export function AddDispatchRowDialog({
                 onChange={(e) => setSourceWh(e.target.value)}
                 className="mt-1 w-full rounded border px-2 py-1"
               >
-                <option value="">— pick —</option>
                 {warehouses.map((w) => (
                   <option key={w.warehouse_id} value={w.warehouse_id}>
-                    {w.name} ({w.code})
+                    {w.display_name ?? w.name}
                   </option>
                 ))}
               </select>
             </label>
           )}
 
-          {(sourceKind === "m2m" || sourceKind === "truck_transfer") && (
+          {sourceKind === "m2m" && (
             <label className="block text-sm">
               Source machine
               <select
@@ -267,6 +290,7 @@ export function AddDispatchRowDialog({
                 {machines.map((m) => (
                   <option key={m.machine_id} value={m.machine_id}>
                     {m.official_name}
+                    {m.machine_id === machineId ? " (this machine)" : ""}
                   </option>
                 ))}
               </select>

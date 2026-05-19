@@ -10,6 +10,7 @@ import {
   searchBoonzProducts,
   listWarehouses,
   listActiveMachines,
+  WH_CENTRAL_ID,
   type EditRole,
   type SourceKind,
 } from "@/app/(field)/field/_actions/dispatch-edits";
@@ -42,7 +43,7 @@ export function DispatchEditDialog({
   currentQty,
   currentShelfCode,
   currentBoonzName,
-  currentSourceKind = "unknown",
+  currentSourceKind = "wh",
   editRole,
   allowedTabs,
   revalidate,
@@ -63,12 +64,13 @@ export function DispatchEditDialog({
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [sourceKind, setSourceKind] = useState<SourceKind>(currentSourceKind);
   const [warehouses, setWarehouses] = useState<
-    { warehouse_id: string; name: string; code: string }[]
+    { warehouse_id: string; name: string; display_name?: string | null }[]
   >([]);
   const [machines, setMachines] = useState<
     { machine_id: string; official_name: string }[]
   >([]);
-  const [sourceWh, setSourceWh] = useState<string>("");
+  // Default warehouse selection to WH_CENTRAL so the picker isn't empty
+  const [sourceWh, setSourceWh] = useState<string>(WH_CENTRAL_ID);
   const [sourceMachine, setSourceMachine] = useState<string>("");
 
   if (!open) return null;
@@ -135,10 +137,7 @@ export function DispatchEditDialog({
             dispatchId,
             sourceKind,
             sourceWarehouseId: sourceKind === "wh" ? sourceWh : undefined,
-            sourceMachineId:
-              sourceKind === "m2m" || sourceKind === "truck_transfer"
-                ? sourceMachine
-                : undefined,
+            sourceMachineId: sourceKind === "m2m" ? sourceMachine : undefined,
             editRole,
             reason: reason || undefined,
             revalidate,
@@ -274,9 +273,7 @@ export function DispatchEditDialog({
                 className="mt-1 w-full rounded border px-2 py-1"
               >
                 <option value="wh">Warehouse</option>
-                <option value="m2m">From another machine (M2M)</option>
-                <option value="truck_transfer">Truck transfer (between machines)</option>
-                <option value="unknown">Unknown</option>
+                <option value="m2m">From another machine</option>
               </select>
             </label>
             {sourceKind === "wh" && (
@@ -287,16 +284,15 @@ export function DispatchEditDialog({
                   onChange={(e) => setSourceWh(e.target.value)}
                   className="mt-1 w-full rounded border px-2 py-1"
                 >
-                  <option value="">— pick —</option>
                   {warehouses.map((w) => (
                     <option key={w.warehouse_id} value={w.warehouse_id}>
-                      {w.name} ({w.code})
+                      {w.display_name ?? w.name}
                     </option>
                   ))}
                 </select>
               </label>
             )}
-            {(sourceKind === "m2m" || sourceKind === "truck_transfer") && (
+            {sourceKind === "m2m" && (
               <label className="block text-sm">
                 Source machine
                 <select

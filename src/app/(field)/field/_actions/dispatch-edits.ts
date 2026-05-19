@@ -6,7 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type EditRole = "driver" | "warehouse_manager" | "operator_admin" | "superadmin" | "manager";
-export type SourceKind = "wh" | "m2m" | "truck_transfer" | "unknown";
+// SourceKind: only "wh" (Warehouse) and "m2m" (From another machine) are user-pickable.
+// "truck_transfer" and "unknown" remain DB-valid for legacy rows but are no longer exposed in the FE.
+export type SourceKind = "wh" | "m2m";
 
 interface ActionResult<T = unknown> {
   ok: boolean;
@@ -101,8 +103,8 @@ export async function addDispatchRow(input: {
   if (input.quantity <= 0) return { ok: false, error: "Quantity must be > 0" };
   if (input.sourceKind === "wh" && !input.sourceWarehouseId)
     return { ok: false, error: "WH source requires a warehouse" };
-  if ((input.sourceKind === "m2m" || input.sourceKind === "truck_transfer") && !input.sourceMachineId)
-    return { ok: false, error: `${input.sourceKind} source requires a source machine` };
+  if (input.sourceKind === "m2m" && !input.sourceMachineId)
+    return { ok: false, error: "M2M source requires a source machine" };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("add_dispatch_row", {
@@ -157,8 +159,8 @@ export async function setDispatchSource(input: {
 }): Promise<ActionResult> {
   if (input.sourceKind === "wh" && !input.sourceWarehouseId)
     return { ok: false, error: "WH source requires a warehouse" };
-  if ((input.sourceKind === "m2m" || input.sourceKind === "truck_transfer") && !input.sourceMachineId)
-    return { ok: false, error: `${input.sourceKind} source requires a source machine` };
+  if (input.sourceKind === "m2m" && !input.sourceMachineId)
+    return { ok: false, error: "M2M source requires a source machine" };
 
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("set_dispatch_source", {
@@ -181,10 +183,14 @@ export async function listWarehouses() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("warehouses")
-    .select("warehouse_id, name, code")
+    .select("warehouse_id, name, display_name")
+    .eq("is_active", true)
     .order("name");
   return { ok: !error, data: data ?? [], error: error?.message };
 }
+
+/** WH_CENTRAL UUID — used as the default selection in the source picker. */
+export const WH_CENTRAL_ID = "4bebef68-9e36-4a5c-9c2c-142f8dbdae85";
 
 export async function listActiveMachines() {
   const supabase = await createClient();
