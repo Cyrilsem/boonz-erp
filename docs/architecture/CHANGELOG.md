@@ -212,6 +212,38 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 
 ---
 
+## 2026-05-19 — auto_decrement_pod_inventory: archive-on-zero rule
+**Phase / Article:** F bugfix / Constitution Articles 1, 4, 5, 7, 8, 12
+**Applied to:** prod
+**Migration name:** `phaseF_auto_decrement_archive_on_zero`
+
+**Summary:** CS rule clarified: when a product departs the pod via ANY event (sale, transfer, expiry-pull, driver removal) AND the resulting `current_stock` is 0, the `pod_inventory` row must flip to `status='Inactive'` immediately. Previously `auto_decrement_pod_inventory` zeroed the stock but kept `status='Active'`, leaving ghost rows that depended on ad-hoc sweep crons (`archived_*_zero_stock_past_expiry`, `_ghost_sweep_active_machines`, `_m2m_dedup`) to catch up days later. The other departure paths already archive in real time — only the sales-driven depletion was leaking.
+
+**Fix:** Both UPDATE branches of `auto_decrement_pod_inventory` now set `status='Inactive', removal_reason=format('sold_through_%s', CURRENT_DATE)` when a sale brings a batch to ≤0. SECURITY DEFINER unchanged, audit GUCs unchanged, `pod_inventory_audit_log` still captures every transition.
+
+**Coverage map after this fix** — every "product leaves the pod" path archives at qty=0:
+- Sale → `auto_decrement_pod_inventory` ✅ (this patch)
+- Driver REMOVE / return → `receive_dispatch_line` / `return_dispatch_line` REMOVE branch ✅ (already)
+- M2M move (source side) → routes through REMOVE dispatch ✅ (already)
+- Expired stock physically pulled by driver → REMOVE dispatch ✅ (already)
+- Swap (REMOVE + ADD New pair) → REMOVE side archives ✅ (already)
+
+**Does NOT flip Inactive** (intentional per CS rule "status follows physical reality, not stock level"):
+- Slot at qty=0 waiting for refill → still Active until next refill cycle inserts a new row
+- Stale WEIMI snapshot — product still physically in slot
+- Slot at qty>0 past expiry — driver hasn't pulled it yet
+
+**Historical ghosts not retroactively cleaned** by this migration — the periodic sweep crons (`archived_*_zero_stock_past_expiry` etc.) and CS's manual flips will continue to clear the backlog. The Sun Blast - Apple row at VOXMCC-1005-0201-B0 that CS flipped at 12:34 today (`archived_2026-05-19_expired_sold_cs_authorized`) is the canonical example — the new logic would have caught it automatically at sale time.
+
+**Rollback:**
+```sql
+-- Restore prior function body from write_audit_log payload or session transcript.
+-- The patched logic is purely additive — current_stock/snapshot_at update behaviour
+-- is identical; only the status/removal_reason CASE clauses are new.
+```
+
+---
+
 ## 2026-05-19 — v_live_shelf_stock duplicate shelf rows — 3-layer fix
 **Phase / Article:** E bugfix / Constitution Articles 1, 4, 12, 14
 **Applied to:** prod
