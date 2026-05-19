@@ -262,7 +262,7 @@ export default function RefillPage() {
   const [progressMessages, setProgressMessages] = useState<ProgressMsg[]>([]);
   const [machineHealth, setMachineHealth] = useState<MachineHealth[]>([]);
   const [sortBy, setSortBy] = useState<
-    "priority" | "stock" | "fill" | "expiry"
+    "priority" | "status" | "stock" | "fill" | "expiry"
   >("priority");
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
@@ -554,12 +554,41 @@ export default function RefillPage() {
   );
 
   const sortedMachines = useMemo(() => {
+    // ── Refill-urgency score (higher = more urgent to visit) ──────────────
+    // Signals: empty shelves, low runway, high velocity, stale visit,
+    // expired stock, pending swaps, already picked by engine.
+    const refillUrgency = (m: MachineHealth): number => {
+      let score = 0;
+      // Empty shelves — strongest signal (each empty shelf = 15 pts)
+      score += m.slots_at_zero * 15;
+      // Low runway — exponential urgency as it approaches 0
+      const runway = m.days_until_empty ?? 999;
+      if (runway <= 1) score += 50;
+      else if (runway <= 3) score += 35;
+      else if (runway <= 7) score += 20;
+      else if (runway <= 14) score += 8;
+      // High velocity — busier machines drain faster
+      score += Math.min(m.daily_velocity * 2, 30);
+      // Stale visit — haven't been there in a while
+      const daysSince = m.days_since_visit ?? 0;
+      if (daysSince >= 14) score += 25;
+      else if (daysSince >= 7) score += 15;
+      else if (daysSince >= 4) score += 5;
+      // Expired stock — needs physical removal
+      if (m.expired_units > 0) score += 20 + m.expired_units * 2;
+      // Pending swaps — reason to visit (strategic + Plaay etc.)
+      score += m.pending_swap_count * 5;
+      // Already picked by engine — boost to top
+      if (m.is_picked_tomorrow) score += 40;
+      // Low fill % bonus
+      if (m.fill_pct < 30) score += 15;
+      else if (m.fill_pct < 50) score += 8;
+      return score;
+    };
+
+    // ── Status rank (Zombie worst → Stable best) ─────────────────────────
     const labelOrder: Record<string, number> = {
-      Zombie: 0,
-      "At Risk": 1,
-      "Ramp-Up": 2,
-      Star: 3,
-      Stable: 4,
+      Zombie: 0, "At Risk": 1, "Ramp-Up": 2, Star: 3, Stable: 4,
     };
     const labelRank = (label: string): number => {
       for (const key of Object.keys(labelOrder)) {
@@ -570,6 +599,16 @@ export default function RefillPage() {
 
     const sorted = [...machineHealth];
     switch (sortBy) {
+      case "priority":
+        sorted.sort((a, b) => refillUrgency(b) - refillUrgency(a));
+        break;
+      case "status":
+        sorted.sort(
+          (a, b) =>
+            labelRank(a.machine_health_label) - labelRank(b.machine_health_label) ||
+            a.fill_pct - b.fill_pct,
+        );
+        break;
       case "stock":
         sorted.sort((a, b) => a.total_stock - b.total_stock);
         break;
@@ -583,13 +622,8 @@ export default function RefillPage() {
           return aExp - bExp;
         });
         break;
-      default:
-        sorted.sort(
-          (a, b) =>
-            labelRank(a.machine_health_label) - labelRank(b.machine_health_label) ||
-            a.fill_pct - b.fill_pct,
-        );
     }
+    // Excluded machines always at the end
     return sorted.sort((a, b) => {
       if (a.health_tier === "excluded" && b.health_tier !== "excluded")
         return 1;
@@ -1219,7 +1253,7 @@ export default function RefillPage() {
               </div>
               <div className="flex items-center gap-1 text-xs text-gray-500">
                 <span>Sort:</span>
-                {(["priority", "stock", "fill", "expiry"] as const).map(
+                {(["priority", "status", "stock", "fill", "expiry"] as const).map(
                   (opt) => (
                     <button
                       key={opt}
@@ -1233,11 +1267,13 @@ export default function RefillPage() {
                     >
                       {opt === "priority"
                         ? "Priority"
-                        : opt === "stock"
-                          ? "Stock"
-                          : opt === "fill"
-                            ? "Fill %"
-                            : "Expiry"}
+                        : opt === "status"
+                          ? "Status"
+                          : opt === "stock"
+                            ? "Stock"
+                            : opt === "fill"
+                              ? "Fill %"
+                              : "Expiry"}
                     </button>
                   ),
                 )}
