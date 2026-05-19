@@ -16,6 +16,7 @@ Format:
 ---
 
 ## 2026-05-18 — Native machine-to-machine transfers (swap_between_machines)
+
 **Phase / Article:** D (M2M transfers) / Constitution Articles 1, 4, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseD_swap_between_machines`
@@ -27,6 +28,7 @@ Format:
 ---
 
 ## 2026-05-18 — M2M deferred pod_inventory adjustment
+
 **Phase / Article:** D (M2M transfers, fix) / Constitution Articles 1, 4, 8
 **Applied to:** prod
 **Migration name:** `phaseD_m2m_deferred_pod_adjustment`
@@ -38,6 +40,7 @@ Format:
 ---
 
 ## 2026-05-19 (afternoon) — Picker v5 sibling score + FE filled-vs-planned fix
+
 **Phase / Article:** F bugfix / Constitution Articles 4, 12
 
 **Applied to:** prod (DB) + repo (FE)
@@ -48,34 +51,37 @@ Format:
 **FE fix — dispatch-complete summary** (`src/app/(field)/field/dispatching/[machineId]/page.tsx`): the post-save summary was using `(l.filled_qty || l.quantity)` for shelf-total aggregation and per-line render. When `filled_qty=0` (driver returned the line), the `||` fallback to `quantity` falsely displayed the planned units as if they were placed. IFLY 2026-05-19: Fade Fit Hazelnut ×4 + Peanut Butter ×4 showed as "added" when both were returned (only Salted Caramel ×3 + Dark Chocolate ×1 actually went in). Fix: aggregate from `filled_qty` only (no fallback), filter on `line.action === "added"` for add/remove totals, add a new `returnedTotal` shown with `↩` amber badge. Per-line render now distinguishes `↩{quantity}` (returned) from `×{filled_qty}` (placed) from `−{filled_qty}` (removed). `line.action` is correctly re-derived from DB on reload (dispatched=true → "added", returned=true → "returned"). Closes task #75.
 
 **Rollback:**
+
 ```sql
 -- Restore picker v4 body from session transcript at edd21a03 or write_audit_log.
 ```
+
 FE rollback: `git revert` the commit.
 
 ---
 
 ## 2026-05-19 — Phase F dispatch editing: 6 RPCs + edit_log + source traceability + receive UPSERT
+
 **Phase / Article:** F / Constitution Articles 1 (revised by Amendment 005), 2, 4, 5, 7, 8, 12, 15
 **Applied to:** prod
 **Migration names:** `phaseF_receive_dispatch_line_upsert_active_pod_row`, `phaseF_dispatch_editing_schema`, `phaseF_dispatch_editing_rpcs`
 
 **Summary:** Three migrations to unblock the driver/WH manager workflow and give them real editing affordances. Driven by two incidents today on VOXMCC-1005 (Ice Tea Peach blocked at A07) and IFLYMCC-1024 (driver loaded 4 Fade Fit Coconut + 10 7up, neither in the dispatch plan; multi-variant Fade Fit returned because driver substituted). Dara designed the schema, Cody approved with 4 revisions, Stax FE design queued for tomorrow.
 
-**Fix #1 — `receive_dispatch_line` UPSERT (`phaseF_receive_dispatch_line_upsert_active_pod_row`).** The recent `idx_pod_inv_active_shelf` unique index (`(machine_id, shelf_id, boonz_product_id) WHERE status='Active'`) was added during MPMCC backfill prep and rejected the straight INSERT in `receive_dispatch_line` whenever a prior Active row existed on the shelf for the same boonz_product. Driver got `Receive failed: duplicate key value violates unique constraint "idx_pod_inv_active_shelf"`. Fix: archive existing Active rows via a CTE (`status='Inactive'`, `removal_reason='merged_into_dispatch_<date>_<dispatch_id>'`), then INSERT the new row with summed `current_stock` and `LEAST(new_expiry, old_expiry)` for FEFO worst-case. Smoke test on the stuck VOX A07 Ice Tea Peach dispatch (3 + 10 = 13 units after merge): old row archived with traceable reason, new row Active with batch_id `MERGED-DISPATCH-2026-05-19`. Driver unblocked.
+**Fix #1 — `receive_dispatch_line` UPSERT (`phaseF_receive_dispatch_line_upsert_active_pod_row`).** The recent `idx_pod_inv_active_shelf` unique index (`(machine_id, shelf_id, boonz_product_id) WHERE status='Active'`) was added during MPMCC backfill prep and rejected the straight INSERT in `receive_dispatch_line` whenever a prior Active row existed on the shelf for the same boonz*product. Driver got `Receive failed: duplicate key value violates unique constraint "idx_pod_inv_active_shelf"`. Fix: archive existing Active rows via a CTE (`status='Inactive'`, `removal_reason='merged_into_dispatch*<date>\_<dispatch_id>'`), then INSERT the new row with summed `current_stock`and`LEAST(new_expiry, old_expiry)`for FEFO worst-case. Smoke test on the stuck VOX A07 Ice Tea Peach dispatch (3 + 10 = 13 units after merge): old row archived with traceable reason, new row Active with batch_id`MERGED-DISPATCH-2026-05-19`. Driver unblocked.
 
 **Fix #2 — dispatch editing schema (`phaseF_dispatch_editing_schema`).** Eleven new columns on `refill_dispatching`: `original_quantity`, `original_boonz_product_id`, `original_shelf_id` (nullable due to legacy data — 2,824 rows had NULL shelf_id, 646 NULL boonz_product_id, 53 NULL quantity); `edit_count int NOT NULL DEFAULT 0`; `last_edited_by`, `last_edited_by_role`, `last_edited_at`; `source_kind text NOT NULL DEFAULT 'unknown'` (CHECK in `wh | m2m | truck_transfer | unknown`); `source_warehouse_id`, `source_machine_id`; `created_by_edit boolean`. Type-conditional CHECK enforces `source_kind`↔FK consistency (e.g. `m2m` requires `source_machine_id`, `wh` requires `source_warehouse_id`). Backfill: 29,715 rows got `original_quantity = quantity`; 29,388 got real `source_kind` (m2m from `is_m2m=true`, wh from `from_warehouse_id`, else unknown). New protected table `refill_dispatching_edit_log` (Amendment 003 11th entity) with append-only RLS + generic audit trigger. Four new indexes on each table for the FE's hot paths (edited rows per machine, recent activity, per-user audit, edit_kind filter).
 
 **Fix #3 — six new canonical writers (`phaseF_dispatch_editing_rpcs`).** All SECURITY DEFINER, role-gated against actual `user_profiles.role` (the `p_edit_role` parameter is audit-only, not authorization), set `app.via_rpc`/`app.rpc_name`, validate inputs, lock the target row with `SELECT ... FOR UPDATE`, write to `refill_dispatching_edit_log`. State-machine guards per Cody's R1:
 
-| RPC | Allowed when | Audit role parameter accepts |
-|---|---|---|
-| `edit_dispatch_qty(...)` | `item_added=false` | driver, warehouse_manager, operator_admin, superadmin, manager |
-| `edit_dispatch_shelf(...)` | `picked_up=true AND item_added=false` | driver, operator_admin, superadmin, manager (WH manager rejected) |
-| `edit_dispatch_product(...)` | `picked_up=true AND item_added=false` | driver, operator_admin, superadmin, manager. Resolves pod_product_id via machine-aware product_mapping (per-machine wins). |
-| `add_dispatch_row(...)` | always | driver, warehouse_manager, operator_admin, superadmin, manager. Validates shelf exists on planogram; resolves pod_product_id; hard-refuses m2m if source machine has no active pod_inventory > 0 for the product. |
-| `remove_dispatch_row(...)` | `picked_up=false` | warehouse_manager, operator_admin, superadmin, manager (driver rejected). Soft-remove via `include=false`. |
-| `set_dispatch_source(...)` | `item_added=false` | warehouse_manager, operator_admin, superadmin, manager. Same m2m hard-refuse validation. |
+| RPC                          | Allowed when                          | Audit role parameter accepts                                                                                                                                                                                      |
+| ---------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `edit_dispatch_qty(...)`     | `item_added=false`                    | driver, warehouse_manager, operator_admin, superadmin, manager                                                                                                                                                    |
+| `edit_dispatch_shelf(...)`   | `picked_up=true AND item_added=false` | driver, operator_admin, superadmin, manager (WH manager rejected)                                                                                                                                                 |
+| `edit_dispatch_product(...)` | `picked_up=true AND item_added=false` | driver, operator_admin, superadmin, manager. Resolves pod_product_id via machine-aware product_mapping (per-machine wins).                                                                                        |
+| `add_dispatch_row(...)`      | always                                | driver, warehouse_manager, operator_admin, superadmin, manager. Validates shelf exists on planogram; resolves pod_product_id; hard-refuses m2m if source machine has no active pod_inventory > 0 for the product. |
+| `remove_dispatch_row(...)`   | `picked_up=false`                     | warehouse_manager, operator_admin, superadmin, manager (driver rejected). Soft-remove via `include=false`.                                                                                                        |
+| `set_dispatch_source(...)`   | `item_added=false`                    | warehouse_manager, operator_admin, superadmin, manager. Same m2m hard-refuse validation.                                                                                                                          |
 
 `restore_dispatch_row` was rejected by Cody R2 (rewriting `item_added=true` history is dangerous). Post-receive corrections must go through `adjust_pod_inventory` directly with explicit per-row sign-off.
 
@@ -86,6 +92,7 @@ FE rollback: `git revert` the commit.
 **Tomorrow's Stax work.** FE design for driver app + WH packing app to actually use these RPCs. Filed as task #79. Plus task #75 (display planned-vs-filled fix) and #76 (driver substitution UX).
 
 **Rollback:**
+
 ```sql
 -- RPCs
 DROP FUNCTION IF EXISTS public.edit_dispatch_qty(uuid, numeric, text, text, text);
@@ -114,12 +121,13 @@ ALTER TABLE public.refill_dispatching
 ---
 
 ## 2026-05-18 (PM) — Phase F bugfix: machine-aware product_mapping JOINs
+
 **Phase / Article:** F bugfix / Constitution Articles 1, 12
 
 **Applied to:** prod
 **Migration names:** `phaseF_fix_v_warehouse_pod_rollup_machine_aware_dedupe`, `phaseF_stitch_v8_machine_aware_pm_joins`
 
-**Summary:** Discovered during the Phase F reconciler design pass: production code that JOINs `pod_inventory` (or `warehouse_inventory`) to `product_mapping` was not scoping by `machine_id`. `product_mapping` is correctly modeled as per-machine — 38 machines × ~140 products = ~5,500 rows seeded 2026-03-21 — and the existing UNIQUE constraint on `(pod_product_id, boonz_product_id, machine_id)` enforces correctness. **The data is fine.** Production *queries*, however, were silently fanning out by N× (N = per-machine mappings for the SKU, ~24× on average) wherever they joined pm without filtering on machine_id. This inflated `wh_avail` in Stage 2a, produced duplicate REMOVE lines in Stage 3 Stitch, and was masking real WH shortage all the way back to Phase F day 1. Two fixes shipped this afternoon; three more queued for tomorrow.
+**Summary:** Discovered during the Phase F reconciler design pass: production code that JOINs `pod_inventory` (or `warehouse_inventory`) to `product_mapping` was not scoping by `machine_id`. `product_mapping` is correctly modeled as per-machine — 38 machines × ~140 products = ~5,500 rows seeded 2026-03-21 — and the existing UNIQUE constraint on `(pod_product_id, boonz_product_id, machine_id)` enforces correctness. **The data is fine.** Production _queries_, however, were silently fanning out by N× (N = per-machine mappings for the SKU, ~24× on average) wherever they joined pm without filtering on machine_id. This inflated `wh_avail` in Stage 2a, produced duplicate REMOVE lines in Stage 3 Stitch, and was masking real WH shortage all the way back to Phase F day 1. Two fixes shipped this afternoon; three more queued for tomorrow.
 
 **Fix #1 — `v_warehouse_pod_rollup`.** View previously did `JOIN warehouse_inventory wi ⋈ product_mapping pm ... GROUP BY pm.pod_product_id` with no dedupe on pm. SUM(`wi.warehouse_stock`) was multiplied by the count of per-machine pm rows for each boonz_product. Fix: subquery `pm_distinct AS (SELECT DISTINCT pod_product_id, boonz_product_id FROM product_mapping WHERE status='Active')` before the join. Before/after measurement across 10 high-mapping products (Soft Drinks Mix, Krambals & Zigi, Krambals, Tamreem Date Ball, Al Ain Water, Pepsi Mix, Pepsi Black, Chocolate Bar, Snack Bar, Vitamin Well): each dropped from a number in the 1,200–3,200 range to a number in the 48–134 range — exactly 24× reduction in every case, matching the per-machine seeding factor. Vitamin Well went from "1,200 units fleet-wide" (looked comfortable) to "48 units, earliest_active_expiry 2026-06-07" (tight, three weeks). Downstream consumers (`engine_add_pod` wh_avail cap, `engine_swap_pod` Pass 2 filter `wpr.total_stock > 0`, any ops query reading total_stock) automatically pick up the correct numbers.
 
@@ -128,11 +136,13 @@ ALTER TABLE public.refill_dispatching
 **Three more fixes queued (tasks #72, #73, #17).** `engine_swap_pod` qty subqueries (MEDIUM — same fanout in Pass 1/Pass 2 qty_out/qty_in), `find_substitutes_for_shelf` wh_stock_units (MEDIUM — display only, inflates the WH stock column shown to CS in the substitute search), and the sibling-priority-score=0 nit (LOW — Phase F day 1 todo). Deferred to allow observation of tomorrow's first refill cycle running on the fixed views.
 
 **What this changes in production going forward.**
+
 - `engine_add_pod` will hit `clamp_reason='capped_by_wh'` on products with real WH constraints (was previously rare because wh_avail was 24× inflated). Expect smaller REFILL qtys on tight-stock products.
 - Cross-fleet allocations will no longer exceed real WH. Stitch deviations should drop and procurement alerts should sharpen.
 - REMOVE/M2W stitched output drops from N× duplicates to 1× per (shelf, boonz variant). Past stitched plans that included REMOVE lines may have had wasted-CPU duplicates downstream; new plans are clean.
 
 **Rollback:**
+
 ```sql
 -- Restore the pre-fix view body
 CREATE OR REPLACE VIEW public.v_warehouse_pod_rollup AS
@@ -152,6 +162,7 @@ CREATE OR REPLACE VIEW public.v_warehouse_pod_rollup AS
 ---
 
 ## 2026-05-18 — Phase F day-3: Conductor, Gate 0, Edit RPCs, Picker v2/v3, MPMCC backfill
+
 **Phase / Article:** F (Conductor + Gate 0) + bugfix / Constitution Articles 1, 2, 4, 7, 8, 12
 
 **Applied to:** prod + repo
@@ -174,6 +185,7 @@ CREATE OR REPLACE VIEW public.v_warehouse_pod_rollup AS
 **Skills change** (file-only, no migration). Source updated in `BOONZ BRAIN/new-skills/`: archived `boonz-master/SKILL.md` → `boonz-legacy/SKILL.md` with frontmatter retitled and narrow trigger list (won't fire on generic operational language). New `boonz-master-3/SKILL.md` written from scratch — conductor for Gen 3, routes to the four `boonz-pico-*` sub-skills, handhold flow + Gate 0 + edit playbook + diagnostic patterns. Pico-skills README refreshed to list 5 skills (master-3 + 4 pico) plus legacy fallback. Edit RPC design preserved at `BOONZ BRAIN/edit_rpcs_design.md` for reference.
 
 **Rollback:**
+
 ```sql
 -- Edit RPCs
 DROP FUNCTION IF EXISTS public.edit_pod_refill_row(date, uuid, uuid, uuid, text, int, text, text);
@@ -212,7 +224,29 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 
 ---
 
+## 2026-05-19 — Multi-variant WH approval for REMOVE returns (Bug #2 from 19-May report)
+**Phase / Article:** F bugfix / Constitution Articles 1, 4, 5, 7, 8, 12
+**Applied to:** prod
+**Migration name:** `phaseF_wh_approve_remove_receipt_multivariant`
+
+**Summary:** Driver returns N flavours under one parent REMOVE dispatch (e.g. Barebells 12 pcs = 4 each of 3 flavours). The existing `wh_approve_remove_receipt` only accepted one boonz variant — the parent dispatch's default — forcing the WH manager to credit all 12 under one flavour and manually correct inventory afterwards. New RPC + FE flow let the manager split the verified total across the actual variants returned, with batch expiry per variant.
+
+**RPC:** `wh_approve_remove_receipt_multivariant(p_parent_dispatch_id, p_variant_breakdown jsonb, p_approved_by, p_reason)`. `p_variant_breakdown` shape: `[{boonz_product_id, qty, expiry}, ...]`. For each entry the function INSERTs a child REMOVE dispatch (the `conserve_split_dispatch_quantity` trigger automatically decrements parent.quantity), then calls `receive_dispatch_line` on the child with a single-expiry batch_breakdown — credits the correct WH batch and archives the correct variant's pod_inventory row. Parent closed via direct UPDATE (`returned=true, return_reason='split_into_N_variants_see_children'`) to avoid the receive/return_dispatch_line pod_archival, which would otherwise falsely archive the parent's default-variant pod row. Validates breakdown sum equals driver_confirmed_qty; validates each variant is mapped to the parent's pod_product. SECURITY DEFINER, search_path pinned, owner=postgres.
+
+**FE:** `PendingRemoveApprovalsPanel` rewrite. Each pending REMOVE row gains a `↳ Split by variant` toggle. On open: lazy-loads available variants from `product_mapping` by pod_product_id; renders per-variant qty + batch expiry inputs; running sum-validation against verified qty; approve button disabled until sum matches. Single-variant approval path preserved unchanged for products that don't need a split.
+
+**Example flow.** iFly Barebells return, 12 pcs total. Driver does `driver_confirm_remove` with qty=12 against the default-variant parent dispatch. WH manager opens the approval panel, hits "Split by variant", enters 4 Creamy Crisp @ 24/09/2026, 4 Cookies & Cream @ 22/09/2026, 4 Cookies & Caramel @ 22/09/2026. Sum = 12 ✓. Hits approve. Backend inserts 3 child REMOVEs, receives each one to the correct WH batch (3 separate wh_inventory credits at the right expiries), archives 3 separate pod_inventory rows (one per variant) on iFly. Parent dispatch closed as `returned=true, return_reason='split_into_3_variants_see_children'`. WH inventory and pod inventory both end up correct — no manual cleanup.
+
+**Rollback:**
+```sql
+DROP FUNCTION IF EXISTS public.wh_approve_remove_receipt_multivariant(uuid, jsonb, uuid, text);
+-- FE: revert PendingRemoveApprovalsPanel.tsx to pre-multivariant version
+```
+
+---
+
 ## 2026-05-19 — auto_decrement_pod_inventory: archive-on-zero rule
+
 **Phase / Article:** F bugfix / Constitution Articles 1, 4, 5, 7, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseF_auto_decrement_archive_on_zero`
@@ -222,6 +256,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 **Fix:** Both UPDATE branches of `auto_decrement_pod_inventory` now set `status='Inactive', removal_reason=format('sold_through_%s', CURRENT_DATE)` when a sale brings a batch to ≤0. SECURITY DEFINER unchanged, audit GUCs unchanged, `pod_inventory_audit_log` still captures every transition.
 
 **Coverage map after this fix** — every "product leaves the pod" path archives at qty=0:
+
 - Sale → `auto_decrement_pod_inventory` ✅ (this patch)
 - Driver REMOVE / return → `receive_dispatch_line` / `return_dispatch_line` REMOVE branch ✅ (already)
 - M2M move (source side) → routes through REMOVE dispatch ✅ (already)
@@ -229,6 +264,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 - Swap (REMOVE + ADD New pair) → REMOVE side archives ✅ (already)
 
 **Does NOT flip Inactive** (intentional per CS rule "status follows physical reality, not stock level"):
+
 - Slot at qty=0 waiting for refill → still Active until next refill cycle inserts a new row
 - Stale WEIMI snapshot — product still physically in slot
 - Slot at qty>0 past expiry — driver hasn't pulled it yet
@@ -236,6 +272,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 **Historical ghosts not retroactively cleaned** by this migration — the periodic sweep crons (`archived_*_zero_stock_past_expiry` etc.) and CS's manual flips will continue to clear the backlog. The Sun Blast - Apple row at VOXMCC-1005-0201-B0 that CS flipped at 12:34 today (`archived_2026-05-19_expired_sold_cs_authorized`) is the canonical example — the new logic would have caught it automatically at sale time.
 
 **Rollback:**
+
 ```sql
 -- Restore prior function body from write_audit_log payload or session transcript.
 -- The patched logic is purely additive — current_stock/snapshot_at update behaviour
@@ -245,6 +282,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 ---
 
 ## 2026-05-19 — v_live_shelf_stock duplicate shelf rows — 3-layer fix
+
 **Phase / Article:** E bugfix / Constitution Articles 1, 4, 12, 14
 **Applied to:** prod
 **Migration names:** `phaseE_v_live_shelf_stock_dedup_layer1`, `phaseE_dedup_product_name_conventions_and_unique`
@@ -264,6 +302,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 **Downstream impact assessment.** Engine code paths reading `v_live_shelf_stock` (Picker, Engine ADD/SWAP, Stitch) previously saw inflated stock readings for the 26 affected products. The view fix is monotonic-decreasing in row count — no engine logic can break from receiving fewer rows. Any logic relying on the inflation was already producing wrong numbers; it now produces correct ones.
 
 **Rollback:**
+
 ```sql
 -- Layer 2/3 (data cleanup is irreversible; constraint can be dropped):
 ALTER TABLE public.product_name_conventions DROP CONSTRAINT product_name_conventions_pair_unique;
@@ -276,6 +315,7 @@ ALTER TABLE public.product_name_conventions DROP CONSTRAINT product_name_convent
 ---
 
 ## 2026-05-14 — BUG-012: phantom dispatch.expiry_date — structural fix
+
 **Phase / Article:** D bugfix / Constitution Articles 1, 4, 8, 12
 **Applied to:** prod
 **Migration names:** `phaseD_bug012_sync_dispatch_expiry_from_pinned_wh`, `phaseD_bug012_receive_return_effective_expiry`
@@ -291,6 +331,7 @@ ALTER TABLE public.product_name_conventions DROP CONSTRAINT product_name_convent
 **Live test.** Toggled one wh row's expiration_date forward 7 days then reverted. Both events fired the cascade; `monitoring_alerts.bug012_expiry_sync` captured both with `dispatch_rows_synced=1` each. `write_audit_log` shows 4 UPDATE rows attributed to `bug012_backfill_cascade` and 2 to `sync_dispatch_expiry_from_pinned_wh`, all with `via_rpc=true`.
 
 **Rollback:**
+
 ```sql
 -- Restore prior RPC bodies from write_audit_log payload or the session transcript.
 DROP TRIGGER IF EXISTS trg_sync_dispatch_expiry_from_pinned_wh ON public.warehouse_inventory;
@@ -300,6 +341,7 @@ DROP FUNCTION IF EXISTS public.sync_dispatch_expiry_from_pinned_wh();
 ---
 
 ## 2026-05-11 — Bugfix: return_dispatch_line + receive_dispatch_line (3 bugs)
+
 **Phase / Article:** B.3 bugfix / Constitution Articles 1, 4, 8, 12
 **Applied to:** prod
 **Migration name:** `fix_return_receive_dispatch_remove_and_phantom`
@@ -317,6 +359,7 @@ DROP FUNCTION IF EXISTS public.sync_dispatch_expiry_from_pinned_wh();
 ---
 
 ## 2026-05-11 — Phase F day 2: pitstop tables, Stage 2a, Stage 2c, Gates 1 & 2
+
 **Phase / Article:** F-Stage 2 + Gates / Constitution Articles 1, 2, 4, 5, 8, 9, 12
 **Applied to:** prod
 **Migrations:** `phaseF_stage2_pitstop_tables_v2`, `phaseF_stage2a_engine_add_pod_v3_max_stock_from_weimi`, `phaseF_stage2c_engine_finalize_pod`, `phaseF_gate_rpcs_approve_and_confirm` (+ a v1 / v2 of stage2a that failed on PK collision via v_live_shelf_stock fanout; v3 corrected by switching to pod_inventory at shelf grain).
@@ -336,6 +379,7 @@ DROP FUNCTION IF EXISTS public.sync_dispatch_expiry_from_pinned_wh();
 **End-to-end test:** Stage 1 (24 picked) → Stage 2a (124 refills) → Stage 2c (124 drafts) → Gate 1 partial (1 machine) → Gate 1 fleet (remaining 123) → Gate 2 confirm → 124 stitched. Full chain works. **Gaps remaining for tomorrow:** Stage 2b (engine_swap_pod — pod-level swap/substitute logic with intent-driven Pass 1 + autonomous Pass 2 ported from current propose_swap_plan) and Stage 3 Stitch (boonz mapping + WH SKU split adjustment + deviation/procurement alerts).
 
 **Rollback (additive, safe to drop):**
+
 ```sql
 DROP FUNCTION IF EXISTS public.confirm_stitched_plan(date);
 DROP FUNCTION IF EXISTS public.reject_pod_refill_rows(date, text[], text);
@@ -352,13 +396,15 @@ DROP TABLE IF EXISTS public.pod_refills;
 ---
 
 ## 2026-05-11 — Phase F-Stage 1: machine picker (`pick_machines_for_refill` + `machines_to_visit`)
+
 **Phase / Article:** F-Stage 1 / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration names:** `phaseF_stage1_machine_picker`, `phaseF_stage1_machine_picker_v3_drop_and_recreate`, `phaseF_stage1_machine_picker_v4_intent_count_fix`
 
-**Summary:** First migration of Phase F — the 3-layer engine rebuild (Layer A strategic upstream pod_product, Layer B refill engine pod_product with Stages 1 + 2a/2b/2c, Layer C boonz stitching, with two CS approval gates between layers — full spec in `BOONZ BRAIN/REFILL_BRAIN_REDESIGN.md`). Stage 1 is the smallest additive piece: a pure-read machine picker that decides *which* machines to visit on a given date and outputs a callable pitstop table. **New table `machines_to_visit`** (PK plan_date+machine_id, status FSM picked/superseded, FK to machines, audit trigger `audit_log_write('machine_id')`, RLS read-all, no direct write policies so only DEFINER reaches it). **New RPC `pick_machines_for_refill(p_plan_date)`** — DEFINER, role-gated on `operator_admin`, sets `app.via_rpc`. Reads `machines` + `slot_lifecycle` + `refill_dispatching` history + `strategic_intents` (active = queued/in_progress) + `v_live_shelf_stock`. Five pick reasons: **health** (≥30% slots in DEAD/WIND DOWN/ROTATE OUT), **stale** (≥7d since last picked_up dispatch), **empty** (≥20% shelves at 0 stock), **intent** (≥1 active strategic_intent touching machine or fleet-wide), **ramping** (relaunched_at or first_sale_at within 30d). Priority score 0..100 = weighted sum (30+20+25+15+10). Sibling expansion via `venue_group` (fallback `building_id`) at lower thresholds — once one machine in a cluster is picked, siblings get pulled in at half thresholds. Idempotent: re-running supersedes prior pick for same date. **Smoke test (plan_date 2026-05-12):** 24 machines picked across 8 route clusters (ADDMIND, GRIT, INDEPENDENT, NOVO, OHMYDESK, VML, VOX, WPP). Reasons distribution: health (15), stale (15), ramping (7), sibling (1 — OMDCW-1021 added as sibling of OMDBB-1020). VML-1003/1004 correctly excluded (no real signals, just a stale 'intent' false-flag that the v4 fix removed). **v4 fix** corrected a `COUNT(*)` vs `COUNT(si.intent_id)` LEFT-JOIN bug that made every machine flag "intent"; same shape bug fixed in `slot_health` and `empty_state` defensively. **Known nit (#17):** sibling-only picks get pri_score=0 because sibling pass doesn't re-score — deferred to Stage 1 v5.
+**Summary:** First migration of Phase F — the 3-layer engine rebuild (Layer A strategic upstream pod*product, Layer B refill engine pod_product with Stages 1 + 2a/2b/2c, Layer C boonz stitching, with two CS approval gates between layers — full spec in `BOONZ BRAIN/REFILL_BRAIN_REDESIGN.md`). Stage 1 is the smallest additive piece: a pure-read machine picker that decides \_which* machines to visit on a given date and outputs a callable pitstop table. **New table `machines_to_visit`** (PK plan_date+machine_id, status FSM picked/superseded, FK to machines, audit trigger `audit_log_write('machine_id')`, RLS read-all, no direct write policies so only DEFINER reaches it). **New RPC `pick_machines_for_refill(p_plan_date)`** — DEFINER, role-gated on `operator_admin`, sets `app.via_rpc`. Reads `machines` + `slot_lifecycle` + `refill_dispatching` history + `strategic_intents` (active = queued/in_progress) + `v_live_shelf_stock`. Five pick reasons: **health** (≥30% slots in DEAD/WIND DOWN/ROTATE OUT), **stale** (≥7d since last picked_up dispatch), **empty** (≥20% shelves at 0 stock), **intent** (≥1 active strategic_intent touching machine or fleet-wide), **ramping** (relaunched_at or first_sale_at within 30d). Priority score 0..100 = weighted sum (30+20+25+15+10). Sibling expansion via `venue_group` (fallback `building_id`) at lower thresholds — once one machine in a cluster is picked, siblings get pulled in at half thresholds. Idempotent: re-running supersedes prior pick for same date. **Smoke test (plan_date 2026-05-12):** 24 machines picked across 8 route clusters (ADDMIND, GRIT, INDEPENDENT, NOVO, OHMYDESK, VML, VOX, WPP). Reasons distribution: health (15), stale (15), ramping (7), sibling (1 — OMDCW-1021 added as sibling of OMDBB-1020). VML-1003/1004 correctly excluded (no real signals, just a stale 'intent' false-flag that the v4 fix removed). **v4 fix** corrected a `COUNT(*)` vs `COUNT(si.intent_id)` LEFT-JOIN bug that made every machine flag "intent"; same shape bug fixed in `slot_health` and `empty_state` defensively. **Known nit (#17):** sibling-only picks get pri_score=0 because sibling pass doesn't re-score — deferred to Stage 1 v5.
 
 **Rollback:**
+
 ```sql
 -- v1 rollback (additive; safe to drop without touching production data):
 DROP FUNCTION IF EXISTS public.pick_machines_for_refill(date);
@@ -368,6 +414,7 @@ DROP TABLE  IF EXISTS public.machines_to_visit;
 ---
 
 ## 2026-05-10 — Phase E-1: evaluate-lifecycle v13.1 (STAR signal + relaunched_at + null-location fallback)
+
 **Phase / Article:** E-1 / Constitution Article 9
 **Applied to:** prod
 **Edge function:** `evaluate-lifecycle` versions 21 → 22 (`v13` → `v13.1`)
@@ -379,6 +426,7 @@ DROP TABLE  IF EXISTS public.machines_to_visit;
 ---
 
 ## 2026-05-10 — Phase E-1: Lifecycle data fixes + relaunched_at infrastructure
+
 **Phase / Article:** E-1 / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseE1_lifecycle_data_fixes`
@@ -388,6 +436,7 @@ DROP TABLE  IF EXISTS public.machines_to_visit;
 **Companion work pending:** edge function `evaluate-lifecycle` v13 — adds STAR signal class (`score ≥ 9 AND fleet_velocity_ratio ≥ 5`), reads `relaunched_at` as ramp anchor, doesn't silently drop machines with NULL `location_type` (emits data quality flag, scores with 'office' fallback). Stax→Cody→deploy.
 
 **Rollback:**
+
 ```sql
 -- Revert data fixes (manual, requires CS approval per row):
 UPDATE machines SET status='Active', include_in_refill=true WHERE official_name='IRIS-1010-0000-O0';
@@ -401,6 +450,7 @@ ALTER TABLE public.machines DROP COLUMN IF EXISTS relaunched_at;
 ---
 
 ## 2026-05-10 — Phase D-3e: R5 cooldowns + R7 shelf cap + 8pm Dubai cron
+
 **Phase / Article:** D-3e / Constitution Articles 1, 4, 5, 8, 11, 12
 **Applied to:** prod
 **Migration name:** `phaseD3e_r5_r7_and_cron`
@@ -408,6 +458,7 @@ ALTER TABLE public.machines DROP COLUMN IF EXISTS relaunched_at;
 **Summary:** Three additions per CS spec. **R5 cooldowns** in `propose_swap_plan`: 14-day no-repeat-removal on (machine, product) — pre-checks `refill_plan_output` for approved 'Remove' on same (machine_name, boonz_product_name) in the last 14 days, skips if found. 30-day no-re-introduction on substitute candidates — Pearson and category-fallback queries both filter out candidates whose product was Removed from this machine in the last 30 days. New return field `skipped_r5_cooldown`. **R7 60% shelf cap** in `engine_finalize`: per machine, count distinct SWAP-touched shelves (M2W's `reasoning.shelf_code_origin` included). Slot count from `slot_lifecycle.archived=false` per machine. Cap = floor(60% × slot_count). Excess SWAP drafts overruled worst-score-first. R3 and R5 remain warnings per CS confirmation. R7 is a fail-safe — today's per-machine cap is still 2, so R7 doesn't trigger; engages only if `p_max_swaps_per_machine` is bumped beyond ~9–19. **pg_cron** at 16:00 UTC daily (= 8pm Dubai) running `orchestrate_refill_plan(CURRENT_DATE+1)`. Job name `orchestrate-refill-plan-8pm-dubai`. Idempotent re-creation (unschedule first if exists). Smoke test for 2026-05-11: 156 ADD + 42 SWAP (19 M2W + 23 pairs) → 215 finalized → 409 published rows across 21 machines in 2.1s.
 
 **Rollback:**
+
 ```sql
 -- Restore D-3d propose_swap_plan + engine_finalize (without R5/R7).
 -- Unschedule cron:
@@ -417,6 +468,7 @@ SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'orchestrate-
 ---
 
 ## 2026-05-10 — Phase D-3d: MACHINE_TO_WAREHOUSE return path
+
 **Phase / Article:** D-3d / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseD3d_machine_to_warehouse_return`
@@ -424,6 +476,7 @@ SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'orchestrate-
 **Summary:** Phase C-1 set up the `machine_to_warehouse` proposal type but never wired it. SWAP today reported skipped_no_substitute=112+ per run — products dying on shelf with no plan. D-3d wires SWAP to emit MACHINE_TO_WAREHOUSE drafts when no viable substitute exists (Pearson + category fallback both fail OR substitute lacks WH stock). M2W draft routes to `machine.primary_warehouse_id` with qty = `pod_inventory.current_stock` (physical pull instruction). Pass 1 M2W carries `linked_intent_id` for decommission credit; Pass 2 (autonomous) does not. Phase C-2's `uq_dpd_active_per_slot_action` index already engineered M2W dedup via `COALESCE(shelf_code, '__M2W__')` sentinel. Same migration extends `reconcile_intent_progress` decommission filter to credit `MACHINE_TO_WAREHOUSE` alongside `REMOVE` (both reduce deployed stock); `dissolve_batch` correctly excludes M2W (M2W feeds WH, opposite of dissolve goal). `engine_publish_to_refill_plan` upgraded to map M2W → 'Remove' refill_plan_output row (driver pulls; "to WH" destination implicit), with shelf_code resolved from `reasoning.shelf_code_origin` and comment annotated `[pull to warehouse]`. **Smoke test:** 19 M2W drafts emitted, 19 published as 'Remove [pull to warehouse]' rows, skipped_no_substitute dropped from 112 to 0. Cody approved without revisions; two operational notes for CS — M2W qty can be > 1 (physical units) vs SWAP REMOVE qty=1 (slot signal); Pearson-no-WH-stock now flows to M2W instead of skip.
 
 **Rollback:**
+
 ```sql
 -- Restore D-3c propose_swap_plan / reconcile / publish bodies (no M2W path).
 -- See phaseD3c migration source for prior versions.
@@ -432,6 +485,7 @@ SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'orchestrate-
 ---
 
 ## 2026-05-10 — Phase D-3c: Wire ENGINE ADD to dissolve_batch intents
+
 **Phase / Article:** D-3c / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseD3c_wire_add_to_dissolve_batch`
@@ -441,6 +495,7 @@ SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'orchestrate-
 **Limitation (documented):** REFILL crediting toward dissolve_batch is approximate. The draft doesn't carry `source_batch_id`; if WH has both the at-risk batch and a fresh batch, FEFO behavior at the warehouse depends on operator discipline. Crediting full refill qty regardless of which batch the units came from overstates progress in mixed-batch scenarios. Step 5c tightens this to true batch-stock decrement once `refill_plan_output.source_batch_id` lands.
 
 **Rollback:**
+
 ```sql
 -- Restore D-3b/D-3a propose_add_plan body (no linked_intent_id tagging) and reconcile body (REMOVE-only filter).
 -- See migration phaseD3b_reconcile_action_filter_and_intent_recompute for the prior reconcile source.
@@ -449,6 +504,7 @@ SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'orchestrate-
 ---
 
 ## 2026-05-10 — Phase D-5b: engine_publish_to_refill_plan
+
 **Phase / Article:** D-5b / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseD5b_engine_publish_to_refill_plan`
@@ -458,6 +514,7 @@ SELECT cron.unschedule((SELECT jobid FROM cron.job WHERE jobname = 'orchestrate-
 **Idempotency note:** `write_refill_plan` does a scoped DELETE of pending rows for affected machines before re-INSERT. Re-running orchestrate_refill_plan during a review window replaces unreviewed pending rows for those machines. Approved rows are untouched. Documented in function COMMENT.
 
 **Rollback:**
+
 ```sql
 -- Restore the prior orchestrate_refill_plan body (ADD → SWAP → FINALIZE → RECONCILE, no PUBLISH stage).
 -- See migration phaseD0a_reconcile_and_lifecycle for the prior source.
@@ -467,6 +524,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 ---
 
 ## 2026-05-10 — Phase D-3b: reconcile_intent_progress action filter + intent recompute
+
 **Phase / Article:** D-3b / Constitution Articles 1, 4, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseD3b_reconcile_action_filter_and_intent_recompute`
@@ -474,6 +532,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 **Summary:** D-3a unmasked a latent bug in `reconcile_intent_progress`: SWAP pairs link `linked_intent_id` on BOTH the REMOVE draft (qty=1) AND the paired ADD_NEW draft (qty up to 8), and reconcile was summing both — so each swap pair credited 9 units against a decommission intent instead of 1. After the D-3a smoke test, Leibniz Zoo Cocoa read 12/7 'completed' (truth: 4/7 in_progress) and Sabahoo Chocolate 9/4 'completed' (truth: 1/4 in_progress). D-3b adds `AND d.action = 'REMOVE'` to the reconcile cursor — only the decommission side credits applied_units, ADD_NEW remains in the events array as audit but doesn't count. Inline comment flags that future additive intent types (`introduce`, `rotate_in`) will need a CASE-per-intent_type filter when they land. Same migration includes a one-time DO block that recomputes `applied_units` for any active decommission/dissolve_batch intent currently 'completed' from REMOVE-event qty only, flips status back to 'queued' or 'in_progress' depending on whether any REMOVE events exist, and clears `closed_at` / `closure_reason`. Idempotent — guarded by `recomputed_applied < acceptable AND status = 'completed'`. Audit captured via `app.via_rpc='true'` and distinct `app.rpc_name='phaseD3b_intent_recompute_data_fix'` so the `write_audit_log` row explains why each touched intent flipped. Post-apply verification: Leibniz Zoo Cocoa now in_progress 4/7, Sabahoo Chocolate in_progress 1/4, both `closed_at` NULL.
 
 **Rollback:**
+
 ```sql
 -- Restore D-3a/D-0a reconcile body (without action filter):
 -- See D-0a entry for the original CREATE OR REPLACE source.
@@ -486,6 +545,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 ---
 
 ## 2026-05-10 — Phase D-3a: propose_swap_plan calibration + guardrails
+
 **Phase / Article:** D-3a / Constitution Articles 1, 4, 12
 **Applied to:** prod
 **Migration name:** `phaseD3a_swap_calibration_and_guardrails`
@@ -493,6 +553,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 **Summary:** D-3 smoke test produced `intent_driven_swaps=0` despite three active intents in the queue. Root cause: default `p_min_substitute_score=30.0` was set blind, before live correlation data. Observed in-category Pearson distribution across 166 active products: median top score = 28.18, p25 = 19.01, floor = 10.0. At threshold 30 only 47/166 products could find a substitute; at 10, 93 can. 71 products have NO Pearson signal at all (single-machine SKUs, no co-purchase basket). D-3a recalibrates default to 10.0 AND adds a category-anchored fallback: when `get_similar_products` returns nothing, pick the highest-velocity in-category SKU (slot_lifecycle.velocity_30d aggregated, deterministic UUID tiebreaker) with WH stock ≥ 4 and non-expired buffer. CS-flagged guardrails added to BOTH Pearson and fallback paths: (1) substitute must not have an Active pod_inventory row on the target machine — verified against FSM where Active+stock=0 means "slot allocated, awaiting refill" not "removed"; (2) substitute must not itself be in an active decommission intent. Both passes (strategic and autonomous) get the same treatment so intent-driven and autonomous swaps share filtering. Post-apply smoke test: `intent_driven_swaps=3, autonomous_swaps=36, pearson_substitutes=19, fallback_substitutes=20, skipped_no_substitute=133` (down from 224 with 30.0 threshold). Function comment updated.
 
 **Rollback:**
+
 ```sql
 -- Restore D-3 propose_swap_plan body (default p_min_substitute_score=30.0,
 -- no category fallback, no on-machine guard, no decommission-target guard).
@@ -502,6 +563,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 ---
 
 ## 2026-05-10 — Phase D-3: Wire ENGINE ADD/SWAP to read strategic_intents
+
 **Phase / Article:** D-3 / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseD3_wire_addswap_to_intents`
@@ -509,6 +571,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 **Summary:** Closes the strategic-intent loop. `propose_swap_plan` now runs a two-pass design: Pass 1 walks active `decommission` intents whose target_completion_date >= plan_date, joins to pod_inventory rows for products in scope, and emits SWAP REMOVE+ADD_NEW pairs with `linked_intent_id` set so reconcile can credit progress when the operator approves+applies the row. Pass 2 retains the original autonomous slot-signal logic for ROTATE_OUT/DEAD/WIND_DOWN slots not addressed in Pass 1. Per-machine cap (default 2) shared across both passes — strategic intents take priority. Cody's required revision applied during draft: shelf_code resolution now goes via `pod_inventory.shelf_id → shelf_configurations` instead of an unsafe `'A01'` fallback that would have placed SWAP REMOVE rows on the wrong shelf. New skip counter `skipped_no_shelf` for traceability. `propose_add_plan` integration with dissolve_batch intents deferred to D-3c (its WH-source-selection logic doesn't yet pick specific batches; intent-aware routing is premature). NB: D-3a immediately followed because the 30.0 threshold default produced zero intent-driven swaps despite live intents.
 
 **Rollback:**
+
 ```sql
 -- Restore the prior single-pass propose_swap_plan body (autonomous-only).
 -- See migration phaseC_c5_decompose_addswap for the prior source.
@@ -517,6 +580,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 ---
 
 ## 2026-05-08 — Phase B.3: Lifecycle scoring redesign (Global rank-percentile + Local spectrum + EMA + signalV2)
+
 **Phase / Article:** B.3 / Constitution Articles 9, 12, 13, 14, 15
 **Applied to:** prod
 **Migration name:** `phaseB_b3_lifecycle_scoring_redesign`
@@ -524,6 +588,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 **Summary:** Splits the lifecycle scoring engine into two distinct formulas — `product_lifecycle_global.score` is now rank-percentile across all stocked products by per-machine-average velocity, and `slot_lifecycle.score` is now a ratio-spectrum centered on each product's own per-machine global average (5.0 = at avg, 10.0 = 2× avg). Both scores are EMA-blended with prior value (α=0.67 → recent ≈ 2× historical, satisfying CS's "compound upward/downward" intuition). Signal logic shifts to `getSignalV2` — DOUBLE DOWN and KEEP GROWING now require BOTH score AND trend to clear thresholds (hard-gate), eliminating the case where high-volume-but-flat products were branded DOUBLE DOWN. RAMPING flag bubbles from slot to product level via new `product_lifecycle_global.ramping_machine_count` column. **First post-deploy verification:** Aquafina (92.27 u/day total, 7 machines, 13.18/machine avg) now ranks #1 with score_raw=10.00. Evian Sparkling (0.27 u/day, 2 machines, 0.135/machine avg) now ranks #36 with score_raw=5.39 — exactly the per-machine apples-to-apples ranking CS asked for. Edge fn `evaluate-lifecycle/index.ts` deployed v12 with phase reorder (per-product totals computed BEFORE per-slot scoring so each slot can read its product's per-machine avg as the spectrum anchor). Six new observability columns added across `product_lifecycle_global` and `slot_lifecycle` for audit (per_machine_avg_v30, global_rank, score_raw, ramping_machine_count, local_score_raw, spectrum_ratio, product_avg_v30_at_score_time). New view `v_product_lifecycle_global_enriched` (SECURITY INVOKER) joins product+family+ramping markers for the Global matrix FE consumer. `lifecycle_score_history.score_kind` enum tags new rows as 'v2_split_global_local' for forward-compat traceability.
 
 **Behavior changes (Article 15 disclosure):**
+
 1. `product_lifecycle_global.score` formula changed from velocity-weighted-average-of-cohort-relative-scores to rank-percentile of per_machine_avg_v30 across all products with machine_count > 0. Top product = 10, bottom = 0, evenly distributed by rank.
 2. `slot_lifecycle.score` formula changed from cohort-baseline-relative to product-portfolio-spectrum (5.0 = at product's per-machine avg, 10.0 = 2× avg, 0.0 = zero). Spectrum ratio capped at 2× before scoring.
 3. Both scores now EMA-blended with prior value: `new_score = 0.67 × computed_today + 0.33 × prior`. New rows bootstrap with prior=computed (no memory yet, converges over ~3 cron ticks).
@@ -532,6 +597,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 **Article 9 status (extends prior known-debt note from B.1, B.1.1, B.1.2):** `evaluate-lifecycle` continues to do business logic + direct writes inline. B.3 adds three new logic blocks to that footprint: (a) per-product aggregation phase (Phase 3b/3c) before per-slot scoring, (b) rank-percentile computation across the product universe (Phase 3c), (c) EMA blend on both score paths (Phases 3d + 4), (d) RAMPING bubble counting per product (Phase 3b). Same Phase B follow-up to wrap evaluate-lifecycle in a `compute_and_apply_lifecycle()` SECURITY DEFINER RPC absorbs all of these. Tracked under Task 21.
 
 **Deploy checklist (operational note from Cody review):**
+
 - Migration applied first (additive columns only, no data backfill — new columns NULL on existing rows).
 - Edge fn v12 deployed second.
 - `trigger_lifecycle_eval()` invoked manually post-deploy to populate new columns within ~30s. Verified: 77 products updated, Aquafina ranked #1 as expected.
@@ -540,6 +606,7 @@ DROP FUNCTION IF EXISTS public.engine_publish_to_refill_plan(date);
 **Code locality note (extends B.1.1 note):** Phase reorder logic, rank-percentile, EMA, RAMPING bubble all live in Deno (`evaluate-lifecycle/index.ts`). Update site for any future signal/score formula tweaks: same file, search for `getSignalV2`, `productGlobalRawScore`, `ema`, `ramping_machine_set`.
 
 **Rollback:**
+
 ```sql
 -- Revert evaluate-lifecycle to v11 first (blob in Edge Function dashboard).
 -- Then drop the additive columns:
@@ -560,6 +627,7 @@ ALTER TABLE public.product_lifecycle_global DROP COLUMN IF EXISTS per_machine_av
 ---
 
 ## 2026-05-08 — Phase B.1.2: All-time first-sale view fix for ramping detection
+
 **Phase / Article:** B.1.2 / Constitution Articles 2, 9, 12
 **Applied to:** prod
 **Migration name:** `phaseB_b1_2_machine_first_sale_view`
@@ -569,6 +637,7 @@ ALTER TABLE public.product_lifecycle_global DROP COLUMN IF EXISTS per_machine_av
 **Article 9 status:** Same pre-existing debt — edge fn does business logic + direct writes. Tracked under the same Phase B follow-up.
 
 **Rollback:**
+
 ```sql
 -- Revert evaluate-lifecycle/index.ts to v10 (B.1.1 derivation from sales window).
 -- Then drop the view:
@@ -578,6 +647,7 @@ DROP VIEW IF EXISTS public.v_machine_first_sale;
 ---
 
 ## 2026-05-08 — Phase B.1.1: Machine ramping + signal band fix
+
 **Phase / Article:** B.1.1 / Constitution Articles 1, 3, 9, 15
 **Applied to:** prod (edge fn) + repo (FE — pending Vercel deploy)
 **Migration name:** none — code-only patch
@@ -587,12 +657,14 @@ DROP VIEW IF EXISTS public.v_machine_first_sale;
 **Article 9 status:** Same pre-existing debt as B.1 — edge fn does business logic + direct writes inline. No new debt entry; the B.1 known-debt note already covers the additional logic. Still tracked under the same Phase B follow-up to wrap evaluate-lifecycle in a `compute_and_apply_lifecycle()` SECURITY DEFINER RPC.
 
 **Behavior changes (Article 15 disclosure):**
+
 - `score≥4.5 && score<8.5 && trend<3.5` was DEAD → now KEEP.
 - `score≥4.5 && score<8.5 && trend>6.5` was DEAD → now KEEP.
 - `score≥6.5 && trend≤5` was DEAD → now KEEP (or KEEP GROWING if trend>5, unchanged).
 - All slots at machines within 30-day ramp window now signal=RAMPING regardless of computed score/trend.
 
 **Rollback:**
+
 ```ts
 // Revert evaluate-lifecycle/index.ts:
 // 1. Remove MACHINE_RAMP_DAYS, isRampingMachine helper, firstSaleByMachine map.
@@ -601,11 +673,13 @@ DROP VIEW IF EXISTS public.v_machine_first_sale;
 // 4. Remove MACHINE_RAMPING from the resolve-stale list and from the dqFlags emit loop.
 // 5. Remove RAMPING from FE SIGNAL_COLORS and sigOrder.
 ```
+
 Existing slot_lifecycle.signal values containing "RAMPING" will be overwritten on the next cron tick after rollback. No DDL involved.
 
 ---
 
 ## 2026-05-07 — Phase B.1: Lifecycle reality anchor (snapshot-driven, ledger PK)
+
 **Phase / Article:** B.1 / Constitution Articles 1, 2, 3, 7, 9, 12, 14
 **Applied to:** prod
 **Migration name:** `phaseB_b1_lifecycle_reality_anchor`
@@ -619,6 +693,7 @@ Existing slot_lifecycle.signal values containing "RAMPING" will be overwritten o
 **Code locality note.** Pod product name normalization moved from a planned SQL `pod_product_name_normalize(text)` IMMUTABLE helper into Deno (`evaluate-lifecycle/index.ts:normalizeName`). This is a maintainability tradeoff: future tweaks to the resolver (e.g., adding alias rules, handling new WEIMI conventions) require redeploying the edge fn rather than executing a migration. Update site is `supabase/functions/evaluate-lifecycle/index.ts`.
 
 **Rollback:**
+
 ```sql
 -- Note: rolling back to (machine_id, shelf_id) UNIQUE will fail if any (machine, shelf)
 -- has multiple non-archived rows. The edge fn must be reverted to its pre-B.1 version
@@ -637,6 +712,7 @@ ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS rotated_in_at;
 ---
 
 ## 2026-05-06 — Phase D.0a: linked_intent_id + reconcile + abandon + expire + orchestrator
+
 **Phase / Article:** D.0a / Constitution Articles 1, 4, 5, 8, 11, 12
 **Applied to:** prod
 **Migration name:** `phaseD0a_reconcile_and_lifecycle`
@@ -644,6 +720,7 @@ ALTER TABLE public.slot_lifecycle DROP COLUMN IF EXISTS rotated_in_at;
 **Summary:** Wired the strategic-intent layer to the tactical pipeline. `daily_plan_drafts.linked_intent_id` (nullable FK to strategic_intents, ON DELETE RESTRICT, indexed via partial index where IS NOT NULL) lets drafts written by ADD/SWAP reference the strategic intent they're helping advance — NULL means autonomous decision (legacy/orthogonal path). Three new DEFINERs: **`reconcile_intent_progress(plan_date)`** is the sole writer of `strategic_intents.progress` jsonb and the queued/in_progress→completed transitions; iterates finalized drafts with linked_intent_id, dedups by draft_id (re-running on the same plan_date is a no-op), appends progress events with full draft trace, auto-completes when applied_units >= target_qty - max_residual_units. **`abandon_intent(intent_id, reason)`** is the operator-only closure path (queued/in_progress/blocked → abandoned) requiring a non-empty reason. **`expire_intents()`** is the cron-callable sweeper (active intents whose target_completion_date is past → expired). Modified `orchestrate_refill_plan` to add reconcile as the 4th stage so the loop closes automatically after every refill cycle: propose_add → propose_swap → engine_finalize → reconcile_intent_progress. **Phase D-0a proxy:** uses `daily_plan_drafts.status='finalized'` as the "approved+applied" signal until Step 5b writes the canonical `refill_plan_output`. The intent FSM, abandon/expire RPCs, and orchestrator stay identical when reconcile shifts to read from `refill_plan_output` directly. **End-to-end smoke test:** linked a synthetic SWAP draft to the Leibniz Zoo Cocoa intent (the operator-created intent from D.0), ran finalize then reconcile, observed the intent transitioned `queued → in_progress` with `applied_units=3` (of `target_qty=7`) and a proper event in the progress jsonb. Re-ran reconcile to confirm idempotency (0 new events via draft_id dedup). Article 8 audit captured the UPDATE with `via_rpc=true, rpc_name='reconcile_intent_progress'`. Cody approved without revisions.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.expire_intents();
 DROP FUNCTION IF EXISTS public.abandon_intent(uuid, text);
@@ -656,6 +733,7 @@ ALTER TABLE public.daily_plan_drafts DROP COLUMN IF EXISTS linked_intent_id;
 ---
 
 ## 2026-05-06 — Phase D.0: strategic_intents (programmed action queue)
+
 **Phase / Article:** D.0 / Constitution Articles 1, 2, 5, 7, 8, 12, 14, 15 + Amendment 006
 **Applied to:** prod
 **Migration name:** `phaseD0_strategic_intents`
@@ -663,6 +741,7 @@ ALTER TABLE public.daily_plan_drafts DROP COLUMN IF EXISTS linked_intent_id;
 **Summary:** First step of Phase D — the strategic intent layer that sits between the strategic engines (PRODUCT OPT, EXPIRY OPT, future MACHINE OPT) and the tactical executors (ADD, SWAP). Multi-cycle action plans live here. **Strategic engines never write to `daily_plan_drafts` directly** — they write intents (e.g. "decommission Vitamin Well from machines A,B,C by Aug 1; target_qty=18"), and ADD/SWAP pull from the queue each cycle, deciding which intents to advance based on today's reality. **Crucial design rule (CS clarified 2026-05-06):** intent progress reflects ONLY what was approved AND applied through the canonical refill pipeline — drafts written, drafts overruled by FINALIZE, and drafts rejected by operator review do NOT progress intents. A future `reconcile_intent_progress` RPC (Phase D-0a) is the sole writer of status/progress changes, driven by what lands in `refill_plan_output`. New protected table with six-value status FSM (queued / in_progress / completed / abandoned / expired / blocked), five type-conditional CHECK constraints (dissolve_batch requires source_wh_inventory_id; routing types disallow it; terminal status requires closure metadata; abandoned requires reason; target completion date must be future), four canonical INSERT writers planned (propose_decommission_plan, propose_batch_dissolution_plan, write_operator_intent, plus reconcile/abandon/expire as UPDATE writers), FORCE RLS, append-only, audit trigger. Six indexes including partial unique to prevent duplicate active intents on (intent_type, scope_boonz_product_id, source_wh_inventory_id). Three negative tests passed (dissolve_batch w/o source rejected by si_dissolve_batch_has_source; decommission w/ source rejected by si_routing_types_no_batch; past target date rejected by si_target_completion_future). **First real intent inserted:** Leibniz Zoo Cocoa decommission for ALJLT-1015 + OMDCW-1021, 7 units target, 21-day window — operator-initiated based on the optimization analysis from earlier in this session. **Amendment 006 to the Constitution:** strategic_intents joins Appendix A protected entities. Cody approved without revisions. **Next:** D-0a wires linked_intent_id on daily_plan_drafts + reconcile_intent_progress + abandon_intent + expire_intents (cron-callable).
 
 **Rollback:**
+
 ```sql
 DROP TRIGGER IF EXISTS tg_audit_strategic_intents ON public.strategic_intents;
 DROP TABLE IF EXISTS public.strategic_intents;
@@ -671,6 +750,7 @@ DROP TABLE IF EXISTS public.strategic_intents;
 ---
 
 ## 2026-05-06 — Phase C.5: Parallel-engine orchestrator (ADD + SWAP + FINALIZE end-to-end)
+
 **Phase / Article:** C.5 / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseC5_orchestrator`, `phaseC5_swap_dedup_fix`
@@ -678,6 +758,7 @@ DROP TABLE IF EXISTS public.strategic_intents;
 **Summary:** Phase C complete. Three new DEFINER functions cap the parallel-engine architecture: (1) **`propose_add_plan(plan_date, min_qty_threshold, days_cover)`** — ENGINE ADD. INSERT-only writer that iterates v_live_shelf_stock + slot_lifecycle, computes Engine B refill qty (CLAMP(velocity × 21d cover, floor=3 office / 4 entertainment, max_stock)), caps by WH availability with the 7-day expiry buffer, writes REFILL drafts. Phase C-5 prototype omits multi-variant split, machine_modes overrides, field-note application — these are Phase D refinements. (2) **`propose_swap_plan(plan_date, max_swaps_per_machine, min_substitute_score)`** — ENGINE SWAP. INSERT-only writer that iterates slot_lifecycle for ROTATE_OUT / DEAD / WIND_DOWN slots sorted worst-score-first, calls `get_similar_products()` (PRODUCT CORRELATION handshake), emits paired REMOVE + ADD_NEW drafts when a category-matching substitute exists with ≥4 units WH stock. **Cody revision applied:** the function is strictly INSERT-only — pairing is one-way (ADD_NEW.paired_draft_id points to REMOVE only, no bidirectional UPDATE), keeping ENGINE FINALIZE as the lone canonical UPDATE writer of daily_plan_drafts. **Follow-up patch `phaseC5_swap_dedup_fix`** wrapped both legs of a swap pair in one PL/pgSQL BEGIN..EXCEPTION subtransaction so unique_violation on either INSERT (legitimate dedup case when two REMOVE rows pick the same substitute) rolls back the partial pair gracefully. (3) **`orchestrate_refill_plan(plan_date)`** — thin orchestrator that calls ADD → SWAP → FINALIZE in sequence. ADD and SWAP are parallel-independent; FINALIZE handles all conflict resolution. Returns combined jsonb summary. **Does NOT yet call write_refill_plan** — that's a Step 5b enrichment task. **First end-to-end production run on CURRENT_DATE+2 produced:** 135 ADD drafts in 618ms + 37 SWAP pairs (74 drafts) in 1254ms = 209 total drafts; FINALIZE finalized 194 and overruled 15 by R1+R2+R4 (every overrule logged with machine_id, shelf_code, product, qty, reason); 51 R3 multi-variant warnings + 16 R5 net-flow warnings surfaced as guidance. Total 2.2s wall-clock. **Article 8 audit trail captured all 209 INSERTs and 209 status-flip UPDATEs in write_audit_log** with proper via_rpc=true and per-engine rpc_name attribution. The parallel-orthogonal architecture CS specified — ADD and SWAP independent, FINALIZE as conflict referee + sole UPDATE writer — is now real and observable in the data. **Phase D follow-ons:** R3 brand guardrail, R5 14-day cooldown, R7 60% shelf rule, MACHINE_TO_WAREHOUSE emission when no substitute available, `push_expiry_opt_to_drafts` so applied rotation_proposals flow into the draft pipeline, Step 5b enrichment + `write_refill_plan` call (turns finalized drafts into canonical refill_plan_output rows).
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.orchestrate_refill_plan(date);
 DROP FUNCTION IF EXISTS public.propose_swap_plan(date, int, numeric);
@@ -689,6 +770,7 @@ DROP FUNCTION IF EXISTS public.propose_add_plan(date, int, int);
 ---
 
 ## 2026-05-06 — Phase C.4: ENGINE FINALIZE (merge + conflict resolution)
+
 **Phase / Article:** C.4 / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseC4_engine_finalize`
@@ -696,6 +778,7 @@ DROP FUNCTION IF EXISTS public.propose_add_plan(date, int, int);
 **Summary:** Step 4 of Phase C — the merge layer. New DEFINER function `engine_finalize(plan_date, dry_run=false)` reads all `daily_plan_drafts` for a plan_date, runs CS's parallel-engine conflict-resolution rules, and flips draft statuses. **Rule R1+R2+R4 (auto-resolve):** if SWAP touches a shelf, ADD drafts on that shelf are overruled with the documented reason. **Rule R6 (surface as warning):** if EXPIRY_OPT_PUSH targets product P at machine A, ADD drafts for product P at OTHER machines get flagged in the warnings array (not auto-overruled — at-risk push is a directive, not a block). **Rules R3 (multi-variant) and R5 (net-flow):** surfaced as warnings, both drafts proceed. The function returns a structured jsonb with total_drafts / finalized / overruled / resolutions / warnings / duration_ms — full explainability of every decision. **Phase C-4 prototype deliberately does NOT call `write_refill_plan`** — that's Step 5's orchestrator job. This step ships the merge layer cleanly so it can be tested independently. Smoke tests proved the design end-to-end: (1) dry-run on the existing 1-draft fixture returned `total_drafts=1, finalized=1, overruled=0` without modifying rows; (2) injected a synthetic SWAP REMOVE draft on VML-1004 shelf A07 (same shelf as the existing ADD REFILL smoke test), real run correctly returned `total_drafts=2, finalized=1 (SWAP), overruled=1 (ADD)` with full resolution detail in jsonb, and the ADD draft now shows `status='overruled'` with reason "Rule R1+R2+R4: SWAP action on this shelf overrules ADD maintenance refill"; (3) **Article 8 audit trail captured both UPDATEs** in write_audit_log with `via_rpc=true, rpc_name='engine_finalize'`; (4) empty-input edge case returned cleanly with the documented note. Role gate: operator_admin/superadmin/manager OR system context. Granted to authenticated AND service_role for cron callability. Cody approved without revisions.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.engine_finalize(date, boolean);
 -- Note: drafts already flipped to finalized/overruled stay that way (FORCE RLS blocks
@@ -705,6 +788,7 @@ DROP FUNCTION IF EXISTS public.engine_finalize(date, boolean);
 ---
 
 ## 2026-05-06 — Phase C.3: ENGINE PRODUCT CORRELATION v1 (machine basket affinity)
+
 **Phase / Article:** C.3 / Constitution Article 12 (read-only INVOKER, no protected-entity writes)
 **Applied to:** prod
 **Migration name:** `phaseC3_product_correlation_v1`
@@ -712,6 +796,7 @@ DROP FUNCTION IF EXISTS public.engine_finalize(date, boolean);
 **Summary:** Step 3 of Phase C — read-only intelligence layer for ENGINE SWAP and future ENGINE PRODUCT OPT to query product similarity. New view `v_product_basket_affinity` computes Pearson correlation of per-machine `velocity_30d` (sourced from `slot_lifecycle`) for every (A,B) pair where both products are stocked-and-selling on at least 3 shared machines. Combined score is bounded 0-100, with a log-saturated shared-machines factor (saturating at 10 shared machines) and a velocity floor (suppresses noise pairs where both products barely sell). New INVOKER RPC `get_similar_products(boonz_product_id, top_n=5, min_score=10.0)` returns the top-N similar products with score, shared_machines, correlation, and a `source` label that future versions will diversify when sales-co-purchase + LLM-enrichment substrates land. **Substrate 1 (sales co-purchase) confirmed dead** — 2026-05-06 scout showed 100% of WEIMI transactions are single-SKU; revisit only if WEIMI exposes baskets or if temporal-proximity inference (60-second window same-machine) gets built (Phase D experiment). **Substrate 3 (LLM enrichment)** deferred to Phase C-3b — a Claude pass over the catalog tagging products with use_case / customer_persona / time_of_day affinities. v1 substrate is purely machine basket affinity. Smoke test results were strong: **Vitamin Well - Care** top similars are all 4 sister Vitamin Well variants (correlation 1.000 across 19 shared machines, score 71.28), then G&H Popped Chips trio (62.10), then M&M Chocolate Bag (55.88) — exactly the wellness-customer cluster you'd expect. **Rice Cake Dark Chocolate** top similars include the Milk Chocolate variant (54.20) and surprisingly all 6 Krambals variants at correlation 0.953 (51.68) — meaning Krambals is the natural successor whenever Rice Cake gets rotated out of an office machine, an insight no previous primitive could surface. View pair distribution: 6,960 total pairs, 436 strong (≥50), 920 moderate (20-50), 2,574 weak (5-20), 3,030 noise (<5). Cody approved without revisions. **Phase D follow-on:** weight-tuning the score formula once SWAP starts consuming, temporal-proximity basket inference experiment, LLM enrichment substrate.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.get_similar_products(uuid, int, numeric);
 DROP VIEW IF EXISTS public.v_product_basket_affinity;
@@ -720,13 +805,15 @@ DROP VIEW IF EXISTS public.v_product_basket_affinity;
 ---
 
 ## 2026-05-06 — Phase C.2: daily_plan_drafts (shared draft surface)
+
 **Phase / Article:** C.2 / Constitution Articles 1, 2, 5, 7, 8, 12, 14, 15 + Amendment 005
 **Applied to:** prod
 **Migration name:** `phaseC2_daily_plan_drafts`
 
-**Summary:** Step 2 of Phase C — the shared draft surface where ENGINE ADD, ENGINE SWAP, and ENGINE EXPIRY_OPT_PUSH write their independent proposals; ENGINE FINALIZE will consume and merge into the canonical `refill_plan_output`. New protected entity `daily_plan_drafts` with FORCE RLS, append-only posture, and the universal audit trigger pattern (`tg_audit_daily_plan_drafts` calling `audit_log_write('draft_id')`). Status FSM `draft → finalized | overruled` with timestamp + reason CHECKs enforcing terminal-state metadata. **Schema-level engine orthogonality** via `dpd_engine_action_match`: ENGINE ADD can only emit `REFILL` actions, ENGINE SWAP only `REMOVE`/`ADD_NEW`/`MACHINE_TO_WAREHOUSE`, ENGINE EXPIRY_OPT_PUSH only `REFILL`/`ADD_NEW`. This is a hard-rule encoding of CS's parallel-independent engine design — no engine can step out of its lane regardless of bug. Self-FK `paired_draft_id` links the two legs of a SWAP pair (REMOVE + ADD_NEW or REMOVE + MACHINE_TO_WAREHOUSE) so FINALIZE can validate pair completeness before finalizing either leg. FK `ON DELETE` clauses revised per Cody — RESTRICT for FORCE-RLS-protected references (`paired_draft_id`, `linked_proposal_id` to rotation_proposals), SET NULL only for `proposed_by_user` since `user_profiles` allows deletion. **Important nuance for downstream readers:** the `action='REMOVE'` value is a *physical-world operation* (driver pulls product off shelf, returns to WH), not a database deletion — every row in this system is append-only by design. Negative test (`ADD + REMOVE`) correctly rejected by `dpd_engine_action_match`. Positive test (`ADD + REFILL` for VML-1004 Rice Cake) inserted cleanly. **Amendment 005 to the Constitution:** `daily_plan_drafts` joins Appendix A protected entities. Cody approved with FK revisions applied. **Step 4 (`engine_finalize`) and Step 5 (extract `propose_add_plan` / `propose_swap_plan`) will populate this table.**
+**Summary:** Step 2 of Phase C — the shared draft surface where ENGINE ADD, ENGINE SWAP, and ENGINE EXPIRY*OPT_PUSH write their independent proposals; ENGINE FINALIZE will consume and merge into the canonical `refill_plan_output`. New protected entity `daily_plan_drafts` with FORCE RLS, append-only posture, and the universal audit trigger pattern (`tg_audit_daily_plan_drafts` calling `audit_log_write('draft_id')`). Status FSM `draft → finalized | overruled` with timestamp + reason CHECKs enforcing terminal-state metadata. **Schema-level engine orthogonality** via `dpd_engine_action_match`: ENGINE ADD can only emit `REFILL` actions, ENGINE SWAP only `REMOVE`/`ADD_NEW`/`MACHINE_TO_WAREHOUSE`, ENGINE EXPIRY_OPT_PUSH only `REFILL`/`ADD_NEW`. This is a hard-rule encoding of CS's parallel-independent engine design — no engine can step out of its lane regardless of bug. Self-FK `paired_draft_id` links the two legs of a SWAP pair (REMOVE + ADD_NEW or REMOVE + MACHINE_TO_WAREHOUSE) so FINALIZE can validate pair completeness before finalizing either leg. FK `ON DELETE` clauses revised per Cody — RESTRICT for FORCE-RLS-protected references (`paired_draft_id`, `linked_proposal_id` to rotation_proposals), SET NULL only for `proposed_by_user` since `user_profiles` allows deletion. **Important nuance for downstream readers:** the `action='REMOVE'` value is a \_physical-world operation* (driver pulls product off shelf, returns to WH), not a database deletion — every row in this system is append-only by design. Negative test (`ADD + REMOVE`) correctly rejected by `dpd_engine_action_match`. Positive test (`ADD + REFILL` for VML-1004 Rice Cake) inserted cleanly. **Amendment 005 to the Constitution:** `daily_plan_drafts` joins Appendix A protected entities. Cody approved with FK revisions applied. **Step 4 (`engine_finalize`) and Step 5 (extract `propose_add_plan` / `propose_swap_plan`) will populate this table.**
 
 **Rollback:**
+
 ```sql
 DROP TRIGGER IF EXISTS tg_audit_daily_plan_drafts ON public.daily_plan_drafts;
 DROP TABLE IF EXISTS public.daily_plan_drafts;
@@ -736,6 +823,7 @@ DROP TABLE IF EXISTS public.daily_plan_drafts;
 ---
 
 ## 2026-05-06 — Phase C.1: machine_to_warehouse proposal type
+
 **Phase / Article:** C.1 / Constitution Articles 2, 5, 7, 8, 12, 14
 **Applied to:** prod
 **Migration name:** `phaseC1_machine_to_warehouse_type`
@@ -743,6 +831,7 @@ DROP TABLE IF EXISTS public.daily_plan_drafts;
 **Summary:** First atomic step of Phase C — the OVERALL/DAILY split that introduces ENGINE FINALIZE as the only writer to `refill_plan_output`, with ENGINE ADD and ENGINE SWAP producing parallel drafts. C.1 lays the schema foundation for the **2-step swap pattern** (machine → WH → machine, never machine → machine direct). Extends `rotation_proposals` with `target_warehouse_id` column (nullable), makes `target_machine_id` nullable, adds `machine_to_warehouse` to the `proposal_type` CHECK enum, adds new `rp_target_consistency` CHECK enforcing exactly-one-target-type by proposal_type (m2w → target_warehouse_id NOT NULL + target_machine_id NULL; all other types → target_machine_id NOT NULL + target_warehouse_id NULL). Updates `rp_source_consistency` to recognize m2w. Drops+recreates the partial unique index `uq_rp_active_source_target` to include target_warehouse_id (so two pending m2w to the same WH for the same product+source can't collide). Adds `idx_rp_source_machine_pending` to support ENGINE SWAP and ENGINE EXPIRY OPT lookups of "is there already a pending return for this machine?" Existing 21 pending wh_to_machine rows pass all new constraints (backward compatible). Smoke test inserted a real m2w proposal (HUAWEI-2003 returning Rice Cake to WH_CENTRAL) — succeeded. Negative test (m2w with target_machine_id set) correctly rejected by rp_target_consistency. Cody approved with one revision (added Articles satisfied header). **Step 5 will teach `propose_rotation_plan` to emit machine_to_warehouse rows when an underperforming slot is detected.**
 
 **Rollback:**
+
 ```sql
 -- Forward-only patch would be needed to undo. Direct SQL rollback:
 ALTER TABLE public.rotation_proposals DROP CONSTRAINT IF EXISTS rp_target_consistency;
@@ -760,6 +849,7 @@ ALTER TABLE public.rotation_proposals DROP COLUMN IF EXISTS target_warehouse_id;
 ---
 
 ## 2026-05-06 — Phase B.2b: Engine 2 canonical writers (4 RPCs) + score function multi-row patch
+
 **Phase / Article:** B.2b / Constitution Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseB2a_fix_score_function_multi_row`, `phaseB2b_engine2_rpcs`
@@ -767,6 +857,7 @@ ALTER TABLE public.rotation_proposals DROP COLUMN IF EXISTS target_warehouse_id;
 **Summary:** Engine 2 is now end-to-end live as a read-write engine. Four DEFINER canonical writers for `rotation_proposals`: (1) `propose_rotation_plan(horizon_days, min_fit_score, max_per_source, dry_run)` — main loop iterating `v_warehouse_at_risk` for urgent buckets, scoring every active machine via `score_machine_for_product`, INSERTing top-N as pending proposals (`trigger_reason='expiry_risk'`, `proposal_type='wh_to_machine'` in B.2b; other reasons/types are future expansion). (2) `apply_rotation_proposal(proposal_id, plan_date, notes)` — CS approval; **Phase B prototype flips status only — does NOT create a planned_swaps row, that's Phase C wiring into the refill engine.** (3) `reject_rotation_proposal(proposal_id, reason)` — CS veto, captures reason in notes. (4) `mark_proposals_expired(age_days)` — daily housekeeping. All four set `app.via_rpc='true'` + `app.rpc_name=<name>`, validate inputs (NULL/range/FK), role-gate via `user_profiles`. System-callable functions (propose, mark_expired) bypass role gate when `auth.uid() IS NULL` so cron via `service_role` works; operator-only functions (apply, reject) require authenticated operator role with no bypass. `propose_rotation_plan` handles dedup via the partial unique index `uq_rp_active_source_target` — `unique_violation` is caught and counted as `skipped_dedup`. **Pre-emptive fix:** `phaseB2a_fix_score_function_multi_row` patched `score_machine_for_product` because `v_machine_absorption_capacity` returns multiple rows per (machine, boonz_product) pair when a boonz SKU is the global default for ≥2 pod_products (multi-variant scenario) — `DISTINCT ON (machine_id, boonz_product_id) … ORDER BY pod_product_id NULLS LAST` collapses the ctx CTE to one deterministic row. **First production run produced 21 pending proposals in 21s wall-clock**, 3 dedup-skips, 0 hard-blocks below threshold. Top scores: Vitamin Well Antioxidant→VOXMCC-1009 (82.7), Vitamin Well Care→VOXMCC-1009 (81.2), Vitamin Well Antioxidant→VOXMCC-1011 (81.1). Engine 2 routes the WH_MCC Vitamin Well stack toward the high-throughput VOX entertainment machines that already sell it — exactly the conduit pattern CS specified. **Article 8 verified end-to-end:** 21 audit rows in `write_audit_log` with `via_rpc=true`, `rpc_name='propose_rotation_plan'`, `operation='INSERT'`. Cody approved without revisions. **Phase B.3 follow-up:** pg_cron wiring (04:00 Dubai for propose, 03:00 for mark_expired) is a separate migration with its own Article 11 review.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.mark_proposals_expired(int);
 DROP FUNCTION IF EXISTS public.reject_rotation_proposal(uuid, text);
@@ -780,6 +871,7 @@ DROP FUNCTION IF EXISTS public.propose_rotation_plan(int, numeric, int, boolean)
 ---
 
 ## 2026-05-05 — Phase B.2a: score_machine_for_product (Engine 2 fit scorer)
+
 **Phase / Article:** B.2a / Constitution Article 12 (read-only INVOKER, no protected-entity writes)
 **Applied to:** prod
 **Migration name:** `phaseB2a_score_machine_for_product`
@@ -787,6 +879,7 @@ DROP FUNCTION IF EXISTS public.propose_rotation_plan(int, numeric, int, boolean)
 **Summary:** First Engine 2 RPC. Read-only `SECURITY INVOKER` function returning a `{score, hard_block, breakdown}` jsonb for routing a `boonz_product` to a target machine. 0-100 score combining five weighted components: throughput rank (35%), archetype/slot signal fit (20%), location_type fit using `product_lifecycle_global.best_location_type` / `worst_location_type` (15%), open shelf capacity vs proposed qty (15%), and urgency from projected days-to-sell vs horizon (10%). Hard cutoffs surface as `hard_block` reason: `no_pair_in_view`, `machine_excluded` (include_in_refill=false), `machine_inactive`, and `travel_scope_vox_locked` (the 8 VOX-locked SKUs from `engines/refill/guardrails/travel-scope.md` cannot route to non-VOX venue_groups). Reads `v_machine_absorption_capacity` (Phase A.5 view) — single source of truth, no parallel velocity computation. Cody review verdict ⚠️ Approve with revisions; both revisions applied (COALESCE guard on the throughput formula for the single-machine-fleet edge case where NULLIF would silently null the whole score; TODO comment in the function body marking the hardcoded VOX-locked list as a Phase C refactor target — should become a `travel_scope_locks` config table). Smoke tests: (1) Vitamin Well Upgrade → VOXMCC-1009 returned 69.94 with sensible breakdown (throughput 35 + location 15 + archetype 10 + capacity 7.5 + urgency 2.44); (2) Aquafina → VML returned 0 with `hard_block: travel_scope_vox_locked`; (3) ranking Vitamin Well across the fleet produced VOXMCC-1011 (74.68) > VOXMCC-1009 (69.94) > OMDBB (55.23) > office machines (~50) — top-2 are the highest-throughput VOX entertainment machines that already sell the product, exactly where Engine 2 should route at-risk warehouse stock. Function added to `RPC_REGISTRY.md` under Read-only helpers (now 9 functions). Phase B.2b (`propose_rotation_plan` DEFINER + 3 transition RPCs) is the next migration.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.score_machine_for_product(uuid, uuid, int, int);
 ```
@@ -794,6 +887,7 @@ DROP FUNCTION IF EXISTS public.score_machine_for_product(uuid, uuid, int, int);
 ---
 
 ## 2026-05-05 — Constitution Amendment 003 + 004: Appendix A additions
+
 **Phase / Article:** Article 15 amendment
 **Applied to:** repo (`01_constitution.html`)
 **Migration name:** n/a (constitutive doc edit)
@@ -805,6 +899,7 @@ DROP FUNCTION IF EXISTS public.score_machine_for_product(uuid, uuid, int, int);
 ---
 
 ## 2026-05-05 — Phase B.1: rotation_proposals write surface
+
 **Phase / Article:** B.1 / Constitution Articles 1, 2, 5, 7, 8, 12, 14, 15
 **Applied to:** prod
 **Migration name:** `phaseB_rotation_proposals_table`
@@ -812,6 +907,7 @@ DROP FUNCTION IF EXISTS public.score_machine_for_product(uuid, uuid, int, int);
 **Summary:** Engine 2 (Rotation Planner) gets its output queue. New table `rotation_proposals` with three proposal types (`wh_to_machine`, `machine_to_machine`, `shelf_substitute`), source/target FKs, snapshot-at-proposal scoring fields (`machine_fit_score`, `projected_days_to_sell`, `scoring_breakdown` jsonb), and a 5-state status FSM (`pending → applied | rejected | expired | superseded`). Five CHECK constraints enforce type-conditional integrity: `rp_source_consistency` (wh/machine source matches type), `rp_shelf_required_for_substitute`, `rp_substitute_changes_product` (target ≠ source for substitutes; = source for routing types), `rp_review_consistency` (applied/rejected require reviewed_at), `rp_applied_has_plan_date`. RLS enabled AND **forced** (per Cody — without FORCE, DEFINERs could DELETE; FORCE makes the table truly append-only). Four policies: select-allow, insert/update/delete-block at WITH CHECK/USING false. Five indexes: `idx_rp_pending_proposed_at` (FE morning brief), `idx_rp_target_machine_pending` (per-machine pane), `uq_rp_active_source_target` (partial unique for dedup, COALESCEs nullable source columns to sentinel UUID), `idx_rp_proposed_at_all` (history), `idx_rp_linked_swap_id` (swap-back lookup). Universal audit trigger `tg_audit_rotation_proposals` calls `audit_log_write('proposal_id')` on every INSERT/UPDATE/DELETE — same pattern as `machine_terminal_history`, `pod_inventory`, `slot_lifecycle`, etc. Cody review verdict ⚠️ Approve with revisions; all three revisions applied (FORCE RLS, audit trigger, articles header). Bodies for the five canonical writers (`propose_rotation_plan` DEFINER, `apply_rotation_proposal` DEFINER, `reject_rotation_proposal` DEFINER, `mark_proposals_expired` DEFINER, `score_machine_for_product` INVOKER) ship in Phase B.2 with separate Cody review. Until those exist, no writes happen — the table sits empty by design.
 
 **Rollback:**
+
 ```sql
 DROP TRIGGER IF EXISTS tg_audit_rotation_proposals ON public.rotation_proposals;
 DROP TABLE IF EXISTS public.rotation_proposals;
@@ -820,6 +916,7 @@ DROP TABLE IF EXISTS public.rotation_proposals;
 ---
 
 ## 2026-05-05 — Manual lifecycle_archetype flips post-A.5 bootstrap
+
 **Phase / Article:** A.5 follow-up / Constitution Article 5 (state machine — manual transition by CS)
 **Applied to:** prod
 **Migration name:** n/a (direct SQL by CS, per Cody's note that until Phase B's transition RPC ships, manual SQL by CS is the allowed path)
@@ -827,6 +924,7 @@ DROP TABLE IF EXISTS public.rotation_proposals;
 **Summary:** Bootstrap rule used "first attributable sale" as lifetime proxy, which mis-tagged a few mature SKUs as UNCLASSIFIED because their `product_mapping` was repointed recently. CS spot-checked the bootstrap distribution and authorized three manual corrections: **UNCLASSIFIED → ALWAYS_ON** for Pepsi - Regular (124 sales/30d), Perrier - Regular (19 sales/30d), SF Pancake - Chocolate Cream (8 sales/30d). **UNCLASSIFIED → TRIAL** for all SKUs of brands Healthy Cola (6 SKUs), Fade Fit (5 SKUs), Fade Fit Balade (2 SKUs) — these are newer brands CS is actively testing. Final distribution: 147 ALWAYS_ON, 17 TRIAL, 115 UNCLASSIFIED. Brands Nada Protein, Hayatna, Dunkin were also flagged for phase-out by CS but `lifecycle_archetype` is the wrong axis — phase-out belongs in `portfolio_strategy.md §6` alongside 7days, Sabahoo, YoPro, or in a future `boonz_products.phase_out_bias` column. Tracked as a separate followup; left as UNCLASSIFIED for now.
 
 **Rollback:**
+
 ```sql
 UPDATE public.boonz_products SET lifecycle_archetype = 'UNCLASSIFIED'
  WHERE boonz_product_name IN ('Pepsi - Regular','Perrier - Regular','SF Pancake - Chocolate Cream');
@@ -837,13 +935,15 @@ UPDATE public.boonz_products SET lifecycle_archetype = 'UNCLASSIFIED'
 ---
 
 ## 2026-05-05 — Optimizer Brain Phase A foundations: lifecycle_archetype + at-risk + absorption views
+
 **Phase / Article:** A.5 / Constitution Articles 2, 6, 12, 14
 **Applied to:** prod
 **Migration name:** `phaseA_optimizer_foundations`, `phaseA_optimizer_foundations_fix_urgency_bucket`
 
-**Summary:** First migration of the Optimizer Brain build (Engine 2 — Rotation Planner per the Bible). Phase A is read-only intelligence; no new write paths. Three pieces landed: (1) `boonz_products.lifecycle_archetype text NOT NULL DEFAULT 'UNCLASSIFIED'` with CHECK enum (HYPE | ALWAYS_ON | SEASONAL | TRIAL | UNCLASSIFIED) and a partial index excluding the default value. The bootstrap UPDATE auto-tagged the catalog using product lifetime and velocity per CS rule (≥30d in catalog AND velocity > 0 → ALWAYS_ON; <30d → TRIAL; else UNCLASSIFIED) — final distribution 144 ALWAYS_ON / 4 TRIAL / 131 UNCLASSIFIED, with HYPE and SEASONAL reserved for future manual promotion. (2) `v_warehouse_at_risk` view exposes warehouse stock × expiration × full Engine 1 (`product_lifecycle_global`) signal context, with an `urgency_bucket` column (expired / urgent_0_7d / soon_7_30d / medium_30_60d / long_60_90d / safe_90d_plus / no_expiry_set). 171 active rows. (3) `v_machine_absorption_capacity` view exposes per (machine, boonz_product) absorption profile — throughput rank, open shelf capacity, slot-level signal/score/velocity/recommendation pulled directly from `slot_lifecycle` (no parallel computation against `v_sales_history_attributed`), plus catalog-level passthrough. 8,845 rows. GRANT SELECT to `authenticated` only (Cody revision dropped `anon`). Audit attribution via `SET LOCAL app.via_rpc / app.rpc_name` so the bootstrap UPDATE is traceable. Cody review: ⚠️ Approve with revisions — all four revisions applied (anon dropped, SET LOCAL added, article header added, SSOT comment corrected). **Followup migration `phaseA_optimizer_foundations_fix_urgency_bucket` applied immediately:** the original CASE used `INTERVAL '7'` etc. without unit, which Postgres parses as 7 *seconds*. All 171 rows had landed in `safe_90d_plus`. Patched to integer arithmetic (`CURRENT_DATE + 7`); post-fix distribution reflects real expiry pressure (1 urgent_0_7d, 8 soon_7_30d, 13 medium_30_60d, 19 long_60_90d, 130 safe_90d_plus). **Phase B (next):** archetype-transition RPC + `score_machine_for_product` SECURITY DEFINER + `propose_rotation_plan` RPC + `rotation_proposals` write table. Until Phase B ships, mutations to `boonz_products.lifecycle_archetype` happen via direct SQL by CS only.
+**Summary:** First migration of the Optimizer Brain build (Engine 2 — Rotation Planner per the Bible). Phase A is read-only intelligence; no new write paths. Three pieces landed: (1) `boonz_products.lifecycle_archetype text NOT NULL DEFAULT 'UNCLASSIFIED'` with CHECK enum (HYPE | ALWAYS*ON | SEASONAL | TRIAL | UNCLASSIFIED) and a partial index excluding the default value. The bootstrap UPDATE auto-tagged the catalog using product lifetime and velocity per CS rule (≥30d in catalog AND velocity > 0 → ALWAYS_ON; <30d → TRIAL; else UNCLASSIFIED) — final distribution 144 ALWAYS_ON / 4 TRIAL / 131 UNCLASSIFIED, with HYPE and SEASONAL reserved for future manual promotion. (2) `v_warehouse_at_risk` view exposes warehouse stock × expiration × full Engine 1 (`product_lifecycle_global`) signal context, with an `urgency_bucket` column (expired / urgent_0_7d / soon_7_30d / medium_30_60d / long_60_90d / safe_90d_plus / no_expiry_set). 171 active rows. (3) `v_machine_absorption_capacity` view exposes per (machine, boonz_product) absorption profile — throughput rank, open shelf capacity, slot-level signal/score/velocity/recommendation pulled directly from `slot_lifecycle` (no parallel computation against `v_sales_history_attributed`), plus catalog-level passthrough. 8,845 rows. GRANT SELECT to `authenticated` only (Cody revision dropped `anon`). Audit attribution via `SET LOCAL app.via_rpc / app.rpc_name` so the bootstrap UPDATE is traceable. Cody review: ⚠️ Approve with revisions — all four revisions applied (anon dropped, SET LOCAL added, article header added, SSOT comment corrected). **Followup migration `phaseA_optimizer_foundations_fix_urgency_bucket` applied immediately:** the original CASE used `INTERVAL '7'` etc. without unit, which Postgres parses as 7 \_seconds*. All 171 rows had landed in `safe_90d_plus`. Patched to integer arithmetic (`CURRENT_DATE + 7`); post-fix distribution reflects real expiry pressure (1 urgent_0_7d, 8 soon_7_30d, 13 medium_30_60d, 19 long_60_90d, 130 safe_90d_plus). **Phase B (next):** archetype-transition RPC + `score_machine_for_product` SECURITY DEFINER + `propose_rotation_plan` RPC + `rotation_proposals` write table. Until Phase B ships, mutations to `boonz_products.lifecycle_archetype` happen via direct SQL by CS only.
 
 **Rollback:**
+
 ```sql
 DROP VIEW IF EXISTS public.v_machine_absorption_capacity;
 DROP VIEW IF EXISTS public.v_warehouse_at_risk;
@@ -854,6 +954,7 @@ ALTER TABLE public.boonz_products DROP COLUMN IF EXISTS lifecycle_archetype;
 ---
 
 ## 2026-05-05 — Repurposed-machine attribution: `machine_terminal_history` + attributed view + per-machine RPC
+
 **Phase / Article:** A.4 / Constitution Articles 1, 2, 4, 7, 8, 12, 14
 **Applied to:** prod
 **Migration name:** `phaseA_a4_machine_terminal_history`, `phaseA_a4b_attributed_view_dedupe`, `phaseA_a4c_per_machine_performance_rpc`, `phaseA_a4d_vox_commercial_report_via_attributed_view`, `phaseA_a4e_vox_consumer_report_join_by_machine_id`, `phaseA_a4f_consumer_report_adyen_pending_flag`, `phaseA_a4g_vox_commercial_filter_by_machine_id`
@@ -861,6 +962,7 @@ ALTER TABLE public.boonz_products DROP COLUMN IF EXISTS lifecycle_archetype;
 **Summary:** New versioned-history table `machine_terminal_history` (terminal-id × machine-id × date-range) with EXCLUDE-overlap constraint, RLS, and the generic A.3 audit trigger installed. Backfilled with 9 known terminal-to-machine windows: ACTIVATE-2005 chain (LLFP_2005 Feb 13-14 → MPMCC-2005-0000-W0 Apr 23-27 → ACTIVATE-2005-0000-W0 Apr 28+), MPMCC-1054/1058 ← ACTIVATEMCC-1054/1058 Apr 28 rebrands, IFLYMCC-1024 install, ALHQ-1016 stable. New canonical writer `register_terminal_move(text, uuid, date, text, text, text)` is the only path to add new windows; validates inputs + FK + role (operator_admin or superadmin). New view `v_adyen_transactions_attributed` (with `security_invoker = true`) joins Adyen rows through the history table to expose `attributed_machine_name`, `attributed_machine_id`, `attributed_venue_group`, `attribution_source` per row. Dedupe patch (`a4b`) restricts the machines join to `status='Active'` so stale Inactive terminal claims don't double-count. New read-only RPC `get_per_machine_performance(p_date_from, p_date_to, p_venue_group, p_machine_names)` returns a JSON array per attributed-machine combining WEIMI sales (via `v_sales_history_attributed`) with Adyen settled+refunded captures, including refund-netted `adyen_net_cash_aed`. Existing `get_vox_commercial_report` patched (`a4d`) to read Adyen via the new view and split SettledBulk vs RefundedBulk so partial refunds net out of captured. **Net effect:** repurposed machines now appear as separate rows in any per-machine report (e.g. ACTIVATE-2005 has 5 days at 1,087 AED under MPMCC-2005-0000-W0 and 7 days at 1,456.85 AED under ACTIVATE-2005-0000-W0 in the Feb 1 → May 4 window, instead of 12 days collapsed into one row). Validated by Cody (⚠️ Approve with revisions — all revisions applied: real ALHQ uuid, btree_gist extension, input/role validation, security_invoker on the view, audit trigger installed, terminology corrected from "append-only audit" to "versioned history"). FE wiring of `/app/performance` Sites & Machines tab patched separately (`src/app/(app)/app/performance/page.tsx` — `machineData` keys by `sales_history.machine_mapping` instead of `machine_id`). Pending: register_terminal_move callsite from a future "Rename machine" UI, wire `get_per_machine_performance` if/when the Sites & Machines tab needs Adyen-net-cash beside revenue.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.get_per_machine_performance(date, date, text, text[]);
 DROP FUNCTION IF EXISTS public.register_terminal_move(text, uuid, date, text, text, text);
@@ -875,6 +977,7 @@ DROP TABLE   IF EXISTS public.machine_terminal_history;
 ---
 
 ## 2026-05-04 — Orphan dispatching cleanup RPC
+
 **Phase / Article:** Operational hardening / Articles 1, 4, 8, 12
 **Applied to:** prod
 **Migration name:** `cleanup_orphan_dispatching_rpc`
@@ -882,6 +985,7 @@ DROP TABLE   IF EXISTS public.machine_terminal_history;
 **Summary:** New canonical-writer RPC `cleanup_orphan_dispatching(date, text[])` to delete orphaned `refill_dispatching` rows that have no matching plan row in `refill_plan_output`. This gap was surfaced operationally when `write_refill_plan` (RPC B) rewrote plan rows for 4 machines (MC-2004, MINDSHARE, WAVEMAKER, WPP) — the old plan's dispatching rows were left behind because `write_refill_plan` only touches the plan table. The RPC validates caller role (operator_admin, superadmin, manager), requires non-NULL `p_dispatch_date`, and JOINs through `machines` + `shelf_configurations` to match dispatching rows back to plan rows by `(plan_date, machine_id, shelf_id, action)`. Only deletes rows where `packed=false AND picked_up=false` (Article 12 — never touch packed/picked-up rows). Returns `{status, dispatch_date, machines_scoped, orphan_rows_deleted}`. Designed by Dara, reviewed by Cody (⚠️ Approve with revisions — revisions applied: role validation, NULL guard, JOIN rewrite from subquery to NOT EXISTS). First call deleted 8 orphaned swap dispatching rows across 4 machines for 2026-05-05.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.cleanup_orphan_dispatching(date, text[]);
 ```
@@ -889,6 +993,7 @@ DROP FUNCTION IF EXISTS public.cleanup_orphan_dispatching(date, text[]);
 ---
 
 ## 2026-05-04 — Warehouse stock reconciliation RPC + bug fixes across 3 inventory RPCs
+
 **Phase / Article:** Operational hardening / Articles 1, 4, 5, 8
 **Applied to:** prod
 **Migration names:** `inventory_rpc_adjust_warehouse_stock`, `patch_adjust_warehouse_stock_update_expiry`, `fix_adjust_warehouse_stock_wh_name_col`, `fix_adjust_warehouse_stock_generated_col`, `patch_adjust_wh_stock_expiry_unchanged_check`, `fix_log_manual_refill_generated_delta`, `fix_log_manual_refill_audit_constraints`, `fix_transfer_warehouse_stock_generated_delta`
@@ -896,6 +1001,7 @@ DROP FUNCTION IF EXISTS public.cleanup_orphan_dispatching(date, text[]);
 **Summary:** New canonical-writer RPC `adjust_warehouse_stock` for physical count reconciliation of warehouse inventory. Matches existing rows by `wh_inventory_id` or `(warehouse, product, expiry)`, updates stock + consumer_stock + expiration_date + batch_id + status, inserts new rows when no match found. Unchanged-check includes expiry comparison (catches expiry-only corrections like mislabeled dates). Used to reconcile WH_MCC physical counts on 2026-05-04. Also fixed `inventory_audit_log.delta` generated-column bug in all 3 existing inventory RPCs (`adjust_warehouse_stock`, `log_manual_refill`, `transfer_warehouse_stock`) — the `delta` column is GENERATED ALWAYS and cannot be explicitly INSERTed. Fixed `log_manual_refill` pod_inventory_audit_log constraint violations: `operation` must be lowercase ('insert' not 'INSERT'), `source` must be from enum ('refill' not 'manual_refill').
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.adjust_warehouse_stock(uuid, jsonb, date, text);
 -- Then CREATE OR REPLACE log_manual_refill and transfer_warehouse_stock with pre-fix bodies
@@ -904,6 +1010,7 @@ DROP FUNCTION IF EXISTS public.adjust_warehouse_stock(uuid, jsonb, date, text);
 ---
 
 ## 2026-05-04 — Inventory operations: 3 new RPCs (transfer, manual refill, pod adjust)
+
 **Phase / Article:** Operational hardening / Articles 1, 4, 5, 6, 8
 **Applied to:** prod
 **Migration names:** `inventory_rpc_transfer_warehouse_stock`, `inventory_rpc_log_manual_refill`, `inventory_rpc_adjust_pod_inventory`
@@ -911,6 +1018,7 @@ DROP FUNCTION IF EXISTS public.adjust_warehouse_stock(uuid, jsonb, date, text);
 **Summary:** Three new canonical-writer RPCs to close inventory management gaps. Designed by Dara, reviewed by Cody (Articles 1, 4, 5, 6, 8 — all pass). These enable the operator to: (1) transfer stock between warehouses (WH_CENTRAL → WH_MCC/WH_MM) with FIFO batch picking and cold-storage validation; (2) retroactively log manual refills that happened outside the system (backlog cleanup), decrementing source warehouse and creating pod_inventory entries; (3) correct pod_inventory via physical count reconciliation with batch-level FIFO support. All three write full audit trails to `inventory_audit_log` and/or `pod_inventory_audit_log`. Article 6 compliance verified: none of the three RPCs touch `warehouse_inventory.status` (the propose_inactivate trigger may fire when source stock hits zero, but that only proposes — manager confirms).
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.transfer_warehouse_stock(uuid, uuid, jsonb, date, text);
 DROP FUNCTION IF EXISTS public.log_manual_refill(text, uuid, date, jsonb, text);
@@ -920,6 +1028,7 @@ DROP FUNCTION IF EXISTS public.adjust_pod_inventory(text, date, jsonb, text);
 ---
 
 ## 2026-05-04 — Refill pipeline hardening: 6 RPC changes (B, E, C, D, F, A)
+
 **Phase / Article:** Operational hardening / Articles 1, 4, 5, 8, 12
 **Applied to:** prod
 **Migration names:** `refill_b_scoped_write_refill_plan`, `refill_e_loud_approve_refill_plan`, `refill_c_override_refill_quantity`, `refill_d_inject_swap`, `refill_f_seed_shelf_configurations`, `refill_a_multi_machine_generate`
@@ -941,11 +1050,13 @@ DROP FUNCTION IF EXISTS public.adjust_pod_inventory(text, date, jsonb, text);
 **Cody review:** ⚠️ Approve with revisions. All revisions applied: alerts are warnings not blockers (E), packed rows preserved (D/E/A), idempotent ON CONFLICT (F), role validation on all new RPCs (C/D/F). Constitution articles satisfied: 1 (each RPC is canonical for its operation type), 4 (GUCs + role + input validation), 5 (status transitions respected), 8 (audit trigger fires on all targets), 12 (forward-only CREATE OR REPLACE).
 
 **Verification:**
+
 - All 6 functions confirmed: `prosecdef=true`, `has_via_rpc=true`, `has_rpc_name=true`.
 - `auto_generate_refill_plan` has exactly one overload (4 params).
 - Old 3-param overload dropped cleanly.
 
 **Rollback:**
+
 ```sql
 -- Reverse in opposite order
 DROP FUNCTION IF EXISTS public.auto_generate_refill_plan(text, date, boolean, text[]);
@@ -959,6 +1070,7 @@ DROP FUNCTION IF EXISTS public.override_refill_quantity(date, text, text, int);
 ---
 
 ## 2026-05-04 — Refill app issues Phase 1: propose-then-confirm + canonical pickup
+
 **Phase / Article:** Operational fix bundle / Articles 1, 2, 3, 4, 5, 6 (revised), 7, 8, 9, 12
 **Applied to:** prod (additive only — no live-flow behavior change today)
 **Migration names:** `m1_warehouse_inventory_status_proposal_table`, `m2_confirm_reject_warehouse_status_proposal_rpcs`, `m3_propose_status_change_functions_unbound`, `m4_mark_picked_up_rpc`, `m5_diagnostic_views`
@@ -978,11 +1090,13 @@ DROP FUNCTION IF EXISTS public.override_refill_quantity(date, text, text, int);
 **Constitution amendment (002):** Article 6 revised. The previous absolute rule ("`warehouse_inventory.status` may only be written by the warehouse manager — no trigger / function / cron / n8n / app may mutate it") is replaced with a propose-then-confirm rule that allows automated flows to PROPOSE status changes via the new proposal table, with manager confirmation as the gate. Silent direct UPDATE of `warehouse_inventory.status` from any trigger / RPC / cron / n8n / FE remains forbidden. See `06_amendment_002_article_6_propose_then_confirm.md`.
 
 **Today-safe verification:**
+
 - `warehouse_inventory` triggers unchanged (no new mutation triggers; lockdown holds).
 - `refill_dispatching` triggers unchanged (`enforce_packed_dispatch_immutability`, `tg_audit_refill_dispatching`, `trg_conserve_split_qty`, `trg_prevent_duplicate_unstarted_dispatch` all intact).
 - No FE deploy required to apply these migrations. RPCs sit dormant until tonight's FE deploy.
 
 **Rollback:**
+
 ```sql
 -- M5
 DROP VIEW IF EXISTS public.v_machines_without_shelf_config;
@@ -1005,6 +1119,7 @@ DROP TABLE IF EXISTS public.warehouse_inventory_status_proposal;
 ---
 
 ## 2026-04-30 — Boonz Master operational intelligence layer
+
 **Phase / Article:** Operational / Articles 1, 2, 3, 4, 5, 8, 12
 **Applied to:** prod + repo
 **Migration names:** `boonz_master_foundation`, `add_approve_refill_plan_rpc`
@@ -1030,6 +1145,7 @@ DROP TABLE IF EXISTS public.warehouse_inventory_status_proposal;
 9. **`refill-engine` v4** — Updated SKILL.md. New CONTEXT CHECK step runs before PRE-FLIGHT: reads `boonz_context`, `planned_swaps`, `machine_field_notes`. Applies scenario mapping, machine_modes, planned swaps, field note adjustments to the plan.
 
 **Rollback:**
+
 ```sql
 -- boonz_master_foundation
 DROP TABLE IF EXISTS public.machine_field_notes;
@@ -1039,11 +1155,13 @@ ALTER TABLE public.product_mapping DROP COLUMN IF EXISTS mix_weight;
 -- add_approve_refill_plan_rpc
 DROP FUNCTION IF EXISTS public.approve_refill_plan(date, text[]);
 ```
+
 FE rollback: revert `page.tsx` and `RefillPlanningTab.tsx` to previous state via git.
 
 ---
 
 ## 2026-04-27 (v2) — Supplier consolidation + driver task filtering + not-purchased + audit trail
+
 **Phase / Article:** Post-fix procurement v2 / Articles 1, 4, 6
 **Applied to:** prod + repo
 **Migration names:** `procurement_supplier_consolidation`, `procurement_outcome_and_audit_schema`, `procurement_rpcs_v2`
@@ -1053,6 +1171,7 @@ FE rollback: revert `page.tsx` and `RefillPlanningTab.tsx` to previous state via
 ---
 
 ## 2026-04-27 — Procurement flow overhaul: B-1 → B-6 fixes + 2 new canonical writers
+
 **Phase / Article:** Post-A.5 procurement fix / Constitution Articles 1, 3, 4, 6
 **Applied to:** prod + repo
 **Migration names:** `procurement_supplier_type_column`, `procurement_po_number_sequence`, `create_purchase_order_rpc`, `receive_purchase_order_rpc`, `tighten_warehouse_inventory_rls`
@@ -1062,6 +1181,7 @@ FE rollback: revert `page.tsx` and `RefillPlanningTab.tsx` to previous state via
 ---
 
 ## 2026-04-26 — A.6.0 incident filed: 4 non-canonical write paths into protected tables
+
 **Phase / Article:** A.6.0 / Constitution Article 1 (canonical write paths) — drift surfaced by A.5b smoke test
 **Applied to:** repo (incident report only — no migration applied)
 **Migration name:** —
@@ -1071,6 +1191,7 @@ FE rollback: revert `page.tsx` and `RefillPlanningTab.tsx` to previous state via
 ---
 
 ## 2026-04-26 — A.5b applied: patch remaining 24 canonical writers + RLS on `refill_dispatch_plan`
+
 **Phase / Article:** A.5b / Constitution Article 1 (canonical path) + Article 2 (RLS) + Article 4 (validation/via_rpc) + Article 8 (universal audit)
 **Applied to:** prod
 **Migration names:** `phaseA_a5b_part1_of_4_canonical_writers`, `phaseA_a5b_part2_of_4_canonical_writers`, `phaseA_a5b_part3_of_4_canonical_writers`, `phaseA_a5b_part4_of_4_rls_refill_dispatch_plan` (split into 4 because the combined diff exceeds Supabase's per-migration size limit)
@@ -1090,18 +1211,21 @@ FE rollback: revert `page.tsx` and `RefillPlanningTab.tsx` to previous state via
 Cody's review recommended function-level `SET app.via_rpc='true'` (atomic save/restore on entry/exit, no SET LOCAL leak). Supabase rejected that shape with `42501: permission denied to set parameter "app.via_rpc"` because custom GUCs (any param with a dot) must be pre-registered via `ALTER DATABASE/ROLE/SYSTEM SET app.via_rpc=''` to be accepted in a function-level SET clause, and the migration role lacks that grant. Pivot: stay with the A.5a precedent — `PERFORM set_config(...)` at the top of `BEGIN`. **Audited the 4 nested-DEFINER call sites** (`auto_sanity_check→add_sanity_increment`, `receive_all_dispatches_for_machine→receive_dispatch_line`, `return_all_dispatches_for_machine→return_dispatch_line`, `upsert_sales_lines→refresh_sales_aggregated`) and confirmed none write to a protected entity AFTER the inner call returns — they either return immediately or update a non-protected table (`daily_pipeline_runs`). So the SET LOCAL leak from PERFORM does not corrupt the audit trail in any current code path.
 
 **Verification:**
+
 - All 24 functions confirmed `prosecdef=true`, `proconfig` includes `search_path=public`, body contains both `PERFORM set_config` calls.
 - Smoke 1: ran `toggle_machine_refill('ADDMIND-1007-0000-W0', !current); toggle_machine_refill(..., current);` — two new `write_audit_log` rows landed with `via_rpc=true, rpc_name='toggle_machine_refill'`.
 - Smoke 2: ran `refresh_product_scores();` — one row landed with `table_name='mv_global_product_scores', operation='REFRESH', via_rpc=true, rpc_name='refresh_product_scores', payload={kind: matview_refresh, trigger: manual_or_cron}`.
 - Security advisors run post-apply: zero new findings on `refill_dispatch_plan`; no patched function appears in the `function_search_path_mutable` list (the 35 remaining are pre-existing helpers/triggers/read-only RPCs out of A.5b scope).
 
 **Open follow-ups (not blockers):**
+
 - **A.5c**: re-author all 25 A.5a/A.5b writers to function-level `SET app.via_rpc='true'` once `app.via_rpc` is pre-registered at db level (requires a separate `ALTER DATABASE postgres SET app.via_rpc=''` migration as superuser, then rewriting the bodies). This eliminates the SET LOCAL leak entirely and matches Cody's preferred shape.
 - **B.x**: tighten `refill_plan_output` RLS — currently allows authenticated INSERT/UPDATE which violates Article 1/3 (sole canonical writer is `write_refill_plan`).
 - **A.4.b**: install audit triggers on the 6 deferred protected tables once Amendment 001 lands.
 - **Investigate** (RESOLVED → see `INCIDENT_2026-04-26_NON_CANONICAL_WRITES.md`): the `machines` audit row at 2026-04-26 06:06:03 UTC was the visible tip of four distinct non-canonical write paths into protected tables. Most material: zero `write_refill_plan` calls in 24h despite 180 direct INSERT/DELETE/UPDATE writes against `refill_plan_output`. A.5b is correct as shipped — what surfaced is a Phase B FE/n8n migration gap, now sequenced as B.x.1–B.x.4 in the incident doc.
 
 **Rollback:**
+
 ```sql
 -- Function bodies: pre-A.5b versions are archived in pg_proc history and in
 -- /sessions/gracious-compassionate-noether/a5b_rows.json. To roll any one
@@ -1114,6 +1238,7 @@ DROP POLICY IF EXISTS refill_dispatch_plan_select ON public.refill_dispatch_plan
 ---
 
 ## 2026-04-26 — Data correction: merge Santiveri Cranberries → Cran Berry + Article 7 RLS on inventory_audit_log
+
 **Phase / Article:** Data correction / Constitution Article 7 (audit log append-only), Article 6 (warehouse_inventory.status untouched), Appendix A (boonz_products + product_mapping: intentionally permissive)
 **Applied to:** prod
 **Migration names:** `data_merge_cranberries_into_cran_berry`, `rls_inventory_audit_log_append_only`
@@ -1123,12 +1248,14 @@ DROP POLICY IF EXISTS refill_dispatch_plan_select ON public.refill_dispatch_plan
 ---
 
 ## 2026-04-26 — A.5a follow-up applied: widen `write_audit_log.operation` CHECK
+
 **Phase / Article:** A.5a.1 / Constitution Article 12 (forward-only)
 **Applied to:** prod
 **Migration name:** `phaseA_a5a_followup_allow_refresh_op`
 **Summary:** End-to-end smoke of A.5a's `refresh_sales_aggregated()` failed with `23514: violates check constraint "write_audit_log_operation_check"` — the column's CHECK was authored in A.3 with the value set `{'INSERT','UPDATE','DELETE'}`. The patched `refresh_sales_aggregated()` records `operation='REFRESH'` for matview refreshes (the only reasonable verb — REFRESH is conceptually an UPDATE on the entire matview but not on any single row). Forward-only fix: dropped the existing CHECK and re-added it with `{'INSERT','UPDATE','DELETE','REFRESH'}`. Pure additive widening — every prior row remains valid; no behavior regression; no RLS change. Cody auto-approve path (constraint-widening, no surface change).
 **Verification:** Re-ran `SELECT public.refresh_sales_aggregated();` — succeeded; one row landed in `write_audit_log` with `operation='REFRESH'`, `via_rpc=true`, `rpc_name='refresh_sales_aggregated'`, `payload->>'kind'='matview_refresh'`.
 **Rollback:**
+
 ```sql
 ALTER TABLE public.write_audit_log
   DROP CONSTRAINT write_audit_log_operation_check;
@@ -1142,12 +1269,14 @@ ALTER TABLE public.write_audit_log
 ---
 
 ## 2026-04-26 — A.5a applied: patch `upsert_daily_sales` + split matview refresh
+
 **Phase / Article:** A.5a / Constitution Article 1 (canonical path) + Article 4 (validation/via_rpc) + Article 8 (universal audit) + Article 9 (heavy work on its own surface) + Article 11 (cron via RPC) + Article 12 (forward-only)
 **Applied to:** prod
 **Migration name:** `phaseA_a5a_patch_upsert_daily_sales_and_split_matview`
 **Summary:** First batch of A.5 — patches the writer that triggered this entire diagnostic session (the n8n `Supabase Upsert1` gateway timeout on 2026-04-25). Three coordinated changes shipped together.
 
 **Change 1 — `upsert_daily_sales(p_items jsonb)` body:**
+
 - Added `PERFORM set_config('app.via_rpc',  'true', true)` at the top of `BEGIN`. `is_local=true` scopes the GUC to the current transaction (no leak across pooled n8n connections).
 - Added `PERFORM set_config('app.rpc_name', 'upsert_daily_sales', true)` for the audit-log `rpc_name` field.
 - Removed the synchronous `PERFORM refresh_sales_aggregated();` at the end (the line that was causing the gateway timeout).
@@ -1155,17 +1284,20 @@ ALTER TABLE public.write_audit_log
 - All other behavior preserved verbatim: `SECURITY DEFINER`, `search_path=public`, `TimeZone=Asia/Dubai`, `resolve_machine_id` lookup, defensive timestamp parse, total_amount fallback chain, `ON CONFLICT (internal_txn_sn) DO UPDATE` rules, per-item `EXCEPTION WHEN OTHERS` envelope, jsonb summary return shape.
 
 **Change 2 — `refresh_sales_aggregated()` body:**
+
 - Added the same two `set_config` GUC tags so the cron-triggered refresh is audit-traceable.
 - Inserted an explicit row into `public.write_audit_log` before the `REFRESH MATERIALIZED VIEW CONCURRENTLY`. This is required by Article 8 because matviews cannot carry AFTER triggers, so the writer must record itself. Required Cody Change 3 in the review.
 - Pinned `search_path TO 'public'` (defensive; the previous version inherited the calling session's path).
 - Updated COMMENT.
 
 **Change 3 — pg_cron schedule:**
+
 - New cron job `refresh-sales-aggregated-10min` runs `*/10 * * * *` calling `SELECT public.refresh_sales_aggregated();`.
 - The `DO $cron$` block first `cron.unschedule`s any prior version of the same job, then `cron.schedule`s — making the migration idempotent / replay-safe.
 - Cadence rationale: 10 min keeps `sales_history_aggregated` fresh enough for ops dashboards (refill-engine, partner-performance) which already tolerate hour-old aggregates; cheap enough for a ~15K-row matview with `CONCURRENTLY` refresh.
 
 **Constitutional impact:**
+
 - Article 1 ✅ — `upsert_daily_sales` remains the sole writer for `sales_history`.
 - Article 4 ✅ — GUC tags now declared. Input validation via `EXCEPTION WHEN OTHERS` envelope (per-item; preserves partial-success semantics for the n8n batch).
 - Article 8 ✅ — every `sales_history` write now lands in `write_audit_log` with `via_rpc=true, rpc_name='upsert_daily_sales'`. Every matview refresh lands with `via_rpc=true, rpc_name='refresh_sales_aggregated'`.
@@ -1176,6 +1308,7 @@ ALTER TABLE public.write_audit_log
 **Phase B note (deferred, not done in A.5a):** `upsert_daily_sales` still has `EXECUTE` granted to `PUBLIC` (`=X/postgres` ACL entry). Phase B will tighten to `service_role` only — n8n already auths as service_role. Don't ship this now (would be an unrelated behavior change).
 
 **Verification:**
+
 - `pg_get_functiondef(upsert_daily_sales)` confirms both `set_config` calls present and `refresh_sales_aggregated()` call removed.
 - `pg_get_functiondef(refresh_sales_aggregated)` confirms both `set_config` calls present and the explicit `INSERT INTO public.write_audit_log` line.
 - `cron.job` shows `refresh-sales-aggregated-10min` active with schedule `*/10 * * * *`.
@@ -1187,10 +1320,12 @@ ALTER TABLE public.write_audit_log
 - Bypass-detector still works: pre-existing `machines` audit row from A.4 smoke still shows `via_rpc=false` — proves the index `idx_wal_via_rpc` will surface unpatched canonical paths until A.5b+ closes them.
 
 **Operational impact:**
+
 - The 23:59 n8n flow that fired this whole diagnostic is now safe — the synchronous matview refresh that caused the gateway timeout is gone. Worst case, the n8n upsert returns immediately with the per-item summary, and the matview catches up within ≤10 minutes.
 - The matview refresh now happens 144x/day (every 10 min) vs ~3-5x/day previously. The marginal cost is small — `REFRESH MATERIALIZED VIEW CONCURRENTLY` is incremental relative to the previous full refresh.
 
 **Rollback:**
+
 ```sql
 -- 1. Restore upsert_daily_sales pre-A.5a body (without GUC tags, with inline matview refresh).
 --    Body archived in this CHANGELOG file's git history at HEAD~1.
@@ -1210,28 +1345,30 @@ $$;
 -- 3. Drop the cron job:
 SELECT cron.unschedule('refresh-sales-aggregated-10min');
 ```
+
 (Rollback is destructive of the audit-tagging behavior. Prefer forward-fix via a new migration unless a critical regression is observed.)
 
 ---
 
 ## 2026-04-26 — A.4 applied: install audit triggers on 10 protected tables
+
 **Phase / Article:** A.4 / Constitution Article 1 (canonical write paths) + Article 8 (universal audit) + Article 15 (Appendix A reconciliation flagged)
 **Applied to:** prod
 **Migration name:** `phaseA_a4_install_audit_triggers`
 **Summary:** Installed the generic `audit_log_write(pk_col)` AFTER trigger from A.3 onto every protected table where the Constitution name unambiguously matches a live `public.*` table. The trigger fires on INSERT, UPDATE, and DELETE for all 10 tables and writes one row to `public.write_audit_log` per affected row, capturing `table_name`, `operation`, `row_pk` (extracted via `TG_ARGV[0]`), `actor`, `actor_role`, `via_rpc` (false until A.5 patches the canonical writers), `rpc_name`, `occurred_at`, and a full `old`/`new` jsonb payload. Idempotent (DROP IF EXISTS guards before each CREATE), so the migration is replay-safe. Updated the `audit_log_write()` function COMMENT to record installation date. The 10 tables and their PK columns:
 
-| # | Table | PK column injected | Trigger name |
-|---|---|---|---|
-| 1 | `machines` | `machine_id` | `tg_audit_machines` |
-| 2 | `shelf_configurations` | `shelf_id` | `tg_audit_shelf_configurations` |
-| 3 | `planogram` | `planogram_id` | `tg_audit_planogram` |
-| 4 | `sim_cards` | `sim_id` | `tg_audit_sim_cards` |
-| 5 | `slot_lifecycle` | `slot_lifecycle_id` | `tg_audit_slot_lifecycle` |
-| 6 | `pod_inventory` | `pod_inventory_id` | `tg_audit_pod_inventory` |
-| 7 | `pod_inventory_audit_log` | `audit_id` | `tg_audit_pod_inventory_audit_log` |
-| 8 | `warehouse_inventory` | `wh_inventory_id` | `tg_audit_warehouse_inventory` |
-| 9 | `refill_plan_output` | `id` | `tg_audit_refill_plan_output` |
-| 10 | `sales_history` | `transaction_id` | `tg_audit_sales_history` |
+| #   | Table                     | PK column injected  | Trigger name                       |
+| --- | ------------------------- | ------------------- | ---------------------------------- |
+| 1   | `machines`                | `machine_id`        | `tg_audit_machines`                |
+| 2   | `shelf_configurations`    | `shelf_id`          | `tg_audit_shelf_configurations`    |
+| 3   | `planogram`               | `planogram_id`      | `tg_audit_planogram`               |
+| 4   | `sim_cards`               | `sim_id`            | `tg_audit_sim_cards`               |
+| 5   | `slot_lifecycle`          | `slot_lifecycle_id` | `tg_audit_slot_lifecycle`          |
+| 6   | `pod_inventory`           | `pod_inventory_id`  | `tg_audit_pod_inventory`           |
+| 7   | `pod_inventory_audit_log` | `audit_id`          | `tg_audit_pod_inventory_audit_log` |
+| 8   | `warehouse_inventory`     | `wh_inventory_id`   | `tg_audit_warehouse_inventory`     |
+| 9   | `refill_plan_output`      | `id`                | `tg_audit_refill_plan_output`      |
+| 10  | `sales_history`           | `transaction_id`    | `tg_audit_sales_history`           |
 
 **Deferred to A.4.b** (pending Article 15 amendment): `sales_history_aggregated` (Constitution called it `sales_aggregated`), `refill_dispatch_plan` (called `dispatch_plan`), `refill_dispatching` (called `dispatch_lines`), `inventory_audit_log` (called `warehouse_inventory_audit_log`). The Constitution names predate the schema as it stands today, so before installing triggers we must amend Appendix A so the protected-entity list and the live schema agree.
 
@@ -1240,10 +1377,12 @@ SELECT cron.unschedule('refresh-sales-aggregated-10min');
 **Important pre-A.5 expectation:** Until A.5 patches the canonical writers, every row appearing in `write_audit_log` will have `via_rpc = false`. This is **not** a constitutional violation — it just means the writer didn't yet declare itself via the `app.via_rpc` GUC. A.5 fixes that, and the `idx_wal_via_rpc` partial index (created in A.3) becomes the bypass-traffic detector once the canonical paths are tagged.
 
 **Verification:**
+
 - All 10 triggers exist and are enabled (`pg_trigger.tgenabled = 'O'`); `pg_get_triggerdef` confirms each binds `audit_log_write` with the correct PK arg.
 - Synthetic smoke: a no-op self-update on one row of `machines` produced exactly one row in `write_audit_log` with `table_name=machines`, `operation=UPDATE`, correct `row_pk`, `via_rpc=false`, `rpc_name=NULL`, and a full `payload.old` / `payload.new` snapshot. Confirms trigger fires, PK extraction works, and payload capture works end-to-end.
 
 **Rollback:**
+
 ```sql
 DROP TRIGGER IF EXISTS tg_audit_machines ON public.machines;
 DROP TRIGGER IF EXISTS tg_audit_shelf_configurations ON public.shelf_configurations;
@@ -1256,32 +1395,38 @@ DROP TRIGGER IF EXISTS tg_audit_warehouse_inventory ON public.warehouse_inventor
 DROP TRIGGER IF EXISTS tg_audit_refill_plan_output ON public.refill_plan_output;
 DROP TRIGGER IF EXISTS tg_audit_sales_history ON public.sales_history;
 ```
+
 (Rollback drops only the triggers; the `audit_log_write` function and `write_audit_log` table from A.3 remain. Existing audit rows are preserved.)
 
 ---
 
 ## 2026-04-26 — A.3 applied: universal audit ledger
+
 **Phase / Article:** A.3 / Constitution Article 7 (audit append-only) + Article 8 (universal audit) + Article 12 (forward-only)
 **Applied to:** prod
 **Migration name:** `phaseA_a3_audit_log_infra`
 **Summary:** Built the universal write ledger that turns "what happened to my protected tables" from an unanswerable question into a SQL query. Created `public.write_audit_log` (audit_id, table_name, operation, row_pk, actor, actor_role, via_rpc, rpc_name, occurred_at, payload jsonb). RLS enabled with append-only policies (SELECT/INSERT permissive for `authenticated`; UPDATE/DELETE explicitly blocked). Three supporting indexes: `(table_name, occurred_at DESC)`, `(via_rpc, occurred_at DESC) WHERE via_rpc = false` (the bypass-traffic detector), `(actor, occurred_at DESC)`. Created the generic `public.audit_log_write()` `SECURITY DEFINER` trigger function — reads `app.via_rpc` and `app.rpc_name` session GUCs, captures the PK via `TG_ARGV[0]`, records full row payload as jsonb. EXECUTE revoked from PUBLIC/anon/authenticated (callable only as a trigger). The ledger is empty until A.4 installs the trigger on each protected table.
 **Verification:** Verified via Supabase MCP — `pg_class.relrowsecurity = true`. Policies: `wal_insert, wal_no_delete, wal_no_update, wal_select`. Indexes: `idx_wal_actor, idx_wal_table_occurred, idx_wal_via_rpc, write_audit_log_pkey`. Function `audit_log_write` is DEFINER. EXECUTE grants: `{postgres=X/postgres, service_role=X/postgres}` — anon and authenticated have no execute.
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.audit_log_write();
 DROP TABLE IF EXISTS public.write_audit_log;
 ```
+
 (Note: rollback is destructive of audit data once any rows exist. Prefer forward-fix via a new migration.)
 
 ---
 
 ## 2026-04-25 — A.2 applied: deprecate `rename_machine_in_place_legacy`
+
 **Phase / Article:** A.2 / Constitution Article 13 (deprecation 90-day process) + Article 1 (one canonical write path)
 **Applied to:** prod
 **Migration name:** `phaseA_a2_deprecate_rename_machine_legacy`
 **Summary:** Closed the side door on the legacy machine-rename path. The function `rename_machine_in_place_legacy(uuid, text, text, text, text, boolean, date, text)` was previously `SECURITY DEFINER` and granted EXECUTE to `anon`, `authenticated`, and `service_role`. It is superseded by `repurpose_machine` as the canonical writer for machine identity transitions. Caller scan (code: `src/`, `engines/`, `scripts/`, `n8n/`, `boonz-data-migration/`; DB: `cron.job`, triggers, other DEFINER functions) returned **zero callers** — function is fully dormant. Applied: (1) `ALTER FUNCTION ... SECURITY INVOKER`, (2) `REVOKE EXECUTE FROM PUBLIC, anon, authenticated`, (3) updated function comment to mark deprecated and schedule DROP for 2026-07-24. `service_role` retains EXECUTE for the monitor window as an escape hatch; revoke at end of 90-day period if usage stays at zero.
 **Verification:** `pg_proc.prosecdef = false` (was true). `proacl = {postgres=X/postgres,service_role=X/postgres}` (was `{postgres,anon,authenticated,service_role}`). Comment updated.
 **Rollback:**
+
 ```sql
 ALTER FUNCTION public.rename_machine_in_place_legacy(uuid, text, text, text, text, boolean, date, text)
   SECURITY DEFINER;
@@ -1294,6 +1439,7 @@ COMMENT ON FUNCTION public.rename_machine_in_place_legacy(uuid, text, text, text
 ---
 
 ## 2026-04-25 — Architecture repository established
+
 **Phase / Article:** Phase A scaffolding / Article 15 (PRs declare invariants)
 **Applied to:** repo
 **Migration name:** n/a
@@ -1303,12 +1449,14 @@ COMMENT ON FUNCTION public.rename_machine_in_place_legacy(uuid, text, text, text
 ---
 
 ## 2026-04-25 — A1 applied: RLS on `planogram` + `pod_inventory_audit_log`
+
 **Phase / Article:** A.1 / Constitution Article 2 (RLS mandatory) + Article 7 (audit logs append-only)
 **Applied to:** prod
 **Migration name:** `phaseA_a1_rls_planogram_pia`
 **Summary:** Enabled Row Level Security on `public.planogram` (was disabled — meant any authenticated user could mutate planogram with no RLS gate) and on `public.pod_inventory_audit_log` (was disabled — audit log was technically writeable/deletable). Added permissive SELECT/INSERT/UPDATE/DELETE policies for `authenticated` on `planogram` (matches the prior implicit behavior — no behavior change for the FE). On `pod_inventory_audit_log`, added permissive SELECT + INSERT, and explicit UPDATE/DELETE blocks to make the table append-only at the policy layer. `auto_decrement_pod_inventory` (the only function that writes to this log) is `SECURITY DEFINER` and continues to write fine — DEFINER bypasses RLS as the function owner. Zero rows mutated. Zero FE behavior change.
 **Verification:** Visited via Supabase MCP: both tables now report `rowsecurity = true`. Policy counts: `planogram` = 4, `pod_inventory_audit_log` = 4.
 **Rollback:**
+
 ```sql
 DROP POLICY IF EXISTS planogram_select ON public.planogram;
 DROP POLICY IF EXISTS planogram_insert ON public.planogram;
@@ -1326,6 +1474,7 @@ ALTER TABLE public.pod_inventory_audit_log DISABLE ROW LEVEL SECURITY;
 ---
 
 ## 2026-04-25 — Decision: skip Supabase preview branching for Phase A
+
 **Phase / Article:** Phase A process / Article 12 (forward-only)
 **Applied to:** decision log
 **Migration name:** n/a
@@ -1335,6 +1484,7 @@ ALTER TABLE public.pod_inventory_audit_log DISABLE ROW LEVEL SECURITY;
 ---
 
 ## 2026-04-25 — Constitution v1.0 ratified
+
 **Phase / Article:** n/a (constitutive doc)
 **Applied to:** repo
 **Migration name:** n/a
