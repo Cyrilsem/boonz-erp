@@ -213,7 +213,14 @@ function strategyTooltip(strategy: string | null): string {
   return strategy;
 }
 
-function labelCardColors(label: string): { card: string; bar: string } {
+// ── Card color by sort mode ───────────────────────────────────────────────
+// Each sort mode gets its own color scale so the visual encoding matches
+// what the user is looking at.
+
+type CardStyle = { card: string; bar: string };
+const EXCLUDED_STYLE: CardStyle = { card: "bg-gray-50 border-gray-200 opacity-50", bar: "bg-gray-200" };
+
+function statusCardColors(label: string): CardStyle {
   if (label.includes("Zombie"))
     return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
   if (label.includes("At Risk"))
@@ -224,8 +231,41 @@ function labelCardColors(label: string): { card: string; bar: string } {
     return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
   if (label.includes("Stable"))
     return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
-  // excluded / unknown fallback
-  return { card: "bg-gray-50 border-gray-200 opacity-50", bar: "bg-gray-200" };
+  return EXCLUDED_STYLE;
+}
+
+function urgencyCardColors(urgencyScore: number): CardStyle {
+  // Red = urgent (≥80), amber = moderate (≥35), yellow = low (≥15), green = fine
+  if (urgencyScore >= 80)
+    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (urgencyScore >= 35)
+    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
+  if (urgencyScore >= 15)
+    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
+}
+
+function metricCardColors(value: number, thresholds: [number, number, number]): CardStyle {
+  // thresholds = [red, amber, yellow] — value below red = red, below amber = amber, etc.
+  const [red, amber, yellow] = thresholds;
+  if (value <= red)
+    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (value <= amber)
+    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
+  if (value <= yellow)
+    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
+}
+
+function expiryCardColors(daysToExpiry: number | null): CardStyle {
+  const d = daysToExpiry ?? 9999;
+  if (d <= 7)
+    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (d <= 30)
+    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
+  if (d <= 60)
+    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -553,38 +593,63 @@ export default function RefillPage() {
     { txn_count: 0, total_units: 0, total_revenue: 0, total_cost: 0 },
   );
 
+  // ── Refill-urgency score (higher = more urgent to visit) ────────────────
+  // Extracted so both sort and card-color can use it.
+  const refillUrgency = useCallback((m: MachineHealth): number => {
+    let score = 0;
+    // Empty shelves — strongest signal (each empty shelf = 15 pts)
+    score += m.slots_at_zero * 15;
+    // Shelves below 25% — about to go empty (each = 8 pts)
+    // Subtract slots_at_zero to avoid double-counting
+    const nearEmpty = Math.max(0, m.slots_below_25pct - m.slots_at_zero);
+    score += nearEmpty * 8;
+    // Low runway — exponential urgency as it approaches 0
+    const runway = m.days_until_empty ?? 999;
+    if (runway <= 1) score += 50;
+    else if (runway <= 3) score += 35;
+    else if (runway <= 7) score += 20;
+    else if (runway <= 14) score += 8;
+    // High velocity — busier machines drain faster
+    score += Math.min(m.daily_velocity * 2, 30);
+    // Stale visit — haven't been there in a while
+    const daysSince = m.days_since_visit ?? 0;
+    if (daysSince >= 14) score += 25;
+    else if (daysSince >= 7) score += 15;
+    else if (daysSince >= 4) score += 5;
+    // Expired stock — needs physical removal
+    if (m.expired_units > 0) score += 20 + m.expired_units * 2;
+    // Pending swaps — reason to visit (strategic + Plaay etc.)
+    score += m.pending_swap_count * 5;
+    // Already picked by engine — boost to top
+    if (m.is_picked_tomorrow) score += 40;
+    // Low fill % bonus
+    if (m.fill_pct < 30) score += 15;
+    else if (m.fill_pct < 50) score += 8;
+    return score;
+  }, []);
+
+  // ── Card color resolver — adapts to active sort mode ──────────────────
+  const getCardColors = useCallback((m: MachineHealth, sort: typeof sortBy): CardStyle => {
+    if (m.health_tier === "excluded") return EXCLUDED_STYLE;
+    switch (sort) {
+      case "priority":
+        return urgencyCardColors(refillUrgency(m));
+      case "status":
+        return statusCardColors(m.machine_health_label ?? "");
+      case "stock":
+        // Red ≤20 units, amber ≤50, yellow ≤80, green >80
+        return metricCardColors(m.total_stock, [20, 50, 80]);
+      case "fill":
+        // Red ≤25%, amber ≤50%, yellow ≤70%, green >70%
+        return metricCardColors(m.fill_pct, [25, 50, 70]);
+      case "expiry":
+        return expiryCardColors(m.days_to_earliest_expiry);
+      default:
+        return statusCardColors(m.machine_health_label ?? "");
+    }
+  }, [refillUrgency]);
+
   const sortedMachines = useMemo(() => {
-    // ── Refill-urgency score (higher = more urgent to visit) ──────────────
-    // Signals: empty shelves, low runway, high velocity, stale visit,
-    // expired stock, pending swaps, already picked by engine.
-    const refillUrgency = (m: MachineHealth): number => {
-      let score = 0;
-      // Empty shelves — strongest signal (each empty shelf = 15 pts)
-      score += m.slots_at_zero * 15;
-      // Low runway — exponential urgency as it approaches 0
-      const runway = m.days_until_empty ?? 999;
-      if (runway <= 1) score += 50;
-      else if (runway <= 3) score += 35;
-      else if (runway <= 7) score += 20;
-      else if (runway <= 14) score += 8;
-      // High velocity — busier machines drain faster
-      score += Math.min(m.daily_velocity * 2, 30);
-      // Stale visit — haven't been there in a while
-      const daysSince = m.days_since_visit ?? 0;
-      if (daysSince >= 14) score += 25;
-      else if (daysSince >= 7) score += 15;
-      else if (daysSince >= 4) score += 5;
-      // Expired stock — needs physical removal
-      if (m.expired_units > 0) score += 20 + m.expired_units * 2;
-      // Pending swaps — reason to visit (strategic + Plaay etc.)
-      score += m.pending_swap_count * 5;
-      // Already picked by engine — boost to top
-      if (m.is_picked_tomorrow) score += 40;
-      // Low fill % bonus
-      if (m.fill_pct < 30) score += 15;
-      else if (m.fill_pct < 50) score += 8;
-      return score;
-    };
 
     // ── Status rank (Zombie worst → Stable best) ─────────────────────────
     const labelOrder: Record<string, number> = {
@@ -1284,9 +1349,7 @@ export default function RefillPage() {
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
               {sortedMachines.map((m) => {
-                const tc = m.health_tier === "excluded"
-                  ? { card: "bg-gray-50 border-gray-200 opacity-50", bar: "bg-gray-200" }
-                  : labelCardColors(m.machine_health_label ?? "");
+                const tc = getCardColors(m, sortBy);
 
                 return (
                   <button
