@@ -8,13 +8,17 @@ import { FieldHeader } from "../../../components/field-header";
 import { usePageTour } from "../../../components/onboarding/use-page-tour";
 import Tour from "../../../components/onboarding/tour";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
+import { machineShortId } from "@/lib/utils/machine-id";
 import type { ExpiryWarning } from "@/lib/dispatch-types";
+import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
+import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface MachineInfo {
   official_name: string;
   pod_location: string | null;
+  adyen_store_code: string | null;
 }
 
 interface DispatchPhoto {
@@ -96,6 +100,18 @@ export default function DispatchingDetailPage() {
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [returnNotice, setReturnNotice] = useState<string | null>(null);
 
+  // Phase F dispatch-editing wiring (2026-05-19): driver can edit qty/shelf/product
+  // and add ad-hoc rows mid-route. Pre-receive only (item_added=false).
+  const [editingDispatch, setEditingDispatch] = useState<{
+    dispatch_id: string;
+    quantity: number;
+    shelf_code: string;
+    boonz_product_name: string;
+    source_kind: "wh" | "m2m" | "truck_transfer" | "unknown";
+    allowed_tabs: ("qty" | "shelf" | "product" | "source")[];
+  } | null>(null);
+  const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
+
   // BUG-010 #3: Driver can add extra Remove rows when planned line collapses
   // multi-variant returns (e.g. YoPro Vanilla 6u plan but actual is 2 Van + 2 Choco + 2 Straw).
   // Modal scope = boonz_products mapped to the SAME pod_product as the source line.
@@ -132,7 +148,7 @@ export default function DispatchingDetailPage() {
 
     const { data: machineData } = await supabase
       .from("machines")
-      .select("official_name, pod_location")
+      .select("official_name, pod_location, adyen_store_code")
       .eq("machine_id", machineId)
       .single();
 
@@ -924,7 +940,14 @@ export default function DispatchingDetailPage() {
 
       {machine && (
         <div className="mb-4">
-          <h1 className="text-xl font-semibold">{machine.official_name}</h1>
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-xl font-semibold">{machine.official_name}</h1>
+            {machineShortId(machine.adyen_store_code) && (
+              <span className="font-mono text-sm tracking-wider text-neutral-400">
+                {machineShortId(machine.adyen_store_code)}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {machine.pod_location && (
               <p className="text-sm text-neutral-500">{machine.pod_location}</p>
@@ -947,16 +970,77 @@ export default function DispatchingDetailPage() {
         </div>
       )}
 
-      {/* ── Dispatch lines ── */}
-      {shelves.map(([shelfCode, shelfLines], idx) => (
+      {/* ── Dispatch lines ──
+          Stax 2026-05-14: when a shelf has multiple rows (multi-variant split via
+          + Add variant, or `conserve_split_dispatch_quantity` trigger decrementing
+          the parent), render a SHELF-TOTAL chip on the heading. Without this,
+          drivers see misleading per-row "Planned: 0" / "Planned: 1" instead of
+          the actual physical total they're supposed to pack on that shelf.
+          Surfaces both filled and planned totals so the driver can sanity-check
+          before save AND after a post-confirm refetch.
+       */}
+      {shelves.map(([shelfCode, shelfLines], idx) => {
+        const multi = shelfLines.length > 1;
+        // Add (Refill / Add New) totals and Remove totals tracked separately.
+        const addLines = shelfLines.filter((l) => l.dispatch_action !== "Remove");
+        const removeLines = shelfLines.filter((l) => l.dispatch_action === "Remove");
+        const addPlanned = addLines.reduce((s, l) => s + (l.quantity || 0), 0);
+        const addFilled = addLines.reduce((s, l) => s + (l.filled_qty || 0), 0);
+        const removePlanned = removeLines.reduce((s, l) => s + (l.quantity || 0), 0);
+        return (
         <div
           key={shelfCode}
           {...(idx === 0 ? { "data-tour": "dispatch-lines" } : {})}
           className="mb-4"
         >
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-500">
-            Shelf {shelfCode}
-          </h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+              Shelf {shelfCode}
+            </h2>
+            {!isReadOnly && (
+              <button
+                onClick={() => setAddingToShelf(shelfCode ?? "")}
+                title="Add unplanned product to this shelf"
+                className="shrink-0 rounded border border-dashed border-blue-300 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition-colors hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/30"
+              >
+                + Add product
+              </button>
+            )}
+            {multi && (
+              <div className="flex shrink-0 items-center gap-1.5 text-xs">
+                <span className="rounded bg-neutral-100 px-1.5 py-0.5 font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                  Total
+                </span>
+                {addPlanned > 0 && (
+                  <span
+                    className={
+                      addFilled === addPlanned
+                        ? "rounded bg-green-100 px-1.5 py-0.5 font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                        : "rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                    }
+                    title={
+                      addFilled === addPlanned
+                        ? `Packed ${addFilled} of ${addPlanned} planned across ${addLines.length} variants`
+                        : `Planned ${addPlanned} · packed ${addFilled} so far across ${addLines.length} variants`
+                    }
+                  >
+                    ×{addFilled}
+                    {addFilled !== addPlanned && (
+                      <span className="opacity-70"> / {addPlanned}</span>
+                    )}
+                  </span>
+                )}
+                {removePlanned > 0 && (
+                  <span
+                    className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                    title={`Remove ${removePlanned} across ${removeLines.length} variants`}
+                  >
+                    −{removePlanned}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           <ul className="space-y-2">
             {shelfLines.map((line) => {
               const expiryStyle = getExpiryStyle(line.expiry_date);
@@ -992,6 +1076,27 @@ export default function DispatchingDetailPage() {
                       )}
                     </div>
                     <div className="flex shrink-0 items-start gap-1.5">
+                      {/* Phase F edit affordance — driver can correct qty/shelf/product pre-receive */}
+                      {!isReadOnly && line.action !== "added" && (
+                        <button
+                          onClick={() =>
+                            setEditingDispatch({
+                              dispatch_id: line.dispatch_id,
+                              quantity: line.filled_qty || line.quantity,
+                              shelf_code: line.shelf_code ?? "",
+                              boonz_product_name:
+                                line.boonz_product_name ?? line.pod_product_name ?? "—",
+                              source_kind: "unknown",
+                              allowed_tabs: ["qty", "shelf", "product"],
+                            })
+                          }
+                          title="Edit qty / shelf / product"
+                          aria-label="Edit dispatch row"
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-50 hover:text-neutral-700 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                        >
+                          ✎
+                        </button>
+                      )}
                       {/* BUG-010 #3: × to remove a driver-added variant line before save */}
                       {line.driver_added && !isReadOnly && (
                         <button
@@ -1183,7 +1288,8 @@ export default function DispatchingDetailPage() {
             })}
           </ul>
         </div>
-      ))}
+        );
+      })}
 
       {/* BUG-010 #3: Add-extra-return modal — variants only (same pod_product) */}
       {extraReturnOpen && extraReturnSourceLine && (
@@ -1339,6 +1445,42 @@ export default function DispatchingDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Phase F dispatch-editing dialogs */}
+      {editingDispatch && (
+        <DispatchEditDialog
+          open={!!editingDispatch}
+          onClose={() => setEditingDispatch(null)}
+          dispatchId={editingDispatch.dispatch_id}
+          currentQty={editingDispatch.quantity}
+          currentShelfCode={editingDispatch.shelf_code}
+          currentBoonzName={editingDispatch.boonz_product_name}
+          currentSourceKind={editingDispatch.source_kind}
+          editRole="driver"
+          allowedTabs={editingDispatch.allowed_tabs}
+          revalidate={`/field/dispatching/${machineId}`}
+          onSuccess={() => {
+            setEditingDispatch(null);
+            void fetchData();
+          }}
+        />
+      )}
+      {addingToShelf !== null && (
+        <AddDispatchRowDialog
+          open={addingToShelf !== null}
+          onClose={() => setAddingToShelf(null)}
+          machineId={machineId}
+          machineName={machine?.official_name ?? "—"}
+          initialShelfCode={addingToShelf}
+          dispatchDate={getDubaiDate()}
+          editRole="driver"
+          revalidate={`/field/dispatching/${machineId}`}
+          onSuccess={() => {
+            setAddingToShelf(null);
+            void fetchData();
+          }}
+        />
+      )}
     </div>
   );
 }

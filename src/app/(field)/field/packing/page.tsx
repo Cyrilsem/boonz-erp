@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
 import Tour from "../../components/onboarding/tour";
@@ -11,6 +12,7 @@ import Tour from "../../components/onboarding/tour";
 interface PackingMachine {
   machine_id: string;
   official_name: string;
+  adyen_store_code: string | null;
   sku_count: number;
   packed_count: number;
 }
@@ -27,7 +29,7 @@ export default function PackingPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, packed, machines!refill_dispatching_machine_id_fkey!inner(official_name)",
+        "dispatch_id, machine_id, packed, machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);
@@ -41,7 +43,10 @@ export default function PackingPage() {
     const grouped = new Map<string, PackingMachine>();
 
     for (const line of lines) {
-      const m = line.machines as unknown as { official_name: string };
+      const m = line.machines as unknown as {
+        official_name: string;
+        adyen_store_code: string | null;
+      };
       const existing = grouped.get(line.machine_id);
       if (existing) {
         existing.sku_count += 1;
@@ -50,6 +55,7 @@ export default function PackingPage() {
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
           official_name: m.official_name,
+          adyen_store_code: m.adyen_store_code,
           sku_count: 1,
           packed_count: line.packed ? 1 : 0,
         });
@@ -127,9 +133,16 @@ export default function PackingPage() {
                 className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-base font-semibold truncate">
-                    {machine.official_name}
-                  </p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-base font-semibold truncate">
+                      {machine.official_name}
+                    </p>
+                    {machineShortId(machine.adyen_store_code) && (
+                      <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                        {machineShortId(machine.adyen_store_code)}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-neutral-500">
                     {machine.packed_count}/{machine.sku_count} packed
                   </p>

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
 
 type DispatchAction = "Refill" | "Add New" | "Remove";
@@ -26,6 +27,7 @@ interface PickupLine {
 interface PickupMachine {
   machine_id: string;
   official_name: string;
+  adyen_store_code: string | null;
   line_count: number;
   all_picked_up: boolean;
   lines: PickupLine[];
@@ -49,7 +51,7 @@ export default function PickupPage() {
         `
         dispatch_id, machine_id, action, packed, picked_up, quantity,
         filled_quantity, dispatched, returned, is_m2m, comment,
-        machines!refill_dispatching_machine_id_fkey!inner(official_name),
+        machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code),
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
       `,
@@ -70,6 +72,7 @@ export default function PickupPage() {
       {
         machine_id: string;
         official_name: string;
+        adyen_store_code: string | null;
         total: number;
         packed_count: number;
         picked_up_count: number;
@@ -78,7 +81,10 @@ export default function PickupPage() {
     >();
 
     for (const line of lines) {
-      const m = line.machines as unknown as { official_name: string };
+      const m = line.machines as unknown as {
+        official_name: string;
+        adyen_store_code: string | null;
+      };
       const shelf = line.shelf_configurations as unknown as {
         shelf_code: string;
       } | null;
@@ -110,6 +116,7 @@ export default function PickupPage() {
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
           official_name: m.official_name,
+          adyen_store_code: m.adyen_store_code,
           total: 1,
           packed_count: line.packed ? 1 : 0,
           picked_up_count: line.picked_up ? 1 : 0,
@@ -124,6 +131,7 @@ export default function PickupPage() {
       .map((m) => ({
         machine_id: m.machine_id,
         official_name: m.official_name,
+        adyen_store_code: m.adyen_store_code,
         line_count: m.total,
         all_picked_up: m.picked_up_count === m.total,
         lines: m.lines.sort((a, b) =>
@@ -261,9 +269,16 @@ export default function PickupPage() {
                     className="flex w-full items-center gap-3 p-4 text-left"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-base font-semibold truncate">
-                        {machine.official_name}
-                      </p>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-base font-semibold truncate">
+                          {machine.official_name}
+                        </p>
+                        {machineShortId(machine.adyen_store_code) && (
+                          <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                            {machineShortId(machine.adyen_store_code)}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-neutral-500">
                         {machine.line_count} items
                       </p>
@@ -395,9 +410,16 @@ export default function PickupPage() {
                     className="flex w-full items-center gap-3 p-4 text-left"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-base font-semibold truncate">
-                        {machine.official_name}
-                      </p>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-base font-semibold truncate">
+                          {machine.official_name}
+                        </p>
+                        {machineShortId(machine.adyen_store_code) && (
+                          <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                            {machineShortId(machine.adyen_store_code)}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-neutral-500">
                         {machine.line_count} items
                       </p>

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
 
 interface DispatchLineInfo {
@@ -17,6 +18,7 @@ interface DispatchMachine {
   machine_id: string;
   official_name: string;
   pod_location: string | null;
+  adyen_store_code: string | null;
   total: number;
   dispatched_count: number;
   all_dispatched: boolean;
@@ -40,7 +42,7 @@ export default function DispatchingPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, picked_up, dispatched, returned, quantity, filled_quantity, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location), shelf_configurations(shelf_code), pod_products(pod_product_name)",
+        "dispatch_id, machine_id, picked_up, dispatched, returned, quantity, filled_quantity, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, adyen_store_code), shelf_configurations(shelf_code), pod_products(pod_product_name)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);
@@ -57,6 +59,7 @@ export default function DispatchingPage() {
         machine_id: string;
         official_name: string;
         pod_location: string | null;
+        adyen_store_code: string | null;
         total: number;
         picked_up_count: number;
         dispatched_count: number;
@@ -68,6 +71,7 @@ export default function DispatchingPage() {
       const m = line.machines as unknown as {
         official_name: string;
         pod_location: string | null;
+        adyen_store_code: string | null;
       };
       const shelf = line.shelf_configurations as unknown as {
         shelf_code: string;
@@ -92,6 +96,7 @@ export default function DispatchingPage() {
           machine_id: line.machine_id,
           official_name: m.official_name,
           pod_location: m.pod_location,
+          adyen_store_code: m.adyen_store_code,
           total: 1,
           picked_up_count: line.picked_up ? 1 : 0,
           dispatched_count: line.dispatched || line.returned ? 1 : 0,
@@ -107,6 +112,7 @@ export default function DispatchingPage() {
         machine_id: m.machine_id,
         official_name: m.official_name,
         pod_location: m.pod_location,
+        adyen_store_code: m.adyen_store_code,
         total: m.total,
         dispatched_count: m.dispatched_count,
         all_dispatched: m.dispatched_count === m.total,
@@ -193,9 +199,16 @@ export default function DispatchingPage() {
                   className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-base font-semibold truncate">
-                      {machine.official_name}
-                    </p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-base font-semibold truncate">
+                        {machine.official_name}
+                      </p>
+                      {machineShortId(machine.adyen_store_code) && (
+                        <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                          {machineShortId(machine.adyen_store_code)}
+                        </span>
+                      )}
+                    </div>
                     {machine.pod_location && (
                       <p className="text-sm text-neutral-500 truncate">
                         {machine.pod_location}
@@ -231,9 +244,16 @@ export default function DispatchingPage() {
                     className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 text-left opacity-70 transition-opacity hover:opacity-100 dark:border-neutral-800 dark:bg-neutral-950"
                   >
                     <div className="flex-1 min-w-0">
-                      <p className="text-base font-semibold truncate">
-                        {machine.official_name}
-                      </p>
+                      <div className="flex items-baseline gap-2">
+                        <p className="text-base font-semibold truncate">
+                          {machine.official_name}
+                        </p>
+                        {machineShortId(machine.adyen_store_code) && (
+                          <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                            {machineShortId(machine.adyen_store_code)}
+                          </span>
+                        )}
+                      </div>
                       {machine.pod_location && (
                         <p className="text-sm text-neutral-500 truncate">
                           {machine.pod_location}

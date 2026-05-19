@@ -5,8 +5,11 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../../components/field-header";
 import type { DispatchAction, ExpiryWarning } from "@/lib/dispatch-types";
+import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
+import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type LineAction = "packed" | "skip" | null;
@@ -95,6 +98,7 @@ interface MachineInfo {
   official_name: string;
   pod_location: string | null;
   primary_warehouse_id?: string | null;
+  adyen_store_code: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -241,6 +245,18 @@ export default function PackingDetailPage() {
     Map<string, number>
   >(new Map());
   /** `${boonz_product_id}|||${expiry_date ?? 'null'}` → committed qty (per-batch FIFO key) */
+  // Phase F dispatch-editing wiring (2026-05-19): WH manager edits qty / add / remove / source pre-pickup.
+  const [editingDispatch, setEditingDispatch] = useState<{
+    dispatch_id: string;
+    quantity: number;
+    shelf_code: string;
+    boonz_product_name: string;
+    source_kind: "wh" | "m2m" | "truck_transfer" | "unknown";
+    picked_up: boolean;
+    allowed_tabs: ("qty" | "shelf" | "product" | "source" | "remove")[];
+  } | null>(null);
+  const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
+
   const [committedByBatch, setCommittedByBatch] = useState<Map<string, number>>(
     new Map(),
   );
@@ -251,7 +267,7 @@ export default function PackingDetailPage() {
 
     const { data: machineData } = await supabase
       .from("machines")
-      .select("official_name, pod_location, primary_warehouse_id")
+      .select("official_name, pod_location, primary_warehouse_id, adyen_store_code")
       .eq("machine_id", machineId)
       .single();
 
@@ -1505,10 +1521,27 @@ export default function PackingDetailPage() {
       />
 
       {machine && (
-        <div className="mb-4">
-          <h1 className="text-xl font-semibold">{machine.official_name}</h1>
-          {machine.pod_location && (
-            <p className="text-sm text-neutral-500">{machine.pod_location}</p>
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-xl font-semibold">{machine.official_name}</h1>
+              {machineShortId(machine.adyen_store_code) && (
+                <span className="font-mono text-sm tracking-wider text-neutral-400">
+                  {machineShortId(machine.adyen_store_code)}
+                </span>
+              )}
+            </div>
+            {machine.pod_location && (
+              <p className="text-sm text-neutral-500">{machine.pod_location}</p>
+            )}
+          </div>
+          {!isReadOnly && (
+            <button
+              onClick={() => setAddingToShelf("")}
+              className="shrink-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60"
+            >
+              + Add product
+            </button>
           )}
         </div>
       )}
@@ -2811,6 +2844,32 @@ export default function PackingDetailPage() {
                     {/* Action toggle */}
                     {!isReadOnly && (
                       <div className="flex gap-2">
+                        {/* Phase F edit affordance — WH manager can edit qty / set source / remove pre-pickup */}
+                        <button
+                          onClick={() =>
+                            setEditingDispatch({
+                              dispatch_id: line.dispatch_id,
+                              quantity: line.packed_qty || line.recommended_qty,
+                              shelf_code: line.shelf_code,
+                              boonz_product_name:
+                                line.boonz_display_name ?? line.display_name,
+                              source_kind: line.from_warehouse_name
+                                ? "wh"
+                                : "unknown",
+                              picked_up: false,
+                              allowed_tabs: [
+                                "qty",
+                                "source",
+                                "remove",
+                              ],
+                            })
+                          }
+                          title="Edit qty / source / remove"
+                          aria-label="Edit packing row"
+                          className="shrink-0 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                        >
+                          ✎
+                        </button>
                         <button
                           onClick={() => handlePackedClick(line)}
                           disabled={fullyCommitted}
@@ -2914,6 +2973,42 @@ export default function PackingDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Phase F dispatch-editing dialogs (WH manager) */}
+      {editingDispatch && (
+        <DispatchEditDialog
+          open={!!editingDispatch}
+          onClose={() => setEditingDispatch(null)}
+          dispatchId={editingDispatch.dispatch_id}
+          currentQty={editingDispatch.quantity}
+          currentShelfCode={editingDispatch.shelf_code}
+          currentBoonzName={editingDispatch.boonz_product_name}
+          currentSourceKind={editingDispatch.source_kind}
+          editRole="warehouse_manager"
+          allowedTabs={editingDispatch.allowed_tabs}
+          revalidate={`/field/packing/${machineId}`}
+          onSuccess={() => {
+            setEditingDispatch(null);
+            void fetchData();
+          }}
+        />
+      )}
+      {addingToShelf !== null && (
+        <AddDispatchRowDialog
+          open={addingToShelf !== null}
+          onClose={() => setAddingToShelf(null)}
+          machineId={machineId}
+          machineName={machine?.official_name ?? "—"}
+          initialShelfCode={addingToShelf}
+          dispatchDate={getDubaiDate()}
+          editRole="warehouse_manager"
+          revalidate={`/field/packing/${machineId}`}
+          onSuccess={() => {
+            setAddingToShelf(null);
+            void fetchData();
+          }}
+        />
+      )}
     </div>
   );
 }
