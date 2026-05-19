@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import { machineShortId } from "@/lib/utils/machine-id";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,32 @@ export function SignalsTab() {
   const [staleDispatches, setStaleDispatches] = useState<StaleDispatch[]>([]);
   const [staleVisits, setStaleVisits] = useState<StaleVisit[]>([]);
   const [expandedSection, setExpandedSection] = useState<SignalCategory | null>(null);
+  // machine_name → adyen_store_code lookup so we can show the last-4 short ID
+  // next to each row's machine column.
+  const [machineCodeByName, setMachineCodeByName] = useState<
+    Record<string, string | null>
+  >({});
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("machines")
+        .select("official_name, adyen_store_code");
+      if (cancelled || !data) return;
+      const map: Record<string, string | null> = {};
+      for (const m of data as Array<{
+        official_name: string;
+        adyen_store_code: string | null;
+      }>) {
+        map[m.official_name] = m.adyen_store_code;
+      }
+      setMachineCodeByName(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   const fetchSignals = useCallback(async () => {
     setLoading(true);
@@ -271,7 +298,14 @@ export function SignalsTab() {
                         <tbody>
                           {swaps.map((s, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>{s.machine_name}</td>
+                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                                {s.machine_name}
+                                {machineShortId(machineCodeByName[s.machine_name]) && (
+                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
+                                    {machineShortId(machineCodeByName[s.machine_name])}
+                                  </span>
+                                )}
+                              </td>
                               <td style={{ padding: "8px 4px", color: "#dc2626" }}>{s.remove_pod_product_name}</td>
                               <td style={{ padding: "8px 4px", color: "#16a34a" }}>{s.add_pod_product_name}</td>
                               <td style={{ padding: "8px 4px", color: "#6b6860", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.notes || "—"}</td>
@@ -319,7 +353,14 @@ export function SignalsTab() {
                         <tbody>
                           {ghostPods.map((g, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>{g.machine_name}</td>
+                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                                {g.machine_name}
+                                {machineShortId(machineCodeByName[g.machine_name]) && (
+                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
+                                    {machineShortId(machineCodeByName[g.machine_name])}
+                                  </span>
+                                )}
+                              </td>
                               <td style={{ padding: "8px 4px" }}>
                                 <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, background: "#fee2e2", color: "#991b1b", fontWeight: 600 }}>
                                   {g.machine_status}
@@ -350,7 +391,14 @@ export function SignalsTab() {
                           {staleDispatches.map((d, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
                               <td style={{ padding: "8px 4px", color: "#6b6860" }}>{d.dispatch_date}</td>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>{d.machine_name}</td>
+                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                                {d.machine_name}
+                                {machineShortId(machineCodeByName[d.machine_name]) && (
+                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
+                                    {machineShortId(machineCodeByName[d.machine_name])}
+                                  </span>
+                                )}
+                              </td>
                               <td style={{ padding: "8px 4px" }}>{d.action}</td>
                               <td style={{ padding: "8px 4px" }}>{d.boonz_product_name}</td>
                               <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 600 }}>{d.quantity}</td>
@@ -381,7 +429,14 @@ export function SignalsTab() {
                         <tbody>
                           {staleVisits.map((v, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>{v.machine_name}</td>
+                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                                {v.machine_name}
+                                {machineShortId(machineCodeByName[v.machine_name]) && (
+                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
+                                    {machineShortId(machineCodeByName[v.machine_name])}
+                                  </span>
+                                )}
+                              </td>
                               <td style={{ padding: "8px 4px", color: "#6b6860" }}>{v.last_refill_date}</td>
                               <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: v.days_since_last_refill > 20 ? "#dc2626" : "#854d0e" }}>
                                 {v.days_since_last_refill}d

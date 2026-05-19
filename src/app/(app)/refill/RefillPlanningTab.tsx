@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
+import { machineShortId } from "@/lib/utils/machine-id";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -167,10 +168,38 @@ export function RefillPlanningTab({
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<AddRowForm>(BLANK_FORM);
 
+  // machine_name → adyen_store_code lookup so we can render the short ID under
+  // each machine header. Built once on mount; refill_plan_output exposes only
+  // machine_name (string), so this is the minimal-impact join.
+  const [machineCodeByName, setMachineCodeByName] = useState<
+    Record<string, string | null>
+  >({});
+
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("machines")
+        .select("official_name, adyen_store_code");
+      if (cancelled || !data) return;
+      const map: Record<string, string | null> = {};
+      for (const m of data as Array<{
+        official_name: string;
+        adyen_store_code: string | null;
+      }>) {
+        map[m.official_name] = m.adyen_store_code;
+      }
+      setMachineCodeByName(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   // ── Approve plan ──────────────────────────────────────────────────────────────
   const approvePlan = useCallback(async () => {
@@ -433,7 +462,14 @@ export function RefillPlanningTab({
             >
               {/* Machine header */}
               <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-                <span className="font-medium text-sm">{machineName}</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="font-medium text-sm">{machineName}</span>
+                  {machineShortId(machineCodeByName[machineName]) && (
+                    <span className="font-mono text-[11px] tracking-wider text-gray-400">
+                      {machineShortId(machineCodeByName[machineName])}
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-gray-500">
                   {rows.filter(({ idx }) => !removed.has(idx)).length} active
                   lines ·{" "}

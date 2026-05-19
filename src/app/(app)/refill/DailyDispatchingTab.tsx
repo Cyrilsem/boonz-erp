@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { machineShortId } from "@/lib/utils/machine-id";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ interface DispatchLine {
     official_name: string;
     pod_location: string | null;
     venue_group: string | null;
+    adyen_store_code: string | null;
   };
   boonz_products: {
     boonz_product_name: string;
@@ -33,6 +35,7 @@ interface MachineSummary {
   official_name: string;
   pod_location: string | null;
   venue_group: string | null;
+  adyen_store_code: string | null;
   total: number;
   planned_qty: number;
   filled_qty: number;
@@ -170,7 +173,7 @@ export function DailyDispatchingTab({
     const { data } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
+        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group, adyen_store_code), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
       )
       .eq("dispatch_date", queryDate)
       .eq("include", true)
@@ -220,6 +223,7 @@ export function DailyDispatchingTab({
           official_name: l.machines.official_name,
           pod_location: l.machines.pod_location,
           venue_group: l.machines.venue_group,
+          adyen_store_code: l.machines.adyen_store_code,
           total: 1,
           planned_qty: qty,
           filled_qty: filled,
@@ -650,6 +654,20 @@ function MachineRow({
               &#9654;
             </span>
             {m.official_name}
+            {machineShortId(m.adyen_store_code) && (
+              <span
+                style={{
+                  marginLeft: 8,
+                  fontFamily:
+                    "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  fontSize: 11,
+                  letterSpacing: "0.05em",
+                  color: "#9b9890",
+                }}
+              >
+                {machineShortId(m.adyen_store_code)}
+              </span>
+            )}
           </span>
         </td>
         <td

@@ -727,20 +727,31 @@ export default function DispatchingDetailPage() {
                 <ul className="divide-y divide-green-100 dark:divide-green-900/50">
                   {orderedShelves.map(([shelfCode, shelfLines]) => {
                     const multi = shelfLines.length > 1;
-                    // Compute Refill/Add total and Remove total separately so
-                    // a mixed shelf doesn't claim "12 added" when half is a return.
-                    const addTotal = shelfLines
-                      .filter((l) => l.dispatch_action !== "Remove")
-                      .reduce(
-                        (sum, l) => sum + (l.filled_qty || l.quantity || 0),
-                        0,
-                      );
-                    const removeTotal = shelfLines
-                      .filter((l) => l.dispatch_action === "Remove")
-                      .reduce(
-                        (sum, l) => sum + (l.filled_qty || l.quantity || 0),
-                        0,
-                      );
+                    // Compute totals from ACTUAL filled_qty only (returned rows = 0,
+                    // not planned-fallback). BUG-010 / IFLY Coconut: previous
+                    // `l.filled_qty || l.quantity` fell back to planned qty when
+                    // filled_qty was 0, falsely showing returned items as placed.
+                    const addedLines = shelfLines.filter(
+                      (l) => l.dispatch_action !== "Remove" && l.action === "added",
+                    );
+                    const removedLines = shelfLines.filter(
+                      (l) => l.dispatch_action === "Remove" && l.action === "added",
+                    );
+                    const returnedLines = shelfLines.filter(
+                      (l) => l.action === "returned",
+                    );
+                    const addTotal = addedLines.reduce(
+                      (sum, l) => sum + (l.filled_qty || 0),
+                      0,
+                    );
+                    const removeTotal = removedLines.reduce(
+                      (sum, l) => sum + (l.filled_qty || l.quantity || 0),
+                      0,
+                    );
+                    const returnedTotal = returnedLines.reduce(
+                      (sum, l) => sum + (l.quantity || 0),
+                      0,
+                    );
                     return (
                       <li key={shelfCode} className="px-4 py-2.5">
                         {multi && (
@@ -762,6 +773,14 @@ export default function DispatchingDetailPage() {
                               {removeTotal > 0 && (
                                 <span className="text-rose-700 dark:text-rose-400">
                                   −{removeTotal}
+                                </span>
+                              )}
+                              {returnedTotal > 0 && (
+                                <span
+                                  title="Returned to warehouse (not placed in machine)"
+                                  className="text-amber-700 dark:text-amber-400"
+                                >
+                                  ↩{returnedTotal}
                                 </span>
                               )}
                             </div>
@@ -798,16 +817,23 @@ export default function DispatchingDetailPage() {
                                 </span>
                               </div>
                               <div className="flex items-center gap-2 shrink-0">
-                                {line.dispatch_action === "Remove" ? (
+                                {line.action === "returned" ? (
+                                  <span
+                                    title="Returned to warehouse"
+                                    className="text-sm font-medium text-amber-700 dark:text-amber-400"
+                                  >
+                                    ↩{line.quantity}
+                                  </span>
+                                ) : line.dispatch_action === "Remove" ? (
                                   <span className="text-sm font-medium text-rose-700 dark:text-rose-400">
                                     −{line.filled_qty || line.quantity}
                                   </span>
                                 ) : (
                                   <span className="text-sm font-medium">
-                                    ×{line.filled_qty || line.quantity}
+                                    ×{line.filled_qty}
                                   </span>
                                 )}
-                                {line.expiry_date && (
+                                {line.expiry_date && line.action !== "returned" && (
                                   <span className="text-xs text-neutral-400">
                                     {formatDMY(line.expiry_date)}
                                   </span>
