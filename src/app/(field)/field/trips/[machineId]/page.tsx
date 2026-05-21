@@ -6,6 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
+import DriverFeedbackDialog from "@/components/field/DriverFeedbackDialog";
 
 interface MachineInfo {
   official_name: string;
@@ -38,6 +39,7 @@ export default function MachineRefillPage() {
   const [checkingIn, setCheckingIn] = useState(false);
   const [gpsWarning, setGpsWarning] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -332,7 +334,21 @@ export default function MachineRefillPage() {
         >
           Report issue
         </Link>
+        <button
+          type="button"
+          onClick={() => setFeedbackOpen(true)}
+          className="flex-1 rounded-lg border border-neutral-200 py-2.5 text-center text-sm font-medium transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+        >
+          Add feedback
+        </button>
       </div>
+
+      <DriverFeedbackDialog
+        machineId={machineId}
+        machineName={machine?.official_name}
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+      />
 
       {/* Refill lines */}
       {shelves.map(([shelfCode, shelfLines]) => (

@@ -10,15 +10,15 @@ protected_entities: [refill_plan_output, append-only logs]
 blocked_reason: |
   AC#1 satisfied — driver_feedback_notes table designed and shipped as
   supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql (unapplied).
-  AC#2 partially satisfied — DriverFeedbackDialog component built
-  (src/components/field/DriverFeedbackDialog.tsx) with full form, app-side dedup,
-  and direct supabase insert. Still needs wiring into a field PWA page (CS decides
-  where in the visit flow). AC#4 satisfied — admin feedback inbox lives at
-  /admin/feedback-inbox reading v_driver_feedback_active. AC#3 (engine read with
-  14-day decay), AC#5 (reconcile credit), AC#6 (Google-Doc backfill) remain.
-  Per the autonomous /goal data-trust ordering, the engine-side wire-up should
-  wait until PRD-008's Stitch quarantine filter is in. Schema + admin inbox +
-  dialog component are greenfield + safe to ship now.
+  AC#2 satisfied — DriverFeedbackDialog component built + wired into
+  /field/trips/[machineId] as an "Add feedback" action button. AC#4 satisfied —
+  admin feedback inbox lives at /admin/feedback-inbox reading v_driver_feedback_active.
+  AC#3 (engine read with 14-day decay), AC#5 (reconcile credit), AC#6 (Google-Doc
+  backfill) remain — all three need RPC bodies in the live DB (engine_add_pod,
+  reconcile_intent_progress) and the migration applied. Per the autonomous /goal
+  data-trust ordering, the engine-side wire-up should wait until PRD-008's Stitch
+  quarantine filter is in. Schema + admin inbox + driver capture flow are
+  greenfield + safe to ship now.
 ---
 
 # PRD-009 — Driver on-ground feedback not ingested into refill brain
