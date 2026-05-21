@@ -10,11 +10,13 @@ protected_entities:
   [warehouse_inventory, pod_inventory, sales_lines, append-only logs]
 blocked_reason: |
   Schema scaffolding landed (supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql,
-  unapplied). Forensic root-cause naming for existing phantom rows requires live DB queries.
-  Patching the 11 canonical writers to set the new app.provenance_reason GUC requires those
-  function bodies, which live in the live DB (not in source tree as anything but 4-line stubs).
-  Admin "needs review" FE screen + pg_cron refresh + auto_audit_warehouse_inventory_insert
-  rewrite tracked as FU#1-15 in the migration footer.
+  unapplied). Admin "needs review" FE screen landed at /admin/wh-quarantine reading
+  v_wh_inventory_provenance. Forensic root-cause naming for existing phantom rows
+  requires live DB queries. Patching the 11 canonical writers to set the new
+  app.provenance_reason GUC requires those function bodies, which live in the live
+  DB (not in source tree as anything but 4-line stubs). pg_cron refresh +
+  auto_audit_warehouse_inventory_insert rewrite tracked as FU#1, #13 in the
+  migration footer.
 ---
 
 # PRD-003 — Phantom inventory appearing in MCC warehouse

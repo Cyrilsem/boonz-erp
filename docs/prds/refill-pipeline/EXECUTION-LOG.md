@@ -17,6 +17,8 @@ Each entry below records what was attempted, what landed, and what's blocked. **
 - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql` (new, UNAPPLIED)
 - `docs/prds/refill-pipeline/PRD-003-phantom-mcc-wh-inventory.md` (frontmatter `status: Blocked` + `blocked_reason`)
 - `docs/prds/refill-pipeline/EXECUTION-LOG.md` (new)
+- `src/components/inventory/QuarantinedInventoryPanel.tsx` (new — reads `v_wh_inventory_provenance` filtered to `quarantined=true`)
+- `src/app/(app)/admin/wh-quarantine/page.tsx` (new — hosts the panel at `/admin/wh-quarantine`)
 
 ### Migrations written (unapplied — CS to apply)
 
