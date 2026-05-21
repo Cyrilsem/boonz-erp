@@ -8,15 +8,13 @@ source: Refill update 21-05-2026 — YoPro, Be Kind, Perrier across multiple mac
 routing: [Stax, Dara]
 protected_entities: [pod_inventory, warehouse_inventory, refill_plan_output]
 blocked_reason: |
-  Per RPC_REGISTRY, propose_add_plan v2 already has a "G3 multi-variant split"
-  (per-variant WH stock check + FLOOR(qty/N) + remainder distribution) but the
-  picking UI does not honor variant-level rows — confirming hypothesis #2 in
-  the PRD. The FE fix needs Stitch's output schema to already carry variant rows
-  (it does per G3) AND a new substitution log table from Dara AND picking-RPC
-  changes whose body is in the live DB. Same product_family_id schema gap as
-  PRD-002 (Decisions section locks the model across both PRDs). Reconcile
-  credit-back of intents-scoped substitutions also requires reconcile_intent_progress
-  body access. Doable in coordination with CS once the schema + RPC layer lands.
+  product_family_id schema landed (supabase/migrations/20260521233552_prd002_006_product_families.sql,
+  unapplied) — the schema prerequisite shared with PRD-002 is unblocked. Per
+  RPC_REGISTRY, propose_add_plan v2 already does G3 multi-variant split, so
+  Stitch is writing variant rows — the bug is the picking UI collapsing them.
+  FE fix still needs a new substitution log table from Dara AND picking-RPC
+  changes whose body is in the live DB. Reconcile credit-back of intents-scoped
+  substitutions also requires reconcile_intent_progress body access.
 ---
 
 # PRD-006 — Dispatch picking enforces a single variant for multi-variant SKUs

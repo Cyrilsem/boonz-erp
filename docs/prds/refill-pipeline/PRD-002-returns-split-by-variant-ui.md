@@ -8,16 +8,16 @@ source: Refill update 21-05-2026 — System Bugs pipe row 2
 routing: [Stax]
 protected_entities: [pod_inventory, warehouse_inventory]
 blocked_reason: |
-  Decision in the PRD ("variants are distinct boonz_product_id rows, grouped by
-  product_family_id") implies an unbuilt schema piece — there is no
-  product_family_id column on boonz_products in the migration history. Landing the
-  FE changes ahead of that schema (and ahead of the same change shipping in PRD-006)
-  produces a half-functional returns UI. Save-handler RPC body is in the live DB,
-  so server-side validation of split sum / variant family membership cannot be
-  modified from this repo. Capture the exact OMDCW-1021 error string from the
-  source-doc screenshot before reopening (acceptance criterion #2 is blocked on
-  that artifact). New return_audit_log table is doable as a Dara design but is
-  coupled to PRD-006's substitution log per the Decisions section.
+  product_family_id schema landed (supabase/migrations/20260521233552_prd002_006_product_families.sql,
+  unapplied) — Decision's "variants grouped by product_family_id" prerequisite is
+  unblocked. CS-owned backfill of family names listed in the migration footer.
+  Save-handler RPC body is in the live DB, so server-side validation of split
+  sum / variant family membership cannot be modified from this repo. Capture the
+  exact OMDCW-1021 error string from the source-doc screenshot before reopening
+  (acceptance criterion #2 deliverable is blocked on that artifact). New
+  return_audit_log table is doable as a Dara design but is coupled to PRD-006's
+  substitution log per the Decisions section — keep them in one append-only table
+  when shipped.
 ---
 
 # PRD-002 — Returns flow blocks splitting and changing product variant

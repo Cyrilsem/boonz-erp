@@ -303,9 +303,10 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
 
 - **Done:** 0 / 9
 - **Blocked:** 9 / 9 (PRD-003 + PRD-009 each delivered one acceptance criterion)
-- **Migrations awaiting CS apply:** 2
+- **Migrations awaiting CS apply:** 3
   - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql`
   - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql`
+  - `supabase/migrations/20260521233552_prd002_006_product_families.sql`
 - **FE pages landed:** 2
   - `/admin/wh-quarantine` (PRD-003 acceptance criterion: needs-review screen)
   - `/admin/feedback-inbox` (PRD-009 acceptance criterion: admin feedback inbox)
