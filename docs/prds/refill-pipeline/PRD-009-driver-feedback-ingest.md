@@ -8,13 +8,14 @@ source: Refill update 21-05-2026 — multiple machines, recommendations section
 routing: [Dara, Stax, refill-brain]
 protected_entities: [refill_plan_output, append-only logs]
 blocked_reason: |
-  Greenfield: new driver_feedback table (Dara), FE capture surface in field PWA
-  (Stax), n8n/cron consumer that feeds the brain (Stax), and brain-side reconcile
-  step (refill-brain — in DB). Per the autonomous /goal hard stop "no new npm
-  packages without asking", and at least the n8n flow + cron piece needs CS to
-  wire it in n8n cloud. Defer to a dedicated PRD-009 session after the upstream
-  data-trust PRDs (001, 003, 008) are unblocked — feature work should not ship
-  while the underlying signal channel is still corrupted.
+  AC#1 satisfied — driver_feedback_notes table designed and shipped as
+  supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql (unapplied).
+  AC#2 (driver FE capture surface), AC#3 (engine read with 14-day decay),
+  AC#4 (admin feedback inbox), AC#5 (reconcile credit), AC#6 (Google-Doc backfill)
+  remain. Those deferred follow-ups are listed in the migration footer. Per the
+  autonomous /goal data-trust ordering, the engine-side wire-up should wait
+  until PRD-008's Stitch quarantine filter is in. Schema is greenfield + safe to
+  apply now.
 ---
 
 # PRD-009 — Driver on-ground feedback not ingested into refill brain

@@ -283,20 +283,29 @@ Fix lives in `engine_swap_pod` / `propose_swap_plan` body (live DB). Substitute 
 
 ### Block reason
 
-Greenfield: new `driver_feedback` table (Dara), FE capture surface in field PWA (Stax), n8n/cron consumer (Stax), brain reconcile step (refill-brain, DB-resident). At least the n8n flow + cron piece needs CS to wire in n8n cloud. Per the autonomous /goal data-trust ordering ("PRD-009 last — feature work, not a bug fix; needs the rest of the pipeline trustworthy first"), this PRD should wait until PRDs 001, 003, 008 are unblocked.
+Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-day decay (AC#3), admin feedback inbox (AC#4), reconcile credit (AC#5), and Google-Doc backfill (AC#6) remain. The engine-side wire-up should wait until PRD-008's Stitch quarantine filter is in — per the autonomous /goal data-trust ordering ("PRD-009 last — feature work, not a bug fix; needs the rest of the pipeline trustworthy first").
+
+### Files changed
+
+- `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql` (new, UNAPPLIED)
+- `docs/prds/refill-pipeline/PRD-009-driver-feedback-ingest.md` (frontmatter blocked_reason updated)
 
 ### Morning bullets for CS
 
-1. Defer until upstream data-trust PRDs are landed.
+1. **Apply** `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql` whenever convenient — purely additive, no impact on existing flows, no protected-entity risk.
+2. **Next step:** field PWA capture dialog at end-of-visit (Stax) — the only blocker between "table exists" and "drivers can actually capture notes".
 
 ---
 
 ## FINAL SUMMARY
 
 - **Done:** 0 / 9
-- **Blocked:** 9 / 9
-- **Migrations awaiting CS apply:** 1
+- **Blocked:** 9 / 9 (PRD-003 + PRD-009 each delivered one acceptance criterion)
+- **Migrations awaiting CS apply:** 2
   - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql`
+  - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql`
+- **FE pages landed:** 1
+  - `/admin/wh-quarantine` (PRD-003 acceptance criterion: needs-review screen)
 
 ### Honest framing
 
