@@ -10,12 +10,12 @@ protected_entities: [refill_plan_output, append-only logs]
 blocked_reason: |
   AC#1 satisfied — driver_feedback_notes table designed and shipped as
   supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql (unapplied).
-  AC#2 (driver FE capture surface), AC#3 (engine read with 14-day decay),
-  AC#4 (admin feedback inbox), AC#5 (reconcile credit), AC#6 (Google-Doc backfill)
-  remain. Those deferred follow-ups are listed in the migration footer. Per the
-  autonomous /goal data-trust ordering, the engine-side wire-up should wait
-  until PRD-008's Stitch quarantine filter is in. Schema is greenfield + safe to
-  apply now.
+  AC#4 satisfied — admin feedback inbox lives at /admin/feedback-inbox reading
+  v_driver_feedback_active. AC#2 (driver FE capture surface), AC#3 (engine read
+  with 14-day decay), AC#5 (reconcile credit), AC#6 (Google-Doc backfill) remain.
+  Per the autonomous /goal data-trust ordering, the engine-side wire-up should
+  wait until PRD-008's Stitch quarantine filter is in. Schema + admin inbox are
+  greenfield + safe to ship now.
 ---
 
 # PRD-009 — Driver on-ground feedback not ingested into refill brain

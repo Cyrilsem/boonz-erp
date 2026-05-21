@@ -289,10 +289,12 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
 
 - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql` (new, UNAPPLIED)
 - `docs/prds/refill-pipeline/PRD-009-driver-feedback-ingest.md` (frontmatter blocked_reason updated)
+- `src/components/inventory/DriverFeedbackInbox.tsx` (new — AC#4 admin feedback inbox)
+- `src/app/(app)/admin/feedback-inbox/page.tsx` (new — hosts inbox at `/admin/feedback-inbox`)
 
 ### Morning bullets for CS
 
-1. **Apply** `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql` whenever convenient — purely additive, no impact on existing flows, no protected-entity risk.
+1. **Apply** `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql` whenever convenient — purely additive, no impact on existing flows, no protected-entity risk. The new `/admin/feedback-inbox` page reads `v_driver_feedback_active` and shows the empty state until rows exist.
 2. **Next step:** field PWA capture dialog at end-of-visit (Stax) — the only blocker between "table exists" and "drivers can actually capture notes".
 
 ---
@@ -304,8 +306,9 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
 - **Migrations awaiting CS apply:** 2
   - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql`
   - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql`
-- **FE pages landed:** 1
+- **FE pages landed:** 2
   - `/admin/wh-quarantine` (PRD-003 acceptance criterion: needs-review screen)
+  - `/admin/feedback-inbox` (PRD-009 acceptance criterion: admin feedback inbox)
 
 ### Honest framing
 
