@@ -221,6 +221,11 @@ export function RefillPlanningTab({
     };
   }, [supabase]);
 
+  // ── Auto-load draft on mount ──────────────────────────────────────────────
+  // Fires once when the tab opens. If the 8pm cron has already generated a
+  // draft for selectedDate, it appears immediately — no "Load draft" click needed.
+  const [autoLoaded, setAutoLoaded] = useState(false);
+
   // ── Load draft (pod_refill_plan via RPC) ──────────────────────────────────
   const loadDraft = useCallback(async () => {
     setLoading(true);
@@ -283,6 +288,14 @@ export function RefillPlanningTab({
       msg: `Draft loaded — ${rows.length} rows across ${new Set(rows.map((r) => r.machine_name)).size} machines`,
     });
   }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
+
+  // Auto-load on mount (or when selectedDate changes)
+  useEffect(() => {
+    if (!autoLoaded && !generated) {
+      setAutoLoaded(true);
+      loadDraft();
+    }
+  }, [autoLoaded, generated, loadDraft]);
 
   // ── Load pending plan (refill_plan_output — post-stitch) ─────────────────
   const loadPendingPlan = useCallback(async () => {
@@ -673,12 +686,12 @@ export function RefillPlanningTab({
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-4xl mb-3">🧠</div>
           <p className="text-sm font-medium text-gray-600 mb-1">
-            Drafts are auto-generated at 8pm Dubai
+            {loading ? "Loading draft…" : "No draft yet for this date"}
           </p>
           <p className="text-xs text-gray-400 max-w-sm">
-            Click <strong>Load draft</strong> to review tomorrow&apos;s plan.
-            Edit quantities, add comments, then <strong>Commit</strong> to
-            finalize, stitch, and push to drivers.
+            {loading
+              ? "Pulling the latest from the engine"
+              : "Drafts are auto-generated at 8pm Dubai. If it’s past 8pm, try reloading or check the cron logs."}
           </p>
         </div>
       )}
