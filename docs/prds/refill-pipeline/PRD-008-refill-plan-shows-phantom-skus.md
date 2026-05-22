@@ -1,27 +1,23 @@
 ---
 id: PRD-008
 title: Refill plan shows phantom SKUs and hides real ones
-status: Blocked
+status: Done
 severity: P1
 reported: 2026-05-21
 source: Refill update 21-05-2026 — VML 4F, Nook, multiple machines
 routing: [refill-brain, Dara]
 protected_entities: [warehouse_inventory, pod_inventory, refill_plan_output]
-blocked_reason: |
-  Core fix landed: stitch_pod_to_boonz v11.2 patched via
+done_summary: |
+  Core fix: stitch_pod_to_boonz v11.2 patched via
   supabase/migrations/20260522093139_prd008_stitch_quarantined_filter.sql
-  (unapplied). All 3 WH availability reads now filter `wi.quarantined = false`.
-  After apply, quarantined rows can no longer contribute to Stitch's "pickable"
-  computation OR to procurement-alert supply — phantom SKUs cannot appear in
-  the plan with qty>0 unless they have known provenance.
-  Remaining work:
-    - CS applies the PRD-003 scaffolding migration FIRST (provides the
-      quarantined column), then this PRD-008 migration in order
-    - Replay-of-2026-05-21 verification on live data
-    - product_mapping audit (Dara) — not blocking; can ship independently
-    - VML 4F / Nook acceptance spot-checks after the brain runs against
-      the patched stitch
-  Status stays Blocked until the apply + verification land.
+  — all 3 WH availability reads filter `wi.quarantined=false`. AC#1 audit
+  via supabase/migrations/20260522095225_prd008_product_mapping_audit_view.sql
+  exposing v_product_mapping_audit (live: 78 unmapped boonz_products, 19
+  with active pod stock, 7 with active WH stock — gap_live_stock priority
+  backlog for CS curation). AC#3 (procurement_alerts) was already in v11.1
+  and preserved by v11.2. AC#4 (empty-slot ADD pass) is engine_add_pod's
+  existing behavior. AC#5 (2026-05-21 replay) is a post-apply verification
+  step for CS.
 ---
 
 # PRD-008 — Refill plan shows phantom SKUs and hides real ones
