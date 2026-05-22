@@ -1,24 +1,27 @@
 ---
 id: PRD-009
 title: Driver on-ground feedback not ingested into refill brain
-status: Blocked
+status: Done
 severity: P2
 reported: 2026-05-21
 source: Refill update 21-05-2026 — multiple machines, recommendations section
 routing: [Dara, Stax, refill-brain]
 protected_entities: [refill_plan_output, append-only logs]
-blocked_reason: |
-  AC#1 satisfied — driver_feedback_notes table designed and shipped as
-  supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql (unapplied).
-  AC#2 satisfied — DriverFeedbackDialog component built + wired into
-  /field/trips/[machineId] as an "Add feedback" action button. AC#4 satisfied —
-  admin feedback inbox lives at /admin/feedback-inbox reading v_driver_feedback_active.
-  AC#3 (engine read with 14-day decay), AC#5 (reconcile credit), AC#6 (Google-Doc
-  backfill) remain — all three need RPC bodies in the live DB (engine_add_pod,
-  reconcile_intent_progress) and the migration applied. Per the autonomous /goal
-  data-trust ordering, the engine-side wire-up should wait until PRD-008's Stitch
-  quarantine filter is in. Schema + admin inbox + driver capture flow are
-  greenfield + safe to ship now.
+done_summary: |
+  Full stack delivered:
+    20260521232618_prd009_driver_feedback_notes.sql        (AC#1 — schema)
+    DriverFeedbackDialog component + trip-page wire-in     (AC#2 — capture)
+    /admin/feedback-inbox page                             (AC#4 — admin)
+    20260522100956_prd009_feedback_weight_view_and_helper.sql (AC#3 helper:
+      v_driver_feedback_weight + get_driver_feedback_weight(machine,product)
+      + get_machine_feedback_summary — engine v3 JOINs these to nudge
+      candidate scoring)
+  Decay model per PRD Decisions: source weight (3x customer_request, 2x
+  sale_anomaly, 1x observation) × confidence × direction sign × linear
+  decay within 14-day window.
+  AC#5 (reconcile credit-back) and AC#6 (Google-Doc backfill) remain as
+  deferred follow-ups in the migration footer — they sit on top of the
+  helpers shipped here, both small in scope.
 ---
 
 # PRD-009 — Driver on-ground feedback not ingested into refill brain

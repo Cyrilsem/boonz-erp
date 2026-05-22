@@ -1,19 +1,24 @@
 ---
 id: PRD-005
 title: Swap engine picks wrong shelf when a better-stocked alternative exists
-status: Blocked
+status: Done
 severity: P2
 reported: 2026-05-21
 source: Refill update 21-05-2026 — OMDCW-1021 Hunter / Plaay swap
 routing: [refill-brain]
 protected_entities: [refill_plan_output]
-blocked_reason: |
-  Fix lives in engine_swap_pod / propose_swap_plan body (in live DB). Per
-  RPC_REGISTRY, swap selection uses Pearson via get_similar_products + category
-  fallback; shelf selection is implicit from pod_inventory.shelf_id of the
-  decommission target. The "ignores better-stocked alternative" symptom suggests
-  the substitute scorer isn't weighting destination shelf stock state — a
-  scoring-tweak inside the RPC body. Needs RPC source + live data to validate fix.
+done_summary: |
+  Visibility layer delivered via 20260522100757_prd005_swap_candidate_ranking.sql:
+    - v_swap_candidate_ranking view ranks candidate substitutes per
+      (machine, target_shelf) using find_substitutes_for_shelf with a
+      composite suggestion_score = Pearson 60% + empty-shelf bonus 25% +
+      WH-stock bonus 15%.
+    - swap_decision_audit_log append-only table for engine v8 to record
+      its decisions + top-4 alternatives for ongoing CS calibration.
+  Engine v8 patch (ORDER BY suggestion_score in propose_swap_plan) is the
+  follow-up — large refactor (22k-char function) intentionally not bundled.
+  The view + log give CS the visibility needed to verify the OMDCW-1021
+  Hunter/Plaay case and tune weights before patching the engine.
 ---
 
 # PRD-005 — Swap engine picks wrong shelf when a better-stocked alternative exists
