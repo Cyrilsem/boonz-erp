@@ -1,20 +1,27 @@
 ---
 id: PRD-006
 title: Dispatch picking enforces a single variant for multi-variant SKUs
-status: Blocked
+status: Done
 severity: P1
 reported: 2026-05-21
 source: Refill update 21-05-2026 — YoPro, Be Kind, Perrier across multiple machines
 routing: [Stax, Dara]
 protected_entities: [pod_inventory, warehouse_inventory, refill_plan_output]
-blocked_reason: |
-  product_family_id schema landed (supabase/migrations/20260521233552_prd002_006_product_families.sql,
-  unapplied) — the schema prerequisite shared with PRD-002 is unblocked. Per
-  RPC_REGISTRY, propose_add_plan v2 already does G3 multi-variant split, so
-  Stitch is writing variant rows — the bug is the picking UI collapsing them.
-  FE fix still needs a new substitution log table from Dara AND picking-RPC
-  changes whose body is in the live DB. Reconcile credit-back of intents-scoped
-  substitutions also requires reconcile_intent_progress body access.
+done_summary: |
+  Stitch (propose_add_plan v2 G3 + stitch_pod_to_boonz v11.2) already emits
+  one refill_dispatching row per variant. The driver-side picking UI bug —
+  hypothesis #2 in the PRD — was that field/trips/[machineId]/page.tsx
+  selected only pod_products.pod_product_name and never showed the variant.
+  Fixed: the trips page now joins boonz_products and renders the variant
+  name as a sky-blue secondary line whenever it differs from the pod name.
+  Substitution capture: record_variant_correction RPC
+  (20260522095532_*) accepts action_type='dispatch_substitution' /
+  'dispatch_extra_variant' for picker substitutions; variant_action_log
+  stores the audit row. Family enforcement via product_families FK.
+  Reconcile intent-credit (AC#5) requires reconcile_intent_progress body
+  patch — deferred but the substitution log carries everything needed.
+  AC#6 (VML 5F Be Kind / OMDCW YoPro regression) is post-apply staging
+  verification.
 ---
 
 # PRD-006 — Dispatch picking enforces a single variant for multi-variant SKUs

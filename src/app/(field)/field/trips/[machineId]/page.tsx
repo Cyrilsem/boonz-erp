@@ -20,6 +20,7 @@ interface RefillLine {
   dispatch_id: string;
   shelf_code: string;
   pod_product_name: string;
+  boonz_product_name: string | null;
   quantity: number;
   filled_quantity: number;
   dispatched: boolean;
@@ -88,14 +89,16 @@ export default function MachineRefillPage() {
         comment,
         shelf_id,
         shelf_configurations!inner(shelf_code),
-        pod_products!inner(pod_product_name)
+        pod_products!inner(pod_product_name),
+        boonz_products(boonz_product_name)
       `,
       )
       .gte("dispatch_date", yesterday)
       .lte("dispatch_date", today)
       .eq("include", true)
       .eq("machine_id", machineId)
-      .eq("picked_up", true);
+      .eq("picked_up", true)
+      .limit(10000);
 
     if (dispatchLines) {
       const mapped: RefillLine[] = dispatchLines.map((line) => {
@@ -105,10 +108,14 @@ export default function MachineRefillPage() {
         const product = line.pod_products as unknown as {
           pod_product_name: string;
         };
+        const boonz = line.boonz_products as unknown as {
+          boonz_product_name: string;
+        } | null;
         return {
           dispatch_id: line.dispatch_id,
           shelf_code: shelf.shelf_code,
           pod_product_name: product.pod_product_name,
+          boonz_product_name: boonz?.boonz_product_name ?? null,
           quantity: line.quantity ?? 0,
           filled_quantity: line.filled_quantity ?? line.quantity ?? 0,
           dispatched: !!line.dispatched,
@@ -376,6 +383,12 @@ export default function MachineRefillPage() {
                   <p className="text-sm font-medium truncate">
                     {line.pod_product_name}
                   </p>
+                  {line.boonz_product_name &&
+                    line.boonz_product_name !== line.pod_product_name && (
+                      <p className="text-xs font-medium text-sky-700 dark:text-sky-300 truncate">
+                        Variant: {line.boonz_product_name}
+                      </p>
+                    )}
                   <p className="text-xs text-neutral-500">
                     Planned: {line.quantity}
                   </p>
