@@ -303,11 +303,17 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
 
 - **Done:** 0 / 9
 - **Blocked:** 9 / 9 (PRD-003 + PRD-009 each delivered one acceptance criterion)
-- **Migrations awaiting CS apply:** 4
+- **Migrations awaiting CS apply:** 7
   - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql`
   - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql`
   - `supabase/migrations/20260521233552_prd002_006_product_families.sql`
   - `supabase/migrations/20260521234206_prd002_006_variant_action_log.sql`
+  - `supabase/migrations/20260522091624_prd003_fu1_audit_insert_and_po_receive_provenance.sql` (FU#1+FU#2)
+  - `supabase/migrations/20260522091958_prd003_fu3_dispatch_and_transfer_provenance.sql` (FU#3 — 4 writers)
+  - `supabase/migrations/20260522092342_prd003_fu4_receive_manual_status_provenance.sql` (FU#4 — 3 writers)
+- **PRD-003 canonical writer patches:** 8 of 11 done.
+  - Patched: receive_purchase_order, pack_dispatch_line, return_dispatch_line, adjust_warehouse_stock, transfer_warehouse_stock, receive_dispatch_line, log_manual_refill, confirm_warehouse_status_proposal
+  - Still to patch (snapshot-class — provenance='snapshot'): upsert_refill_stock_snapshot, add_sanity_increment, auto_sanity_check
 - **FE pages landed:** 2
   - `/admin/wh-quarantine` (PRD-003 acceptance criterion: needs-review screen)
   - `/admin/feedback-inbox` (PRD-009 acceptance criterion: admin feedback inbox)
