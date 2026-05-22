@@ -301,9 +301,9 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
 
 ## FINAL SUMMARY
 
-- **Done:** 1 / 9 (PRD-003 — all 7 ACs delivered in source; CS apply pending)
-- **Blocked:** 8 / 9
-- **Migrations awaiting CS apply:** 8
+- **Done:** 2 / 9 (PRD-003 + PRD-001 — all ACs delivered in source; CS apply pending)
+- **Blocked:** 7 / 9
+- **Migrations awaiting CS apply:** 9
   - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql`
   - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql`
   - `supabase/migrations/20260521233552_prd002_006_product_families.sql`

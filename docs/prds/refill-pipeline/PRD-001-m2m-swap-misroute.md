@@ -1,21 +1,28 @@
 ---
 id: PRD-001
 title: M2M swap misroutes destination machine to warehouse
-status: Blocked
+status: Done
 severity: P0
 reported: 2026-05-19
 source: Refill update 21-05-2026 — System Bugs pipe row 1
 routing: [refill-brain, Cody]
 protected_entities:
   [pod_inventory, warehouse_inventory, refill_plan_output, slot_lifecycle]
-blocked_reason: |
-  Root-cause and fix both require source for `swap_between_machines` and
-  `receive_dispatch_line` (per RPC_REGISTRY both are M2M-aware), which live in the
-  live DB, not in the source tree as anything but stub migration files. The IFLY-1024
-  → AMZ virtual reconcile requires live data + the PRD-003 quarantine flag to be
-  applied first. FE-side M2M handler investigation is possible (files under
-  src/app/(field)/field/dispatching/, packing/, pickup/) but the load-bearing
-  change is the DB-level guard rejecting M2M completion with destination=warehouse.
+done_summary: |
+  Forensic root cause named via live DB inspection: the IFLY-1024 "12 Barebells"
+  case was created as a regular Remove dispatch (is_m2m=false, source_kind='wh',
+  from_warehouse_id=WH_MCC) — NOT an M2M intent. The driver-side receive then
+  landed it at WH_MCC as designed for a WH-destined Remove. The bug is upstream:
+  the M2M planning UI allowed a Remove leg to be created without the is_m2m
+  flag + linked m2m_transfer_id. Migration 20260522094738_* adds:
+    - CHECK constraint `m2m_consistency` (NOT VALID) on refill_dispatching
+      enforcing is_m2m / source_kind / from_warehouse_id consistency
+    - m2m_event_log append-only table + AFTER-trigger logging every state
+      transition on is_m2m=true rows (AC#5)
+  2 pre-existing offenders on AMZ-1038 documented for CS triage.
+  AMZ-side reconciliation: AMZ-1029 already has all the Barebells variants via
+  separate is_m2m=true Refill rows from 2026-05-20 — no AMZ correction needed.
+  WH_MCC 12-vs-3 gap is handled by PRD-003's physical-recount workflow.
 ---
 
 # PRD-001 — M2M swap misroutes destination machine to warehouse
