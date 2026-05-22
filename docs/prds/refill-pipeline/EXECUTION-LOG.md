@@ -311,9 +311,39 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
   - `supabase/migrations/20260522091624_prd003_fu1_audit_insert_and_po_receive_provenance.sql` (FU#1+FU#2)
   - `supabase/migrations/20260522091958_prd003_fu3_dispatch_and_transfer_provenance.sql` (FU#3 — 4 writers)
   - `supabase/migrations/20260522092342_prd003_fu4_receive_manual_status_provenance.sql` (FU#4 — 3 writers)
-- **PRD-003 canonical writer patches:** 8 of 11 done.
+- **PRD-003 canonical writer patches:** 8 of 8 effectively done (was 8 of 11).
   - Patched: receive_purchase_order, pack_dispatch_line, return_dispatch_line, adjust_warehouse_stock, transfer_warehouse_stock, receive_dispatch_line, log_manual_refill, confirm_warehouse_status_proposal
-  - Still to patch (snapshot-class — provenance='snapshot'): upsert_refill_stock_snapshot, add_sanity_increment, auto_sanity_check
+  - **RPC_REGISTRY correction discovered via pg_proc bodies:** `upsert_refill_stock_snapshot` writes to `refill_instructions`, `add_sanity_increment` writes to `refill_dispatch_plan`, `auto_sanity_check` writes to `daily_pipeline_runs` — **none of the three mutate `warehouse_inventory`**. The registry's "Inventory snapshots" section was stale. These three RPCs need no provenance work.
+
+## PRD-003 forensic root cause (ACs #2 + #3 satisfied)
+
+Live query against WH_MCC active rows for Hunter / Perrier / Rice Cake families on 2026-05-22, joined to latest inventory_audit_log entry:
+
+| Product                                   | wh_inventory_id | qty | batch_id                    | last audit reason                                                                                 |
+| ----------------------------------------- | --------------- | --- | --------------------------- | ------------------------------------------------------------------------------------------------- |
+| Hunter - Hot N Sweet                      | `3964778b…`     | 1   | `RETURN-2026-05-10`         | `B3.2 return: dispatch a001bcd9… reason: auto_release_unpicked_eod, by: system`                   |
+| Hunter - Sea Salted                       | `c08c6f7d…`     | 6   | `REMOVE-RECEIVE-2026-05-13` | `service_role_write_unattributed`                                                                 |
+| Organic Larder - Rice Cake Milk Chocolate | `2d9e8681…`     | 1   | `REMOVE-RECEIVE-2026-05-13` | `B3 receive: dispatch 31656269… filled 3 / planned 2 by system (breakdown=f, effective_expiry=∅)` |
+| Perrier - Regular                         | `ec2caea4…`     | 12  | `REMOVE-RECEIVE-2026-05-13` | `B3 receive: dispatch cc50a0fa… filled 12 / planned 12 by [user] (breakdown=t)`                   |
+
+**Root cause:** 3 of 4 phantom rows share `batch_id='REMOVE-RECEIVE-2026-05-13'` — created by `receive_dispatch_line` on REMOVE-action dispatches. The function uses `v_target_wh := COALESCE(v_dispatch.from_warehouse_id, WH_CENTRAL)`. When a VOX-MCC machine's source dispatch carries `from_warehouse_id = WH_MCC`, the REMOVE return lands at WH_MCC instead of WH_CENTRAL. This is exactly Hypothesis #2 from the PRD ("MACHINE_TO_WAREHOUSE return without source decrement") refined to a destination-routing bug, not an orphan-credit bug. The 4th row (Hunter Hot N Sweet, batch `RETURN-2026-05-10`) is from the older `return_dispatch_line` fallback that inserts a `RETURN-*` row when no matching wh row exists — same destination-routing class.
+
+**The fix is not in this PRD's scope** — destination routing on REMOVE returns is PRD-001 territory. PRD-003's scaffolding ensures these rows are now traceable AND quarantined; PRD-001 needs to decide whether REMOVE→WH should always land at WH_CENTRAL or correctly track the from_warehouse semantics.
+
+## PRD-003 acceptance criteria — final state
+
+| AC                                                                     | Status | Notes                                                                                    |
+| ---------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| 1. `wh_inventory_provenance` view exists                               | ✅     | Migration 20260521230813\_\*                                                             |
+| 2. Row-by-row classification of phantom Hunter/Rice Cake/Perrier units | ✅     | Above table                                                                              |
+| 3. Root cause named with evidence                                      | ✅     | Destination-routing bug in `receive_dispatch_line` REMOVE branch — Hypothesis #2 refined |
+| 4. All write paths updated to require provenance                       | ✅     | 8/8 canonical writers patched (FU#1-#4 migrations)                                       |
+| 5. Trigger/check constraint blocks new writes without provenance       | ✅     | wh_provenance_event_required CHECK + BEFORE trigger                                      |
+| 6. Phantom rows flagged, not pickable by brain, visible in admin       | ⚠️     | Schema flag + admin screen done; "not pickable" depends on PRD-008's Stitch update       |
+| 7. Cody review checklist signed off                                    | ✅     | ⚠️ approve-with-revisions absorbed in scaffolding migration                              |
+
+**True remaining blocker for PRD-003 Done:** CS applies the 4 PRD-003 migrations on the live DB and the PRD-008 Stitch update lands. The substantive design + implementation work is complete.
+
 - **FE pages landed:** 2
   - `/admin/wh-quarantine` (PRD-003 acceptance criterion: needs-review screen)
   - `/admin/feedback-inbox` (PRD-009 acceptance criterion: admin feedback inbox)

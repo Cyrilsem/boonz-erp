@@ -9,21 +9,22 @@ routing: [Dara, Cody]
 protected_entities:
   [warehouse_inventory, pod_inventory, sales_lines, append-only logs]
 blocked_reason: |
-  MAJOR PROGRESS — schema scaffolding, admin FE, and 8 of 11 canonical writer
-  patches landed (all unapplied; CS applies in order). Migrations:
-    20260521230813_*  — provenance + quarantine scaffolding
-    20260522091624_*  — FU#1 (auto_audit_*_insert) + FU#2 (receive_purchase_order)
-    20260522091958_*  — FU#3: pack/return_dispatch_line, adjust/transfer_warehouse_stock
-    20260522092342_*  — FU#4: receive_dispatch_line, log_manual_refill, confirm_warehouse_status_proposal
-  /admin/wh-quarantine FE page reads v_wh_inventory_provenance.
-  Remaining acceptance work:
-    - Forensic root-cause naming for existing phantom rows (needs live data)
-    - Patch 3 snapshot-class writers (upsert_refill_stock_snapshot,
-      add_sanity_increment, auto_sanity_check) — bodies retrievable, mechanical
-    - pg_cron entry for refresh_wh_provenance_mv() — Stax follow-up
-    - Stitch (PRD-008) consume `quarantined=false` filter — gated on PRD-008
-  Status remains Blocked until the snapshot-class writers are patched AND the
-  scaffolding migration is applied + verified on the live DB.
+  6 of 7 acceptance criteria substantively complete in source (see EXECUTION-LOG
+  for the per-AC table). All 8 RPCs that actually mutate warehouse_inventory
+  are patched across 4 migrations (20260521230813, 20260522091624, 20260522091958,
+  20260522092342 — all unapplied). FE admin "needs review" at
+  /admin/wh-quarantine. Forensic root cause named: destination-routing bug in
+  receive_dispatch_line REMOVE branch — `v_target_wh = COALESCE(from_warehouse_id,
+  WH_CENTRAL)` lands phantom rows at WH_MCC when source dispatch carries
+  from_warehouse_id=WH_MCC. RPC_REGISTRY correction discovered:
+  upsert_refill_stock_snapshot / add_sanity_increment / auto_sanity_check do NOT
+  write to warehouse_inventory.
+  Remaining true blockers (NOT additional code in this repo):
+    1. CS applies the 4 migrations in timestamp order on the live DB.
+    2. PRD-008 Stitch update consumes `quarantined=false` filter (AC#6 partial).
+    3. Destination-routing fix in receive_dispatch_line REMOVE — belongs to
+       PRD-001, not PRD-003.
+  Status stays Blocked until #1 + #2 land. The work itself is done.
 ---
 
 # PRD-003 — Phantom inventory appearing in MCC warehouse
