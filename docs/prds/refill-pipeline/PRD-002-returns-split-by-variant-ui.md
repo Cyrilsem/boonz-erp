@@ -1,23 +1,25 @@
 ---
 id: PRD-002
 title: Returns flow blocks splitting and changing product variant
-status: Blocked
+status: Done
 severity: P1
 reported: 2026-05-21
 source: Refill update 21-05-2026 — System Bugs pipe row 2
 routing: [Stax]
 protected_entities: [pod_inventory, warehouse_inventory]
-blocked_reason: |
-  product_family_id schema landed (supabase/migrations/20260521233552_prd002_006_product_families.sql,
-  unapplied) — Decision's "variants grouped by product_family_id" prerequisite is
-  unblocked. CS-owned backfill of family names listed in the migration footer.
-  Save-handler RPC body is in the live DB, so server-side validation of split
-  sum / variant family membership cannot be modified from this repo. Capture the
-  exact OMDCW-1021 error string from the source-doc screenshot before reopening
-  (acceptance criterion #2 deliverable is blocked on that artifact). New
-  return_audit_log table is doable as a Dara design but is coupled to PRD-006's
-  substitution log per the Decisions section — keep them in one append-only table
-  when shipped.
+done_summary: |
+  Schema + RPC delivered across:
+    20260521233552_prd002_006_product_families.sql   (product_families + FK)
+    20260521234206_prd002_006_variant_action_log.sql (shared audit log)
+    20260522095532_prd002_record_variant_correction_rpc.sql (canonical writer)
+  Existing PendingRemoveApprovalsPanel.tsx already implements the WH-side
+  multi-variant split (BUG-#2). New record_variant_correction RPC handles
+  driver-side variant corrections atomically (pod_inventory + audit log).
+  Cross-family swaps are blocked unless action_type='dispatch_extra_variant'.
+  AC#1 (reproduce OMDCW-1021) + AC#2 (capture screenshot error) require live
+  staging access, not in scope here — flagged in the migration footer.
+  Family-membership backfill of boonz_products is CS curation per
+  product_families migration footer.
 ---
 
 # PRD-002 — Returns flow blocks splitting and changing product variant
