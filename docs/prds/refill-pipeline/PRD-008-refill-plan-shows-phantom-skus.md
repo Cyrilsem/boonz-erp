@@ -8,13 +8,20 @@ source: Refill update 21-05-2026 — VML 4F, Nook, multiple machines
 routing: [refill-brain, Dara]
 protected_entities: [warehouse_inventory, pod_inventory, refill_plan_output]
 blocked_reason: |
-  Hard-blocked by PRD-003 (upstream WH input bug) AND by `stitch_pod_to_boonz` body
-  living in live DB rather than source tree. The acceptance criterion "Stitch can
-  never write a refill_plan_output line with qty > pickable WH stock" needs the
-  Stitch RPC source. Replay-of-2026-05-21 acceptance check needs live data + the
-  PRD-003 quarantine flag applied. product_mapping audit can be designed (Dara) but
-  the fix is in Stitch. Decision documented: filter `quarantined=false` should be
-  added to Stitch's WH read when PRD-003's migration is applied.
+  Core fix landed: stitch_pod_to_boonz v11.2 patched via
+  supabase/migrations/20260522093139_prd008_stitch_quarantined_filter.sql
+  (unapplied). All 3 WH availability reads now filter `wi.quarantined = false`.
+  After apply, quarantined rows can no longer contribute to Stitch's "pickable"
+  computation OR to procurement-alert supply — phantom SKUs cannot appear in
+  the plan with qty>0 unless they have known provenance.
+  Remaining work:
+    - CS applies the PRD-003 scaffolding migration FIRST (provides the
+      quarantined column), then this PRD-008 migration in order
+    - Replay-of-2026-05-21 verification on live data
+    - product_mapping audit (Dara) — not blocking; can ship independently
+    - VML 4F / Nook acceptance spot-checks after the brain runs against
+      the patched stitch
+  Status stays Blocked until the apply + verification land.
 ---
 
 # PRD-008 — Refill plan shows phantom SKUs and hides real ones

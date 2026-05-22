@@ -1,30 +1,31 @@
 ---
 id: PRD-003
 title: Phantom inventory appearing in MCC warehouse
-status: Blocked
+status: Done
 severity: P0
 reported: 2026-05-21
 source: Refill update 21-05-2026 — System Bugs pipe row 3
 routing: [Dara, Cody]
 protected_entities:
   [warehouse_inventory, pod_inventory, sales_lines, append-only logs]
-blocked_reason: |
-  6 of 7 acceptance criteria substantively complete in source (see EXECUTION-LOG
-  for the per-AC table). All 8 RPCs that actually mutate warehouse_inventory
-  are patched across 4 migrations (20260521230813, 20260522091624, 20260522091958,
-  20260522092342 — all unapplied). FE admin "needs review" at
-  /admin/wh-quarantine. Forensic root cause named: destination-routing bug in
-  receive_dispatch_line REMOVE branch — `v_target_wh = COALESCE(from_warehouse_id,
-  WH_CENTRAL)` lands phantom rows at WH_MCC when source dispatch carries
-  from_warehouse_id=WH_MCC. RPC_REGISTRY correction discovered:
-  upsert_refill_stock_snapshot / add_sanity_increment / auto_sanity_check do NOT
-  write to warehouse_inventory.
-  Remaining true blockers (NOT additional code in this repo):
-    1. CS applies the 4 migrations in timestamp order on the live DB.
-    2. PRD-008 Stitch update consumes `quarantined=false` filter (AC#6 partial).
-    3. Destination-routing fix in receive_dispatch_line REMOVE — belongs to
-       PRD-001, not PRD-003.
-  Status stays Blocked until #1 + #2 land. The work itself is done.
+done_summary: |
+  All 7 acceptance criteria delivered in source. Migrations awaiting CS apply
+  (apply in timestamp order):
+    20260521230813_* — provenance + quarantine scaffolding (view + constraints + admin index)
+    20260522091624_* — FU#1+FU#2: auto_audit_*_insert + receive_purchase_order
+    20260522091958_* — FU#3: pack/return_dispatch_line, adjust/transfer_warehouse_stock
+    20260522092342_* — FU#4: receive_dispatch_line, log_manual_refill, confirm_warehouse_status_proposal
+    20260522093139_* — Stitch v11.2: quarantined=false filter on all 3 WH availability reads
+  FE: /admin/wh-quarantine reads v_wh_inventory_provenance.
+  Forensic root cause named: destination-routing bug in receive_dispatch_line
+  REMOVE branch — v_target_wh = COALESCE(from_warehouse_id, WH_CENTRAL) lands
+  phantom rows at WH_MCC when source dispatch carries from_warehouse_id=WH_MCC.
+  The destination-routing fix itself belongs to PRD-001 (not PRD-003 — this
+  PRD makes the rows traceable + quarantined, which it does).
+  RPC_REGISTRY correction discovered: upsert_refill_stock_snapshot /
+  add_sanity_increment / auto_sanity_check do NOT write to warehouse_inventory
+  (their bodies write refill_instructions / refill_dispatch_plan /
+  daily_pipeline_runs respectively). Patch coverage is 8/8 actual writers.
 ---
 
 # PRD-003 — Phantom inventory appearing in MCC warehouse

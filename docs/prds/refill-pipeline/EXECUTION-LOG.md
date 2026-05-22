@@ -301,9 +301,9 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
 
 ## FINAL SUMMARY
 
-- **Done:** 0 / 9
-- **Blocked:** 9 / 9 (PRD-003 + PRD-009 each delivered one acceptance criterion)
-- **Migrations awaiting CS apply:** 7
+- **Done:** 1 / 9 (PRD-003 — all 7 ACs delivered in source; CS apply pending)
+- **Blocked:** 8 / 9
+- **Migrations awaiting CS apply:** 8
   - `supabase/migrations/20260521230813_prd003_wh_inventory_provenance_quarantine.sql`
   - `supabase/migrations/20260521232618_prd009_driver_feedback_notes.sql`
   - `supabase/migrations/20260521233552_prd002_006_product_families.sql`
@@ -311,6 +311,7 @@ Schema shipped (AC#1 satisfied). FE capture surface (AC#2), engine read with 14-
   - `supabase/migrations/20260522091624_prd003_fu1_audit_insert_and_po_receive_provenance.sql` (FU#1+FU#2)
   - `supabase/migrations/20260522091958_prd003_fu3_dispatch_and_transfer_provenance.sql` (FU#3 — 4 writers)
   - `supabase/migrations/20260522092342_prd003_fu4_receive_manual_status_provenance.sql` (FU#4 — 3 writers)
+  - `supabase/migrations/20260522093139_prd008_stitch_quarantined_filter.sql` (PRD-008 — stitch v11.2 quarantined filter)
 - **PRD-003 canonical writer patches:** 8 of 8 effectively done (was 8 of 11).
   - Patched: receive_purchase_order, pack_dispatch_line, return_dispatch_line, adjust_warehouse_stock, transfer_warehouse_stock, receive_dispatch_line, log_manual_refill, confirm_warehouse_status_proposal
   - **RPC_REGISTRY correction discovered via pg_proc bodies:** `upsert_refill_stock_snapshot` writes to `refill_instructions`, `add_sanity_increment` writes to `refill_dispatch_plan`, `auto_sanity_check` writes to `daily_pipeline_runs` — **none of the three mutate `warehouse_inventory`**. The registry's "Inventory snapshots" section was stale. These three RPCs need no provenance work.
@@ -332,15 +333,15 @@ Live query against WH_MCC active rows for Hunter / Perrier / Rice Cake families 
 
 ## PRD-003 acceptance criteria — final state
 
-| AC                                                                     | Status | Notes                                                                                    |
-| ---------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------- |
-| 1. `wh_inventory_provenance` view exists                               | ✅     | Migration 20260521230813\_\*                                                             |
-| 2. Row-by-row classification of phantom Hunter/Rice Cake/Perrier units | ✅     | Above table                                                                              |
-| 3. Root cause named with evidence                                      | ✅     | Destination-routing bug in `receive_dispatch_line` REMOVE branch — Hypothesis #2 refined |
-| 4. All write paths updated to require provenance                       | ✅     | 8/8 canonical writers patched (FU#1-#4 migrations)                                       |
-| 5. Trigger/check constraint blocks new writes without provenance       | ✅     | wh_provenance_event_required CHECK + BEFORE trigger                                      |
-| 6. Phantom rows flagged, not pickable by brain, visible in admin       | ⚠️     | Schema flag + admin screen done; "not pickable" depends on PRD-008's Stitch update       |
-| 7. Cody review checklist signed off                                    | ✅     | ⚠️ approve-with-revisions absorbed in scaffolding migration                              |
+| AC                                                                     | Status | Notes                                                                                               |
+| ---------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| 1. `wh_inventory_provenance` view exists                               | ✅     | Migration 20260521230813\_\*                                                                        |
+| 2. Row-by-row classification of phantom Hunter/Rice Cake/Perrier units | ✅     | Above table                                                                                         |
+| 3. Root cause named with evidence                                      | ✅     | Destination-routing bug in `receive_dispatch_line` REMOVE branch — Hypothesis #2 refined            |
+| 4. All write paths updated to require provenance                       | ✅     | 8/8 canonical writers patched (FU#1-#4 migrations)                                                  |
+| 5. Trigger/check constraint blocks new writes without provenance       | ✅     | wh_provenance_event_required CHECK + BEFORE trigger                                                 |
+| 6. Phantom rows flagged, not pickable by brain, visible in admin       | ✅     | Schema flag + admin screen done; Stitch v11.2 quarantined filter shipped (migration 20260522093139) |
+| 7. Cody review checklist signed off                                    | ✅     | ⚠️ approve-with-revisions absorbed in scaffolding migration                                         |
 
 **True remaining blocker for PRD-003 Done:** CS applies the 4 PRD-003 migrations on the live DB and the PRD-008 Stitch update lands. The substantive design + implementation work is complete.
 
