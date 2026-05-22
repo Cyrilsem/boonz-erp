@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { machineShortId } from "@/lib/utils/machine-id";
 
@@ -22,6 +22,16 @@ export type PlanRow = {
   sold_7d: number;
   fill_pct: number;
   comment: string;
+  // Pod-level draft fields (populated when loading from pod_refill_plan)
+  machine_id?: string;
+  shelf_id?: string;
+  pod_product_id?: string;
+  velocity_30d?: number;
+  signal?: string;
+  clamp_reason?: string;
+  source_origin?: string;
+  has_intent?: boolean;
+  status?: string;
 };
 
 type PlanAlert = {
@@ -45,28 +55,15 @@ type AddRowForm = {
   comment: string;
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+type ViewMode = "empty" | "draft" | "pending";
 
-const FILTER_OPTIONS = [
-  { value: "all", label: "All machines" },
-  { value: "office", label: "Office" },
-  { value: "coworking", label: "Co-working" },
-  { value: "vml", label: "VML" },
-  { value: "wpp", label: "WPP" },
-  { value: "vox", label: "VOX" },
-  { value: "ohmydesk", label: "OhmyDesk" },
-  { value: "grit", label: "GRIT" },
-  { value: "addmind", label: "ADDMIND" },
-];
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function actionBadge(action: string) {
   const styles: Record<string, string> = {
-    REFILL:
-      "bg-blue-100 text-blue-700 ",
-    REMOVE:
-      "bg-red-100 text-red-700 ",
-    "ADD NEW":
-      "bg-green-100 text-green-700 ",
+    REFILL: "bg-blue-100 text-blue-700 ",
+    REMOVE: "bg-red-100 text-red-700 ",
+    "ADD NEW": "bg-green-100 text-green-700 ",
   };
   return (
     <span
@@ -75,6 +72,29 @@ function actionBadge(action: string) {
       }`}
     >
       {action}
+    </span>
+  );
+}
+
+function signalBadge(signal: string | undefined) {
+  if (!signal) return null;
+  const styles: Record<string, string> = {
+    STAR: "bg-yellow-100 text-yellow-800",
+    DOUBLE_DOWN: "bg-green-100 text-green-800",
+    KEEP: "bg-blue-100 text-blue-700",
+    KEEP_GROWING: "bg-cyan-100 text-cyan-700",
+    RAMPING: "bg-purple-100 text-purple-700",
+    WIND_DOWN: "bg-orange-100 text-orange-700",
+    DEAD: "bg-red-100 text-red-700",
+    ROTATE_OUT: "bg-amber-100 text-amber-700",
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium ${
+        styles[signal] ?? "bg-gray-100 text-gray-600"
+      }`}
+    >
+      {signal.replace(/_/g, " ")}
     </span>
   );
 }
@@ -97,17 +117,9 @@ function tierDot(tier: string) {
 
 function priorityBadge(p: number) {
   if (p === 1)
-    return (
-      <span className="text-[9px] font-bold text-red-600 ">
-        P1
-      </span>
-    );
+    return <span className="text-[9px] font-bold text-red-600 ">P1</span>;
   if (p === 2)
-    return (
-      <span className="text-[9px] font-bold text-amber-600 ">
-        P2
-      </span>
-    );
+    return <span className="text-[9px] font-bold text-amber-600 ">P2</span>;
   return null;
 }
 
@@ -164,13 +176,21 @@ export function RefillPlanningTab({
     msg: string;
   } | null>(null);
 
+  // Draft commit state
+  const [committing, setCommitting] = useState(false);
+  const [commitResult, setCommitResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+
+  // View mode: empty | draft (pod_refill_plan) | pending (refill_plan_output)
+  const [viewMode, setViewMode] = useState<ViewMode>("empty");
+
   // Add row modal
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<AddRowForm>(BLANK_FORM);
 
-  // machine_name → adyen_store_code lookup so we can render the short ID under
-  // each machine header. Built once on mount; refill_plan_output exposes only
-  // machine_name (string), so this is the minimal-impact join.
+  // machine_name → adyen_store_code lookup
   const [machineCodeByName, setMachineCodeByName] = useState<
     Record<string, string | null>
   >({});
@@ -201,52 +221,85 @@ export function RefillPlanningTab({
     };
   }, [supabase]);
 
-  // ── Approve plan ──────────────────────────────────────────────────────────────
-  const approvePlan = useCallback(async () => {
-    setApproving(true);
+  // ── Load draft (pod_refill_plan via RPC) ──────────────────────────────────
+  const loadDraft = useCallback(async () => {
+    setLoading(true);
+    setLoadResult(null);
+    setCommitResult(null);
     setApproveResult(null);
+    setRemoved(new Set());
+    setEditedQty({});
 
-    const machineNames = [...new Set(
-      planRows
-        .filter((_, i) => !removed.has(i))
-        .map(r => r.machine_name)
-    )];
-
-    const { data, error } = await supabase.rpc('approve_refill_plan', {
+    const { data, error } = await supabase.rpc("get_pod_refill_draft", {
       p_plan_date: selectedDate,
-      p_machine_names: machineNames,
     });
 
-    setApproving(false);
+    setLoading(false);
     if (error) {
-      setApproveResult({ ok: false, msg: `Approval failed: ${error.message}` });
+      setLoadResult({ ok: false, msg: `Load failed: ${error.message}` });
       return;
     }
-    const result = data as { status?: string; dispatching_rows_written?: number } | null;
-    setApproveResult({
+    if (!data || (data as unknown[]).length === 0) {
+      setLoadResult({
+        ok: false,
+        msg: `No draft found for ${selectedDate}. The 8pm cron may not have run yet.`,
+      });
+      return;
+    }
+
+    const rows: PlanRow[] = (data as Record<string, unknown>[]).map((r) => ({
+      machine_name: r.machine_name as string,
+      machine_priority: 5,
+      shelf_code: r.shelf_code as string,
+      pod_product_name: r.pod_product_name as string,
+      boonz_product_name: "", // not yet stitched
+      action: r.action as PlanRow["action"],
+      quantity: (r.qty as number) ?? 0,
+      current_stock: (r.current_stock as number) ?? 0,
+      max_stock: (r.max_stock as number) ?? 0,
+      smart_target: 0,
+      tier: "",
+      global_score: 0,
+      sold_7d: 0,
+      fill_pct: (r.fill_pct as number) ?? 0,
+      comment: "",
+      // Draft-specific
+      machine_id: r.machine_id as string,
+      shelf_id: r.shelf_id as string,
+      pod_product_id: r.pod_product_id as string,
+      velocity_30d: r.velocity_30d as number | undefined,
+      signal: r.signal as string | undefined,
+      clamp_reason: r.clamp_reason as string | undefined,
+      source_origin: r.source_origin as string | undefined,
+      has_intent: r.has_intent as boolean | undefined,
+      status: r.status as string | undefined,
+    }));
+
+    setPlanRows(rows);
+    setGenerated(true);
+    setViewMode("draft");
+    setLoadResult({
       ok: true,
-      msg: `Plan approved — ${result?.dispatching_rows_written ?? 0} dispatching lines written for ${selectedDate}`,
+      msg: `Draft loaded — ${rows.length} rows across ${new Set(rows.map((r) => r.machine_name)).size} machines`,
     });
-    // Clear the plan from page state after approval — it's locked
-    setPlanRows([]);
-    setGenerated(false);
-  }, [planRows, removed, selectedDate, supabase, setPlanRows, setGenerated]);
+  }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
 
-
-  // ── Load pending plan ──────────────────────────────────────────────────────
+  // ── Load pending plan (refill_plan_output — post-stitch) ─────────────────
   const loadPendingPlan = useCallback(async () => {
     setLoading(true);
     setLoadResult(null);
+    setCommitResult(null);
+    setApproveResult(null);
     setRemoved(new Set());
     setEditedQty({});
 
     const { data, error } = await supabase
-      .from('refill_plan_output')
-      .select('*')
-      .eq('plan_date', selectedDate)
-      .eq('operator_status', 'pending')
-      .order('shelf_code')
-      .order('action', { ascending: false });
+      .from("refill_plan_output")
+      .select("*")
+      .eq("plan_date", selectedDate)
+      .eq("operator_status", "pending")
+      .order("shelf_code")
+      .order("action", { ascending: false });
 
     setLoading(false);
     if (error) {
@@ -254,38 +307,151 @@ export function RefillPlanningTab({
       return;
     }
     if (!data || data.length === 0) {
-      setLoadResult({ ok: false, msg: `No pending plan found for ${selectedDate}` });
+      setLoadResult({
+        ok: false,
+        msg: `No pending plan found for ${selectedDate}`,
+      });
       return;
     }
 
-    // Map DB rows to PlanRow type
     const rows: PlanRow[] = data.map((r: Record<string, unknown>) => ({
-      machine_name:      r.machine_name as string,
-      machine_priority:  (r.machine_priority as number) ?? 5,
-      shelf_code:        r.shelf_code as string,
-      pod_product_name:  r.pod_product_name as string,
+      machine_name: r.machine_name as string,
+      machine_priority: (r.machine_priority as number) ?? 5,
+      shelf_code: r.shelf_code as string,
+      pod_product_name: r.pod_product_name as string,
       boonz_product_name: r.boonz_product_name as string,
-      action:            r.action as PlanRow['action'],
-      quantity:          (r.quantity as number) ?? 0,
-      current_stock:     (r.current_stock as number) ?? 0,
-      max_stock:         (r.max_stock as number) ?? 0,
-      smart_target:      (r.smart_target as number) ?? 0,
-      tier:              (r.tier as string) ?? 'keep',
-      global_score:      (r.global_score as number) ?? 0,
-      sold_7d:           (r.sold_7d as number) ?? 0,
-      fill_pct:          (r.fill_pct as number) ?? 0,
-      comment:           (r.comment as string) ?? '',
+      action: r.action as PlanRow["action"],
+      quantity: (r.quantity as number) ?? 0,
+      current_stock: (r.current_stock as number) ?? 0,
+      max_stock: (r.max_stock as number) ?? 0,
+      smart_target: (r.smart_target as number) ?? 0,
+      tier: (r.tier as string) ?? "keep",
+      global_score: (r.global_score as number) ?? 0,
+      sold_7d: (r.sold_7d as number) ?? 0,
+      fill_pct: (r.fill_pct as number) ?? 0,
+      comment: (r.comment as string) ?? "",
     }));
 
     setPlanRows(rows);
     setGenerated(true);
-    setLoadResult({ ok: true, msg: `Loaded ${rows.length} pending lines for ${selectedDate}` });
+    setViewMode("pending");
+    setLoadResult({
+      ok: true,
+      msg: `Loaded ${rows.length} pending lines for ${selectedDate}`,
+    });
   }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
 
+  // ── Commit draft (finalize → stitch → auto-dispatch) ─────────────────────
+  const commitDraft = useCallback(async () => {
+    setCommitting(true);
+    setCommitResult(null);
 
-  // ── Add row ──────────────────────────────────────────────────────────────────
+    try {
+      // Step 1: Approve pod_refill_plan (Gate 1)
+      const { data: approveData, error: approveErr } = await supabase.rpc(
+        "approve_pod_refill_plan",
+        { p_plan_date: selectedDate },
+      );
+      if (approveErr) throw new Error(`Gate 1 failed: ${approveErr.message}`);
+
+      // Step 2: Finalize (conflict resolution)
+      const { data: finalizeData, error: finalizeErr } = await supabase.rpc(
+        "engine_finalize_pod",
+        { p_plan_date: selectedDate },
+      );
+      if (finalizeErr)
+        throw new Error(`Finalize failed: ${finalizeErr.message}`);
+
+      // Step 3: Stitch (pod → boonz via SQL join) — commit mode
+      const { data: stitchData, error: stitchErr } = await supabase.rpc(
+        "stitch_pod_to_boonz",
+        { p_plan_date: selectedDate, p_dry_run: false },
+      );
+      if (stitchErr) throw new Error(`Stitch failed: ${stitchErr.message}`);
+
+      const stitchResult = stitchData as {
+        rows_written?: number;
+        machines?: number;
+      } | null;
+
+      // Step 4: Approve boonz-level plan (auto-create dispatching)
+      const activeMachines = [
+        ...new Set(
+          planRows.filter((_, i) => !removed.has(i)).map((r) => r.machine_name),
+        ),
+      ];
+      const { data: dispatchData, error: dispatchErr } = await supabase.rpc(
+        "approve_refill_plan",
+        { p_plan_date: selectedDate, p_machine_names: activeMachines },
+      );
+      if (dispatchErr)
+        throw new Error(`Dispatch failed: ${dispatchErr.message}`);
+
+      const dispResult = dispatchData as {
+        dispatching_rows_written?: number;
+      } | null;
+
+      setCommitting(false);
+      setCommitResult({
+        ok: true,
+        msg: `Plan committed — ${stitchResult?.rows_written ?? "?"} boonz rows stitched, ${dispResult?.dispatching_rows_written ?? "?"} dispatch lines created. Drivers will see it.`,
+      });
+
+      // Clear state — plan is now live
+      setPlanRows([]);
+      setGenerated(false);
+      setViewMode("empty");
+    } catch (err) {
+      setCommitting(false);
+      setCommitResult({
+        ok: false,
+        msg: err instanceof Error ? err.message : "Unknown error during commit",
+      });
+    }
+  }, [selectedDate, supabase, planRows, removed, setPlanRows, setGenerated]);
+
+  // ── Approve pending plan (existing flow) ──────────────────────────────────
+  const approvePlan = useCallback(async () => {
+    setApproving(true);
+    setApproveResult(null);
+
+    const names = [
+      ...new Set(
+        planRows.filter((_, i) => !removed.has(i)).map((r) => r.machine_name),
+      ),
+    ];
+
+    const { data, error } = await supabase.rpc("approve_refill_plan", {
+      p_plan_date: selectedDate,
+      p_machine_names: names,
+    });
+
+    setApproving(false);
+    if (error) {
+      setApproveResult({ ok: false, msg: `Approval failed: ${error.message}` });
+      return;
+    }
+    const result = data as {
+      status?: string;
+      dispatching_rows_written?: number;
+    } | null;
+    setApproveResult({
+      ok: true,
+      msg: `Plan approved — ${result?.dispatching_rows_written ?? 0} dispatching lines written for ${selectedDate}`,
+    });
+    setPlanRows([]);
+    setGenerated(false);
+    setViewMode("empty");
+  }, [planRows, removed, selectedDate, supabase, setPlanRows, setGenerated]);
+
+  // ── Add row ──────────────────────────────────────────────────────────────
   const addRow = useCallback(() => {
-    if (!addForm.machine_name || !addForm.shelf_code || !addForm.boonz_product_name) return;
+    if (
+      !addForm.machine_name ||
+      !addForm.shelf_code ||
+      !addForm.boonz_product_name
+    )
+      return;
     const newRow: PlanRow = {
       machine_name: addForm.machine_name,
       machine_priority: 5,
@@ -300,7 +466,10 @@ export function RefillPlanningTab({
       tier: "keep",
       global_score: 0,
       sold_7d: 0,
-      fill_pct: addForm.max_stock > 0 ? Math.round((addForm.current_stock / addForm.max_stock) * 100) : 0,
+      fill_pct:
+        addForm.max_stock > 0
+          ? Math.round((addForm.current_stock / addForm.max_stock) * 100)
+          : 0,
       comment: addForm.comment || `Manual addition — ${addForm.action}`,
     };
     setPlanRows((prev) => [...prev, newRow]);
@@ -309,15 +478,16 @@ export function RefillPlanningTab({
     if (!generated) setGenerated(true);
   }, [addForm, generated]);
 
-  // ── Derived ──────────────────────────────────────────────────────────────────
+  // ── Derived ──────────────────────────────────────────────────────────────
   const activeRows = planRows.filter((_, i) => !removed.has(i));
   const totalUnits = activeRows
-    .filter((r) => r.action === "REFILL")
-    .reduce((s, r, idx) => {
+    .filter((r) => r.action === "REFILL" || r.action === "ADD NEW")
+    .reduce((s, r) => {
       const realIdx = planRows.indexOf(r);
       return s + (realIdx in editedQty ? editedQty[realIdx] : r.quantity);
     }, 0);
   const swapCount = activeRows.filter((r) => r.action === "REMOVE").length;
+  const isDraft = viewMode === "draft";
 
   // Group by machine
   const byMachine = planRows.reduce(
@@ -332,19 +502,32 @@ export function RefillPlanningTab({
   const noStockAlerts = alerts.filter((a) => a.type === "no_stock");
   const warnAlerts = alerts.filter((a) => a.type === "warning");
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* ── Controls ──────────────────────────────────────────────────────── */}
+      {/* ── Controls ──────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Load pending plan */}
+          {/* Load draft (primary) */}
+          <button
+            onClick={loadDraft}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
+          >
+            {loading && viewMode !== "pending"
+              ? "Loading…"
+              : "Load draft"}
+          </button>
+
+          {/* Load pending plan (secondary — post-stitch) */}
           <button
             onClick={loadPendingPlan}
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? 'Loading…' : '↓ Load pending plan'}
+            {loading && viewMode === "pending"
+              ? "Loading…"
+              : "↓ Load pending plan"}
           </button>
 
           {/* Add row */}
@@ -356,7 +539,6 @@ export function RefillPlanningTab({
               + Add row
             </button>
           )}
-
         </div>
 
         {/* Load result */}
@@ -373,28 +555,80 @@ export function RefillPlanningTab({
           </div>
         )}
 
-        {/* Approve & Dispatch button */}
-        {generated && activeRows.length > 0 && (
+        {/* Mode indicator */}
+        {generated && (
+          <div className="mt-2 flex items-center gap-2">
+            <span
+              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
+                isDraft
+                  ? "bg-purple-100 text-purple-700"
+                  : "bg-blue-100 text-blue-700"
+              }`}
+            >
+              {isDraft ? "DRAFT (pod level)" : "PENDING (boonz level)"}
+            </span>
+            {isDraft && (
+              <span className="text-[10px] text-gray-400">
+                Edit quantities below, then commit to finalize + stitch + dispatch
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Commit button (draft mode) */}
+        {generated && isDraft && activeRows.length > 0 && (
+          <button
+            onClick={commitDraft}
+            disabled={committing}
+            className="mt-3 flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-50"
+          >
+            {committing
+              ? "Committing…"
+              : `Commit plan — finalize + stitch + dispatch (${activeRows.length} rows)`}
+          </button>
+        )}
+
+        {/* Approve button (pending mode) */}
+        {generated && !isDraft && activeRows.length > 0 && (
           <button
             onClick={approvePlan}
             disabled={approving}
             className="mt-3 flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-700 text-white text-sm font-medium hover:bg-emerald-800 disabled:opacity-50"
           >
-            {approving ? 'Approving…' : '✓ Approve & Dispatch'}
+            {approving ? "Approving…" : "Approve & Dispatch"}
           </button>
+        )}
+
+        {/* Commit result */}
+        {commitResult && (
+          <div
+            className={`mt-2 rounded-lg px-3 py-2 text-sm font-medium ${
+              commitResult.ok
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-red-50 text-red-700"
+            }`}
+          >
+            {commitResult.ok ? "✓ " : "✗ "}
+            {commitResult.msg}
+          </div>
         )}
 
         {/* Approval result */}
         {approveResult && (
-          <div className={`mt-2 rounded-lg px-3 py-2 text-sm font-medium ${
-            approveResult.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-          }`}>
-            {approveResult.ok ? '✓ ' : '✗ '}{approveResult.msg}
+          <div
+            className={`mt-2 rounded-lg px-3 py-2 text-sm font-medium ${
+              approveResult.ok
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-red-50 text-red-700"
+            }`}
+          >
+            {approveResult.ok ? "✓ " : "✗ "}
+            {approveResult.msg}
           </div>
         )}
       </div>
 
-      {/* ── Alerts ────────────────────────────────────────────────────────── */}
+      {/* ── Alerts ────────────────────────────────────────────────────── */}
       {(noStockAlerts.length > 0 || warnAlerts.length > 0) && (
         <div className="mb-5 space-y-2">
           {warnAlerts.map((a, i) => (
@@ -402,12 +636,12 @@ export function RefillPlanningTab({
               key={i}
               className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700"
             >
-              ⚠️ {a.msg}
+              ⚠ {a.msg}
             </div>
           ))}
           {noStockAlerts.length > 0 && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
-              🚨 No WH stock for{" "}
+              No WH stock for{" "}
               {noStockAlerts
                 .map((a) => `${a.machine} / ${a.shelf} — ${a.product}`)
                 .join(", ")}
@@ -417,19 +651,16 @@ export function RefillPlanningTab({
         </div>
       )}
 
-      {/* ── Summary strip ─────────────────────────────────────────────────── */}
+      {/* ── Summary strip ─────────────────────────────────────────────── */}
       {generated && (
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[
             ["Machines", Object.keys(byMachine).length],
             ["Lines", activeRows.length],
-            ["Refill units", totalUnits],
+            [isDraft ? "Total units" : "Refill units", totalUnits],
             ["Swaps", swapCount],
           ].map(([label, val]) => (
-            <div
-              key={label as string}
-              className="bg-gray-50 rounded-xl p-4"
-            >
+            <div key={label as string} className="bg-gray-50 rounded-xl p-4">
               <div className="text-2xl font-medium leading-none">{val}</div>
               <div className="text-xs text-gray-500 mt-1">{label}</div>
             </div>
@@ -437,148 +668,180 @@ export function RefillPlanningTab({
         </div>
       )}
 
-      {/* ── Empty state ────────────────────────────────────────────────────── */}
+      {/* ── Empty state ────────────────────────────────────────────────── */}
       {!generated && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="text-4xl mb-3">🧠</div>
           <p className="text-sm font-medium text-gray-600 mb-1">
-            Plans are generated by Claude
+            Drafts are auto-generated at 8pm Dubai
           </p>
           <p className="text-xs text-gray-400 max-w-sm">
-            Run <strong>/refill-engine</strong> in Cowork to generate tomorrow&apos;s plan,
-            then click <strong>↓ Load pending plan</strong> to review and approve.
+            Click <strong>Load draft</strong> to review tomorrow&apos;s plan.
+            Edit quantities, add comments, then <strong>Commit</strong> to
+            finalize, stitch, and push to drivers.
           </p>
         </div>
       )}
 
-      {/* ── Plan table by machine ─────────────────────────────────────────── */}
+      {/* ── Plan table by machine ─────────────────────────────────────── */}
       {generated &&
-        Object.entries(byMachine).map(([machineName, rows]) => {
-          const hasActive = rows.some(({ idx }) => !removed.has(idx));
-          return (
-            <div
-              key={machineName}
-              className="mb-4 border border-gray-200 rounded-xl overflow-hidden"
-            >
-              {/* Machine header */}
-              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-                <div className="flex items-baseline gap-2">
-                  <span className="font-medium text-sm">{machineName}</span>
-                  {machineShortId(machineCodeByName[machineName]) && (
-                    <span className="font-mono text-[11px] tracking-wider text-gray-400">
-                      {machineShortId(machineCodeByName[machineName])}
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs text-gray-500">
-                  {rows.filter(({ idx }) => !removed.has(idx)).length} active
-                  lines ·{" "}
-                  {rows
-                    .filter(
-                      ({ row, idx }) =>
-                        !removed.has(idx) && row.action === "REFILL",
-                    )
-                    .reduce((s, { row, idx }) => s + (idx in editedQty ? editedQty[idx] : row.quantity), 0)}{" "}
-                  units
-                </span>
+        Object.entries(byMachine).map(([machineName, rows]) => (
+          <div
+            key={machineName}
+            className="mb-4 border border-gray-200 rounded-xl overflow-hidden"
+          >
+            {/* Machine header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+              <div className="flex items-baseline gap-2">
+                <span className="font-medium text-sm">{machineName}</span>
+                {machineShortId(machineCodeByName[machineName]) && (
+                  <span className="font-mono text-[11px] tracking-wider text-gray-400">
+                    {machineShortId(machineCodeByName[machineName])}
+                  </span>
+                )}
               </div>
+              <span className="text-xs text-gray-500">
+                {rows.filter(({ idx }) => !removed.has(idx)).length} active
+                lines ·{" "}
+                {rows
+                  .filter(
+                    ({ row, idx }) =>
+                      !removed.has(idx) &&
+                      (row.action === "REFILL" || row.action === "ADD NEW"),
+                  )
+                  .reduce(
+                    (s, { row, idx }) =>
+                      s + (idx in editedQty ? editedQty[idx] : row.quantity),
+                    0,
+                  )}{" "}
+                units
+              </span>
+            </div>
 
-              {/* Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-gray-400 border-b border-gray-100 ">
-                      <th className="px-4 py-2 font-medium">Shelf</th>
-                      <th className="px-4 py-2 font-medium">Action</th>
-                      <th className="px-4 py-2 font-medium">Product</th>
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-400 border-b border-gray-100 ">
+                    <th className="px-4 py-2 font-medium">Shelf</th>
+                    <th className="px-4 py-2 font-medium">Action</th>
+                    <th className="px-4 py-2 font-medium">Product</th>
+                    {isDraft && (
+                      <th className="px-4 py-2 font-medium">Signal</th>
+                    )}
+                    <th className="px-4 py-2 font-medium text-right">Stock</th>
+                    <th className="px-4 py-2 font-medium text-right">Qty</th>
+                    {isDraft && (
                       <th className="px-4 py-2 font-medium text-right">
-                        Stock
+                        v30d
                       </th>
-                      <th className="px-4 py-2 font-medium text-right">Qty</th>
+                    )}
+                    {!isDraft && (
                       <th className="px-4 py-2 font-medium text-right">7d</th>
-                      <th className="px-3 py-2" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map(({ row, idx }) => (
-                      <tr
-                        key={idx}
-                        className={`border-b border-gray-100/50 last:border-0 transition-opacity ${
-                          removed.has(idx)
-                            ? "opacity-30 line-through"
-                            : "hover:bg-gray-50"
-                        }`}
-                      >
-                        <td className="px-4 py-2.5 font-mono text-xs">
-                          {priorityBadge(row.machine_priority)}{" "}
-                          {row.shelf_code}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {actionBadge(row.action)}
-                        </td>
-                        <td className="px-4 py-2.5 max-w-[200px]">
-                          <div className="flex items-center">
-                            {tierDot(row.tier)}
-                            <div className="min-w-0">
-                              <div className="truncate text-xs font-medium">
-                                {row.pod_product_name}
-                              </div>
+                    )}
+                    <th className="px-3 py-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(({ row, idx }) => (
+                    <tr
+                      key={idx}
+                      className={`border-b border-gray-100/50 last:border-0 transition-opacity ${
+                        removed.has(idx)
+                          ? "opacity-30 line-through"
+                          : "hover:bg-gray-50"
+                      }`}
+                    >
+                      <td className="px-4 py-2.5 font-mono text-xs">
+                        {priorityBadge(row.machine_priority)} {row.shelf_code}
+                      </td>
+                      <td className="px-4 py-2.5">{actionBadge(row.action)}</td>
+                      <td className="px-4 py-2.5 max-w-[200px]">
+                        <div className="flex items-center">
+                          {!isDraft && tierDot(row.tier)}
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-medium">
+                              {row.pod_product_name}
+                            </div>
+                            {!isDraft && row.boonz_product_name && (
                               <div className="truncate text-[10px] text-gray-500">
                                 {row.boonz_product_name}
                               </div>
-                            </div>
+                            )}
+                            {isDraft && row.clamp_reason && (
+                              <div className="truncate text-[10px] text-gray-400">
+                                {row.clamp_reason.replace(/_/g, " ")}
+                              </div>
+                            )}
                           </div>
+                        </div>
+                      </td>
+                      {isDraft && (
+                        <td className="px-4 py-2.5">
+                          {signalBadge(row.signal)}
                         </td>
-                        <td className="px-4 py-2.5 text-right text-gray-500 whitespace-nowrap">
-                          {row.current_stock}/{row.max_stock}
+                      )}
+                      <td className="px-4 py-2.5 text-right text-gray-500 whitespace-nowrap">
+                        {row.current_stock}/{row.max_stock}
+                        {isDraft && row.fill_pct != null && (
+                          <span className="ml-1 text-[9px] text-gray-400">
+                            ({Math.round(row.fill_pct)}%)
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {row.action === "REMOVE" ? (
+                          <span className="text-gray-400">—</span>
+                        ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            max={row.max_stock}
+                            value={
+                              idx in editedQty ? editedQty[idx] : row.quantity
+                            }
+                            onChange={(e) => {
+                              const v = parseInt(e.target.value) || 0;
+                              setEditedQty((prev) => ({ ...prev, [idx]: v }));
+                            }}
+                            disabled={removed.has(idx)}
+                            className="w-14 text-right rounded border border-gray-200 px-1.5 py-1 text-xs bg-white disabled:opacity-50"
+                          />
+                        )}
+                      </td>
+                      {isDraft && (
+                        <td className="px-4 py-2.5 text-right text-gray-500">
+                          {row.velocity_30d?.toFixed(1) ?? "—"}
                         </td>
-                        <td className="px-4 py-2.5 text-right">
-                          {row.action === "REMOVE" ? (
-                            <span className="text-gray-400">—</span>
-                          ) : (
-                            <input
-                              type="number"
-                              min={0}
-                              max={row.max_stock}
-                              value={
-                                idx in editedQty ? editedQty[idx] : row.quantity
-                              }
-                              onChange={(e) => {
-                                const v = parseInt(e.target.value) || 0;
-                                setEditedQty((prev) => ({ ...prev, [idx]: v }));
-                              }}
-                              disabled={removed.has(idx)}
-                              className="w-14 text-right rounded border border-gray-200 px-1.5 py-1 text-xs bg-white disabled:opacity-50"
-                            />
-                          )}
-                        </td>
+                      )}
+                      {!isDraft && (
                         <td className="px-4 py-2.5 text-right text-gray-500">
                           {row.sold_7d}
                         </td>
-                        <td className="px-3 py-2.5 text-right">
-                          <button
-                            onClick={() =>
-                              setRemoved((prev) => {
-                                const n = new Set(prev);
-                                n.has(idx) ? n.delete(idx) : n.add(idx);
-                                return n;
-                              })
-                            }
-                            className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
-                          >
-                            {removed.has(idx) ? "Restore" : "×"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                      )}
+                      <td className="px-3 py-2.5 text-right">
+                        <button
+                          onClick={() =>
+                            setRemoved((prev) => {
+                              const n = new Set(prev);
+                              n.has(idx) ? n.delete(idx) : n.add(idx);
+                              return n;
+                            })
+                          }
+                          className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
+                        >
+                          {removed.has(idx) ? "Restore" : "×"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          );
-        })}
+          </div>
+        ))}
 
-      {/* ── Add Row Modal ──────────────────────────────────────────────────── */}
+      {/* ── Add Row Modal ──────────────────────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-6">
