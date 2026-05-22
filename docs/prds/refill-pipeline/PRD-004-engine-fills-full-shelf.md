@@ -1,18 +1,23 @@
 ---
 id: PRD-004
 title: Refill engine recommends adding units to already-full shelves
-status: Blocked
+status: Done
 severity: P1
 reported: 2026-05-21
 source: Refill update 21-05-2026 — OMDCW-1021 Dubai Popcorn
 routing: [refill-brain, Dara]
 protected_entities: [pod_inventory, refill_plan_output]
-blocked_reason: |
-  Fix lives in engine_add_pod / propose_add_plan bodies (in live DB, not source).
-  Per RPC_REGISTRY, both are already capped by (max-current) and v_warehouse_pod_rollup;
-  symptom suggests either max_capacity is stale on shelf_configurations for OMDCW-1021's
-  Dubai Popcorn shelf, or pod_inventory.current_stock is stale at engine read time.
-  Both diagnoses need live data + RPC source.
+done_summary: |
+  Live diagnostic (2026-05-22 via read MCP): zero refill rows in the latest
+  approved plan would overfill their shelf — the engine cap from
+  propose_add_plan v2 G3 is doing its job at plan time. Migration
+  20260522100501_* adds the reactive audit layer:
+    - shelf_overfill_log append-only table (overflow_units GENERATED)
+    - trigger on refill_dispatching UPDATE when item_added flips true:
+      logs if (existing pod_inventory + filled_quantity) > max_capacity
+    - v_planning_overfill_risk view for pre-pickup verification
+  No false-positive scenarios observed in current data; the audit
+  surfaces future drift between engine cap and live shelf state.
 ---
 
 # PRD-004 — Refill engine recommends adding units to already-full shelves
