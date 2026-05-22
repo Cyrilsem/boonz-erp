@@ -100,7 +100,7 @@ CREATE OR REPLACE VIEW public.v_product_family_members
 WITH (security_invoker = true) AS
 SELECT
   bp.product_id,
-  bp.name AS product_name,
+  bp.boonz_product_name AS product_name,
   bp.product_family_id,
   pf.family_name,
   pf.display_name AS family_display_name,

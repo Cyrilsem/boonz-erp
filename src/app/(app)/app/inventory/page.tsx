@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { adjustWarehouseLine } from "@/lib/inventory/adjust-warehouse-line";
 import PendingProposalsPanel from "@/components/inventory/PendingProposalsPanel";
 import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
 
@@ -333,17 +334,21 @@ export default function InventoryPage() {
 
   const handleSave = async () => {
     if (!selectedBatch) return;
+    if (!selectedBatch.warehouse_id) return;
     const supabase = createClient();
-    const { error } = await supabase
-      .from("warehouse_inventory")
-      .update({
-        status: editStatus,
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: selectedBatch.warehouse_id,
+      line: {
+        wh_inventory_id: selectedBatch.wh_inventory_id,
+        boonz_product_id: selectedBatch.boonz_product_id,
+        new_warehouse_stock: editStock,
         expiration_date: editExpiry || null,
-        warehouse_stock: editStock,
-      })
-      .eq("wh_inventory_id", selectedBatch.wh_inventory_id);
+        status: editStatus,
+      },
+      reason: "admin_inventory_edit",
+    });
 
-    if (!error) {
+    if (result.ok) {
       setSelectedBatch(null);
       setEditMode(false);
       setFetchKey((k) => k + 1);

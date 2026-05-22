@@ -247,7 +247,7 @@ SELECT
   wi.warehouse_id,
   w.name              AS warehouse_name,
   wi.boonz_product_id,
-  bp.name             AS product_name,
+  bp.boonz_product_name AS product_name,
   wi.warehouse_stock,
   wi.consumer_stock,
   wi.expiration_date,

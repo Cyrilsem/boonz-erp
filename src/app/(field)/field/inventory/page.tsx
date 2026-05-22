@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { adjustWarehouseLine } from "@/lib/inventory/adjust-warehouse-line";
 import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
@@ -703,25 +704,25 @@ export default function InventoryPage() {
       const statusChanged = edit.status !== row.status;
 
       if (!qtyChanged && !locationChanged && !statusChanged) continue;
+      if (!row.warehouse_id) continue;
 
-      // Update the inventory row
-      const updates: Record<string, unknown> = {};
-      if (qtyChanged) updates.warehouse_stock = edit.qty;
-      if (locationChanged) updates.wh_location = edit.location || null;
-      if (statusChanged) updates.status = edit.status;
-
-      await supabase
-        .from("warehouse_inventory")
-        .update(updates)
-        .eq("wh_inventory_id", row.wh_inventory_id);
-
-      // Insert audit log
-      await supabase.from("inventory_audit_log").insert({
-        wh_inventory_id: row.wh_inventory_id,
-        boonz_product_id: row.boonz_product_id,
-        old_qty: row.warehouse_stock,
-        new_qty: edit.qty,
-        reason: "Inventory control",
+      // Route through adjust_warehouse_stock so the GUC provenance, audit log,
+      // and quarantine trigger all see this as a canonical mutation. The RPC
+      // writes its own inventory_audit_log entries per changed dimension, so we
+      // no longer need a separate audit insert from the FE.
+      await adjustWarehouseLine(supabase, {
+        warehouseId: row.warehouse_id,
+        line: {
+          wh_inventory_id: row.wh_inventory_id,
+          boonz_product_id: row.boonz_product_id,
+          new_warehouse_stock: qtyChanged ? edit.qty : row.warehouse_stock,
+          expiration_date: row.expiration_date,
+          status: statusChanged ? edit.status : row.status,
+          ...(locationChanged
+            ? { wh_location: edit.location || null }
+            : {}),
+        },
+        reason: "inventory_control",
       });
     }
 
@@ -1160,17 +1161,35 @@ export default function InventoryPage() {
   async function saveInlineQty(id: string, qty: number) {
     const safeQty = Math.max(0, qty);
     const supabase = createClient();
-    const { error } = await supabase
-      .from("warehouse_inventory")
-      .update({ warehouse_stock: safeQty })
-      .eq("wh_inventory_id", id);
+    const row = rows.find((r) => r.wh_inventory_id === id);
+    if (!row || !row.warehouse_id) {
+      setSaveFeedback((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], qty: "error" as const },
+      }));
+      clearFeedbackField(id, "qty");
+      return;
+    }
+    // Route through canonical adjust_warehouse_stock RPC (Constitution A3, PRD-003 provenance).
+    // Pass the current values for non-qty fields so we don't unintentionally rewrite them.
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: row.warehouse_id,
+      line: {
+        wh_inventory_id: id,
+        boonz_product_id: row.boonz_product_id,
+        new_warehouse_stock: safeQty,
+        expiration_date: row.expiration_date,
+        status: row.status,
+      },
+      reason: "inline_qty_edit",
+    });
 
-    const status = error ? ("error" as const) : ("saved" as const);
+    const status = result.ok ? ("saved" as const) : ("error" as const);
     setSaveFeedback((prev) => ({
       ...prev,
       [id]: { ...prev[id], qty: status },
     }));
-    if (!error) {
+    if (result.ok) {
       setRows((prev) =>
         prev.map((r) =>
           r.wh_inventory_id === id ? { ...r, warehouse_stock: safeQty } : r,
@@ -1182,21 +1201,40 @@ export default function InventoryPage() {
 
   async function saveInlineLocation(id: string, location: string) {
     const supabase = createClient();
-    const { error } = await supabase
-      .from("warehouse_inventory")
-      .update({ wh_location: location.trim() || null })
-      .eq("wh_inventory_id", id);
+    const row = rows.find((r) => r.wh_inventory_id === id);
+    if (!row || !row.warehouse_id) {
+      setSaveFeedback((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], location: "error" as const },
+      }));
+      clearFeedbackField(id, "location");
+      return;
+    }
+    const normalisedLocation = location.trim() || null;
+    // Location-only edit: pass current qty + status so they're preserved.
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: row.warehouse_id,
+      line: {
+        wh_inventory_id: id,
+        boonz_product_id: row.boonz_product_id,
+        new_warehouse_stock: row.warehouse_stock,
+        expiration_date: row.expiration_date,
+        status: row.status,
+        wh_location: normalisedLocation,
+      },
+      reason: "inline_location_edit",
+    });
 
-    const status = error ? ("error" as const) : ("saved" as const);
+    const status = result.ok ? ("saved" as const) : ("error" as const);
     setSaveFeedback((prev) => ({
       ...prev,
       [id]: { ...prev[id], location: status },
     }));
-    if (!error) {
+    if (result.ok) {
       setRows((prev) =>
         prev.map((r) =>
           r.wh_inventory_id === id
-            ? { ...r, wh_location: location.trim() || null }
+            ? { ...r, wh_location: normalisedLocation }
             : r,
         ),
       );
@@ -1208,11 +1246,22 @@ export default function InventoryPage() {
     if (currentStatus === "Expired") return;
     const newStatus = currentStatus === "Active" ? "Inactive" : "Active";
     const supabase = createClient();
-    const { error } = await supabase
-      .from("warehouse_inventory")
-      .update({ status: newStatus })
-      .eq("wh_inventory_id", id);
-    if (!error) {
+    const row = rows.find((r) => r.wh_inventory_id === id);
+    if (!row || !row.warehouse_id) return;
+
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: row.warehouse_id,
+      line: {
+        wh_inventory_id: id,
+        boonz_product_id: row.boonz_product_id,
+        new_warehouse_stock: row.warehouse_stock,
+        expiration_date: row.expiration_date,
+        status: newStatus,
+      },
+      reason: "toggle_batch_status",
+    });
+
+    if (result.ok) {
       setRows((prev) =>
         prev.map((r) =>
           r.wh_inventory_id === id ? { ...r, status: newStatus } : r,

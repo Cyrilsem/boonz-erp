@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { adjustWarehouseLine } from "@/lib/inventory/adjust-warehouse-line";
 import { FieldHeader } from "../../../components/field-header";
 
 type InventoryStatus =
@@ -21,6 +22,7 @@ interface InventoryDetail {
   warehouse_stock: number;
   expiration_date: string | null;
   status: InventoryStatus;
+  warehouse_id: string | null;
 }
 
 interface AuditEntry {
@@ -94,6 +96,7 @@ export default function InventoryDetailPage() {
         warehouse_stock,
         expiration_date,
         status,
+        warehouse_id,
         boonz_products!inner(boonz_product_name)
       `,
       )
@@ -113,6 +116,7 @@ export default function InventoryDetailPage() {
         warehouse_stock: invData.warehouse_stock ?? 0,
         expiration_date: invData.expiration_date,
         status: (invData.status as InventoryStatus) ?? "Active",
+        warehouse_id: invData.warehouse_id ?? null,
       };
       setItem(detail);
       setEditQty(detail.warehouse_stock);
@@ -179,41 +183,34 @@ export default function InventoryDetailPage() {
       setSaveError("Reason is required");
       return;
     }
+    if (!item.warehouse_id) {
+      setSaveError("Row missing warehouse — refresh and try again");
+      return;
+    }
 
     setSaving(true);
     setSaveError(null);
 
     const supabase = createClient();
-    const oldQty = item.warehouse_stock;
+    const normalisedLocation = editLocation.trim() || null;
 
-    // 1. Update warehouse_inventory
-    const { error: updateError } = await supabase
-      .from("warehouse_inventory")
-      .update({
-        warehouse_stock: editQty,
-        wh_location: editLocation.trim() || null,
-      })
-      .eq("wh_inventory_id", inventoryId);
-
-    if (updateError) {
-      setSaveError(`Save failed — try again`);
-      setSaving(false);
-      return;
-    }
-
-    // 2. Insert audit log
-    const { error: auditError } = await supabase
-      .from("inventory_audit_log")
-      .insert({
+    // Single canonical call — the RPC writes its own provenance-stamped audit
+    // log entries for qty and location changes.
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: item.warehouse_id,
+      line: {
         wh_inventory_id: inventoryId,
         boonz_product_id: item.boonz_product_id,
-        old_qty: oldQty,
-        new_qty: editQty,
-        reason: editReason.trim(),
-      });
+        new_warehouse_stock: editQty,
+        expiration_date: item.expiration_date,
+        status: item.status,
+        wh_location: normalisedLocation,
+      },
+      reason: editReason.trim(),
+    });
 
-    if (auditError) {
-      setSaveError(`Stock updated but audit log failed: ${auditError.message}`);
+    if (!result.ok) {
+      setSaveError(`Save failed — ${result.error ?? "try again"}`);
       setSaving(false);
       return;
     }
@@ -222,7 +219,7 @@ export default function InventoryDetailPage() {
     setItem({
       ...item,
       warehouse_stock: editQty,
-      wh_location: editLocation.trim() || null,
+      wh_location: normalisedLocation,
     });
 
     setSaving(false);
@@ -238,13 +235,24 @@ export default function InventoryDetailPage() {
 
   async function handleSaveExpiry() {
     if (!item) return;
+    if (!item.warehouse_id) {
+      setSavingExpiry(false);
+      return;
+    }
     setSavingExpiry(true);
     const supabase = createClient();
-    const { error } = await supabase
-      .from("warehouse_inventory")
-      .update({ expiration_date: expiryDate || null })
-      .eq("wh_inventory_id", inventoryId);
-    if (!error) {
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: item.warehouse_id,
+      line: {
+        wh_inventory_id: inventoryId,
+        boonz_product_id: item.boonz_product_id,
+        new_warehouse_stock: item.warehouse_stock,
+        expiration_date: expiryDate || null,
+        status: item.status,
+      },
+      reason: "expiry_edit",
+    });
+    if (result.ok) {
       setItem({ ...item, expiration_date: expiryDate || null });
       setExpirySaved(true);
       setTimeout(() => setExpirySaved(false), 2000);
@@ -257,26 +265,29 @@ export default function InventoryDetailPage() {
     setStatusUpdating(true);
     setShowStatusConfirm(false);
 
+    if (!item.warehouse_id) {
+      setStatusUpdating(false);
+      return;
+    }
     const supabase = createClient();
     const reason =
       newStatus === "Inactive"
         ? "Marked inactive — excluded from refill"
         : "Reactivated — included in refill";
 
-    const { error: updateError } = await supabase
-      .from("warehouse_inventory")
-      .update({ status: newStatus })
-      .eq("wh_inventory_id", inventoryId);
-
-    if (!updateError) {
-      await supabase.from("inventory_audit_log").insert({
+    const result = await adjustWarehouseLine(supabase, {
+      warehouseId: item.warehouse_id,
+      line: {
         wh_inventory_id: inventoryId,
         boonz_product_id: item.boonz_product_id,
-        old_qty: item.warehouse_stock,
-        new_qty: item.warehouse_stock,
-        reason,
-      });
+        new_warehouse_stock: item.warehouse_stock,
+        expiration_date: item.expiration_date,
+        status: newStatus,
+      },
+      reason,
+    });
 
+    if (result.ok) {
       setItem({ ...item, status: newStatus });
       fetchData();
     }
