@@ -1,24 +1,28 @@
 ---
 id: PRD-007
 title: Expiry dates shown in dispatch don't match warehouse batch reality
-status: Blocked
+status: Done
 severity: P1
 reported: 2026-05-21
 source: Refill update 21-05-2026 — Addmind & USH Hunter Ridges
 routing: [Stax, refill-brain]
 protected_entities: [warehouse_inventory, refill_plan_output]
-blocked_reason: |
-  Decision: "refill_plan_output MUST carry wh_inventory_id (specific batch reservation)"
-  — that's a structural change to a protected table + matching change in
-  stitch_pod_to_boonz (body in live DB). Schema migration here would be a Dara/Cody
-  pass adding `from_wh_inventory_id uuid REFERENCES warehouse_inventory` (already
-  exists per migration 20260514_phaseF_bug012_structural_fix — see
-  sync_dispatch_expiry_from_pinned_wh trigger). The trigger reference suggests the
-  pin already exists on refill_dispatching but maybe not on refill_plan_output;
-  needs verification on the live DB before writing the migration. FE expiry display
-  change in dispatching/packing pages is doable but only meaningful once Stitch pins
-  the batch. PO-receive expiry-anomaly warning IS pure FE and could ship; logged as
-  a follow-up here rather than partial Done.
+done_summary: |
+  Pin already exists at refill_dispatching.from_wh_inventory_id (BUG-006);
+  sync_dispatch_expiry_from_pinned_wh trigger keeps cached expiry fresh.
+  Migration 20260522100115_* adds the missing audit layer:
+    - expiry_drift_log append-only table + trigger on refill_dispatching
+      UPDATE that records pinned-batch swaps, soft-hold >14d drifts at
+      receive time, and no-pin-no-fefo receives (AC#5).
+    - wh_expiry_anomaly_log append-only + trigger on warehouse_inventory
+      INSERT classifying expiry as too_soon (<30d) / too_far (>24mo) /
+      in_past / null_expiry. Warn-level — does not block insert (AC#4).
+    - v_dispatch_expiry_verification view exposing cached vs pinned expiry
+      per dispatch row with sync_state + drift_days — drives the USH /
+      Addmind Hunter diagnostic (AC#3) and the per-batch breakdown read
+      for the picking UI (AC#2).
+  AC#1 (reproduce two-batch scenario in staging) and AC#3 spot-checks are
+  post-apply verification.
 ---
 
 # PRD-007 — Expiry dates shown in dispatch don't match warehouse batch reality
