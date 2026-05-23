@@ -18,7 +18,7 @@ protected_entities: [purchase_orders, write_audit_log, procurement_events]
 - `phaseF_proc_edit_po_line_audit` — adds `purchase_orders.last_edited_at` / `last_edited_by` (with `edit_purchase_order_line`-exclusive COMMENTs); creates SECURITY DEFINER `edit_purchase_order_line(uuid, numeric, numeric, date, text)` with dual-write to `procurement_events` + `write_audit_log`, no-op edit guard, coherence guard, ≥10-char reason guard; creates SECURITY INVOKER `get_po_edit_history(text)` over `procurement_events`.
 - `phaseF_proc_events_widen_event_type_check` — widens `procurement_events.event_type` CHECK to accept `po_line_edited`.
 
-**FE shipped (commit SHA recorded in the commit footer; surfaced via `git log -1`):**
+**FE shipped — commit SHA `3724826` on `main`:**
 
 - NEW `src/app/(field)/components/EditPOLineDrawer.tsx` — per-line editable drawer (qty / price / expiry + shared reason); iterates changed lines and calls `edit_purchase_order_line` once per line.
 - NEW `src/app/(field)/components/POEditHistoryPill.tsx` — chip + bottom-sheet showing `before → after` deltas, actor name + role, and the captured reason from `get_po_edit_history`.
