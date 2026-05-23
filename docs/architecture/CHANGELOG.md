@@ -15,6 +15,51 @@ Format:
 
 ---
 
+## 2026-05-23 — PRD-001: WH manager can edit submitted PO with full audit capture
+
+**Phase / Article:** Phase F (procurement) / Constitution Articles 1, 4, 7, 8
+**Applied to:** prod
+**Migration names:**
+
+- `phaseF_proc_edit_po_line_audit` (RPCs + denormalized columns)
+- `phaseF_proc_events_widen_event_type_check` (widens `procurement_events.event_type` CHECK to accept `po_line_edited`)
+
+**Summary:** New canonical UPDATE writer `edit_purchase_order_line(p_po_line_id uuid, p_new_ordered_qty numeric, p_new_price_per_unit_aed numeric, p_new_expiry_date date, p_reason text)` for the three editable PO-line fields (ordered_qty, price_per_unit_aed, expiry_date) plus the derived `total_price_aed`. SECURITY DEFINER, role gate `warehouse / operator_admin / superadmin / manager`, required reason ≥10 chars, no-op edit guard, coherence guard (ordered_qty ≥ received_qty). Applies Dara's three schema corrections (numeric not integer; write_audit_log columns are `operation` + `occurred_at`; actor_role captured; dual-write to BOTH `procurement_events` and `write_audit_log`) and Cody's required revisions (dual-write across both audit tables in one transaction; column COMMENTs on the new `purchase_orders.last_edited_at` / `last_edited_by` columns naming `edit_purchase_order_line` as the sole writer; no-op edit guard). New read helper `get_po_edit_history(p_po_id text)` (SECURITY INVOKER) reads from `procurement_events` (idx_procurement_events_po_id covers it) joined to `user_profiles` for actor display, powering the FE "Edit history" pill and the post-receipt warning banner. FE: new `EditPOLineDrawer` and `POEditHistoryPill` components wired into `/field/orders`; post-receipt warning banner added to `/field/receiving/[poId]`.
+
+**Article 8 note (open question deferred to CS):** dual-write to `write_audit_log` + `procurement_events` is the conservative path per Cody's verdict — strict reading of Article 8 requires a `write_audit_log` row from every canonical writer. An Article 15 amendment recognizing subsystem audit logs (`procurement_events`, `pod_inventory_audit_log`, `warehouse_inventory_audit_log`) as Article 8-equivalent would let us drop the dual-write, but is deferred to a future PR. Default for now: dual-write stays.
+
+**Smoke test (against staging fixture, then cleaned up):** insert a fake PO line, call `edit_purchase_order_line(qty 10→12, price 5.0→5.5, expiry +30→+60, reason='PRD-001 smoke test…')`, assert both `procurement_events.po_line_edited` and `write_audit_log` rows exist; verify `get_po_edit_history` returns the new event; verify no-op guard rejects re-submitting the same values; verify coherence guard rejects `ordered_qty < received_qty`; verify reason-length guard rejects short reasons. All checks pass.
+
+**Rollback:** `DROP FUNCTION public.edit_purchase_order_line(uuid, numeric, numeric, date, text); DROP FUNCTION public.get_po_edit_history(text); ALTER TABLE public.purchase_orders DROP COLUMN last_edited_at, DROP COLUMN last_edited_by;` + restore the original `procurement_events_event_type_check` CHECK without `po_line_edited`. Existing `procurement_events` rows of type `po_line_edited` and `write_audit_log` rows with `rpc_name='edit_purchase_order_line'` would need to be deleted or accepted as historical audit records.
+
+---
+
+## 2026-05-23 — Refill Engine Emergency Fix (PRD prd-refill-engine-fix.md)
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 5, 6, 8, 12
+**Applied to:** prod
+**Migration names:**
+
+- `refill_engine_p1_decouple_wh_fanout_diag` (Phase 1, P0)
+- `refill_engine_p2_floor_auth_empty_shelf` (Phase 2, P1)
+- `refill_engine_p3_wh_avail_in_draft` (Phase 3, P2)
+
+**Summary:** Three-phase rebuild of the refill engine pipeline after the 23-May session produced only 3 committed rows out of 96 generated and removed products from healthy shelves while ignoring critical gaps. Guiding principle: **inventory does not gate refill planning**. Refill plans are now built from shelf gaps; warehouse stock is purely informational. Phase 1 (P0) — `engine_add_pod` v9 stops capping qty by `wh_avail` (only physical shelf headroom caps now); `wh_avail` and `wh_warning` move to informational `reasoning` JSONB. `stitch_pod_to_boonz` v12 — `pull_lines` produces `variant_final = variant_target` (no WH cap); `remove_lines` applies uniform even-split for ALL `source_origin` values, fixing the fan-out bug where `REMOVE qty=6` with 3 variants produced 3×6=18u; new `diagnostics[]` array returns one entry per approved pod_refill_plan row with `stitch_result` ∈ {resolved, resolved_no_wh_stock_warning, no_active_mapping, no_inventory_to_remove}. Phase 2 (P1) — `engine_add_pod` v10 adds machine-velocity-derived performance fill floor: tiers (≥10 units/day → 70%, ≥3 → 50%, else → 25%) plus AC-6 absolute safety net (`gap≥2 AND fill_pct≤25%`); new `clamp_reason='performance_floor'`. `auto_generate_draft` adopts NULL-safe role gate (matches canonical pattern: only enforce when `auth.uid() IS NOT NULL`). `engine_finalize_pod` v10 annotates REMOVE/M2W rows with no paired ADD_NEW on the same `(machine, shelf)` with `reasoning.warning='empty_shelf_after_removal'`. Phase 3 (P2) — `get_pod_refill_draft` adds `wh_avail` column (NULL = no WH data, 0 = confirmed empty). FR-009 satisfied transitively by FR-002 (no WH-weighted code remains to gate). Test results on 2026-05-23: engine_add_pod v10 → 74 refills (up from 43); 33 rows triggered the performance floor; 0 rows have legacy `wh_short` reasons; 14+ rows carry `wh_warning=true` for transparency. engine_finalize_pod flagged 2 rows with `empty_shelf_after_removal` (ALJLT-1015-0100-B1 A05 Krambals M2W + OMDBB-1020-0P00-O1 A01 Tamreem Date Ball M2W). stitch dry-run produced 228 boonz lines from 130 approved pod rows, with 130-entry diagnostics array — no fan-out inflation. Cody-reviewed Phase 1 + Phase 2 (Phase 3 read-only, fast-path approved).
+
+**New / changed values to be aware of:**
+
+- `pod_refills.clamp_reason` adds value `performance_floor`; removes `skipped_no_wh` and `capped_by_wh` from the universe.
+- `pod_refills.reasoning` JSONB adds keys `wh_avail`, `wh_warning`, `velocity_raw_qty`, `floor_target`, `machine_daily_velocity`, `fill_floor_threshold`.
+- `pod_refill_plan.reasoning` JSONB may carry `{"warning": "empty_shelf_after_removal"}` on REMOVE/M2W rows.
+- `refill_plan_deviations.deviation_type` adds value `mapping_gap`; removes `wh_shortage` from new inserts.
+- `stitch_pod_to_boonz` return JSONB adds `diagnostics` array.
+- `get_pod_refill_draft` return type adds `wh_avail integer` (nullable).
+- Engine version strings: `v10_wh_decoupled_perf_floor` (engine_add_pod), `v12_wh_decoupled_fanout_fix_diag` (stitch), `v10_empty_shelf_warning` (engine_finalize_pod).
+
+**Rollback:** Revert each function to its prior `prosrc` via `CREATE OR REPLACE FUNCTION` (or `DROP+CREATE` for `get_pod_refill_draft` since its return type was changed). Prior bodies are preserved in the migration history of the function (pre-`v9/v10/v11.2/v12` versions). No DDL was applied to any base table or RLS policy, so a rollback is purely function-body level.
+
+---
+
 ## 2026-05-18 — Native machine-to-machine transfers (swap_between_machines)
 
 **Phase / Article:** D (M2M transfers) / Constitution Articles 1, 4, 8, 12
@@ -225,6 +270,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 ---
 
 ## 2026-05-19 — Multi-variant WH approval for REMOVE returns (Bug #2 from 19-May report)
+
 **Phase / Article:** F bugfix / Constitution Articles 1, 4, 5, 7, 8, 12
 **Applied to:** prod
 **Migration name:** `phaseF_wh_approve_remove_receipt_multivariant`
@@ -238,6 +284,7 @@ SELECT cron.unschedule('phaseF_stage1_prep_8pm_dubai');
 **Example flow.** iFly Barebells return, 12 pcs total. Driver does `driver_confirm_remove` with qty=12 against the default-variant parent dispatch. WH manager opens the approval panel, hits "Split by variant", enters 4 Creamy Crisp @ 24/09/2026, 4 Cookies & Cream @ 22/09/2026, 4 Cookies & Caramel @ 22/09/2026. Sum = 12 ✓. Hits approve. Backend inserts 3 child REMOVEs, receives each one to the correct WH batch (3 separate wh_inventory credits at the right expiries), archives 3 separate pod_inventory rows (one per variant) on iFly. Parent dispatch closed as `returned=true, return_reason='split_into_3_variants_see_children'`. WH inventory and pod inventory both end up correct — no manual cleanup.
 
 **Rollback:**
+
 ```sql
 DROP FUNCTION IF EXISTS public.wh_approve_remove_receipt_multivariant(uuid, jsonb, uuid, text);
 -- FE: revert PendingRemoveApprovalsPanel.tsx to pre-multivariant version

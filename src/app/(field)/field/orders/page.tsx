@@ -8,6 +8,15 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
+import { EditPOLineDrawer } from "../../components/EditPOLineDrawer";
+import { POEditHistoryPill } from "../../components/POEditHistoryPill";
+
+const EDIT_ROLES = new Set([
+  "warehouse",
+  "operator_admin",
+  "superadmin",
+  "manager",
+]);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,12 +92,28 @@ export default function OrdersPage() {
   const [taskMap, setTaskMap] = useState<Record<string, TaskStatus>>({});
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabOption>("pending");
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [editingPoId, setEditingPoId] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([]);
   const [expandLoading, setExpandLoading] = useState(false);
 
   const fetchOrders = useCallback(async () => {
     const supabase = createClient();
+
+    // Role check for Edit button visibility (PRD-001).
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      setUserRole(profile?.role ?? null);
+    }
 
     const { data: lines } = await supabase
       .from("purchase_orders")
@@ -321,6 +346,12 @@ export default function OrdersPage() {
                         {order.line_count === 1 ? "product" : "products"} ·{" "}
                         {order.total_ordered} units ordered
                       </p>
+                      <div className="mt-1">
+                        <POEditHistoryPill
+                          poId={order.po_id}
+                          refreshKey={refreshKey}
+                        />
+                      </div>
                     </div>
                     <div className="shrink-0 flex flex-col items-end gap-2">
                       {order.received_date ? (
@@ -346,12 +377,25 @@ export default function OrdersPage() {
                             </span>
                           )}
                           {tab === "pending" && (
-                            <Link
-                              href={`/field/receiving/${encodeURIComponent(order.po_id)}`}
-                              className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-                            >
-                              Receive
-                            </Link>
+                            <div className="flex gap-1.5">
+                              {userRole && EDIT_ROLES.has(userRole) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingPoId(order.po_id);
+                                  }}
+                                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-900"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              <Link
+                                href={`/field/receiving/${encodeURIComponent(order.po_id)}`}
+                                className="rounded-lg bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                              >
+                                Receive
+                              </Link>
+                            </div>
                           )}
                         </>
                       )}
@@ -448,15 +492,28 @@ export default function OrdersPage() {
                             </tfoot>
                           </table>
 
-                          {!order.received_date && (
-                            <Link
-                              href={`/field/receiving/${encodeURIComponent(order.po_id)}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="mt-3 block w-full rounded-lg bg-neutral-900 py-2 text-center text-xs font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
-                            >
-                              Receive
-                            </Link>
-                          )}
+                          <div className="mt-3 flex gap-2">
+                            {userRole && EDIT_ROLES.has(userRole) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingPoId(order.po_id);
+                                }}
+                                className="flex-1 rounded-lg border border-neutral-300 py-2 text-center text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-900"
+                              >
+                                Edit
+                              </button>
+                            )}
+                            {!order.received_date && (
+                              <Link
+                                href={`/field/receiving/${encodeURIComponent(order.po_id)}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex-1 rounded-lg bg-neutral-900 py-2 text-center text-xs font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                              >
+                                Receive
+                              </Link>
+                            )}
+                          </div>
                         </>
                       )}
                     </div>
@@ -475,6 +532,19 @@ export default function OrdersPage() {
       >
         +
       </Link>
+
+      {/* PRD-001: Edit drawer */}
+      {editingPoId && (
+        <EditPOLineDrawer
+          poId={editingPoId}
+          open={editingPoId !== null}
+          onClose={() => setEditingPoId(null)}
+          onSaved={() => {
+            setRefreshKey((k) => k + 1);
+            fetchOrders();
+          }}
+        />
+      )}
     </div>
   );
 }

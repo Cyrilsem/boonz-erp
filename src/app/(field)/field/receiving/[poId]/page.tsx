@@ -114,10 +114,19 @@ export default function ReceivingDetailPage() {
 
   // Driver outcome report — parsed from driver_tasks.outcome_comment for this PO
   // keyed by po_line_id for O(1) lookup
-  const [driverOutcomes, setDriverOutcomes] = useState<Map<string, DriverLineOutcome>>(new Map());
+  const [driverOutcomes, setDriverOutcomes] = useState<
+    Map<string, DriverLineOutcome>
+  >(new Map());
 
   // Lines the WH has explicitly marked as "not purchased" (po_line_id set)
-  const [notPurchasedLines, setNotPurchasedLines] = useState<Set<string>>(new Set());
+  const [notPurchasedLines, setNotPurchasedLines] = useState<Set<string>>(
+    new Set(),
+  );
+
+  // PRD-001: post-receipt edit detection
+  const [postReceiptEdits, setPostReceiptEdits] = useState<
+    { changed_at: string; actor_name: string | null; reason: string }[]
+  >([]);
 
   // Field additions
   const [showAddItem, setShowAddItem] = useState(false);
@@ -199,7 +208,9 @@ export default function ReceivingDetailPage() {
 
     if (taskData?.outcome_comment) {
       try {
-        const parsed = taskData.outcome_comment as { lines?: DriverLineOutcome[] };
+        const parsed = taskData.outcome_comment as {
+          lines?: DriverLineOutcome[];
+        };
         const outcomeMap = new Map<string, DriverLineOutcome>();
         (parsed.lines ?? []).forEach((l) => outcomeMap.set(l.po_line_id, l));
         setDriverOutcomes(outcomeMap);
@@ -208,7 +219,8 @@ export default function ReceivingDetailPage() {
         // WH can override by un-checking, but this saves clicks for obvious cases
         const autoPurchaseLines = new Set<string>();
         (parsed.lines ?? []).forEach((l) => {
-          if (l.outcome === "not_available") autoPurchaseLines.add(l.po_line_id);
+          if (l.outcome === "not_available")
+            autoPurchaseLines.add(l.po_line_id);
         });
         if (autoPurchaseLines.size > 0) setNotPurchasedLines(autoPurchaseLines);
       } catch {
@@ -285,6 +297,43 @@ export default function ReceivingDetailPage() {
             wh_location: locationMap.get(l.boonz_product_id) ?? l.wh_location,
           })),
         );
+      }
+    }
+
+    // PRD-001: detect post-receipt edits. Compare each edit event's changed_at
+    // to its line's received_date — surface a banner if the WH manager (or anyone)
+    // edited the PO line after receipt.
+    const lineReceiptByPk = new Map<string, string>();
+    mapped.forEach((l) => {
+      if (l.received_date) lineReceiptByPk.set(l.po_line_id, l.received_date);
+    });
+    if (lineReceiptByPk.size > 0) {
+      const { data: history } = await supabase.rpc("get_po_edit_history", {
+        p_po_id: poId,
+      });
+      if (history) {
+        const postReceipt = (
+          history as {
+            changed_at: string;
+            po_line_id: string;
+            actor_name: string | null;
+            reason: string;
+          }[]
+        )
+          .filter((ev) => {
+            const recv = lineReceiptByPk.get(ev.po_line_id);
+            if (!recv) return false;
+            // received_date is a date (YYYY-MM-DD); changed_at is a timestamptz.
+            // Compare against end-of-day in UTC of received_date as a coarse cutoff.
+            const recvEnd = new Date(recv + "T23:59:59Z").getTime();
+            return new Date(ev.changed_at).getTime() > recvEnd;
+          })
+          .map((ev) => ({
+            changed_at: ev.changed_at,
+            actor_name: ev.actor_name,
+            reason: ev.reason,
+          }));
+        setPostReceiptEdits(postReceipt);
       }
     }
 
@@ -406,7 +455,9 @@ export default function ReceivingDetailPage() {
         };
       })
       // Include both not_purchased lines AND lines with actual batches
-      .filter((l) => l.close_as_not_purchased || (l.batches && l.batches.length > 0));
+      .filter(
+        (l) => l.close_as_not_purchased || (l.batches && l.batches.length > 0),
+      );
 
     // Build additions payload (pending_receive only)
     const rpcAdditions = additions
@@ -464,7 +515,10 @@ export default function ReceivingDetailPage() {
     for (const l of rpcLines) {
       if (l.close_as_not_purchased) continue;
       const lineData = lines.find((ll) => ll.po_line_id === l.po_line_id);
-      const totalQty = (l.batches ?? []).reduce((s, b) => s + b.received_qty, 0);
+      const totalQty = (l.batches ?? []).reduce(
+        (s, b) => s + b.received_qty,
+        0,
+      );
       if (lineData && totalQty > 0) {
         resultsList.push({
           productName: lineData.boonz_product_name,
@@ -473,9 +527,7 @@ export default function ReceivingDetailPage() {
       }
     }
     for (const a of rpcAdditions) {
-      const addData = additions.find(
-        (aa) => aa.addition_id === a.addition_id,
-      );
+      const addData = additions.find((aa) => aa.addition_id === a.addition_id);
       if (addData) {
         resultsList.push({
           productName:
@@ -620,6 +672,40 @@ export default function ReceivingDetailPage() {
         </div>
       )}
 
+      {/* PRD-001: post-receipt edit warning banner. */}
+      {postReceiptEdits.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
+          <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
+            ⚠ PO edited after receipt ({postReceiptEdits.length} change
+            {postReceiptEdits.length === 1 ? "" : "s"})
+          </p>
+          <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+            Inventory rows already in <code>warehouse_inventory</code> are not
+            updated automatically — reconcile via the Inventory page if needed.
+          </p>
+          <ul className="mt-2 space-y-1">
+            {postReceiptEdits.slice(0, 3).map((ev, i) => (
+              <li
+                key={i}
+                className="text-xs text-amber-800 dark:text-amber-300"
+              >
+                <span className="font-medium">
+                  {ev.actor_name ?? "Someone"}
+                </span>{" "}
+                · {new Date(ev.changed_at).toLocaleString()} ·{" "}
+                <span className="italic">&ldquo;{ev.reason}&rdquo;</span>
+              </li>
+            ))}
+            {postReceiptEdits.length > 3 && (
+              <li className="text-xs text-amber-700 dark:text-amber-400">
+                +{postReceiptEdits.length - 3} more — see Edit history on the
+                Orders page.
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
       <ul className="space-y-4">
         {lines.map((line) => {
           const isReceived = !!line.received_date;
@@ -710,157 +796,163 @@ export default function ReceivingDetailPage() {
                   }`}
                 >
                   <span className="font-semibold">Driver report: </span>
-                  {driverReport.outcome === "not_available" && "❌ Not available at store"}
-                  {driverReport.outcome === "purchased_full" && "✅ Purchased in full"}
+                  {driverReport.outcome === "not_available" &&
+                    "❌ Not available at store"}
+                  {driverReport.outcome === "purchased_full" &&
+                    "✅ Purchased in full"}
                   {driverReport.outcome === "purchased_partial" &&
                     `⚠️ Partial — bought ${driverReport.qty_purchased ?? "?"} units`}
-                  {driverReport.outcome === "other" && `📝 Other${driverReport.comment ? `: ${driverReport.comment}` : ""}`}
+                  {driverReport.outcome === "other" &&
+                    `📝 Other${driverReport.comment ? `: ${driverReport.comment}` : ""}`}
                 </div>
               )}
 
               {isNotPurchased ? (
                 <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                  This item will be closed as not purchased. No stock will be added.
+                  This item will be closed as not purchased. No stock will be
+                  added.
                 </p>
               ) : (
                 <>
-              <p className="mb-3 text-xs text-neutral-500">
-                Ordered: {line.ordered_qty} units
-                {driverHintQty != null && (
-                  <span className="ml-2 font-medium text-amber-600 dark:text-amber-400">
-                    · Driver bought {driverHintQty}
-                  </span>
-                )}
-              </p>
-
-              {/* Sub-batch rows — each creates a separate warehouse_inventory row
-                  but does NOT create a new PO line (B-2 fix) */}
-              <div className="space-y-3">
-                {line.batches.map((batch, bIdx) => (
-                  <div
-                    key={batch.batch_key}
-                    className="ml-2 rounded-lg border border-neutral-100 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-900"
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs font-semibold text-neutral-500">
-                        Expiry batch {bIdx + 1}
+                  <p className="mb-3 text-xs text-neutral-500">
+                    Ordered: {line.ordered_qty} units
+                    {driverHintQty != null && (
+                      <span className="ml-2 font-medium text-amber-600 dark:text-amber-400">
+                        · Driver bought {driverHintQty}
                       </span>
-                      {line.batches.length > 1 && (
-                        <button
-                          onClick={() =>
-                            removeBatch(line.po_line_id, batch.batch_key)
-                          }
-                          className="text-xs text-red-500 hover:text-red-700 dark:text-red-400"
-                        >
-                          × remove
-                        </button>
-                      )}
-                    </div>
+                    )}
+                  </p>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="mb-0.5 block text-xs text-neutral-500">
-                          Qty
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          value={batch.received_qty}
-                          onChange={(e) =>
-                            updateBatch(
-                              line.po_line_id,
-                              batch.batch_key,
-                              "received_qty",
-                              parseFloat(e.target.value) || 0,
-                            )
-                          }
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
-                        />
+                  {/* Sub-batch rows — each creates a separate warehouse_inventory row
+                  but does NOT create a new PO line (B-2 fix) */}
+                  <div className="space-y-3">
+                    {line.batches.map((batch, bIdx) => (
+                      <div
+                        key={batch.batch_key}
+                        className="ml-2 rounded-lg border border-neutral-100 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-900"
+                      >
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-neutral-500">
+                            Expiry batch {bIdx + 1}
+                          </span>
+                          {line.batches.length > 1 && (
+                            <button
+                              onClick={() =>
+                                removeBatch(line.po_line_id, batch.batch_key)
+                              }
+                              className="text-xs text-red-500 hover:text-red-700 dark:text-red-400"
+                            >
+                              × remove
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="mb-0.5 block text-xs text-neutral-500">
+                              Qty
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={batch.received_qty}
+                              onChange={(e) =>
+                                updateBatch(
+                                  line.po_line_id,
+                                  batch.batch_key,
+                                  "received_qty",
+                                  parseFloat(e.target.value) || 0,
+                                )
+                              }
+                              className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-0.5 block text-xs text-neutral-500">
+                              Expiry date
+                            </label>
+                            <input
+                              type="date"
+                              value={batch.expiry_date}
+                              onChange={(e) =>
+                                updateBatch(
+                                  line.po_line_id,
+                                  batch.batch_key,
+                                  "expiry_date",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="mb-0.5 block text-xs text-neutral-500">
-                          Expiry date
-                        </label>
-                        <input
-                          type="date"
-                          value={batch.expiry_date}
-                          onChange={(e) =>
-                            updateBatch(
-                              line.po_line_id,
-                              batch.batch_key,
-                              "expiry_date",
-                              e.target.value,
-                            )
-                          }
-                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
-                        />
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              {/* Add batch button */}
-              <button
-                onClick={() => addBatch(line.po_line_id)}
-                className="mt-2 text-xs font-medium text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-              >
-                + Add expiry batch
-              </button>
+                  {/* Add batch button */}
+                  <button
+                    onClick={() => addBatch(line.po_line_id)}
+                    className="mt-2 text-xs font-medium text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  >
+                    + Add expiry batch
+                  </button>
 
-              {/* Running total */}
-              <p className={`mt-2 text-xs font-medium ${totalColor}`}>
-                {batchTotal} of {line.ordered_qty} to receive
-              </p>
+                  {/* Running total */}
+                  <p className={`mt-2 text-xs font-medium ${totalColor}`}>
+                    {batchTotal} of {line.ordered_qty} to receive
+                  </p>
 
-              {/* Warehouse location */}
-              <div className="mt-3">
-                <label className="mb-0.5 block text-xs text-neutral-500">
-                  Warehouse location
-                </label>
-                <input
-                  type="text"
-                  value={line.wh_location}
-                  onChange={(e) =>
-                    updateWHLocation(line.po_line_id, e.target.value)
-                  }
-                  placeholder="e.g. A-01"
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
-                />
-              </div>
+                  {/* Warehouse location */}
+                  <div className="mt-3">
+                    <label className="mb-0.5 block text-xs text-neutral-500">
+                      Warehouse location
+                    </label>
+                    <input
+                      type="text"
+                      value={line.wh_location}
+                      onChange={(e) =>
+                        updateWHLocation(line.po_line_id, e.target.value)
+                      }
+                      placeholder="e.g. A-01"
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
 
-              {/* Price per unit — editable at receipt */}
-              <div className="mt-3">
-                <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                  Price per unit (AED)
-                  {line.po_line_id in editedPrices && (
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                      edited
-                    </span>
-                  )}
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={
-                    line.po_line_id in editedPrices
-                      ? (editedPrices[line.po_line_id] ?? "")
-                      : (line.price_per_unit_aed ?? "")
-                  }
-                  onChange={(e) => {
-                    const val =
-                      e.target.value === "" ? null : parseFloat(e.target.value);
-                    setEditedPrices((prev) => ({
-                      ...prev,
-                      [line.po_line_id]: val,
-                    }));
-                  }}
-                  placeholder="0.00"
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
-                />
-              </div>
-              </> /* end isNotPurchased ? ... : <> </> */
+                  {/* Price per unit — editable at receipt */}
+                  <div className="mt-3">
+                    <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
+                      Price per unit (AED)
+                      {line.po_line_id in editedPrices && (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                          edited
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={
+                        line.po_line_id in editedPrices
+                          ? (editedPrices[line.po_line_id] ?? "")
+                          : (line.price_per_unit_aed ?? "")
+                      }
+                      onChange={(e) => {
+                        const val =
+                          e.target.value === ""
+                            ? null
+                            : parseFloat(e.target.value);
+                        setEditedPrices((prev) => ({
+                          ...prev,
+                          [line.po_line_id]: val,
+                        }));
+                      }}
+                      placeholder="0.00"
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                    />
+                  </div>
+                </> /* end isNotPurchased ? ... : <> </> */
               )}
             </li>
           );
