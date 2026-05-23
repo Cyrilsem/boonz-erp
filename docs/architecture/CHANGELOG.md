@@ -15,6 +15,36 @@ Format:
 
 ---
 
+## 2026-05-24 — Fix multi-cabinet WEIMI JOIN in `get_pod_refill_draft`
+
+**Phase / Article:** Phase F (refill draft read path) / Constitution Article 12
+**Applied to:** prod
+**Migration name:** `fix_get_pod_refill_draft_weimi_join`
+
+**Summary:** The FE refill-draft view was joining `v_live_shelf_stock` to `shelf_configurations` with `SPLIT_PART(lss.aisle_code, '-', 2) = sc.shelf_code`. That predicate is destructive for multi-cabinet machines: WEIMI aisle codes are always `{cabinet}-A{nn}`, so the split never produces a `B`-prefix (B-side shelves never matched), produced an off-by-one for inner-aisle indices (A-side shelves matched the wrong slot), and fanned out when two cabinets shared a slot suffix (one shelf row × N matching aisle rows). Replaced with the slot_name JOIN already used by `engine_add_pod` v10: `lss.slot_name = LEFT(sc.shelf_code, 1) || (SUBSTR(sc.shelf_code, 2)::int)::text`. Verified on ACTIVATE-2005-0000-W0 against tomorrow's draft: A06 now resolves once as Gatorade Zero 6/12 (50%), A07 once as Pocari Sweat 4/12 (33%), B09 as Aquafina 13/20 (65%), B11 as Aquafina 9/20 (45%). Fan-out duplicates eliminated (6 draft rows → 4 for ACTIVATE-2005). HUAWEI-2003-0000-B1 and MC-2004-0100-O1 verified clean via the coverage diagnostic — zero `MISSING` shelves for any of the three active multi-cabinet machines in tomorrow's pick. Eight machines benefit total (ACTIVATE-2005, HUAWEI-2003, MC-2004, LLFP-2005, LLFP-2007, WH-2001, WH1-2002, WH2-2006). A separate pre-existing data gap on AMZ-1068-2401-O1 (configured B/C/D/E shelves with no corresponding WEIMI telemetry) surfaced in the coverage diagnostic — flagged as a follow-up, not a regression of this fix.
+
+**Constitutional context:** Article 12 forward-only `CREATE OR REPLACE`. Function identity, return shape (including `wh_avail` added by `phaseF_proc_edit_po_line_audit`), and GRANTs preserved. Not a canonical writer — read-only helper — so no Cody review required. The PRD's regression-test query is captured below for the cron's post-run diagnostics.
+
+**Cron diagnostic to add (P1, separate PR):**
+
+```sql
+SELECT m.official_name, sc.shelf_code
+FROM machines_to_visit mtv
+JOIN machines m ON m.machine_id = mtv.machine_id
+JOIN shelf_configurations sc ON sc.machine_id = m.machine_id AND sc.is_phantom = false
+LEFT JOIN v_live_shelf_stock lss
+  ON lss.machine_id = m.machine_id
+  AND lss.slot_name = LEFT(sc.shelf_code,1) || (SUBSTR(sc.shelf_code,2)::int)::text
+WHERE mtv.plan_date = CURRENT_DATE + 1
+  AND mtv.status IN ('picked','cs_added')
+  AND lss.slot_name IS NULL;
+-- Zero rows = healthy. Non-zero = shelf_code ↔ WEIMI mapping gap.
+```
+
+**Rollback:** Restore the prior body via `CREATE OR REPLACE FUNCTION get_pod_refill_draft` with the `SPLIT_PART(lss.aisle_code, '-', 2) = sc.shelf_code` JOIN. Not recommended — the broken predicate is what this migration repairs.
+
+---
+
 ## 2026-05-23 — PRD-001: WH manager can edit submitted PO with full audit capture
 
 **Phase / Article:** Phase F (procurement) / Constitution Articles 1, 4, 7, 8
