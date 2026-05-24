@@ -15,6 +15,25 @@ Format:
 
 ---
 
+## 2026-05-24 — Phase G Inventory Integrity Initiative, Phase 1 backend (C.1, C.2, C.3)
+
+**Phase / Article:** Phase G P1 (Inventory Integrity Initiative, PRD v2) / Constitution Articles 1, 2, 4, 5, 6 (Amendment 002), 7, 8, 12, 14, 15.
+**Applied to:** prod.
+**Migration names:**
+
+- `phaseG_p1_c1_c2_inventory_control_tables` (Workstream C.1 + C.2 audit tables)
+- `phaseG_p1_c3_inventory_control_rpcs` (Workstream C.3 wrappers + the new `inactivate_warehouse_row` canonical writer for PRD B.2)
+
+**Summary:** Phase G PRD v2 Phase 1 unblocks the WH manager. Two new append-only tables, six new RPCs. `inventory_control_session` and `inventory_control_attempt` capture every inventory-control sitting and every per-row mutation attempt (success or failure) with full RPC response, before-and-after diff, error class, and a FE-side correlation id. Six SECURITY DEFINER functions land: `inactivate_warehouse_row` (the missing canonical Active->Inactive writer, per PRD B.2), `start_inventory_session` and `close_inventory_session` for the session lifecycle, and three logging wrappers `attempt_inventory_correction`, `attempt_reactivate_row`, `attempt_status_change` that delegate to existing canonical writers (`apply_inventory_correction`, `reactivate_warehouse_row`, and the new `inactivate_warehouse_row`) inside PL/pgSQL BEGIN/EXCEPTION blocks (PG's implicit SAVEPOINT). Each wrapper INSERTs exactly one `inventory_control_attempt` row in the terminal state per Cody's Option Y append-only ruling; failures are classified by SQLSTATE (insufficient_privilege->blocked_rls, check_violation->blocked_trigger, raise_exception->validation_error, OTHERS->rpc_error). Cody-reviewed both migrations: C.1/C.2 approve-with-revisions (Option Y applied; 'pending' dropped from result CHECK list); C.3 approve-with-revisions (reservation guard added to `inactivate_warehouse_row`; article-list migration header; function COMMENT naming the canonical writer). RLS on both new tables: SELECT and INSERT gated to `warehouse / operator_admin / superadmin / manager` via `user_profiles` join; UPDATE and DELETE blocked at the policy layer. `inventory_control_attempt` INSERT additionally requires the parent session to exist and be `status='open'`. Defense-in-depth partial unique index `idx_ics_one_open_per_user` on `(started_by) WHERE status='open'`; `start_inventory_session` auto-aborts a prior open session for the same user before INSERTing the new one (SECURITY DEFINER bypass of `ics_no_update`).
+
+**Verified post-deploy:** 2 tables created (10 + 18 columns), 12 indexes (including PKs and slug UNIQUE), 8 RLS policies. 6 functions present with correct signatures, all SECURITY DEFINER. Dry-test 1: `start_inventory_session` -> `close_inventory_session` round-trip succeeded against a real session row (no warehouse_inventory mutation). Dry-test 2: `inactivate_warehouse_row` refused on a real Active row with positive stock with the expected `refusing to inactivate row with stock` message. One closed audit session remains as a smoke fixture (slug `dry_test_2026-05-24_phase_g_smoke`); harmless.
+
+**Still pending in Phase 1:** Article 15 amendment adding `inventory_control_session` and `inventory_control_attempt` to Appendix A (with the direct-INSERT exception for FE client-side failure capture). Stax FE rewire B.1 (edit-count cell), B.2 (status toggle), B.8 (canary heartbeat). A.4 Saturday 23 corrections (gated by CSV access and per-row CS sign-off at checkpoint gate 3). Phase 1 summary report `phase_g_phase_1_summary.md` due at sprint close.
+
+**Rollback:** `DROP FUNCTION public.attempt_status_change(uuid, uuid, text, text, uuid, uuid, numeric); DROP FUNCTION public.attempt_reactivate_row(uuid, uuid, numeric, text, uuid, uuid, text, date, text); DROP FUNCTION public.attempt_inventory_correction(uuid, uuid, numeric, text, uuid, uuid); DROP FUNCTION public.close_inventory_session(uuid, uuid, jsonb); DROP FUNCTION public.start_inventory_session(uuid, uuid[], text, uuid); DROP FUNCTION public.inactivate_warehouse_row(uuid, text, uuid); DROP TABLE public.inventory_control_attempt; DROP TABLE public.inventory_control_session;`. Not recommended: the audit tables hold smoke-test rows and would lose data; the canonical inactivate path is what PRD B.2 explicitly added.
+
+---
+
 ## 2026-05-24 — Fix multi-cabinet WEIMI JOIN in `get_pod_refill_draft`
 
 **Phase / Article:** Phase F (refill draft read path) / Constitution Article 12

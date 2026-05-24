@@ -1,0 +1,65 @@
+dispatch_id,dispatch_date,machine,venue_group,pod_location,product,action,quantity,expiry_date,expiry_flag,created_dxb,decision,decision_notes,original_comment
+0766af4e-4c7b-45bb-89c7-8b26e52a28dd,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Coca Cola - Zero,Refill,2,2026-10-04,,2026-05-02,,,Fill to 12 - Split 1/3 [voided carried to 2026-05-03 driver no-show]
+984a7953-8348-4e31-8197-580cee4197fa,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Evian - Regular,Refill,4,2027-06-07,,2026-05-02,,,[voided carried to 2026-05-03 driver no-show]
+124033ae-3b01-4845-a2ec-853455338348,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Evian - Regular,Refill,4,2027-04-29,,2026-05-02,,,Fill to 15 [voided carried to 2026-05-03]
+d0f2f5bb-a112-44d6-946c-3f757c51e067,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Krambals - Green Olives & Sea Salt,Refill,6,2026-07-10,,2026-05-02,,,[EMPTY] Fill to 6 [WH_CENTRAL fallback] [voided]
+627bb24c-2f28-4b00-b628-c90fadaf9f5c,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Organic Larder - Rice Cake Milk Chocolate,Refill,2,2026-12-12,,2026-05-02,,,[EMPTY] Fill to 14 [PARTIAL] split with VML-1004 [voided]
+8e2cc39a-770e-48ae-b58c-566877f51178,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Pepsi - Black,Refill,2,2026-10-17,,2026-05-02,,,Fill to 12 Split 2/3 [voided]
+6391e093-d453-4ebf-ac71-240fdf8a0fae,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Pepsi - Regular,Refill,1,2026-12-23,,2026-05-02,,,Fill to 12 Split 3/3 [voided]
+e38480f1-3a3a-46f1-843f-97fa05b57a09,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Perrier - Regular,Add New,10,2027-02-27,,2026-05-02,,,REPLACES Barkthins - Sparkling Water new to NOVO [voided]
+575be445-2d64-40c1-9265-16508f83486e,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Tamreem Date Ball - Coconut Dates,Refill,2,2026-12-12,,2026-05-02,,,Fill to 10 Split 2/2 [WH_MCC] [voided]
+ef14ad50-df72-4b33-b69c-ce56a5622850,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Tamreem Date Ball - Sesame Dates,Refill,3,2026-11-30,,2026-05-02,,,Fill to 10 Split 1/2 [WH_MCC] [voided]
+5199cedb-80f2-4e70-bd80-6780ea73ec74,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Vitamin Well - Care,Refill,2,2026-06-07,NEAR EXPIRY,2026-05-02,,,Fill to 15 Split 1/3 [WH_MCC exp 2026-06-28] [voided]
+13c2e15c-df72-400d-8cd1-19d93c69275d,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Vitamin Well - Reload,Refill,2,2026-06-28,,2026-05-02,,,Fill to 15 Split 2/3 [WH_MCC exp 2026-06-28] [voided]
+f927e28f-4667-4f5e-a6f3-b7173fd8f247,2026-05-02,NOVO-1023-0000-W0,NOVO,One Central,Vitamin Well - Upgrade,Refill,1,2026-07-05,,2026-05-02,,,Fill to 15 Split 3/3 [WH_MCC exp 2026-12-01] [voided]
+a4b6926f-e970-4ea2-941b-6f83f36916fc,2026-04-29,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Krambals - Green Olives & Sea Salt,Refill,1,2026-07-10,,2026-04-28,,,Fill to 5 Split 2/3
+552ec36b-bee4-4f3b-9ad1-7b7d1caade9f,2026-04-29,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Krambals - Tomato & Mozzarella,Refill,1,2026-09-14,,2026-04-28,,,Fill to 5 Split 1/3
+17662aa7-c601-4fe1-8721-e446bdad894d,2026-04-29,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Pepsi - Black,Refill,1,2026-10-17,,2026-04-28,,,Fill to 14
+652ec682-22fc-428c-bee5-dad045973e54,2026-04-29,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Kinder Delice - Cake,Refill,1,2026-07-17,,2026-04-28,,,Fill to 11 Split 1/4
+6b92324c-a9b5-4892-b034-4d72348a2067,2026-04-29,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,McVities Digestive - Mini Dark Chocolate,Refill,1,2026-09-28,,2026-04-28,,,Fill to 11 Split 2/4
+27b654fd-f204-4a2c-9502-88578ce217e4,2026-04-29,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Smart Gourmet - Classic Humus,Refill,1,2027-01-25,,2026-04-28,,,Fill to 3
+0c083b47-7515-4390-8ad7-79f957138f88,2026-04-27,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Dubai Popcorn - Salted,Refill,2,2026-12-20,,2026-04-27,,,Jojo add 2 pcs Popcorn Salted
+33d99a4c-4726-4531-81f5-69bab2d5c8e5,2026-04-27,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Sabahoo - Chocolate,Refill,3,2026-05-27,NEAR EXPIRY,2026-04-27,,,Jojo add 3 pcs Sabahoo Chocolate exp 27/05/26
+f869f4b7-b37e-4698-8e33-09c4efd0c038,2026-04-16,MC-2004-0100-O1,INDEPENDENT,Dubai Media City,Ice Tea - Peach,Refill,1,2027-01-09,,2026-04-16,,,
+6098fe0b-d4ba-4184-9205-713598212aa5,2026-04-16,MC-2004-0100-O1,INDEPENDENT,Dubai Media City,Ice Tea - Peach,Refill,2,2027-03-17,,2026-04-16,,,
+b481a6ea-5ecf-46e9-8975-f7c9930e4f2b,2026-04-16,MC-2004-0100-O1,INDEPENDENT,Dubai Media City,SF Pancake - Chocolate Cream,Add New,3,2026-11-26,,2026-04-16,,,
+5f7e6b40-c7b4-44a9-ae7a-78a7c7ff8753,2026-04-16,NISSAN-0804-0000-L0,INDEPENDENT,Nissan ME HQ Dubai,Starbucks - Double Shot Espresso,Refill,1,2026-08-14,,2026-04-16,,,
+06bce252-fde9-48f6-b159-7fd01509e3d6,2026-04-15,VOXMCC-1005-0201-B0,VOX,Mirdif City Centre,Ice Tea - Peach,Refill,3,2026-09-25,,2026-04-15,,,DOUBLE_DOWN
+d98a7aae-404b-4fac-9400-4a5534b7fdc6,2026-04-15,VOXMCC-1005-0201-B0,VOX,Mirdif City Centre,Pepsi - Regular,Refill,4,2026-12-23,,2026-04-15,,,DOUBLE_DOWN high velocity drink
+084d2f8b-87c7-4b5e-841f-5f9e58495545,2026-04-15,VOXMCC-1005-0201-B0,VOX,Mirdif City Centre,Sun Blast - Apple,Refill,5,2026-04-21,EXPIRED,2026-04-15,,,REFILL from warehouse FIFO use exp 04-21 batch first
+5c79be87-0ba2-40cc-9a4f-78e6e2756fc6,2026-04-07,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,TEST - RETURNED Dispatch,Refill,3,2026-09-01,,2026-04-07,,,
+b0157887-bbbf-46bc-b69e-b870fee216f0,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Al Ain Water - Regular,Refill,2,,,2026-03-19,,,
+7384bbb5-67dd-442b-9307-2b749b5f191e,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Bounty - Regular,Refill,1,,,2026-03-19,,,
+5f32572c-3eff-41c9-af45-375a458536d7,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Coffee Joy - Coffee,Refill,1,,,2026-03-19,,,
+e5eda60c-cb51-4397-b0a8-9b3811feded8,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Hunter - Black Truffle,Refill,1,,,2026-03-19,,,
+3290f28c-1934-4e38-88f7-6a68ffffaab0,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Hunter - Black Truffle,Refill,5,,,2026-03-19,,,
+6cb8308e-2495-4f60-8893-59cb89d215f9,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Hunter Ridge - Himalayan Pink Salt,Refill,1,,,2026-03-19,,,
+eef38c83-805b-4859-bc6d-6efab03341d2,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Krambals - Tomato & Mozzarella,Refill,3,,,2026-03-19,,,
+367cb124-17d0-4772-a0a3-f38643ce940c,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Nescafe - Spanish Latte,Refill,3,,,2026-03-19,,,
+ce33a550-f470-4ab8-9a9f-290f4f232e41,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Pepsi - Black,Refill,6,,,2026-03-19,,,
+7b425562-4184-4e4c-9e0a-f7f061fad4cd,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,Tamreem Dried Freeze Fruits - Mango,Refill,1,,,2026-03-19,,,
+e518bb69-12f3-4457-a2a8-47e1fab73181,2026-03-22,ALJLT-1014-0200-O1,INDEPENDENT,JLT,YoPRO - Protein Milk Chocolate,Refill,3,,,2026-03-19,,,
+929d4436-55d4-47fc-97ee-3926c4a37ebf,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Activia Mix & Go - Greek Yogurt Strawberries,Refill,2,,,2026-03-19,,,
+d62246e9-98d9-4c62-b15f-9979d8e5eeea,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Barebells - Salty Peanut,Refill,3,,,2026-03-19,,,
+8856d7c4-006f-4ffd-ac8a-9ef7ef8f0472,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Bounty - Regular,Refill,2,,,2026-03-19,,,
+44370b94-2548-46fd-87d0-033a23c7ef94,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Dubai Popcorn - Salted,Refill,2,,,2026-03-19,,,
+87bbe08c-75a1-4ae1-ae6f-f2b3d2544bdd,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Krambals - Forest Mushroom & Butter,Refill,1,,,2026-03-19,,,
+803a5f10-d6df-4a2b-99c3-132e2b9f9d6f,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,McVities Digestive - Mini Milk Chocolate,Refill,1,,,2026-03-19,,,
+50aece30-5b8c-42fb-b655-cbda9409a6f7,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,McVities Digestive Nibbles - Choco Caramel,Refill,2,,,2026-03-19,,,
+2846ac6c-cf2f-4803-8969-7a4a715e8854,2026-03-21,USH-1008-0000-W1,ADDMIND,USH-1008-0000-W1,Smart Gourmet - Beetroot Humus,Refill,2,,,2026-03-19,,,
+ccd3ab53-6e08-47b3-a3fe-5b631ff09dd5,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Activia Mix & Go - Greek Yogurt Strawberries,Refill,3,,,2026-03-19,,,
+cdc4651e-f3aa-4b24-9167-43321fbf74f6,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Barebells - Hazelnut Naugat,Refill,3,,,2026-03-19,,,
+65122780-1696-4851-9456-c3006a02df74,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Caprice - Hazelnut,Refill,6,,,2026-03-19,,,
+b5fb6944-23f6-4efb-973c-528ea336db87,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Hunter - Sea Salt & Cider Vinegar,Refill,1,,,2026-03-19,,,
+e6cecf33-7ef4-4c1f-b7c4-957203f58780,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,McVities Digestive - Mini Dark Chocolate,Refill,2,,,2026-03-19,,,
+7f94388b-aefa-4f83-bb42-60872e931e32,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Nutella - Biscuit T12,Refill,2,,,2026-03-19,,,
+ac8f64d6-891a-467f-a081-322cf9d3ac06,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Pepsi - Black,Refill,4,,,2026-03-19,,,
+075e0016-1a76-4aa4-8531-72eee7a05ef2,2026-03-19,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Popit - Lemon & Lime,Refill,1,,,2026-03-19,,,
+112be0da-55e8-4b93-8f83-362c6de71b44,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Activia Mix & Go - Greek Yogurt Strawberries,Refill,3,,,2026-03-17,,,
+d66e6ba4-56c8-48af-8958-4f62c1bc3c26,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Barebells - Hazelnut Naugat,Refill,3,,,2026-03-17,,,
+596106cd-f934-4a8b-baa6-32f1ed6662e5,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Caprice - Hazelnut,Refill,6,,,2026-03-17,,,
+c743b478-e4b6-4d03-8046-cb0a56dcf772,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Hunter - Sea Salt & Cider Vinegar,Refill,1,,,2026-03-17,,,
+0cbe3433-daa7-4c3f-aa93-b867ff122b20,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,McVities Digestive - Mini Dark Chocolate,Refill,2,,,2026-03-17,,,
+dc7a1447-91c7-4f76-a319-1cfc07ce6fa3,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Nutella - Biscuit T12,Refill,2,,,2026-03-17,,,
+86fab830-a4da-4dcc-b8af-348fac49789a,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Pepsi - Black,Refill,4,,,2026-03-17,,,
+040e0de0-0717-461f-bd32-de6dcd65ddfe,2026-03-17,ADDMIND-1007-0000-W0,ADDMIND,ADDMIND-1007-0000-W0,Popit - Lemon & Lime,Refill,1,,,2026-03-17,,,
