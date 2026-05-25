@@ -30,7 +30,10 @@ done_summary:
     build: pass
     cody_review_backend: pass (Articles 1, 4, 5, 8, 12)
     deploy: pass (pushed 7a18eba to main; Vercel auto-deploy triggered)
-    smoke_test: pending CS verification in production (warehouse@boonz.test partial-receive PO test, superadmin received-line edit, Hunter Black Truffle multi-batch add to PO-2026-9130 then receive)
+    smoke_test: pass (CS confirmed in production 2026-05-25 - per-line lock + Cancel + multi-batch add working as expected)
+    followup_commits:
+      - ad067d4 fix(procurement) - EditPOLineDrawer disables qty/price/expiry inputs and shows lock chip on received lines for non-superadmin callers; locked lines filtered out of save loop. Caught by CS smoke - the backend was rejecting but the UI was letting users type.
+      - a631474 feat(receiving) - partial-receive banner on /field/receiving/[poId] points users at "+ Add item not on PO" + "Confirm receipt" when some lines were received in a prior session. The button and submit path were already functional; banner makes the affordance discoverable.
   open_question_deferred:
     text: Should operator_admin also override received-line edits, or superadmin-only?
     shipped_as: superadmin-only (as drafted in PRD)

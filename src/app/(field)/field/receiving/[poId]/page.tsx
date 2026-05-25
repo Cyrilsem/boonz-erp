@@ -700,6 +700,14 @@ export default function ReceivingDetailPage() {
         (notPurchasedLines.has(l.po_line_id) ||
           l.batches.some((b) => b.received_qty > 0)),
     );
+  // PRD-002 follow-up: detect partial-receive state. Some lines have already
+  // been received in a prior session; the WH manager came back to receive
+  // more (and may need to add a new item that arrived late). The Add item
+  // button below + the receive RPC both already handle this, but the banner
+  // makes the affordance unmistakable so CS / Simran don't think the page
+  // is read-only.
+  const hasReceivedLines = lines.some((l) => l.received_date);
+  const isPartialReceive = hasReceivedLines && hasUnreceived;
 
   return (
     <div className="px-4 py-4 pb-24">
@@ -711,6 +719,23 @@ export default function ReceivingDetailPage() {
           <p className="text-sm text-neutral-500">{header.supplier_name}</p>
           <p className="text-xs text-neutral-400">
             {formatDate(header.purchase_date)}
+          </p>
+        </div>
+      )}
+
+      {/* PRD-002 follow-up: partial-receive banner so the add-item path is
+          discoverable when the WH manager came back for a second receive
+          session on the same PO. */}
+      {isPartialReceive && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/30">
+          <p className="text-sm font-medium text-blue-900 dark:text-blue-200">
+            Partial receive — some lines already received
+          </p>
+          <p className="mt-1 text-xs text-blue-800 dark:text-blue-300">
+            You can still receive the remaining lines and use{" "}
+            <span className="font-semibold">+ Add item not on PO</span> below to
+            add anything new the supplier brought. Tap{" "}
+            <span className="font-semibold">Confirm receipt</span> when done.
           </p>
         </div>
       )}
