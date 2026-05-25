@@ -15,6 +15,21 @@ Format:
 
 ---
 
+## 2026-05-25 — PRD-010a v9.1 patches: engine_swap_pod planned-swap guard product-match + engine_finalize_pod capacity filter widening
+
+**Phase / Article:** PRD-010a (refill-pipeline) / Constitution Articles 1, 4, 5, 8, 12. Backend-only, no schema changes.
+**Applied to:** repo. Migration files written; MCP `apply_migration` pending Supabase classifier availability (transient unavailability blocked the direct write; the SQL files in `supabase/migrations/` are the canonical record and will reconcile on the next `supabase db push`).
+**Migration names:**
+
+- `engine_swap_pod_v9_1_product_match_planned_swap` (file `supabase/migrations/20260525160000_engine_swap_pod_v9_1_product_match_planned_swap.sql`)
+- `engine_finalize_pod_v12_1_keep_in_capacity_filter` (file `supabase/migrations/20260525160100_engine_finalize_pod_v12_1_keep_in_capacity_filter.sql`)
+
+**Summary:** Two surgical edits to canonical writers shipped in PRD-010 commit 44ef57a. (1) `engine_swap_pod` v9.1 replaces the broken `planned_swaps.shelf_code` to `shelf_configurations.shelf_code` text JOIN in the `_planned_swap_shelves` temp table with a product-match via `pod_products` to `slot_lifecycle` on `pod_product_id`. WEIMI-format cabinet codes in `planned_swaps` (e.g. `'0-A06'`) were missing all four MC-2004 Plaay shelves because they did not match the logical codes used in `shelf_configurations` (e.g. `'A06'`). The join chain mirrors the existing `pick_machines_for_refill v6` auto-close logic. `engine_version` bumped `v9_swap_dedup_planned_priority` → `v9_1_product_match_planned_swap`. (2) `engine_finalize_pod` v12.1 widens the high-velocity capacity-warning filter from `signal IN ('STAR','DOUBLE DOWN','KEEP GROWING')` to also include `'KEEP'`. The most common proven-product signal was excluded, so MC-2004 Coca Cola Zero (KEEP, v30=1.53, capped on a 14-unit shelf) never surfaced a suggestion to move to the larger Loacker shelf. `engine_version` bumped `v12_m2w_empty_shelf_guard` → `v12_1_keep_in_capacity_filter`. No signature change on either function; the v12 M2W empty-shelf guard and `m2w_no_replacement_warnings` machinery preserved verbatim. Cody-approved against Articles 1, 4, 5, 8, 12.
+
+**Rollback:** Forward `CREATE OR REPLACE` reverting to the v9 / v12 bodies. The patches are additive within the function body (one CTE replacement + one literal addition); reverting is mechanical.
+
+---
+
 ## 2026-05-25 — PRD-012 Phase 1 closeout: propose/approve/reject RPCs deployed plus two hotfixes
 
 **Phase / Article:** PRD-012 Phase 1 steps A.2/A.3/A.4 / Constitution Articles 1, 3, 4, 5, 8, 12, 14 (✅).
