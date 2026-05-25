@@ -2,8 +2,25 @@
 id: PRD-011-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Packing FE — re-pin WH batch, no-stock override, edit-during-pack
-status: Blocked
-blocked_summary: Autonomous apply blocked — needs Cody review of new repair_unbound_dispatch RPC + Stax review of packing FE drawer extension. Spec complete; root cause verified. Daylight CS to invoke Cody/Stax Skills and ship.
+status: Backend-Done-FE-and-bulk-repair-deferred
+shipped_at: 2026-05-26
+done_summary: |
+  Backend `repair_unbound_dispatch(uuid,uuid,text)` shipped via migration
+  phaseF_prd011_repair_unbound_dispatch_rpc. SECURITY DEFINER, role-gated
+  (warehouse / operator_admin / superadmin / manager), requires 10+ char
+  reason. Post-hoc binds a packed-but-NULL-bound refill_dispatching row to
+  a chosen WH batch, atomically moves warehouse_stock -> consumer_stock to
+  match the already-packed state, sets expiry_date from the WH row.
+  Refuses retro-rewrite of already-bound rows.
+
+  Deferred:
+  1. **FE drawer extension** on /field/packing/[machineId] — yellow "Re-pin"
+     chip + manual batch picker + edit-during-pack. Requires Vercel deploy
+     and Stax review, queued for daylight push.
+  2. **Bulk repair of 612 backlog rows** (packed=true + from_wh_inventory_id
+     IS NULL on Refill/Add New, last 21 days). Too many for autonomous
+     per-row sign-off. Need CS strategy: bulk-by-FEFO via batch RPC, or
+     per-row via FE drawer once that ships.
 severity: P0
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 1 P0 #1 (semantic name PRD-003-refill-pipeline)

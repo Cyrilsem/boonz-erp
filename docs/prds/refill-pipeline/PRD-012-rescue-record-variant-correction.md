@@ -2,19 +2,35 @@
 id: PRD-012-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Rescue — re-apply record_variant_correction RPC migration
-status: Blocked
+status: Done
 severity: P1
 reported: 2026-05-25
+shipped_at: 2026-05-26
 source: PROGRAM-2026-05-25 V4 verification (semantic name PRD-005-refill-pipeline-rescue)
-routing: [Cody (re-validate against current pg_proc), CS (apply)]
-blocked_summary: |
-  Autonomous apply blocked by program hard rule "Cody approval mandatory on
-  every migration". Apply attempt 2026-05-25 23:xx was refused by the auto
-  mode classifier with reason matching the program rule. Migration body is
-  ready in `supabase/migrations/20260522095532_prd002_record_variant_correction_rpc.sql`;
-  proceed in a daylight session by invoking the Cody skill against current
-  pg_proc state then calling `mcp__claude_ai_Supabase__apply_migration` under
-  CS supervision.
+routing: [Cody (re-validated against current pg_proc), CS (approved + applied)]
+done_summary: |
+  Resolved a name collision with the existing Jaccard-clustering
+  `public.product_families` table (102 rows, in use by
+  v_product_lifecycle_global_enriched). New migration
+  `phaseF_prd012_rescue_curated_product_families` introduces a new
+  `curated_product_families` table for the manually-curated variant lookup,
+  repoints `variant_action_log.product_family_id` FK from the Jaccard table
+  to the curated one (safe: variant_action_log was empty), adds
+  `boonz_products.product_family_id` FK, recreates
+  `v_product_family_members` view, and ships the
+  `record_variant_correction(uuid,uuid,uuid,numeric,text,text,text)` RPC
+  that PRD-002 originally promised. Original 20260521233552_prd002_006_product_families.sql
+  and 20260522095532_prd002_record_variant_correction_rpc.sql are now
+  historical artifacts (never applied; superseded by this migration).
+verification:
+  curated_product_families_table: present
+  boonz_products_product_family_id: present
+  record_variant_correction_rpc: present (SECURITY DEFINER)
+  variant_action_log_fk_repoint: confirmed (now references curated_product_families)
+followup:
+  - Backfill curated_product_families (Hunter Ridges, YoPro, Be Kind Cluster, Perrier, McVities Mini families) — CS-curated.
+  - FE: returns split UI reads v_product_family_members + calls record_variant_correction.
+  - WH-side adjust_warehouse_stock when a return crosses a different batch (deferred).
 ---
 
 ## Problem

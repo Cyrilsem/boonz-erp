@@ -2,14 +2,24 @@
 id: PRD-014-inventory
 program: PROGRAM-2026-05-25
 title: M2M swap routing fix + IFLY Barebells 19-May RCA
-status: Blocked
-blocked_summary: |
-  Three-phase plan. Phase 1 (audit query for orphan M2M rows) needs CS
-  review of the result list. Phase 2 (BEFORE INSERT/UPDATE trigger) needs
-  Cody approval. Phase 3 (per-row repair of orphan rows incl. IFLY 19-May)
-  needs per-row CS sign-off — explicitly gated by program hard rules. RCA
-  is complete (orphan half-pair found; same anonymous-flip class as
-  Phase G P4 A.8). Daylight CS to execute phases sequentially.
+status: Phase1+2-Done-Phase3-deferred
+shipped_at: 2026-05-26
+done_summary: |
+  Phase 1 (audit) — 28 orphan internal_transfer rows found in last 14 days
+  (not just IFLY). Spans IFLY-1024, OMDCW-1021, ACTIVATEMCC-1037, AMZ-1029,
+  MINDSHARE-1009, WPP-1002, USH-1008, VOXMCC-1005. List surfaced to CS in
+  chat 2026-05-26.
+
+  Phase 2 (prevention) — migration phaseF_prd014_block_orphan_internal_transfer_inserts
+  + phaseF_prd014_block_orphan_fix_enum_cast applied. New BEFORE INSERT trigger
+  trg_block_orphan_internal_transfer on refill_dispatching raises when
+  source_origin='internal_transfer' AND m2m_transfer_id IS NULL UNLESS caller
+  is swap_between_machines (or future repair_orphan_internal_transfer).
+  Smoke test passed: orphan INSERT correctly blocked.
+
+  Phase 3 (per-row repair) — deferred. Needs (a) the repair_orphan_internal_transfer
+  RPC and (b) per-row CS sign-off for each of the 28 rows. The repair RPC is
+  on the allow-list so it can be built without touching the trigger.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #3 (semantic name PRD-003-inventory)
