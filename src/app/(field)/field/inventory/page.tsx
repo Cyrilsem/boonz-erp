@@ -890,18 +890,17 @@ export default function InventoryPage() {
       data: { user },
     } = await supabase.auth.getUser();
 
-    await supabase
-      .from("pod_inventory_edits")
-      .update({
-        status: "approved",
-        reviewed_by: user?.id ?? null,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq("edit_id", editId);
-
-    // Guard: zero-qty edits are already marked approved above — skip all mutations
-    if ((edit.quantity_update ?? 0) <= 0) {
-      setPendingEdits((prev) => prev.filter((e) => e.edit_id !== editId));
+    // PRD-013 P1.C: route through canonical RPC. All per-edit_type dispatch
+    // (expired / sold / partial_sold / return_to_warehouse / add_new_product)
+    // happens server-side in approve_pod_inventory_edit. Atomic flip of the
+    // edit row + pod_inventory + warehouse_inventory in one txn.
+    const { error } = await supabase.rpc("approve_pod_inventory_edit", {
+      p_edit_id: editId,
+      p_approver_id: user?.id ?? null,
+      p_decision_note: null,
+    });
+    if (error) {
+      alert(`Approve failed: ${error.message}`);
       setProcessingIds((prev) => {
         const s = new Set(prev);
         s.delete(editId);
@@ -909,366 +908,51 @@ export default function InventoryPage() {
       });
       return;
     }
-
-    if (edit.edit_type === "expired") {
-      // ── Expired: 4-step flow, all steps non-blocking ──────────────────────
-      const today = getDubaiDate();
-
-      // Step 1: get expiration_date + current_stock from pod_inventory
-      let podExpiryDate: string | null = null;
-      let podCurrentStockExp = 0;
-      try {
-        const { data: podRow } = await supabase
-          .from("pod_inventory")
-          .select("expiration_date, current_stock")
-          .eq("pod_inventory_id", edit.pod_inventory_id)
-          .limit(1)
-          .single();
-        podExpiryDate = podRow?.expiration_date ?? null;
-        podCurrentStockExp = (podRow?.current_stock as number) ?? 0;
-      } catch (e) {
-        console.error("[approve expired] step 1 failed", e);
-      }
-
-      // Step 2: deduct qty from pod_inventory
-      try {
-        const expiredQty = edit.quantity_update ?? 0;
-        const newStockExp = Math.max(0, podCurrentStockExp - expiredQty);
-        await supabase
-          .from("pod_inventory")
-          .update({
-            current_stock: newStockExp,
-            status: newStockExp <= 0 ? "Removed / Expired" : "Active",
-            snapshot_date: today,
-          })
-          .eq("pod_inventory_id", edit.pod_inventory_id);
-      } catch (e) {
-        console.error("[approve expired] step 2 failed", e);
-      }
-
-      // Step 3: find matching warehouse batch and mark as Expired
-      let whBatchFound = false;
-      try {
-        const baseQuery = supabase
-          .from("warehouse_inventory")
-          .select("wh_inventory_id")
-          .eq("boonz_product_id", edit.boonz_product_id)
-          .eq("status", "Active")
-          .order("expiration_date", { ascending: true, nullsFirst: false })
-          .limit(1);
-
-        const { data: whBatch } = podExpiryDate
-          ? await baseQuery.or(
-              `expiration_date.eq.${podExpiryDate},expiration_date.is.null`,
-            )
-          : await baseQuery;
-
-        if (whBatch && whBatch.length > 0) {
-          whBatchFound = true;
-          const batchId = whBatch[0].wh_inventory_id;
-          console.log(
-            "[Approve expired] warehouse batch found and marked Expired:",
-            batchId,
-          );
-          await supabase
-            .from("warehouse_inventory")
-            .update({
-              status: "Expired",
-              warehouse_stock: 0,
-              snapshot_date: today,
-            })
-            .eq("wh_inventory_id", batchId);
-        }
-      } catch (e) {
-        console.error("[approve expired] step 3 failed", e);
-      }
-
-      // Step 4: if no warehouse batch found, insert a returned-expired record
-      if (!whBatchFound) {
-        console.log(
-          "[Approve expired] no warehouse batch found, inserting Expired record",
-        );
-        try {
-          await supabase.from("warehouse_inventory").insert({
-            boonz_product_id: edit.boonz_product_id,
-            warehouse_stock: 0,
-            expiration_date: podExpiryDate,
-            batch_id: `RETURNED-EXPIRED-${today}`,
-            status: "Expired",
-            snapshot_date: today,
-          });
-        } catch (e) {
-          console.error("[approve expired] step 4 failed", e);
-        }
-      }
-    } else if (edit.edit_type === "return_to_warehouse") {
-      // ── Return to warehouse: zero pod + insert active WH row ─────────────
-      const today = getDubaiDate();
-
-      // Step 1: get expiration_date + current_stock from pod_inventory
-      let podExpiryDate: string | null = null;
-      let podCurrentStockRtw = 0;
-      try {
-        const { data: podRow } = await supabase
-          .from("pod_inventory")
-          .select("expiration_date, current_stock")
-          .eq("pod_inventory_id", edit.pod_inventory_id)
-          .limit(1)
-          .single();
-        podExpiryDate = podRow?.expiration_date ?? null;
-        podCurrentStockRtw = (podRow?.current_stock as number) ?? 0;
-      } catch (e) {
-        console.error("[approve return_to_warehouse] step 1 failed", e);
-      }
-
-      // Step 2: deduct qty from pod_inventory
-      try {
-        const rtwQty = edit.quantity_update ?? 0;
-        const newStockRtw = Math.max(0, podCurrentStockRtw - rtwQty);
-        await supabase
-          .from("pod_inventory")
-          .update({
-            current_stock: newStockRtw,
-            status: newStockRtw <= 0 ? "Removed" : "Active",
-            snapshot_date: today,
-          })
-          .eq("pod_inventory_id", edit.pod_inventory_id);
-      } catch (e) {
-        console.error("[approve return_to_warehouse] step 2 failed", e);
-      }
-
-      // Step 3: insert Active warehouse row (stock returns as reusable)
-      try {
-        await supabase.from("warehouse_inventory").insert({
-          boonz_product_id: edit.boonz_product_id,
-          warehouse_stock: edit.quantity_update ?? 0,
-          expiration_date: podExpiryDate,
-          batch_id: `RETURNED-FROM-POD-${today}`,
-          status: "Active",
-          snapshot_date: today,
-        });
-      } catch (e) {
-        console.error("[approve return_to_warehouse] step 3 failed", e);
-      }
-    } else if (edit.edit_type === "in_stock") {
-      // ── in_stock: update pod + FIFO sync with warehouse ───────────────────
-      const today2 = getDubaiDate();
-      const qty = edit.quantity_update ?? 0;
-      let currentPodStock = 0;
-      try {
-        const { data: podRow } = await supabase
-          .from("pod_inventory")
-          .select("current_stock")
-          .eq("pod_inventory_id", edit.pod_inventory_id)
-          .single();
-        currentPodStock = (podRow?.current_stock as number) ?? 0;
-      } catch (e) {
-        console.error("[approve in_stock] fetch stock failed", e);
-      }
-      try {
-        await supabase
-          .from("pod_inventory")
-          .update({ current_stock: qty })
-          .eq("pod_inventory_id", edit.pod_inventory_id);
-      } catch (e) {
-        console.error("[approve in_stock] update pod failed", e);
-      }
-      const delta = qty - currentPodStock;
-      if (delta > 0) {
-        // Units added to pod — FIFO deduct from warehouse
-        try {
-          const { data: batches } = await supabase
-            .from("warehouse_inventory")
-            .select("wh_inventory_id, warehouse_stock")
-            .eq("boonz_product_id", edit.boonz_product_id)
-            .eq("status", "Active")
-            .gt("warehouse_stock", 0)
-            .order("expiration_date", { ascending: true, nullsFirst: false })
-            .limit(10000);
-          let remaining = delta;
-          for (const batch of batches ?? []) {
-            if (remaining <= 0) break;
-            const avail = (batch.warehouse_stock as number) ?? 0;
-            const take = Math.min(avail, remaining);
-            await supabase
-              .from("warehouse_inventory")
-              .update({ warehouse_stock: avail - take, snapshot_date: today2 })
-              .eq("wh_inventory_id", batch.wh_inventory_id);
-            remaining -= take;
-          }
-        } catch (e) {
-          console.error("[approve in_stock] FIFO deduction failed", e);
-        }
-      } else if (delta < 0) {
-        // Units removed from pod — return to warehouse as new Active batch
-        try {
-          await supabase.from("warehouse_inventory").insert({
-            boonz_product_id: edit.boonz_product_id,
-            warehouse_stock: Math.abs(delta),
-            batch_id: `RECHECK-RETURN-${today2}`,
-            status: "Active",
-            snapshot_date: today2,
-          });
-        } catch (e) {
-          console.error("[approve in_stock] return insert failed", e);
-        }
-      }
-    } else if (edit.edit_type === "transfer") {
-      // ── Transfer: deduct source pod + create dispatch line for destination ──
-      const today3 = getDubaiDate();
-      const qty = edit.quantity_update ?? 0;
-
-      // Step 1: fetch source pod row (current_stock + expiration_date)
-      let podExpiry: string | null = null;
-      let podCurrentStock = 0;
-      try {
-        const { data: podRow } = await supabase
-          .from("pod_inventory")
-          .select("current_stock, expiration_date")
-          .eq("pod_inventory_id", edit.pod_inventory_id)
-          .single();
-        podCurrentStock = (podRow?.current_stock as number) ?? 0;
-        podExpiry = (podRow?.expiration_date as string | null) ?? null;
-      } catch (e) {
-        console.error("[approve transfer] fetch pod row failed", e);
-      }
-
-      // Step 2: UPDATE source pod stock
-      try {
-        const newStock = Math.max(0, podCurrentStock - qty);
-        await supabase
-          .from("pod_inventory")
-          .update({
-            current_stock: newStock,
-            ...(newStock <= 0 ? { status: "Removed" } : {}),
-            snapshot_date: today3,
-          })
-          .eq("pod_inventory_id", edit.pod_inventory_id);
-      } catch (e) {
-        console.error("[approve transfer] update source pod failed", e);
-      }
-
-      // Step 2b: resolve shelf_id at destination (A→B→null)
-      let resolvedShelfId: string | null = null;
-      let resolvedPodProductId: string | null = edit.pod_product_id ?? null;
-
-      // Step A: product already occupies a shelf at destination?
-      const { data: existingPod } = await supabase
-        .from("pod_inventory")
-        .select("shelf_id")
-        .eq("machine_id", edit.destination_machine_id!)
-        .eq("boonz_product_id", edit.boonz_product_id)
-        .eq("status", "Active")
-        .gt("current_stock", 0)
-        .limit(1)
-        .maybeSingle();
-      if (existingPod?.shelf_id) {
-        resolvedShelfId = existingPod.shelf_id as string;
-      } else {
-        // Step B: look up pod_product_id at destination, then dispatch history
-        const { data: destMapping } = await supabase
-          .from("product_mapping")
-          .select("pod_product_id")
-          .eq("machine_id", edit.destination_machine_id!)
-          .eq("boonz_product_id", edit.boonz_product_id)
-          .eq("status", "Active")
-          .order("split_pct", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (destMapping?.pod_product_id) {
-          resolvedPodProductId = destMapping.pod_product_id as string;
-          const { data: lastDispatch } = await supabase
-            .from("refill_dispatching")
-            .select("shelf_id")
-            .eq("machine_id", edit.destination_machine_id!)
-            .eq("pod_product_id", destMapping.pod_product_id)
-            .not("shelf_id", "is", null)
-            .order("dispatch_date", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (lastDispatch?.shelf_id) {
-            resolvedShelfId = lastDispatch.shelf_id as string;
-          }
-        }
-      }
-
-      // Step 3: INSERT dispatch line for destination machine
-      const { error: rdError } = await supabase
-        .from("refill_dispatching")
-        .insert({
-          machine_id: edit.destination_machine_id,
-          boonz_product_id: edit.boonz_product_id,
-          pod_product_id: resolvedPodProductId,
-          shelf_id: resolvedShelfId,
-          dispatch_date: today3,
-          action: "Transfer",
-          quantity: qty,
-          expiry_date: podExpiry,
-          packed: true,
-          picked_up: false,
-          dispatched: false,
-          returned: false,
-          include: true,
-        });
-      if (rdError) {
-        console.error("[approve transfer] dispatch INSERT failed:", rdError);
-        showReviewToast(
-          `Transfer approved but dispatch line failed: ${rdError.message}`,
-        );
-        setProcessingIds((prev) => {
-          const s = new Set(prev);
-          s.delete(editId);
-          return s;
-        });
-        return;
-      }
-    } else {
-      // ── sold, partial_sold, damaged: deduct from pod ──────────────────────
-      try {
-        const qty = edit.quantity_update ?? 0;
-        const { data: podRow } = await supabase
-          .from("pod_inventory")
-          .select("current_stock")
-          .eq("pod_inventory_id", edit.pod_inventory_id)
-          .single();
-        if (podRow) {
-          await supabase
-            .from("pod_inventory")
-            .update({
-              current_stock: Math.max(0, (podRow.current_stock ?? 0) - qty),
-            })
-            .eq("pod_inventory_id", edit.pod_inventory_id);
-        }
-      } catch {
-        // Non-blocking: edit record is already approved
-      }
-    }
-
     setPendingEdits((prev) => prev.filter((e) => e.edit_id !== editId));
     setProcessingIds((prev) => {
       const s = new Set(prev);
       s.delete(editId);
       return s;
     });
-    showReviewToast("Edit approved");
+    showReviewToast(`Approved ${edit.edit_type}`);
+    return;
   }
 
+
   async function handleReject(editId: string) {
+    // PRD-013 P1.D: route through canonical reject RPC; requires decision note
+    // >= 10 chars. Prompt the operator for the note (no toast lib; same
+    // alert/prompt fallback used by PRD-001 / PRD-012).
+    const note =
+      typeof window !== "undefined"
+        ? window.prompt("Reject reason (>= 10 chars):", "")
+        : "";
+    const trimmed = (note ?? "").trim();
+    if (trimmed.length < 10) {
+      alert(
+        `Reject requires a decision note of at least 10 characters (got ${trimmed.length}).`,
+      );
+      return;
+    }
     setProcessingIds((prev) => new Set([...prev, editId]));
     const supabase = createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-
-    await supabase
-      .from("pod_inventory_edits")
-      .update({
-        status: "rejected",
-        reviewed_by: user?.id ?? null,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq("edit_id", editId);
-
+    const { error } = await supabase.rpc("reject_pod_inventory_edit", {
+      p_edit_id: editId,
+      p_decision_note: trimmed,
+      p_approver_id: user?.id ?? null,
+    });
+    if (error) {
+      alert(`Reject failed: ${error.message}`);
+      setProcessingIds((prev) => {
+        const s = new Set(prev);
+        s.delete(editId);
+        return s;
+      });
+      return;
+    }
     setPendingEdits((prev) => prev.filter((e) => e.edit_id !== editId));
     setProcessingIds((prev) => {
       const s = new Set(prev);

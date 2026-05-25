@@ -2,7 +2,7 @@
 
 // PRD-012 C.1–C.5: operator-side queue for pod-add proposals on /app/inventory.
 // Mirrors PendingProposalsPanel pattern. Routes approve/reject through the
-// approve_pod_inventory_add / reject_pod_inventory_add canonical writers.
+// approve_pod_inventory_edit / reject_pod_inventory_edit canonical writers (PRD-013).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -169,8 +169,8 @@ export default function PendingPodAdditionsPanel() {
     setSubmitError(null);
     const fn =
       mode === "approve"
-        ? "approve_pod_inventory_add"
-        : "reject_pod_inventory_add";
+        ? "approve_pod_inventory_edit"
+        : "reject_pod_inventory_edit";
     const args =
       mode === "approve"
         ? {
