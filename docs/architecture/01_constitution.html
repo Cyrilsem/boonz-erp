@@ -878,6 +878,10 @@
             <code>inventory_control_session</code> (Phase G P1,
             <em>Amendment 007</em>)
           </li>
+          <li>
+            <code>pod_inventory_edits</code> (PRD-012, <em>Amendment 008</em>,
+            tiered FE INSERT exception below)
+          </li>
         </ul>
         <p style="font-size: 0.9em; color: #666; margin-top: 8px">
           <em>Amendment 003 (2026-05-05):</em>
@@ -957,6 +961,44 @@
           <code>phaseG_p1_c1_c2_inventory_control_tables</code> (95ad54b) and
           <code>phaseG_p1_c3_inventory_control_rpcs</code>, plus FE helpers in
           commit f6ed953.
+        </p>
+        <p style="font-size: 0.9em; color: #666">
+          <em>Amendment 008 (2026-05-25):</em>
+          <code>pod_inventory_edits</code> added under Article 15. Proposal
+          substrate for writes to <code>pod_inventory</code> via the PRD-012
+          driver pod-add workflow. Belongs in Core entities (UPDATE required for
+          review-decision flow, not append-only).
+          <strong>Tiered FE INSERT exception:</strong> for
+          <code>edit_type = 'add_new_product'</code> (the PRD-012 surface)
+          INSERTs and status UPDATEs go exclusively through the canonical
+          SECURITY DEFINER writers (<code>propose_pod_inventory_add</code>,
+          <code>approve_pod_inventory_add</code>,
+          <code>reject_pod_inventory_add</code>,
+          <code>auto_expire_pod_add_proposals</code>); all four set
+          <code>app.via_rpc</code> + <code>app.rpc_name</code> +
+          <code>app.mutation_reason</code>. For every other
+          <code>edit_type</code>
+          (<code>sold</code>, <code>partial_sold</code>, <code>expired</code> as
+          edit_type, <code>return_to_warehouse</code>, <code>transfer</code>,
+          <code>in_stock</code>) FE-direct INSERTs and reviewer UPDATEs are
+          grandfathered under the existing
+          <code>field_staff_insert_edits</code> and
+          <code>reviewers_update_edits</code> RLS policies until PRD-013
+          (canonical approval) migrates them.
+          <strong>Forensic discriminator:</strong> <code>edit_type</code> is the
+          boundary — <code>add_new_product</code> rows can only be written by
+          the four named RPCs; legacy edit_type rows continue under the existing
+          FE pattern. Once PRD-013 closes, this tiered exception collapses and
+          every write becomes RPC-routed. See migrations
+          <code>prd_012_pod_inventory_edits_add_flow</code>,
+          <code>prd_012_propose_pod_inventory_add</code>,
+          <code>prd_012_approve_pod_inventory_add</code>,
+          <code>prd_012_reject_pod_inventory_add</code>, plus the cron in
+          <code>prd_012_auto_expire_pod_add_proposals</code>. Full amendment
+          rationale in
+          <code
+            >docs/architecture/10_amendment_008_pod_inventory_edits_appendix_a.md</code
+          >.
         </p>
 
         <h3>Append-only logs (INSERT-only RLS)</h3>
