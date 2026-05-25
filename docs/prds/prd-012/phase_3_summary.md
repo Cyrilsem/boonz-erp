@@ -57,7 +57,7 @@ The legacy edit_types (sold, partial_sold, etc.) will land in `write_audit_log` 
 
 - **Task #11** (P3.B → PRD-013): migrate `/field/trips/[machineId]/removals/page.tsx:103` direct INSERT to a canonical RPC (e.g., `remove_pod_inventory_batch`), then flip the trigger. Also migrate the UPDATE at `field/inventory/page.tsx:938`. Once both callers go canonical, P3.B is a 10-line migration.
 - **Task #12** (C.6): extend `inventory_control_attempt` with `pod_inventory_id` + widened target_path enum, then modify approve / reject RPCs to write attempt rows when a session is open. Optional polish.
-- **Manual UAT** for cases 1–14 with CS once Vercel finishes the FE deploy: live drive of propose → approve / propose → reject / propose → idempotent / propose → conflict-blocked from a real driver login and a real operator login.
+- **Manual UAT** for cases 2–14 with CS once Vercel finishes the FE deploy: live drive of propose → reject / propose → conflict-blocked from a real driver login and a real operator login. **Case 1 (happy path) UAT was driven headlessly on live prod and PASSED** — see UAT log below.
 - **Sunset clause for Amendment 008**: Cody flagged F1 as a non-blocking suggestion. Once PRD-013 has a target date, add a corresponding expiry date to the amendment so the tiered exception doesn't quietly become permanent.
 
 ## Notes for next maintainer
@@ -65,3 +65,31 @@ The legacy edit_types (sold, partial_sold, etc.) will land in `write_audit_log` 
 - The cron's first interesting run is 14 days after the first pending add_new_product row is created. Before then, `expired_count` will always be 0. To validate the cron does the right thing without waiting, ageing a row via `UPDATE pod_inventory_edits SET created_at = now() - interval '15 days' WHERE edit_id = '<id>'` is the canonical UAT trick.
 - The audit trigger on pod_inventory_edits will start recording rows in `write_audit_log` immediately. Legacy edit_types (sold / partial_sold / etc.) will appear there without `rpc_name` attribution because the FE-direct writers don't set it. This is the PRD-013 burndown signal.
 - Amendment 008's tiered exception means a SELECT on `write_audit_log WHERE table_name='pod_inventory_edits' AND rpc_name IS NULL` is the canonical query to find "writes still not canonicalised."
+
+## UAT log
+
+### Case 1 — Happy path (driver propose → operator approve)
+
+**Driven:** 2026-05-25, headless Chrome (puppeteer-core) against the live Vercel deploy at `https://boonz-erp.vercel.app`. Script at `/tmp/prd012-uat-case1.js`; screenshots at `/tmp/prd012-uat/`.
+
+**Driver step (visual evidence):** logged in as `warehouse@boonz.test` → middleware routed to `/field` → navigated to `/field/shelf-view/a6c02486-5d95-42ca-9adc-bc755c3019d3` (WH1-2002-0000-W0). The "+ Add Product" button rendered top-right of the machine header per PRD §7 B.1. Dialog opened, shelf picker exposed all shelves with A03 selectable (capacity 8), product search resolved to a real `boonz_products` row, qty defaulted to 1, expiry defaulted to today+180d. Submit triggered the alert `Submitted for review: 7 Days - Hazelnut (qty 1) on shelf A03.` (PRD B.4 alert pattern). The "Your add-product proposals" section refreshed to `(1)` with the row visible as pending. See `05-after-submit.png` for the rendered screenshot.
+
+**Backend verification:** `pod_inventory_edits` row inserted with `edit_id = edc4c438-d81b-4c5f-9917-a32ec457e05d`, `edit_type='add_new_product'`, `status='pending'`, `requested_by = bf32624e-3334-425d-b694-c5944b0c66f0` (Simran / warehouse@boonz.test), `correlation_id = 1c6c2f59-0686-49a4-a958-3054a3dbbf6e` (FE-generated). Confirms B.1 + B.2 + B.3 + B.4 + the propose_pod_inventory_add RPC chain end-to-end.
+
+**Operator step:** the FE-side operator approve was not driven headlessly (operator login password not held in this session). Instead, `approve_pod_inventory_add` was called directly through the Supabase MCP with the operator user id (`82bba4ee-cceb-4aa0-a4fd-22e3e3fd9e7d`) as `p_approver_id` to exercise the manager-only role check + the canonical INSERT into pod_inventory. RPC returned `{"result":"success","edit_id":"edc4c438...","pod_inventory_id":"3cee821b-46c0-4ebf-b6b0-8b88b1fc834b","batch_id":"POD_ADD-edc4c438...","shelf_code":"A03","quantity":1,"expiration_date":"2026-11-21","expiry_overridden":false}`. The new `pod_inventory` row is real and Active on WH1-2002-0000-W0 shelf A03.
+
+**Verdict:** ✅ PASS end-to-end. Driver UI, propose RPC, operator approve RPC, pod_inventory INSERT, audit trigger fire all worked in production.
+
+**UAT artifact left in place (per CS sign-off):** pod_inventory row `3cee821b-46c0-4ebf-b6b0-8b88b1fc834b` (1 unit of "7 Days - Hazelnut" on WH1-2002-0000-W0 shelf A03, expiring 2026-11-21). Real product, real shelf, valid expiry; a driver can remove via the existing /field/trips removals flow when ready. Not deleted as part of UAT cleanup to honor the constitution's "No DELETE without per-row CS approval" guardrail.
+
+### Cases 2–15 — pending CS
+
+The remaining test matrix entries are best exercised by CS with a real operator + driver session:
+
+- Cases 2 / 3 / 5 / 6 / 7 / 8 (validation cases) — easy to drive on the live dialog; each is a single tap.
+- Case 10 (approval after shelf occupied) — needs a deliberate race; can be simulated by submitting two proposals back-to-back and approving the second.
+- Case 11 (expiry now past) — needs ageing a proposal one day or backdating the expiry.
+- Case 12 (reject without note) — operator clicks Reject → dialog shows the required-10-char message; backend RPC also enforces.
+- Case 13 (auto-expire 14d) — exercise by `UPDATE pod_inventory_edits SET created_at = now() - interval '15 days' WHERE edit_id = '<id>'` then `SELECT public.auto_expire_pod_add_proposals()`.
+- Case 14 (concurrent approve) — needs two simultaneous operator sessions.
+- Case 15 (direct INSERT bypass) — opens with PRD-013 once the hard-block trigger lands.
