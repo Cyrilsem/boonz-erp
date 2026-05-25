@@ -1,6 +1,21 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Hard caps to prevent MIDDLEWARE_INVOCATION_TIMEOUT (Vercel kills at 25s).
+// Supabase Auth API or DB pool starvation can stall these calls indefinitely.
+// On timeout we redirect to /login instead of letting Vercel hammer the request.
+const AUTH_TIMEOUT_MS = 5000;
+const PROFILE_TIMEOUT_MS = 3000;
+
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`middleware_timeout:${label}`)), ms),
+    ),
+  ]);
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -39,15 +54,9 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Always use getUser() — validates JWT server-side (not getSession() which reads cookie only)
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
   const path = request.nextUrl.pathname;
 
-  // ── Public pass-through ──────────────────────────────────────────────────────
+  // ── Public pass-through (cheap check FIRST, before any network call) ─────────
   const isPublic =
     path.startsWith("/login") ||
     path.startsWith("/reset-password") ||
@@ -58,6 +67,26 @@ export async function middleware(request: NextRequest) {
     /\.(svg|png|jpg|jpeg|gif|webp|ico|css|js)$/.test(path);
 
   if (isPublic) return supabaseResponse;
+
+  // Always use getUser() — validates JWT server-side (not getSession() which reads cookie only)
+  // Bounded by AUTH_TIMEOUT_MS so we never hit Vercel's 25s middleware ceiling.
+  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] = null;
+  let authError: unknown = null;
+  try {
+    const result = await withTimeout(
+      supabase.auth.getUser(),
+      AUTH_TIMEOUT_MS,
+      "getUser",
+    );
+    user = result.data.user;
+    authError = result.error;
+  } catch {
+    // Supabase Auth stalled. Fail to login rather than let Vercel kill the request.
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirectTo", path);
+    loginUrl.searchParams.set("error", "auth_timeout");
+    return NextResponse.redirect(loginUrl);
+  }
 
   // ── No session → login ───────────────────────────────────────────────────────
   if (authError || !user) {
@@ -80,13 +109,26 @@ export async function middleware(request: NextRequest) {
   }
 
   // ── Fetch role from user_profiles for all other users ────────────────────────
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-
-  const role = profile?.role ?? null;
+  // Bounded by PROFILE_TIMEOUT_MS. If the DB stalls (pool starvation, slow RLS),
+  // fail to login rather than block the page load.
+  let role: string | null = null;
+  try {
+    const { data: profile } = await withTimeout(
+      supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single(),
+      PROFILE_TIMEOUT_MS,
+      "user_profiles",
+    );
+    role = profile?.role ?? null;
+  } catch {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirectTo", path);
+    loginUrl.searchParams.set("error", "profile_timeout");
+    return NextResponse.redirect(loginUrl);
+  }
 
   if (!role) {
     // Profile missing or RLS blocked read — force re-login instead of
