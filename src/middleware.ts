@@ -1,5 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import {
+  ROLE_COOKIE_MAX_AGE_S,
+  ROLE_COOKIE_NAME,
+  signRoleCookie,
+  verifyRoleCookie,
+} from "@/lib/auth/role-cookie";
 
 // Hard caps to prevent MIDDLEWARE_INVOCATION_TIMEOUT (Vercel kills at 25s).
 // Supabase Auth API or DB pool starvation can stall these calls indefinitely.
@@ -108,36 +114,72 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  // ── Fetch role from user_profiles for all other users ────────────────────────
-  // Bounded by PROFILE_TIMEOUT_MS. If the DB stalls (pool starvation, slow RLS),
-  // fail to login rather than block the page load.
+  // ── Fast path: signed role cookie ────────────────────────────────────────────
+  // Avoids a Postgres roundtrip on every protected request. Cookie is bound to
+  // the Supabase user_id, so a stale cookie from another user fails verify
+  // and we fall through to the slow path (which then rewrites the cookie).
   let role: string | null = null;
-  try {
-    const { data: profile } = await withTimeout(
-      supabase
-        .from("user_profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single(),
-      PROFILE_TIMEOUT_MS,
-      "user_profiles",
-    );
-    role = profile?.role ?? null;
-  } catch {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirectTo", path);
-    loginUrl.searchParams.set("error", "profile_timeout");
-    return NextResponse.redirect(loginUrl);
+  let roleFromCookie = false;
+  const roleCookieRaw = request.cookies.get(ROLE_COOKIE_NAME)?.value;
+  if (roleCookieRaw) {
+    try {
+      role = await verifyRoleCookie(roleCookieRaw, user.id);
+      roleFromCookie = role !== null;
+    } catch {
+      role = null;
+    }
   }
 
+  // ── Slow path: fetch role from user_profiles + rewrite the cookie ────────────
+  // Bounded by PROFILE_TIMEOUT_MS. If the DB stalls (pool starvation, slow RLS),
+  // fail to login rather than block the page load.
   if (!role) {
-    // Profile missing or RLS blocked read — force re-login instead of
-    // silently falling through as field_staff
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirectTo", path);
-    loginUrl.searchParams.set("error", "session_invalid");
-    return NextResponse.redirect(loginUrl);
+    try {
+      const { data: profile } = await withTimeout(
+        supabase
+          .from("user_profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single(),
+        PROFILE_TIMEOUT_MS,
+        "user_profiles",
+      );
+      role = profile?.role ?? null;
+    } catch {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("redirectTo", path);
+      loginUrl.searchParams.set("error", "profile_timeout");
+      return NextResponse.redirect(loginUrl);
+    }
+
+    if (!role) {
+      // Profile missing or RLS blocked read — force re-login instead of
+      // silently falling through as field_staff
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("redirectTo", path);
+      loginUrl.searchParams.set("error", "session_invalid");
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // Refresh the signed cookie on the outbound response.
+    try {
+      const signed = await signRoleCookie(user.id, role);
+      supabaseResponse.cookies.set(ROLE_COOKIE_NAME, signed, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: ROLE_COOKIE_MAX_AGE_S,
+      });
+    } catch {
+      // ROLE_COOKIE_SECRET not configured — proceed without caching. The fix
+      // still works, it just doesn't get the perf benefit until the env var
+      // is set. Don't break the request over it.
+    }
   }
+  // (roleFromCookie is reserved for future logging; kept to make the path
+  // taken visible to grep.)
+  void roleFromCookie;
 
   const onApp = path.startsWith("/app");
   const onField = path.startsWith("/field");
