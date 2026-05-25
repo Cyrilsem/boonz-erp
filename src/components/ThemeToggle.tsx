@@ -1,38 +1,20 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-// A-03: Persist the user's theme preference in localStorage; fall back to
-// the system `prefers-color-scheme` on first visit. The inline bootstrap
-// script in src/app/layout.tsx sets `.dark` on <html> before React mounts,
-// which prevents a flash of light theme. This component keeps the toggle
-// button in sync with the actual class state.
+// PRD-UI-001: dark mode is disabled app-wide. ThemeToggle is kept as a
+// component so existing call sites (field-header) do not need to be edited,
+// but it renders nothing and actively scrubs any stale `.dark` class plus
+// the persisted `theme` key from localStorage. If a proper dark mode is
+// ever shipped, restore the prior implementation from git history.
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false);
-
   useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)",
-    ).matches;
-    const isDark = stored ? stored === "dark" : prefersDark;
-    setDark(isDark);
-    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.classList.remove("dark");
+    try {
+      localStorage.removeItem("theme");
+    } catch {
+      // localStorage may throw in strict-Safari private mode; safe to ignore.
+    }
   }, []);
 
-  function toggle() {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("theme", next ? "dark" : "light");
-  }
-
-  return (
-    <button
-      onClick={toggle}
-      aria-label="Toggle dark mode"
-      className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
-    >
-      {dark ? "☀️" : "🌙"}
-    </button>
-  );
+  return null;
 }

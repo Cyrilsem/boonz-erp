@@ -37,11 +37,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* A-03: Apply the persisted theme before first paint so users
-            don't see a flash of light mode on dark-preferring devices. */}
+        {/* PRD-UI-001: force light mode at the document level so mobile
+            Safari / Chrome do not apply native-control dark heuristics, and
+            scrub any stale .dark class a prior session left on <html>. */}
+        <meta name="color-scheme" content="light" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){var t=localStorage.getItem('theme');var d=window.matchMedia('(prefers-color-scheme:dark)').matches;if(t==='dark'||(t===null&&d)){document.documentElement.classList.add('dark')}})()`,
+            __html: `(function(){document.documentElement.classList.remove('dark')})()`,
           }}
         />
       </head>

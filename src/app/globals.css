@@ -1,6 +1,13 @@
 @import "tailwindcss";
 
+/* PRD-UI-001: force light mode globally. Internal ops tool with 3-5 users
+   and 250+ hardcoded bg-white / text-gray-* classes across 49 files; a
+   proper dark-mode rewrite is high effort low value. Force light + neutralize
+   the dark: Tailwind variant so any leftover dark:* classes are inert. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -10,13 +17,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
