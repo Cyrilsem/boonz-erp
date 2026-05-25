@@ -15,6 +15,19 @@ Format:
 
 ---
 
+## 2026-05-25 — PRD-002 procurement per-line edit-lock, Cancel-with-comment, add-item multi-batch expiry
+
+**Phase / Article:** PRD-002 (procurement) / Constitution Articles 1, 4, 5, 8, 12 (backend patch); Article 3 (FE — no new direct writes to protected entities; `po_additions` direct INSERT pattern is unchanged from PRD-001-procurement).
+**Applied to:** prod (migration `phaseF_proc_edit_po_line_received_lock`) + repo (FE).
+**Migration name:** `phaseF_proc_edit_po_line_received_lock` (file `supabase/migrations/20260525130000_phaseF_proc_edit_po_line_received_lock.sql`).
+**Summary:** Closes three procurement gaps when a PO is partially received. (1) Backend — `edit_purchase_order_line` gains a received-state guard: lines with `received_qty > 0` OR `purchase_outcome = 'received'` are now superadmin-only; other roles get a `line is already received; only superadmin can edit` raise. A `lock_level` field (`'received'` | `'unreceived'`) is recorded in `procurement_events.payload`, `write_audit_log.payload`, and the function's return jsonb so the audit history can differentiate normal edits from superadmin overrides. No signature change. Cody-approved against Articles 1, 4, 5, 8, 12. (2) FE per-line lock + Cancel — `/field/orders` (mobile) and `/app/procurement` (desktop) PO drawers now render a per-line action cell: 🔒 chip on received lines for non-superadmin callers, `Cancel` button on unreceived lines for `warehouse/operator_admin/manager/superadmin`, line-through plus `Not received` badge on `purchase_outcome='not_purchased'`. New shared component `src/app/(field)/components/CancelPOLineDrawer.tsx` takes a 10-char-minimum free-text reason and calls the existing `cancel_po_line` RPC. The desktop page imports the field component for parity. (3) FE add-item multi-batch — `/field/receiving/[poId]` add-item modal refactored from single `{qty, expiry}` to `addBatches: {qty, expiry}[]` with a `+ Add another expiry batch` affordance. Each batch becomes one row in `po_additions`. Save is blocked iff every batch has empty expiry (mixed batches with one date are allowed; some products legitimately have no expiry). Price stays per-product on the addition. Build clean: tsc + next build.
+
+**Open question (deferred to CS):** should `operator_admin` also override received-line edits, or stay superadmin-only? PRD shipped superadmin-only; flip the guard to `v_caller_role NOT IN ('superadmin','operator_admin')` in a forward migration if CS wants the broader scope.
+
+**Rollback:** `git revert <commit-sha>` for the FE. For the backend RPC, apply a forward `CREATE OR REPLACE` that removes the `v_lock_level` block + the received-state RAISE (no DROP, Article 12). The patch is purely additive within the function body so reverting is mechanical.
+
+---
+
 ## 2026-05-25 — PRD-001 inventory session-gate discoverability (FE only)
 
 **Phase / Article:** PRD-001 (inventory) / no Constitution articles touched (FE only, no protected-entity writes added).

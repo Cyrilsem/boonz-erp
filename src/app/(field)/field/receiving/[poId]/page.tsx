@@ -135,9 +135,13 @@ export default function ReceivingDetailPage() {
   const [selectedProduct, setSelectedProduct] = useState<BoonzProduct | null>(
     null,
   );
-  const [addQty, setAddQty] = useState(1);
   const [addPrice, setAddPrice] = useState<number>(0);
-  const [addExpiry, setAddExpiry] = useState<string>("");
+  // PRD-002: multi-batch additions. Each batch becomes one po_additions row.
+  // Same price across batches (price is per-product on the PO line, not per
+  // batch). Default single-batch state preserves the prior UX.
+  const [addBatches, setAddBatches] = useState<
+    { qty: number; expiry: string }[]
+  >([{ qty: 1, expiry: "" }]);
   const [addSaving, setAddSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [additions, setAdditions] = useState<FieldAddition[]>([]);
@@ -546,30 +550,69 @@ export default function ReceivingDetailPage() {
 
   async function handleAddConfirm() {
     if (!selectedProduct) return;
+
+    // PRD-002: prune empty rows and validate.
+    const cleanBatches = addBatches
+      .map((b) => ({
+        qty: Number(b.qty) || 0,
+        expiry: b.expiry.trim(),
+      }))
+      .filter((b) => b.qty > 0);
+
+    if (cleanBatches.length === 0) {
+      alert("Add at least one batch with quantity > 0.");
+      return;
+    }
+
+    // PRD-002: block save only if EVERY batch is empty-expiry. Mixed (some
+    // with, some without) is allowed. Mirrors the existing
+    // tg_warn_wh_inventory_null_expiry rationale.
+    if (cleanBatches.every((b) => !b.expiry)) {
+      alert(
+        "At least one batch must have an expiry date. If the product truly has no expiry, contact a manager.",
+      );
+      return;
+    }
+
     setAddSaving(true);
     const supabase = createClient();
     const {
       data: { user: authUser },
     } = await supabase.auth.getUser();
 
-    await supabase.from("po_additions").insert({
+    // One po_additions row per batch (mirrors how PO lines themselves are
+    // stored — one row per batch at receive time).
+    const rows = cleanBatches.map((b) => ({
       po_id: poId,
       boonz_product_id: selectedProduct.product_id,
-      qty: addQty,
+      qty: b.qty,
       price_per_unit_aed: addPrice || null,
-      expiry_date: addExpiry || null,
+      expiry_date: b.expiry || null,
       added_by: authUser?.id,
-      status: "pending_receive",
-    });
+      status: "pending_receive" as const,
+    }));
+
+    const { error: insertErr } = await supabase
+      .from("po_additions")
+      .insert(rows);
 
     setAddSaving(false);
+
+    if (insertErr) {
+      alert(`Add failed: ${insertErr.message}`);
+      return;
+    }
+
     setShowAddItem(false);
     setSelectedProduct(null);
     setAddSearch("");
-    setAddQty(1);
+    setAddBatches([{ qty: 1, expiry: "" }]);
     setAddPrice(0);
-    setAddExpiry("");
-    setToast("Added!");
+    setToast(
+      cleanBatches.length === 1
+        ? "Added!"
+        : `Added ${cleanBatches.length} batches!`,
+    );
     setTimeout(() => setToast(null), 2000);
     fetchData();
   }
@@ -1034,9 +1077,8 @@ export default function ReceivingDetailPage() {
           setShowAddItem(true);
           setSelectedProduct(null);
           setAddSearch("");
-          setAddQty(1);
+          setAddBatches([{ qty: 1, expiry: "" }]);
           setAddPrice(0);
-          setAddExpiry("");
         }}
         className="mt-4 w-full rounded-lg border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
       >
@@ -1099,47 +1141,98 @@ export default function ReceivingDetailPage() {
                 <p className="mb-3 text-sm font-medium text-neutral-700">
                   {selectedProduct.boonz_product_name}
                 </p>
-                <div className="mb-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-0.5 block text-xs text-neutral-500">
-                      Quantity
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      value={addQty}
-                      onChange={(e) => setAddQty(Number(e.target.value) || 1)}
-                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-0.5 block text-xs text-neutral-500">
-                      Price (AED)
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      value={addPrice || ""}
-                      onChange={(e) => setAddPrice(Number(e.target.value))}
-                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                    />
-                  </div>
-                </div>
                 <div className="mb-3">
                   <label className="mb-0.5 block text-xs text-neutral-500">
-                    Expiry date
+                    Price (AED)
                   </label>
                   <input
-                    type="date"
-                    value={addExpiry}
-                    onChange={(e) => setAddExpiry(e.target.value)}
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={addPrice || ""}
+                    onChange={(e) => setAddPrice(Number(e.target.value))}
                     className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
                   />
                 </div>
+
+                {/* PRD-002: one row per {qty, expiry} batch. Each becomes one
+                    po_additions row. At least one batch must have an expiry. */}
+                <div className="mb-3">
+                  <label className="mb-1 block text-xs text-neutral-500">
+                    Batches
+                  </label>
+                  {addBatches.map((b, idx) => (
+                    <div key={idx} className="mb-2 flex items-end gap-2">
+                      <div className="w-20 shrink-0">
+                        <span className="block text-[10px] text-neutral-400">
+                          Qty
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={b.qty}
+                          onChange={(e) => {
+                            const v = Number(e.target.value) || 0;
+                            setAddBatches((prev) =>
+                              prev.map((p, i) =>
+                                i === idx ? { ...p, qty: v } : p,
+                              ),
+                            );
+                          }}
+                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className="block text-[10px] text-neutral-400">
+                          Expiry (optional but recommended)
+                        </span>
+                        <input
+                          type="date"
+                          value={b.expiry}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAddBatches((prev) =>
+                              prev.map((p, i) =>
+                                i === idx ? { ...p, expiry: v } : p,
+                              ),
+                            );
+                          }}
+                          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      {addBatches.length > 1 && (
+                        <button
+                          type="button"
+                          aria-label="Remove batch"
+                          onClick={() =>
+                            setAddBatches((prev) =>
+                              prev.filter((_, i) => i !== idx),
+                            )
+                          }
+                          className="shrink-0 rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-500 hover:bg-neutral-50"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAddBatches((prev) => [...prev, { qty: 1, expiry: "" }])
+                    }
+                    className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    + Add another expiry batch
+                  </button>
+                </div>
+
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setSelectedProduct(null)}
+                    onClick={() => {
+                      setSelectedProduct(null);
+                      setAddBatches([{ qty: 1, expiry: "" }]);
+                    }}
                     className="flex-1 rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-600"
                   >
                     Back

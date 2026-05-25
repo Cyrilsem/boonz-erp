@@ -3,6 +3,15 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import { CancelPOLineDrawer } from "@/app/(field)/components/CancelPOLineDrawer";
+
+// PRD-002: per-line lock + Cancel gating on the desktop PO drawer.
+const EDIT_ROLES = new Set([
+  "warehouse",
+  "operator_admin",
+  "superadmin",
+  "manager",
+]);
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -31,6 +40,8 @@ interface PODetail {
   purchase_date: string;
   ordered_qty: number | null;
   received_date: string | null;
+  received_qty: number | null;
+  purchase_outcome: string | null;
   price_per_unit_aed: number | null;
   total_price_aed: number | null;
   expiry_date: string | null;
@@ -102,6 +113,10 @@ export default function ProcurementPage() {
   const [poLines, setPOLines] = useState<PODetail[]>([]);
   const [poLoading, setPOLoading] = useState(false);
 
+  // PRD-002: caller role + per-line Cancel drawer state.
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [cancellingLine, setCancellingLine] = useState<PODetail | null>(null);
+
   // Field additions state
   const [pendingAdditionsCount, setPendingAdditionsCount] = useState(0);
   const [poAdditions, setPoAdditions] = useState<POAddition[]>([]);
@@ -124,7 +139,9 @@ export default function ProcurementPage() {
   const [demandRows, setDemandRows] = useState<DemandRow[]>([]);
   const [demandLoading, setDemandLoading] = useState(false);
   const [demandLoaded, setDemandLoaded] = useState(false);
-  const [selectedDemandIds, setSelectedDemandIds] = useState<Set<string>>(new Set());
+  const [selectedDemandIds, setSelectedDemandIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [demandDraftSupplier, setDemandDraftSupplier] = useState("");
   const [demandDraftSaving, setDemandDraftSaving] = useState(false);
   const [demandToast, setDemandToast] = useState<string | null>(null);
@@ -134,7 +151,7 @@ export default function ProcurementPage() {
     const supabase = createClient();
     const { data, error } = await supabase.rpc("get_procurement_demand", {
       p_lookback_days: 14,
-      p_buffer_pct: 0.10,
+      p_buffer_pct: 0.1,
     });
     if (!error) {
       setDemandRows((data ?? []) as DemandRow[]);
@@ -143,20 +160,23 @@ export default function ProcurementPage() {
     setDemandLoading(false);
   }, []);
 
-  const handleTabChange = useCallback((t: TabFilter) => {
-    setTab(t);
-    if (t === "demand" && !demandLoaded) loadDemand();
-    // Load suppliers for the "Create Draft PO" flow if not already loaded
-    if (t === "demand" && suppliers.length === 0) {
-      const supabase = createClient();
-      supabase
-        .from("suppliers")
-        .select("supplier_id, supplier_name")
-        .order("supplier_name")
-        .limit(10000)
-        .then(({ data }) => setSuppliers(data ?? []));
-    }
-  }, [demandLoaded, loadDemand, suppliers.length]);
+  const handleTabChange = useCallback(
+    (t: TabFilter) => {
+      setTab(t);
+      if (t === "demand" && !demandLoaded) loadDemand();
+      // Load suppliers for the "Create Draft PO" flow if not already loaded
+      if (t === "demand" && suppliers.length === 0) {
+        const supabase = createClient();
+        supabase
+          .from("suppliers")
+          .select("supplier_id, supplier_name")
+          .order("supplier_name")
+          .limit(10000)
+          .then(({ data }) => setSuppliers(data ?? []));
+      }
+    },
+    [demandLoaded, loadDemand, suppliers.length],
+  );
 
   const fetchOrders = useCallback(async () => {
     const supabase = createClient();
@@ -212,6 +232,21 @@ export default function ProcurementPage() {
         .select("addition_id", { count: "exact", head: true })
         .eq("status", "pending_receive");
       setPendingAdditionsCount(count ?? 0);
+
+      // PRD-002: fetch caller role so the per-line lock + Cancel buttons can
+      // gate themselves. EDIT_ROLES drives Cancel; received-line edits via
+      // edit_purchase_order_line are superadmin-only.
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from("user_profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        setUserRole(profile?.role ?? null);
+      }
     })();
   }, [fetchOrders]);
 
@@ -237,7 +272,7 @@ export default function ProcurementPage() {
     const { data } = await supabase
       .from("purchase_orders")
       .select(
-        "po_line_id, po_id, po_number, purchase_date, ordered_qty, received_date, price_per_unit_aed, total_price_aed, expiry_date, boonz_product_id, boonz_products!inner(boonz_product_name)",
+        "po_line_id, po_id, po_number, purchase_date, ordered_qty, received_date, received_qty, purchase_outcome, price_per_unit_aed, total_price_aed, expiry_date, boonz_product_id, boonz_products!inner(boonz_product_name)",
       )
       .eq("po_id", po.po_id)
       .limit(10000);
@@ -334,11 +369,15 @@ export default function ProcurementPage() {
     }
 
     // Create driver task
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (user) {
       const productNames = rows
         .map((r) => {
-          const row = demandRows.find((d) => d.boonz_product_id === r.boonz_product_id);
+          const row = demandRows.find(
+            (d) => d.boonz_product_id === r.boonz_product_id,
+          );
           return `${row?.boonz_product_name ?? r.boonz_product_id} x${r.ordered_qty}`;
         })
         .join(", ");
@@ -355,7 +394,9 @@ export default function ProcurementPage() {
     setDemandDraftSaving(false);
     setSelectedDemandIds(new Set());
     setDemandDraftSupplier("");
-    setDemandToast(`✓ Draft PO #${nextNumber} created with ${rows.length} line${rows.length !== 1 ? "s" : ""}`);
+    setDemandToast(
+      `✓ Draft PO #${nextNumber} created with ${rows.length} line${rows.length !== 1 ? "s" : ""}`,
+    );
     setTimeout(() => setDemandToast(null), 4000);
     // Refresh orders list
     setLoading(true);
@@ -665,7 +706,8 @@ export default function ProcurementPage() {
               padding: "7px 14px",
               fontSize: 13,
               fontWeight: tab === t ? 600 : 400,
-              background: tab === t ? (t === "demand" ? "#24544a" : "#0a0a0a") : "white",
+              background:
+                tab === t ? (t === "demand" ? "#24544a" : "#0a0a0a") : "white",
               color: tab === t ? "white" : "#6b6860",
               cursor: "pointer",
             }}
@@ -673,8 +715,8 @@ export default function ProcurementPage() {
             {t === "pending"
               ? `Pending (${pendingCount})`
               : t === "all"
-              ? "All Orders"
-              : "⚡ Demand"}
+                ? "All Orders"
+                : "⚡ Demand"}
           </button>
         ))}
         {tab !== "demand" && (
@@ -696,7 +738,9 @@ export default function ProcurementPage() {
               }}
             />
             {!loading && (
-              <span style={{ marginLeft: "auto", fontSize: 13, color: "#6b6860" }}>
+              <span
+                style={{ marginLeft: "auto", fontSize: 13, color: "#6b6860" }}
+              >
                 {displayed.length} result{displayed.length !== 1 ? "s" : ""}
               </span>
             )}
@@ -704,7 +748,8 @@ export default function ProcurementPage() {
         )}
         {tab === "demand" && !demandLoading && demandLoaded && (
           <span style={{ marginLeft: "auto", fontSize: 13, color: "#6b6860" }}>
-            {demandRows.length} SKU{demandRows.length !== 1 ? "s" : ""} need restocking
+            {demandRows.length} SKU{demandRows.length !== 1 ? "s" : ""} need
+            restocking
           </span>
         )}
         {tab === "demand" && (
@@ -760,7 +805,8 @@ export default function ProcurementPage() {
               marginBottom: 14,
             }}
           >
-            Demand based on last 14 days of sales · VOX-sourced products excluded · Suggested qty includes 10% buffer
+            Demand based on last 14 days of sales · VOX-sourced products
+            excluded · Suggested qty includes 10% buffer
           </div>
 
           <div
@@ -777,12 +823,23 @@ export default function ProcurementPage() {
                   <th className="px-4 py-3" style={{ width: 36 }}>
                     <input
                       type="checkbox"
-                      checked={demandRows.length > 0 && selectedDemandIds.size === demandRows.length}
+                      checked={
+                        demandRows.length > 0 &&
+                        selectedDemandIds.size === demandRows.length
+                      }
                       onChange={toggleAllDemand}
                       style={{ cursor: "pointer" }}
                     />
                   </th>
-                  {["Product", "Category", "14d Sales", "Variant Demand", "WH Stock", "Gap", "Suggested Qty"].map((h) => (
+                  {[
+                    "Product",
+                    "Category",
+                    "14d Sales",
+                    "Variant Demand",
+                    "WH Stock",
+                    "Gap",
+                    "Suggested Qty",
+                  ].map((h) => (
                     <th
                       key={h}
                       className="text-left px-3 py-3"
@@ -807,7 +864,11 @@ export default function ProcurementPage() {
                         <td key={j} className="px-3 py-3">
                           <div
                             className="animate-pulse rounded"
-                            style={{ height: 13, width: w, background: "#f0ede8" }}
+                            style={{
+                              height: 13,
+                              width: w,
+                              background: "#f0ede8",
+                            }}
                           />
                         </td>
                       ))}
@@ -815,15 +876,30 @@ export default function ProcurementPage() {
                   ))
                 ) : demandRows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center" style={{ color: "#6b6860" }}>
-                      No procurement demand detected — all products are sufficiently stocked.
+                    <td
+                      colSpan={8}
+                      className="px-4 py-10 text-center"
+                      style={{ color: "#6b6860" }}
+                    >
+                      No procurement demand detected — all products are
+                      sufficiently stocked.
                     </td>
                   </tr>
                 ) : (
                   demandRows.map((r) => {
-                    const isSelected = selectedDemandIds.has(r.boonz_product_id);
-                    const gapPct = r.variant_demand_14d > 0 ? r.gap / r.variant_demand_14d : 0;
-                    const gapColor = gapPct > 0.75 ? "#dc2626" : gapPct > 0.4 ? "#d97706" : "#0a0a0a";
+                    const isSelected = selectedDemandIds.has(
+                      r.boonz_product_id,
+                    );
+                    const gapPct =
+                      r.variant_demand_14d > 0
+                        ? r.gap / r.variant_demand_14d
+                        : 0;
+                    const gapColor =
+                      gapPct > 0.75
+                        ? "#dc2626"
+                        : gapPct > 0.4
+                          ? "#d97706"
+                          : "#0a0a0a";
                     return (
                       <tr
                         key={r.boonz_product_id}
@@ -834,13 +910,22 @@ export default function ProcurementPage() {
                         }}
                         onClick={() => toggleDemandRow(r.boonz_product_id)}
                         onMouseEnter={(e) => {
-                          if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "#faf9f7";
+                          if (!isSelected)
+                            (
+                              e.currentTarget as HTMLTableRowElement
+                            ).style.background = "#faf9f7";
                         }}
                         onMouseLeave={(e) => {
-                          if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "transparent";
+                          if (!isSelected)
+                            (
+                              e.currentTarget as HTMLTableRowElement
+                            ).style.background = "transparent";
                         }}
                       >
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <td
+                          className="px-4 py-3"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -849,22 +934,74 @@ export default function ProcurementPage() {
                           />
                         </td>
                         <td className="px-3 py-3">
-                          <div style={{ fontWeight: 600, color: "#24544a", fontSize: 13 }}>{r.boonz_product_name}</div>
-                          <div style={{ fontSize: 11, color: "#6b6860", marginTop: 1 }}>{r.pod_product_name}</div>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              color: "#24544a",
+                              fontSize: 13,
+                            }}
+                          >
+                            {r.boonz_product_name}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "#6b6860",
+                              marginTop: 1,
+                            }}
+                          >
+                            {r.pod_product_name}
+                          </div>
                         </td>
-                        <td className="px-3 py-3" style={{ color: "#6b6860", fontSize: 12 }}>{r.product_category ?? "—"}</td>
-                        <td className="px-3 py-3" style={{ color: "#0a0a0a", fontSize: 13 }}>{r.sales_14d.toFixed(0)}</td>
-                        <td className="px-3 py-3" style={{ color: "#0a0a0a", fontSize: 13 }}>
+                        <td
+                          className="px-3 py-3"
+                          style={{ color: "#6b6860", fontSize: 12 }}
+                        >
+                          {r.product_category ?? "—"}
+                        </td>
+                        <td
+                          className="px-3 py-3"
+                          style={{ color: "#0a0a0a", fontSize: 13 }}
+                        >
+                          {r.sales_14d.toFixed(0)}
+                        </td>
+                        <td
+                          className="px-3 py-3"
+                          style={{ color: "#0a0a0a", fontSize: 13 }}
+                        >
                           {r.variant_demand_14d.toFixed(0)}
                           {r.split_pct < 100 && (
-                            <span style={{ fontSize: 10, color: "#6b6860", marginLeft: 4 }}>({r.split_pct}%)</span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "#6b6860",
+                                marginLeft: 4,
+                              }}
+                            >
+                              ({r.split_pct}%)
+                            </span>
                           )}
                         </td>
-                        <td className="px-3 py-3" style={{ color: r.wh_stock === 0 ? "#dc2626" : "#0a0a0a", fontSize: 13, fontWeight: r.wh_stock === 0 ? 700 : 400 }}>
+                        <td
+                          className="px-3 py-3"
+                          style={{
+                            color: r.wh_stock === 0 ? "#dc2626" : "#0a0a0a",
+                            fontSize: 13,
+                            fontWeight: r.wh_stock === 0 ? 700 : 400,
+                          }}
+                        >
                           {r.wh_stock.toFixed(0)}
                         </td>
                         <td className="px-3 py-3">
-                          <span style={{ fontWeight: 700, color: gapColor, fontSize: 13 }}>{r.gap.toFixed(0)}</span>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              color: gapColor,
+                              fontSize: 13,
+                            }}
+                          >
+                            {r.gap.toFixed(0)}
+                          </span>
                         </td>
                         <td className="px-3 py-3">
                           <span
@@ -910,8 +1047,16 @@ export default function ProcurementPage() {
                 minWidth: 480,
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#0a0a0a", whiteSpace: "nowrap" }}>
-                {selectedDemandIds.size} product{selectedDemandIds.size !== 1 ? "s" : ""} selected
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "#0a0a0a",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {selectedDemandIds.size} product
+                {selectedDemandIds.size !== 1 ? "s" : ""} selected
               </span>
               <select
                 value={demandDraftSupplier}
@@ -928,21 +1073,32 @@ export default function ProcurementPage() {
               >
                 <option value="">Select supplier…</option>
                 {suppliers.map((s) => (
-                  <option key={s.supplier_id} value={s.supplier_id}>{s.supplier_name}</option>
+                  <option key={s.supplier_id} value={s.supplier_id}>
+                    {s.supplier_name}
+                  </option>
                 ))}
               </select>
               <button
                 onClick={createDraftPOFromDemand}
                 disabled={demandDraftSaving || !demandDraftSupplier}
                 style={{
-                  background: demandDraftSaving || !demandDraftSupplier ? "#e8e4de" : "#24544a",
-                  color: demandDraftSaving || !demandDraftSupplier ? "#6b6860" : "white",
+                  background:
+                    demandDraftSaving || !demandDraftSupplier
+                      ? "#e8e4de"
+                      : "#24544a",
+                  color:
+                    demandDraftSaving || !demandDraftSupplier
+                      ? "#6b6860"
+                      : "white",
                   border: "none",
                   borderRadius: 8,
                   padding: "8px 18px",
                   fontSize: 13,
                   fontWeight: 600,
-                  cursor: demandDraftSaving || !demandDraftSupplier ? "not-allowed" : "pointer",
+                  cursor:
+                    demandDraftSaving || !demandDraftSupplier
+                      ? "not-allowed"
+                      : "pointer",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -950,7 +1106,15 @@ export default function ProcurementPage() {
               </button>
               <button
                 onClick={() => setSelectedDemandIds(new Set())}
-                style={{ background: "none", border: "none", color: "#6b6860", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 2 }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#6b6860",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                  padding: 2,
+                }}
               >
                 ✕
               </button>
@@ -961,170 +1125,174 @@ export default function ProcurementPage() {
 
       {/* Table */}
       {tab !== "demand" && (
-      <div
-        style={{
-          background: "white",
-          border: "1px solid #e8e4de",
-          borderRadius: 12,
-          overflow: "hidden",
-        }}
-      >
-        <table className="w-full text-sm">
-          <thead>
-            <tr style={{ borderBottom: "1px solid #e8e4de" }}>
-              {[
-                "PO ID",
-                "Supplier",
-                "Order Date",
-                "Lines",
-                "Total Units",
-                "Status",
-                "",
-              ].map((h) => (
-                <th
-                  key={h}
-                  className="text-left px-4 py-3"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 500,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    color: "#6b6860",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                  {[120, 160, 100, 60, 80, 80, 80].map((w, j) => (
-                    <td key={j} className="px-4 py-3">
-                      <div
-                        className="animate-pulse rounded"
-                        style={{ height: 14, width: w, background: "#f0ede8" }}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : displayed.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-10 text-center"
-                  style={{ color: "#6b6860" }}
-                >
-                  {tab === "pending"
-                    ? "No pending purchase orders."
-                    : "No purchase orders found."}
-                </td>
-              </tr>
-            ) : (
-              displayed.map((o) => {
-                const isPending = !o.received_date;
-                return (
-                  <tr
-                    key={o.po_id}
+        <div
+          style={{
+            background: "white",
+            border: "1px solid #e8e4de",
+            borderRadius: 12,
+            overflow: "hidden",
+          }}
+        >
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: "1px solid #e8e4de" }}>
+                {[
+                  "PO ID",
+                  "Supplier",
+                  "Order Date",
+                  "Lines",
+                  "Total Units",
+                  "Status",
+                  "",
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left px-4 py-3"
                     style={{
-                      borderBottom: "1px solid #f5f2ee",
-                      cursor: "pointer",
-                      background:
-                        selectedPO?.po_id === o.po_id ? "#f0fdf4" : undefined,
-                    }}
-                    onClick={() => openPODrawer(o)}
-                    onMouseEnter={(e) => {
-                      if (selectedPO?.po_id !== o.po_id)
-                        (
-                          e.currentTarget as HTMLTableRowElement
-                        ).style.background = "#faf9f7";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedPO?.po_id !== o.po_id)
-                        (
-                          e.currentTarget as HTMLTableRowElement
-                        ).style.background =
-                          selectedPO?.po_id === o.po_id
-                            ? "#f0fdf4"
-                            : "transparent";
+                      fontSize: 11,
+                      fontWeight: 500,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#6b6860",
                     }}
                   >
-                    <td
-                      className="px-4 py-3"
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
+                    {[120, 160, 100, 60, 80, 80, 80].map((w, j) => (
+                      <td key={j} className="px-4 py-3">
+                        <div
+                          className="animate-pulse rounded"
+                          style={{
+                            height: 14,
+                            width: w,
+                            background: "#f0ede8",
+                          }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : displayed.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-10 text-center"
+                    style={{ color: "#6b6860" }}
+                  >
+                    {tab === "pending"
+                      ? "No pending purchase orders."
+                      : "No purchase orders found."}
+                  </td>
+                </tr>
+              ) : (
+                displayed.map((o) => {
+                  const isPending = !o.received_date;
+                  return (
+                    <tr
+                      key={o.po_id}
                       style={{
-                        fontFamily: "monospace",
-                        fontSize: 12,
-                        color: "#6b6860",
+                        borderBottom: "1px solid #f5f2ee",
+                        cursor: "pointer",
+                        background:
+                          selectedPO?.po_id === o.po_id ? "#f0fdf4" : undefined,
+                      }}
+                      onClick={() => openPODrawer(o)}
+                      onMouseEnter={(e) => {
+                        if (selectedPO?.po_id !== o.po_id)
+                          (
+                            e.currentTarget as HTMLTableRowElement
+                          ).style.background = "#faf9f7";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (selectedPO?.po_id !== o.po_id)
+                          (
+                            e.currentTarget as HTMLTableRowElement
+                          ).style.background =
+                            selectedPO?.po_id === o.po_id
+                              ? "#f0fdf4"
+                              : "transparent";
                       }}
                     >
-                      {o.po_id.slice(0, 8)}…
-                    </td>
-                    <td
-                      className="px-4 py-3"
-                      style={{ fontWeight: 600, color: "#24544a" }}
-                    >
-                      {o.supplier_name}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
-                      {formatDate(o.purchase_date)}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
-                      {o.line_count}
-                    </td>
-                    <td
-                      className="px-4 py-3"
-                      style={{ fontWeight: 600, color: "#0a0a0a" }}
-                    >
-                      {o.total_ordered.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
+                      <td
+                        className="px-4 py-3"
                         style={{
-                          display: "inline-block",
-                          padding: "2px 10px",
-                          borderRadius: 20,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          background: isPending ? "#fef9ee" : "#f0fdf4",
-                          color: isPending ? "#b45309" : "#065f46",
-                        }}
-                      >
-                        {isPending
-                          ? "Pending"
-                          : `Received ${formatDate(o.received_date)}`}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openPODrawer(o);
-                        }}
-                        style={{
+                          fontFamily: "monospace",
                           fontSize: 12,
-                          fontWeight: 600,
-                          color: "#24544a",
-                          background: "none",
-                          border: "1px solid #24544a",
-                          borderRadius: 6,
-                          padding: "4px 10px",
-                          cursor: "pointer",
-                          whiteSpace: "nowrap",
+                          color: "#6b6860",
                         }}
                       >
-                        View →
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                        {o.po_id.slice(0, 8)}…
+                      </td>
+                      <td
+                        className="px-4 py-3"
+                        style={{ fontWeight: 600, color: "#24544a" }}
+                      >
+                        {o.supplier_name}
+                      </td>
+                      <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
+                        {formatDate(o.purchase_date)}
+                      </td>
+                      <td className="px-4 py-3" style={{ color: "#0a0a0a" }}>
+                        {o.line_count}
+                      </td>
+                      <td
+                        className="px-4 py-3"
+                        style={{ fontWeight: 600, color: "#0a0a0a" }}
+                      >
+                        {o.total_ordered.toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "2px 10px",
+                            borderRadius: 20,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: isPending ? "#fef9ee" : "#f0fdf4",
+                            color: isPending ? "#b45309" : "#065f46",
+                          }}
+                        >
+                          {isPending
+                            ? "Pending"
+                            : `Received ${formatDate(o.received_date)}`}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openPODrawer(o);
+                          }}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: "#24544a",
+                            background: "none",
+                            border: "1px solid #24544a",
+                            borderRadius: 6,
+                            padding: "4px 10px",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          View →
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* ── PO Detail Drawer ───────────────────────────────────────────────── */}
@@ -1236,6 +1404,7 @@ export default function ProcurementPage() {
                         "Expiry",
                         "Status",
                         "WH Loc",
+                        "Actions",
                       ].map((h) => (
                         <th
                           key={h}
@@ -1254,58 +1423,136 @@ export default function ProcurementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {poLines.map((l) => (
-                      <tr
-                        key={l.po_line_id}
-                        style={{ borderBottom: "1px solid #f5f2ee" }}
-                      >
-                        <td
-                          className="py-2 px-2"
-                          style={{ fontWeight: 600, color: "#24544a" }}
+                    {poLines.map((l) => {
+                      // PRD-002: per-line lock + Cancel gating.
+                      const isReceived =
+                        (l.received_qty ?? 0) > 0 ||
+                        l.purchase_outcome === "received";
+                      const isCancelled =
+                        l.purchase_outcome === "not_purchased";
+                      const canCancelNow =
+                        !isReceived &&
+                        !isCancelled &&
+                        !!userRole &&
+                        EDIT_ROLES.has(userRole);
+                      const showLock =
+                        isReceived && !!userRole && userRole !== "superadmin";
+                      return (
+                        <tr
+                          key={l.po_line_id}
+                          style={{
+                            borderBottom: "1px solid #f5f2ee",
+                            textDecoration: isCancelled
+                              ? "line-through"
+                              : undefined,
+                            color: isCancelled ? "#a3a39a" : undefined,
+                          }}
                         >
-                          {l.boonz_products.boonz_product_name}
-                        </td>
-                        <td className="py-2 px-2" style={{ color: "#0a0a0a" }}>
-                          {l.ordered_qty}
-                        </td>
-                        <td className="py-2 px-2" style={{ color: "#6b6860" }}>
-                          {l.price_per_unit_aed
-                            ? `${l.price_per_unit_aed.toFixed(2)} AED`
-                            : "—"}
-                        </td>
-                        <td className="py-2 px-2" style={{ color: "#6b6860" }}>
-                          {l.expiry_date ? formatDate(l.expiry_date) : "—"}
-                        </td>
-                        <td className="py-2 px-2">
-                          {l.received_date ? (
-                            <span
+                          <td
+                            className="py-2 px-2"
+                            style={{ fontWeight: 600, color: "#24544a" }}
+                          >
+                            {l.boonz_products.boonz_product_name}
+                          </td>
+                          <td
+                            className="py-2 px-2"
+                            style={{ color: "#0a0a0a" }}
+                          >
+                            {l.ordered_qty}
+                          </td>
+                          <td
+                            className="py-2 px-2"
+                            style={{ color: "#6b6860" }}
+                          >
+                            {l.price_per_unit_aed
+                              ? `${l.price_per_unit_aed.toFixed(2)} AED`
+                              : "—"}
+                          </td>
+                          <td
+                            className="py-2 px-2"
+                            style={{ color: "#6b6860" }}
+                          >
+                            {l.expiry_date ? formatDate(l.expiry_date) : "—"}
+                          </td>
+                          <td className="py-2 px-2">
+                            {l.received_date ? (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: "#065f46",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                ✓ Received
+                              </span>
+                            ) : (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: "#92400e",
+                                  fontStyle: "italic",
+                                }}
+                              >
+                                Pending
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2">
+                            <span style={{ fontSize: 11, color: "#6b6860" }}>
+                              —
+                            </span>
+                          </td>
+                          <td className="py-2 px-2">
+                            <div
                               style={{
-                                fontSize: 11,
-                                color: "#065f46",
-                                fontWeight: 600,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
                               }}
                             >
-                              ✓ Received
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color: "#92400e",
-                                fontStyle: "italic",
-                              }}
-                            >
-                              Pending
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2 px-2">
-                          <span style={{ fontSize: 11, color: "#6b6860" }}>
-                            —
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                              {showLock && (
+                                <span
+                                  title="Received — only superadmin can edit"
+                                  style={{ fontSize: 13 }}
+                                >
+                                  🔒
+                                </span>
+                              )}
+                              {isCancelled && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: "#6b6860",
+                                    background: "#e8e4de",
+                                    borderRadius: 999,
+                                    padding: "2px 6px",
+                                  }}
+                                >
+                                  Not received
+                                </span>
+                              )}
+                              {canCancelNow && (
+                                <button
+                                  onClick={() => setCancellingLine(l)}
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: "#b91c1c",
+                                    border: "1px solid #fca5a5",
+                                    borderRadius: 6,
+                                    padding: "2px 8px",
+                                    background: "transparent",
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1880,6 +2127,25 @@ export default function ProcurementPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* PRD-002: per-line Cancel drawer */}
+      {cancellingLine && (
+        <CancelPOLineDrawer
+          poLineId={cancellingLine.po_line_id}
+          productName={cancellingLine.boonz_products.boonz_product_name}
+          orderedQty={cancellingLine.ordered_qty ?? 0}
+          open={cancellingLine !== null}
+          onClose={() => setCancellingLine(null)}
+          onConfirmed={() => {
+            // Re-fetch lines + the orders list so the cancelled line picks up
+            // its not_purchased outcome immediately.
+            if (selectedPO) {
+              openPODrawer(selectedPO);
+            }
+            fetchOrders();
+          }}
+        />
       )}
     </div>
   );

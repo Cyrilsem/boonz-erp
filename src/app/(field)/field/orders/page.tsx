@@ -9,6 +9,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
 import { EditPOLineDrawer } from "../../components/EditPOLineDrawer";
+import { CancelPOLineDrawer } from "../../components/CancelPOLineDrawer";
 import { POEditHistoryPill } from "../../components/POEditHistoryPill";
 
 const EDIT_ROLES = new Set([
@@ -31,11 +32,15 @@ interface POGroup {
 }
 
 interface POLineDetail {
+  po_line_id: string;
   boonz_product_name: string;
   ordered_qty: number;
   price_per_unit_aed: number | null;
   total_price_aed: number | null;
   expiry_date: string | null;
+  // PRD-002: drive per-line lock + Cancel availability.
+  received_qty: number | null;
+  purchase_outcome: string | null;
 }
 
 // Driver task status keyed by po_id (B-6)
@@ -94,6 +99,10 @@ export default function OrdersPage() {
   const [tab, setTab] = useState<TabOption>("pending");
   const [userRole, setUserRole] = useState<string | null>(null);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
+  // PRD-002: per-line Cancel drawer state.
+  const [cancellingLine, setCancellingLine] = useState<POLineDetail | null>(
+    null,
+  );
   const [refreshKey, setRefreshKey] = useState(0);
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([]);
@@ -226,35 +235,39 @@ export default function OrdersPage() {
       .from("purchase_orders")
       .select(
         `
+        po_line_id,
         ordered_qty,
         price_per_unit_aed,
         total_price_aed,
         expiry_date,
+        received_qty,
+        purchase_outcome,
         boonz_products!inner(boonz_product_name)
       `,
       )
       .eq("po_id", poId);
 
     if (data) {
-      // De-duplicate: show each product once (first occurrence), since receiving
-      // no longer creates extra rows per batch (B-2 fixed).
-      const seen = new Set<string>();
-      const mapped: POLineDetail[] = [];
-      for (const row of data) {
+      // PRD-002: stop deduplicating by product name. Each row is its own
+      // actionable PO line (Edit / Cancel buttons need a stable po_line_id),
+      // so we render one entry per po_line_id even when two batches of the
+      // same product share a name.
+      const mapped: POLineDetail[] = data.map((row) => {
         const p = row.boonz_products as unknown as {
           boonz_product_name: string;
         };
-        if (!seen.has(p.boonz_product_name)) {
-          seen.add(p.boonz_product_name);
-          mapped.push({
-            boonz_product_name: p.boonz_product_name,
-            ordered_qty: row.ordered_qty ?? 0,
-            price_per_unit_aed: row.price_per_unit_aed,
-            total_price_aed: row.total_price_aed,
-            expiry_date: row.expiry_date,
-          });
-        }
-      }
+        return {
+          po_line_id: row.po_line_id as string,
+          boonz_product_name: p.boonz_product_name,
+          ordered_qty: row.ordered_qty ?? 0,
+          price_per_unit_aed: row.price_per_unit_aed,
+          total_price_aed: row.total_price_aed,
+          expiry_date: row.expiry_date,
+          received_qty:
+            row.received_qty != null ? Number(row.received_qty) : null,
+          purchase_outcome: row.purchase_outcome ?? null,
+        };
+      });
       setExpandedLines(mapped);
     }
 
@@ -440,37 +453,89 @@ export default function OrdersPage() {
                                 <th className="pb-1 font-medium text-right">
                                   Expiry
                                 </th>
+                                <th className="pb-1 font-medium text-right">
+                                  {/* PRD-002: per-line actions */}
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
-                              {expandedLines.map((line, idx) => (
-                                <tr
-                                  key={idx}
-                                  className="border-t border-neutral-50 dark:border-neutral-900"
-                                >
-                                  <td className="py-1.5 pr-2 truncate max-w-[120px]">
-                                    {line.boonz_product_name}
-                                  </td>
-                                  <td className="py-1.5 text-right">
-                                    {line.ordered_qty}
-                                  </td>
-                                  <td className="py-1.5 text-right">
-                                    {line.price_per_unit_aed != null
-                                      ? `${line.price_per_unit_aed.toFixed(2)}`
-                                      : "—"}
-                                  </td>
-                                  <td className="py-1.5 text-right">
-                                    {line.total_price_aed != null
-                                      ? `${line.total_price_aed.toFixed(2)}`
-                                      : "—"}
-                                  </td>
-                                  <td className="py-1.5 text-right text-neutral-400">
-                                    {line.expiry_date
-                                      ? formatDate(line.expiry_date)
-                                      : "—"}
-                                  </td>
-                                </tr>
-                              ))}
+                              {expandedLines.map((line) => {
+                                // PRD-002: per-line lock + Cancel gating.
+                                const isReceived =
+                                  (line.received_qty ?? 0) > 0 ||
+                                  line.purchase_outcome === "received";
+                                const isCancelled =
+                                  line.purchase_outcome === "not_purchased";
+                                const canCancelNow =
+                                  !isReceived &&
+                                  !isCancelled &&
+                                  !!userRole &&
+                                  EDIT_ROLES.has(userRole);
+                                const showLock =
+                                  isReceived &&
+                                  !!userRole &&
+                                  userRole !== "superadmin";
+                                return (
+                                  <tr
+                                    key={line.po_line_id}
+                                    className={`border-t border-neutral-50 dark:border-neutral-900 ${
+                                      isCancelled
+                                        ? "text-neutral-400 line-through"
+                                        : ""
+                                    }`}
+                                  >
+                                    <td className="py-1.5 pr-2 truncate max-w-[120px]">
+                                      {line.boonz_product_name}
+                                    </td>
+                                    <td className="py-1.5 text-right">
+                                      {line.ordered_qty}
+                                    </td>
+                                    <td className="py-1.5 text-right">
+                                      {line.price_per_unit_aed != null
+                                        ? `${line.price_per_unit_aed.toFixed(2)}`
+                                        : "—"}
+                                    </td>
+                                    <td className="py-1.5 text-right">
+                                      {line.total_price_aed != null
+                                        ? `${line.total_price_aed.toFixed(2)}`
+                                        : "—"}
+                                    </td>
+                                    <td className="py-1.5 text-right text-neutral-400">
+                                      {line.expiry_date
+                                        ? formatDate(line.expiry_date)
+                                        : "—"}
+                                    </td>
+                                    <td className="py-1.5 pl-2 text-right">
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {showLock && (
+                                          <span
+                                            title="Received — only superadmin can edit"
+                                            className="text-xs"
+                                          >
+                                            🔒
+                                          </span>
+                                        )}
+                                        {isCancelled && (
+                                          <span className="rounded-full bg-neutral-200 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+                                            Not received
+                                          </span>
+                                        )}
+                                        {canCancelNow && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setCancellingLine(line);
+                                            }}
+                                            className="rounded border border-red-300 px-1.5 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                                          >
+                                            Cancel
+                                          </button>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             </tbody>
                             <tfoot>
                               <tr className="border-t border-neutral-200 font-medium dark:border-neutral-700">
@@ -487,7 +552,7 @@ export default function OrdersPage() {
                                     .toFixed(2)}{" "}
                                   AED
                                 </td>
-                                <td />
+                                <td colSpan={2} />
                               </tr>
                             </tfoot>
                           </table>
@@ -542,6 +607,28 @@ export default function OrdersPage() {
           onSaved={() => {
             setRefreshKey((k) => k + 1);
             fetchOrders();
+          }}
+        />
+      )}
+
+      {/* PRD-002: per-line Cancel drawer */}
+      {cancellingLine && (
+        <CancelPOLineDrawer
+          poLineId={cancellingLine.po_line_id}
+          productName={cancellingLine.boonz_product_name}
+          orderedQty={cancellingLine.ordered_qty}
+          open={cancellingLine !== null}
+          onClose={() => setCancellingLine(null)}
+          onConfirmed={() => {
+            setRefreshKey((k) => k + 1);
+            fetchOrders();
+            // refresh the expanded view so the cancelled line picks up its
+            // not_purchased outcome immediately.
+            if (expandedPoId) {
+              const id = expandedPoId;
+              setExpandedPoId(null);
+              setTimeout(() => toggleExpand(id), 0);
+            }
           }}
         />
       )}
