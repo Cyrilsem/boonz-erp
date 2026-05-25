@@ -5,6 +5,7 @@ import {
   useState,
   useCallback,
   useMemo,
+  useRef,
   Dispatch,
   SetStateAction,
 } from "react";
@@ -489,6 +490,9 @@ export default function InventoryPage() {
 
   // Pending reviews
   const [userRole, setUserRole] = useState<string | null>(null);
+  // PRD-001: track manual tab/dropdown change so the role-aware default below
+  // does not clobber a deliberate pick made before user role resolves.
+  const tabHasBeenUserChanged = useRef(false);
   const [pendingEdits, setPendingEdits] = useState<PendingEdit[]>([]);
   const [reviewExpanded, setReviewExpanded] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
@@ -567,7 +571,14 @@ export default function InventoryPage() {
       .select("role")
       .eq("id", user.id)
       .single();
-    setUserRole(data?.role ?? null);
+    const role = (data?.role as string | undefined) ?? null;
+    setUserRole(role);
+    // PRD-001 change 1: warehouse-role users default to WH_CENTRAL so the
+    // Start Inventory Control button is visible without a tab/dropdown
+    // discovery. Other roles keep "all".
+    if (role === "warehouse" && !tabHasBeenUserChanged.current) {
+      setWarehouseFilter("WH_CENTRAL");
+    }
   }, []);
 
   const fetchPendingEdits = useCallback(async () => {
@@ -1256,6 +1267,11 @@ export default function InventoryPage() {
         [id]: { ...prev[id], qty: "error" as const },
       }));
       clearFeedbackField(id, "qty");
+      // PRD-001 change 3: the small red tick is easy to miss on mobile — the
+      // alert makes "no session open" unmistakable.
+      if (!session) {
+        alert("Start an inventory-control session before saving edits.");
+      }
       return;
     }
     const supabase = createClient();
@@ -1722,6 +1738,10 @@ export default function InventoryPage() {
               warehouseFilter === "all" ? "select a warehouse" : warehouseFilter
             }
             role={userRole}
+            onSelectWarehouse={(key) => {
+              tabHasBeenUserChanged.current = true;
+              setWarehouseFilter(key);
+            }}
           />
           <CanaryIndicator />
         </div>
@@ -1889,9 +1909,10 @@ export default function InventoryPage() {
           <div className="mb-3 flex items-center gap-2">
             <select
               value={warehouseFilter}
-              onChange={(e) =>
-                setWarehouseFilter(e.target.value as WarehouseFilter)
-              }
+              onChange={(e) => {
+                tabHasBeenUserChanged.current = true;
+                setWarehouseFilter(e.target.value as WarehouseFilter);
+              }}
               className="rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-900"
             >
               <option value="all">All Warehouses</option>
