@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../../components/field-header";
 
 interface ProductOption {
@@ -89,18 +88,22 @@ export default function RemovalsPage() {
 
     setSubmitting(true);
     const supabase = createClient();
-    const today = getDubaiDate();
 
-    const inserts = validLines.map((r) => ({
-      machine_id: machineId,
+    // PRD-012 P3.B: route through canonical RPC instead of direct INSERT.
+    // The RPC enforces role, sets app.via_rpc, and writes per-line marker rows.
+    const lines = validLines.map((r) => ({
       boonz_product_id: r.product?.boonz_product_id ?? null,
-      snapshot_date: today,
-      current_stock: 0,
-      status: "Removed / Expired",
-      removal_reason: r.reason, // BUG-5 fix: persist the reason
+      removal_reason: r.reason,
     }));
-
-    await supabase.from("pod_inventory").insert(inserts);
+    const { error } = await supabase.rpc("remove_pod_inventory_batch", {
+      p_machine_id: machineId,
+      p_lines: lines,
+    });
+    if (error) {
+      alert(`Removal failed: ${error.message}`);
+      setSubmitting(false);
+      return;
+    }
     router.back();
   }
 

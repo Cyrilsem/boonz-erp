@@ -1000,6 +1000,39 @@
             >docs/architecture/10_amendment_008_pod_inventory_edits_appendix_a.md</code
           >.
         </p>
+        <p style="font-size: 0.9em; color: #666">
+          <em>Amendment 009 (2026-05-25):</em>
+          <code>inventory_control_attempt</code> schema widened (PRD-012 C.6) to
+          support pod-side write attribution. Two new columns:
+          <code>pod_inventory_id uuid NULL</code> (target pod row when attempt
+          records a pod-side write) and <code>edit_id uuid NULL</code> (target
+          pod_inventory_edits row when attempt records a propose/approve/reject
+          decision). The <code>target_path</code>
+          whitelist now admits two new values:
+          <code>pod_by_id</code> (pairs with pod_inventory_id) and
+          <code>pod_by_edit_id</code> (pairs with edit_id). The
+          <code>field_changed</code> whitelist gains
+          <code>pod_add_approved</code> and <code>pod_add_rejected</code>. A new
+          per-target_path conditional CHECK enforces that each target_path value
+          carries its matching target-id column; the legacy
+          <code>ica_target_path_coherence</code> is superseded with a
+          strictly-wider replacement that retains the original two paths plus
+          the new pod variants. The <code>approve_pod_inventory_add</code> and
+          <code>reject_pod_inventory_add</code> canonical writers are modified
+          to conditionally INSERT an attempt row when the caller has an open
+          <code>inventory_control_session</code> (lookup by
+          <code>started_by = caller AND status = 'open'</code>); the attempt's
+          <code>result</code> is always <code>'success'</code> because the row
+          is written only after the canonical primary write succeeds (failure
+          paths raise before reaching the attempt INSERT, and the txn rolls
+          back). This extends Amendment 007's attribution surface from
+          warehouse-only to warehouse-plus-pod without changing any existing
+          warehouse-side semantic. See migrations
+          <code>prd_012_c6_extend_inventory_control_attempt</code>,
+          <code>prd_012_c6_approve_reject_ics_integration</code>, and the
+          legacy-CHECK hotfix
+          <code>prd_012_c6_extend_legacy_check_whitelists</code>.
+        </p>
 
         <h3>Append-only logs (INSERT-only RLS)</h3>
         <ul>
