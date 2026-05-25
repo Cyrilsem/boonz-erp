@@ -10,6 +10,7 @@ import {
 } from "@/lib/inventory/attempt-rpcs";
 import { useInventorySession } from "@/lib/inventory/session";
 import PendingProposalsPanel from "@/components/inventory/PendingProposalsPanel";
+import PendingPodAdditionsPanel from "@/components/inventory/PendingPodAdditionsPanel";
 import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
 import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
 import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
@@ -548,6 +549,8 @@ export default function InventoryPage() {
     <div className="p-8 max-w-7xl" style={{ fontFamily: font }}>
       {/* BUG-010: Returns awaiting WH approval (driver confirmed via driver_confirm_remove) */}
       <PendingRemoveApprovalsPanel />
+      {/* PRD-012 C.1: pending pod-add proposals from drivers */}
+      <PendingPodAdditionsPanel />
       {/* Pending status proposals — Issue #2 */}
       <PendingProposalsPanel />
       {/* Header */}
