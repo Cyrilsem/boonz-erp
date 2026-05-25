@@ -183,6 +183,19 @@ export function RefillPlanningTab({
     msg: string;
   } | null>(null);
 
+  // PRD-011 Bug 1: the plan_date the loaded draft was generated for. Distinct
+  // from `selectedDate` (the date-picker value), which can drift from the
+  // draft, e.g. cron generates a 2026-05-25 draft at 8pm 2026-05-24 and CS
+  // opens the page on the 25th with a picker default of 2026-05-26.
+  const [draftPlanDate, setDraftPlanDate] = useState<string | null>(null);
+
+  // PRD-011 Bug 3: per-row restore state for superseded rows.
+  const [restoringIdx, setRestoringIdx] = useState<number | null>(null);
+  const [restoreToast, setRestoreToast] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+
   // View mode: empty | draft (pod_refill_plan) | pending (refill_plan_output)
   const [viewMode, setViewMode] = useState<ViewMode>("empty");
 
@@ -234,6 +247,7 @@ export function RefillPlanningTab({
     setApproveResult(null);
     setRemoved(new Set());
     setEditedQty({});
+    setDraftPlanDate(null);
 
     const { data, error } = await supabase.rpc("get_pod_refill_draft", {
       p_plan_date: selectedDate,
@@ -251,6 +265,13 @@ export function RefillPlanningTab({
       });
       return;
     }
+
+    // PRD-011 Bug 1: capture the draft's actual plan_date so commitDraft
+    // can pass it through the RPC chain (instead of selectedDate, which
+    // may not match if CS opened the page on a different day).
+    const firstRow = (data as Record<string, unknown>[])[0];
+    const planDateFromDraft = (firstRow.plan_date as string) ?? selectedDate;
+    setDraftPlanDate(planDateFromDraft);
 
     const rows: PlanRow[] = (data as Record<string, unknown>[]).map((r) => ({
       machine_name: r.machine_name as string,
@@ -287,7 +308,14 @@ export function RefillPlanningTab({
       ok: true,
       msg: `Draft loaded — ${rows.length} rows across ${new Set(rows.map((r) => r.machine_name)).size} machines`,
     });
-  }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
+  }, [
+    selectedDate,
+    supabase,
+    setPlanRows,
+    setGenerated,
+    setRemoved,
+    setEditedQty,
+  ]);
 
   // Auto-load on mount (or when selectedDate changes)
   useEffect(() => {
@@ -352,7 +380,14 @@ export function RefillPlanningTab({
       ok: true,
       msg: `Loaded ${rows.length} pending lines for ${selectedDate}`,
     });
-  }, [selectedDate, supabase, setPlanRows, setGenerated, setRemoved, setEditedQty]);
+  }, [
+    selectedDate,
+    supabase,
+    setPlanRows,
+    setGenerated,
+    setRemoved,
+    setEditedQty,
+  ]);
 
   // ── Commit draft (finalize → stitch → auto-dispatch) ─────────────────────
   const commitDraft = useCallback(async () => {
@@ -360,25 +395,92 @@ export function RefillPlanningTab({
     setCommitResult(null);
 
     try {
+      // PRD-011 Bug 1: every RPC in the chain must use the draft's actual
+      // plan_date, not the date-picker selectedDate.
+      if (!draftPlanDate) {
+        throw new Error("No draft loaded — load a draft before committing");
+      }
+      const planDate = draftPlanDate;
+
+      // PRD-011 Bug 2 Step 0a: persist inline quantity edits BEFORE Gate 1
+      // approves the draft. Without this, the stitch silently uses the
+      // engine-generated quantities and CS's edits are lost.
+      for (const [rowIndexStr, newQty] of Object.entries(editedQty)) {
+        const rowIndex = Number(rowIndexStr);
+        const row = planRows[rowIndex];
+        if (!row) continue;
+        if (!row.machine_id || !row.shelf_id || !row.pod_product_id) {
+          throw new Error(
+            `Edit persist failed at row ${rowIndex} (${row.machine_name}/${row.shelf_code}): missing pod identifiers`,
+          );
+        }
+        const { error: editErr } = await supabase.rpc("edit_pod_refill_row", {
+          p_plan_date: planDate,
+          p_machine_id: row.machine_id,
+          p_shelf_id: row.shelf_id,
+          p_pod_product_id: row.pod_product_id,
+          p_action: row.action,
+          p_new_qty: newQty,
+          p_reason: "FE inline edit",
+          p_conductor_session: null,
+        });
+        if (editErr) {
+          throw new Error(
+            `Edit persist failed at ${row.machine_name}/${row.shelf_code} (${row.pod_product_name}): ${editErr.message}`,
+          );
+        }
+      }
+
+      // PRD-011 Bug 2 Step 0b: persist client-side row removals as qty=0
+      // edits so finalize + stitch see them.
+      for (const rowIndex of removed) {
+        const row = planRows[rowIndex];
+        if (!row) continue;
+        if (!row.machine_id || !row.shelf_id || !row.pod_product_id) {
+          throw new Error(
+            `Row removal persist failed at row ${rowIndex} (${row.machine_name}/${row.shelf_code}): missing pod identifiers`,
+          );
+        }
+        const { error: removeErr } = await supabase.rpc("edit_pod_refill_row", {
+          p_plan_date: planDate,
+          p_machine_id: row.machine_id,
+          p_shelf_id: row.shelf_id,
+          p_pod_product_id: row.pod_product_id,
+          p_action: row.action,
+          p_new_qty: 0,
+          p_reason: "FE row removal",
+          p_conductor_session: null,
+        });
+        if (removeErr) {
+          throw new Error(
+            `Row removal persist failed at ${row.machine_name}/${row.shelf_code} (${row.pod_product_name}): ${removeErr.message}`,
+          );
+        }
+      }
+
+      // Edits are now durable in pod_refill_plan; clear FE staging state
+      // so a second click does not try to re-apply.
+      setEditedQty({});
+      setRemoved(new Set());
+
       // Step 1: Approve pod_refill_plan (Gate 1)
-      const { data: approveData, error: approveErr } = await supabase.rpc(
+      const { error: approveErr } = await supabase.rpc(
         "approve_pod_refill_plan",
-        { p_plan_date: selectedDate },
+        { p_plan_date: planDate },
       );
       if (approveErr) throw new Error(`Gate 1 failed: ${approveErr.message}`);
 
       // Step 2: Finalize (conflict resolution)
-      const { data: finalizeData, error: finalizeErr } = await supabase.rpc(
-        "engine_finalize_pod",
-        { p_plan_date: selectedDate },
-      );
+      const { error: finalizeErr } = await supabase.rpc("engine_finalize_pod", {
+        p_plan_date: planDate,
+      });
       if (finalizeErr)
         throw new Error(`Finalize failed: ${finalizeErr.message}`);
 
       // Step 3: Stitch (pod → boonz via SQL join) — commit mode
       const { data: stitchData, error: stitchErr } = await supabase.rpc(
         "stitch_pod_to_boonz",
-        { p_plan_date: selectedDate, p_dry_run: false },
+        { p_plan_date: planDate, p_dry_run: false },
       );
       if (stitchErr) throw new Error(`Stitch failed: ${stitchErr.message}`);
 
@@ -388,14 +490,10 @@ export function RefillPlanningTab({
       } | null;
 
       // Step 4: Approve boonz-level plan (auto-create dispatching)
-      const activeMachines = [
-        ...new Set(
-          planRows.filter((_, i) => !removed.has(i)).map((r) => r.machine_name),
-        ),
-      ];
+      const activeMachines = [...new Set(planRows.map((r) => r.machine_name))];
       const { data: dispatchData, error: dispatchErr } = await supabase.rpc(
         "approve_refill_plan",
-        { p_plan_date: selectedDate, p_machine_names: activeMachines },
+        { p_plan_date: planDate, p_machine_names: activeMachines },
       );
       if (dispatchErr)
         throw new Error(`Dispatch failed: ${dispatchErr.message}`);
@@ -407,13 +505,14 @@ export function RefillPlanningTab({
       setCommitting(false);
       setCommitResult({
         ok: true,
-        msg: `Plan committed — ${stitchResult?.rows_written ?? "?"} boonz rows stitched, ${dispResult?.dispatching_rows_written ?? "?"} dispatch lines created. Drivers will see it.`,
+        msg: `Plan committed for ${planDate} — ${stitchResult?.rows_written ?? "?"} boonz rows stitched, ${dispResult?.dispatching_rows_written ?? "?"} dispatch lines created. Drivers will see it.`,
       });
 
       // Clear state — plan is now live
       setPlanRows([]);
       setGenerated(false);
       setViewMode("empty");
+      setDraftPlanDate(null);
     } catch (err) {
       setCommitting(false);
       setCommitResult({
@@ -421,7 +520,60 @@ export function RefillPlanningTab({
         msg: err instanceof Error ? err.message : "Unknown error during commit",
       });
     }
-  }, [selectedDate, supabase, planRows, removed, setPlanRows, setGenerated]);
+  }, [
+    draftPlanDate,
+    supabase,
+    planRows,
+    removed,
+    editedQty,
+    setPlanRows,
+    setGenerated,
+    setEditedQty,
+    setRemoved,
+  ]);
+
+  // ── PRD-011 Bug 3: restore a superseded row to draft ────────────────────
+  const restoreSupersededRow = useCallback(
+    async (idx: number) => {
+      const row = planRows[idx];
+      if (!row) return;
+      if (!draftPlanDate) {
+        setRestoreToast({ ok: false, msg: "No draft loaded" });
+        return;
+      }
+      if (!row.machine_id || !row.shelf_id || !row.pod_product_id) {
+        setRestoreToast({
+          ok: false,
+          msg: `Cannot restore — row is missing pod identifiers (${row.machine_name}/${row.shelf_code})`,
+        });
+        return;
+      }
+      setRestoringIdx(idx);
+      const { error } = await supabase.rpc("restore_pod_refill_row", {
+        p_plan_date: draftPlanDate,
+        p_machine_id: row.machine_id,
+        p_shelf_id: row.shelf_id,
+        p_pod_product_id: row.pod_product_id,
+        p_action: row.action,
+      });
+      setRestoringIdx(null);
+      if (error) {
+        setRestoreToast({
+          ok: false,
+          msg: `Restore failed: ${error.message}`,
+        });
+        return;
+      }
+      setPlanRows((prev) =>
+        prev.map((r, i) => (i === idx ? { ...r, status: "draft" } : r)),
+      );
+      setRestoreToast({
+        ok: true,
+        msg: `Restored ${row.machine_name}/${row.shelf_code} (${row.pod_product_name})`,
+      });
+    },
+    [planRows, draftPlanDate, supabase, setPlanRows],
+  );
 
   // ── Approve pending plan (existing flow) ──────────────────────────────────
   const approvePlan = useCallback(async () => {
@@ -527,9 +679,7 @@ export function RefillPlanningTab({
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50"
           >
-            {loading && viewMode !== "pending"
-              ? "Loading…"
-              : "Load draft"}
+            {loading && viewMode !== "pending" ? "Loading…" : "Load draft"}
           </button>
 
           {/* Load pending plan (secondary — post-stitch) */}
@@ -582,22 +732,38 @@ export function RefillPlanningTab({
             </span>
             {isDraft && (
               <span className="text-[10px] text-gray-400">
-                Edit quantities below, then commit to finalize + stitch + dispatch
+                Edit quantities below, then commit to finalize + stitch +
+                dispatch
               </span>
             )}
           </div>
         )}
 
+        {/* PRD-011 Bug 1: warning when the loaded draft is for a different
+            date than the picker shows. Catches the cron-vs-picker drift. */}
+        {generated &&
+          isDraft &&
+          draftPlanDate &&
+          draftPlanDate !== selectedDate && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              ⚠ Draft loaded for {draftPlanDate}, but date picker shows{" "}
+              {selectedDate}. Commit will use {draftPlanDate}.
+            </div>
+          )}
+
         {/* Commit button (draft mode) */}
         {generated && isDraft && activeRows.length > 0 && (
           <button
             onClick={commitDraft}
-            disabled={committing}
+            disabled={committing || !draftPlanDate}
+            title={!draftPlanDate ? "No draft loaded" : undefined}
             className="mt-3 flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-50"
           >
             {committing
               ? "Committing…"
-              : `Commit plan — finalize + stitch + dispatch (${activeRows.length} rows)`}
+              : !draftPlanDate
+                ? "No draft loaded"
+                : `Commit plan for ${draftPlanDate} — finalize + stitch + dispatch (${activeRows.length} rows)`}
           </button>
         )}
 
@@ -637,6 +803,28 @@ export function RefillPlanningTab({
           >
             {approveResult.ok ? "✓ " : "✗ "}
             {approveResult.msg}
+          </div>
+        )}
+
+        {/* PRD-011 Bug 3: per-row restore toast */}
+        {restoreToast && (
+          <div
+            className={`mt-2 flex items-center justify-between rounded-lg px-3 py-2 text-xs font-medium ${
+              restoreToast.ok
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-red-50 text-red-700"
+            }`}
+          >
+            <span>
+              {restoreToast.ok ? "✓ " : "✗ "}
+              {restoreToast.msg}
+            </span>
+            <button
+              onClick={() => setRestoreToast(null)}
+              className="ml-2 text-[10px] opacity-60 hover:opacity-100"
+            >
+              dismiss
+            </button>
           </div>
         )}
       </div>
@@ -745,9 +933,7 @@ export function RefillPlanningTab({
                     <th className="px-4 py-2 font-medium text-right">Stock</th>
                     <th className="px-4 py-2 font-medium text-right">Qty</th>
                     {isDraft && (
-                      <th className="px-4 py-2 font-medium text-right">
-                        v30d
-                      </th>
+                      <th className="px-4 py-2 font-medium text-right">v30d</th>
                     )}
                     {!isDraft && (
                       <th className="px-4 py-2 font-medium text-right">7d</th>
@@ -833,18 +1019,35 @@ export function RefillPlanningTab({
                         </td>
                       )}
                       <td className="px-3 py-2.5 text-right">
-                        <button
-                          onClick={() =>
-                            setRemoved((prev) => {
-                              const n = new Set(prev);
-                              n.has(idx) ? n.delete(idx) : n.add(idx);
-                              return n;
-                            })
-                          }
-                          className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
-                        >
-                          {removed.has(idx) ? "Restore" : "×"}
-                        </button>
+                        {row.status === "superseded" ? (
+                          // PRD-011 Bug 3: DB-side superseded row. The
+                          // Restore button calls restore_pod_refill_row so
+                          // the change reaches the database, not just FE
+                          // state.
+                          <button
+                            onClick={() => restoreSupersededRow(idx)}
+                            disabled={restoringIdx === idx}
+                            className="text-[10px] font-medium text-amber-600 hover:text-amber-800 px-1 py-0.5 rounded disabled:opacity-50"
+                            title="Flip status from superseded back to draft"
+                          >
+                            {restoringIdx === idx
+                              ? "Restoring…"
+                              : "Restore (superseded)"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              setRemoved((prev) => {
+                                const n = new Set(prev);
+                                n.has(idx) ? n.delete(idx) : n.add(idx);
+                                return n;
+                              })
+                            }
+                            className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
+                          >
+                            {removed.has(idx) ? "Restore" : "×"}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
