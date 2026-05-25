@@ -1,20 +1,23 @@
 ---
 id: PRD-010a
 title: v9.1 patch — swap guard shelf_code mismatch + AC#4 capacity filter widening
-status: Ready-to-apply
+status: Done
 severity: P1
 reported: 2026-05-25
 source: PRD-010 verification report — 3 follow-ups from engine v11 deployment
 routing: [Stax, refill-brain]
 protected_entities: [pod_refill_plan, planned_swaps]
 depends_on: PRD-010
-ready_to_apply_summary:
-  prepared_at: 2026-05-25
+done_summary:
+  commit: 29fbc8a
+  shipped_at: 2026-05-25
   migration_files:
-    - supabase/migrations/20260525160000_engine_swap_pod_v9_1_product_match_planned_swap.sql
-    - supabase/migrations/20260525160100_engine_finalize_pod_v12_1_keep_in_capacity_filter.sql
-  cody_review: pass (Articles 1, 4, 5, 8, 12 — verdict captured in conversation transcript)
-  blocked_on: Supabase MCP `apply_migration` classifier transiently unavailable at apply time. Files are in repo as canonical source-of-truth; reconcile on next `supabase db push` or rerun `mcp__claude_ai_Supabase__apply_migration` for each file when classifier is back.
+    - supabase/migrations/20260525160000_engine_swap_pod_v9_1_product_match_planned_swap.sql (applied to prod via MCP)
+    - supabase/migrations/20260525160100_engine_finalize_pod_v12_1_keep_in_capacity_filter.sql (applied to prod via MCP)
+  cody_review: pass (Articles 1, 4, 5, 8, 12)
+  apply_note: Initial MCP call hit `42P13 cannot remove parameter defaults from existing function` because the first attempt omitted the `DEFAULT (CURRENT_DATE + 1)` / `DEFAULT 2` / `DEFAULT 0.30` / `DEFAULT 14` on engine_swap_pod's four parameters. Re-applied with the defaults preserved (per CLAUDE.md note on this exact trap). Both migrations now live.
+  verification:
+    pg_proc_check: pass — engine_swap_pod has `v9_1_product_match_planned_swap` engine_version and the `remove_pod_product_name` product-match join in `_planned_swap_shelves`; engine_finalize_pod has `v12_1_keep_in_capacity_filter` engine_version and `'KEEP'` in the high_velocity_constrained IN-list.
   changes:
     - AC#1 engine_swap_pod v9.1 — `_planned_swap_shelves` temp table now joins planned_swaps to slot_lifecycle via pod_products on remove_pod_product_name, sidestepping the WEIMI cabinet-prefix vs logical shelf_code mismatch. engine_version → v9_1_product_match_planned_swap.
     - AC#2 engine_finalize_pod v12.1 — high_velocity_constrained signal filter widened to include `'KEEP'` so capacity warnings now fire for the most common proven-product signal. engine_version → v12_1_keep_in_capacity_filter.

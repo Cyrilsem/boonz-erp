@@ -18,7 +18,7 @@ Format:
 ## 2026-05-25 — PRD-010a v9.1 patches: engine_swap_pod planned-swap guard product-match + engine_finalize_pod capacity filter widening
 
 **Phase / Article:** PRD-010a (refill-pipeline) / Constitution Articles 1, 4, 5, 8, 12. Backend-only, no schema changes.
-**Applied to:** repo. Migration files written; MCP `apply_migration` pending Supabase classifier availability (transient unavailability blocked the direct write; the SQL files in `supabase/migrations/` are the canonical record and will reconcile on the next `supabase db push`).
+**Applied to:** prod (both migrations applied via MCP `apply_migration`) + repo.
 **Migration names:**
 
 - `engine_swap_pod_v9_1_product_match_planned_swap` (file `supabase/migrations/20260525160000_engine_swap_pod_v9_1_product_match_planned_swap.sql`)

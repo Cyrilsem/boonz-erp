@@ -28,7 +28,7 @@ PRDs derived from the 2026-05-21 refill update doc. Each PRD is self-contained a
 | [PRD-008](./PRD-008-refill-plan-shows-phantom-skus.md)   | Refill plan shows phantom SKUs and hides real ones                                 | P1       | refill-brain, Dara                   | Done                  |
 | [PRD-009](./PRD-009-driver-feedback-ingest.md)           | Driver on-ground feedback not ingested into refill brain                           | P2       | Dara, Stax, refill-brain             | Done                  |
 | [PRD-010](./PRD-010-engine-v11-floor-swap-capacity.md)   | Engine v11 — signal floor + duplicate swap guard + visual fill + capacity warnings | P1       | Dara, Stax, refill-brain, boonz-pico | Done (commit 44ef57a) |
-| [PRD-010a](./PRD-010a-swap-guard-shelf-fix-ac4-widen.md) | v9.1 patch — swap guard shelf_code mismatch + AC#4 capacity filter widening        | P1       | Stax, refill-brain                   | Open (Sprint B)       |
+| [PRD-010a](./PRD-010a-swap-guard-shelf-fix-ac4-widen.md) | v9.1 patch — swap guard shelf_code mismatch + AC#4 capacity filter widening        | P1       | Stax, refill-brain                   | Done (commit 29fbc8a) |
 
 ## How to use these with Claude Code CLI
 
