@@ -23,7 +23,8 @@ done_summary:
   verification:
     tsc: pass
     build: pass
-    smoke_test: pending CS verification in production as warehouse@boonz.test (sticky + keyboard behaviour, bulk-edit gated by DB session re-check, three silent paths now alert loudly)
+    deploy: pass (pushed 3065376 to main 2026-05-25; Vercel auto-deploy live, /login returned HTTP 200 with x-vercel-id header)
+    smoke_test: pass (CS verified in production as warehouse@boonz.test on 2026-05-25 - sticky bar with keyboard open, bulk-edit gated by DB session re-check, all three silent paths now alert loudly)
 ---
 
 # PRD-001 (inventory) — Inventory edits fail silently because the session-gate is invisible
