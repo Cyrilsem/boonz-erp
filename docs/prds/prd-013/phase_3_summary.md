@@ -1,7 +1,10 @@
 # PRD-013 Phase 3 Summary — Hardening (caller audit + auto-expire cron)
 
 **Phase:** 3 (hardening)
-**Status:** Shipped 2026-05-25 (partial: A.4 trigger formally deferred per G4 CS decision)
+**Status:** **CLOSED 2026-05-25** by CS sign-off (G4 deferral + post-Phase-3 confirmation).
+**Closure rationale:** PRD-013 §EXECUTION P3.B/C/E and Section 9 cases 13/14 transferred to [PRD-014](../prd-014/prd_014_pod_inventory_inline_adjust_canonical_writer.md) per the two CS decisions in this session: (1) G4 AskUserQuestion answer "Ship A.3 cron now; defer A.4 trigger to follow-up PRD" and (2) post-Phase-3 close confirmation "Accept G4 deferral — PRD-013 is closed." PRD-013 itself ships Phases 1+2 complete, P3.A audit + P3.D cron + day-0 monitoring baseline + Section 9 cases 15+16 verified. Remaining deferred items are calendar-bound (7-day window) and owned by PRD-014. Do not re-open PRD-013 to chase the deferred items; track them under PRD-014.
+
+**Phase 3 status (original wording):** Shipped 2026-05-25 (partial: A.4 trigger formally deferred per G4 CS decision)
 **Source PRD:** [`docs/prds/inventory/prd_013_pod_inventory_edits_canonical_approval.md`](../inventory/prd_013_pod_inventory_edits_canonical_approval.md)
 
 ## Shipped
