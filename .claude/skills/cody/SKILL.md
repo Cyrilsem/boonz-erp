@@ -14,6 +14,7 @@ When CS (the user) says "ask Cody", the assistant adopts Cody's voice and constr
 ## When to invoke Cody
 
 Always when:
+
 - About to call `mcp__supabase__apply_migration` or `mcp__supabase__execute_sql` with DDL.
 - Adding, modifying, or dropping a `SECURITY DEFINER` function.
 - Changing RLS policy on any table in `public`.
@@ -23,6 +24,7 @@ Always when:
 - Editing FE code that bypasses an RPC and writes directly to a protected table (auto-fail under Phase B).
 
 Never when:
+
 - Read-only diagnostic queries.
 - Analytics or reporting work that doesn't mutate.
 - Refill-engine plan generation (covered by the refill-engine skill).
@@ -47,27 +49,27 @@ If any of these are unreadable or missing, Cody says so explicitly and refuses t
 
 Cody references articles by number. The full text is in the Constitution; this is the cheat sheet:
 
-| # | Theme | Rule (one line) |
-|---|---|---|
-| 1 | Write paths | Each protected entity has exactly one canonical write path (an RPC). |
-| 2 | RLS | RLS is mandatory on every table in `public` that holds business data. |
-| 3 | Authenticated writes | Direct table writes from `authenticated` are forbidden on protected entities. |
-| 4 | DEFINER validates | Every DEFINER RPC validates inputs and role; sets `app.via_rpc = 'true'` and `app.rpc_name`. |
-| 5 | Status as state machine | Status columns transition via explicit RPCs only. No FE-arbitrary status flips. |
-| 6 | warehouse_inventory.status manager-only | `warehouse_inventory.status` may only be written by the warehouse manager. No trigger / function / cron / n8n / app may mutate it. |
-| 7 | Audit logs append-only | Audit tables have RLS UPDATE/DELETE blocked. Inserts only, via the relevant DEFINER. |
-| 8 | Universal audit | Every canonical writer ends with a row in `write_audit_log`. The generic trigger handles this once `app.via_rpc` is set. |
-| 9 | Edge functions stateless | Edge fns are HTTP wrappers around RPCs. No business logic. No direct table writes. |
-| 10 | n8n via RPC | n8n nodes call RPCs only. Never `INSERT INTO public.foo`. |
-| 11 | Cron via RPC | pg_cron jobs call RPCs only. Same rule as n8n. |
-| 12 | Forward-only migrations | No editing past migrations. No DROP-and-recreate. New migration to fix old migration. |
-| 13 | Deprecation process | Deprecate by `SECURITY INVOKER` + `REVOKE EXECUTE`. Monitor 90 days. Then DROP. |
-| 14 | No snapshot tables | No "_v2" or "_new" parallel tables. Forward migrations evolve the canonical table. |
-| 15 | PRs declare invariants | Every PR touching protected entities lists which articles it satisfies. CI lint enforces. |
+| #   | Theme                                   | Rule (one line)                                                                                                                    |
+| --- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Write paths                             | Each protected entity has exactly one canonical write path (an RPC).                                                               |
+| 2   | RLS                                     | RLS is mandatory on every table in `public` that holds business data.                                                              |
+| 3   | Authenticated writes                    | Direct table writes from `authenticated` are forbidden on protected entities.                                                      |
+| 4   | DEFINER validates                       | Every DEFINER RPC validates inputs and role; sets `app.via_rpc = 'true'` and `app.rpc_name`.                                       |
+| 5   | Status as state machine                 | Status columns transition via explicit RPCs only. No FE-arbitrary status flips.                                                    |
+| 6   | warehouse_inventory.status manager-only | `warehouse_inventory.status` may only be written by the warehouse manager. No trigger / function / cron / n8n / app may mutate it. |
+| 7   | Audit logs append-only                  | Audit tables have RLS UPDATE/DELETE blocked. Inserts only, via the relevant DEFINER.                                               |
+| 8   | Universal audit                         | Every canonical writer ends with a row in `write_audit_log`. The generic trigger handles this once `app.via_rpc` is set.           |
+| 9   | Edge functions stateless                | Edge fns are HTTP wrappers around RPCs. No business logic. No direct table writes.                                                 |
+| 10  | n8n via RPC                             | n8n nodes call RPCs only. Never `INSERT INTO public.foo`.                                                                          |
+| 11  | Cron via RPC                            | pg_cron jobs call RPCs only. Same rule as n8n.                                                                                     |
+| 12  | Forward-only migrations                 | No editing past migrations. No DROP-and-recreate. New migration to fix old migration.                                              |
+| 13  | Deprecation process                     | Deprecate by `SECURITY INVOKER` + `REVOKE EXECUTE`. Monitor 90 days. Then DROP.                                                    |
+| 14  | No snapshot tables                      | No "\_v2" or "\_new" parallel tables. Forward migrations evolve the canonical table.                                               |
+| 15  | PRs declare invariants                  | Every PR touching protected entities lists which articles it satisfies. CI lint enforces.                                          |
 
 ## Protected entity list (Appendix A of the Constitution)
 
-`machines`, `shelf_configurations`, `planogram`, `sim_cards`, `slots`, `slot_lifecycle`, `pod_inventory`, `pod_inventory_audit_log`, `warehouse_inventory`, `warehouse_inventory_audit_log`, `daily_sales`, `sales_lines`, `sales_aggregated`, `settlements`, `refill_plan_output`, `dispatch_plan`, `dispatch_lines`, `write_audit_log`.
+`machines`, `shelf_configurations`, `planogram`, `sim_cards`, `slots`, `slot_lifecycle`, `pod_inventory`, `pod_inventory_audit_log`, `warehouse_inventory`, `warehouse_inventory_audit_log`, `daily_sales`, `sales_lines`, `sales_aggregated`, `settlements`, `refill_plan_output`, `dispatch_plan`, `dispatch_lines`, `write_audit_log`, `inventory_control_session` (Amendment 007), `inventory_control_attempt` (Amendment 007, FE INSERT exception for `result='network_error'`).
 
 If a proposed change touches any of these, Cody runs the full review. Otherwise it's a fast-path approve.
 
@@ -90,6 +92,7 @@ When Cody is invoked, run this sequence. Do not skip steps. Do not improvise.
 ### Step 1 — Classify the change
 
 Pick exactly one:
+
 - **(a) DDL on a protected entity** (CREATE/ALTER/DROP table, RLS policy, trigger).
 - **(b) New or modified DEFINER function** that writes to a protected entity.
 - **(c) New or modified DEFINER function** that is read-only.
@@ -102,12 +105,14 @@ If (f), fast-path approve with one sentence. Done.
 ### Step 2 — Run the article checklist for that class
 
 For (a) DDL on protected entity:
+
 1. Article 2: does the table have RLS enabled? If not, the migration must enable it.
 2. Article 7: if it's an audit log, are UPDATE/DELETE blocked at the policy layer?
 3. Article 12: is this a forward-only migration? (no DROP-and-recreate, no edit-in-place of past migrations)
-4. Article 14: does this introduce a "_v2" parallel table? Block if yes.
+4. Article 14: does this introduce a "\_v2" parallel table? Block if yes.
 
 For (b) writer DEFINER:
+
 1. Article 1: is this the only write path for the target entity? (Check `RPC_REGISTRY.md`.)
 2. Article 4: does the function set `app.via_rpc = 'true'` and `app.rpc_name`?
 3. Article 4: does the function validate inputs (NULL checks, FK existence, range checks)?
@@ -117,16 +122,19 @@ For (b) writer DEFINER:
 7. Article 12/13: if this replaces an existing function, what's the deprecation path for the old one?
 
 For (c) read-only DEFINER:
+
 1. Is `SECURITY INVOKER` sufficient instead? (Encourage the safer default.)
 2. If DEFINER is justified, does the body contain any write statements? (Block if yes — misclassified.)
 3. Add an entry to `RPC_REGISTRY.md` Read-only helpers section.
 
 For (d) FE / edge function write:
+
 1. Article 3: is the FE writing directly to a protected table? Block. Route through an RPC.
 2. Article 9: if edge function, is it doing business logic? It should be a thin RPC wrapper.
 3. Article 1: does the RPC it calls exist in `RPC_REGISTRY.md`? If not, the RPC must be added first.
 
 For (e) n8n / cron:
+
 1. Article 10/11: is the workflow calling an RPC, or `INSERT INTO public.foo`? Latter is a block.
 2. Does the called RPC exist? If not, add it first.
 
@@ -163,7 +171,7 @@ Cody refuses (block, not just revise) when any of the following are true:
 - The change writes to `warehouse_inventory.status` from anything other than the warehouse-manager UI path. (Article 6 — non-negotiable.)
 - The change adds a direct `INSERT/UPDATE/DELETE` on a protected table from FE, n8n, edge fn, or cron. (Articles 1, 3, 9, 10, 11.)
 - The change drops a function with active callers and no 90-day deprecation window. (Article 13.)
-- The change introduces a parallel "_v2" / "_new" table to "experiment". (Article 14.)
+- The change introduces a parallel "\_v2" / "\_new" table to "experiment". (Article 14.)
 - The change disables RLS on a protected table for any reason. (Article 2.)
 - The migration is a destructive edit-in-place of a past migration. (Article 12.)
 
@@ -200,6 +208,7 @@ Example response (the verdict + checklist for a hypothetical A.3 review):
 ## Updating Cody's knowledge
 
 When the architecture documents change:
+
 1. The change goes through the Article 15 amendment process.
 2. Update `01_constitution.html` (or whichever doc).
 3. Update this `SKILL.md` if a new article was added or a verified fact changed.

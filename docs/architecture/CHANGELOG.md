@@ -15,6 +15,27 @@ Format:
 
 ---
 
+## 2026-05-25 — Constitution Amendment 007 (Phase G P1 audit tables added to Appendix A)
+
+**Phase / Article:** Phase G P1 / Constitution Article 15.
+**Applied to:** repo (Constitution document only; no SQL).
+**Summary:** Adds `inventory_control_session` (under Core entities) and `inventory_control_attempt` (under Append-only logs) to Appendix A so the two audit-substrate tables shipped in commit 95ad54b fall under the Constitution's protected scope. Documents the FE INSERT exception clause for `inventory_control_attempt`: authenticated FE may INSERT directly when a SECURITY DEFINER wrapper was not reached (transport-level failures, JWT expiry, edge function unreachable). The exception is gated by RLS policy `ica_insert` requiring caller role in (warehouse, operator_admin, superadmin, manager) AND existence of an open parent session for the same user. This is the only protected entity in Appendix A allowed to receive FE-direct INSERTs. The role-plus-open-session gate is the structural replacement for the usual DEFINER role check. **Forensic discriminator:** FE-direct INSERTs are constrained to `result = 'network_error'`; this value is never emitted by the SECURITY DEFINER wrappers (which only set success / blocked_rls / blocked_trigger / rpc_error / validation_error), so the `result` column is a grep-able boundary between FE-originated and wrapper-originated rows. **Article 4 carve-out:** FE-direct INSERTs do not set `app.via_rpc` or `app.rpc_name`; the row itself is the audit, so the universal `write_audit_log` trigger correctly does not double-log it. This is intended behavior, not an Article 4 violation.
+
+**Rollback:** Revert the HTML edit in `docs/architecture/01_constitution.html`. No SQL to undo.
+
+---
+
+## 2026-05-25 — Phase G Inventory Integrity Initiative, Phase 1 FE migration
+
+**Phase / Article:** Phase G P1 / Constitution Articles 1, 3, 5, 6 (Cody-approved).
+**Applied to:** repo (FE only; no SQL).
+**Files:** `src/app/(app)/layout.tsx`, `src/app/(field)/layout.tsx`, `src/app/(app)/app/inventory/page.tsx`, `src/app/(field)/field/inventory/page.tsx`, `src/app/(field)/field/inventory/[inventoryId]/page.tsx`, `src/lib/inventory/adjust-warehouse-line.ts`.
+**Summary:** Operator console plus field app inventory pages now route every `warehouse_inventory` stock or status write through the C.3 SECURITY DEFINER wrappers via the FE helpers shipped in f6ed953. Layouts mount `InventorySessionProvider` so the session context reaches every page. Edit affordances disable when no session is open OR caller role is outside `EDIT_ROLES`. `adjustWarehouseLine` flipped to runtime hard-rejection for stock and status callers, directing them to `attemptCorrection` / `attemptStatusChange`; metadata-only callers use `adjustWarehouseLineMetadata`. Zero direct UPDATE on `warehouse_inventory` survives in any migrated page. Build clean (tsc + next build). Cody Article 3 review passed. Commit 3c18df5.
+
+**Rollback:** `git revert 3c18df5`. The C.3 wrapper RPCs and FE helpers remain live; pages would revert to calling the soft-deprecated `adjustWarehouseLine` directly.
+
+---
+
 ## 2026-05-24 — Phase G Inventory Integrity Initiative, Phase 1 backend (C.1, C.2, C.3)
 
 **Phase / Article:** Phase G P1 (Inventory Integrity Initiative, PRD v2) / Constitution Articles 1, 2, 4, 5, 6 (Amendment 002), 7, 8, 12, 14, 15.
