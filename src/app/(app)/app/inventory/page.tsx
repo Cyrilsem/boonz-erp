@@ -594,13 +594,21 @@ export default function InventoryPage() {
 
       {/* Phase G P1 B.6 / B.8: inventory-control session bar + canary heartbeat.
           Bar is gated on a specific warehouse tab; canary only ticks while a
-          session is open. */}
+          session is open. PRD-001 Change 2: sticky so the affordance stays
+          anchored under the page chrome while the user scrolls. */}
       <div
         style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 30,
           display: "flex",
           alignItems: "flex-start",
           gap: 12,
           marginBottom: 16,
+          paddingTop: 8,
+          paddingBottom: 8,
+          background: "#faf9f7",
+          borderBottom: "1px solid #f0ece5",
         }}
       >
         <div style={{ flex: 1 }}>

@@ -104,7 +104,10 @@ export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
       // Role cannot edit at all — just the grey label.
       if (role && !SESSION_ROLES.has(role)) {
         return (
-          <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400">
+          <div
+            id="start-inventory-session-bar"
+            className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400"
+          >
             Your role cannot edit inventory. View only.
           </div>
         );
@@ -113,7 +116,10 @@ export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
       // an inline picker so this isn't a discovery trap.
       if (role && SESSION_ROLES.has(role) && onSelectWarehouse) {
         return (
-          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950">
+          <div
+            id="start-inventory-session-bar"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950"
+          >
             <div className="text-sm text-amber-900 dark:text-amber-200">
               <span className="font-semibold">Inventory edits are paused.</span>
               <span className="ml-2">Pick a warehouse to begin:</span>
@@ -141,13 +147,19 @@ export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
       }
       // Fallback (no role yet, or no onSelectWarehouse wired): original label.
       return (
-        <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400">
+        <div
+          id="start-inventory-session-bar"
+          className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400"
+        >
           Inventory edits are paused until a warehouse is selected.
         </div>
       );
     }
     return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950">
+      <div
+        id="start-inventory-session-bar"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950"
+      >
         <div className="text-sm text-amber-900 dark:text-amber-200">
           <span className="font-semibold">Inventory edits are locked.</span>
           <span className="ml-2">
@@ -182,7 +194,10 @@ export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
 
   // Session open. Render the banner + close affordance.
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 dark:border-blue-700 dark:bg-blue-950">
+    <div
+      id="start-inventory-session-bar"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-300 bg-blue-50 px-4 py-3 dark:border-blue-700 dark:bg-blue-950"
+    >
       <div className="text-sm text-blue-900 dark:text-blue-200">
         <span className="font-semibold">Inventory control session open.</span>
         <span className="ml-2">

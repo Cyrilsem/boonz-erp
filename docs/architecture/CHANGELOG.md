@@ -15,6 +15,17 @@ Format:
 
 ---
 
+## 2026-05-25 — PRD-001 inventory session-gate discoverability (FE only)
+
+**Phase / Article:** PRD-001 (inventory) / no Constitution articles touched (FE only, no protected-entity writes added).
+**Applied to:** repo (FE only; no SQL).
+**Files:** `src/app/(field)/field/inventory/page.tsx`, `src/app/(app)/app/inventory/page.tsx`, `src/components/inventory/StartInventorySessionBar.tsx`.
+**Summary:** Closes the silent-fail trap that left the warehouse manager (Simran, role=warehouse) unable to save any inventory edit. Four FE changes: (1) header `+ Inventory Control` renamed to `+ Bulk Edit` on `/field/inventory` to kill the name collision with the session-opening button in `StartInventorySessionBar`; (2) the session bar plus canary wrapper is now `position: sticky` under the page header on both `/field/inventory` (Tailwind) and `/app/inventory` (inline style for parity with that page's pattern) so the bar stays visible while scrolling or with the soft keyboard open; (3) a shared `alertNoSession()` helper replaces the silent early-returns in `saveInlineQty`, `toggleBatchStatus`, and `completeControl` — each path now pops a loud `window.alert()` and scroll-snaps the bar back into view via `document.getElementById('start-inventory-session-bar').scrollIntoView`. The anchor id is set on all five render branches of `StartInventorySessionBar`. (4) `handleEnterBulkEdit` re-verifies the open session against `inventory_control_session` via a fresh SELECT before flipping `controlMode=true`, closing the localStorage-flicker bypass that previously let users into bulk-edit without a real open session. No backend, no migration, no protected-entity writes added; tsc and next build both clean.
+
+**Rollback:** `git revert <commit-sha>`. The four shipped behaviors revert together; the underlying canonical writer paths and session schema are unchanged.
+
+---
+
 ## 2026-05-25 — Constitution Amendment 007 (Phase G P1 audit tables added to Appendix A)
 
 **Phase / Article:** Phase G P1 / Constitution Article 15.

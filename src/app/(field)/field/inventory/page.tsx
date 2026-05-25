@@ -702,6 +702,49 @@ export default function InventoryPage() {
     setInlineLocations(locs);
   }, [rows]);
 
+  // PRD-001 Change 3: loud-fail helper. Used by every silent-return edit path
+  // (inline qty, status toggle, bulk-save) so a no-session attempt is
+  // unmistakable on mobile and the bar scrolls back into view if the keyboard
+  // had hidden it.
+  function alertNoSession() {
+    if (typeof window !== "undefined") {
+      window.alert(
+        "Inventory edits are locked. Tap 'Start Inventory Control' at the top of the page first.",
+      );
+    }
+    document.getElementById("start-inventory-session-bar")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }
+
+  // PRD-001 Change 4: re-verify session against the DB before flipping into
+  // bulk-edit mode. The localStorage-backed `canEdit` can flicker truthy from
+  // a stale session_id, which would let the user enter bulk mode without a
+  // real open session and then silently fail every save.
+  async function handleEnterBulkEdit() {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      alertNoSession();
+      return;
+    }
+    const { data, error } = await supabase
+      .from("inventory_control_session")
+      .select("session_id")
+      .eq("started_by", user.id)
+      .eq("status", "open")
+      .limit(1)
+      .maybeSingle();
+    if (error || !data?.session_id) {
+      alertNoSession();
+      return;
+    }
+    enterControlMode();
+  }
+
   // Enter control mode: initialize edits from current rows
   function enterControlMode() {
     const edits = new Map<string, ControlEdit>();
@@ -733,8 +776,8 @@ export default function InventoryPage() {
 
   async function completeControl() {
     if (!canEdit || !session) {
-      setControlMessage("Open an inventory-control session first");
-      setTimeout(() => setControlMessage(null), 3000);
+      // PRD-001 Change 3: the 3-second message was easy to miss on mobile.
+      alertNoSession();
       return;
     }
     setControlSaving(true);
@@ -1267,11 +1310,9 @@ export default function InventoryPage() {
         [id]: { ...prev[id], qty: "error" as const },
       }));
       clearFeedbackField(id, "qty");
-      // PRD-001 change 3: the small red tick is easy to miss on mobile — the
-      // alert makes "no session open" unmistakable.
-      if (!session) {
-        alert("Start an inventory-control session before saving edits.");
-      }
+      // PRD-001 Change 3: alertNoSession() also scrolls the bar back into view
+      // if the soft keyboard pushed it off-screen.
+      alertNoSession();
       return;
     }
     const supabase = createClient();
@@ -1352,7 +1393,12 @@ export default function InventoryPage() {
 
   async function toggleBatchStatus(id: string, currentStatus: string) {
     if (currentStatus === "Expired") return;
-    if (!canEdit || !session) return;
+    if (!canEdit || !session) {
+      // PRD-001 Change 3: previously a silent return left the user with no
+      // feedback when tapping a status pill without a session.
+      alertNoSession();
+      return;
+    }
     const newStatus: "Active" | "Inactive" =
       currentStatus === "Active" ? "Inactive" : "Active";
     const row = rows.find((r) => r.wh_inventory_id === id);
@@ -1695,16 +1741,16 @@ export default function InventoryPage() {
                 Export CSV
               </button>
               <button
-                onClick={enterControlMode}
+                onClick={handleEnterBulkEdit}
                 disabled={!canEdit}
                 className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 title={
                   !canEdit
-                    ? "Open an inventory-control session above to begin"
+                    ? "Tap Start Inventory Control at the top to begin"
                     : undefined
                 }
               >
-                + Inventory Control
+                + Bulk Edit
               </button>
             </div>
           ) : (
@@ -1729,9 +1775,9 @@ export default function InventoryPage() {
         />
       )}
       <div className="px-4 py-4">
-        {/* Phase G P1: session bar + canary. Every stock / status mutation on
-            this page requires an open session and an EDIT_ROLES role. */}
-        <div className="mb-3 space-y-2">
+        {/* PRD-001 Change 2: sticky so the bar stays under the page header
+            when the user scrolls or the soft keyboard pushes the viewport up. */}
+        <div className="sticky top-[var(--field-header-height,56px)] z-30 -mx-4 px-4 mb-3 space-y-2 bg-white/95 backdrop-blur dark:bg-neutral-950/95 pb-2 border-b border-neutral-100 dark:border-neutral-800">
           <StartInventorySessionBar
             warehouseId={WAREHOUSE_ID_BY_TAB[warehouseFilter] ?? null}
             warehouseLabel={
