@@ -15,6 +15,48 @@ Format:
 
 ---
 
+## 2026-05-25 — Phase G Phase 3 + Phase 4 (close the chapter): physical-receipt gate + phantom drain + daily reconciliation + session viewer + reason dropdown + M2M audit
+
+**Phase / Article:** Phase G PRD v2 Phase 3 + Phase 4 / Constitution Articles 1, 4, 5, 7, 8, 11, 12 (backend); Article 3 (FE — new read-only viewer at `/admin/inventory-sessions`, no new direct writes).
+**Applied to:** prod (3 backend migrations applied via MCP) + repo (FE + audit docs + carve-out PRDs).
+**Migrations (via MCP, names from Supabase migrations table):**
+
+- `phaseG_p3_a2_purchase_orders_physical_received_qty_and_status_widen` — A.2.
+- `phaseG_p3_a3_drain_consumer_stock_phantom` — A.3.
+- `phaseG_p3_c6_c7_daily_flow_reconciliation` — C.6 + C.7.
+
+**Summary:** Nine items shipped end-to-end in a single batch (six from Phase 3, three from Phase 4). Three items (A.6 auto-receive, A.7 hard-block direct UPDATE, B.6 control-mode soft lock) carved out into standalone PRDs that require staging windows the batch cadence can't offer.
+
+(A.2) New `purchase_orders.physical_received_qty numeric NULL` column + widened `warehouse_inventory_status_check` to include `'PendingPhysicalReceipt'` + new `confirm_physical_receipt(p_po_line_id uuid, p_physical_qty numeric, p_received_by uuid DEFAULT NULL, p_notes text DEFAULT NULL)` SECURITY DEFINER RPC. The RPC validates caller role (`warehouse/operator_admin/superadmin/manager`), validates the line is received but unconfirmed, sets `app.via_rpc` and `app.rpc_name`, updates `physical_received_qty` and flips status from PendingPhysicalReceipt to Active on the linked WH row.
+
+(A.3) New `drain_consumer_stock_phantom(p_wh_inventory_id uuid, p_reason text, p_drained_by uuid DEFAULT NULL)` SECURITY DEFINER RPC. Cody-approved revision: instead of inventing a new `'consumer_phantom_drain'` provenance reason that would fail the `wh_provenance_reason_enum` CHECK, the RPC uses the existing `'manual_adjust'` and carries the discriminator in `inventory_audit_log.reason` text as `'consumer_phantom_drain: <text>'`. Minimum reason length 10 chars (matches `edit_purchase_order_line` and `cancel_po_line`). Per-row CS approval cadence — no rows drained without CS sign-off.
+
+(C.6) New `daily_reconciliation_log` table (append-only, RLS, `no_update`/`no_delete` policies) + new `v_daily_flow_reconciliation` view (`date_product` CTE joining `po_in / addn_in / returns_in / packs_out / sales_out` aggregates). `sales_history.transaction_date + qty + boonz_product_id` chosen as the canonical sales aggregate (sales_lines does not exist in live schema; sales_history is the source of truth).
+
+(C.7) New `cron_daily_inventory_reconciliation()` SECURITY DEFINER function + `daily_inventory_reconciliation` pg_cron job scheduled at `0 2 * * *` (02:00 UTC = 06:00 Dubai). Job snapshots `v_daily_flow_reconciliation` for the prior day into `daily_reconciliation_log`. Backfill smoke for 2026-05-24 returned 0 rows (no matching movement that day) — accepted as expected.
+
+(B.7) PO physical-receipt confirmation surface on `/app/inventory` drawer. When the drawer opens, an effect resolves the linked PO line via the batch_id LIKE pattern (`<po_id>-<short_uuid>-B<idx>`) that `receive_purchase_order` writes — query goes through `purchase_orders` filtered by `boonz_product_id` (small set per product) with client-side UUID-prefix match (avoids the PostgREST UUID-LIKE coercion issue). If the linked line has `received_date != NULL` AND `physical_received_qty IS NULL`, a yellow "Pending physical receipt" chip renders with a confirm dialog (physical qty + optional notes) that calls `confirm_physical_receipt` via the canonical RPC.
+
+(B.3) Reason dropdown for inventory edits. Replaced the free-text reason input with an 8-option category select (`physical_count / damaged_unit / expiry_writeoff / found_discrepancy / m2m_correction / supplier_short_ship / supplier_over_ship / other`) plus a detail textarea (>=4 chars). Final reason persisted as `<code>: <detail>` so the daily flow reconciliation (C.6) can bucket `inventory_audit_log` rows by intent in future PR iterations.
+
+(B.5) New `/admin/inventory-sessions` page. Two-column split: left = session list (last 200, status badge + start time + truncated id), right = per-session attempt grid with result filter (success / blocked_rls / blocked_trigger / rpc_error / validation_error / network_error / other / all) and a free-text search across `wh_inventory_id / boonz_product_id / field_changed / rpc_called / reason / error_message`. Read-only; RLS gates visibility to manager/operator_admin/superadmin per `inventory_control_session` policies. Tabular grid renders `when / result chip / field / rpc / wh_inventory short id / old → new JSON / reason / error` per row, with `.limit(10000)` per CLAUDE.md rule.
+
+(A.8) M2M flow audit document at `docs/prds/phase-g/A8_m2m_flow_audit_2026-05-25.md`. Findings: there are two M2M flows in production. The canonical `swap_between_machines` writer is unused in current traffic (0 live rows). All 8 live `is_m2m=true` rows were written by an **anonymous direct UPDATE** (no `rpc_name`, no `actor_role` in `write_audit_log`) that flipped `is_m2m=false → true, source_kind='unknown' → 'truck_transfer', from_warehouse_id=<WH_CENTRAL> → NULL` ~10 minutes after `push_plan_to_dispatch` inserted the rows. This is an Article 3 + 4 violation. The audit document flags it as a follow-up PRD (sibling of A.7 carve-out) and does not fix it in this batch — fixing requires identifying the writer first.
+
+**Carve-outs (standalone PRDs created, not shipped):**
+
+- `docs/prds/phase-g/CARVEOUT_A6_auto_receive_on_dispatch.md` — auto-receive cron for stuck `picked_up=true / received_at IS NULL` dispatches. Needs dry-run staging window.
+- `docs/prds/phase-g/CARVEOUT_A7_hard_block_direct_wh_update.md` — `BEFORE UPDATE` trigger raising on missing `app.via_rpc`. Needs 7-day audit-only warning window. Blocked by A.8 anonymous-flip root cause.
+- `docs/prds/phase-g/CARVEOUT_B6_control_mode_soft_lock.md` — yellow chip + confirm dialog on rows in scope of an open session. Needs 2 weeks of B.5 telemetry first.
+
+**Smoke 9.1 (A.2):** `confirm_physical_receipt` exists with the documented signature; SECURITY DEFINER confirmed; CHECK on `warehouse_inventory_status_check` includes `PendingPhysicalReceipt`.
+**Smoke 9.4 (B.3/B.5):** typecheck clean; `editReasonCode` required before save; `/admin/inventory-sessions` page renders the session list + attempts grid against live data; RLS gates working (visible to operator_admin, no rows for field_staff).
+**Smoke 9.6 (C.6/C.7):** cron job `daily_inventory_reconciliation` scheduled `0 2 * * *`, `active=true`; view `v_daily_flow_reconciliation` resolves; backfill for 2026-05-24 returns 0 (no movement that day, expected).
+
+**Rollback:** Each migration is forward-only. To unwind: drop the cron job, drop the daily_reconciliation_log table, drop the view, drop `drain_consumer_stock_phantom`, drop `confirm_physical_receipt`, narrow the status CHECK back, drop `physical_received_qty` column. FE rollback: revert the inventory page + delete the inventory-sessions page. Carve-out PRDs are documentation only — deletion safe.
+
+---
+
 ## 2026-05-25 — Phase G Phase 2 (the biggest leak): pack NULL refuse + EOD action narrow + movement trail view + FE drawer
 
 **Phase / Article:** Phase G PRD v2 Phase 2 / Constitution Articles 1, 4, 8, 11, 12 (backend); Article 3 (FE — no new direct writes; view consumed read-only).

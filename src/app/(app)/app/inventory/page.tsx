@@ -199,8 +199,30 @@ export default function InventoryPage() {
   const [editStock, setEditStock] = useState<number>(0);
   // Phase G P1 B.1 save state.
   const [editReason, setEditReason] = useState<string>("");
+  // Phase G P4 B.3: reason category dropdown. Final reason = `<code>: <detail>`.
+  const [editReasonCode, setEditReasonCode] = useState<string>("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveBusy, setSaveBusy] = useState(false);
+
+  // Phase G P3 B.7: linked PO line + confirm-physical-receipt state.
+  // When the drawer opens for a batch with a parseable PO-style batch_id, we
+  // resolve the source PO line via the batch_id LIKE pattern that
+  // receive_purchase_order writes (<po_id>-<short_uuid>-B<idx>). If the
+  // linked line has received_date != NULL and physical_received_qty IS NULL,
+  // the yellow "Pending physical receipt" chip surfaces.
+  interface LinkedPOLine {
+    po_line_id: string;
+    po_id: string;
+    received_date: string | null;
+    received_qty: number | null;
+    physical_received_qty: number | null;
+  }
+  const [linkedPOLine, setLinkedPOLine] = useState<LinkedPOLine | null>(null);
+  const [showConfirmReceipt, setShowConfirmReceipt] = useState(false);
+  const [confirmQty, setConfirmQty] = useState<number>(0);
+  const [confirmNotes, setConfirmNotes] = useState<string>("");
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   // Phase G P1: inventory-control session context + caller role.
   const { session } = useInventorySession();
@@ -249,6 +271,50 @@ export default function InventoryPage() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
+
+  // PRD-Phase-G P3 B.7: when the drawer opens, look up the linked PO line via
+  // the batch_id LIKE pattern receive_purchase_order writes.
+  useEffect(() => {
+    if (!selectedBatch || !selectedBatch.batch_id) {
+      setLinkedPOLine(null);
+      setShowConfirmReceipt(false);
+      return;
+    }
+    const m = selectedBatch.batch_id.match(/-([0-9a-f]{8})-B/i);
+    if (!m) {
+      setLinkedPOLine(null);
+      return;
+    }
+    const shortId = m[1].toLowerCase();
+    const bpid = selectedBatch.boonz_product_id;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      // po_line_id is uuid; PostgREST .like on uuid is unreliable. Fetch
+      // candidates by product_id (small set) and prefix-match client-side.
+      const { data } = await supabase
+        .from("purchase_orders")
+        .select(
+          "po_line_id, po_id, received_date, received_qty, physical_received_qty",
+        )
+        .eq("boonz_product_id", bpid)
+        .not("received_date", "is", null)
+        .limit(200);
+      if (cancelled) return;
+      const match = (data ?? []).find(
+        (r) =>
+          typeof r.po_line_id === "string" &&
+          r.po_line_id.toLowerCase().startsWith(shortId),
+      );
+      setLinkedPOLine((match as LinkedPOLine | null) ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // selectedBatch identity is the dependency; eslint may flag boonz_product_id
+    // inside the closure but it's pulled from selectedBatch directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBatch?.wh_inventory_id, selectedBatch?.batch_id]);
 
   // Fetch inventory
   const fetchInventory = useCallback(async () => {
@@ -405,15 +471,20 @@ export default function InventoryPage() {
       alert(msg);
       return;
     }
+    // Phase G P4 B.3: require category selection + detail (>= 4 chars).
+    if (!editReasonCode) {
+      setSaveError("Pick a reason category.");
+      return;
+    }
     if (!editReason || editReason.trim().length < 4) {
-      setSaveError("Reason required (minimum 4 characters).");
+      setSaveError("Reason detail required (minimum 4 characters).");
       return;
     }
 
     setSaveError(null);
     setSaveBusy(true);
     const supabase = createClient();
-    const reason = editReason.trim();
+    const reason = `${editReasonCode}: ${editReason.trim()}`;
 
     // Phase G P1 B.1: route stock + status + expiry through the canonical
     // wrapper RPCs. Each writes one inventory_control_attempt row. We track
@@ -502,6 +573,7 @@ export default function InventoryPage() {
       setSelectedBatch(null);
       setEditMode(false);
       setEditReason("");
+      setEditReasonCode("");
       setSaveBusy(false);
       setFetchKey((k) => k + 1);
     } catch (e) {
@@ -1209,6 +1281,200 @@ export default function InventoryPage() {
                     label="Physical Type"
                     value={selectedBatch.physical_type ?? "\u2014"}
                   />
+                  {/* PRD-Phase-G P3 B.7: PO physical-receipt confirmation. */}
+                  {linkedPOLine &&
+                    linkedPOLine.physical_received_qty === null && (
+                      <div
+                        style={{
+                          marginBottom: 20,
+                          padding: 12,
+                          background: "#fffbeb",
+                          border: "1px solid #fcd34d",
+                          borderRadius: 8,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#92400e",
+                            marginBottom: 4,
+                          }}
+                        >
+                          ⚠ Pending physical receipt
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#78350f",
+                            marginBottom: 8,
+                          }}
+                        >
+                          PO line {linkedPOLine.po_line_id.slice(0, 8)} was
+                          received on{" "}
+                          {linkedPOLine.received_date?.slice(0, 10) ?? "—"} (qty{" "}
+                          {linkedPOLine.received_qty ?? "—"}) but the physical
+                          count has not been confirmed.
+                        </div>
+                        {!showConfirmReceipt ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmQty(
+                                Number(linkedPOLine.received_qty ?? 0),
+                              );
+                              setConfirmNotes("");
+                              setConfirmError(null);
+                              setShowConfirmReceipt(true);
+                            }}
+                            style={{
+                              padding: "6px 12px",
+                              border: "1px solid #d97706",
+                              borderRadius: 6,
+                              background: "#d97706",
+                              color: "white",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Confirm physical receipt
+                          </button>
+                        ) : (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            <label
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: "#78350f",
+                              }}
+                            >
+                              Physical qty counted
+                              <input
+                                type="number"
+                                value={confirmQty}
+                                onChange={(e) =>
+                                  setConfirmQty(Number(e.target.value))
+                                }
+                                style={{
+                                  width: "100%",
+                                  marginTop: 4,
+                                  padding: "6px 10px",
+                                  border: "1px solid #fcd34d",
+                                  borderRadius: 6,
+                                  fontSize: 13,
+                                }}
+                              />
+                            </label>
+                            <label
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: "#78350f",
+                              }}
+                            >
+                              Notes (optional)
+                              <textarea
+                                value={confirmNotes}
+                                onChange={(e) =>
+                                  setConfirmNotes(e.target.value)
+                                }
+                                rows={2}
+                                style={{
+                                  width: "100%",
+                                  marginTop: 4,
+                                  padding: "6px 10px",
+                                  border: "1px solid #fcd34d",
+                                  borderRadius: 6,
+                                  fontSize: 13,
+                                  resize: "vertical",
+                                }}
+                              />
+                            </label>
+                            {confirmError && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#b91c1c",
+                                  padding: "4px 8px",
+                                  background: "#fee2e2",
+                                  borderRadius: 4,
+                                }}
+                              >
+                                {confirmError}
+                              </div>
+                            )}
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                type="button"
+                                disabled={confirmBusy}
+                                onClick={async () => {
+                                  setConfirmBusy(true);
+                                  setConfirmError(null);
+                                  const supabase = createClient();
+                                  const { error } = await supabase.rpc(
+                                    "confirm_physical_receipt",
+                                    {
+                                      p_po_line_id: linkedPOLine.po_line_id,
+                                      p_physical_qty: confirmQty,
+                                      p_notes: confirmNotes || null,
+                                    },
+                                  );
+                                  setConfirmBusy(false);
+                                  if (error) {
+                                    setConfirmError(error.message);
+                                    return;
+                                  }
+                                  setLinkedPOLine({
+                                    ...linkedPOLine,
+                                    physical_received_qty: confirmQty,
+                                  });
+                                  setShowConfirmReceipt(false);
+                                }}
+                                style={{
+                                  padding: "6px 12px",
+                                  border: "1px solid #15803d",
+                                  borderRadius: 6,
+                                  background: confirmBusy
+                                    ? "#86efac"
+                                    : "#15803d",
+                                  color: "white",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: confirmBusy
+                                    ? "not-allowed"
+                                    : "pointer",
+                                }}
+                              >
+                                {confirmBusy
+                                  ? "Saving..."
+                                  : "Save confirmation"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={confirmBusy}
+                                onClick={() => {
+                                  setShowConfirmReceipt(false);
+                                  setConfirmError(null);
+                                }}
+                                style={{
+                                  padding: "6px 12px",
+                                  border: "1px solid #d1d5db",
+                                  borderRadius: 6,
+                                  background: "white",
+                                  color: "#374151",
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   {/* PRD-Phase-G v2 B.4: per-row movement trail drawer */}
                   <MovementTrail
                     whInventoryId={selectedBatch.wh_inventory_id}
@@ -1312,7 +1578,10 @@ export default function InventoryPage() {
                     />
                   </div>
 
-                  {/* Phase G P1 B.1: reason required for every wrapper call. */}
+                  {/* Phase G P4 B.3: reason category dropdown + detail textarea.
+                      Persisted reason = `<code>: <detail>` so the daily flow
+                      reconciliation can bucket inventory_audit_log rows by
+                      intent. */}
                   <div style={{ marginBottom: 20 }}>
                     <label
                       style={{
@@ -1325,13 +1594,11 @@ export default function InventoryPage() {
                         marginBottom: 6,
                       }}
                     >
-                      Reason (min 4 chars)
+                      Reason category
                     </label>
-                    <input
-                      type="text"
-                      value={editReason}
-                      onChange={(e) => setEditReason(e.target.value)}
-                      placeholder="e.g. physical_count_2026-05-25"
+                    <select
+                      value={editReasonCode}
+                      onChange={(e) => setEditReasonCode(e.target.value)}
                       style={{
                         width: "100%",
                         border: "1px solid #e8e4de",
@@ -1340,6 +1607,60 @@ export default function InventoryPage() {
                         fontSize: 14,
                         color: "#0a0a0a",
                         background: "white",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="">-- pick one --</option>
+                      <option value="physical_count">
+                        Physical count adjustment
+                      </option>
+                      <option value="damaged_unit">Damaged units</option>
+                      <option value="expiry_writeoff">Expiry write-off</option>
+                      <option value="found_discrepancy">
+                        Found discrepancy
+                      </option>
+                      <option value="m2m_correction">
+                        Machine-to-machine correction
+                      </option>
+                      <option value="supplier_short_ship">
+                        Supplier short-ship
+                      </option>
+                      <option value="supplier_over_ship">
+                        Supplier over-ship
+                      </option>
+                      <option value="other">Other (explain in detail)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: 20 }}>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: "#6b6860",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Detail (min 4 chars)
+                    </label>
+                    <textarea
+                      value={editReason}
+                      onChange={(e) => setEditReason(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. counted 41 units, system shows 44"
+                      style={{
+                        width: "100%",
+                        border: "1px solid #e8e4de",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        fontSize: 14,
+                        color: "#0a0a0a",
+                        background: "white",
+                        resize: "vertical",
+                        fontFamily: "inherit",
                       }}
                     />
                   </div>
@@ -1408,6 +1729,7 @@ export default function InventoryPage() {
                       setEditMode(false);
                       setSaveError(null);
                       setEditReason("");
+                      setEditReasonCode("");
                     }}
                     disabled={saveBusy}
                     style={{
