@@ -3,8 +3,24 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { adjustWarehouseLine } from "@/lib/inventory/adjust-warehouse-line";
+import { adjustWarehouseLineMetadata } from "@/lib/inventory/adjust-warehouse-line";
+import {
+  attemptCorrection,
+  attemptStatusChange,
+  correlationId,
+} from "@/lib/inventory/attempt-rpcs";
+import { useInventorySession } from "@/lib/inventory/session";
 import { FieldHeader } from "../../../components/field-header";
+import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
+import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
+
+// Phase G P1: only these roles may save edits via the wrappers.
+const EDIT_ROLES = new Set([
+  "warehouse",
+  "operator_admin",
+  "superadmin",
+  "manager",
+]);
 
 type InventoryStatus =
   | "Active"
@@ -80,6 +96,31 @@ export default function InventoryDetailPage() {
   // Status toggle
   const [showStatusConfirm, setShowStatusConfirm] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
+
+  // Phase G P1: role + session gate for every WH inventory mutation.
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const { session } = useInventorySession();
+  const canEdit = Boolean(session && userRole && EDIT_ROLES.has(userRole));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      if (!cancelled) setUserRole(profile?.role ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -187,38 +228,67 @@ export default function InventoryDetailPage() {
       setSaveError("Row missing warehouse — refresh and try again");
       return;
     }
+    if (!canEdit || !session) {
+      setSaveError("Open an inventory-control session before editing");
+      return;
+    }
 
     setSaving(true);
     setSaveError(null);
 
     const supabase = createClient();
     const normalisedLocation = editLocation.trim() || null;
+    const qtyChanged = editQty !== item.warehouse_stock;
+    const locationChanged = normalisedLocation !== item.wh_location;
 
-    // Single canonical call — the RPC writes its own provenance-stamped audit
-    // log entries for qty and location changes.
-    const result = await adjustWarehouseLine(supabase, {
-      warehouseId: item.warehouse_id,
-      line: {
-        wh_inventory_id: inventoryId,
-        boonz_product_id: item.boonz_product_id,
-        new_warehouse_stock: editQty,
-        expiration_date: item.expiration_date,
-        status: item.status,
-        wh_location: normalisedLocation,
-      },
-      reason: editReason.trim(),
-    });
+    let effectiveStock = item.warehouse_stock;
+    const reason = editReason.trim();
 
-    if (!result.ok) {
-      setSaveError(`Save failed — ${result.error ?? "try again"}`);
-      setSaving(false);
-      return;
+    // Phase G P1: split qty (audited via attempt_inventory_correction) and
+    // location (metadata-only) so the audit row records the right
+    // field_changed value.
+    if (qtyChanged) {
+      const r = await attemptCorrection(supabase, {
+        sessionId: session.session_id,
+        whInventoryId: inventoryId,
+        newWarehouseStock: editQty,
+        reason,
+        correlationId: correlationId(),
+      });
+      if (r.result !== "success") {
+        setSaveError(
+          `Stock save failed (${r.result}): ${r.error ?? "unknown error"}`,
+        );
+        setSaving(false);
+        return;
+      }
+      effectiveStock = editQty;
+    }
+
+    if (locationChanged) {
+      const r = await adjustWarehouseLineMetadata(supabase, {
+        warehouseId: item.warehouse_id,
+        line: {
+          wh_inventory_id: inventoryId,
+          boonz_product_id: item.boonz_product_id,
+          expiration_date: item.expiration_date,
+          wh_location: normalisedLocation,
+        },
+        currentWarehouseStock: effectiveStock,
+        currentStatus: item.status,
+        reason,
+      });
+      if (!r.ok) {
+        setSaveError(`Location save failed — ${r.error ?? "try again"}`);
+        setSaving(false);
+        return;
+      }
     }
 
     // Update local state
     setItem({
       ...item,
-      warehouse_stock: editQty,
+      warehouse_stock: effectiveStock,
       wh_location: normalisedLocation,
     });
 
@@ -239,17 +309,21 @@ export default function InventoryDetailPage() {
       setSavingExpiry(false);
       return;
     }
+    if (!canEdit) {
+      setSavingExpiry(false);
+      return;
+    }
     setSavingExpiry(true);
     const supabase = createClient();
-    const result = await adjustWarehouseLine(supabase, {
+    const result = await adjustWarehouseLineMetadata(supabase, {
       warehouseId: item.warehouse_id,
       line: {
         wh_inventory_id: inventoryId,
         boonz_product_id: item.boonz_product_id,
-        new_warehouse_stock: item.warehouse_stock,
         expiration_date: expiryDate || null,
-        status: item.status,
       },
+      currentWarehouseStock: item.warehouse_stock,
+      currentStatus: item.status,
       reason: "expiry_edit",
     });
     if (result.ok) {
@@ -262,6 +336,10 @@ export default function InventoryDetailPage() {
 
   async function handleStatusToggle(newStatus: "Active" | "Inactive") {
     if (!item) return;
+    if (!canEdit || !session) {
+      setShowStatusConfirm(false);
+      return;
+    }
     setStatusUpdating(true);
     setShowStatusConfirm(false);
 
@@ -275,19 +353,17 @@ export default function InventoryDetailPage() {
         ? "Marked inactive — excluded from refill"
         : "Reactivated — included in refill";
 
-    const result = await adjustWarehouseLine(supabase, {
-      warehouseId: item.warehouse_id,
-      line: {
-        wh_inventory_id: inventoryId,
-        boonz_product_id: item.boonz_product_id,
-        new_warehouse_stock: item.warehouse_stock,
-        expiration_date: item.expiration_date,
-        status: newStatus,
-      },
+    const result = await attemptStatusChange(supabase, {
+      sessionId: session.session_id,
+      whInventoryId: inventoryId,
+      newStatus,
       reason,
+      correlationId: correlationId(),
+      newWarehouseStock:
+        newStatus === "Active" ? item.warehouse_stock : undefined,
     });
 
-    if (result.ok) {
+    if (result.result === "success") {
       setItem({ ...item, status: newStatus });
       fetchData();
     }
@@ -329,6 +405,17 @@ export default function InventoryDetailPage() {
     <div className="px-4 py-4 pb-24">
       <FieldHeader title="Item Detail" />
 
+      {/* Phase G P1: per-row session bar + canary. The session scopes to the
+          row's warehouse so the start RPC validates correctly. */}
+      <div className="mb-4 space-y-2">
+        <StartInventorySessionBar
+          warehouseId={item.warehouse_id}
+          role={userRole}
+          productIds={[item.boonz_product_id]}
+        />
+        <CanaryIndicator />
+      </div>
+
       {/* Header */}
       <div className="mb-4">
         <h1 className="text-xl font-semibold">{item.boonz_product_name}</h1>
@@ -367,10 +454,10 @@ export default function InventoryDetailPage() {
             />
             <button
               onClick={handleSaveExpiry}
-              disabled={savingExpiry}
+              disabled={savingExpiry || !canEdit}
               className="shrink-0 rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
-              {savingExpiry ? "Saving…" : "Save"}
+              {savingExpiry ? "Saving…" : canEdit ? "Save" : "Locked"}
             </button>
           </div>
           {expirySaved && (
@@ -416,19 +503,19 @@ export default function InventoryDetailPage() {
         {item.status === "Active" && (
           <button
             onClick={() => setShowStatusConfirm(true)}
-            disabled={statusUpdating}
+            disabled={statusUpdating || !canEdit}
             className="shrink-0 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950"
           >
-            Mark as inactive
+            {canEdit ? "Mark as inactive" : "Locked"}
           </button>
         )}
         {item.status === "Inactive" && (
           <button
             onClick={() => handleStatusToggle("Active")}
-            disabled={statusUpdating}
+            disabled={statusUpdating || !canEdit}
             className="shrink-0 rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-50 disabled:opacity-50 dark:border-green-700 dark:text-green-400 dark:hover:bg-green-950"
           >
-            {statusUpdating ? "Updating…" : "Reactivate"}
+            {statusUpdating ? "Updating…" : canEdit ? "Reactivate" : "Locked"}
           </button>
         )}
       </div>
@@ -467,9 +554,10 @@ export default function InventoryDetailPage() {
       {!editing ? (
         <button
           onClick={enterEditMode}
-          className="mb-6 w-full rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-900"
+          disabled={!canEdit}
+          className="mb-6 w-full rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-50 disabled:hover:bg-transparent dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-900"
         >
-          Edit stock
+          {canEdit ? "Edit stock" : "Edit stock (locked)"}
         </button>
       ) : (
         <div className="mb-6 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">

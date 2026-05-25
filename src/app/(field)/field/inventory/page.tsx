@@ -11,12 +11,36 @@ import {
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
-import { adjustWarehouseLine } from "@/lib/inventory/adjust-warehouse-line";
+import { adjustWarehouseLineMetadata } from "@/lib/inventory/adjust-warehouse-line";
+import {
+  attemptCorrection,
+  attemptStatusChange,
+  correlationId,
+} from "@/lib/inventory/attempt-rpcs";
+import { useInventorySession } from "@/lib/inventory/session";
 import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
 import Tour from "../../components/onboarding/tour";
 import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
+import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
+import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
+
+// Phase G P1 B.1/B.2: only these roles can save edits via the wrappers.
+const EDIT_ROLES = new Set([
+  "warehouse",
+  "operator_admin",
+  "superadmin",
+  "manager",
+]);
+
+// Phase G P1 B.6: WH-tab to warehouse_id mapping (matches operator console).
+const WAREHOUSE_ID_BY_TAB: Record<string, string | null> = {
+  all: null,
+  WH_CENTRAL: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85",
+  WH_MM: "0aef9ccf-32ad-4545-8413-29bebd931d0b",
+  WH_MCC: "4fcfb52c-271f-4aa7-a373-3495e3271cd3",
+};
 
 interface InventoryRow {
   wh_inventory_id: string;
@@ -237,6 +261,8 @@ interface ProductCardProps {
   onSaveQty: (id: string, qty: number) => Promise<void>;
   onSaveLocation: (id: string, location: string) => Promise<void>;
   onToggleStatus: (id: string, currentStatus: string) => Promise<void>;
+  /** Phase G P1: when false, inline qty / location / status edits are locked. */
+  canEdit: boolean;
 }
 
 function ProductCard({
@@ -254,6 +280,7 @@ function ProductCard({
   onSaveQty,
   onSaveLocation,
   onToggleStatus,
+  canEdit,
 }: ProductCardProps) {
   return (
     <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
@@ -322,6 +349,7 @@ function ProductCard({
                     type="number"
                     min={0}
                     value={batchQty}
+                    disabled={!canEdit && !controlMode}
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10) || 0;
                       if (controlMode) {
@@ -341,7 +369,7 @@ function ProductCard({
                         );
                       }
                     }}
-                    className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm dark:border-neutral-600 dark:bg-neutral-900"
+                    className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
                   />
                   {fb?.qty && (
                     <span
@@ -357,6 +385,7 @@ function ProductCard({
                     type="text"
                     value={batchLocation}
                     placeholder="Unassigned"
+                    disabled={!canEdit && !controlMode}
                     onChange={(e) => {
                       if (controlMode) {
                         updateControlEdit(
@@ -379,7 +408,7 @@ function ProductCard({
                         );
                       }
                     }}
-                    className="w-full min-w-0 rounded border border-neutral-200 px-2 py-1 text-xs placeholder:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
+                    className="w-full min-w-0 rounded border border-neutral-200 px-2 py-1 text-xs placeholder:text-neutral-400 disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
                   />
                   {fb?.location && (
                     <span
@@ -391,6 +420,7 @@ function ProductCard({
                 </div>
                 {/* Status pill */}
                 <button
+                  disabled={!canEdit && !controlMode}
                   onClick={() => {
                     if (!controlMode) {
                       void onToggleStatus(batch.wh_inventory_id, batch.status);
@@ -402,7 +432,7 @@ function ProductCard({
                       );
                     }
                   }}
-                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                  className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium disabled:opacity-60 disabled:cursor-not-allowed ${
                     batch.status === "Active"
                       ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
                       : batch.status === "Expired"
@@ -471,6 +501,11 @@ export default function InventoryPage() {
   );
   const [controlSaving, setControlSaving] = useState(false);
   const [controlMessage, setControlMessage] = useState<string | null>(null);
+
+  // Phase G P1: inventory-control session context. All inline qty / location /
+  // status writes require an open session AND a role in EDIT_ROLES.
+  const { session } = useInventorySession();
+  const canEdit = Boolean(session && userRole && EDIT_ROLES.has(userRole));
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -686,6 +721,11 @@ export default function InventoryPage() {
   }
 
   async function completeControl() {
+    if (!canEdit || !session) {
+      setControlMessage("Open an inventory-control session first");
+      setTimeout(() => setControlMessage(null), 3000);
+      return;
+    }
     setControlSaving(true);
     const supabase = createClient();
 
@@ -706,24 +746,63 @@ export default function InventoryPage() {
       if (!qtyChanged && !locationChanged && !statusChanged) continue;
       if (!row.warehouse_id) continue;
 
-      // Route through adjust_warehouse_stock so the GUC provenance, audit log,
-      // and quarantine trigger all see this as a canonical mutation. The RPC
-      // writes its own inventory_audit_log entries per changed dimension, so we
-      // no longer need a separate audit insert from the FE.
-      await adjustWarehouseLine(supabase, {
-        warehouseId: row.warehouse_id,
-        line: {
-          wh_inventory_id: row.wh_inventory_id,
-          boonz_product_id: row.boonz_product_id,
-          new_warehouse_stock: qtyChanged ? edit.qty : row.warehouse_stock,
-          expiration_date: row.expiration_date,
-          status: statusChanged ? edit.status : row.status,
-          ...(locationChanged
-            ? { wh_location: edit.location || null }
-            : {}),
-        },
-        reason: "inventory_control",
-      });
+      // Phase G P1: split the legacy single-call into per-dimension wrappers
+      // so each mutation lands in inventory_control_attempt with the right
+      // field_changed. apply_inventory_correction auto-reactivates Inactive
+      // when new_stock > 0, so we track the effective status as we go and
+      // skip a redundant status flip when the qty edit already did it.
+      let effectiveStock = row.warehouse_stock;
+      let effectiveStatus = row.status;
+
+      if (qtyChanged) {
+        const r = await attemptCorrection(supabase, {
+          sessionId: session.session_id,
+          whInventoryId: row.wh_inventory_id,
+          newWarehouseStock: edit.qty,
+          reason: "inventory_control",
+          correlationId: correlationId(),
+        });
+        if (r.result === "success") {
+          effectiveStock = edit.qty;
+          if (effectiveStatus === "Inactive" && effectiveStock > 0) {
+            effectiveStatus = "Active";
+          }
+        }
+      }
+
+      if (
+        statusChanged &&
+        edit.status !== effectiveStatus &&
+        (edit.status === "Active" || edit.status === "Inactive")
+      ) {
+        const r = await attemptStatusChange(supabase, {
+          sessionId: session.session_id,
+          whInventoryId: row.wh_inventory_id,
+          newStatus: edit.status,
+          reason: "inventory_control",
+          correlationId: correlationId(),
+          newWarehouseStock:
+            edit.status === "Active" ? effectiveStock : undefined,
+        });
+        if (r.result === "success") {
+          effectiveStatus = edit.status;
+        }
+      }
+
+      if (locationChanged) {
+        await adjustWarehouseLineMetadata(supabase, {
+          warehouseId: row.warehouse_id,
+          line: {
+            wh_inventory_id: row.wh_inventory_id,
+            boonz_product_id: row.boonz_product_id,
+            expiration_date: row.expiration_date,
+            wh_location: edit.location || null,
+          },
+          currentWarehouseStock: effectiveStock,
+          currentStatus: effectiveStatus,
+          reason: "inventory_control",
+        });
+      }
     }
 
     // Insert inventory control log
@@ -1160,7 +1239,6 @@ export default function InventoryPage() {
 
   async function saveInlineQty(id: string, qty: number) {
     const safeQty = Math.max(0, qty);
-    const supabase = createClient();
     const row = rows.find((r) => r.wh_inventory_id === id);
     if (!row || !row.warehouse_id) {
       setSaveFeedback((prev) => ({
@@ -1170,26 +1248,31 @@ export default function InventoryPage() {
       clearFeedbackField(id, "qty");
       return;
     }
-    // Route through canonical adjust_warehouse_stock RPC (Constitution A3, PRD-003 provenance).
-    // Pass the current values for non-qty fields so we don't unintentionally rewrite them.
-    const result = await adjustWarehouseLine(supabase, {
-      warehouseId: row.warehouse_id,
-      line: {
-        wh_inventory_id: id,
-        boonz_product_id: row.boonz_product_id,
-        new_warehouse_stock: safeQty,
-        expiration_date: row.expiration_date,
-        status: row.status,
-      },
+    // Phase G P1: stock writes must flow through attempt_inventory_correction
+    // so the session captures the attempt (success or failure).
+    if (!canEdit || !session) {
+      setSaveFeedback((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], qty: "error" as const },
+      }));
+      clearFeedbackField(id, "qty");
+      return;
+    }
+    const supabase = createClient();
+    const result = await attemptCorrection(supabase, {
+      sessionId: session.session_id,
+      whInventoryId: id,
+      newWarehouseStock: safeQty,
       reason: "inline_qty_edit",
+      correlationId: correlationId(),
     });
 
-    const status = result.ok ? ("saved" as const) : ("error" as const);
+    const ok = result.result === "success";
     setSaveFeedback((prev) => ({
       ...prev,
-      [id]: { ...prev[id], qty: status },
+      [id]: { ...prev[id], qty: ok ? "saved" : "error" },
     }));
-    if (result.ok) {
+    if (ok) {
       setRows((prev) =>
         prev.map((r) =>
           r.wh_inventory_id === id ? { ...r, warehouse_stock: safeQty } : r,
@@ -1210,27 +1293,36 @@ export default function InventoryPage() {
       clearFeedbackField(id, "location");
       return;
     }
+    if (!canEdit) {
+      setSaveFeedback((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], location: "error" as const },
+      }));
+      clearFeedbackField(id, "location");
+      return;
+    }
     const normalisedLocation = location.trim() || null;
-    // Location-only edit: pass current qty + status so they're preserved.
-    const result = await adjustWarehouseLine(supabase, {
+    // Phase G P1: wh_location is metadata-only — routed through the
+    // metadata-only canonical writer; never through the qty/status wrappers.
+    const result = await adjustWarehouseLineMetadata(supabase, {
       warehouseId: row.warehouse_id,
       line: {
         wh_inventory_id: id,
         boonz_product_id: row.boonz_product_id,
-        new_warehouse_stock: row.warehouse_stock,
         expiration_date: row.expiration_date,
-        status: row.status,
         wh_location: normalisedLocation,
       },
+      currentWarehouseStock: row.warehouse_stock,
+      currentStatus: row.status,
       reason: "inline_location_edit",
     });
 
-    const status = result.ok ? ("saved" as const) : ("error" as const);
+    const ok = result.ok;
     setSaveFeedback((prev) => ({
       ...prev,
-      [id]: { ...prev[id], location: status },
+      [id]: { ...prev[id], location: ok ? "saved" : "error" },
     }));
-    if (result.ok) {
+    if (ok) {
       setRows((prev) =>
         prev.map((r) =>
           r.wh_inventory_id === id
@@ -1244,24 +1336,27 @@ export default function InventoryPage() {
 
   async function toggleBatchStatus(id: string, currentStatus: string) {
     if (currentStatus === "Expired") return;
-    const newStatus = currentStatus === "Active" ? "Inactive" : "Active";
-    const supabase = createClient();
+    if (!canEdit || !session) return;
+    const newStatus: "Active" | "Inactive" =
+      currentStatus === "Active" ? "Inactive" : "Active";
     const row = rows.find((r) => r.wh_inventory_id === id);
     if (!row || !row.warehouse_id) return;
 
-    const result = await adjustWarehouseLine(supabase, {
-      warehouseId: row.warehouse_id,
-      line: {
-        wh_inventory_id: id,
-        boonz_product_id: row.boonz_product_id,
-        new_warehouse_stock: row.warehouse_stock,
-        expiration_date: row.expiration_date,
-        status: newStatus,
-      },
+    // Phase G P1: status flips route through attempt_status_change so
+    // both Active->Inactive (inactivate_warehouse_row) and Inactive->Active
+    // (reactivate_warehouse_row) land in inventory_control_attempt.
+    const supabase = createClient();
+    const result = await attemptStatusChange(supabase, {
+      sessionId: session.session_id,
+      whInventoryId: id,
+      newStatus,
       reason: "toggle_batch_status",
+      correlationId: correlationId(),
+      newWarehouseStock:
+        newStatus === "Active" ? row.warehouse_stock : undefined,
     });
 
-    if (result.ok) {
+    if (result.result === "success") {
       setRows((prev) =>
         prev.map((r) =>
           r.wh_inventory_id === id ? { ...r, status: newStatus } : r,
@@ -1585,7 +1680,13 @@ export default function InventoryPage() {
               </button>
               <button
                 onClick={enterControlMode}
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                disabled={!canEdit}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                title={
+                  !canEdit
+                    ? "Open an inventory-control session above to begin"
+                    : undefined
+                }
               >
                 + Inventory Control
               </button>
@@ -1612,6 +1713,19 @@ export default function InventoryPage() {
         />
       )}
       <div className="px-4 py-4">
+        {/* Phase G P1: session bar + canary. Every stock / status mutation on
+            this page requires an open session and an EDIT_ROLES role. */}
+        <div className="mb-3 space-y-2">
+          <StartInventorySessionBar
+            warehouseId={WAREHOUSE_ID_BY_TAB[warehouseFilter] ?? null}
+            warehouseLabel={
+              warehouseFilter === "all" ? "select a warehouse" : warehouseFilter
+            }
+            role={userRole}
+          />
+          <CanaryIndicator />
+        </div>
+
         {/* BUG-010: Returns awaiting WH-side approval (driver_confirm_remove → wh_approve_remove_receipt) */}
         <PendingRemoveApprovalsPanel />
 
@@ -1942,6 +2056,7 @@ export default function InventoryPage() {
                         onSaveQty={saveInlineQty}
                         onSaveLocation={saveInlineLocation}
                         onToggleStatus={toggleBatchStatus}
+                        canEdit={canEdit}
                       />
                     ))}
                   </div>
@@ -1968,6 +2083,7 @@ export default function InventoryPage() {
                   onSaveQty={saveInlineQty}
                   onSaveLocation={saveInlineLocation}
                   onToggleStatus={toggleBatchStatus}
+                  canEdit={canEdit}
                 />
               ))}
             </div>

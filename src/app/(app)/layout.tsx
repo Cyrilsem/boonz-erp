@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import SidebarNav from "./sidebar-nav";
+import { InventorySessionProvider } from "@/lib/inventory/session";
 
 export default async function AppLayout({
   children,
@@ -35,7 +36,10 @@ export default async function AppLayout({
           className="flex-1 overflow-y-auto"
           style={{ background: "#faf9f7" }}
         >
-          {children}
+          {/* Phase G P1: provide inventory-control session context to any
+              client component below this layout (operator inventory page is
+              the primary WH-manager surface that consumes it). */}
+          <InventorySessionProvider>{children}</InventorySessionProvider>
         </main>
       </div>
     </>

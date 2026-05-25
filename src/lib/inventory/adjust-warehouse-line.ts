@@ -82,59 +82,43 @@ export interface AdjustWarehouseResult {
 }
 
 /**
- * Phase G P1 status (2026-05-25): SOFT-DEPRECATED for stock + status callers.
+ * Phase G P1 status (2026-05-25): HARD-DEPRECATED.
  *
- * Stock-cell and status-toggle call sites should migrate to attemptCorrection
- * and attemptStatusChange in `@/lib/inventory/attempt-rpcs`. Until every page
- * is migrated, this helper continues to work for backward compatibility. A
- * follow-up PR will flip on the runtime guard that rejects callers passing
- * `new_warehouse_stock` or `status`, closing the audit-bypass escape hatch.
- *
- * Metadata-only callers (wh_location / expiration_date / batch_id) should
- * call `adjustWarehouseLineMetadata` below today; that function takes the
- * row's current stock + status and passes them through unchanged so the
- * Phase 1 guard does not flag them.
+ * All operator/field inventory pages now route stock through attemptCorrection
+ * and status through attemptStatusChange (attempt-rpcs.ts). This helper
+ * rejects any call that passes `new_warehouse_stock` or `status` to close the
+ * audit-bypass escape hatch. Metadata-only callers must use
+ * `adjustWarehouseLineMetadata` below, which preserves the current stock and
+ * status of the row.
  *
  * Constitution Article 3: every protected-entity write goes through an RPC.
  * Stax Rule S1 + S2: greppable, single literal RPC name.
  */
 export async function adjustWarehouseLine(
-  supabase: SupabaseClient,
+  _supabase: SupabaseClient,
   args: AdjustWarehouseArgs,
 ): Promise<AdjustWarehouseResult> {
-  if (!args.warehouseId) {
-    return { ok: false, error: "warehouseId is required" };
-  }
-  if (!args.line.boonz_product_id) {
-    return { ok: false, error: "line.boonz_product_id is required" };
-  }
   if (
-    args.line.new_warehouse_stock === undefined ||
-    args.line.new_warehouse_stock === null ||
-    Number.isNaN(args.line.new_warehouse_stock)
+    args.line.new_warehouse_stock !== undefined ||
+    args.line.status !== undefined
   ) {
-    return { ok: false, error: "line.new_warehouse_stock is required" };
+    return {
+      ok: false,
+      error:
+        "adjustWarehouseLine is removed for stock/status edits. " +
+        "Use attemptCorrection or attemptStatusChange from " +
+        "@/lib/inventory/attempt-rpcs so the change is captured in " +
+        "inventory_control_attempt. Metadata-only edits use " +
+        "adjustWarehouseLineMetadata.",
+    };
   }
-
-  // Strip undefined keys so the RPC's "key present" semantics work for
-  // wh_location, expiration_date, batch_id. We deliberately keep nulls; those
-  // mean "explicitly clear this field".
-  const cleanedLine: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(args.line)) {
-    if (v !== undefined) cleanedLine[k] = v;
-  }
-
-  const { data, error } = await supabase.rpc("adjust_warehouse_stock", {
-    p_warehouse_id: args.warehouseId,
-    p_lines: [cleanedLine],
-    p_snapshot_date: args.snapshotDate ?? null,
-    p_reason: args.reason,
-  });
-
-  if (error) {
-    return { ok: false, error: error.message, detail: error };
-  }
-  return { ok: true, detail: data };
+  return {
+    ok: false,
+    error:
+      "adjustWarehouseLine is removed. Use adjustWarehouseLineMetadata for " +
+      "wh_location / expiration_date / batch_id edits, or the attempt-rpcs " +
+      "wrappers for stock/status changes.",
+  };
 }
 
 /**

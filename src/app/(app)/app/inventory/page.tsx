@@ -2,9 +2,34 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { adjustWarehouseLine } from "@/lib/inventory/adjust-warehouse-line";
+import { adjustWarehouseLineMetadata } from "@/lib/inventory/adjust-warehouse-line";
+import {
+  attemptCorrection,
+  attemptStatusChange,
+  correlationId,
+} from "@/lib/inventory/attempt-rpcs";
+import { useInventorySession } from "@/lib/inventory/session";
 import PendingProposalsPanel from "@/components/inventory/PendingProposalsPanel";
 import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
+import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
+import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
+
+// Phase G P1 B.1/B.2: only these roles can start a session or save edits.
+// FE gate matches the SECURITY DEFINER role check inside the wrapper RPCs.
+const EDIT_ROLES = new Set([
+  "warehouse",
+  "operator_admin",
+  "superadmin",
+  "manager",
+]);
+
+// Phase G P1 B.6: stable WH_id mapping for the session bar (Dara skill spec).
+const WAREHOUSE_ID_BY_TAB: Record<string, string | null> = {
+  all: null,
+  WH_CENTRAL: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85",
+  WH_MM: "0aef9ccf-32ad-4545-8413-29bebd931d0b",
+  WH_MCC: "4fcfb52c-271f-4aa7-a373-3495e3271cd3",
+};
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -170,6 +195,31 @@ export default function InventoryPage() {
   const [editStatus, setEditStatus] = useState<string>("");
   const [editExpiry, setEditExpiry] = useState<string>("");
   const [editStock, setEditStock] = useState<number>(0);
+  // Phase G P1 B.1 save state.
+  const [editReason, setEditReason] = useState<string>("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+
+  // Phase G P1: inventory-control session context + caller role.
+  const { session } = useInventorySession();
+  const [userRole, setUserRole] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .single();
+      setUserRole((data?.role as string | undefined) ?? null);
+    })();
+  }, []);
+
+  const canEdit = Boolean(session && userRole && EDIT_ROLES.has(userRole));
 
   // Extended filters
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>("all");
@@ -335,23 +385,113 @@ export default function InventoryPage() {
   const handleSave = async () => {
     if (!selectedBatch) return;
     if (!selectedBatch.warehouse_id) return;
-    const supabase = createClient();
-    const result = await adjustWarehouseLine(supabase, {
-      warehouseId: selectedBatch.warehouse_id,
-      line: {
-        wh_inventory_id: selectedBatch.wh_inventory_id,
-        boonz_product_id: selectedBatch.boonz_product_id,
-        new_warehouse_stock: editStock,
-        expiration_date: editExpiry || null,
-        status: editStatus,
-      },
-      reason: "admin_inventory_edit",
-    });
+    if (!session) {
+      setSaveError("Start an inventory-control session before saving edits.");
+      return;
+    }
+    if (!editReason || editReason.trim().length < 4) {
+      setSaveError("Reason required (minimum 4 characters).");
+      return;
+    }
 
-    if (result.ok) {
+    setSaveError(null);
+    setSaveBusy(true);
+    const supabase = createClient();
+    const reason = editReason.trim();
+
+    // Phase G P1 B.1: route stock + status + expiry through the canonical
+    // wrapper RPCs. Each writes one inventory_control_attempt row. We track
+    // expected effective values across the three calls so the metadata write
+    // does not stomp on the stock/status change made by the prior call.
+    let effectiveStock = Number(selectedBatch.warehouse_stock);
+    let effectiveStatus = selectedBatch.status;
+    const stockChanged = Number(editStock) !== effectiveStock;
+    const statusChanged = editStatus !== effectiveStatus;
+    const newExpiry = editExpiry || null;
+    const expiryChanged = (selectedBatch.expiration_date || null) !== newExpiry;
+
+    try {
+      if (stockChanged) {
+        const r = await attemptCorrection(supabase, {
+          sessionId: session.session_id,
+          whInventoryId: selectedBatch.wh_inventory_id,
+          newWarehouseStock: Number(editStock),
+          reason,
+          correlationId: correlationId(),
+        });
+        if (r.result !== "success") {
+          setSaveError(
+            `Stock save failed (${r.result}): ${r.error ?? "unknown error"}`,
+          );
+          setSaveBusy(false);
+          return;
+        }
+        effectiveStock = Number(editStock);
+        // apply_inventory_correction auto-flips Inactive->Active when
+        // new_stock > 0; mirror that so the status diff below is honest.
+        if (effectiveStatus === "Inactive" && effectiveStock > 0) {
+          effectiveStatus = "Active";
+        }
+      }
+
+      if (
+        statusChanged &&
+        editStatus !== effectiveStatus &&
+        (editStatus === "Active" || editStatus === "Inactive")
+      ) {
+        const r = await attemptStatusChange(supabase, {
+          sessionId: session.session_id,
+          whInventoryId: selectedBatch.wh_inventory_id,
+          newStatus: editStatus,
+          reason,
+          correlationId: correlationId(),
+          newWarehouseStock:
+            editStatus === "Active" ? Number(editStock) : undefined,
+        });
+        if (r.result !== "success") {
+          setSaveError(
+            `Status change failed (${r.result}): ${r.error ?? "unknown error"}`,
+          );
+          setSaveBusy(false);
+          return;
+        }
+        effectiveStatus = editStatus;
+      }
+
+      if (expiryChanged) {
+        const r = await adjustWarehouseLineMetadata(supabase, {
+          warehouseId: selectedBatch.warehouse_id,
+          line: {
+            wh_inventory_id: selectedBatch.wh_inventory_id,
+            boonz_product_id: selectedBatch.boonz_product_id,
+            expiration_date: newExpiry,
+          },
+          currentWarehouseStock: effectiveStock,
+          currentStatus: effectiveStatus,
+          reason,
+        });
+        if (!r.ok) {
+          setSaveError(`Expiry update failed: ${r.error ?? "unknown error"}`);
+          setSaveBusy(false);
+          return;
+        }
+      }
+
+      if (!stockChanged && !statusChanged && !expiryChanged) {
+        setSaveError("No fields changed.");
+        setSaveBusy(false);
+        return;
+      }
+
       setSelectedBatch(null);
       setEditMode(false);
+      setEditReason("");
+      setSaveBusy(false);
       setFetchKey((k) => k + 1);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSaveError(`Unexpected error: ${msg}`);
+      setSaveBusy(false);
     }
   };
 
@@ -436,6 +576,29 @@ export default function InventoryPage() {
         >
           ↓ Export CSV
         </button>
+      </div>
+
+      {/* Phase G P1 B.6 / B.8: inventory-control session bar + canary heartbeat.
+          Bar is gated on a specific warehouse tab; canary only ticks while a
+          session is open. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <StartInventorySessionBar
+            warehouseId={WAREHOUSE_ID_BY_TAB[warehouseTab] ?? null}
+            warehouseLabel={warehouseTab === "all" ? undefined : warehouseTab}
+            role={userRole}
+          />
+        </div>
+        <div style={{ paddingTop: 10 }}>
+          <CanaryIndicator />
+        </div>
       </div>
 
       {/* Warehouse Tabs */}
@@ -1111,6 +1274,54 @@ export default function InventoryPage() {
                       }}
                     />
                   </div>
+
+                  {/* Phase G P1 B.1: reason required for every wrapper call. */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label
+                      style={{
+                        display: "block",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: "#6b6860",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Reason (min 4 chars)
+                    </label>
+                    <input
+                      type="text"
+                      value={editReason}
+                      onChange={(e) => setEditReason(e.target.value)}
+                      placeholder="e.g. physical_count_2026-05-25"
+                      style={{
+                        width: "100%",
+                        border: "1px solid #e8e4de",
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                        fontSize: 14,
+                        color: "#0a0a0a",
+                        background: "white",
+                      }}
+                    />
+                  </div>
+
+                  {saveError && (
+                    <div
+                      style={{
+                        marginBottom: 16,
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        border: "1px solid #fca5a5",
+                        background: "#fef2f2",
+                        color: "#991b1b",
+                        fontSize: 13,
+                      }}
+                    >
+                      {saveError}
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -1126,26 +1337,42 @@ export default function InventoryPage() {
             >
               {!editMode ? (
                 <button
-                  onClick={() => setEditMode(true)}
+                  onClick={() => {
+                    setEditMode(true);
+                    setSaveError(null);
+                  }}
+                  disabled={!canEdit}
+                  title={
+                    !canEdit
+                      ? session
+                        ? "Your role cannot edit inventory"
+                        : "Start an inventory-control session above to enable edits"
+                      : "Edit batch"
+                  }
                   style={{
                     flex: 1,
                     padding: "10px 0",
                     borderRadius: 8,
                     border: "none",
-                    background: "#24544a",
+                    background: canEdit ? "#24544a" : "#9ca39a",
                     color: "white",
                     fontSize: 14,
                     fontWeight: 600,
-                    cursor: "pointer",
+                    cursor: canEdit ? "pointer" : "not-allowed",
                     fontFamily: font,
                   }}
                 >
-                  Edit Batch
+                  {canEdit ? "Edit Batch" : "Edit Batch (locked)"}
                 </button>
               ) : (
                 <>
                   <button
-                    onClick={() => setEditMode(false)}
+                    onClick={() => {
+                      setEditMode(false);
+                      setSaveError(null);
+                      setEditReason("");
+                    }}
+                    disabled={saveBusy}
                     style={{
                       flex: 1,
                       padding: "10px 0",
@@ -1155,7 +1382,7 @@ export default function InventoryPage() {
                       color: "#6b6860",
                       fontSize: 14,
                       fontWeight: 600,
-                      cursor: "pointer",
+                      cursor: saveBusy ? "not-allowed" : "pointer",
                       fontFamily: font,
                     }}
                   >
@@ -1163,20 +1390,21 @@ export default function InventoryPage() {
                   </button>
                   <button
                     onClick={handleSave}
+                    disabled={saveBusy || !canEdit}
                     style={{
                       flex: 1,
                       padding: "10px 0",
                       borderRadius: 8,
                       border: "none",
-                      background: "#24544a",
+                      background: saveBusy || !canEdit ? "#9ca39a" : "#24544a",
                       color: "white",
                       fontSize: 14,
                       fontWeight: 600,
-                      cursor: "pointer",
+                      cursor: saveBusy || !canEdit ? "not-allowed" : "pointer",
                       fontFamily: font,
                     }}
                   >
-                    Save Changes
+                    {saveBusy ? "Saving..." : "Save Changes"}
                   </button>
                 </>
               )}
