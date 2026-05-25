@@ -15,6 +15,43 @@ Format:
 
 ---
 
+## 2026-05-25 — PRD-012 Phase 1 closeout: propose/approve/reject RPCs deployed plus two hotfixes
+
+**Phase / Article:** PRD-012 Phase 1 steps A.2/A.3/A.4 / Constitution Articles 1, 3, 4, 5, 8, 12, 14 (✅).
+**Applied to:** prod.
+**Migrations:**
+
+- `prd_012_propose_pod_inventory_add` (file `supabase/migrations/20260525150000_*.sql`)
+- `prd_012_approve_pod_inventory_add` (file `supabase/migrations/20260525150100_*.sql`)
+- `prd_012_reject_pod_inventory_add` (file `supabase/migrations/20260525150200_*.sql`)
+- `prd_012_extend_pod_inventory_edits_check_whitelists` (file `supabase/migrations/20260525150300_*.sql`) — hotfix #1
+- `prd_012_relax_add_flow_check` (file `supabase/migrations/20260525150400_*.sql`) — hotfix #2
+
+**Summary:** Three canonical-writer DEFINER RPCs land the driver pod-add workflow on the schema substrate shipped earlier today. `propose_pod_inventory_add(p_machine_id, p_shelf_id, p_boonz_product_id, p_quantity, p_expiration_date, p_notes?, p_photo_path?, p_correlation_id?, p_proposed_by?)` is callable by field*staff + manager roles and validates D2 (shelf conflict via Active pod_inventory row check, distinguishes case-2 "different product" vs case-3 "same product"), D3 (expiry not in past, not beyond 36 months), quantity > 0 and <= shelf max_capacity, plus D5 idempotency by `correlation_id` within a 60-second replay window. `approve_pod_inventory_add(p_edit_id, p_approver_id?, p_decision_note?, p_expiry_override_accepted?)` is manager-only, locks the edit row with `FOR UPDATE` (case-14 concurrent approve defense), re-validates shelf conflict (case-10) and expiry (case-11), sets `app.via_rpc=true` + `app.rpc_name` + `app.mutation_reason`, INSERTs a `pod_inventory` row with `batch_id = format('POD_ADD-%s', edit_id)` and `status='Active'`, then UPDATEs the edit row linking `pod_inventory_id`. Has `unique_violation` defense around `idx_pod_inv_active_shelf`. `reject_pod_inventory_add(p_edit_id, p_decision_note, p_approver_id?)` is manager-only, requires `decision_note >= 10 chars` (case-12), UPDATEs status to rejected, appends note to the edit row. All three follow the Phase G P1 `attempt_inventory_correction` template (search_path locked, role check via user_profiles, structured jsonb return). Cody approved at G2 with revisions: P1.B missing `app.mutation_reason` (added), `COMMENT ON FUNCTION` statements restored from drafts and em-dash-scrubbed, `unique_violation` exception handler added to P1.C. Pre-deploy checks confirmed: only `get_operational_signals` (read-only get*\* helper) references `POD_ADD` in pg_proc (no other writer); zero src/supabase references to that batch_id pattern; `tg_audit_pod_inventory` AFTER INSERT/UPDATE/DELETE trigger live on pod_inventory (Article 8 satisfied); `idx_pod_inv_active_shelf` unique partial index enforces one Active row per (machine, shelf, product). End-to-end smoke test ran propose → idempotent replay → approve → verify pod row Active → verify edit status approved, all five steps passed, transaction rolled back (zero leaked rows).
+
+**Two hotfixes during smoke test execution:** P1.A's CHECK constraint design missed two pre-existing CHECKs on pod_inventory_edits. **Hotfix #1** (`prd_012_extend_pod_inventory_edits_check_whitelists`): the existing `pod_inventory_edits_edit_type_check` whitelisted `{in_stock, sold, partial_sold, expired, return_to_warehouse, transfer}` and the existing `pod_inventory_edits_status_check` whitelisted `{pending, approved, rejected}`. Neither included the new values P1.B/C and the future P3.A cron need (`add_new_product` and `expired` respectively). Forward-only DROP+ADD on both, strictly widening. Cody-approved. **Hotfix #2** (`prd_012_relax_add_flow_check`): the P1.A add-flow CHECK required `pod_inventory_id IS NULL` for add_new_product rows, blocking the approve RPC's `pod_inventory_id` linkage on UPDATE. The PRD §6.A.1 wording was ambiguous between "INSERT-time invariant" and "row-level invariant"; the latter is wrong because approval must link the new pod row back. Forward-only DROP+ADD removing the NULL clause. Cody-approved. After both hotfixes, smoke test passed.
+
+**Phase 3 reminders:** Amendment 008 (pod_inventory_edits → Appendix A with FE INSERT exception clause); A.5 cron must be SECURITY DEFINER with set_config markers and must UPDATE WHERE status='pending' only (no reverse transition); A.6 trigger requires G4 caller-audit gate; C.6 inventory_control_attempt integration on approve/reject when session open.
+
+**Rollback:** All five migrations are forward-only with DROP IF EXISTS guards. To roll back: write a new migration that DROPs the three RPCs (`DROP FUNCTION public.propose_pod_inventory_add(...)` etc), restores the two CHECKs to their pre-hotfix shape, and finally rolls back the schema columns (`DROP CONSTRAINT pod_inventory_edits_add_new_product_required_fields`, `DROP INDEX idx_pie_*`, `ALTER TABLE pod_inventory_edits DROP COLUMN ...`). Safe to roll back any time before Phase 2 wires the FE callers.
+
+---
+
+## 2026-05-25 — PRD-012 P1.A: pod_inventory_edits add-flow schema (driver pod-add workflow)
+
+**Phase / Article:** PRD-012 Phase 1 step A.1 / Constitution Articles 2, 5, 7, 12, 14 (✅) and 15 (⚠️ Phase 3 follow-up flagged).
+**Applied to:** prod.
+**Migration name:** `prd_012_pod_inventory_edits_add_flow` (file `supabase/migrations/20260525140000_prd_012_pod_inventory_edits_add_flow.sql`).
+**Summary:** Substrate for the driver pod-add workflow per PRD-012 (`docs/prds/inventory/prd_012_driver_pod_add_workflow.md`). Extends `pod_inventory_edits` with three new columns: `requested_expiration_date date NULL` (driver's chosen expiry for the new pod_inventory row), `correlation_id uuid NOT NULL DEFAULT gen_random_uuid()` (D5 idempotency token, 60s dedupe window inside the upcoming propose RPC), and `expired_at timestamptz NULL` (D6 auto-expire bookkeeping for the upcoming cron). Reuses the existing `destination_shelf_id` for the add-flow target shelf rather than introducing a new column; column comment updated to document the dual semantic. Adds CHECK constraint `pod_inventory_edits_add_new_product_required_fields` in material-implication form so existing edit_types are unaffected. Adds three indexes: `idx_pie_one_pending_add_per_target` (partial UNIQUE; enforces D5 one-pending-per-(machine,shelf,product) at the DB layer), `idx_pie_correlation_id_recent` (composite for the 60s dedupe lookup), `idx_pie_pending_adds_oldest_first` (partial; supports operator review queue oldest-first sort per PRD C.5). Pre-apply checks confirmed: 213 rows total, 0 destination_shelf_id callers in src/, RLS policies (field_staff_insert_edits + reviewers_update_edits) already permit the add flow. Material finding logged at G1: existing data shows the table has historically been used as a sales/disposal log (`expired, partial_sold, return_to_warehouse, sold` edit_types only; zero `pending` rows ever recorded). PRD-012 is the first edit_type to actually exercise the propose/approve flow the schema was designed for.
+
+**Pending P1 follow-ups:** A.2 propose_pod_inventory_add RPC, A.3 approve_pod_inventory_add RPC, A.4 reject_pod_inventory_add RPC. All three drafted then gated at G2 with Cody verdict before deploy.
+
+**Phase 3 follow-up (Cody-flagged):** Amendment 008 to elevate `pod_inventory_edits` to Appendix A under the Amendment 007 precedent (proposal substrate for protected entity writes). FE INSERT exception clause for the existing driver propose path.
+
+**Rollback:** Forward-only migration to `DROP CONSTRAINT pod_inventory_edits_add_new_product_required_fields`, `DROP INDEX idx_pie_*`, `ALTER TABLE pod_inventory_edits DROP COLUMN requested_expiration_date, DROP COLUMN correlation_id, DROP COLUMN expired_at`. Safe to roll back until the propose RPC starts writing add rows.
+
+---
+
 ## 2026-05-25 — PRD-002 procurement per-line edit-lock, Cancel-with-comment, add-item multi-batch expiry
 
 **Phase / Article:** PRD-002 (procurement) / Constitution Articles 1, 4, 5, 8, 12 (backend patch); Article 3 (FE — no new direct writes to protected entities; `po_additions` direct INSERT pattern is unchanged from PRD-001-procurement).
