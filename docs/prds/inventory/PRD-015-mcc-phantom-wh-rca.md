@@ -2,7 +2,14 @@
 id: PRD-015-inventory
 program: PROGRAM-2026-05-25
 title: MCC phantom WH rows — RCA + provenance hardening
-status: Investigation-complete
+status: Blocked
+blocked_summary: |
+  RCA reframed: rows are not phantom, they are legitimate returns from
+  AMZ-area machines into the WH_MCC staging room, just unattributed
+  (provenance_reason='unknown_pre_migration'). Phase 1 (BEFORE INSERT
+  trigger requiring non-NULL provenance) is a behavior-changing trigger
+  needing 7-day RAISE-WARNING audit window before flip to RAISE-EXCEPTION,
+  same shape as CARVEOUT_A7. Cody approval mandatory.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #4 (semantic name PRD-004-inventory)

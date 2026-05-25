@@ -2,7 +2,14 @@
 id: PRD-013-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Engine FEFO — investigate why Inactive product was planned
-status: Needs-investigation
+status: Blocked
+blocked_summary: |
+  V3 original hypothesis falsified — engine already has the
+  status='Active' AND warehouse_stock>=1 filter. Real bug is the same
+  NULL-bind class from V1 (push_plan_to_dispatch emits dispatch rows
+  without pinning a wh_inventory_id when no variant candidate exists).
+  Phase 1 needs CS-supervised instrumentation queries before any fix
+  ships. Linked to PRD-011 root cause; close together.
 severity: P0
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 1 P0 #2 (semantic name PRD-004-refill-pipeline)

@@ -2,7 +2,8 @@
 id: PRD-011-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Packing FE — re-pin WH batch, no-stock override, edit-during-pack
-status: Drafted
+status: Blocked
+blocked_summary: Autonomous apply blocked — needs Cody review of new repair_unbound_dispatch RPC + Stax review of packing FE drawer extension. Spec complete; root cause verified. Daylight CS to invoke Cody/Stax Skills and ship.
 severity: P0
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 1 P0 #1 (semantic name PRD-003-refill-pipeline)

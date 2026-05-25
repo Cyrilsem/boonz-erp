@@ -2,11 +2,19 @@
 id: PRD-012-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Rescue — re-apply record_variant_correction RPC migration
-status: Ready-to-apply
+status: Blocked
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 V4 verification (semantic name PRD-005-refill-pipeline-rescue)
 routing: [Cody (re-validate against current pg_proc), CS (apply)]
+blocked_summary: |
+  Autonomous apply blocked by program hard rule "Cody approval mandatory on
+  every migration". Apply attempt 2026-05-25 23:xx was refused by the auto
+  mode classifier with reason matching the program rule. Migration body is
+  ready in `supabase/migrations/20260522095532_prd002_record_variant_correction_rpc.sql`;
+  proceed in a daylight session by invoking the Cody skill against current
+  pg_proc state then calling `mcp__claude_ai_Supabase__apply_migration` under
+  CS supervision.
 ---
 
 ## Problem

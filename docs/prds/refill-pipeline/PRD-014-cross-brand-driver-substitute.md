@@ -2,7 +2,8 @@
 id: PRD-014-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Cross-brand driver substitute flow
-status: Drafted
+status: Blocked
+blocked_summary: Depends on PRD-012-rescue landing first (shares variant_action_log + pod_inventory write pattern). Also needs Cody review of new RPC, CHECK widening, and Stax review of FE picker. Cannot ship autonomously.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #2 (semantic name PRD-006-refill-pipeline)

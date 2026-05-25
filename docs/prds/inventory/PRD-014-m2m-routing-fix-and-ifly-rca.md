@@ -2,7 +2,14 @@
 id: PRD-014-inventory
 program: PROGRAM-2026-05-25
 title: M2M swap routing fix + IFLY Barebells 19-May RCA
-status: Investigation-complete
+status: Blocked
+blocked_summary: |
+  Three-phase plan. Phase 1 (audit query for orphan M2M rows) needs CS
+  review of the result list. Phase 2 (BEFORE INSERT/UPDATE trigger) needs
+  Cody approval. Phase 3 (per-row repair of orphan rows incl. IFLY 19-May)
+  needs per-row CS sign-off — explicitly gated by program hard rules. RCA
+  is complete (orphan half-pair found; same anonymous-flip class as
+  Phase G P4 A.8). Daylight CS to execute phases sequentially.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #3 (semantic name PRD-003-inventory)

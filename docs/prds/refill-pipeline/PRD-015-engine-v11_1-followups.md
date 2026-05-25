@@ -2,7 +2,8 @@
 id: PRD-015-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Engine v11.1 follow-ups — shelf_code mismatch, visual_fill, CCZ
-status: Drafted-investigation-needed
+status: Blocked
+blocked_summary: P2 hygiene. Phase 1 instrumentation queries (find visual_fill references, list distinct slot_lifecycle.signal values, identify CCZ classification path) need CS-supervised execution before any fix. Bottom of priority stack.
 severity: P2
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 3 P2 #2 (semantic name PRD-007-refill-pipeline)

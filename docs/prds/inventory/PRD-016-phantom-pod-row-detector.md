@@ -2,7 +2,12 @@
 id: PRD-016-inventory
 program: PROGRAM-2026-05-25
 title: Phantom pod row detector view + daily alert
-status: Drafted
+status: Blocked
+blocked_summary: |
+  Read-only view + cron + append-only log table. All three artifacts
+  individually low-risk, but applying the bundle requires Cody approval
+  per program hard rules. Spec is complete and self-contained. Daylight
+  apply (Cody sign-off then mcp__claude_ai_Supabase__apply_migration).
 severity: P2
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 3 P2 #1 (semantic name PRD-005-inventory)
