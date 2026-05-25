@@ -15,6 +15,8 @@ interface POLineForEdit {
   price_per_unit_aed: number | null;
   expiry_date: string | null;
   received_qty: number | null;
+  // PRD-002: drives the per-line lock alongside received_qty.
+  purchase_outcome: string | null;
 }
 
 interface EditPOLineDrawerProps {
@@ -22,12 +24,16 @@ interface EditPOLineDrawerProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  // PRD-002: caller role gates per-line edit. Received lines are
+  // superadmin-only; everyone else sees disabled inputs + a lock chip.
+  userRole?: string | null;
 }
 
 interface DraftLine {
   po_line_id: string;
   product_name: string;
   received_qty: number | null;
+  purchase_outcome: string | null;
   original_ordered_qty: number;
   original_price: number | null;
   original_expiry: string | null;
@@ -41,6 +47,7 @@ function toDraft(line: POLineForEdit): DraftLine {
     po_line_id: line.po_line_id,
     product_name: line.boonz_product_name,
     received_qty: line.received_qty,
+    purchase_outcome: line.purchase_outcome,
     original_ordered_qty: line.ordered_qty,
     original_price: line.price_per_unit_aed,
     original_expiry: line.expiry_date,
@@ -49,6 +56,14 @@ function toDraft(line: POLineForEdit): DraftLine {
       line.price_per_unit_aed != null ? String(line.price_per_unit_aed) : "",
     expiry: line.expiry_date ?? "",
   };
+}
+
+// PRD-002: mirror the backend received-state guard. Locked lines are
+// rendered read-only unless the caller is superadmin.
+function lineIsLocked(d: DraftLine, role: string | null | undefined): boolean {
+  const received =
+    (d.received_qty ?? 0) > 0 || d.purchase_outcome === "received";
+  return received && role !== "superadmin";
 }
 
 function lineHasChange(d: DraftLine): boolean {
@@ -67,6 +82,7 @@ export function EditPOLineDrawer({
   open,
   onClose,
   onSaved,
+  userRole,
 }: EditPOLineDrawerProps) {
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [reason, setReason] = useState("");
@@ -90,7 +106,7 @@ export function EditPOLineDrawer({
       const { data, error: fetchErr } = await supabase
         .from("purchase_orders")
         .select(
-          "po_line_id, ordered_qty, price_per_unit_aed, expiry_date, received_qty, boonz_products!inner(boonz_product_name)",
+          "po_line_id, ordered_qty, price_per_unit_aed, expiry_date, received_qty, purchase_outcome, boonz_products!inner(boonz_product_name)",
         )
         .eq("po_id", poId)
         .order("po_line_id", { ascending: true })
@@ -119,6 +135,7 @@ export function EditPOLineDrawer({
           expiry_date: row.expiry_date as string | null,
           received_qty:
             row.received_qty != null ? Number(row.received_qty) : null,
+          purchase_outcome: (row.purchase_outcome as string | null) ?? null,
         });
       });
       setLines(mapped);
@@ -145,9 +162,15 @@ export function EditPOLineDrawer({
       return;
     }
 
-    const changed = lines.filter(lineHasChange);
+    // PRD-002: never send locked lines to the backend; the RPC would reject
+    // them anyway, but skipping client-side keeps the UX honest.
+    const changed = lines
+      .filter((l) => !lineIsLocked(l, userRole))
+      .filter(lineHasChange);
     if (changed.length === 0) {
-      setError("No changes to save. Edit at least one field, or close.");
+      setError(
+        "No changes to save. Edit at least one unlocked field, or close.",
+      );
       return;
     }
 
@@ -226,20 +249,39 @@ export function EditPOLineDrawer({
             <ul className="space-y-3">
               {lines.map((line, idx) => {
                 const dirty = lineHasChange(line);
+                // PRD-002: per-line lock. Received lines for non-superadmin
+                // are read-only; the backend would reject anyway, so the UI
+                // must not let the user type.
+                const locked = lineIsLocked(line, userRole);
+                const fieldDisabled = saving || locked;
                 return (
                   <li
                     key={line.po_line_id}
                     className={`rounded-lg border p-3 ${
-                      dirty
-                        ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"
-                        : "border-neutral-200 dark:border-neutral-800"
+                      locked
+                        ? "border-neutral-200 bg-neutral-50 opacity-75 dark:border-neutral-800 dark:bg-neutral-900"
+                        : dirty
+                          ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"
+                          : "border-neutral-200 dark:border-neutral-800"
                     }`}
                   >
-                    <p className="text-sm font-medium">{line.product_name}</p>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium">{line.product_name}</p>
+                      {locked && (
+                        <span
+                          title="Received — only superadmin can edit"
+                          className="shrink-0 text-xs"
+                        >
+                          🔒 Locked
+                        </span>
+                      )}
+                    </div>
                     {line.received_qty != null && line.received_qty > 0 && (
                       <p className="mt-0.5 text-xs text-neutral-500">
-                        Received: {line.received_qty} units (cannot drop
-                        ordered_qty below this)
+                        Received: {line.received_qty} units
+                        {locked
+                          ? " (only superadmin can edit this line)"
+                          : " (cannot drop ordered_qty below this)"}
                       </p>
                     )}
                     <div className="mt-2 grid grid-cols-3 gap-2">
@@ -255,8 +297,9 @@ export function EditPOLineDrawer({
                           onChange={(e) =>
                             patchLine(idx, { ordered_qty: e.target.value })
                           }
-                          className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
-                          disabled={saving}
+                          className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
+                          disabled={fieldDisabled}
+                          readOnly={locked}
                         />
                       </label>
                       <label className="block">
@@ -271,8 +314,9 @@ export function EditPOLineDrawer({
                           onChange={(e) =>
                             patchLine(idx, { price: e.target.value })
                           }
-                          className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
-                          disabled={saving}
+                          className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
+                          disabled={fieldDisabled}
+                          readOnly={locked}
                         />
                       </label>
                       <label className="block">
@@ -283,8 +327,9 @@ export function EditPOLineDrawer({
                           onChange={(e) =>
                             patchLine(idx, { expiry: e.target.value })
                           }
-                          className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
-                          disabled={saving}
+                          className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
+                          disabled={fieldDisabled}
+                          readOnly={locked}
                         />
                       </label>
                     </div>

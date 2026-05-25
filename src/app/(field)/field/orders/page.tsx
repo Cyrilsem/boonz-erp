@@ -598,12 +598,14 @@ export default function OrdersPage() {
         +
       </Link>
 
-      {/* PRD-001: Edit drawer */}
+      {/* PRD-001: Edit drawer. PRD-002: pass userRole so received lines are
+          rendered read-only for non-superadmin callers. */}
       {editingPoId && (
         <EditPOLineDrawer
           poId={editingPoId}
           open={editingPoId !== null}
           onClose={() => setEditingPoId(null)}
+          userRole={userRole}
           onSaved={() => {
             setRefreshKey((k) => k + 1);
             fetchOrders();
