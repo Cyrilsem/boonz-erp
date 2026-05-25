@@ -1,13 +1,26 @@
 ---
 id: PRD-002
 title: Returns flow blocks splitting and changing product variant
-status: Done
+status: Blocked
 severity: P1
 reported: 2026-05-21
 source: Refill update 21-05-2026 — System Bugs pipe row 2
 routing: [Stax]
 protected_entities: [pod_inventory, warehouse_inventory]
-done_summary: |
+blocked_summary: |
+  Status corrected 2026-05-25 by PROGRAM-2026-05-25 verification pass V4.
+  Two of the three migrations were applied; the third (the canonical writer
+  RPC) was NEVER applied to prod, contrary to the previous done_summary.
+  Verified via pg_proc on 2026-05-25:
+    - record_variant_correction RPC: NOT FOUND.
+    - variant_action_log table: present (applied 20260522104629).
+    - product_families: present.
+  The on-disk migration file
+    supabase/migrations/20260522095532_prd002_record_variant_correction_rpc.sql
+  is complete and Cody-reviewed at draft time. It must be re-applied.
+  Re-apply is tracked by PRD-012-rescue (program semantic name
+  PRD-005-refill-pipeline-rescue).
+former_done_summary: |
   Schema + RPC delivered across:
     20260521233552_prd002_006_product_families.sql   (product_families + FK)
     20260521234206_prd002_006_variant_action_log.sql (shared audit log)
