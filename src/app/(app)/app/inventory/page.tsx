@@ -14,6 +14,7 @@ import PendingPodAdditionsPanel from "@/components/inventory/PendingPodAdditions
 import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
 import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
 import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
+import { MovementTrail } from "@/components/inventory/MovementTrail";
 
 // Phase G P1 B.1/B.2: only these roles can start a session or save edits.
 // FE gate matches the SECURITY DEFINER role check inside the wrapper RPCs.
@@ -1207,6 +1208,10 @@ export default function InventoryPage() {
                   <Field
                     label="Physical Type"
                     value={selectedBatch.physical_type ?? "\u2014"}
+                  />
+                  {/* PRD-Phase-G v2 B.4: per-row movement trail drawer */}
+                  <MovementTrail
+                    whInventoryId={selectedBatch.wh_inventory_id}
                   />
                 </>
               ) : (

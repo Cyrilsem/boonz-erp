@@ -15,6 +15,33 @@ Format:
 
 ---
 
+## 2026-05-25 — Phase G Phase 2 (the biggest leak): pack NULL refuse + EOD action narrow + movement trail view + FE drawer
+
+**Phase / Article:** Phase G PRD v2 Phase 2 / Constitution Articles 1, 4, 8, 11, 12 (backend); Article 3 (FE — no new direct writes; view consumed read-only).
+**Applied to:** prod (3 migrations applied via MCP) + repo (FE).
+**Migrations:**
+
+- `phaseG_p2_a1_pack_dispatch_line_refuse_null_from_wh` (file `supabase/migrations/20260525170000_*.sql`) — A.1.
+- `phaseG_p2_a5_eod_auto_release_action_narrow_then_reenable_cron` (file `20260525170100_*.sql`) — A.5 + cron job 9 re-enabled atomically.
+- `phaseG_p2_c5_v_wh_inventory_movement_trail` (file `20260525170200_*.sql`) — C.5.
+
+**Summary:** Four PRD items shipped end-to-end with smoke tests for Sections 9.3 and 9.5.
+
+(A.1) `pack_dispatch_line` now raises `pack_dispatch_line: every pick must include from_wh_inventory_id (BUG-006 prevention)` on any pick with NULL or empty `wh_inventory_id`. Guard sits at the top of the FOR loop, before the `::uuid` cast that previously masked the error. Smoke 9.3 confirmed: pack with `{"qty":1,"wh_inventory_id":null}` raises the new message. Same signature with `p_packed_by uuid DEFAULT NULL` preserved.
+
+(A.5) `eod_auto_release_unpicked` sweep narrowed from any-action to `action IN ('Refill','Add New','Add')` — case-sensitive, matching the `pack_dispatch_line` short-circuit contract exactly. Cody flagged that the original "inclusive" allow-list `('REFILL','ADD NEW',...)` would have recreated the very bug (uppercase variants short-circuit pack with no WH decrement, so sweeping them via `return_dispatch_line` credits phantom WH). Narrowed list confirmed against all 16 live action variants: only `Refill / Add New / Add` get swept; `Remove / REMOVE / Machine To Warehouse / MOVE / REFILL upper / ADD NEW upper / Backup / Calibrate / Keep / Replace / Transfer / NULL` are now excluded. After CREATE OR REPLACE, the migration re-enabled cron job 9 atomically via `cron.alter_job(job_id := 9::bigint, active := true)`.
+
+(C.5) New SECURITY INVOKER view `v_wh_inventory_movement_trail` unions five event streams keyed on `wh_inventory_id`: `inventory_audit_log`, `write_audit_log` (filtered to `table_name='warehouse_inventory'` with regex-validated UUID `row_pk`), `refill_dispatching` (where `from_wh_inventory_id` matches), `purchase_orders` (via `batch_id LIKE '%-<short_uuid>-B%'` provenance match per `receive_purchase_order`'s batch-id format), and `inventory_control_attempt`. Each row carries `wh_inventory_id, event_class, event_time, actor, summary, payload`. RLS inherits from underlying tables. `GRANT SELECT TO authenticated`.
+
+(B.4) New `src/components/inventory/MovementTrail.tsx` component renders the trail lazily (loads on expand) per row. Wired into the operator inventory drawer in `/app/inventory/page.tsx` after the existing Field rows in read mode. tsc + next build clean.
+
+**Smoke 9.3:** direct call to `pack_dispatch_line` with NULL pick raised the new BUG-006 prevention message — refusal confirmed at the RPC layer.
+**Smoke 9.5:** the IN-list against live action variants confirmed `Refill / Add New / Add` are swept, every other variant excluded.
+
+**Rollback:** `git revert <commit-sha>` reverts the FE. For the backend, apply forward `CREATE OR REPLACE` with the prior bodies (full v9 / v9 / no-view) and `cron.alter_job(job_id := 9, active := false)` to disable cron 9 again.
+
+---
+
 ## 2026-05-25 — PRD-010a v9.1 patches: engine_swap_pod planned-swap guard product-match + engine_finalize_pod capacity filter widening
 
 **Phase / Article:** PRD-010a (refill-pipeline) / Constitution Articles 1, 4, 5, 8, 12. Backend-only, no schema changes.
