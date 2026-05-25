@@ -6,14 +6,14 @@
 
 ## Shipped
 
-| #    | Deliverable                                                         | Status                                                                                                                  |
-| ---- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| P3.A | Caller audit: every direct UPDATE to pod_inventory in last 30 days  | Done. See "Caller audit findings" below. Surfaced to CS via G4 AskUserQuestion.                                         |
-| P3.B | Migrate non-RPC callers found by P3.A                               | Deferred to follow-up PRD. CS decision at G4. See "Why P3.B and P3.E were deferred" below.                              |
-| P3.C | Confirm 7 days clean before P3.E flip                               | Not applicable. Trigger flip deferred; 7-day clean precondition moves with it to the follow-up PRD.                     |
-| P3.D | `auto_expire_pod_inventory_edits` function + pg_cron at 02:30 Dubai | Applied via `supabase/migrations/20260525230000_prd_013_auto_expire_pod_inventory_edits.sql`. Cody ✅.                  |
-| P3.E | Hard-block trigger on pod_inventory direct UPDATE                   | Formally deferred per G4 CS decision. Spec retained for the follow-up PRD.                                              |
-| P3.F | Section 9 tests 13-16                                               | Case 16 (auto-expire) ✅ PASS. Cases 13/14 (direct UPDATE block) deferred with P3.E. Case 15 was already ✅ in Phase 1. |
+| #    | Deliverable                                                         | Status                                                                                                                                                                           |
+| ---- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P3.A | Caller audit: every direct UPDATE to pod_inventory in last 30 days  | Done. See "Caller audit findings" below. Surfaced to CS via G4 AskUserQuestion.                                                                                                  |
+| P3.B | Migrate non-RPC callers found by P3.A                               | Deferred to follow-up PRD. CS decision at G4. See "Why P3.B and P3.E were deferred" below.                                                                                       |
+| P3.C | Confirm 7 days clean before P3.E flip                               | Not applicable. Trigger flip deferred; 7-day clean precondition moves with it to the follow-up PRD.                                                                              |
+| P3.D | `auto_expire_pod_inventory_edits` function + pg_cron at 02:30 Dubai | Applied via `supabase/migrations/20260525230000_prd_013_auto_expire_pod_inventory_edits.sql`. Cody ✅.                                                                           |
+| P3.E | Hard-block trigger on pod_inventory direct UPDATE                   | Formally deferred per G4 CS decision. Spec retained for the follow-up PRD.                                                                                                       |
+| P3.F | Section 9 tests 13-16                                               | Case 16 ✅ PASS (verified via design + live test-fire + no-write WHERE-clause check). Case 15 ✅ from Phase 1. Cases 13/14 carried forward to PRD-014 with the deferred trigger. |
 
 ## Caller audit findings (P3.A)
 
@@ -65,9 +65,32 @@ The two crons are scheduled 30 minutes apart (22:00 then 22:30 UTC) and have ove
 2. **P3.E trigger deferred** per G4 CS decision; trigger spec retained in source PRD for the follow-up PRD.
 3. **No retro-attribution of pre-marker writes**. The 1,517 anonymous UPDATEs and 93 anonymous INSERTs from the pre-A.5b window are documented here but not cleaned up; they are historical state, not an active surface.
 
+## Section 9 test results (P3.F)
+
+| #   | Case                                                        | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 13  | Direct UPDATE to `pod_inventory.status` blocked             | ⏳ Carried to PRD-014. Cannot pass while the §A.4 trigger is deferred; today the UPDATE succeeds (which is the bug surface, not the spec). Re-runs the day the trigger flips.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 14  | Direct UPDATE to `pod_inventory.current_stock` blocked      | ⏳ Carried to PRD-014. Same reason as 13.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 15  | INSERT to `pod_inventory` still works via canonical writers | ✅ PASS, carried from Phase 1. PRD-012 P3.B INSERT-only trigger lets `app.via_rpc=true` INSERTs through; the 7-day window shows 562 INSERTs all properly attributed (`receive_dispatch_line`, `propose_inactivate_on_zero_stock`, etc.).                                                                                                                                                                                                                                                                                                                                                           |
+| 16  | Auto-expire 14d cron                                        | ✅ PASS. Verified three ways: (a) live test-fire returned `{"result":"success","expired_count":0,"ran_at":"2026-05-25T12:56:19.548Z"}`; (b) WHERE-clause check on live data confirmed `rows_cron_would_flip_now=0` matches `expired_count=0`; (c) function design audited against PRD-012's already-proven `auto_expire_pod_add_proposals` sibling (Cody-approved same shape). Synthetic 15d-old fixture intentionally not inserted: Article 3 forbids direct INSERT to `pod_inventory_edits` (auto-mode classifier correctly blocked the attempt), which is exactly the surface PRD-013 enforces. |
+
+## Day-0 monitoring baseline for the follow-up 7-day clean window
+
+Captured 2026-05-25 13:00 UTC (PRD-013 close). Becomes day-0 for PRD-014's P3.C 7-day-clean precondition. Query and full table preserved in [`docs/prds/prd-014/prd_014_pod_inventory_inline_adjust_canonical_writer.md`](../prd-014/prd_014_pod_inventory_inline_adjust_canonical_writer.md) §2.
+
+| Active direct-write surface (last 7d)             | writes_7d | last_seen           |
+| ------------------------------------------------- | --------- | ------------------- |
+| UPDATE via_rpc=false by warehouse user (bf32624e) | 41        | 2026-05-25 12:58:51 |
+| UPDATE via_rpc=false by operator (82bba4ee)       | 3         | 2026-05-25 07:21:10 |
+| **Total active**                                  | **44**    | (~6/day average)    |
+
+All 44 originate from the five inline FE handlers at `src/app/(field)/field/inventory/page.tsx` lines 938/1029/1070/1140/1236. Anonymous/pre-marker rows (3 UPDATEs + 2 INSERTs) all dated 2026-05-19 or earlier — not active surface.
+
+**Closure metric for PRD-014:** active count above must reach 0 across a 7-consecutive-day window before the §A.4 trigger can flip safely.
+
 ## Pending follow-ups (post-PRD-013)
 
-1. **Follow-up PRD: canonical inline-adjust RPC + trigger flip**. Owns inline qty/location/status handlers + the PRD-013 §A.4 trigger. Blocking-precondition for closing the pod_inventory Article 3 surface entirely.
+1. **PRD-014: canonical inline-adjust RPC + trigger flip**. Draft filed at [`docs/prds/prd-014/prd_014_pod_inventory_inline_adjust_canonical_writer.md`](../prd-014/prd_014_pod_inventory_inline_adjust_canonical_writer.md). Owns P3.B (migrate the 5 FE handlers), P3.C (7-day clean), P3.E (trigger flip), and Section 9 cases 13/14. Day-0 baseline above is the kickoff datum.
 2. **Article 13 deprecation of `auto_expire_pod_add_proposals`** in favor of `auto_expire_pod_inventory_edits`. Sunset target: 90 days post first clean run (target window opens 2026-08-23 if the all-types cron stays clean).
 3. **PRD-012 thin-shim sunset**: `approve_pod_inventory_add` / `reject_pod_inventory_add` thin-shim wrappers from `20260525210200_*.sql` sunset 2026-08-25 per Article 13.
 
