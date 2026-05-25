@@ -54,4 +54,6 @@ Per PRD Section 11: "Tests from 9.3 and 9.5 must pass." Both verified live on pr
 
 ## Commits
 
-To be referenced once the commit lands. This summary file is the canonical artifact for the Phase 2 close-out.
+- `a967cdb` feat(phase-g-p2): close the biggest leak (A.1 + A.5 + C.5 + B.4)
+
+This summary file is the canonical artifact for the Phase 2 close-out.
