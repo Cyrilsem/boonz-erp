@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { adjustWarehouseLineMetadata } from "@/lib/inventory/adjust-warehouse-line";
 import {
@@ -203,6 +203,9 @@ export default function InventoryPage() {
   // Phase G P1: inventory-control session context + caller role.
   const { session } = useInventorySession();
   const [userRole, setUserRole] = useState<string | null>(null);
+  // PRD-001: track whether the user manually changed the warehouse tab so the
+  // role-aware default below does not clobber a deliberate pick.
+  const tabHasBeenUserChanged = useRef(false);
   useEffect(() => {
     (async () => {
       const supabase = createClient();
@@ -215,7 +218,14 @@ export default function InventoryPage() {
         .select("role")
         .eq("id", user.id)
         .single();
-      setUserRole((data?.role as string | undefined) ?? null);
+      const role = (data?.role as string | undefined) ?? null;
+      setUserRole(role);
+      // PRD-001 change 1: warehouse-role users default to WH_CENTRAL so the
+      // Start button is visible without a tab discovery. Other roles keep
+      // "all" for cross-warehouse browsing.
+      if (role === "warehouse" && !tabHasBeenUserChanged.current) {
+        setWarehouseTab("WH_CENTRAL");
+      }
     })();
   }, []);
 
@@ -386,7 +396,11 @@ export default function InventoryPage() {
     if (!selectedBatch) return;
     if (!selectedBatch.warehouse_id) return;
     if (!session) {
-      setSaveError("Start an inventory-control session before saving edits.");
+      const msg = "Start an inventory-control session before saving edits.";
+      setSaveError(msg);
+      // PRD-001 change 3: the inline label inside the modal was easy to miss —
+      // an alert makes the failure unmistakable.
+      alert(msg);
       return;
     }
     if (!editReason || editReason.trim().length < 4) {
@@ -594,6 +608,10 @@ export default function InventoryPage() {
             warehouseId={WAREHOUSE_ID_BY_TAB[warehouseTab] ?? null}
             warehouseLabel={warehouseTab === "all" ? undefined : warehouseTab}
             role={userRole}
+            onSelectWarehouse={(key) => {
+              tabHasBeenUserChanged.current = true;
+              setWarehouseTab(key);
+            }}
           />
         </div>
         <div style={{ paddingTop: 10 }}>
@@ -614,7 +632,10 @@ export default function InventoryPage() {
           <button
             key={t.key}
             type="button"
-            onClick={() => setWarehouseTab(t.key)}
+            onClick={() => {
+              tabHasBeenUserChanged.current = true;
+              setWarehouseTab(t.key);
+            }}
             style={{
               ...tabStyle(t.key),
               borderBottom:

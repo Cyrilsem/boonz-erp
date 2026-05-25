@@ -39,6 +39,12 @@ interface StartInventorySessionBarProps {
    * Saturday session uses "inventory_session_2026-05-23_makeup".
    */
   defaultSlug?: string | null;
+  /**
+   * PRD-001: when no warehouse is selected (tab=all) and the role can edit,
+   * the bar renders inline warehouse-picker buttons. Tapping one calls this
+   * so the parent can flip the active warehouse tab.
+   */
+  onSelectWarehouse?: (warehouseKey: "WH_CENTRAL" | "WH_MM" | "WH_MCC") => void;
 }
 
 function formatElapsed(startedAt: string): string {
@@ -53,7 +59,14 @@ function formatElapsed(startedAt: string): string {
 }
 
 export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
-  const { warehouseId, warehouseLabel, role, productIds, defaultSlug } = props;
+  const {
+    warehouseId,
+    warehouseLabel,
+    role,
+    productIds,
+    defaultSlug,
+    onSelectWarehouse,
+  } = props;
   const { session, starting, closing, error, start, close } =
     useInventorySession();
 
@@ -88,11 +101,48 @@ export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
   if (!session) {
     // No open session. Render the start affordance.
     if (!canStart) {
+      // Role cannot edit at all — just the grey label.
+      if (role && !SESSION_ROLES.has(role)) {
+        return (
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400">
+            Your role cannot edit inventory. View only.
+          </div>
+        );
+      }
+      // PRD-001: role CAN edit but no warehouse is picked (tab=all). Surface
+      // an inline picker so this isn't a discovery trap.
+      if (role && SESSION_ROLES.has(role) && onSelectWarehouse) {
+        return (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950">
+            <div className="text-sm text-amber-900 dark:text-amber-200">
+              <span className="font-semibold">Inventory edits are paused.</span>
+              <span className="ml-2">Pick a warehouse to begin:</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(
+                [
+                  { key: "WH_CENTRAL", label: "WH_CENTRAL" },
+                  { key: "WH_MM", label: "WH_MM" },
+                  { key: "WH_MCC", label: "WH_MCC" },
+                ] as const
+              ).map((w) => (
+                <button
+                  key={w.key}
+                  type="button"
+                  onClick={() => onSelectWarehouse(w.key)}
+                  className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      }
+      // Fallback (no role yet, or no onSelectWarehouse wired): original label.
       return (
         <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400">
-          {role && !SESSION_ROLES.has(role)
-            ? "Your role cannot edit inventory. View only."
-            : "Inventory edits are paused until a warehouse is selected."}
+          Inventory edits are paused until a warehouse is selected.
         </div>
       );
     }
