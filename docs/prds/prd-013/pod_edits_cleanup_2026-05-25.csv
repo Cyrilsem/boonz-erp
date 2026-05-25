@@ -1,0 +1,10 @@
+pod_inventory_id,machine,product,shelf,current_stock,estimated_remaining,expiration_date,linked_approved_edit_count,proposed_target_stock,proposed_target_status,proposed_removal_reason,signoff_required,cs_decision
+5c811d9b-d617-408f-8928-0fdc25870006,ALJLT-1015-0200-O1,Bounty - Regular,(no shelf),1,1,2026-05-10,7,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit 4981dd60),true,
+c59ec0ee-433c-41b2-9649-89a1e446e521,MC-2004-0100-O1,Garden Veggie - Cheddar,B11,1,1,2026-05-18,3,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit 71727eea),true,
+5b13ed4b-b39f-4fea-aa97-cdd47c6afec9,MC-2004-0100-O1,Garden Veggie - Zesty Ranch,(no shelf),1,1,2026-05-18,3,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit 6e9c4866),true,
+a9392330-536e-47ef-a2d6-2549340294a3,MC-2004-0100-O1,Garden Veggie - Zesty Ranch,B11,2,2,2026-05-18,3,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit 1d4d1b01),true,
+2bad3ab5-53db-481d-a860-629894752659,MC-2004-0100-O1,Starbucks - Double Shot Espresso,B02,7,7,2026-05-22,3,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit 45c3e5a0),true,
+b9f8564d-26f6-4bbc-89a7-a694a234fd24,WAVEMAKER-1006-4100-O1,Bounty - Regular,(no shelf),1,1,2026-05-10,4,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit b9e8af0b),true,
+3e18ebd4-db51-44ee-8c7a-b4fcdc0c10a9,WAVEMAKER-1006-4100-O1,Almarai Juice - Orange,(no shelf),1,1,2026-05-19,1,0,Inactive,backlog_cleanup_2026-05-25 (linked edit 7edb4c41),true,
+e3a1ff96-a9a1-47db-92ff-152edb7ee713,WAVEMAKER-1006-4100-O1,Starbucks - Double Shot Espresso,(no shelf),1,1,2026-05-22,2,0,Inactive,backlog_cleanup_2026-05-25 (oldest linked edit 63b0d666),true,
+e9824d14-3792-455b-aacc-9a09a2df0564,WH2-2001-3000-O1,Vitamin Well - Reload,A07,0,1,2026-05-17,1,0,Inactive,backlog_cleanup_2026-05-25 (linked edit 3f2201df) - note: current_stock already 0; only estimated_remaining=1 needs zeroing,true,
