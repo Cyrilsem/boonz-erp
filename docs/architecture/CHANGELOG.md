@@ -15,6 +15,16 @@ Format:
 
 ---
 
+## 2026-05-30 - Phase G: add_stock canonical pod writer + HUAWEI-2003 / MC-2004 recounts (30-May punch list)
+
+**Phase / Article:** Phase G pod recount / Articles 1, 4, 5, 8, 12 (pod-only; Article 6 N/A, no warehouse_inventory write).
+**Applied to:** both (migration `phaseG_pod_add_stock_writer` to prod; data recounts applied via the RPC).
+**Migration name:** `phaseG_pod_add_stock_writer`
+**Summary:** Added `add_stock` edit_type to `approve_pod_inventory_edit` (Dara design, Cody-approved Articles 1/4/5/6/8/12/14). Merges on (machine, shelf, product): sums stock, pulls expiry to earliest (FEFO worst-case), matching the `receive_dispatch_line` precedent; falls back to INSERT when the (shelf, product) has no Active row. Widened the `pod_inventory_edits.edit_type` CHECK + added an `add_stock` required-fields CHECK. This unblocked the Simran recounts which the strict `add_new_product` path could not express (increments + multi-batch). Applied: Kinder Bueno MC-2004 (archived shelf=null row via `backfill_archive_pod_inventory_row`, re-added 4u to A10, CS-approved destructive); 14 HUAWEI-2003 products; 12 MC-2004 products. All additive (edit_type=add). Doc typos corrected per CS: Oreo `30/09/36`->`2026-09-30`, Sunbites `19/06/24`->`2026-06-19`. ~24 lines remain blocked on CS (new-product shelves, ambiguous variants, set-vs-add, missing qty/expiry); the Ritz stuck-dispatch closures (Phase 1.5) are blocked on a data mismatch vs CS's described quantities. See `memory/project_30may_pod_recount.md`.
+**Rollback:** `add_stock` rows are normal Active pod_inventory rows; to reverse, archive them via `backfill_archive_pod_inventory_row`. To drop the type: restore the prior `approve_pod_inventory_edit` body + revert the two CHECK constraints (forward migration).
+
+---
+
 ## 2026-05-30 - FE: pod-add reject modal enforces 10-char decision note client-side (30-May punch list)
 
 **Phase / Article:** FE hardening / Articles 1, 3, 4 (defense-in-depth; no protected write, no RPC change).
