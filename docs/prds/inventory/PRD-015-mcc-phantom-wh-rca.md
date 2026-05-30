@@ -2,14 +2,37 @@
 id: PRD-015-inventory
 program: PROGRAM-2026-05-25
 title: MCC phantom WH rows — RCA + provenance hardening
-status: Blocked
-blocked_summary: |
-  RCA reframed: rows are not phantom, they are legitimate returns from
-  AMZ-area machines into the WH_MCC staging room, just unattributed
-  (provenance_reason='unknown_pre_migration'). Phase 1 (BEFORE INSERT
-  trigger requiring non-NULL provenance) is a behavior-changing trigger
-  needing 7-day RAISE-WARNING audit window before flip to RAISE-EXCEPTION,
-  same shape as CARVEOUT_A7. Cody approval mandatory.
+status: Phase1-Done-cutover-2026-06-06
+shipped_at: 2026-05-30
+done_summary: |
+  Phase 1 (RAISE WARNING audit window) SHIPPED 2026-05-30.
+
+  Migration phaseG_followup_prd015_warehouse_inventory_provenance_warning
+  applied. Cody-approved with revision: verb-neutral naming so the
+  function name stays accurate post-cutover.
+
+  Live:
+  - enforce_provenance_on_warehouse_inventory_insert() trigger function
+    (LANGUAGE plpgsql, INVOKER)
+  - trg_enforce_provenance_wh_inventory BEFORE INSERT trigger on
+    warehouse_inventory
+
+  RAISE WARNING fires when app.provenance_reason IS NULL / empty /
+  'unknown_pre_migration'. Does NOT block the INSERT. Visible in Supabase
+  log search: level:WARNING AND message:provenance_reason.
+
+  Phase 2 cutover (planned 2026-06-06):
+  Forward-only migration phaseG_followup_prd015_warehouse_inventory_provenance_cutover
+  replaces the function body via CREATE OR REPLACE — same signature, same
+  trigger, body flips from RAISE WARNING to RAISE EXCEPTION. Pre-cutover
+  checklist:
+  - 7 days of Supabase log review (2026-05-30 to 2026-06-06)
+  - Identify every non-canonical caller producing warnings
+  - Either route them through the canonical RPC path (which sets
+    app.provenance_reason) or add them to an explicit allow-list
+  - On 2026-06-06 morning Dubai, apply the cutover migration
+
+  Articles satisfied (Phase 1): 2, 6, 8 (n/a), 12, 14.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #4 (semantic name PRD-004-inventory)
