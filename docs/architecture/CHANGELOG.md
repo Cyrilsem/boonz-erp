@@ -15,6 +15,16 @@ Format:
 
 ---
 
+## 2026-05-30 - FE: pod-add reject modal enforces 10-char decision note client-side (30-May punch list)
+
+**Phase / Article:** FE hardening / Articles 1, 3, 4 (defense-in-depth; no protected write, no RPC change).
+**Applied to:** repo (FE only).
+**Migration name:** none.
+**Summary:** Simran hit the raw `reject_pod_inventory_edit: decision_note required (min 10 chars, got N)` RPC exception when rejecting a pending pod addition. `PendingPodAdditionsPanel.tsx` now disables Confirm-reject until the trimmed note is >= 10 chars, adds a textarea `minLength` + a live `At least 10 characters required (N/10)` counter, and parses the canonical RPC raise into a friendly inline message. Server-side validation in the DEFINER remains authoritative. Cody-approved. The `field/inventory/page.tsx` `window.prompt` reject path was already guarded. NOTE: the HUAWEI-2003 + MC-2004 pod recounts from the same punch list are NOT applied yet (the canonical `add_new_product` RPC cannot increment existing batches or hold multi-batch; escalated to Dara for an `add_stock` edit_type, pending CS approval + Cody review).
+**Rollback:** revert the `PendingPodAdditionsPanel.tsx` commit.
+
+---
+
 ## 2026-05-30 - Phase G: 3 canonical writers for the refill_dispatching FE refactor (PROGRAM-2026-06-01)
 
 **Phase / Article:** Phase G FE-write closure / Articles 1, 3, 4, 8 (and 12 forward-only).
