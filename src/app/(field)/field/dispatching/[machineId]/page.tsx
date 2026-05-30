@@ -253,9 +253,15 @@ export default function DispatchingDetailPage() {
           comment: (line.comment as string | null) ?? "",
           action,
           driver_confirmed: driverConfirmed,
-          driver_added: ((line.comment as string | null) ?? "").startsWith(
-            "[DRIVER ADDED]",
-          ),
+          driver_added: (() => {
+            const c = (line.comment as string | null) ?? "";
+            // [DRIVER-INSERT] is stamped by insert_driver_remove_line (canonical
+            // path); [DRIVER ADDED] is the legacy prefix from the old direct
+            // insert — kept so in-flight rows still show the undo affordance.
+            return (
+              c.startsWith("[DRIVER-INSERT]") || c.startsWith("[DRIVER ADDED]")
+            );
+          })(),
         };
       });
       // Resolve boonz_product_name for each line so the driver sees the
@@ -493,24 +499,17 @@ export default function DispatchingDetailPage() {
     }
     setExtraReturnAdding(true);
     const supabase = createClient();
-    const today = getDubaiDate();
-    const { error } = await supabase.from("refill_dispatching").insert({
-      machine_id: machineId,
-      shelf_id: extraReturnSourceLine.shelf_id,
-      pod_product_id: extraReturnSourceLine.pod_product_id,
-      boonz_product_id: extraReturnSelected.product_id,
-      dispatch_date: today,
-      action: "Remove",
-      quantity: extraReturnQty,
-      filled_quantity: 0,
-      include: true,
-      packed: true,
-      picked_up: true,
-      dispatched: false,
-      returned: false,
-      item_added: false,
-      expiry_date: extraReturnExpiry, // BUG-010 #3b: stamps expiry so return/receive doesn't hit BUG-007 NULL-expiry guard
-      comment: `[DRIVER ADDED] Multi-variant split — ${extraReturnQty}u ${extraReturnSelected.boonz_product_name} (exp ${extraReturnExpiry})`,
+    // Canonical writer: insert_driver_remove_line stamps dispatch_date=CURRENT_DATE,
+    // action='Remove', and a '[DRIVER-INSERT] <reason>' comment. expiry_date is
+    // forwarded so return/receive doesn't hit the BUG-007 NULL-expiry guard.
+    const { error } = await supabase.rpc("insert_driver_remove_line", {
+      p_machine_id: machineId,
+      p_boonz_product_id: extraReturnSelected.product_id,
+      p_pod_product_id: extraReturnSourceLine.pod_product_id,
+      p_shelf_id: extraReturnSourceLine.shelf_id,
+      p_quantity: extraReturnQty,
+      p_expiry_date: extraReturnExpiry,
+      p_reason: `Multi-variant split: ${extraReturnQty}u ${extraReturnSelected.boonz_product_name} (exp ${extraReturnExpiry})`,
     });
     if (error) {
       alert(`Could not add return row: ${error.message}`);
@@ -619,10 +618,10 @@ export default function DispatchingDetailPage() {
 
         // Comment isn't touched by the RPC; persist it separately if set.
         if (line.comment.trim()) {
-          await supabase
-            .from("refill_dispatching")
-            .update({ comment: line.comment.trim() })
-            .eq("dispatch_id", line.dispatch_id);
+          await supabase.rpc("update_dispatch_comment", {
+            p_dispatch_id: line.dispatch_id,
+            p_comment: line.comment.trim(),
+          });
         }
       } else if (line.action === "returned") {
         // B3.2: return_dispatch_line RPC replaces the legacy inline flow.
@@ -662,12 +661,12 @@ export default function DispatchingDetailPage() {
           if (returnQty > 0) totalReturnDelta += returnQty;
         }
 
-        // Persist driver comment separately — the RPC doesn't touch comment.
+        // Persist driver comment separately. The RPC doesn't touch comment.
         if (line.comment.trim()) {
-          await supabase
-            .from("refill_dispatching")
-            .update({ comment: line.comment.trim() })
-            .eq("dispatch_id", line.dispatch_id);
+          await supabase.rpc("update_dispatch_comment", {
+            p_dispatch_id: line.dispatch_id,
+            p_comment: line.comment.trim(),
+          });
         }
 
         // Mark local state so a second click immediately no-ops even if
