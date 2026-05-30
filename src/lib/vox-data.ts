@@ -56,14 +56,19 @@ export interface VoxTransaction {
   machine: string;
   site: string;
   psp: string;
+  merchant_ref?: string;     // full base_txn_sn (= adyen.merchant_reference) for RPC calls
   funding: string;
   card: string;
   wallet: string;
   total: number;
-  captured: number;
+  captured: number;          // = adyen_captured + cash_recovered (canonical "what we got")
+  adyen_captured: number;    // Adyen captured_amount_value only
+  cash_recovered: number;    // SUM(cash_recovery_log.recovered_amount) for this merchant_reference
+  gap: number;               // total - captured (>= 0)
   units: number;
   items: string;
   disc: boolean;
+  status?: string;           // 'matched' | 'matched_with_cash' | 'pending_settlement' | 'wallet_or_offadyen'
 }
 export interface VoxSiteSummary {
   total: number;
@@ -75,7 +80,9 @@ export interface VoxSummary {
   total_sales: number;
   total_txns: number;
   total_units: number;
-  total_captured: number;
+  total_captured: number;        // Adyen + cash combined
+  total_adyen_captured?: number; // Adyen only (new)
+  total_cash_recovered?: number; // SUM(cash_recovery_log) over the period (new)
   num_machines: number;
   has_adyen_data: boolean;
   adyen_match_pct: number;

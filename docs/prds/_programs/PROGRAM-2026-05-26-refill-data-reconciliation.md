@@ -2,7 +2,17 @@
 id: PROGRAM-2026-05-26
 parent: PROGRAM-2026-05-25
 title: Refill-week data reconciliation — pick up the pending work
-status: Ready-for-goal
+status: Partial-Phase3-Done-rest-Blocked
+overnight_outcome_2026-05-30: |
+  Phase 3 (PRD-013 engine FEFO investigation) DONE — both diagnostic
+  queries ran live, two distinct sub-bugs identified (VOX-list filter
+  missing + variant-allocation tally missing), proposed fixes documented
+  in PRD-013 "Findings 2026-05-26" section. Not shipped — engine is hot
+  path, needs CS approval. Phases 1, 2, 4, 5 all Blocked: Phase 1 needs
+  CS to paste batch row source data; Phase 2 needs CS per-row
+  classification + new RPC builds with Cody review; Phase 4 needs Cody
+  (new RPC) + Stax (FE); Phase 5 needs Cody (trigger + view+cron
+  bundles). See PROGRAM-2026-05-26-execution-log.md for the full state.
 severity: P1
 reported: 2026-05-26
 source: CS reassessment of refill update doc (22, 24, 25 May) after today's backend infra ship. Backend RPCs are live; the operational pod_inventory and dispatch-row corrections were missed due to system sloppiness and need to be reconciled.
@@ -51,6 +61,7 @@ Verify against `pg_proc` and the migrations registry before touching these. If a
 Source: 25-May refill update doc. Lists ~80 line items across the two machines with explicit `{product, expiry, qty}` triples. Per CS: "same pattern as MCC ACTIVATE / VOXMM refills."
 
 For each line:
+
 - Parse `{machine, boonz_product_name, expiry_date, qty}` from the doc
 - Resolve `boonz_product_id` from `boonz_products` (halt on unresolved)
 - Resolve `pod_product_id` from `product_mapping` for the target machine (halt on unmapped)
@@ -59,6 +70,7 @@ For each line:
 - Audit: `actor=CS`, `reason='Batch-25May HUAWEI/MC pod sync per Refill Update 25-May'`
 
 Edge cases mandatory:
+
 - **Same product + expiry already exists in pod_inventory** → add to existing row, do NOT create duplicate
 - **Same product different expiry already exists** → create separate row (this is the multi-batch pattern, expected)
 - **Expiry date in doc is ambiguous (e.g. "29/06/26")** → assume DD/MM/YY, halt if year < 26 or > 28
@@ -81,6 +93,7 @@ Source: 22-May refill update doc.
 - **Driver wishlists** (McVities Milk/Dark, Oreo, Mars, Snickers, Delice for OMDBB; Mars/Bounty/M&M for MC): write to `planned_swaps` as future-refill suggestions, do NOT add to current pod_inventory
 
 Edge cases mandatory:
+
 - **2 pcs Organic Rice Milk Choc REMOVED from OMDBB and from WH**: this is a DELETE-like operation. Do NOT actually delete the row; mark pod_inventory.status='Removed' with removal_reason='moved_to_AMZ-1038', and decrement warehouse_inventory.warehouse_stock by 2 via a canonical writer (NOT raw UPDATE)
 - **AMZ-1057 Smart Gourmet Classic expiry 25/01/2026 is suspicious** (past expiry by the time it would land): halt and ask CS to confirm the date
 - **AMZ-1068 Sabahoo 15/06**: ambiguous year (2026? 2027?). Halt and ask CS.
@@ -100,6 +113,7 @@ Source: 24-May refill update doc. Eight machines plus the "From Office" delivery
 - **Marecato-0798**: Krambals Tomato +3, Leibniz Cocoa +1, Leibniz Milk Honey +1, Leibniz Original +1, Well Reload +3, Well Upgrade +3, Well Zero Peach +2
 
 Edge cases mandatory:
+
 - **From-Office items need `source_kind='from_office'` (new enum value)**: confirm enum already accepts this or add via Cody-reviewed migration first. CS approved this provenance flag in a prior turn.
 - **VOX cinema machines (VOX-0797, VOX-0795, IFLY) for VOX-sourced products (Pepsi, Aquafina, M&M, Iced Tea)**: tag `source_origin='vox_at_venue'`, skip WH debit. For non-VOX products on those machines (Snickers, Mars, Vitamin Well), they ARE Boonz-supplied through the WH.
 - **"IFLY refill" is ambiguous**: halt and ask CS which machine (IFLYMCC-1024 vs anything else).
@@ -120,6 +134,7 @@ Pick the right one per row based on physical reality. CS sign-off per row mandat
 **28 historical M2M orphan rows** (PRD-014 Phase 3)
 
 Build `repair_orphan_internal_transfer(orphan_dispatch_id, destination_machine_id_or_null, reason)` canonical writer:
+
 - If physical product landed at destination → write the missing Add New row, pair with the orphan Remove via a fresh m2m_transfer_id
 - If product returned to WH (not a real M2M) → reactivate the WH row via reactivate_warehouse_row with explicit reason
 - Allow-listed in the prevention trigger that's already live
@@ -172,11 +187,13 @@ Document findings as PRD-013 update with reproducer + proposed fix. Then either 
 ### Phase 4 — FE follow-ups (Stax)
 
 PRD-011 packing FE drawer:
+
 - Render `vox_at_venue` dispatch rows with a "VOX-sourced" chip instead of expiry/batch picker
 - Show a "Re-pin batch" button on rows where `packed=true` AND `from_wh_inventory_id IS NULL` AND `source_origin <> 'vox_at_venue'` (calls `repair_unbound_dispatch`)
 - Allow qty + expiry edit inside the pack screen (the unbound case where stitch couldn't pre-pin)
 
 PRD-014-refill cross-brand substitute (drafted, blocked on PRD-012 — now unblocked):
+
 - Backend: `record_cross_brand_substitution(dispatch_id, new_boonz_product_id, qty, reason)` writes to slot_lifecycle + dispatch + driver_feedback
 - FE: driver-side "Substitute different product" affordance, distinct from variant-swap
 
@@ -229,7 +246,7 @@ This program is Done when:
 
 ## /goal command for Claude Code
 
-````
+```
 /goal docs/prds/_programs/PROGRAM-2026-05-26-refill-data-reconciliation.md
 
 Execute Phase 1 through Phase 5 in order. Before EACH phase, re-read the
@@ -295,7 +312,7 @@ prod state (pod_inventory or planned_swap with the right qty, expiry,
 provenance), the 79 over-allocated rows are resolved, the 28 M2M orphans
 have a repair pair or cancel, PRD-013 investigation is written, PRD-011 FE
 + PRD-014-refill + PRD-015 + PRD-016 are either Done or Blocked-with-reason.
-````
+```
 
 ## Linked PRDs
 

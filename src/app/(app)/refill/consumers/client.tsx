@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Script from "next/script";
+import { createClient } from "@/lib/supabase/client";
 import {
   type VoxConsumerReport,
   type VoxCommercialReport,
@@ -122,6 +123,88 @@ export default function ConsumerDashboardClient({
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   const isC = vm === "consolidated" && pods.length > 1;
+
+  // ── Cash recovery modal (opens from "+ cash" button on discrepancy rows) ──
+  type CashTender = "cash" | "card_retry" | "bank_transfer" | "voucher" | "other";
+  const [crOpen, setCrOpen] = useState(false);
+  const [crTxn, setCrTxn] = useState<{
+    psp: string;            // full psp_reference (note: row shows short prefix; we look up the full)
+    merchant_ref: string;   // the full base_txn_sn = adyen merchant_reference
+    machine: string;
+    date: string;
+    time: string;
+    total: number;
+    adyen_captured: number;
+    cash_recovered: number;
+    gap: number;
+  } | null>(null);
+  const [crAmount, setCrAmount] = useState("");
+  const [crReason, setCrReason] = useState("");
+  const [crTender, setCrTender] = useState<CashTender>("cash");
+  const [crCollector, setCrCollector] = useState("");
+  const [crSubmitting, setCrSubmitting] = useState(false);
+  const [crToast, setCrToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const openCashModal = useCallback((t: {
+    psp: string; merchant_ref: string; machine: string; date: string; time: string;
+    total: number; adyen_captured: number; cash_recovered: number; gap: number;
+  }) => {
+    setCrTxn(t);
+    setCrAmount(String(t.gap.toFixed(2)));   // pre-fill with the remaining gap
+    setCrReason(`Adyen captured AED ${t.adyen_captured} (psp ${t.psp}); remaining AED ${t.gap.toFixed(2)} settled in cash on the spot.`);
+    setCrTender("cash");
+    setCrCollector("");
+    setCrOpen(true);
+  }, []);
+
+  const submitCashRecovery = useCallback(async () => {
+    if (!crTxn) return;
+    const amount = Number(crAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCrToast({ msg: "Amount must be a positive number.", ok: false });
+      return;
+    }
+    if (crReason.trim().length < 5) {
+      setCrToast({ msg: "Reason needs at least 5 characters.", ok: false });
+      return;
+    }
+    setCrSubmitting(true);
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("record_cash_recovery", {
+        p_merchant_reference: crTxn.merchant_ref,
+        p_recovered_amount: amount,
+        p_reason: crReason.trim(),
+        p_collected_by: crCollector.trim() || null,
+        p_tender_method: crTender,
+        // p_recovered_at omitted → defaults to now()
+        // p_notes omitted
+      });
+      if (error) throw error;
+      const remaining = (data as any)?.reconciliation?.remaining_gap ?? 0;
+      const closed = (data as any)?.reconciliation?.closed ?? false;
+      setCrToast({
+        msg: closed
+          ? `Logged AED ${amount.toFixed(2)} ${crTender}. Reconciliation closed ✓`
+          : `Logged AED ${amount.toFixed(2)} ${crTender}. Remaining gap: AED ${Number(remaining).toFixed(2)}.`,
+        ok: true,
+      });
+      setCrOpen(false);
+      // Refresh transactions to reflect new captured / closed disc state
+      setD(await fetchVoxConsumerReport(pods, isC, dateFrom, dateTo));
+    } catch (e: any) {
+      setCrToast({ msg: `Failed: ${e?.message ?? String(e)}`, ok: false });
+    } finally {
+      setCrSubmitting(false);
+    }
+  }, [crTxn, crAmount, crReason, crCollector, crTender, pods, isC, dateFrom, dateTo]);
+
+  // Auto-dismiss toast after 4s
+  useEffect(() => {
+    if (!crToast) return;
+    const id = setTimeout(() => setCrToast(null), 4000);
+    return () => clearTimeout(id);
+  }, [crToast]);
 
   const dailyR = useRef<HTMLCanvasElement>(null),
     wowR = useRef<HTMLCanvasElement>(null),
@@ -1042,9 +1125,7 @@ export default function ConsumerDashboardClient({
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div className="vr">
         <nav>
-          <div className="nb">
-            MAFE
-          </div>
+          <div className="nb">MAFE</div>
           {tabs.map((t) => (
             <div
               key={t.id}
@@ -1481,7 +1562,8 @@ export default function ConsumerDashboardClient({
                           {ms.map((m) => (
                             <div key={m.machine} className="pr">
                               <span className="pl">
-                                {MACHINE_LABELS[m.machine] || shortMachine(m.machine)}
+                                {MACHINE_LABELS[m.machine] ||
+                                  shortMachine(m.machine)}
                               </span>
                               <div className="pb">
                                 <div
@@ -1881,7 +1963,8 @@ export default function ConsumerDashboardClient({
                               color: t2.site === "Mercato" ? MERC : MIRD,
                             }}
                           >
-                            {MACHINE_LABELS[t2.machine] || shortMachine(t2.machine)}
+                            {MACHINE_LABELS[t2.machine] ||
+                              shortMachine(t2.machine)}
                           </td>
                           <td>
                             <span
@@ -1946,6 +2029,11 @@ export default function ConsumerDashboardClient({
                                       fontSize: 12,
                                     }
                               }
+                              title={
+                                t2.cash_recovered > 0
+                                  ? `Total billed: AED ${t2.total}\nAdyen captured: AED ${t2.adyen_captured}\nCash recovered: AED ${t2.cash_recovered}\nGap: AED ${t2.gap}`
+                                  : `Total billed: AED ${t2.total}`
+                              }
                             >
                               AED {t2.total}
                             </span>
@@ -1955,15 +2043,58 @@ export default function ConsumerDashboardClient({
                               style={
                                 t2.disc
                                   ? { color: "#F59E0B", fontWeight: 600 }
+                                  : t2.cash_recovered > 0
+                                    ? { color: "#065F46", fontWeight: 600 }
+                                    : ha && t2.captured > 0
+                                      ? { color: "#1f2937", fontWeight: 500 }
+                                      : { color: "#9a948e" }
+                              }
+                              title={
+                                t2.cash_recovered > 0
+                                  ? `Adyen: AED ${t2.adyen_captured} + Cash: AED ${t2.cash_recovered} = AED ${t2.captured}`
                                   : ha && t2.captured > 0
-                                    ? { color: "#1f2937", fontWeight: 500 }
-                                    : { color: "#9a948e" }
+                                    ? `Adyen captured AED ${t2.captured}`
+                                    : "No capture record"
                               }
                             >
                               {ha && t2.captured > 0
                                 ? `AED ${t2.captured}`
                                 : "\u2014"}
                             </span>
+                            {t2.disc && t2.merchant_ref && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openCashModal({
+                                    psp: t2.psp,
+                                    merchant_ref: t2.merchant_ref!,
+                                    machine: t2.machine,
+                                    date: t2.date,
+                                    time: t2.time,
+                                    total: t2.total,
+                                    adyen_captured: t2.adyen_captured,
+                                    cash_recovered: t2.cash_recovered,
+                                    gap: t2.gap,
+                                  });
+                                }}
+                                title="Log cash recovery for this transaction"
+                                style={{
+                                  marginLeft: 6,
+                                  padding: "1px 6px",
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  border: "1px solid #F59E0B",
+                                  borderRadius: 4,
+                                  background: "white",
+                                  color: "#92400E",
+                                  cursor: "pointer",
+                                  lineHeight: 1.3,
+                                }}
+                              >
+                                + cash
+                              </button>
+                            )}
                           </td>
                           <td className="c" style={{ color: "#1f2937" }}>
                             {t2.units}
@@ -2511,7 +2642,9 @@ export default function ConsumerDashboardClient({
                                     String(t.vox_share),
                                     String(t.boonz_cogs),
                                     t.matched ? "ok" : "no adyen",
-                                    Number(t.default_amount || 0) > 0 ? "default" : "",
+                                    Number(t.default_amount || 0) > 0
+                                      ? "default"
+                                      : "",
                                   ]
                                     .join(" § ")
                                     .toLowerCase();
@@ -2520,37 +2653,64 @@ export default function ConsumerDashboardClient({
                               : C.transactions;
                             const downloadCsv = () => {
                               const headers = [
-                                "Date","Site","Machine","Items","Qty","Total","Captured","Default","Refund",
-                                "Adyen Fees","Net Revenue","Boonz 20%","VOX 80%","Boonz COGS","PSP","Status",
+                                "Date",
+                                "Site",
+                                "Machine",
+                                "Items",
+                                "Qty",
+                                "Total",
+                                "Captured",
+                                "Default",
+                                "Refund",
+                                "Adyen Fees",
+                                "Net Revenue",
+                                "Boonz 20%",
+                                "VOX 80%",
+                                "Boonz COGS",
+                                "PSP",
+                                "Status",
                               ];
                               const escape = (v: any) => {
-                                const s = v === null || v === undefined ? "" : String(v);
-                                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                                const s =
+                                  v === null || v === undefined
+                                    ? ""
+                                    : String(v);
+                                return /[",\n]/.test(s)
+                                  ? `"${s.replace(/"/g, '""')}"`
+                                  : s;
                               };
-                              const rows = filteredTxns.map((t) => [
-                                fmtDateLocal(t.txn_date),
-                                t.site,
-                                t.machine,
-                                t.items,
-                                t.units,
-                                t.total_amount,
-                                t.captured_amount,
-                                t.default_amount,
-                                t.refunded_amount,
-                                t.adyen_fees,
-                                t.net_revenue,
-                                t.boonz_share,
-                                t.vox_share,
-                                t.boonz_cogs,
-                                t.psp_reference || "",
-                                Number(t.default_amount || 0) > 0
-                                  ? "DEFAULT"
-                                  : t.matched
-                                  ? "OK"
-                                  : "NO ADYEN",
-                              ].map(escape).join(","));
-                              const csv = [headers.join(","), ...rows].join("\n");
-                              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                              const rows = filteredTxns.map((t) =>
+                                [
+                                  fmtDateLocal(t.txn_date),
+                                  t.site,
+                                  t.machine,
+                                  t.items,
+                                  t.units,
+                                  t.total_amount,
+                                  t.captured_amount,
+                                  t.default_amount,
+                                  t.refunded_amount,
+                                  t.adyen_fees,
+                                  t.net_revenue,
+                                  t.boonz_share,
+                                  t.vox_share,
+                                  t.boonz_cogs,
+                                  t.psp_reference || "",
+                                  Number(t.default_amount || 0) > 0
+                                    ? "DEFAULT"
+                                    : t.matched
+                                      ? "OK"
+                                      : "NO ADYEN",
+                                ]
+                                  .map(escape)
+                                  .join(","),
+                              );
+                              const csv = [headers.join(","), ...rows].join(
+                                "\n",
+                              );
+                              const blob = new Blob([csv], {
+                                type: "text/csv;charset=utf-8;",
+                              });
                               const url = URL.createObjectURL(blob);
                               const a = document.createElement("a");
                               a.href = url;
@@ -2562,281 +2722,291 @@ export default function ConsumerDashboardClient({
                             };
                             return (
                               <>
-                          <div
-                            style={{
-                              padding: "12px 16px",
-                              borderBottom: "1px solid var(--border)",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 12,
-                              background: "var(--surface2)",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontFamily: "var(--font-head)",
-                                fontSize: 14,
-                                fontWeight: 700,
-                                color: "var(--white)",
-                                letterSpacing: "-0.2px",
-                              }}
-                            >
-                              Transaction Detail
-                            </span>
-                            <span
-                              style={{
-                                fontFamily: "var(--font-mono)",
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: "var(--grey)",
-                              }}
-                            >
-                              {cqLower
-                                ? `${filteredTxns.length.toLocaleString()} of ${C.transactions.length.toLocaleString()} rows`
-                                : `${C.transactions.length.toLocaleString()} rows`}
-                            </span>
-                            <div style={{ flex: 1 }} />
-                            <input
-                              type="text"
-                              placeholder="Search machine, item, PSP, amount…"
-                              value={cq}
-                              onChange={(e) => setCq(e.target.value)}
-                              style={{
-                                padding: "6px 12px",
-                                borderRadius: 4,
-                                border: "1px solid var(--border)",
-                                background: "var(--surface)",
-                                color: "var(--white)",
-                                fontSize: 11,
-                                fontFamily: "var(--font-mono)",
-                                outline: "none",
-                                width: 260,
-                              }}
-                            />
-                            {cq && (
-                              <button
-                                onClick={() => setCq("")}
-                                className="cbb"
-                                title="Clear search"
-                                style={{ padding: "5px 10px" }}
-                              >
-                                ×
-                              </button>
-                            )}
-                            <button
-                              onClick={downloadCsv}
-                              className="cbb"
-                              title="Download CSV"
-                              style={{
-                                borderColor: MERC,
-                                color: MERC,
-                                background: `${MERC}10`,
-                                fontWeight: 600,
-                              }}
-                            >
-                              ↓ CSV
-                            </button>
-                          </div>
-                          <div
-                            className="tw"
-                            style={{ maxHeight: 640, overflow: "auto" }}
-                          >
-                            <table>
-                              <thead
-                                style={{
-                                  position: "sticky",
-                                  top: 0,
-                                  background: "var(--surface)",
-                                  zIndex: 1,
-                                }}
-                              >
-                                <tr>
-                                  <th>Date</th>
-                                  <th>Site</th>
-                                  <th>Machine</th>
-                                  <th>Items</th>
-                                  <th className="c">Qty</th>
-                                  <th className="r">Total</th>
-                                  <th className="r">Captured</th>
-                                  <th className="r">Default</th>
-                                  <th className="r">Refund</th>
-                                  <th className="r">Adyen Fees</th>
-                                  <th className="r">Net Rev</th>
-                                  <th className="r">Boonz 20%</th>
-                                  <th className="r">VOX 80%</th>
-                                  <th className="r">Boonz COGS</th>
-                                  <th className="c">Status</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {filteredTxns.map((t, i) => {
-                                  const isDisc =
-                                    Number(t.default_amount || 0) > 0;
-                                  const isUnmatched = !t.matched;
-                                  const rowStyle: React.CSSProperties = {
-                                    ...(isDisc
-                                      ? { background: "rgba(239,68,68,0.06)" }
-                                      : {}),
-                                    ...(isUnmatched ? { opacity: 0.6 } : {}),
-                                  };
-                                  const isMerc = t.site === "Mercato";
-                                  const status = isDisc
-                                    ? "DEFAULT"
-                                    : isUnmatched
-                                      ? "NO ADYEN"
-                                      : "OK";
-                                  const statusColor = isDisc
-                                    ? "#EF4444"
-                                    : isUnmatched
-                                      ? "#9a948e"
-                                      : "#10B981";
-                                  return (
-                                    <tr key={i} style={rowStyle}>
-                                      <td
-                                        style={{
-                                          fontSize: 11,
-                                          color: "#9a948e",
-                                          whiteSpace: "nowrap",
-                                        }}
-                                      >
-                                        {fmtDate(t.txn_date)}
-                                      </td>
-                                      <td>
-                                        <span
-                                          className={`sp ${isMerc ? "spm" : "spd"}`}
-                                        >
-                                          {t.site}
-                                        </span>
-                                      </td>
-                                      <td
-                                        className="tm"
-                                        style={{ color: isMerc ? MERC : MIRD }}
-                                      >
-                                        {MACHINE_LABELS[t.machine] || shortMachine(t.machine)}
-                                      </td>
-                                      <td
-                                        style={{
-                                          fontSize: 11,
-                                          color: "#9a948e",
-                                          maxWidth: 220,
-                                        }}
-                                      >
-                                        {t.items}
-                                      </td>
-                                      <td
-                                        className="c"
-                                        style={{ color: "#9a948e" }}
-                                      >
-                                        {t.units}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#0a0a0a",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.total_amount)}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#9a948e",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.captured_amount)}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: isDisc ? "#EF4444" : "#9a948e",
-                                          fontSize: 11,
-                                          fontWeight: isDisc ? 700 : 400,
-                                        }}
-                                      >
-                                        {isDisc
-                                          ? aed2(t.default_amount)
-                                          : "\u2014"}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color:
-                                            Number(t.refunded_amount) > 0
-                                              ? "#EC4899"
-                                              : "#9a948e",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {Number(t.refunded_amount) > 0
-                                          ? aed2(t.refunded_amount)
-                                          : "\u2014"}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#F97316",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.adyen_fees)}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#9a948e",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.net_revenue)}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#F59E0B",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.boonz_share)}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#9a948e",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.vox_share)}
-                                      </td>
-                                      <td
-                                        className="r"
-                                        style={{
-                                          color: "#EF4444",
-                                          fontSize: 11,
-                                        }}
-                                      >
-                                        {aed2(t.boonz_cogs)}
-                                      </td>
-                                      <td className="c">
-                                        <span
-                                          style={{
-                                            fontSize: 9,
-                                            color: statusColor,
-                                            fontWeight: 700,
-                                            letterSpacing: 0.5,
-                                          }}
-                                        >
-                                          {status}
-                                        </span>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
+                                <div
+                                  style={{
+                                    padding: "12px 16px",
+                                    borderBottom: "1px solid var(--border)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 12,
+                                    background: "var(--surface2)",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontFamily: "var(--font-head)",
+                                      fontSize: 14,
+                                      fontWeight: 700,
+                                      color: "var(--white)",
+                                      letterSpacing: "-0.2px",
+                                    }}
+                                  >
+                                    Transaction Detail
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontFamily: "var(--font-mono)",
+                                      fontSize: 11,
+                                      fontWeight: 500,
+                                      color: "var(--grey)",
+                                    }}
+                                  >
+                                    {cqLower
+                                      ? `${filteredTxns.length.toLocaleString()} of ${C.transactions.length.toLocaleString()} rows`
+                                      : `${C.transactions.length.toLocaleString()} rows`}
+                                  </span>
+                                  <div style={{ flex: 1 }} />
+                                  <input
+                                    type="text"
+                                    placeholder="Search machine, item, PSP, amount…"
+                                    value={cq}
+                                    onChange={(e) => setCq(e.target.value)}
+                                    style={{
+                                      padding: "6px 12px",
+                                      borderRadius: 4,
+                                      border: "1px solid var(--border)",
+                                      background: "var(--surface)",
+                                      color: "var(--white)",
+                                      fontSize: 11,
+                                      fontFamily: "var(--font-mono)",
+                                      outline: "none",
+                                      width: 260,
+                                    }}
+                                  />
+                                  {cq && (
+                                    <button
+                                      onClick={() => setCq("")}
+                                      className="cbb"
+                                      title="Clear search"
+                                      style={{ padding: "5px 10px" }}
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={downloadCsv}
+                                    className="cbb"
+                                    title="Download CSV"
+                                    style={{
+                                      borderColor: MERC,
+                                      color: MERC,
+                                      background: `${MERC}10`,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    ↓ CSV
+                                  </button>
+                                </div>
+                                <div
+                                  className="tw"
+                                  style={{ maxHeight: 640, overflow: "auto" }}
+                                >
+                                  <table>
+                                    <thead
+                                      style={{
+                                        position: "sticky",
+                                        top: 0,
+                                        background: "var(--surface)",
+                                        zIndex: 1,
+                                      }}
+                                    >
+                                      <tr>
+                                        <th>Date</th>
+                                        <th>Site</th>
+                                        <th>Machine</th>
+                                        <th>Items</th>
+                                        <th className="c">Qty</th>
+                                        <th className="r">Total</th>
+                                        <th className="r">Captured</th>
+                                        <th className="r">Default</th>
+                                        <th className="r">Refund</th>
+                                        <th className="r">Adyen Fees</th>
+                                        <th className="r">Net Rev</th>
+                                        <th className="r">Boonz 20%</th>
+                                        <th className="r">VOX 80%</th>
+                                        <th className="r">Boonz COGS</th>
+                                        <th className="c">Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {filteredTxns.map((t, i) => {
+                                        const isDisc =
+                                          Number(t.default_amount || 0) > 0;
+                                        const isUnmatched = !t.matched;
+                                        const rowStyle: React.CSSProperties = {
+                                          ...(isDisc
+                                            ? {
+                                                background:
+                                                  "rgba(239,68,68,0.06)",
+                                              }
+                                            : {}),
+                                          ...(isUnmatched
+                                            ? { opacity: 0.6 }
+                                            : {}),
+                                        };
+                                        const isMerc = t.site === "Mercato";
+                                        const status = isDisc
+                                          ? "DEFAULT"
+                                          : isUnmatched
+                                            ? "NO ADYEN"
+                                            : "OK";
+                                        const statusColor = isDisc
+                                          ? "#EF4444"
+                                          : isUnmatched
+                                            ? "#9a948e"
+                                            : "#10B981";
+                                        return (
+                                          <tr key={i} style={rowStyle}>
+                                            <td
+                                              style={{
+                                                fontSize: 11,
+                                                color: "#9a948e",
+                                                whiteSpace: "nowrap",
+                                              }}
+                                            >
+                                              {fmtDate(t.txn_date)}
+                                            </td>
+                                            <td>
+                                              <span
+                                                className={`sp ${isMerc ? "spm" : "spd"}`}
+                                              >
+                                                {t.site}
+                                              </span>
+                                            </td>
+                                            <td
+                                              className="tm"
+                                              style={{
+                                                color: isMerc ? MERC : MIRD,
+                                              }}
+                                            >
+                                              {MACHINE_LABELS[t.machine] ||
+                                                shortMachine(t.machine)}
+                                            </td>
+                                            <td
+                                              style={{
+                                                fontSize: 11,
+                                                color: "#9a948e",
+                                                maxWidth: 220,
+                                              }}
+                                            >
+                                              {t.items}
+                                            </td>
+                                            <td
+                                              className="c"
+                                              style={{ color: "#9a948e" }}
+                                            >
+                                              {t.units}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#0a0a0a",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.total_amount)}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#9a948e",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.captured_amount)}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: isDisc
+                                                  ? "#EF4444"
+                                                  : "#9a948e",
+                                                fontSize: 11,
+                                                fontWeight: isDisc ? 700 : 400,
+                                              }}
+                                            >
+                                              {isDisc
+                                                ? aed2(t.default_amount)
+                                                : "\u2014"}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color:
+                                                  Number(t.refunded_amount) > 0
+                                                    ? "#EC4899"
+                                                    : "#9a948e",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {Number(t.refunded_amount) > 0
+                                                ? aed2(t.refunded_amount)
+                                                : "\u2014"}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#F97316",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.adyen_fees)}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#9a948e",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.net_revenue)}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#F59E0B",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.boonz_share)}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#9a948e",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.vox_share)}
+                                            </td>
+                                            <td
+                                              className="r"
+                                              style={{
+                                                color: "#EF4444",
+                                                fontSize: 11,
+                                              }}
+                                            >
+                                              {aed2(t.boonz_cogs)}
+                                            </td>
+                                            <td className="c">
+                                              <span
+                                                style={{
+                                                  fontSize: 9,
+                                                  color: statusColor,
+                                                  fontWeight: 700,
+                                                  letterSpacing: 0.5,
+                                                }}
+                                              >
+                                                {status}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
                               </>
                             );
                           })()}
@@ -2853,6 +3023,134 @@ export default function ConsumerDashboardClient({
           {"\u00B7"} Supabase (Weimi + Adyen)
         </footer>
       </div>
+
+      {/* \u2500\u2500 Cash Recovery modal \u2500\u2500 */}
+      {crOpen && crTxn && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 300,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+          }}
+          onClick={() => !crSubmitting && setCrOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "white", borderRadius: 12, padding: 24, width: 480,
+              maxWidth: "92vw", boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+            }}
+          >
+            <h3 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 800, color: "#0a0a0a", letterSpacing: "-0.01em" }}>
+              Log cash recovery
+            </h3>
+            <p style={{ marginTop: 0, marginBottom: 14, fontSize: 12, color: "#6b6860" }}>
+              {crTxn.date} {crTxn.time} {"\u00B7"} {crTxn.machine} {"\u00B7"} psp {crTxn.psp}
+            </p>
+
+            <div style={{
+              display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
+              padding: 10, borderRadius: 8, background: "#FAF9F7", marginBottom: 16, fontSize: 12,
+            }}>
+              <div><strong>Total billed:</strong> AED {crTxn.total.toFixed(2)}</div>
+              <div><strong>Adyen captured:</strong> AED {crTxn.adyen_captured.toFixed(2)}</div>
+              <div><strong>Cash already logged:</strong> AED {crTxn.cash_recovered.toFixed(2)}</div>
+              <div style={{ color: crTxn.gap > 0 ? "#991B1B" : "#065F46" }}>
+                <strong>Remaining gap:</strong> AED {crTxn.gap.toFixed(2)}
+              </div>
+            </div>
+
+            <label style={{ display: "block", marginBottom: 12 }}>
+              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+                Amount (AED)
+              </span>
+              <input
+                type="number" step="0.01" min="0.01" value={crAmount}
+                onChange={(e) => setCrAmount(e.target.value)}
+                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#0a0a0a", outline: "none" }}
+                autoFocus
+              />
+            </label>
+
+            <label style={{ display: "block", marginBottom: 12 }}>
+              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+                Tender method
+              </span>
+              <select
+                value={crTender}
+                onChange={(e) => setCrTender(e.target.value as CashTender)}
+                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#0a0a0a", background: "white", outline: "none", cursor: "pointer" }}
+              >
+                <option value="cash">Cash</option>
+                <option value="card_retry">Card retry</option>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="voucher">Voucher</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+
+            <label style={{ display: "block", marginBottom: 12 }}>
+              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+                Collected by (optional)
+              </span>
+              <input
+                type="text" value={crCollector}
+                onChange={(e) => setCrCollector(e.target.value)}
+                placeholder="e.g. driver name"
+                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#0a0a0a", outline: "none" }}
+              />
+            </label>
+
+            <label style={{ display: "block", marginBottom: 18 }}>
+              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+                Reason (required, min 5 chars)
+              </span>
+              <textarea
+                value={crReason}
+                onChange={(e) => setCrReason(e.target.value)}
+                rows={3}
+                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 13, color: "#0a0a0a", outline: "none", resize: "vertical", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+              />
+            </label>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => setCrOpen(false)}
+                disabled={crSubmitting}
+                style={{ flex: 1, padding: "10px 16px", borderRadius: 8, border: "1px solid #e8e4de", background: "white", color: "#6b6860", fontWeight: 600, fontSize: 14, cursor: crSubmitting ? "not-allowed" : "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitCashRecovery}
+                disabled={crSubmitting}
+                style={{ flex: 2, padding: "10px 16px", borderRadius: 8, border: "none", background: "#24544a", color: "white", fontWeight: 600, fontSize: 14, cursor: crSubmitting ? "not-allowed" : "pointer", opacity: crSubmitting ? 0.7 : 1 }}
+              >
+                {crSubmitting ? "Logging\u2026" : "Log recovery"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* \u2500\u2500 Cash recovery toast \u2500\u2500 */}
+      {crToast && (
+        <div
+          style={{
+            position: "fixed", bottom: 24, right: 24, zIndex: 250,
+            padding: "10px 16px", borderRadius: 8, fontSize: 14, fontWeight: 600,
+            boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+            background: crToast.ok ? "#ECFDF5" : "#FEF2F2",
+            color: crToast.ok ? "#065F46" : "#991B1B",
+            border: crToast.ok ? "1px solid #A7F3D0" : "1px solid #FECACA",
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            maxWidth: 400,
+          }}
+        >
+          {crToast.ok ? "\u2713 " : "\u2715 "}{crToast.msg}
+        </div>
+      )}
     </>
   );
 }
