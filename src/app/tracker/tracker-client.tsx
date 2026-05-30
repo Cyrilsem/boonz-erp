@@ -16,6 +16,7 @@ export type AgendaItem = {
   due_date: string | null;
   notes: string | null;
   sort_order: number;
+  cross_cutting: boolean;
 };
 
 const CATEGORIES: Category[] = ["Boonz", "AKY", "Gebran", "Personal"];
@@ -48,6 +49,13 @@ const URGENCY_STYLE: Record<Urgency, { bg: string; fg: string; dot: string }> =
 
 const URGENCY_RANK: Record<Urgency, number> = { high: 0, medium: 1, low: 2 };
 
+// Solid status colour used for dots / borders in the Overview board.
+const STATUS_DOT: Record<Status, string> = {
+  todo: "#cfc7b4",
+  in_progress: "#e0a534",
+  done: "#2f9e5e",
+};
+
 type Filter = "all" | "open" | "done";
 
 export default function TrackerClient({
@@ -57,6 +65,7 @@ export default function TrackerClient({
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<AgendaItem[]>(initialItems);
+  const [view, setView] = useState<"overview" | "detail">("overview");
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
   const [activeCat, setActiveCat] = useState<Category | "All">("All");
@@ -92,6 +101,10 @@ export default function TrackerClient({
     updateItem(it.id, { status: next });
   }
 
+  function setStatus(id: string, status: Status) {
+    updateItem(id, { status });
+  }
+
   async function addItem(category: Category, title: string) {
     const clean = title.trim();
     if (!clean) return;
@@ -104,7 +117,7 @@ export default function TrackerClient({
       .from("agenda_items")
       .insert({ category, title: clean, sort_order: maxOrder + 10 })
       .select(
-        "id, category, title, status, urgency, due_date, notes, sort_order",
+        "id, category, title, status, urgency, due_date, notes, sort_order, cross_cutting",
       )
       .single();
     setBusy(false);
@@ -193,144 +206,527 @@ export default function TrackerClient({
           </div>
         </div>
 
-        {/* Controls */}
+        {/* Tabs */}
         <div
           style={{
             display: "flex",
-            flexWrap: "wrap",
-            gap: 8,
-            alignItems: "center",
+            gap: 4,
             marginBottom: 20,
+            borderBottom: "1px solid #ece7dc",
           }}
         >
-          <CatPill
-            label="All"
-            active={activeCat === "All"}
-            onClick={() => setActiveCat("All")}
-          />
-          {CATEGORIES.map((c) => (
-            <CatPill
-              key={c}
-              label={c}
-              color={CAT_ACCENT[c]}
-              active={activeCat === c}
-              onClick={() => setActiveCat(c)}
-            />
+          {(["overview", "detail"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              style={tabBtn(view === v)}
+            >
+              {v === "overview" ? "Overview" : "Detail"}
+            </button>
           ))}
-          <div style={{ flex: 1 }} />
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              background: "#f1efe9",
-              borderRadius: 8,
-              padding: 3,
-            }}
-          >
-            {(["all", "open", "done"] as Filter[]).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                style={{
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: "5px 12px",
-                  borderRadius: 6,
-                  background: filter === f ? "#fff" : "transparent",
-                  color: filter === f ? "#2b2620" : "#8a8270",
-                  boxShadow:
-                    filter === f ? "0 1px 2px rgba(0,0,0,.06)" : "none",
-                }}
-              >
-                {f === "all" ? "All" : f === "open" ? "Open" : "Done"}
-              </button>
-            ))}
-          </div>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search…"
-            style={{
-              border: "1px solid #e6e1d7",
-              borderRadius: 8,
-              padding: "7px 12px",
-              fontSize: 13,
-              minWidth: 160,
-              outline: "none",
-              background: "#fff",
-            }}
-          />
         </div>
 
-        {/* Sections */}
-        {visibleCats.map((cat) => {
-          const list = itemsFor(cat);
-          const all = items.filter((i) => i.category === cat);
-          const done = all.filter((i) => i.status === "done").length;
-          return (
-            <section key={cat} style={{ marginBottom: 30 }}>
+        {view === "overview" ? (
+          <OverviewView
+            items={items}
+            onCycle={cycleStatus}
+            onSetStatus={setStatus}
+          />
+        ) : (
+          <>
+            {/* Controls */}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <CatPill
+                label="All"
+                active={activeCat === "All"}
+                onClick={() => setActiveCat("All")}
+              />
+              {CATEGORIES.map((c) => (
+                <CatPill
+                  key={c}
+                  label={c}
+                  color={CAT_ACCENT[c]}
+                  active={activeCat === c}
+                  onClick={() => setActiveCat(c)}
+                />
+              ))}
+              <div style={{ flex: 1 }} />
               <div
                 style={{
                   display: "flex",
-                  alignItems: "center",
-                  gap: 10,
+                  gap: 4,
+                  background: "#f1efe9",
+                  borderRadius: 8,
+                  padding: 3,
+                }}
+              >
+                {(["all", "open", "done"] as Filter[]).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setFilter(f)}
+                    style={{
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      padding: "5px 12px",
+                      borderRadius: 6,
+                      background: filter === f ? "#fff" : "transparent",
+                      color: filter === f ? "#2b2620" : "#8a8270",
+                      boxShadow:
+                        filter === f ? "0 1px 2px rgba(0,0,0,.06)" : "none",
+                    }}
+                  >
+                    {f === "all" ? "All" : f === "open" ? "Open" : "Done"}
+                  </button>
+                ))}
+              </div>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search…"
+                style={{
+                  border: "1px solid #e6e1d7",
+                  borderRadius: 8,
+                  padding: "7px 12px",
+                  fontSize: 13,
+                  minWidth: 160,
+                  outline: "none",
+                  background: "#fff",
+                }}
+              />
+            </div>
+
+            {/* Sections */}
+            {visibleCats.map((cat) => {
+              const list = itemsFor(cat);
+              const all = items.filter((i) => i.category === cat);
+              const done = all.filter((i) => i.status === "done").length;
+              return (
+                <section key={cat} style={{ marginBottom: 30 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 3,
+                        background: CAT_ACCENT[cat],
+                      }}
+                    />
+                    <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>
+                      {cat}
+                    </h2>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        color: "#9a917f",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {done}/{all.length}
+                    </span>
+                    <div style={{ flex: 1 }} />
+                  </div>
+
+                  <div
+                    style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                  >
+                    {list.map((it) => (
+                      <Row
+                        key={it.id}
+                        item={it}
+                        onCycle={() => cycleStatus(it)}
+                        onUpdate={(p) => updateItem(it.id, p)}
+                        onDelete={() => deleteItem(it.id)}
+                      />
+                    ))}
+                    {list.length === 0 && (
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: "#b3a98f",
+                          padding: "6px 2px",
+                        }}
+                      >
+                        Nothing here.
+                      </div>
+                    )}
+                    <AddRow
+                      accent={CAT_ACCENT[cat]}
+                      busy={busy}
+                      onAdd={(t) => addItem(cat, t)}
+                    />
+                  </div>
+                </section>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Overview (executive board) ───────────────────────────────────────────────────
+function combinedStatus(group: AgendaItem[]): Status {
+  if (group.length && group.every((i) => i.status === "done")) return "done";
+  if (group.some((i) => i.status !== "todo")) return "in_progress";
+  return "todo";
+}
+
+function OverviewView({
+  items,
+  onCycle,
+  onSetStatus,
+}: {
+  items: AgendaItem[];
+  onCycle: (it: AgendaItem) => void;
+  onSetStatus: (id: string, status: Status) => void;
+}) {
+  const cross = items.filter((i) => i.cross_cutting);
+
+  // Group cross-cutting rows by their initiative (strip the "(with X)" tag) so
+  // the same initiative spanning Boonz + AKY shows as ONE card.
+  const groups = new Map<string, AgendaItem[]>();
+  for (const it of cross) {
+    const key = it.title
+      .replace(/\s*\(with [^)]*\)\s*:?/i, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const g = groups.get(key) ?? [];
+    g.push(it);
+    groups.set(key, g);
+  }
+
+  return (
+    <div>
+      {/* Legend */}
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          alignItems: "center",
+          marginBottom: 16,
+          flexWrap: "wrap",
+        }}
+      >
+        {(["todo", "in_progress", "done"] as Status[]).map((s) => (
+          <span
+            key={s}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: "#7a7160",
+              fontWeight: 600,
+            }}
+          >
+            <span
+              style={{
+                width: 11,
+                height: 11,
+                borderRadius: 3,
+                background: STATUS_DOT[s],
+              }}
+            />
+            {STATUS_LABEL[s]}
+          </span>
+        ))}
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "#7a7160",
+            fontWeight: 600,
+          }}
+        >
+          <span style={{ fontSize: 14 }}>↔</span> Cross-cutting
+        </span>
+        <span style={{ fontSize: 11.5, color: "#b3a98f" }}>
+          tip: click a status dot to advance it
+        </span>
+      </div>
+
+      {/* Cross-cutting band */}
+      {groups.size > 0 && (
+        <div
+          style={{
+            border: "1.5px dashed #c9b89a",
+            background: "linear-gradient(180deg,#fffaf0,#fdf6ea)",
+            borderRadius: 12,
+            padding: "13px 15px",
+            marginBottom: 22,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 10,
+            }}
+          >
+            <span style={{ fontSize: 15 }}>↔</span>
+            <span style={{ fontSize: 14, fontWeight: 800 }}>
+              Cross-cutting initiatives
+            </span>
+            <span style={{ fontSize: 12, color: "#9a917f", fontWeight: 600 }}>
+              span both programs
+            </span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            {[...groups.values()].map((group) => {
+              const cs = combinedStatus(group);
+              const cats = [...new Set(group.map((g) => g.category))];
+              const next: Status =
+                cs === "todo"
+                  ? "in_progress"
+                  : cs === "in_progress"
+                    ? "done"
+                    : "todo";
+              return (
+                <div
+                  key={group[0].id}
+                  style={{
+                    flex: "1 1 260px",
+                    minWidth: 240,
+                    background: "#fff",
+                    border: "1px solid #ece2cc",
+                    borderLeft: `4px solid ${STATUS_DOT[cs]}`,
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 7,
+                      marginBottom: 7,
+                    }}
+                  >
+                    {cats.map((c) => (
+                      <span
+                        key={c}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 800,
+                          color: "#fff",
+                          background: CAT_ACCENT[c],
+                          borderRadius: 999,
+                          padding: "2px 9px",
+                        }}
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      lineHeight: 1.4,
+                      color: cs === "done" ? "#a39a88" : "#2b2620",
+                      textDecoration: cs === "done" ? "line-through" : "none",
+                    }}
+                  >
+                    {group[0].title
+                      .replace(/\s*\(with [^)]*\)\s*:?/i, ": ")
+                      .replace(/:\s*:/, ":")}
+                  </div>
+                  <button
+                    onClick={() =>
+                      group.forEach((g) => onSetStatus(g.id, next))
+                    }
+                    style={{
+                      marginTop: 8,
+                      border: "none",
+                      cursor: "pointer",
+                      borderRadius: 999,
+                      padding: "3px 11px",
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      background: STATUS_STYLE[cs].bg,
+                      color: STATUS_STYLE[cs].fg,
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {STATUS_LABEL[cs]}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Category columns */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))",
+          gap: 14,
+          alignItems: "start",
+        }}
+      >
+        {CATEGORIES.map((cat) => {
+          const list = items
+            .filter((i) => i.category === cat && !i.cross_cutting)
+            .sort((a, b) => {
+              if (a.status === "done" && b.status !== "done") return 1;
+              if (b.status === "done" && a.status !== "done") return -1;
+              return a.sort_order - b.sort_order;
+            });
+          const done = items.filter(
+            (i) => i.category === cat && i.status === "done",
+          ).length;
+          const total = items.filter((i) => i.category === cat).length;
+          return (
+            <div
+              key={cat}
+              style={{
+                background: "#fff",
+                border: "1px solid #ece7dc",
+                borderTop: `3px solid ${CAT_ACCENT[cat]}`,
+                borderRadius: 12,
+                padding: "12px 12px 14px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 7,
                   marginBottom: 10,
                 }}
               >
                 <span
                   style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 3,
-                    background: CAT_ACCENT[cat],
+                    fontSize: 15,
+                    fontWeight: 800,
+                    color: CAT_ACCENT[cat],
                   }}
-                />
-                <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>
-                  {cat}
-                </h2>
-                <span
-                  style={{ fontSize: 13, color: "#9a917f", fontWeight: 600 }}
                 >
-                  {done}/{all.length}
+                  {cat}
                 </span>
-                <div style={{ flex: 1 }} />
+                <span
+                  style={{ fontSize: 12, color: "#9a917f", fontWeight: 700 }}
+                >
+                  {done}/{total}
+                </span>
               </div>
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {list.map((it) => (
-                  <Row
-                    key={it.id}
-                    item={it}
-                    onCycle={() => cycleStatus(it)}
-                    onUpdate={(p) => updateItem(it.id, p)}
-                    onDelete={() => deleteItem(it.id)}
-                  />
+                  <MiniChip key={it.id} item={it} onCycle={() => onCycle(it)} />
                 ))}
                 {list.length === 0 && (
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: "#b3a98f",
-                      padding: "6px 2px",
-                    }}
-                  >
-                    Nothing here.
-                  </div>
+                  <span style={{ fontSize: 12, color: "#b3a98f" }}>
+                    No standalone items.
+                  </span>
                 )}
-                <AddRow
-                  accent={CAT_ACCENT[cat]}
-                  busy={busy}
-                  onAdd={(t) => addItem(cat, t)}
-                />
               </div>
-            </section>
+            </div>
           );
         })}
       </div>
     </div>
   );
+}
+
+function MiniChip({
+  item,
+  onCycle,
+}: {
+  item: AgendaItem;
+  onCycle: () => void;
+}) {
+  const done = item.status === "done";
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8,
+        padding: "7px 8px",
+        borderRadius: 8,
+        background: done ? "#f6f4ef" : "#fcfbf8",
+        border: "1px solid #efeae0",
+        borderLeft: `3px solid ${STATUS_DOT[item.status]}`,
+      }}
+    >
+      <button
+        onClick={onCycle}
+        title={STATUS_LABEL[item.status] + " — click to advance"}
+        style={{
+          marginTop: 2,
+          width: 13,
+          height: 13,
+          borderRadius: "50%",
+          flexShrink: 0,
+          cursor: "pointer",
+          border: "none",
+          background: STATUS_DOT[item.status],
+        }}
+      />
+      <span
+        style={{
+          fontSize: 12.5,
+          lineHeight: 1.35,
+          fontWeight: 500,
+          color: done ? "#a39a88" : "#39342c",
+          textDecoration: done ? "line-through" : "none",
+        }}
+      >
+        {item.title}
+      </span>
+      {item.urgency === "high" && (
+        <span
+          title="High urgency"
+          style={{
+            marginLeft: "auto",
+            color: "#d6492c",
+            fontSize: 13,
+            lineHeight: "16px",
+          }}
+        >
+          !
+        </span>
+      )}
+    </div>
+  );
+}
+
+function tabBtn(active: boolean): React.CSSProperties {
+  return {
+    border: "none",
+    background: "transparent",
+    cursor: "pointer",
+    fontSize: 15,
+    fontWeight: 700,
+    padding: "8px 10px",
+    marginBottom: -1,
+    color: active ? "#2b2620" : "#a8a08d",
+    borderBottom: active ? "2.5px solid #2b2620" : "2.5px solid transparent",
+    fontFamily: "inherit",
+  };
 }
 
 // ── Category pill ────────────────────────────────────────────────────────────────

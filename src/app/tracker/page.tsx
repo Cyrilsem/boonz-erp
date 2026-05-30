@@ -30,7 +30,9 @@ export default async function TrackerPage() {
 
   const { data: items } = await supabase
     .from("agenda_items")
-    .select("id, category, title, status, urgency, due_date, notes, sort_order")
+    .select(
+      "id, category, title, status, urgency, due_date, notes, sort_order, cross_cutting",
+    )
     .order("category", { ascending: true })
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
