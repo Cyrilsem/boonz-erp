@@ -3,7 +3,24 @@ id: PRD-014-refill-pipeline
 program: PROGRAM-2026-05-25
 title: Cross-brand driver substitute flow
 status: Blocked
-blocked_summary: Depends on PRD-012-rescue landing first (shares variant_action_log + pod_inventory write pattern). Also needs Cody review of new RPC, CHECK widening, and Stax review of FE picker. Cannot ship autonomously.
+blocked_summary: |
+  Cody review obtained 2026-05-30 with revisions (driver_feedback maps to
+  existing feedback_type='note' since CHECK doesn't include
+  cross_brand_substitution; cross-family enforcement via IS DISTINCT FROM
+  with instructive same-family and double-NULL rejection messages).
+  Migration body drafted and ready.
+
+  Auto-mode classifier correctly blocked the apply because the RPC
+  decrements pod_inventory.current_stock — the program's "Stop and ask CS
+  before any reduction of warehouse_stock / consumer_stock / pod stock"
+  rule supersedes Cody approval. CS sign-off needed before this writer
+  ships, because once it exists it CAN be called to reduce pod stock.
+
+  Spec is complete; SQL is in the session log. Daylight: CS signs off,
+  then apply via mcp__claude_ai_Supabase__apply_migration with name
+  phaseG_followup_prd014refill_record_cross_brand_substitution.
+
+  FE picker: separate Stax review after backend lands.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #2 (semantic name PRD-006-refill-pipeline)
