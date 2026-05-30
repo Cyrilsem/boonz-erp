@@ -124,12 +124,23 @@ export default function ConsumerDashboardClient({
 
   const isC = vm === "consolidated" && pods.length > 1;
 
+  // Commercial-tab state hoisted up here so the cash-recovery callback below
+  // can read C / setC in its dependency array.
+  const [C, setC] = useState<VoxCommercialReport | null>(null);
+  const [cLoading, setCLoading] = useState(false);
+  const [cErr, setCErr] = useState<string | null>(null);
+
   // ── Cash recovery modal (opens from "+ cash" button on discrepancy rows) ──
-  type CashTender = "cash" | "card_retry" | "bank_transfer" | "voucher" | "other";
+  type CashTender =
+    | "cash"
+    | "card_retry"
+    | "bank_transfer"
+    | "voucher"
+    | "other";
   const [crOpen, setCrOpen] = useState(false);
   const [crTxn, setCrTxn] = useState<{
-    psp: string;            // full psp_reference (note: row shows short prefix; we look up the full)
-    merchant_ref: string;   // the full base_txn_sn = adyen merchant_reference
+    psp: string; // full psp_reference (note: row shows short prefix; we look up the full)
+    merchant_ref: string; // the full base_txn_sn = adyen merchant_reference
     machine: string;
     date: string;
     time: string;
@@ -143,19 +154,33 @@ export default function ConsumerDashboardClient({
   const [crTender, setCrTender] = useState<CashTender>("cash");
   const [crCollector, setCrCollector] = useState("");
   const [crSubmitting, setCrSubmitting] = useState(false);
-  const [crToast, setCrToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [crToast, setCrToast] = useState<{ msg: string; ok: boolean } | null>(
+    null,
+  );
 
-  const openCashModal = useCallback((t: {
-    psp: string; merchant_ref: string; machine: string; date: string; time: string;
-    total: number; adyen_captured: number; cash_recovered: number; gap: number;
-  }) => {
-    setCrTxn(t);
-    setCrAmount(String(t.gap.toFixed(2)));   // pre-fill with the remaining gap
-    setCrReason(`Adyen captured AED ${t.adyen_captured} (psp ${t.psp}); remaining AED ${t.gap.toFixed(2)} settled in cash on the spot.`);
-    setCrTender("cash");
-    setCrCollector("");
-    setCrOpen(true);
-  }, []);
+  const openCashModal = useCallback(
+    (t: {
+      psp: string;
+      merchant_ref: string;
+      machine: string;
+      date: string;
+      time: string;
+      total: number;
+      adyen_captured: number;
+      cash_recovered: number;
+      gap: number;
+    }) => {
+      setCrTxn(t);
+      setCrAmount(String(t.gap.toFixed(2))); // pre-fill with the remaining gap
+      setCrReason(
+        `Adyen captured AED ${t.adyen_captured} (psp ${t.psp}); remaining AED ${t.gap.toFixed(2)} settled in cash on the spot.`,
+      );
+      setCrTender("cash");
+      setCrCollector("");
+      setCrOpen(true);
+    },
+    [],
+  );
 
   const submitCashRecovery = useCallback(async () => {
     if (!crTxn) return;
@@ -190,14 +215,37 @@ export default function ConsumerDashboardClient({
         ok: true,
       });
       setCrOpen(false);
-      // Refresh transactions to reflect new captured / closed disc state
-      setD(await fetchVoxConsumerReport(pods, isC, dateFrom, dateTo));
+      // Refresh transactions to reflect new captured / closed disc state.
+      // Refresh consumer always; refresh commercial too if it's loaded.
+      const refreshes: Promise<void>[] = [
+        fetchVoxConsumerReport(pods, isC, dateFrom, dateTo).then((d) =>
+          setD(d),
+        ),
+      ];
+      if (tab === "commercial" || C !== null) {
+        refreshes.push(
+          fetchVoxCommercialReport(pods, dateFrom, dateTo).then((c) => setC(c)),
+        );
+      }
+      await Promise.all(refreshes);
     } catch (e: any) {
       setCrToast({ msg: `Failed: ${e?.message ?? String(e)}`, ok: false });
     } finally {
       setCrSubmitting(false);
     }
-  }, [crTxn, crAmount, crReason, crCollector, crTender, pods, isC, dateFrom, dateTo]);
+  }, [
+    crTxn,
+    crAmount,
+    crReason,
+    crCollector,
+    crTender,
+    pods,
+    isC,
+    dateFrom,
+    dateTo,
+    tab,
+    C,
+  ]);
 
   // Auto-dismiss toast after 4s
   useEffect(() => {
@@ -222,9 +270,6 @@ export default function ConsumerDashboardClient({
     csR = useRef<HTMLCanvasElement>(null);
   const wfR = useRef<HTMLCanvasElement>(null),
     brR = useRef<HTMLCanvasElement>(null);
-  const [C, setC] = useState<VoxCommercialReport | null>(null);
-  const [cLoading, setCLoading] = useState(false);
-  const [cErr, setCErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2910,9 +2955,21 @@ export default function ConsumerDashboardClient({
                                             <td
                                               className="r"
                                               style={{
-                                                color: "#9a948e",
+                                                color:
+                                                  (t.cash_recovered ?? 0) > 0
+                                                    ? "#065F46"
+                                                    : "#9a948e",
                                                 fontSize: 11,
+                                                fontWeight:
+                                                  (t.cash_recovered ?? 0) > 0
+                                                    ? 600
+                                                    : 400,
                                               }}
+                                              title={
+                                                (t.cash_recovered ?? 0) > 0
+                                                  ? `Adyen: AED ${(t.adyen_captured ?? 0).toFixed(2)} + Cash: AED ${(t.cash_recovered ?? 0).toFixed(2)} = AED ${t.captured_amount.toFixed(2)}`
+                                                  : `Adyen captured AED ${t.captured_amount.toFixed(2)}`
+                                              }
                                             >
                                               {aed2(t.captured_amount)}
                                             </td>
@@ -2929,6 +2986,64 @@ export default function ConsumerDashboardClient({
                                               {isDisc
                                                 ? aed2(t.default_amount)
                                                 : "\u2014"}
+                                              {isDisc &&
+                                                (t.merchant_ref ||
+                                                  t.txn_base) && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      openCashModal({
+                                                        psp: (
+                                                          t.psp_reference ||
+                                                          "\u2014"
+                                                        ).slice(0, 16),
+                                                        merchant_ref:
+                                                          (t.merchant_ref ||
+                                                            t.txn_base)!,
+                                                        machine: t.machine,
+                                                        date: fmtDate(
+                                                          t.txn_date,
+                                                        ),
+                                                        time: "",
+                                                        total:
+                                                          Number(
+                                                            t.total_amount,
+                                                          ) || 0,
+                                                        adyen_captured:
+                                                          Number(
+                                                            t.adyen_captured ??
+                                                              t.captured_amount,
+                                                          ) || 0,
+                                                        cash_recovered:
+                                                          Number(
+                                                            t.cash_recovered ??
+                                                              0,
+                                                          ) || 0,
+                                                        gap:
+                                                          Number(
+                                                            t.default_amount,
+                                                          ) || 0,
+                                                      });
+                                                    }}
+                                                    title="Log cash recovery for this transaction"
+                                                    style={{
+                                                      marginLeft: 6,
+                                                      padding: "1px 6px",
+                                                      fontSize: 9,
+                                                      fontWeight: 600,
+                                                      border:
+                                                        "1px solid #F59E0B",
+                                                      borderRadius: 4,
+                                                      background: "white",
+                                                      color: "#92400E",
+                                                      cursor: "pointer",
+                                                      lineHeight: 1.3,
+                                                    }}
+                                                  >
+                                                    + cash
+                                                  </button>
+                                                )}
                                             </td>
                                             <td
                                               className="r"
@@ -3028,9 +3143,13 @@ export default function ConsumerDashboardClient({
       {crOpen && crTxn && (
         <div
           style={{
-            position: "fixed", inset: 0, zIndex: 300,
+            position: "fixed",
+            inset: 0,
+            zIndex: 300,
             background: "rgba(0,0,0,0.45)",
-            display: "flex", alignItems: "center", justifyContent: "center",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             fontFamily: "'Plus Jakarta Sans', sans-serif",
           }}
           onClick={() => !crSubmitting && setCrOpen(false)}
@@ -3038,49 +3157,127 @@ export default function ConsumerDashboardClient({
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "white", borderRadius: 12, padding: 24, width: 480,
-              maxWidth: "92vw", boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+              background: "white",
+              borderRadius: 12,
+              padding: 24,
+              width: 480,
+              maxWidth: "92vw",
+              boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
             }}
           >
-            <h3 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 800, color: "#0a0a0a", letterSpacing: "-0.01em" }}>
+            <h3
+              style={{
+                margin: 0,
+                marginBottom: 4,
+                fontSize: 18,
+                fontWeight: 800,
+                color: "#0a0a0a",
+                letterSpacing: "-0.01em",
+              }}
+            >
               Log cash recovery
             </h3>
-            <p style={{ marginTop: 0, marginBottom: 14, fontSize: 12, color: "#6b6860" }}>
-              {crTxn.date} {crTxn.time} {"\u00B7"} {crTxn.machine} {"\u00B7"} psp {crTxn.psp}
+            <p
+              style={{
+                marginTop: 0,
+                marginBottom: 14,
+                fontSize: 12,
+                color: "#6b6860",
+              }}
+            >
+              {crTxn.date} {crTxn.time} {"\u00B7"} {crTxn.machine} {"\u00B7"}{" "}
+              psp {crTxn.psp}
             </p>
 
-            <div style={{
-              display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8,
-              padding: 10, borderRadius: 8, background: "#FAF9F7", marginBottom: 16, fontSize: 12,
-            }}>
-              <div><strong>Total billed:</strong> AED {crTxn.total.toFixed(2)}</div>
-              <div><strong>Adyen captured:</strong> AED {crTxn.adyen_captured.toFixed(2)}</div>
-              <div><strong>Cash already logged:</strong> AED {crTxn.cash_recovered.toFixed(2)}</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 8,
+                padding: 10,
+                borderRadius: 8,
+                background: "#FAF9F7",
+                marginBottom: 16,
+                fontSize: 12,
+              }}
+            >
+              <div>
+                <strong>Total billed:</strong> AED {crTxn.total.toFixed(2)}
+              </div>
+              <div>
+                <strong>Adyen captured:</strong> AED{" "}
+                {crTxn.adyen_captured.toFixed(2)}
+              </div>
+              <div>
+                <strong>Cash already logged:</strong> AED{" "}
+                {crTxn.cash_recovered.toFixed(2)}
+              </div>
               <div style={{ color: crTxn.gap > 0 ? "#991B1B" : "#065F46" }}>
                 <strong>Remaining gap:</strong> AED {crTxn.gap.toFixed(2)}
               </div>
             </div>
 
             <label style={{ display: "block", marginBottom: 12 }}>
-              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#6b6860",
+                  marginBottom: 3,
+                }}
+              >
                 Amount (AED)
               </span>
               <input
-                type="number" step="0.01" min="0.01" value={crAmount}
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={crAmount}
                 onChange={(e) => setCrAmount(e.target.value)}
-                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#0a0a0a", outline: "none" }}
+                style={{
+                  width: "100%",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontSize: 14,
+                  color: "#0a0a0a",
+                  outline: "none",
+                }}
                 autoFocus
               />
             </label>
 
             <label style={{ display: "block", marginBottom: 12 }}>
-              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#6b6860",
+                  marginBottom: 3,
+                }}
+              >
                 Tender method
               </span>
               <select
                 value={crTender}
                 onChange={(e) => setCrTender(e.target.value as CashTender)}
-                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#0a0a0a", background: "white", outline: "none", cursor: "pointer" }}
+                style={{
+                  width: "100%",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontSize: 14,
+                  color: "#0a0a0a",
+                  background: "white",
+                  outline: "none",
+                  cursor: "pointer",
+                }}
               >
                 <option value="cash">Cash</option>
                 <option value="card_retry">Card retry</option>
@@ -3091,26 +3288,65 @@ export default function ConsumerDashboardClient({
             </label>
 
             <label style={{ display: "block", marginBottom: 12 }}>
-              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#6b6860",
+                  marginBottom: 3,
+                }}
+              >
                 Collected by (optional)
               </span>
               <input
-                type="text" value={crCollector}
+                type="text"
+                value={crCollector}
                 onChange={(e) => setCrCollector(e.target.value)}
                 placeholder="e.g. driver name"
-                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#0a0a0a", outline: "none" }}
+                style={{
+                  width: "100%",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontSize: 14,
+                  color: "#0a0a0a",
+                  outline: "none",
+                }}
               />
             </label>
 
             <label style={{ display: "block", marginBottom: 18 }}>
-              <span style={{ display: "block", fontSize: 10, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", marginBottom: 3 }}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 10,
+                  fontWeight: 500,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#6b6860",
+                  marginBottom: 3,
+                }}
+              >
                 Reason (required, min 5 chars)
               </span>
               <textarea
                 value={crReason}
                 onChange={(e) => setCrReason(e.target.value)}
                 rows={3}
-                style={{ width: "100%", border: "1px solid #e8e4de", borderRadius: 6, padding: "8px 10px", fontSize: 13, color: "#0a0a0a", outline: "none", resize: "vertical", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                style={{
+                  width: "100%",
+                  border: "1px solid #e8e4de",
+                  borderRadius: 6,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  color: "#0a0a0a",
+                  outline: "none",
+                  resize: "vertical",
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                }}
               />
             </label>
 
@@ -3118,14 +3354,35 @@ export default function ConsumerDashboardClient({
               <button
                 onClick={() => setCrOpen(false)}
                 disabled={crSubmitting}
-                style={{ flex: 1, padding: "10px 16px", borderRadius: 8, border: "1px solid #e8e4de", background: "white", color: "#6b6860", fontWeight: 600, fontSize: 14, cursor: crSubmitting ? "not-allowed" : "pointer" }}
+                style={{
+                  flex: 1,
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: "1px solid #e8e4de",
+                  background: "white",
+                  color: "#6b6860",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: crSubmitting ? "not-allowed" : "pointer",
+                }}
               >
                 Cancel
               </button>
               <button
                 onClick={submitCashRecovery}
                 disabled={crSubmitting}
-                style={{ flex: 2, padding: "10px 16px", borderRadius: 8, border: "none", background: "#24544a", color: "white", fontWeight: 600, fontSize: 14, cursor: crSubmitting ? "not-allowed" : "pointer", opacity: crSubmitting ? 0.7 : 1 }}
+                style={{
+                  flex: 2,
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "#24544a",
+                  color: "white",
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: crSubmitting ? "not-allowed" : "pointer",
+                  opacity: crSubmitting ? 0.7 : 1,
+                }}
               >
                 {crSubmitting ? "Logging\u2026" : "Log recovery"}
               </button>
@@ -3138,8 +3395,14 @@ export default function ConsumerDashboardClient({
       {crToast && (
         <div
           style={{
-            position: "fixed", bottom: 24, right: 24, zIndex: 250,
-            padding: "10px 16px", borderRadius: 8, fontSize: 14, fontWeight: 600,
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 250,
+            padding: "10px 16px",
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
             boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
             background: crToast.ok ? "#ECFDF5" : "#FEF2F2",
             color: crToast.ok ? "#065F46" : "#991B1B",
@@ -3148,7 +3411,8 @@ export default function ConsumerDashboardClient({
             maxWidth: 400,
           }}
         >
-          {crToast.ok ? "\u2713 " : "\u2715 "}{crToast.msg}
+          {crToast.ok ? "\u2713 " : "\u2715 "}
+          {crToast.msg}
         </div>
       )}
     </>

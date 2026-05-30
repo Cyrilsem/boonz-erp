@@ -56,19 +56,19 @@ export interface VoxTransaction {
   machine: string;
   site: string;
   psp: string;
-  merchant_ref?: string;     // full base_txn_sn (= adyen.merchant_reference) for RPC calls
+  merchant_ref?: string; // full base_txn_sn (= adyen.merchant_reference) for RPC calls
   funding: string;
   card: string;
   wallet: string;
   total: number;
-  captured: number;          // = adyen_captured + cash_recovered (canonical "what we got")
-  adyen_captured: number;    // Adyen captured_amount_value only
-  cash_recovered: number;    // SUM(cash_recovery_log.recovered_amount) for this merchant_reference
-  gap: number;               // total - captured (>= 0)
+  captured: number; // = adyen_captured + cash_recovered (canonical "what we got")
+  adyen_captured: number; // Adyen captured_amount_value only
+  cash_recovered: number; // SUM(cash_recovery_log.recovered_amount) for this merchant_reference
+  gap: number; // total - captured (>= 0)
   units: number;
   items: string;
   disc: boolean;
-  status?: string;           // 'matched' | 'matched_with_cash' | 'pending_settlement' | 'wallet_or_offadyen'
+  status?: string; // 'matched' | 'matched_with_cash' | 'pending_settlement' | 'wallet_or_offadyen'
 }
 export interface VoxSiteSummary {
   total: number;
@@ -80,7 +80,7 @@ export interface VoxSummary {
   total_sales: number;
   total_txns: number;
   total_units: number;
-  total_captured: number;        // Adyen + cash combined
+  total_captured: number; // Adyen + cash combined
   total_adyen_captured?: number; // Adyen only (new)
   total_cash_recovered?: number; // SUM(cash_recovery_log) over the period (new)
   num_machines: number;
@@ -235,14 +235,17 @@ export interface VoxCommercialReport {
   }>;
   transactions: Array<{
     txn_base: string;
+    merchant_ref?: string; // new: same as txn_base, exposed explicitly for RPC calls
     txn_date: string;
     site: string;
     machine: string;
     items: string;
     units: number;
     total_amount: number;
-    captured_amount: number;
-    default_amount: number;
+    captured_amount: number; // = adyen_captured + cash_recovered (combined)
+    adyen_captured?: number; // new: Adyen-only net
+    cash_recovered?: number; // new: SUM(cash_recovery_log) per merchant_reference
+    default_amount: number; // gap after combined captured (closes when cash makes up the diff)
     refunded_amount: number;
     adyen_fees: number;
     net_revenue: number;
