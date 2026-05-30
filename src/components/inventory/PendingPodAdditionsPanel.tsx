@@ -29,6 +29,18 @@ type DialogState = { mode: DialogMode; row: PendingAdd } | null;
 
 const REJECT_NOTE_MIN = 10;
 
+// The canonical reject_pod_inventory_edit RPC raises
+// "...decision_note required (min 10 chars, got N)". The client now blocks
+// short notes before the call, but parse the raw message into a friendly line
+// in case the RPC is the one to reject (e.g. a race or a future min change).
+function friendlyRejectError(msg: string): string {
+  const m = msg.match(/min\s+(\d+)\s+chars?,\s*got\s+(\d+)/i);
+  if (m) {
+    return `Decision note must be at least ${m[1]} characters (you entered ${m[2]}).`;
+  }
+  return msg;
+}
+
 export default function PendingPodAdditionsPanel() {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<PendingAdd[]>([]);
@@ -185,7 +197,7 @@ export default function PendingPodAdditionsPanel() {
     const { error } = await supabase.rpc(fn, args);
     setSubmitting(false);
     if (error) {
-      setSubmitError(error.message ?? String(error));
+      setSubmitError(friendlyRejectError(error.message ?? String(error)));
       return;
     }
     closeDialog();
@@ -353,6 +365,9 @@ export default function PendingPodAdditionsPanel() {
                 rows={3}
                 value={decisionNote}
                 onChange={(e) => setDecisionNote(e.target.value)}
+                minLength={
+                  dialog.mode === "reject" ? REJECT_NOTE_MIN : undefined
+                }
                 placeholder={
                   dialog.mode === "approve"
                     ? "Optional comment for the driver"
@@ -361,6 +376,18 @@ export default function PendingPodAdditionsPanel() {
                 className="mt-1 w-full resize-none rounded-lg border border-neutral-300 px-3 py-2 text-xs"
               />
             </label>
+            {dialog.mode === "reject" && (
+              <p
+                className={`mt-1 text-[11px] ${
+                  decisionNote.trim().length >= REJECT_NOTE_MIN
+                    ? "text-emerald-600"
+                    : "text-neutral-500"
+                }`}
+              >
+                At least {REJECT_NOTE_MIN} characters required (
+                {decisionNote.trim().length}/{REJECT_NOTE_MIN})
+              </p>
+            )}
 
             {submitError && (
               <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -380,7 +407,11 @@ export default function PendingPodAdditionsPanel() {
               <button
                 type="button"
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={
+                  submitting ||
+                  (dialog.mode === "reject" &&
+                    decisionNote.trim().length < REJECT_NOTE_MIN)
+                }
                 className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${
                   dialog.mode === "approve" ? "bg-emerald-700" : "bg-red-700"
                 }`}
