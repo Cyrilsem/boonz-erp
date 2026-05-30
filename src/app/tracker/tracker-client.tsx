@@ -28,6 +28,14 @@ const CAT_ACCENT: Record<Category, string> = {
   Personal: "#9c2b6b",
 };
 
+// Soft tints used for the cross-cutting bridge gradient.
+const CAT_TINT: Record<Category, string> = {
+  Boonz: "#fbeada",
+  AKY: "#e3f3ec",
+  Gebran: "#ece8fb",
+  Personal: "#fbe6f1",
+};
+
 const STATUS_LABEL: Record<Status, string> = {
   todo: "To do",
   in_progress: "In progress",
@@ -389,6 +397,14 @@ function combinedStatus(group: AgendaItem[]): Status {
   return "todo";
 }
 
+type Bridge = {
+  key: string;
+  rows: AgendaItem[];
+  title: string;
+  minIdx: number;
+  maxIdx: number;
+};
+
 function OverviewView({
   items,
   onCycle,
@@ -398,20 +414,35 @@ function OverviewView({
   onCycle: (it: AgendaItem) => void;
   onSetStatus: (id: string, status: Status) => void;
 }) {
-  const cross = items.filter((i) => i.cross_cutting);
-
-  // Group cross-cutting rows by their initiative (strip the "(with X)" tag) so
-  // the same initiative spanning Boonz + AKY shows as ONE card.
-  const groups = new Map<string, AgendaItem[]>();
-  for (const it of cross) {
+  // Build one "bridge" per cross-cutting initiative. Each bridge spans from the
+  // left-most to the right-most category it touches, so it reads as a single
+  // initiative running across the columns at one level.
+  const grouped = new Map<string, AgendaItem[]>();
+  for (const it of items.filter((i) => i.cross_cutting)) {
     const key = it.title
       .replace(/\s*\(with [^)]*\)\s*:?/i, " ")
       .replace(/\s+/g, " ")
       .trim();
-    const g = groups.get(key) ?? [];
-    g.push(it);
-    groups.set(key, g);
+    grouped.set(key, [...(grouped.get(key) ?? []), it]);
   }
+  const bridges: Bridge[] = [...grouped.entries()].map(([key, rows]) => {
+    const idxs = rows.map((r) => CATEGORIES.indexOf(r.category));
+    return {
+      key,
+      rows,
+      title: rows[0].title.replace(/\s*\(with [^)]*\)\s*:?/i, ": ").replace(/:\s*:/, ":").trim(),
+      minIdx: Math.min(...idxs),
+      maxIdx: Math.max(...idxs),
+    };
+  });
+
+  // Columns covered by at least one bridge drop one row so the bridge sits above
+  // them; uncovered columns rise to fill the full height.
+  const covered = new Set<number>();
+  for (const b of bridges) for (let i = b.minIdx; i <= b.maxIdx; i++) covered.add(i);
+  const hasBridge = bridges.length > 0;
+  const bridgeMin = hasBridge ? Math.min(...bridges.map((b) => b.minIdx)) : 0;
+  const bridgeMax = hasBridge ? Math.max(...bridges.map((b) => b.maxIdx)) : 0;
 
   return (
     <div>
@@ -437,157 +468,102 @@ function OverviewView({
               fontWeight: 600,
             }}
           >
-            <span
-              style={{
-                width: 11,
-                height: 11,
-                borderRadius: 3,
-                background: STATUS_DOT[s],
-              }}
-            />
+            <span style={{ width: 11, height: 11, borderRadius: 3, background: STATUS_DOT[s] }} />
             {STATUS_LABEL[s]}
           </span>
         ))}
-        <span
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            color: "#7a7160",
-            fontWeight: 600,
-          }}
-        >
-          <span style={{ fontSize: 14 }}>↔</span> Cross-cutting
+        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7a7160", fontWeight: 600 }}>
+          <span style={{ fontSize: 14 }}>↔</span> Cross-program initiative
         </span>
-        <span style={{ fontSize: 11.5, color: "#b3a98f" }}>
-          tip: click a status dot to advance it
-        </span>
+        <span style={{ fontSize: 11.5, color: "#b3a98f" }}>tip: click a status dot to advance it</span>
       </div>
 
-      {/* Cross-cutting band */}
-      {groups.size > 0 && (
-        <div
-          style={{
-            border: "1.5px dashed #c9b89a",
-            background: "linear-gradient(180deg,#fffaf0,#fdf6ea)",
-            borderRadius: 12,
-            padding: "13px 15px",
-            marginBottom: 22,
-          }}
-        >
+      <style>{`
+        .ov-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
+        @media (max-width: 900px) {
+          .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+          .ov-grid > * { grid-column: auto !important; grid-row: auto !important; }
+        }
+        @media (max-width: 520px) {
+          .ov-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+
+      {/* Board: 4 columns, with cross-program bridges laid across the top */}
+      <div className="ov-grid">
+        {/* Bridge lane — spans the columns its initiative touches, on row 1 */}
+        {hasBridge && (
           <div
             style={{
+              gridColumn: `${bridgeMin + 1} / ${bridgeMax + 2}`,
+              gridRow: "1",
               display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: 10,
+              flexDirection: "column",
+              gap: 10,
+              marginBottom: 4,
             }}
           >
-            <span style={{ fontSize: 15 }}>↔</span>
-            <span style={{ fontSize: 14, fontWeight: 800 }}>
-              Cross-cutting initiatives
-            </span>
-            <span style={{ fontSize: 12, color: "#9a917f", fontWeight: 600 }}>
-              span both programs
-            </span>
-          </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {[...groups.values()].map((group) => {
-              const cs = combinedStatus(group);
-              const cats = [...new Set(group.map((g) => g.category))];
+            {bridges.map((b) => {
+              const cs = combinedStatus(b.rows);
               const next: Status =
-                cs === "todo"
-                  ? "in_progress"
-                  : cs === "in_progress"
-                    ? "done"
-                    : "todo";
+                cs === "todo" ? "in_progress" : cs === "in_progress" ? "done" : "todo";
+              const left = CATEGORIES[b.minIdx];
+              const right = CATEGORIES[b.maxIdx];
               return (
                 <div
-                  key={group[0].id}
+                  key={b.key}
                   style={{
-                    flex: "1 1 260px",
-                    minWidth: 240,
-                    background: "#fff",
-                    border: "1px solid #ece2cc",
-                    borderLeft: `4px solid ${STATUS_DOT[cs]}`,
-                    borderRadius: 10,
-                    padding: "10px 12px",
+                    display: "flex",
+                    alignItems: "stretch",
+                    borderRadius: 11,
+                    overflow: "hidden",
+                    border: "1px solid #e6dcc6",
+                    boxShadow: "0 1px 3px rgba(40,30,10,.05)",
                   }}
                 >
+                  <Cap cat={left} side="left" />
                   <div
                     style={{
+                      flex: 1,
                       display: "flex",
                       alignItems: "center",
-                      gap: 7,
-                      marginBottom: 7,
+                      gap: 10,
+                      padding: "9px 14px",
+                      background: `linear-gradient(90deg, ${CAT_TINT[left]}, ${CAT_TINT[right]})`,
                     }}
                   >
-                    {cats.map((c) => (
-                      <span
-                        key={c}
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 800,
-                          color: "#fff",
-                          background: CAT_ACCENT[c],
-                          borderRadius: 999,
-                          padding: "2px 9px",
-                        }}
-                      >
-                        {c}
-                      </span>
-                    ))}
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#3a342c", lineHeight: 1.35, flex: 1 }}>
+                      {b.title}
+                    </span>
+                    <span style={{ fontSize: 15, color: "#8a7e63" }}>↔</span>
+                    <button
+                      onClick={() => b.rows.forEach((r) => onSetStatus(r.id, next))}
+                      title="Click to advance both sides"
+                      style={{
+                        border: "none",
+                        cursor: "pointer",
+                        borderRadius: 999,
+                        padding: "3px 11px",
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        background: STATUS_STYLE[cs].bg,
+                        color: STATUS_STYLE[cs].fg,
+                        fontFamily: "inherit",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {STATUS_LABEL[cs]}
+                    </button>
                   </div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      lineHeight: 1.4,
-                      color: cs === "done" ? "#a39a88" : "#2b2620",
-                      textDecoration: cs === "done" ? "line-through" : "none",
-                    }}
-                  >
-                    {group[0].title
-                      .replace(/\s*\(with [^)]*\)\s*:?/i, ": ")
-                      .replace(/:\s*:/, ":")}
-                  </div>
-                  <button
-                    onClick={() =>
-                      group.forEach((g) => onSetStatus(g.id, next))
-                    }
-                    style={{
-                      marginTop: 8,
-                      border: "none",
-                      cursor: "pointer",
-                      borderRadius: 999,
-                      padding: "3px 11px",
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      background: STATUS_STYLE[cs].bg,
-                      color: STATUS_STYLE[cs].fg,
-                      fontFamily: "inherit",
-                    }}
-                  >
-                    {STATUS_LABEL[cs]}
-                  </button>
+                  <Cap cat={right} side="right" />
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Category columns */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))",
-          gap: 14,
-          alignItems: "start",
-        }}
-      >
-        {CATEGORIES.map((cat) => {
+        {/* Category columns */}
+        {CATEGORIES.map((cat, idx) => {
           const list = items
             .filter((i) => i.category === cat && !i.cross_cutting)
             .sort((a, b) => {
@@ -595,14 +571,15 @@ function OverviewView({
               if (b.status === "done" && a.status !== "done") return -1;
               return a.sort_order - b.sort_order;
             });
-          const done = items.filter(
-            (i) => i.category === cat && i.status === "done",
-          ).length;
+          const done = items.filter((i) => i.category === cat && i.status === "done").length;
           const total = items.filter((i) => i.category === cat).length;
+          const isCovered = covered.has(idx);
           return (
             <div
               key={cat}
               style={{
+                gridColumn: `${idx + 1}`,
+                gridRow: hasBridge ? (isCovered ? "2" : "1 / 3") : "1",
                 background: "#fff",
                 border: "1px solid #ece7dc",
                 borderTop: `3px solid ${CAT_ACCENT[cat]}`,
@@ -610,26 +587,9 @@ function OverviewView({
                 padding: "12px 12px 14px",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 7,
-                  marginBottom: 10,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color: CAT_ACCENT[cat],
-                  }}
-                >
-                  {cat}
-                </span>
-                <span
-                  style={{ fontSize: 12, color: "#9a917f", fontWeight: 700 }}
-                >
+              <div style={{ display: "flex", alignItems: "baseline", gap: 7, marginBottom: 10 }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: CAT_ACCENT[cat] }}>{cat}</span>
+                <span style={{ fontSize: 12, color: "#9a917f", fontWeight: 700 }}>
                   {done}/{total}
                 </span>
               </div>
@@ -638,15 +598,36 @@ function OverviewView({
                   <MiniChip key={it.id} item={it} onCycle={() => onCycle(it)} />
                 ))}
                 {list.length === 0 && (
-                  <span style={{ fontSize: 12, color: "#b3a98f" }}>
-                    No standalone items.
-                  </span>
+                  <span style={{ fontSize: 12, color: "#b3a98f" }}>No standalone items.</span>
                 )}
               </div>
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function Cap({ cat, side }: { cat: Category; side: "left" | "right" }) {
+  return (
+    <div
+      style={{
+        background: CAT_ACCENT[cat],
+        color: "#fff",
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: 0.3,
+        display: "flex",
+        alignItems: "center",
+        padding: "0 12px",
+        whiteSpace: "nowrap",
+        ...(side === "left"
+          ? { borderRight: "2px solid rgba(255,255,255,.35)" }
+          : { borderLeft: "2px solid rgba(255,255,255,.35)" }),
+      }}
+    >
+      {cat}
     </div>
   );
 }
