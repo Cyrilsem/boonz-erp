@@ -2,12 +2,30 @@
 id: PRD-016-inventory
 program: PROGRAM-2026-05-25
 title: Phantom pod row detector view + daily alert
-status: Blocked
-blocked_summary: |
-  Read-only view + cron + append-only log table. All three artifacts
-  individually low-risk, but applying the bundle requires Cody approval
-  per program hard rules. Spec is complete and self-contained. Daylight
-  apply (Cody sign-off then mcp__claude_ai_Supabase__apply_migration).
+status: Done
+shipped_at: 2026-05-30
+done_summary: |
+  Migration phaseG_followup_prd016_phantom_pod_alerts applied to prod
+  2026-05-30. Cody-approved with revisions: cron-context role guard
+  (auth.uid()-aware), simplified UPDATE policy (full UPDATE for managers,
+  no column-subset trigger), phantom_pod_alerts kept OUT of Appendix A
+  (monitoring telemetry, not core business entity).
+
+  Verified live:
+  - cron_phantom_pod_alert RPC: SECURITY DEFINER present
+  - phantom_pod_alerts table: present with 3 RLS policies
+    (ppa_select / ppa_update / ppa_no_delete USING(false))
+  - v_phantom_pod_rows view: present (SECURITY INVOKER), returns 636
+    rows on first run — substantial phantom backlog
+  - phantom_pod_alert cron: scheduled '15 2 * * *', active=true,
+    runs 15 minutes after the daily reconciliation cron
+
+  Articles satisfied: 1, 2, 4 (cron-context guard), 7 (DELETE blocked),
+  8 (via_rpc set), 11 (cron via RPC), 12 (forward-only).
+
+  Follow-up: the 636 detected rows need CS triage. First cron run is
+  2026-05-31 06:15 Dubai. CS can pre-query the view and dismiss known-
+  non-phantom rows before the cron writes them.
 severity: P2
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 3 P2 #1 (semantic name PRD-005-inventory)
