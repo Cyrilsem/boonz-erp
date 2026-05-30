@@ -2,7 +2,7 @@
 id: PROGRAM-2026-06-01
 parent: PROGRAM-2026-05-30
 title: Stax FE refactor — close the 13+ direct writers before 2026-06-06 flip
-status: Ready-for-goal
+status: Partially-shipped-2026-05-30 (O1 done + 5 of 11 FE writers closed; 6 deferred to PROGRAM-2026-06-01b; D1 flip parked)
 severity: P0
 reported: 2026-05-30
 deadline: 2026-06-05 EOD Dubai (pre-flip soak check on 2026-06-06 morning)
@@ -152,34 +152,34 @@ GRANT EXECUTE ON FUNCTION public.insert_driver_remove_line(uuid,uuid,uuid,uuid,n
 
 **Decision B1 — `src/app/(field)/field/packing/[machineId]/page.tsx`** (highest traffic, do first)
 
-| Line | Current | Refactor to |
-|---|---|---|
-| 1142 | `.from('refill_dispatching').delete().eq('dispatch_id', id)` | `supabase.rpc('cancel_dispatch_line', { p_dispatch_id: id, p_reason: '...' })` |
-| 1210 | `.update({ packed: true, filled_quantity: 0 })` | `supabase.rpc('pack_dispatch_line', { ... with picks=[] for zero pack })` |
-| 1268 | `.update({...})` (depends on payload) | If payload includes `packed` / `filled_quantity` → `pack_dispatch_line`. If it's a comment edit → `update_dispatch_comment`. Agent: inspect at refactor time. |
-| 1296 | `.update({ include: true })` | `supabase.rpc('set_dispatch_include', { p_dispatch_id: id, p_include: true })` |
+| Line | Current                                                      | Refactor to                                                                                                                                                   |
+| ---- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1142 | `.from('refill_dispatching').delete().eq('dispatch_id', id)` | `supabase.rpc('cancel_dispatch_line', { p_dispatch_id: id, p_reason: '...' })`                                                                                |
+| 1210 | `.update({ packed: true, filled_quantity: 0 })`              | `supabase.rpc('pack_dispatch_line', { ... with picks=[] for zero pack })`                                                                                     |
+| 1268 | `.update({...})` (depends on payload)                        | If payload includes `packed` / `filled_quantity` → `pack_dispatch_line`. If it's a comment edit → `update_dispatch_comment`. Agent: inspect at refactor time. |
+| 1296 | `.update({ include: true })`                                 | `supabase.rpc('set_dispatch_include', { p_dispatch_id: id, p_include: true })`                                                                                |
 
 **Decision B2 — `src/app/(field)/field/dispatching/[machineId]/page.tsx`**
 
-| Line | Current | Refactor to |
-|---|---|---|
-| 497 | `.insert({...})` | If driver-initiated Remove → `insert_driver_remove_line`. Agent verifies caller context first. |
-| 535 | `.delete()` | `cancel_dispatch_line` |
-| 624 | `.update({ comment: line.comment.trim() })` | `update_dispatch_comment` |
-| 669 | `.update({ comment: line.comment.trim() })` | `update_dispatch_comment` |
+| Line | Current                                     | Refactor to                                                                                    |
+| ---- | ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 497  | `.insert({...})`                            | If driver-initiated Remove → `insert_driver_remove_line`. Agent verifies caller context first. |
+| 535  | `.delete()`                                 | `cancel_dispatch_line`                                                                         |
+| 624  | `.update({ comment: line.comment.trim() })` | `update_dispatch_comment`                                                                      |
+| 669  | `.update({ comment: line.comment.trim() })` | `update_dispatch_comment`                                                                      |
 
 **Decision B3 — `src/app/(field)/field/trips/[machineId]/page.tsx`**
 
-| Line | Current | Refactor to |
-|---|---|---|
-| 228 | `.update({ comment: value.trim() \|\| null })` | `update_dispatch_comment` |
-| 257 | `.update({...})` (depends on payload) | Inspect; likely `update_dispatch_comment` or `pack_dispatch_line` |
+| Line | Current                                        | Refactor to                                                       |
+| ---- | ---------------------------------------------- | ----------------------------------------------------------------- |
+| 228  | `.update({ comment: value.trim() \|\| null })` | `update_dispatch_comment`                                         |
+| 257  | `.update({...})` (depends on payload)          | Inspect; likely `update_dispatch_comment` or `pack_dispatch_line` |
 
 **Decision B4 — `src/app/(app)/refill/DailyDispatchingTab.tsx`**
 
-| Line | Current | Refactor to |
-|---|---|---|
-| 299 | `.update(updatePayload)` | Inspect `updatePayload` shape: comment → `update_dispatch_comment`; pack state → `pack_dispatch_line`; M2M flip → `mark_internal_transfer` (already on allow-list) |
+| Line | Current                  | Refactor to                                                                                                                                                        |
+| ---- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 299  | `.update(updatePayload)` | Inspect `updatePayload` shape: comment → `update_dispatch_comment`; pack state → `pack_dispatch_line`; M2M flip → `mark_internal_transfer` (already on allow-list) |
 
 **Decision B5 — Refactor order**: B1 packing first (highest traffic, biggest blast radius), then B2 dispatching, then B3 trips, then B4 admin UI. Stax owns end-to-end; each file gets its own commit so blame is clean.
 
@@ -198,6 +198,7 @@ WHERE rpc_name IS NULL AND occurred_at > '2026-06-04';
 Must return `count = 0` (i.e., zero direct writers during the 24-hour soak before the flip).
 
 **Decision C2**: If count > 0 on 2026-06-05 EOD:
+
 - Investigate which file is still firing
 - Fix it
 - Re-run the soak for 24h
@@ -257,7 +258,7 @@ Note the allow-list now includes the 3 new RPCs from this PRD.
 
 ## /goal command
 
-````
+```
 /goal docs/prds/_programs/PROGRAM-2026-06-01-stax-fe-refactor.md
 
 Execute Decisions A1-A5 (backend migration), then B1-B6 (FE refactors in
@@ -280,7 +281,7 @@ Hard rules (restated):
 
 End state: all 13+ FE direct writers replaced with canonical RPCs, pre-flip
 soak passes, trigger ready to flip on 2026-06-06.
-````
+```
 
 ## Linked PRDs
 
