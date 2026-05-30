@@ -1291,10 +1291,10 @@ export default function PackingDetailPage() {
 
   async function handleUnskip(dispatchId: string) {
     const supabase = createClient();
-    const { error } = await supabase
-      .from("refill_dispatching")
-      .update({ include: true })
-      .eq("dispatch_id", dispatchId);
+    const { error } = await supabase.rpc("set_dispatch_include", {
+      p_dispatch_id: dispatchId,
+      p_include: true,
+    });
     if (error) {
       console.error("[B3.1] un-skip failed", error);
       setWhWarnMsg(`Un-skip failed: ${error.message}`);
