@@ -223,10 +223,12 @@ export default function MachineRefillPage() {
 
   async function saveLineComment(dispatchId: string, value: string) {
     const supabase = createClient();
-    await supabase
-      .from("refill_dispatching")
-      .update({ comment: value.trim() || null })
-      .eq("dispatch_id", dispatchId);
+    // Canonical writer. The RPC applies NULLIF(TRIM(...)), so an empty string
+    // is stored as NULL, matching the prior `value.trim() || null` behavior.
+    await supabase.rpc("update_dispatch_comment", {
+      p_dispatch_id: dispatchId,
+      p_comment: value,
+    });
   }
 
   function updateLineQuantity(dispatchId: string, value: number) {
