@@ -2,8 +2,9 @@
 id: PRD-014-inventory
 program: PROGRAM-2026-05-25
 title: M2M swap routing fix + IFLY Barebells 19-May RCA
-status: Phase1+2-Done-Phase3-deferred
+status: Phase1+2+3-infra-Done-per-row-repairs-pending-CS
 shipped_at: 2026-05-26
+phase3_infra_shipped_at: 2026-05-30
 done_summary: |
   Phase 1 (audit) — 28 orphan internal_transfer rows found in last 14 days
   (not just IFLY). Spans IFLY-1024, OMDCW-1021, ACTIVATEMCC-1037, AMZ-1029,
@@ -17,9 +18,23 @@ done_summary: |
   is swap_between_machines (or future repair_orphan_internal_transfer).
   Smoke test passed: orphan INSERT correctly blocked.
 
-  Phase 3 (per-row repair) — deferred. Needs (a) the repair_orphan_internal_transfer
-  RPC and (b) per-row CS sign-off for each of the 28 rows. The repair RPC is
-  on the allow-list so it can be built without touching the trigger.
+  Phase 3 INFRASTRUCTURE shipped 2026-05-30 via migration
+  phaseG_followup_prd014_inventory_phase2_writers:
+    - repair_orphan_internal_transfer(p_orphan_dispatch_id, p_destination_machine_id, p_reason)
+      SECURITY DEFINER. Generates fresh m2m_transfer_id, updates the orphan
+      Remove with the transfer_id + is_m2m=true, INSERTs the paired Add New
+      at destination with the same transfer_id + partner backlink. Sets
+      provenance_reason='m2m_return'. Allow-listed in the existing block
+      trigger (was already pre-wired).
+    - cancel_dispatch_line(p_dispatch_id, p_reason) SECURITY DEFINER for the
+      over-allocation case. New schema cols on refill_dispatching:
+      cancelled boolean NOT NULL DEFAULT false, cancelled_at, cancelled_by,
+      cancellation_reason. Refuses if from_wh_inventory_id IS NOT NULL (those
+      need a separate reverse-cancellation RPC).
+  Cody-approved 2026-05-30. Articles satisfied: 1, 4, 5, 6, 8, 12, 14.
+
+  Per-row repairs (the actual 28 orphans + 79 over-allocated rows) are now
+  pending CS sign-off only. The RPC infrastructure is sitting-ready.
 severity: P1
 reported: 2026-05-25
 source: PROGRAM-2026-05-25 Phase 2 P1 #3 (semantic name PRD-003-inventory)
