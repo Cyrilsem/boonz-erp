@@ -15,6 +15,48 @@ Format:
 
 ---
 
+## 2026-05-30 - Phase G: 3 canonical writers for the refill_dispatching FE refactor (PROGRAM-2026-06-01)
+
+**Phase / Article:** Phase G FE-write closure / Articles 1, 3, 4, 8 (and 12 forward-only).
+**Applied to:** both (migration applied to prod; FE committed to repo).
+**Migration name:** `phaseG_stax_canonical_writers_for_dispatch_fe_refactor`
+**Summary:** PROGRAM-2026-06-01 set out to close the 13+ FE call sites that write `refill_dispatching` directly, before the planned 2026-06-06 enforcement flip (RAISE WARNING to RAISE EXCEPTION). Added 3 SECURITY DEFINER writers: `update_dispatch_comment(uuid,text)`, `set_dispatch_include(uuid,boolean)`, `insert_driver_remove_line(uuid,uuid,uuid,uuid,numeric,date,text)`. Each is role-gated, input-validated, sets `app.via_rpc`/`app.rpc_name` (Article 4) and is audited via `tg_audit_refill_dispatching` (Article 8). The migration also extends the `enforce_canonical_dispatch_write` allow-list with the 3 names while KEEPING RAISE WARNING (no flip), so the new RPC writes are recognised as canonical during the soak window. Cody-approved with one revision applied: `insert_driver_remove_line` sets `filled_quantity=0` + `item_added=false` explicitly to mirror the proven direct insert, since `filled_quantity` is nullable with no default.
+
+**Scope reality vs. the PRD:** reading every write site plus every candidate RPC body showed the PRD's "3 RPCs, all mappings decided" held for only 5 of ~11 writers. 5 were refactored and committed (packing:1295, dispatching:497/624/669, trips:227). The other 6 (packing 1141/1209/1267, dispatching 535, trips 258, DailyDispatchingTab 298) have NO matching canonical RPC and were deferred by CS decision ("ship 5 clean, defer 6 + flip"). See `docs/prds/_programs/PROGRAM-2026-06-01b-stax-fe-refactor-gap-closure.md`. The RAISE EXCEPTION flip (D1) must NOT ship until those 6 close; the trigger stays RAISE WARNING.
+**Rollback:** `DROP FUNCTION public.update_dispatch_comment(uuid,text); DROP FUNCTION public.set_dispatch_include(uuid,boolean); DROP FUNCTION public.insert_driver_remove_line(uuid,uuid,uuid,uuid,numeric,date,text);` then `CREATE OR REPLACE` the prior `enforce_canonical_dispatch_write` with the 22-name allow-list (see git history of the migration). FE: revert the 3 refactor commits.
+
+---
+
+## 2026-05-26 — Perf hotfix: `idx_wal_rpc_row_occurred` on `write_audit_log` to kill 38s correlated scan
+
+**Phase / Article:** Operational perf fix / Constitution Article 12 (forward-only, additive). No writer / RLS / Article 6 path altered.
+**Applied to:** prod only (via `mcp__supabase__execute_sql` — `apply_migration` rejects `CREATE INDEX CONCURRENTLY` because it wraps in a transaction; CONCURRENTLY is required because `write_audit_log` is high-write and a non-concurrent build would hold an ACCESS EXCLUSIVE lock on a 735 MB / 660 k-row table for ~30-60s, blocking every canonical writer).
+**Migration name:** not registered in `supabase_migrations` (applied as raw SQL — see Rollback for the canonical statement).
+**Summary:** Boonz portal was returning `504 GATEWAY_TIMEOUT` / `MIDDLEWARE_INVOCATION_TIMEOUT` and `Failed to fetch` on the login form. Root cause was not Vercel and not the middleware: Postgres backend slots were saturated. The hourly cron `monitor_stuck_remove_dispatches` (jobid 12) was running an average 71s and peaking at 534s, starving pg_cron's ability to fork workers for every other job, including `refresh-sales-aggregated-10min` (jobid 4), which was visibly failing in the dashboard and is what surfaced the incident.
+
+EXPLAIN ANALYZE on `v_stuck_remove_dispatches` showed a correlated subquery `SELECT max(occurred_at) FROM write_audit_log WHERE rpc_name = 'mark_picked_up' AND row_pk = rd.dispatch_id::text` running once per candidate `refill_dispatching` row. `write_audit_log` had no index covering `(rpc_name, row_pk)`, so every probe was a sequential scan of all 660,085 rows: 4.6 GB of shared-buffer reads per execution, 38.2s wall time, cost 3,069,683,663.
+
+Added composite covering index on `(rpc_name, row_pk, occurred_at DESC)`. Postgres now does an Index Only Scan with `Heap Fetches: 0`. Re-ran EXPLAIN: 794ms total (was 38,247ms, 48× speedup), 0 disk reads, cost 85,434. The hourly cron 12 will fit well inside its 1-hour window and stop starving the rest of the cron fleet.
+
+Generic enough to accelerate any future "find latest audit event for row X under RPC Y" pattern on `write_audit_log`. Index size: 46 MB.
+
+Separately, `refresh-sales-aggregated-10min` (jobid 4) was disabled from the Supabase dashboard during the incident. Audit confirmed `sales_history_aggregated` has zero callers (no DB-internal references, no FE matches in `boonz-erp/src/`, no n8n flow matches, zero `information_schema.role_table_grants` rows). The MV has been refreshing every 10 minutes for nearly two months feeding nothing. Cron 4 stays disabled; the MV itself is a follow-up cleanup candidate.
+
+**Rollback:**
+
+```sql
+DROP INDEX CONCURRENTLY IF EXISTS public.idx_wal_rpc_row_occurred;
+```
+
+**Re-apply (canonical statement):**
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_wal_rpc_row_occurred
+ON public.write_audit_log (rpc_name, row_pk, occurred_at DESC);
+```
+
+---
+
 ## 2026-05-25 — Phase G Phase 3 + Phase 4 (close the chapter): physical-receipt gate + phantom drain + daily reconciliation + session viewer + reason dropdown + M2M audit
 
 **Phase / Article:** Phase G PRD v2 Phase 3 + Phase 4 / Constitution Articles 1, 4, 5, 7, 8, 11, 12 (backend); Article 3 (FE — new read-only viewer at `/admin/inventory-sessions`, no new direct writes).
