@@ -1,17 +1,24 @@
-# PRD-014 — Pod inventory inline-adjust canonical writer + A.4 hard-block trigger flip
+# PRD-014 — Pod inventory A.4 hard-block trigger flip
 
-**Status:** Draft (filed 2026-05-25 as the deferred-work owner of PRD-013 P3.B / P3.C / P3.E)
+**Status:** Draft (filed 2026-05-25; scope narrowed 2026-05-30 after P3.B revalidation)
 **Owner:** TBD
-**Source decision:** PRD-013 G4 CS approval to "ship A.3 cron now; defer A.4 trigger to follow-up PRD."
+**Source decision:** PRD-013 G4 CS approval to "ship A.3 cron now; defer A.4 trigger to follow-up PRD." Scope narrowed by 2026-05-30 revalidation per CS.
 **Related:** [PRD-013 Phase 3 summary](../prd-013/phase_3_summary.md), [PRD-013 source PRD](../inventory/prd_013_pod_inventory_edits_canonical_approval.md), Constitution Article 3.
 
-## 1. Why this PRD exists
+## 1. Why this PRD exists (scope-narrowed 2026-05-30)
 
-PRD-013 P3.A caller audit (committed at `5cf6f66`) surfaced **44 direct UPDATEs to `pod_inventory` in the last 7 days** (41 warehouse + 3 operator), all originating from the five inline qty/location/status handlers in `src/app/(field)/field/inventory/page.tsx` at lines 938, 1029, 1070, 1140, 1236. These were carved out of PRD-013 §4 as an explicit non-goal: "inline qty edits stay on current path."
+**Original framing (2026-05-25):** PRD-013 P3.A audit surfaced 44 direct UPDATEs to `pod_inventory` in 7 days, attributed to "5 inline qty/location/status handlers in `src/app/(field)/field/inventory/page.tsx`." This PRD was filed to migrate those handlers + flip the §A.4 trigger.
 
-PRD-013 §A.4 specified a hard-block trigger that would `RAISE EXCEPTION` on any direct UPDATE to `pod_inventory` touching `current_stock`, `estimated_remaining`, `status`, or `removal_reason`. Flipping that trigger today would break the field PWA because the five handlers still write direct. The G4 CS decision was: ship the auto-expire cron (P3.D), defer the trigger to a follow-up PRD that owns migrating the handlers first.
+**Revalidation finding (2026-05-30):** Full-tree grep across `src/`, `supabase/functions/`, and `n8n/` confirms **zero direct write callers to `pod_inventory` exist anywhere in the codebase**. All 6 references are SELECTs (3 in `src/app/(field)`, 1 in `src/app/(app)/app/products/page.tsx`, 1 in `src/components/field/AddProductDialog.tsx`, 1 in `supabase/functions/evaluate-lifecycle/index.ts`). The Phase 1 P1.C/D rewire (commit 7c6b88c, 2026-05-25 16:36 +0400) actually removed all 10 inline `pod_inventory` references in that file — the Phase 1 summary's "5 direct UPDATEs remain" assertion was a stale copy-paste from pre-commit analysis. The 134 audit-log direct UPDATEs that continued through 2026-05-25 13:21:23 UTC were trailing-edge users on cached clients refreshing through the new path; they stopped within 21 minutes of deploy.
 
-**This PRD is that follow-up.** It closes the pod_inventory Article 3 surface entirely.
+**This PRD's scope is therefore narrowed to:**
+
+1. ~~Migrate the 5 inline FE handlers~~ — already done by PRD-013 P1.C/D commit 7c6b88c. No FE work remains.
+2. Confirm the 7-day clean window passes (target 2026-06-01 13:21 UTC; on track with zero new writes since 2026-05-25 13:21).
+3. Cody review + apply the §A.4 hard-block trigger (spec retained from PRD-013).
+4. Run Section 9 cases 13/14.
+
+Estimated effort dropped from "2-3 hour FE migration + 7-day wait + trigger flip" to "Cody review + apply + verify" — most of which can happen the day the clean window closes.
 
 ## 2. Day-0 baseline (recorded 2026-05-25, the closing day of PRD-013)
 
