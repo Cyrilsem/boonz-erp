@@ -588,6 +588,9 @@ export default function PerformancePage() {
 
   const [salesRows, setSalesRows] = useState<SaleRow[]>([]);
   const [adyenRows, setAdyenRows] = useState<AdyenTxn[]>([]);
+  const [cashRows, setCashRows] = useState<
+    { merchant_reference: string | null; recovered_amount: number | null }[]
+  >([]);
   const [machineList, setMachineList] = useState<MachineInfo[]>([]);
   // B3: DB-driven commercial agreements (venue_group → boonz/partner split).
   // Keyed by venue_group. Empty {} until the initial fetch resolves.
@@ -632,7 +635,7 @@ export default function PerformancePage() {
       // Fetched first so we can push a server-side scope onto the heavy
       // sales/Adyen queries instead of pulling the whole fleet and filtering
       // in-browser (the old approach truncated at 10k before the group filter).
-      const [machineRes, agreementsRes] = await Promise.all([
+      const [machineRes, agreementsRes, cashRes] = await Promise.all([
         supabase
           .from("machines")
           .select(
@@ -646,7 +649,15 @@ export default function PerformancePage() {
             "venue_group, agreement_type, boonz_share_pct, partner_share_pct, partner_name",
           )
           .limit(10000),
+        // Cash recovered off-Adyen (cash on the spot, card retries, etc.),
+        // keyed by merchant_reference. Folded into captured so the default
+        // calc matches /refill/consumers (which credits cash_recovery_log).
+        supabase
+          .from("cash_recovery_log")
+          .select("merchant_reference, recovered_amount")
+          .limit(10000),
       ]);
+      setCashRows(cashRes.data ?? []);
 
       // B3: build the venue_group → agreement map. Rows with unknown types
       // fall through to NONE at render time via DEFAULT_AGREEMENT.
@@ -884,6 +895,21 @@ export default function PerformancePage() {
     return m;
   }, [adyenRows]);
 
+  // Cash recovered per merchant_reference (summed). Added to Adyen captured so
+  // baskets settled in cash aren't flagged as payment defaults — mirrors the
+  // consumers RPC which does COALESCE(adyen_captured,0) + COALESCE(cash,0).
+  const cashByMerchantRef = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of cashRows) {
+      if (!c.merchant_reference) continue;
+      m.set(
+        c.merchant_reference,
+        (m.get(c.merchant_reference) ?? 0) + (c.recovered_amount ?? 0),
+      );
+    }
+    return m;
+  }, [cashRows]);
+
   // ── customer intelligence ──
   // totalSpend  = SUM(adyen.captured_amount_value)  — Adyen settled
   // weimiTotal  = SUM(weimi.total_amount)           — Weimi retail (via merchant_reference join)
@@ -1037,8 +1063,10 @@ export default function PerformancePage() {
     for (const [base, grp] of groups) {
       const adyen = adyenByMerchantRef.get(base);
       if (adyen !== undefined) {
-        // psp_reference IS NOT NULL
-        const captured = adyen.captured_amount_value ?? 0;
+        // psp_reference IS NOT NULL. captured = Adyen + cash recovered.
+        const captured =
+          (adyen.captured_amount_value ?? 0) +
+          (cashByMerchantRef.get(base) ?? 0);
         matchedTotal += grp.total;
         matchedCapture += captured;
         matchedCount++;
@@ -1055,7 +1083,7 @@ export default function PerformancePage() {
       defaultPct: matchedTotal > 0 ? (defaultGap / matchedTotal) * 100 : 0,
       defaultBasketCount,
     };
-  }, [salesRows, adyenByMerchantRef]);
+  }, [salesRows, adyenByMerchantRef, cashByMerchantRef]);
 
   const gap = txnMatchStats.gap;
   const defaultPct = txnMatchStats.defaultPct;
@@ -1314,29 +1342,80 @@ export default function PerformancePage() {
 
   // ── transactions tab ──
   const filteredTxns = useMemo(() => {
-    // Mirror the RPC: match = psp_reference IS NOT NULL (any Adyen record).
-    // isDefault = matched but captured < weimi_total (positive gap only).
-    // Unmatched rows are NOT defaults — they are simply excluded from the gap calc.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rows: any[] = salesRows.map((s) => {
+    // Collapse sales LINES into baskets (one row per transaction), mirroring the
+    // consumers RPC's vox_txns: group by base_txn_sn (internal_txn_sn minus the
+    // _N line suffix), sum total/paid/qty, and aggregate distinct products into
+    // one "items" string. Rendering per-line repeated the PSP across a basket's
+    // lines and broke the per-basket Default flag (a single line's total was
+    // compared against the whole basket's capture).
+    type Basket = {
+      base: string;
+      transaction_id: SaleRow["transaction_id"];
+      transaction_date: string | null;
+      machine_id: string | null;
+      machines: SaleRow["machines"];
+      machine_mapping: string | null;
+      total_amount: number;
+      paid_amount: number;
+      qty: number;
+      _products: Set<string>;
+    };
+    const baskets = new Map<string, Basket>();
+    for (const s of salesRows) {
       const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
-      const matchedAny = base ? adyenByMerchantRef.get(base) : undefined;
-      const status = matchedAny?.status ?? null;
-      const captured = matchedAny?.captured_amount_value ?? 0;
+      if (!base) continue;
       const effectiveTotal =
-        (s.total_amount ?? 0) > 0
-          ? (s.total_amount ?? 0)
-          : (s.paid_amount ?? 0);
+        (s.total_amount ?? 0) > 0 ? (s.total_amount ?? 0) : (s.paid_amount ?? 0);
+      let b = baskets.get(base);
+      if (!b) {
+        b = {
+          base,
+          transaction_id: s.transaction_id,
+          transaction_date: s.transaction_date,
+          machine_id: s.machine_id,
+          machines: s.machines,
+          machine_mapping: s.machine_mapping,
+          total_amount: 0,
+          paid_amount: 0,
+          qty: 0,
+          _products: new Set<string>(),
+        };
+        baskets.set(base, b);
+      }
+      b.total_amount += effectiveTotal;
+      b.paid_amount += s.paid_amount ?? 0;
+      b.qty += s.qty ?? 0;
+      // earliest line time = basket time (matches RPC MIN(transaction_date))
+      if (
+        s.transaction_date &&
+        (!b.transaction_date || s.transaction_date < b.transaction_date)
+      ) {
+        b.transaction_date = s.transaction_date;
+      }
+      if (s.pod_product_name) b._products.add(s.pod_product_name);
+    }
+
+    // Match = psp_reference IS NOT NULL (any Adyen record). captured = Adyen +
+    // cash recovered. isDefault = matched basket whose captured < weimi total.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rows: any[] = Array.from(baskets.values()).map((b) => {
+      const matchedAny = adyenByMerchantRef.get(b.base);
+      const captured =
+        (matchedAny?.captured_amount_value ?? 0) +
+        (cashByMerchantRef.get(b.base) ?? 0);
+      const items = Array.from(b._products).sort().join(" | ");
       return {
-        ...s,
+        ...b,
+        items,
+        pod_product_name: items, // ledger Items cell reads pod_product_name
         captured: matchedAny !== undefined ? captured : 0,
         funding: matchedAny?.funding_source || "",
-        adyenStatus: status || "",
+        adyenStatus: matchedAny?.status || "",
         psp: matchedAny?.psp_reference || "",
         paymentMethod: matchedAny?.payment_method || "",
         isWallet: (matchedAny?.funding_source || "").toUpperCase() === "WALLET",
-        // Default = matched basket where Adyen captured less than Weimi charged
-        isDefault: matchedAny !== undefined && captured < effectiveTotal - 0.01,
+        isDefault:
+          matchedAny !== undefined && captured < b.total_amount - 0.01,
       };
     });
     if (txnGroup !== "All")
@@ -1351,14 +1430,14 @@ export default function PerformancePage() {
       rows = rows.filter(
         (r) =>
           (r.machines?.official_name || "").toLowerCase().includes(q) ||
-          (r.pod_product_name || "").toLowerCase().includes(q) ||
+          (r.items || "").toLowerCase().includes(q) ||
           (r.machine_id || "").toLowerCase().includes(q),
       );
     }
     return rows.sort((a, b) =>
       (b.transaction_date || "").localeCompare(a.transaction_date || ""),
     );
-  }, [salesRows, adyenByMerchantRef, txnGroup, txnFunding, txnSearch]);
+  }, [salesRows, adyenByMerchantRef, cashByMerchantRef, txnGroup, txnFunding, txnSearch]);
 
   // defaultBasketCount lives inside txnMatchStats (basket-level, mirrors RPC disc_count).
   const defaultTxnCount = txnMatchStats.defaultBasketCount;
