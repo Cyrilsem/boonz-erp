@@ -58,7 +58,9 @@ export default function DivestTab() {
   const [prods, setProds] = useState<ProdRow[]>([]);
   const [stock, setStock] = useState<StockRow[]>([]);
   const [hot, setHot] = useState<Hot[]>([]);
-  const [inactiveList, setInactiveList] = useState<{ id: string; name: string }[]>([]);
+  const [inactiveList, setInactiveList] = useState<
+    { id: string; name: string }[]
+  >([]);
   const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [kpi, setKpi] = useState<{
@@ -151,7 +153,9 @@ export default function DivestTab() {
         if (idList.length) {
           const lsRes = await supabase
             .from("v_live_shelf_stock")
-            .select("machine_name,pod_product_id,aisle_code,current_stock,max_stock,price_aed")
+            .select(
+              "machine_name,pod_product_id,aisle_code,current_stock,max_stock,price_aed",
+            )
             .in("pod_product_id", idList)
             .limit(20000);
           const ls = lsRes.data ?? [];
@@ -164,7 +168,8 @@ export default function DivestTab() {
             if (!cur) {
               sAgg.set(key, {
                 machine: r.machine_name as string,
-                product: pMap.get(r.pod_product_id) ?? (r.pod_product_id as string),
+                product:
+                  pMap.get(r.pod_product_id) ?? (r.pod_product_id as string),
                 aisle: r.aisle_code as string,
                 stock: Number(r.current_stock ?? 0),
                 max: Number(r.max_stock ?? 0),
@@ -227,8 +232,13 @@ export default function DivestTab() {
             if (!mach || mach.include_in_refill !== true) continue;
             if (inactiveIds.has(s.pod_product_id)) continue;
             let sc = Number(s.score);
-            if (rt != null && (s.signal === "DEAD — SWAP NOW" || s.signal === "ROTATE OUT")) sc = rt;
-            else if (mt != null && s.signal === "RAMPING") sc = Math.max(sc, mt);
+            if (
+              rt != null &&
+              (s.signal === "DEAD — SWAP NOW" || s.signal === "ROTATE OUT")
+            )
+              sc = rt;
+            else if (mt != null && s.signal === "RAMPING")
+              sc = Math.max(sc, mt);
             s2 += sc;
             n2 += 1;
           }
@@ -305,8 +315,7 @@ export default function DivestTab() {
 
   if (loading)
     return <p className="text-neutral-500 text-sm">Loading divest plan…</p>;
-  if (err)
-    return <p className="text-red-600 text-sm">Failed to load: {err}</p>;
+  if (err) return <p className="text-red-600 text-sm">Failed to load: {err}</p>;
   if (!kpi) return null;
 
   const nDead = prods.filter((p) => p.signal === "DEAD — SWAP NOW").length;
@@ -318,7 +327,9 @@ export default function DivestTab() {
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-base font-semibold">Divest Plan — DEAD + Rotate Out</h2>
+        <h2 className="text-base font-semibold">
+          Divest Plan — DEAD + Rotate Out
+        </h2>
         <p className="text-xs text-neutral-500">
           {nDead} dead + {nRot} rotate-out products, fleet-wide. Catalogue
           decommission is cash &amp; discipline; the score lever is remediating
@@ -336,11 +347,15 @@ export default function DivestTab() {
 
       <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-xs dark:border-neutral-800 dark:bg-neutral-900">
         Most divest stock is already off the shop floor:{" "}
-        <b>{totals.wu} units (~AED {Math.round(totals.wv).toLocaleString()})</b>{" "}
-        in warehouse units, vs <b>{totals.vu} units (~AED{" "}
-        {Math.round(totals.vv).toLocaleString()})</b> still in customer-facing
-        machines. Divestment is mostly a warehouse write-off / redeploy
-        decision.
+        <b>
+          {totals.wu} units (~AED {Math.round(totals.wv).toLocaleString()})
+        </b>{" "}
+        in warehouse units, vs{" "}
+        <b>
+          {totals.vu} units (~AED {Math.round(totals.vv).toLocaleString()})
+        </b>{" "}
+        still in customer-facing machines. Divestment is mostly a warehouse
+        write-off / redeploy decision.
       </div>
 
       {/* Divest products */}
@@ -365,7 +380,10 @@ export default function DivestTab() {
                 return (
                   <tr key={p.name}>
                     <td className={td}>{p.name}</td>
-                    <td className={`${td} font-semibold`} style={{ color: dead ? "#c0392b" : "#d68910" }}>
+                    <td
+                      className={`${td} font-semibold`}
+                      style={{ color: dead ? "#c0392b" : "#d68910" }}
+                    >
                       {dead ? "DEAD" : "ROTATE"}
                     </td>
                     <td className={td}>{p.score.toFixed(1)}</td>
@@ -378,7 +396,11 @@ export default function DivestTab() {
                       </span>
                       <button
                         onClick={() =>
-                          toggleStatus(p.id, "inactive", "marked inactive from lifecycle Divest tab")
+                          toggleStatus(
+                            p.id,
+                            "inactive",
+                            "marked inactive from lifecycle Divest tab",
+                          )
                         }
                         disabled={busy === p.id}
                         className="rounded border border-neutral-300 px-1.5 py-0.5 text-[10px] text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -423,9 +445,13 @@ export default function DivestTab() {
                     <td className={td}>{r.product}</td>
                     <td className={td}>{r.aisle}</td>
                     <td className={td}>{r.stock}</td>
-                    <td className={td}>{Math.round(r.stock * r.price).toLocaleString()}</td>
                     <td className={td}>
-                      {wh ? "Redeploy or write off (FEFO)" : "Pull on next visit; swap shelf"}
+                      {Math.round(r.stock * r.price).toLocaleString()}
+                    </td>
+                    <td className={td}>
+                      {wh
+                        ? "Redeploy or write off (FEFO)"
+                        : "Pull on next visit; swap shelf"}
                     </td>
                   </tr>
                 );
@@ -460,9 +486,16 @@ export default function DivestTab() {
                   <td className={td}>{h.lt.slice(0, 4)}</td>
                   <td className={td}>{h.avg.toFixed(1)}</td>
                   <td className={td}>{h.slots}</td>
-                  <td className={`${td} font-semibold`} style={{ color: h.dead ? "#c0392b" : undefined }}>{h.dead}</td>
+                  <td
+                    className={`${td} font-semibold`}
+                    style={{ color: h.dead ? "#c0392b" : undefined }}
+                  >
+                    {h.dead}
+                  </td>
                   <td className={td}>{h.rot}</td>
-                  <td className={td}>{h.avg < 1.6 ? "RESET cabinet" : "Swap dead/rotate"}</td>
+                  <td className={td}>
+                    {h.avg < 1.6 ? "RESET cabinet" : "Swap dead/rotate"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -489,7 +522,13 @@ export default function DivestTab() {
               >
                 {p.name}
                 <button
-                  onClick={() => toggleStatus(p.id, "active", "restored from lifecycle Divest tab")}
+                  onClick={() =>
+                    toggleStatus(
+                      p.id,
+                      "active",
+                      "restored from lifecycle Divest tab",
+                    )
+                  }
                   disabled={busy === p.id}
                   className="rounded border border-neutral-300 px-1.5 py-0.5 text-[10px] text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >

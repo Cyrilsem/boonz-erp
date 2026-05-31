@@ -580,43 +580,43 @@ export default function LifecyclePage() {
       familiesRes,
       inactiveRes2,
     ] = await Promise.all([
-        supabase
-          .from("product_lifecycle_global")
-          .select(
-            "pod_product_id,score,trend_component,total_velocity_30d,machine_count,signal,best_location_type,worst_location_type",
-          )
-          .limit(10000),
-        supabase
-          .from("slot_lifecycle")
-          .select(
-            "machine_id,pod_product_id,shelf_code,shelf_id,score,trend_component,signal,velocity_30d,is_current,rotated_out_at,rotated_in_at",
-          )
-          .eq("archived", false)
-          .limit(20000),
-        supabase
-          .from("machines")
-          .select("machine_id,official_name,location_type,include_in_refill")
-          .limit(10000),
-        // Phase B.4: per-machine last-sale to flag dark machines
-        supabase
-          .from("v_machine_first_sale")
-          .select("machine_id,last_sale_at")
-          .limit(10000),
-        supabase
-          .from("pod_products")
-          .select("pod_product_id,pod_product_name,product_family_id")
-          .limit(10000),
-        supabase
-          .from("product_families")
-          .select("product_family_id,family_name")
-          .limit(10000),
-        // Phase F: exclude inactive products from the Deep Dive too.
-        supabase
-          .from("lifecycle_product_status")
-          .select("pod_product_id")
-          .eq("status", "inactive")
-          .limit(10000),
-      ]);
+      supabase
+        .from("product_lifecycle_global")
+        .select(
+          "pod_product_id,score,trend_component,total_velocity_30d,machine_count,signal,best_location_type,worst_location_type",
+        )
+        .limit(10000),
+      supabase
+        .from("slot_lifecycle")
+        .select(
+          "machine_id,pod_product_id,shelf_code,shelf_id,score,trend_component,signal,velocity_30d,is_current,rotated_out_at,rotated_in_at",
+        )
+        .eq("archived", false)
+        .limit(20000),
+      supabase
+        .from("machines")
+        .select("machine_id,official_name,location_type,include_in_refill")
+        .limit(10000),
+      // Phase B.4: per-machine last-sale to flag dark machines
+      supabase
+        .from("v_machine_first_sale")
+        .select("machine_id,last_sale_at")
+        .limit(10000),
+      supabase
+        .from("pod_products")
+        .select("pod_product_id,pod_product_name,product_family_id")
+        .limit(10000),
+      supabase
+        .from("product_families")
+        .select("product_family_id,family_name")
+        .limit(10000),
+      // Phase F: exclude inactive products from the Deep Dive too.
+      supabase
+        .from("lifecycle_product_status")
+        .select("pod_product_id")
+        .eq("status", "inactive")
+        .limit(10000),
+    ]);
 
     const inactiveScatterSet = new Set(
       (inactiveRes2.data ?? []).map((r) => r.pod_product_id as string),

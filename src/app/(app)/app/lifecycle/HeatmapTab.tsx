@@ -168,7 +168,16 @@ export default function HeatmapTab() {
         // aggregate slots → product×machine cells
         const agg = new Map<
           string,
-          { m: string; lt: string; p: string; sum: number; vel: number; n: number; sev: number; sig: string }
+          {
+            m: string;
+            lt: string;
+            p: string;
+            sum: number;
+            vel: number;
+            n: number;
+            sev: number;
+            sig: string;
+          }
         >();
         for (const s of slots) {
           const mach = mMap.get(s.machine_id);
@@ -277,8 +286,14 @@ export default function HeatmapTab() {
         n2 = 0;
       for (const c of activeCells) {
         let sc = c.cell.score;
-        if (rt != null && (c.cell.signal === "DEAD — SWAP NOW" || c.cell.signal === "ROTATE OUT")) sc = rt;
-        else if (mt != null && c.cell.signal === "RAMPING") sc = Math.max(sc, mt);
+        if (
+          rt != null &&
+          (c.cell.signal === "DEAD — SWAP NOW" ||
+            c.cell.signal === "ROTATE OUT")
+        )
+          sc = rt;
+        else if (mt != null && c.cell.signal === "RAMPING")
+          sc = Math.max(sc, mt);
         s2 += sc * c.cell.n;
         n2 += c.cell.n;
       }
@@ -305,10 +320,12 @@ export default function HeatmapTab() {
     return <p className="text-neutral-500 text-sm">No lifecycle data.</p>;
 
   const visMachines =
-    filter === "all" ? machines : machines.filter((m) => {
-      const c = cells.find((x) => x.m === m);
-      return c?.lt === filter;
-    });
+    filter === "all"
+      ? machines
+      : machines.filter((m) => {
+          const c = cells.find((x) => x.m === m);
+          return c?.lt === filter;
+        });
   let visProducts = divestOnly
     ? products.filter((p) => divest.has(p))
     : products;
@@ -338,7 +355,11 @@ export default function HeatmapTab() {
 
       <div className="flex flex-wrap gap-2.5">
         <Kpi v={stats.overall.toFixed(2)} l="Overall now /10" color="#d68910" />
-        <Kpi v={String(stats.dead + stats.rot)} l="Dead + Rotate slots" color="#c0392b" />
+        <Kpi
+          v={String(stats.dead + stats.rot)}
+          l="Dead + Rotate slots"
+          color="#c0392b"
+        />
         <Kpi v={String(stats.ramp)} l="Ramping (maturing)" />
         <Kpi v={stats.both.toFixed(2)} l="Achievable target" color="#1e8449" />
       </div>
@@ -379,12 +400,17 @@ export default function HeatmapTab() {
                 : "border-neutral-300 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
             }`}
           >
-            {showInactive ? "Hide inactive" : `Show inactive (${inactiveNames.size})`}
+            {showInactive
+              ? "Hide inactive"
+              : `Show inactive (${inactiveNames.size})`}
           </button>
         )}
       </div>
 
-      <div className="overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-800" style={{ maxHeight: "68vh" }}>
+      <div
+        className="overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-800"
+        style={{ maxHeight: "68vh" }}
+      >
         <table className="border-separate" style={{ borderSpacing: 0 }}>
           <thead>
             <tr>
@@ -516,8 +542,8 @@ export default function HeatmapTab() {
         </table>
       </div>
       <p className="text-[11px] text-neutral-500">
-        Cell value = lifecycle score (0–10). Colour: red ≤2, amber ~5, green
-        ≥8. Live from slot_lifecycle.
+        Cell value = lifecycle score (0–10). Colour: red ≤2, amber ~5, green ≥8.
+        Live from slot_lifecycle.
       </p>
 
       {tip && (

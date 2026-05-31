@@ -15,7 +15,44 @@ Format:
 
 ---
 
+## 2026-05-31 — PRD-016B: Track 7 return/transfer guardrails (Migration 2 + Guardrails 1 & 2)
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 6, 8, 12
+**Applied to:** prod
+**Migration names:** `phaseF_prd016_unverified_return_provenance`, `phaseF_prd016_guardrail1_m2m_as_remove`, `phaseF_prd016_guardrail2_return_variant_correction`
+**Summary:** Finished the return/transfer guardrails whose design + containment substrate shipped earlier (PRD-016 / `phaseF_prd016_quarantine_unverified_return`). Each task is its own forward migration, each Cody-reviewed separately.
+
+- **Guardrail 3 functional (Migration 2).** Surgical `CREATE OR REPLACE` of canonical writers `return_dispatch_line` and `receive_dispatch_line`, bodies reproduced verbatim. Only change: each create-new-batch ELSE branch (the `IF NOT FOUND` path that invents a WH batch — `REMOVE-RETURN-%` in return; `RETURN-%` + `REMOVE-RECEIVE-%` in receive) now stamps `app.provenance_reason='dispatch_return_unverified'` immediately before the INSERT and restores the trusted value (`dispatch_return`/`dispatch_receive`) immediately after. The restore is required for correctness: `trg_set_wh_provenance` fires BEFORE INSERT OR UPDATE and overwrites `provenance_reason` from the GUC, and the Remove breakdown loop interleaves create-new INSERTs with merge UPDATEs, so an unverified value would otherwise leak onto a later merge and falsely quarantine a real batch. Net: a return landing on a real received batch stays trusted (`quarantined=false`); a return inventing a batch lands `quarantined=true` on the needs-review screen. Closes Bug C going forward. Verified in a rolled-back tx: no-match return → `dispatch_return_unverified`/quarantined; matching-batch return → `dispatch_return`/not quarantined. Static diff = exactly the 10 stamp lines (2 in return, 3 in receive, paired with restores).
+- **Guardrail 1 (Bug A).** New non-blocking BEFORE INSERT trigger `flag_remove_with_transfer_intent()` on `refill_dispatching`: a `Remove` row with a `[TRUCK-TRANSFER]` comment but `is_m2m=false` and `m2m_partner_id IS NULL` writes a `monitoring_alerts` (`warning`) row steering to `swap_between_machines`. `block_orphan_internal_transfer` did not cover this (source_origin is `warehouse`, not `internal_transfer`). WARN posture (Cody): blocking before the FE routes truck-transfers to `swap_between_machines` would convert a data-quality bug into an outage. Verified: transfer-intent Remove → 1 alert; normal Remove → 0.
+- **Guardrail 2 (Bug B).** New non-blocking BEFORE UPDATE trigger `flag_multivariant_return_without_correction()` on `refill_dispatching`, firing on the `returned` false→true commit: if the dispatch's `pod_product_id` maps to >1 active boonz variant on its machine AND no `variant_action_log` row exists for the dispatch, writes a `monitoring_alerts` (`warning`) row steering to `record_variant_correction`. Implemented as a NEW trigger (not a 2nd `CREATE OR REPLACE` of `return_dispatch_line`) to respect the 24h-rewrite hard rule; the fire point shares the return transaction so a future escalation to RAISE rolls back the WH credit atomically. The FE escape hatch (`record_variant_correction` → `variant_action_log`, called BEFORE the return) goes to Stax (STAX-2026-05-31-01). Verified: multi-variant return without correction → 1 alert; with a prior `variant_action_log` row → 0; single-variant → 0.
+- **Smoke:** both writers valid, both triggers live, packing/pickup dispatch read joins return rows, WH baseline unchanged (973 rows / 870 quarantined / 0 `dispatch_return_unverified` live). No `source_origin` writes; no protected-table direct writes. All verification used rolled-back transactions (0 leaked rows/alerts).
+  **Follow-ups:** (1) escalate Guardrail 1 + 2 WARN→BLOCK once the FE wiring lands; (2) the receive-of-Remove WH credit (`item_added` flip) has the same multi-variant ambiguity as Guardrail 2 — out of PRD-016B scope, logged as a known gap.
+  **Rollback:** Migration 2 — re-apply return/receive verbatim with the ELSE-branch stamps removed (already-quarantined rows stay quarantined; WH manager unquarantines via recount). Guardrails 1 & 2 — `DROP TRIGGER trg_flag_remove_with_transfer_intent ON refill_dispatching; DROP FUNCTION flag_remove_with_transfer_intent();` and `DROP TRIGGER trg_flag_multivariant_return_without_correction ON refill_dispatching; DROP FUNCTION flag_multivariant_return_without_correction();`
+
+---
+
+## 2026-05-31 — Phase F: add_pod_refill_row canonical writer (manual-add path)
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 8
+**Applied to:** prod
+**Migration name:** `phaseF_add_pod_refill_row_canonical_writer` (+ fix-forward `phaseF_add_pod_refill_row_fix_audit_before_state`)
+**Summary:** Added the missing canonical writer for inserting a manual `pod_refill_plan` row. The FE "+ Add row" had no backing RPC, so manually-added rows lived only in browser state; a typed product with no `pod_product_id` ("Plaay Truffle 2pcs") caused `Row removal persist failed ... missing pod identifiers` and aborted the whole Commit (WPP-1002-4300-O1/A01, 2026-05-31). `add_pod_refill_row(plan_date, machine_id, shelf_id, pod_product_id, action, qty, reason, conductor_session)` validates that `pod_product_id` resolves in `pod_products` (the core fix), shelf-belongs-to-machine, action enum, qty≥0, no 5-tuple clobber, and the past-pending lock; inserts at `status='draft'`, `source_origin='warehouse'`; role-gated; sets GUCs; audits to `pod_refill_plan_audit` (`edit_type='add'`). Cody-approved (Articles 1,2,3,4,5,8,12). Verified: bad product rejected, valid WPP A01 Plaay add returns clean (both rolled back). Fix-forward migration corrects `before_state` NOT NULL (write `'{}'::jsonb` for adds). Still needed: FE wiring (forced product dropdown + autofill → this RPC) and the machine-exclude-checkbox fix — handed to Stax.
+**Rollback:** `DROP FUNCTION public.add_pod_refill_row(date,uuid,uuid,uuid,text,integer,text,text);`
+
+---
+
+## 2026-05-31 — Phase F: relax pod_refill_plan qty CHECK to allow zero (soft-stop fix)
+
+**Phase / Article:** Phase F / Constitution Articles 5, 12
+**Applied to:** prod
+**Migration name:** `phaseF_fix_pod_refill_plan_qty_check_allow_zero`
+**Summary:** The `pod_refill_plan` row-removal path (`stop_pod_refill_row` → `edit_pod_refill_row(qty := 0)`) writes `qty = 0` as the soft-stop signal, and Stage 3 stitch treats `qty = 0` as a no-op. But the table still carried the original `CHECK (qty > 0)`, which rejected the qty=0 write and broke "Row removal persist" on Commit (surfaced at MINDSHARE-1009-4500-O1/A02 G&H Popped Chips, 2026-05-31). Relaxed the constraint to `CHECK (qty >= 0)` to align the table with the canonical writer contract (`edit_pod_refill_row` already validates `p_new_qty >= 0`). No existing rows violated the new constraint. Negative qty still blocked. Cody-approved (Articles 2, 5, 7, 12, 14). Follow-up logged: `restore_pod_refill_row` only un-supersedes `status='superseded'` rows while the remove path leaves `status='draft' qty=0` — remove/restore are inconsistent; hand to Stax to reconcile.
+**Rollback:** `ALTER TABLE public.pod_refill_plan DROP CONSTRAINT pod_refill_plan_qty_check; ALTER TABLE public.pod_refill_plan ADD CONSTRAINT pod_refill_plan_qty_check CHECK (qty > 0);` (only safe if no qty=0 rows exist).
+
+---
+
 ## 2026-05-31 — Phase F: lifecycle_product_status (inactive-product flag)
+
 **Phase / Article:** Phase F / Constitution Articles 1, 2, 4, 8, 12, 14
 **Applied to:** prod
 **Migration name:** phaseF_lifecycle_product_status
