@@ -57,6 +57,33 @@ const SETTLED_STATUSES: ReadonlySet<string> = new Set([
 ]);
 const PAGE_SIZE = 50;
 
+// Rows per page when walking PostgREST range pagination. PostgREST clamps any
+// single response to db-max-rows, so a plain .limit(N) silently truncates large
+// result sets (this is what was undercounting VOX on the dashboard). 5000 is
+// comfortably under the server cap, so every "full" page returns exactly
+// PAGE_FETCH rows until the set is exhausted.
+const PAGE_FETCH = 5000;
+
+// Pull EVERY row of a query by looping .range() until a short page comes back.
+// `buildPage(from,to)` must return a query already scoped + ordered; we only add
+// the range window. Throws on the first error (caught by the caller's try/catch).
+async function fetchAllPaged<T>(
+  buildPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE_FETCH) {
+    const { data, error } = await buildPage(from, from + PAGE_FETCH - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < PAGE_FETCH) break;
+  }
+  return all;
+}
+
 // ── commercial scenario constants ──
 const OPEX_PCT = 0; // placeholder — Opex line currently renders as AED 0
 const GRIT_OMD_PARTNER_SHARE = 0.05;
@@ -239,10 +266,17 @@ interface AdyenTxn {
   adjusted_amount_value: number | null; // what terminal tried to charge
 }
 
-type CustomerSegment = "Power User" | "Returning" | "One-off" | "Failed" | "Defaulter" | "Compromised" | "Pure Fraud";
+type CustomerSegment =
+  | "Power User"
+  | "Returning"
+  | "One-off"
+  | "Failed"
+  | "Defaulter"
+  | "Compromised"
+  | "Pure Fraud";
 
 interface CustomerProfile {
-  key: string;          // "bin-last4" e.g. "531780-3393"
+  key: string; // "bin-last4" e.g. "531780-3393"
   cardDisplay: string;
   cardBin: string | null;
   last4: string | null;
@@ -250,15 +284,15 @@ interface CustomerProfile {
   fundingSource: string | null;
   issuer: string | null;
   issuerCountry: string | null;
-  txnCount: number;     // total adyen events for this card
+  txnCount: number; // total adyen events for this card
   settledCount: number; // adyen SettledBulk rows
-  matchedTxns: number;  // = settledCount (kept for backwards compat)
+  matchedTxns: number; // = settledCount (kept for backwards compat)
   refusedCount: number;
   cancelledCount: number;
-  totalSpend: number;   // SUM(adyen.captured_amount_value) for settled rows
-  weimiTotal: number;   // SUM(weimi.total_amount) for matched transactions — true retail
-  gap: number;          // SUM(adjusted_amount_value - captured_amount_value) for settled rows
-  avgSpend: number;     // totalSpend / settledCount
+  totalSpend: number; // SUM(adyen.captured_amount_value) for settled rows
+  weimiTotal: number; // SUM(weimi.total_amount) for matched transactions — true retail
+  gap: number; // SUM(adjusted_amount_value - captured_amount_value) for settled rows
+  avgSpend: number; // totalSpend / settledCount
   firstSeen: string;
   lastSeen: string;
   segment: CustomerSegment;
@@ -274,6 +308,7 @@ interface MachineInfo {
   official_name: string;
   venue_group: string | null;
   status: string | null;
+  adyen_store_description: string | null;
 }
 
 // ── helpers ──
@@ -576,11 +611,15 @@ export default function PerformancePage() {
 
   // customers tab state
   const [custSearch, setCustSearch] = useState("");
-  const [custSort, setCustSort] = useState<"txns" | "spend" | "last_seen" | "risk">("txns");
+  const [custSort, setCustSort] = useState<
+    "txns" | "spend" | "last_seen" | "risk"
+  >("txns");
   const [custSortDir, setCustSortDir] = useState<"desc" | "asc">("desc");
   const [selectedCustKey, setSelectedCustKey] = useState<string | null>(null);
   const [custPage, setCustPage] = useState(0);
-  const [custSegFilter, setCustSegFilter] = useState<CustomerSegment | null>(null);
+  const [custSegFilter, setCustSegFilter] = useState<CustomerSegment | null>(
+    null,
+  );
   const CUST_PAGE_SIZE = 50;
 
   // ── fetch data ──
@@ -589,53 +628,25 @@ export default function PerformancePage() {
     try {
       const supabase = createClient();
 
-      let salesQuery = supabase
-        .from("sales_history")
-        .select(
-          "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, internal_txn_sn, machine_mapping, machines!inner(official_name, venue_group)",
-        )
-        .eq("delivery_status", "Successful")
-        .gte("transaction_date", `${dateFrom}T00:00:00+04:00`) // Dubai midnight
-        .lte("transaction_date", `${dateTo}T23:59:59+04:00`); // Dubai end-of-day
-      if (selectedMachineIds.length > 0) {
-        salesQuery = salesQuery.in("machine_id", selectedMachineIds);
-      }
-
-      // Adyen settlements post 1-3 days after the Weimi sale.
-      // Extend the window ±7 days so edge-of-range baskets always find their match.
-      // Do NOT filter by machine_id — that column is NULL in adyen_transactions;
-      // machine association is resolved implicitly via merchant_reference matching.
-      const adyenFrom = dubaiDateOnly(
-        new Date(new Date(dateFrom).getTime() - 7 * 24 * 60 * 60 * 1000),
-      );
-      const adyenTo = dubaiDateOnly(
-        new Date(new Date(dateTo).getTime() + 7 * 24 * 60 * 60 * 1000),
-      );
-      const adyenQuery = supabase
-        .from("adyen_transactions")
-        .select(
-          "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, adjusted_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference, card_number_summary, card_bin, issuer, issuer_country, risk_score, shopper_country",
-        )
-        .gte("creation_date", `${adyenFrom}T00:00:00+04:00`) // Dubai midnight
-        .lte("creation_date", `${adyenTo}T23:59:59+04:00`); // Dubai end-of-day
-
-      const [machineRes, salesRes, adyenRes, agreementsRes] = await Promise.all(
-        [
-          supabase
-            .from("machines")
-            .select("machine_id, official_name, venue_group, status")
-            .order("official_name")
-            .limit(10000),
-          salesQuery.limit(10000),
-          adyenQuery.limit(10000),
-          supabase
-            .from("commercial_agreements")
-            .select(
-              "venue_group, agreement_type, boonz_share_pct, partner_share_pct, partner_name",
-            )
-            .limit(10000),
-        ],
-      );
+      // ── Step 1: small reference fetches (machines + agreements) ──
+      // Fetched first so we can push a server-side scope onto the heavy
+      // sales/Adyen queries instead of pulling the whole fleet and filtering
+      // in-browser (the old approach truncated at 10k before the group filter).
+      const [machineRes, agreementsRes] = await Promise.all([
+        supabase
+          .from("machines")
+          .select(
+            "machine_id, official_name, venue_group, status, adyen_store_description",
+          )
+          .order("official_name")
+          .limit(10000),
+        supabase
+          .from("commercial_agreements")
+          .select(
+            "venue_group, agreement_type, boonz_share_pct, partner_share_pct, partner_name",
+          )
+          .limit(10000),
+      ]);
 
       // B3: build the venue_group → agreement map. Rows with unknown types
       // fall through to NONE at render time via DEFAULT_AGREEMENT.
@@ -663,17 +674,88 @@ export default function PerformancePage() {
       const machines = (machineRes.data ?? []) as MachineInfo[];
       setMachineList(machines);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let filtered = (salesRes.data ?? []) as any as SaleRow[];
-      if (group !== "All") {
-        filtered = filtered.filter((r) => r.machines?.venue_group === group);
-      }
-      setSalesRows(filtered);
+      // Resolve the in-scope machines for this view (group + explicit
+      // multi-select). Used to scope BOTH the sales query (server-side group
+      // filter) and the Adyen query (store_description filter), so e.g. the VOX
+      // dashboard pulls ~5k rows instead of the full ~13k fleet.
+      const isScoped = group !== "All" || selectedMachineIds.length > 0;
+      const scopedStoreDescs = Array.from(
+        new Set(
+          machines
+            .filter(
+              (m) =>
+                (group === "All" || m.venue_group === group) &&
+                (selectedMachineIds.length === 0 ||
+                  selectedMachineIds.includes(m.machine_id)),
+            )
+            .map((m) => m.adyen_store_description)
+            .filter((d): d is string => !!d),
+        ),
+      );
 
-      // Do not filter Adyen by machine_id (NULL in all rows).
-      // Machine association is resolved via merchant_reference matching against
-      // salesRows (which IS filtered by group). This mirrors the RPC approach.
-      setAdyenRows((adyenRes.data ?? []) as AdyenTxn[]);
+      // ── Step 2: paginated heavy fetches ──
+      // Loop .range() until the result set is exhausted — removes the silent
+      // 10k truncation that undercounted any group whose fleet window exceeded
+      // the cap (Feb–May VOX read ~70k AED instead of the true ~94k).
+      const salesRowsAll = await fetchAllPaged<SaleRow>((from, to) => {
+        let q = supabase
+          .from("sales_history")
+          .select(
+            "transaction_id, machine_id, transaction_date, total_amount, cost_amount, paid_amount, qty, pod_product_name, boonz_product_id, delivery_status, product_cost, actual_selling_price, internal_txn_sn, machine_mapping, machines!inner(official_name, venue_group)",
+          )
+          .eq("delivery_status", "Successful")
+          .gte("transaction_date", `${dateFrom}T00:00:00+04:00`) // Dubai midnight
+          .lte("transaction_date", `${dateTo}T23:59:59+04:00`) // Dubai end-of-day
+          .order("transaction_id", { ascending: true })
+          .range(from, to);
+        // Server-side group scope via the inner-joined machines embed.
+        if (group !== "All") q = q.eq("machines.venue_group", group);
+        if (selectedMachineIds.length > 0)
+          q = q.in("machine_id", selectedMachineIds);
+        return q as unknown as PromiseLike<{
+          data: SaleRow[] | null;
+          error: unknown;
+        }>;
+      });
+
+      // Adyen settlements post 1-3 days after the Weimi sale.
+      // Extend the window ±7 days so edge-of-range baskets always find their match.
+      // machine_id is NULL in adyen_transactions, so we scope by store_description
+      // (the same join the RPC uses) rather than by machine_id.
+      const adyenFrom = dubaiDateOnly(
+        new Date(new Date(dateFrom).getTime() - 7 * 24 * 60 * 60 * 1000),
+      );
+      const adyenTo = dubaiDateOnly(
+        new Date(new Date(dateTo).getTime() + 7 * 24 * 60 * 60 * 1000),
+      );
+      const adyenRowsAll = await fetchAllPaged<AdyenTxn>((from, to) => {
+        let q = supabase
+          .from("adyen_transactions")
+          .select(
+            "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, adjusted_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference, card_number_summary, card_bin, issuer, issuer_country, risk_score, shopper_country",
+          )
+          .gte("creation_date", `${adyenFrom}T00:00:00+04:00`) // Dubai midnight
+          .lte("creation_date", `${adyenTo}T23:59:59+04:00`) // Dubai end-of-day
+          .order("adyen_txn_id", { ascending: true })
+          .range(from, to);
+        // Scope to the in-view stores when this is a scoped view; the "All"
+        // view with no machine selection intentionally pulls every store.
+        if (isScoped && scopedStoreDescs.length > 0)
+          q = q.in("store_description", scopedStoreDescs);
+        return q as unknown as PromiseLike<{
+          data: AdyenTxn[] | null;
+          error: unknown;
+        }>;
+      });
+
+      // Group scope is already enforced server-side; this guard keeps the
+      // contract explicit and drops any stray embed rows.
+      const filtered =
+        group === "All"
+          ? salesRowsAll
+          : salesRowsAll.filter((r) => r.machines?.venue_group === group);
+      setSalesRows(filtered);
+      setAdyenRows(adyenRowsAll);
 
       setLastUpdated(
         new Date().toLocaleTimeString("en-GB", {
@@ -782,7 +864,8 @@ export default function PerformancePage() {
   const scopedAdyenRows = useMemo(
     () =>
       adyenRows.filter(
-        (r) => r.merchant_reference && salesBaseTxnSns.has(r.merchant_reference),
+        (r) =>
+          r.merchant_reference && salesBaseTxnSns.has(r.merchant_reference),
       ),
     [adyenRows, salesBaseTxnSns],
   );
@@ -829,14 +912,21 @@ export default function PerformancePage() {
       if (!s.internal_txn_sn) continue;
       const base = s.internal_txn_sn.replace(/_\d+$/, "");
       if (!base) continue;
-      weimiTotalByBase.set(base, (weimiTotalByBase.get(base) ?? 0) + (s.total_amount ?? 0));
+      weimiTotalByBase.set(
+        base,
+        (weimiTotalByBase.get(base) ?? 0) + (s.total_amount ?? 0),
+      );
     }
     type Internal = CustomerProfile & { _machines: Set<string>; _ff: number };
     const map = new Map<string, Internal>();
 
     for (const row of scopedAdyenRows) {
-      const bin  = row.card_bin  ? String(row.card_bin).replace(/\.0$/, "").trim()  : null;
-      const last4 = row.card_number_summary ? String(row.card_number_summary).replace(/\.0$/, "").trim() : null;
+      const bin = row.card_bin
+        ? String(row.card_bin).replace(/\.0$/, "").trim()
+        : null;
+      const last4 = row.card_number_summary
+        ? String(row.card_number_summary).replace(/\.0$/, "").trim()
+        : null;
       if (!bin || !last4 || bin === "0" || last4 === "0") continue;
 
       const key = `${bin}-${last4}`;
@@ -847,11 +937,13 @@ export default function PerformancePage() {
       // Revenue = captured_amount_value (what Adyen actually paid out)
       const captured = isSettled ? (row.captured_amount_value ?? 0) : 0;
       // Gap = adjusted_amount_value (what terminal tried) - captured; fallback to 0 if missing
-      const adjusted = isSettled ? (row.adjusted_amount_value ?? row.captured_amount_value ?? 0) : 0;
-      const gapAmt   = Math.round(Math.max(adjusted - captured, 0) * 100) / 100;
+      const adjusted = isSettled
+        ? (row.adjusted_amount_value ?? row.captured_amount_value ?? 0)
+        : 0;
+      const gapAmt = Math.round(Math.max(adjusted - captured, 0) * 100) / 100;
       // Weimi retail = sales_history.total_amount via merchant_reference join
       const weimiBase = row.merchant_reference ?? null;
-      const weimiAmt  = weimiBase ? (weimiTotalByBase.get(weimiBase) ?? 0) : 0;
+      const weimiAmt = weimiBase ? (weimiTotalByBase.get(weimiBase) ?? 0) : 0;
 
       const existing = map.get(key);
       if (!existing) {
@@ -886,16 +978,24 @@ export default function PerformancePage() {
         });
       } else {
         existing.txnCount++;
-        if (isSettled) { existing.settledCount++; existing.matchedTxns++; }
+        if (isSettled) {
+          existing.settledCount++;
+          existing.matchedTxns++;
+        }
         if (row.status === "Refused") existing.refusedCount++;
         if (row.status === "Cancelled") existing.cancelledCount++;
         existing.totalSpend += captured;
         existing.weimiTotal += weimiAmt;
         existing.gap += gapAmt;
-        if (row.creation_date < existing.firstSeen) existing.firstSeen = row.creation_date;
-        if (row.creation_date > existing.lastSeen) existing.lastSeen = row.creation_date;
+        if (row.creation_date < existing.firstSeen)
+          existing.firstSeen = row.creation_date;
+        if (row.creation_date > existing.lastSeen)
+          existing.lastSeen = row.creation_date;
         if (risk > existing.maxRiskScore) existing.maxRiskScore = risk;
-        if (ff) { existing.hasHighRisk = true; existing._ff++; }
+        if (ff) {
+          existing.hasHighRisk = true;
+          existing._ff++;
+        }
         if (row.machine_id) existing._machines.add(row.machine_id);
       }
     }
@@ -905,14 +1005,14 @@ export default function PerformancePage() {
       const ff = cp._ff;
       const gap = Math.round(cp.gap * 100) / 100; // final round to kill accumulation drift
       let segment: CustomerSegment;
-      if (ff >= 3)                      segment = "Compromised";
-      else if (ff > 0 && s === 0)       segment = "Pure Fraud";
-      else if (ff > 0)                  segment = "Compromised";
-      else if (gap >= 0.01 && s > 0)    segment = "Defaulter";
-      else if (s === 0)                 segment = "Failed";
-      else if (s >= 5)                  segment = "Power User";
-      else if (s >= 2)                  segment = "Returning";
-      else                              segment = "One-off";
+      if (ff >= 3) segment = "Compromised";
+      else if (ff > 0 && s === 0) segment = "Pure Fraud";
+      else if (ff > 0) segment = "Compromised";
+      else if (gap >= 0.01 && s > 0) segment = "Defaulter";
+      else if (s === 0) segment = "Failed";
+      else if (s >= 5) segment = "Power User";
+      else if (s >= 2) segment = "Returning";
+      else segment = "One-off";
       return {
         ...cp,
         gap,
@@ -3384,7 +3484,9 @@ export default function PerformancePage() {
                       }}
                     >
                       <td style={{ padding: "9px 12px", whiteSpace: "nowrap" }}>
-                        {r.transaction_date ? dubaiDate(r.transaction_date) : "—"}
+                        {r.transaction_date
+                          ? dubaiDate(r.transaction_date)
+                          : "—"}
                       </td>
                       <td
                         style={{
@@ -3394,7 +3496,9 @@ export default function PerformancePage() {
                           fontSize: 10.5,
                         }}
                       >
-                        {r.transaction_date ? dubaiTime(r.transaction_date) : "—"}
+                        {r.transaction_date
+                          ? dubaiTime(r.transaction_date)
+                          : "—"}
                       </td>
                       <td
                         style={{
@@ -3568,444 +3672,727 @@ export default function PerformancePage() {
         )}
 
         {/* ── CUSTOMERS ── */}
-        {activeTab === "Customers" && (() => {
-          // ── derived data for this tab ──
-          // "Identified customers" = distinct BINs (card families), per user definition
-          const uniqueBins = new Set(customerProfiles.map((c) => c.cardBin)).size;
-          const powerUsers  = customerProfiles.filter((c) => c.segment === "Power User");
-          const highRiskTxns = scopedAdyenRows.filter((r) => (r.risk_score ?? 0) > 50).length;
-          // Revenue = SUM(weimi.total_amount) for matched txns — per user definition
-          const totalCustSpend = customerProfiles.reduce((s, c) => s + c.totalSpend, 0); // SUM(captured_amount_value)
-          const totalMatchedTxns = customerProfiles.reduce((s, c) => s + c.matchedTxns, 0);
-          const totalGap = customerProfiles.reduce((s, c) => s + c.gap, 0);
-          // Total Amount = SUM(weimi.total_amount) via merchant_reference join — true retail
-          const totalWeimiAmount = Math.round(customerProfiles.reduce((s, c) => s + c.weimiTotal, 0) * 100) / 100;
-          // Avg = captured / settled txns
-          const avgSpendPerTxn = totalMatchedTxns > 0 ? totalCustSpend / totalMatchedTxns : 0;
-          const repeatCount = customerProfiles.filter((c) => c.isRepeat).length;
-          const repeatPct = customerProfiles.length > 0 ? Math.round((repeatCount / customerProfiles.length) * 100) : 0;
-
-          // segment summary for table at top
-          const segSummary: Record<string, { cards: number; txns: number; revenue: number }> = {};
-          for (const cp of customerProfiles) {
-            if (!segSummary[cp.segment]) segSummary[cp.segment] = { cards: 0, txns: 0, revenue: 0 };
-            segSummary[cp.segment].cards++;
-            segSummary[cp.segment].txns += cp.txnCount;
-            segSummary[cp.segment].revenue += cp.totalSpend;
-          }
-          const SEG_ORDER: CustomerSegment[] = ["Power User","Returning","One-off","Failed","Defaulter","Compromised","Pure Fraud"];
-          const SEG_COLORS: Record<string, string> = {
-            "Power User": "#24544a", "Returning": "#6366F1", "One-off": "#0E3F4D",
-            "Failed": "#9a948e", "Defaulter": "#f97316", "Compromised": "#DC2626", "Pure Fraud": "#7f1d1d",
-          };
-
-          // BIN-level frequency (top 12 by revenue)
-          const binMap: Record<string, { bin: string; issuer: string; cards: number; txns: number; revenue: number; fraud: number }> = {};
-          for (const cp of customerProfiles) {
-            const bin = cp.cardBin ?? "Unknown";
-            if (!binMap[bin]) binMap[bin] = { bin, issuer: cp.issuer ?? bin, cards: 0, txns: 0, revenue: 0, fraud: 0 };
-            binMap[bin].cards++;
-            binMap[bin].txns += cp.txnCount;
-            binMap[bin].revenue += cp.totalSpend;
-            if (cp.hasHighRisk) binMap[bin].fraud++;
-          }
-          const shortenIssuer = (s: string) =>
-            s.replace(/\s*\(P\.?J\.?S\.?C\.?\)/gi, "").replace(/\s+BANK\b/gi, " Bk")
-             .replace(/\bBANK\b/gi, "Bk").replace(/\bPAYMENTS LIMITED\b/gi, "Pay")
-             .replace(/\bBUILDING SOCIETY\b/gi, "BS").replace(/\s{2,}/g, " ").trim().slice(0, 24);
-          const binData = Object.values(binMap)
-            .sort((a, b) => b.revenue - a.revenue)
-            .slice(0, 12)
-            .map((b) => ({ ...b, label: shortenIssuer(b.issuer) }));
-
-          // data coverage: two Adyen populations in the DB
-          // Use raw adyenRows here so the banner always shows the full window coverage,
-          // not just the scoped subset (helps diagnose pipeline gaps)
-          const settledRows = adyenRows.filter((r) => SETTLED_STATUSES.has(r.status ?? ""));
-          const identifiedSettled = settledRows.filter((r) => r.card_number_summary);
-          const anonymousSettled = settledRows.filter((r) => !r.card_number_summary);
-          const identifiedRevenue = identifiedSettled.reduce((s, r) => s + (r.value_aed ?? 0), 0);
-          const anonymousRevenue = anonymousSettled.reduce((s, r) => s + (r.value_aed ?? 0), 0);
-          const totalSettledRevenue = identifiedRevenue + anonymousRevenue;
-          const coveredPct = totalSettledRevenue > 0 ? Math.round((identifiedRevenue / totalSettledRevenue) * 100) : 0;
-
-          // hour-of-day buckets (24h, Dubai TZ, settled txns only) — scoped to filter
-          const hourBuckets: number[] = Array(24).fill(0);
-          for (const r of scopedAdyenRows) {
-            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
-            hourBuckets[dubaiHour(r.creation_date)]++;
-          }
-          const hourData = hourBuckets.map((count, h) => ({
-            hour: `${String(h).padStart(2, "0")}:00`,
-            txns: count,
-          }));
-
-          // issuer country top-10 — scoped to filter
-          const countryMap: Record<string, number> = {};
-          for (const r of scopedAdyenRows) {
-            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
-            const c = r.issuer_country ?? "Unknown";
-            countryMap[c] = (countryMap[c] ?? 0) + 1;
-          }
-          const countryData = Object.entries(countryMap)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([country, count]) => ({ country, count }));
-
-          // visit-frequency buckets
-          const freqBuckets = { "1": 0, "2–3": 0, "4–10": 0, "10+": 0 };
-          for (const cp of customerProfiles) {
-            if (cp.settledCount === 1) freqBuckets["1"]++;
-            else if (cp.settledCount <= 3) freqBuckets["2–3"]++;
-            else if (cp.settledCount <= 10) freqBuckets["4–10"]++;
-            else freqBuckets["10+"]++;
-          }
-          const freqData = Object.entries(freqBuckets).map(([label, count]) => ({ label, count }));
-
-          // new vs repeat by payment method (for stacked chart)
-          const repeatVsNewData = [
-            { label: "New (1 visit)", count: customerProfiles.filter((c) => !c.isRepeat).length, fill: "#24544a" },
-            { label: "Repeat (2+ visits)", count: repeatCount, fill: "#e1b460" },
-          ];
-
-          // ── customer list derivation ──
-          const custSearchLow = custSearch.toLowerCase();
-          const filteredCusts = customerProfiles.filter((cp) => {
-            if (custSegFilter && cp.segment !== custSegFilter) return false;
-            if (!custSearchLow) return true;
-            return (
-              cp.cardDisplay.toLowerCase().includes(custSearchLow) ||
-              (cp.paymentMethod ?? "").toLowerCase().includes(custSearchLow) ||
-              (cp.issuer ?? "").toLowerCase().includes(custSearchLow) ||
-              (cp.issuerCountry ?? "").toLowerCase().includes(custSearchLow)
+        {activeTab === "Customers" &&
+          (() => {
+            // ── derived data for this tab ──
+            // "Identified customers" = distinct BINs (card families), per user definition
+            const uniqueBins = new Set(customerProfiles.map((c) => c.cardBin))
+              .size;
+            const powerUsers = customerProfiles.filter(
+              (c) => c.segment === "Power User",
             );
-          });
-          const sortedCusts = [...filteredCusts].sort((a, b) => {
-            let av = 0, bv = 0;
-            if (custSort === "txns") { av = a.settledCount; bv = b.settledCount; }
-            else if (custSort === "spend") { av = a.totalSpend; bv = b.totalSpend; }
-            else if (custSort === "last_seen") { av = new Date(a.lastSeen).getTime(); bv = new Date(b.lastSeen).getTime(); }
-            else { av = a.maxRiskScore; bv = b.maxRiskScore; }
-            return custSortDir === "desc" ? bv - av : av - bv;
-          });
-          const custPageCount = Math.max(1, Math.ceil(sortedCusts.length / CUST_PAGE_SIZE));
-          const safeCustPage = Math.min(custPage, custPageCount - 1);
-          const pagedCusts = sortedCusts.slice(safeCustPage * CUST_PAGE_SIZE, (safeCustPage + 1) * CUST_PAGE_SIZE);
+            const highRiskTxns = scopedAdyenRows.filter(
+              (r) => (r.risk_score ?? 0) > 50,
+            ).length;
+            // Revenue = SUM(weimi.total_amount) for matched txns — per user definition
+            const totalCustSpend = customerProfiles.reduce(
+              (s, c) => s + c.totalSpend,
+              0,
+            ); // SUM(captured_amount_value)
+            const totalMatchedTxns = customerProfiles.reduce(
+              (s, c) => s + c.matchedTxns,
+              0,
+            );
+            const totalGap = customerProfiles.reduce((s, c) => s + c.gap, 0);
+            // Total Amount = SUM(weimi.total_amount) via merchant_reference join — true retail
+            const totalWeimiAmount =
+              Math.round(
+                customerProfiles.reduce((s, c) => s + c.weimiTotal, 0) * 100,
+              ) / 100;
+            // Avg = captured / settled txns
+            const avgSpendPerTxn =
+              totalMatchedTxns > 0 ? totalCustSpend / totalMatchedTxns : 0;
+            const repeatCount = customerProfiles.filter(
+              (c) => c.isRepeat,
+            ).length;
+            const repeatPct =
+              customerProfiles.length > 0
+                ? Math.round((repeatCount / customerProfiles.length) * 100)
+                : 0;
 
-          // ── selected customer detail ──
-          const selectedCust = selectedCustKey ? customerProfiles.find((c) => c.key === selectedCustKey) ?? null : null;
-          const selectedTxns = selectedCustKey
-            ? scopedAdyenRows
-                .filter((r) => {
-                  const b = r.card_bin ? String(r.card_bin).replace(/\.0$/, "").trim() : null;
-                  const l = r.card_number_summary ? String(r.card_number_summary).replace(/\.0$/, "").trim() : null;
-                  return b && l && `${b}-${l}` === selectedCustKey;
-                })
-                .sort((a, b) => new Date(b.creation_date).getTime() - new Date(a.creation_date).getTime())
-            : [];
-          // daily spend for selected customer sparkline
-          const custDailyMap: Record<string, number> = {};
-          for (const r of selectedTxns) {
-            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
-            const d = dubaiDate(r.creation_date);
-            custDailyMap[d] = (custDailyMap[d] ?? 0) + (r.captured_amount_value ?? 0);
-          }
-          const custDailyData = Object.entries(custDailyMap).sort().map(([date, amount]) => ({ date, amount }));
-          // hour pattern for selected customer
-          const custHourBuckets: number[] = Array(24).fill(0);
-          for (const r of selectedTxns) {
-            if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
-            custHourBuckets[dubaiHour(r.creation_date)]++;
-          }
-          const custHourData = custHourBuckets.map((count, h) => ({ hour: `${String(h).padStart(2, "0")}`, txns: count }));
+            // segment summary for table at top
+            const segSummary: Record<
+              string,
+              { cards: number; txns: number; revenue: number }
+            > = {};
+            for (const cp of customerProfiles) {
+              if (!segSummary[cp.segment])
+                segSummary[cp.segment] = { cards: 0, txns: 0, revenue: 0 };
+              segSummary[cp.segment].cards++;
+              segSummary[cp.segment].txns += cp.txnCount;
+              segSummary[cp.segment].revenue += cp.totalSpend;
+            }
+            const SEG_ORDER: CustomerSegment[] = [
+              "Power User",
+              "Returning",
+              "One-off",
+              "Failed",
+              "Defaulter",
+              "Compromised",
+              "Pure Fraud",
+            ];
+            const SEG_COLORS: Record<string, string> = {
+              "Power User": "#24544a",
+              Returning: "#6366F1",
+              "One-off": "#0E3F4D",
+              Failed: "#9a948e",
+              Defaulter: "#f97316",
+              Compromised: "#DC2626",
+              "Pure Fraud": "#7f1d1d",
+            };
 
-          // Captured / gap for selected customer detail KPIs — pure Adyen
-          const selectedCapture = Math.round(
-            selectedTxns
-              .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
-              .reduce((s, r) => s + (r.captured_amount_value ?? 0), 0) * 100
-          ) / 100;
-          const selectedDetailGap = Math.round(
-            selectedTxns
-              .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
-              .reduce((s, r) => {
-                const adj = r.adjusted_amount_value ?? r.captured_amount_value ?? 0;
-                const cap = r.captured_amount_value ?? 0;
-                return s + Math.max(adj - cap, 0);
-              }, 0) * 100
-          ) / 100;
+            // BIN-level frequency (top 12 by revenue)
+            const binMap: Record<
+              string,
+              {
+                bin: string;
+                issuer: string;
+                cards: number;
+                txns: number;
+                revenue: number;
+                fraud: number;
+              }
+            > = {};
+            for (const cp of customerProfiles) {
+              const bin = cp.cardBin ?? "Unknown";
+              if (!binMap[bin])
+                binMap[bin] = {
+                  bin,
+                  issuer: cp.issuer ?? bin,
+                  cards: 0,
+                  txns: 0,
+                  revenue: 0,
+                  fraud: 0,
+                };
+              binMap[bin].cards++;
+              binMap[bin].txns += cp.txnCount;
+              binMap[bin].revenue += cp.totalSpend;
+              if (cp.hasHighRisk) binMap[bin].fraud++;
+            }
+            const shortenIssuer = (s: string) =>
+              s
+                .replace(/\s*\(P\.?J\.?S\.?C\.?\)/gi, "")
+                .replace(/\s+BANK\b/gi, " Bk")
+                .replace(/\bBANK\b/gi, "Bk")
+                .replace(/\bPAYMENTS LIMITED\b/gi, "Pay")
+                .replace(/\bBUILDING SOCIETY\b/gi, "BS")
+                .replace(/\s{2,}/g, " ")
+                .trim()
+                .slice(0, 24);
+            const binData = Object.values(binMap)
+              .sort((a, b) => b.revenue - a.revenue)
+              .slice(0, 12)
+              .map((b) => ({ ...b, label: shortenIssuer(b.issuer) }));
 
-          // Weimi product join for selected customer
-          // adyen merchant_reference = internal_txn_sn (base, no trailing _N suffix)
-          const custMerchantRefs = new Set(
-            selectedTxns
-              .filter((r) => r.merchant_reference)
-              .map((r) => r.merchant_reference as string)
-          );
-          // salesRows internal_txn_sn may have _1, _2 suffixes — strip them for matching
-          const custWeimi = salesRows.filter((s) => {
-            const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
-            return base && custMerchantRefs.has(base);
-          }).sort((a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime());
-          // aggregate by product
-          const weimiProductMap: Record<string, { name: string; qty: number; spend: number }> = {};
-          for (const s of custWeimi) {
-            const name = s.pod_product_name ?? "Unknown";
-            if (!weimiProductMap[name]) weimiProductMap[name] = { name, qty: 0, spend: 0 };
-            weimiProductMap[name].qty += s.qty ?? 0;
-            weimiProductMap[name].spend += s.total_amount ?? 0;
-          }
-          const weimiTopProducts = Object.values(weimiProductMap)
-            .sort((a, b) => b.spend - a.spend)
-            .slice(0, 10);
+            // data coverage: two Adyen populations in the DB
+            // Use raw adyenRows here so the banner always shows the full window coverage,
+            // not just the scoped subset (helps diagnose pipeline gaps)
+            const settledRows = adyenRows.filter((r) =>
+              SETTLED_STATUSES.has(r.status ?? ""),
+            );
+            const identifiedSettled = settledRows.filter(
+              (r) => r.card_number_summary,
+            );
+            const anonymousSettled = settledRows.filter(
+              (r) => !r.card_number_summary,
+            );
+            const identifiedRevenue = identifiedSettled.reduce(
+              (s, r) => s + (r.value_aed ?? 0),
+              0,
+            );
+            const anonymousRevenue = anonymousSettled.reduce(
+              (s, r) => s + (r.value_aed ?? 0),
+              0,
+            );
+            const totalSettledRevenue = identifiedRevenue + anonymousRevenue;
+            const coveredPct =
+              totalSettledRevenue > 0
+                ? Math.round((identifiedRevenue / totalSettledRevenue) * 100)
+                : 0;
 
-          // shared styles
-          const chartCard = {
-            background: "white" as const,
-            border: "1px solid #e8e4de",
-            borderRadius: 6,
-            padding: "18px 20px",
-          };
-          const sortPillStyle = (active: boolean) => ({
-            padding: "5px 12px",
-            borderRadius: 4,
-            border: `1px solid ${active ? "#24544a" : "#e8e4de"}`,
-            background: active ? "rgba(36,84,74,0.12)" : "#ffffff",
-            color: active ? "#24544a" : "#9a948e",
-            fontSize: 11,
-            fontFamily: font,
-            cursor: "pointer" as const,
-            transition: "all .15s",
-          });
-          const thStyle: React.CSSProperties = {
-            textAlign: "left",
-            fontWeight: 700,
-            fontSize: 10,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "#6b6860",
-            padding: "8px 12px",
-            borderBottom: "1px solid #e8e4de",
-            whiteSpace: "nowrap",
-          };
-          const tdStyle: React.CSSProperties = {
-            padding: "10px 12px",
-            fontSize: 12,
-            fontFamily: font,
-            borderBottom: "1px solid #f5f2ee",
-            whiteSpace: "nowrap",
-          };
+            // hour-of-day buckets (24h, Dubai TZ, settled txns only) — scoped to filter
+            const hourBuckets: number[] = Array(24).fill(0);
+            for (const r of scopedAdyenRows) {
+              if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+              hourBuckets[dubaiHour(r.creation_date)]++;
+            }
+            const hourData = hourBuckets.map((count, h) => ({
+              hour: `${String(h).padStart(2, "0")}:00`,
+              txns: count,
+            }));
 
-          return (
-            <div>
-              <SectionLabel text={`${dateFrom} to ${dateTo} \u00B7 CUSTOMER INTELLIGENCE`} />
-              <h2 style={{ fontFamily: font, fontWeight: 700, fontSize: 22, letterSpacing: "-0.5px", marginBottom: 4 }}>
-                Customer Profiles
-              </h2>
-              <p style={{ fontSize: 11, color: "#6b6860", marginBottom: 14 }}>
-                {fmtN(customerProfiles.length)} identified customers &middot; {fmtN(settledRows.length)} total settled Adyen transactions in window
-              </p>
+            // issuer country top-10 — scoped to filter
+            const countryMap: Record<string, number> = {};
+            for (const r of scopedAdyenRows) {
+              if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+              const c = r.issuer_country ?? "Unknown";
+              countryMap[c] = (countryMap[c] ?? 0) + 1;
+            }
+            const countryData = Object.entries(countryMap)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 10)
+              .map(([country, count]) => ({ country, count }));
 
-              {/* ── KPI row ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 14, marginBottom: 20 }}>
-                <StatCard label="Distinct BINs" value={fmtN(uniqueBins)} subtitle="card families (issuer groups)" accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Est. Customers" value={fmtN(customerProfiles.length)} subtitle={`avg ${(customerProfiles.length / Math.max(uniqueBins, 1)).toFixed(1)} cards per BIN`} accent="#24544a" valueColor="#24544a" />
-                <StatCard label="Total Amount" value={fmtAed(totalWeimiAmount)} subtitle={`Weimi retail · ${fmtN(totalMatchedTxns)} matched txns`} accent="#0E3F4D" valueColor="#0E3F4D" />
-                <StatCard label="Captured Amount" value={fmtAed(totalCustSpend)} subtitle="Adyen settled to Boonz" accent="#6366F1" valueColor="#6366F1" />
-                <StatCard label="Avg Spend / Visit" value={fmtAed(avgSpendPerTxn)} subtitle="captured ÷ settled txns" accent="#8B5CF6" valueColor="#8B5CF6" />
-                <StatCard label="Capture Gap" value={fmtAed(totalGap)} subtitle="adjusted − captured (Adyen)" accent={totalGap > 0 ? "#DC2626" : "#6b6860"} valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"} />
-              </div>
+            // visit-frequency buckets
+            const freqBuckets = { "1": 0, "2–3": 0, "4–10": 0, "10+": 0 };
+            for (const cp of customerProfiles) {
+              if (cp.settledCount === 1) freqBuckets["1"]++;
+              else if (cp.settledCount <= 3) freqBuckets["2–3"]++;
+              else if (cp.settledCount <= 10) freqBuckets["4–10"]++;
+              else freqBuckets["10+"]++;
+            }
+            const freqData = Object.entries(freqBuckets).map(
+              ([label, count]) => ({ label, count }),
+            );
 
-              {/* ── Segment summary table ── */}
-              <div style={{ background: "white", border: "1px solid #e8e4de", borderRadius: 6, marginBottom: 20, overflow: "hidden" }}>
-                <div style={{ padding: "12px 18px", borderBottom: "1px solid #e8e4de", display: "flex", alignItems: "center", gap: 10 }}>
-                  <h3 style={{ fontFamily: font, fontWeight: 700, fontSize: 13, margin: 0 }}>Customer Segments</h3>
-                  <span style={{ fontSize: 10, color: "#6b6860" }}>Dossier methodology · settled≥5=Power User · 2-4=Returning · 1=One-off · 0=Failed · gap=Defaulter · risk{">"}50=Compromised</span>
-                </div>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
-                  <thead style={{ background: "#f9f7f4" }}>
-                    <tr>
-                      <th style={{ textAlign: "left", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Segment</th>
-                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Cards</th>
-                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>% Cards</th>
-                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Txns</th>
-                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Revenue</th>
-                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>% Revenue</th>
-                      <th style={{ textAlign: "right", fontWeight: 700, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b6860", padding: "8px 16px", borderBottom: "1px solid #e8e4de" }}>Avg / Card</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {SEG_ORDER.filter((s) => segSummary[s]).map((seg) => {
-                      const d = segSummary[seg];
-                      const color = SEG_COLORS[seg] ?? "#6b6860";
-                      const isActive = custSegFilter === seg;
-                      return (
-                        <tr
-                          key={seg}
-                          onClick={() => { setCustSegFilter(isActive ? null : seg as CustomerSegment); setCustPage(0); }}
-                          style={{ borderBottom: "1px solid #f5f2ee", cursor: "pointer", background: isActive ? `${color}12` : "white", transition: "background .1s" }}
-                          onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLTableRowElement).style.background = "#fafaf8"; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isActive ? `${color}12` : "white"; }}
-                        >
-                          <td style={{ padding: "9px 16px", fontFamily: font }}>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                              <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
-                              <span style={{ fontSize: 12, fontWeight: 600, color }}>{seg}</span>
-                              {isActive && <span style={{ fontSize: 9, fontWeight: 700, color, background: `${color}22`, padding: "1px 6px", borderRadius: 999, marginLeft: 4 }}>FILTERED ✕</span>}
-                            </span>
-                          </td>
-                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12, fontWeight: 700 }}>{fmtN(d.cards)}</td>
-                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 11, color: "#6b6860" }}>{pct(d.cards, customerProfiles.length)}</td>
-                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12 }}>{fmtN(d.txns)}</td>
-                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 12, fontWeight: 700, color }}>{fmtAed(d.revenue)}</td>
-                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 11, color: "#6b6860" }}>{pct(d.revenue, totalCustSpend)}</td>
-                          <td style={{ padding: "9px 16px", textAlign: "right", fontSize: 11, color: "#6b6860" }}>{d.cards > 0 ? fmtAed(d.revenue / d.cards) : "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+            // new vs repeat by payment method (for stacked chart)
+            const repeatVsNewData = [
+              {
+                label: "New (1 visit)",
+                count: customerProfiles.filter((c) => !c.isRepeat).length,
+                fill: "#24544a",
+              },
+              {
+                label: "Repeat (2+ visits)",
+                count: repeatCount,
+                fill: "#e1b460",
+              },
+            ];
 
-              {/* ── Charts row 1: BIN frequency + Time of Day ── */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
-                <div style={chartCard}>
-                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Top Card Families by Revenue</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Weimi billed revenue by issuer · hover for BIN + card count</p>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={binData} layout="vertical" margin={{ top: 0, right: 64, bottom: 0, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} tickFormatter={(v) => `AED ${fmtN(v)}`} />
-                      <YAxis type="category" dataKey="label" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} width={140} />
-                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }}
-                        formatter={(v: any, _name: any, props: any) => {
-                          const d = props.payload;
-                          return [`${fmtAed(v)} · BIN ${d.bin} · ${fmtN(d.cards)} cards · ${fmtN(d.txns)} txns${d.fraud > 0 ? ` · ⚠ ${d.fraud} fraud` : ""}`, d.issuer];
-                        }}
-                      />
-                      <Bar dataKey="revenue" radius={[0, 3, 3, 0]}>
-                        {binData.map((b, i) => <Cell key={i} fill={b.fraud > 0 ? "#DC2626" : "#24544a"} opacity={b.fraud > 0 ? 1 : 0.9 - i * 0.03} />)}
-                        <LabelList dataKey="revenue" position="right" style={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} formatter={(v: any) => fmtAed(v)} />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <p style={{ fontSize: 10, color: "#DC2626", marginTop: 8 }}>Red bars = issuer has ≥1 fraud-flagged card in this window</p>
-                </div>
+            // ── customer list derivation ──
+            const custSearchLow = custSearch.toLowerCase();
+            const filteredCusts = customerProfiles.filter((cp) => {
+              if (custSegFilter && cp.segment !== custSegFilter) return false;
+              if (!custSearchLow) return true;
+              return (
+                cp.cardDisplay.toLowerCase().includes(custSearchLow) ||
+                (cp.paymentMethod ?? "")
+                  .toLowerCase()
+                  .includes(custSearchLow) ||
+                (cp.issuer ?? "").toLowerCase().includes(custSearchLow) ||
+                (cp.issuerCountry ?? "").toLowerCase().includes(custSearchLow)
+              );
+            });
+            const sortedCusts = [...filteredCusts].sort((a, b) => {
+              let av = 0,
+                bv = 0;
+              if (custSort === "txns") {
+                av = a.settledCount;
+                bv = b.settledCount;
+              } else if (custSort === "spend") {
+                av = a.totalSpend;
+                bv = b.totalSpend;
+              } else if (custSort === "last_seen") {
+                av = new Date(a.lastSeen).getTime();
+                bv = new Date(b.lastSeen).getTime();
+              } else {
+                av = a.maxRiskScore;
+                bv = b.maxRiskScore;
+              }
+              return custSortDir === "desc" ? bv - av : av - bv;
+            });
+            const custPageCount = Math.max(
+              1,
+              Math.ceil(sortedCusts.length / CUST_PAGE_SIZE),
+            );
+            const safeCustPage = Math.min(custPage, custPageCount - 1);
+            const pagedCusts = sortedCusts.slice(
+              safeCustPage * CUST_PAGE_SIZE,
+              (safeCustPage + 1) * CUST_PAGE_SIZE,
+            );
 
-                <div style={chartCard}>
-                  <h3 style={{ fontFamily: font, fontWeight: 600, fontSize: 15, marginBottom: 4 }}>Time of Day</h3>
-                  <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 14 }}>Hour customers transact (Dubai time · all Adyen settled)</p>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={hourData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
-                      <XAxis dataKey="hour" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} interval={3} />
-                      <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                      <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
-                      <Bar dataKey="txns" fill="#24544a" radius={[2, 2, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                  <div style={{ marginTop: 14 }}>
-                    <p style={{ fontSize: 10, color: "#6b6860", marginBottom: 8 }}>Visit frequency distribution (identified cards)</p>
-                    <ResponsiveContainer width="100%" height={120}>
-                      <BarChart data={freqData} margin={{ top: 0, right: 4, bottom: 0, left: -20 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0ede8" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fontSize: 10, fontFamily: font, fill: "#6b6860" }} />
-                        <YAxis tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} />
-                        <Tooltip contentStyle={{ fontFamily: font, fontSize: 11, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} cards`, "Cards"]} />
-                        <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-                          {freqData.map((_, i) => <Cell key={i} fill={i === 0 ? "#9a948e" : i === 1 ? "#6366F1" : i === 2 ? "#24544a" : "#e1b460"} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
+            // ── selected customer detail ──
+            const selectedCust = selectedCustKey
+              ? (customerProfiles.find((c) => c.key === selectedCustKey) ??
+                null)
+              : null;
+            const selectedTxns = selectedCustKey
+              ? scopedAdyenRows
+                  .filter((r) => {
+                    const b = r.card_bin
+                      ? String(r.card_bin).replace(/\.0$/, "").trim()
+                      : null;
+                    const l = r.card_number_summary
+                      ? String(r.card_number_summary).replace(/\.0$/, "").trim()
+                      : null;
+                    return b && l && `${b}-${l}` === selectedCustKey;
+                  })
+                  .sort(
+                    (a, b) =>
+                      new Date(b.creation_date).getTime() -
+                      new Date(a.creation_date).getTime(),
+                  )
+              : [];
+            // daily spend for selected customer sparkline
+            const custDailyMap: Record<string, number> = {};
+            for (const r of selectedTxns) {
+              if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+              const d = dubaiDate(r.creation_date);
+              custDailyMap[d] =
+                (custDailyMap[d] ?? 0) + (r.captured_amount_value ?? 0);
+            }
+            const custDailyData = Object.entries(custDailyMap)
+              .sort()
+              .map(([date, amount]) => ({ date, amount }));
+            // hour pattern for selected customer
+            const custHourBuckets: number[] = Array(24).fill(0);
+            for (const r of selectedTxns) {
+              if (!SETTLED_STATUSES.has(r.status ?? "")) continue;
+              custHourBuckets[dubaiHour(r.creation_date)]++;
+            }
+            const custHourData = custHourBuckets.map((count, h) => ({
+              hour: `${String(h).padStart(2, "0")}`,
+              txns: count,
+            }));
 
+            // Captured / gap for selected customer detail KPIs — pure Adyen
+            const selectedCapture =
+              Math.round(
+                selectedTxns
+                  .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
+                  .reduce((s, r) => s + (r.captured_amount_value ?? 0), 0) *
+                  100,
+              ) / 100;
+            const selectedDetailGap =
+              Math.round(
+                selectedTxns
+                  .filter((r) => SETTLED_STATUSES.has(r.status ?? ""))
+                  .reduce((s, r) => {
+                    const adj =
+                      r.adjusted_amount_value ?? r.captured_amount_value ?? 0;
+                    const cap = r.captured_amount_value ?? 0;
+                    return s + Math.max(adj - cap, 0);
+                  }, 0) * 100,
+              ) / 100;
 
-              {/* ── Customer List ── */}
-              <div style={{ background: "white", border: "1px solid #e8e4de", borderRadius: 6, overflow: "hidden", marginBottom: selectedCust ? 0 : 0 }}>
-                <div style={{ padding: "14px 18px", borderBottom: "1px solid #e8e4de", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <h3 style={{ fontFamily: font, fontWeight: 700, fontSize: 14, margin: 0 }}>
-                    {custSegFilter ? custSegFilter : "All Customers"}
-                  </h3>
-                  {custSegFilter && (
-                    <button onClick={() => { setCustSegFilter(null); setCustPage(0); }} style={{ fontSize: 10, fontWeight: 600, color: SEG_COLORS[custSegFilter], background: `${SEG_COLORS[custSegFilter]}18`, border: `1px solid ${SEG_COLORS[custSegFilter]}44`, padding: "2px 10px", borderRadius: 999, cursor: "pointer", fontFamily: font }}>
-                      {custSegFilter} ✕ clear
-                    </button>
-                  )}
-                  <span style={{ fontSize: 11, color: "#6b6860" }}>{fmtN(filteredCusts.length)} results</span>
-                  <input
-                    type="text"
-                    placeholder="Search card, method, issuer…"
-                    value={custSearch}
-                    onChange={(e) => { setCustSearch(e.target.value); setCustPage(0); }}
-                    style={{ marginLeft: "auto", padding: "6px 12px", fontSize: 11, fontFamily: font, border: "1px solid #e8e4de", borderRadius: 4, width: 220, outline: "none" }}
+            // Weimi product join for selected customer
+            // adyen merchant_reference = internal_txn_sn (base, no trailing _N suffix)
+            const custMerchantRefs = new Set(
+              selectedTxns
+                .filter((r) => r.merchant_reference)
+                .map((r) => r.merchant_reference as string),
+            );
+            // salesRows internal_txn_sn may have _1, _2 suffixes — strip them for matching
+            const custWeimi = salesRows
+              .filter((s) => {
+                const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
+                return base && custMerchantRefs.has(base);
+              })
+              .sort(
+                (a, b) =>
+                  new Date(b.transaction_date).getTime() -
+                  new Date(a.transaction_date).getTime(),
+              );
+            // aggregate by product
+            const weimiProductMap: Record<
+              string,
+              { name: string; qty: number; spend: number }
+            > = {};
+            for (const s of custWeimi) {
+              const name = s.pod_product_name ?? "Unknown";
+              if (!weimiProductMap[name])
+                weimiProductMap[name] = { name, qty: 0, spend: 0 };
+              weimiProductMap[name].qty += s.qty ?? 0;
+              weimiProductMap[name].spend += s.total_amount ?? 0;
+            }
+            const weimiTopProducts = Object.values(weimiProductMap)
+              .sort((a, b) => b.spend - a.spend)
+              .slice(0, 10);
+
+            // shared styles
+            const chartCard = {
+              background: "white" as const,
+              border: "1px solid #e8e4de",
+              borderRadius: 6,
+              padding: "18px 20px",
+            };
+            const sortPillStyle = (active: boolean) => ({
+              padding: "5px 12px",
+              borderRadius: 4,
+              border: `1px solid ${active ? "#24544a" : "#e8e4de"}`,
+              background: active ? "rgba(36,84,74,0.12)" : "#ffffff",
+              color: active ? "#24544a" : "#9a948e",
+              fontSize: 11,
+              fontFamily: font,
+              cursor: "pointer" as const,
+              transition: "all .15s",
+            });
+            const thStyle: React.CSSProperties = {
+              textAlign: "left",
+              fontWeight: 700,
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "#6b6860",
+              padding: "8px 12px",
+              borderBottom: "1px solid #e8e4de",
+              whiteSpace: "nowrap",
+            };
+            const tdStyle: React.CSSProperties = {
+              padding: "10px 12px",
+              fontSize: 12,
+              fontFamily: font,
+              borderBottom: "1px solid #f5f2ee",
+              whiteSpace: "nowrap",
+            };
+
+            return (
+              <div>
+                <SectionLabel
+                  text={`${dateFrom} to ${dateTo} \u00B7 CUSTOMER INTELLIGENCE`}
+                />
+                <h2
+                  style={{
+                    fontFamily: font,
+                    fontWeight: 700,
+                    fontSize: 22,
+                    letterSpacing: "-0.5px",
+                    marginBottom: 4,
+                  }}
+                >
+                  Customer Profiles
+                </h2>
+                <p style={{ fontSize: 11, color: "#6b6860", marginBottom: 14 }}>
+                  {fmtN(customerProfiles.length)} identified customers &middot;{" "}
+                  {fmtN(settledRows.length)} total settled Adyen transactions in
+                  window
+                </p>
+
+                {/* ── KPI row ── */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(6, 1fr)",
+                    gap: 14,
+                    marginBottom: 20,
+                  }}
+                >
+                  <StatCard
+                    label="Distinct BINs"
+                    value={fmtN(uniqueBins)}
+                    subtitle="card families (issuer groups)"
+                    accent="#24544a"
+                    valueColor="#24544a"
                   />
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <span style={{ fontSize: 10, color: "#6b6860", letterSpacing: "0.06em", textTransform: "uppercase" }}>Sort</span>
-                    {(["txns", "spend", "last_seen", "risk"] as const).map((s) => (
-                      <button key={s} style={sortPillStyle(custSort === s)} onClick={() => { if (custSort === s) setCustSortDir((d) => d === "desc" ? "asc" : "desc"); else { setCustSort(s); setCustSortDir("desc"); } setCustPage(0); }}>
-                        {s === "txns" ? "Txns" : s === "spend" ? "Spend" : s === "last_seen" ? "Last Seen" : "Risk"}{custSort === s ? (custSortDir === "desc" ? " ↓" : " ↑") : ""}
-                      </button>
-                    ))}
-                  </div>
+                  <StatCard
+                    label="Est. Customers"
+                    value={fmtN(customerProfiles.length)}
+                    subtitle={`avg ${(customerProfiles.length / Math.max(uniqueBins, 1)).toFixed(1)} cards per BIN`}
+                    accent="#24544a"
+                    valueColor="#24544a"
+                  />
+                  <StatCard
+                    label="Total Amount"
+                    value={fmtAed(totalWeimiAmount)}
+                    subtitle={`Weimi retail · ${fmtN(totalMatchedTxns)} matched txns`}
+                    accent="#0E3F4D"
+                    valueColor="#0E3F4D"
+                  />
+                  <StatCard
+                    label="Captured Amount"
+                    value={fmtAed(totalCustSpend)}
+                    subtitle="Adyen settled to Boonz"
+                    accent="#6366F1"
+                    valueColor="#6366F1"
+                  />
+                  <StatCard
+                    label="Avg Spend / Visit"
+                    value={fmtAed(avgSpendPerTxn)}
+                    subtitle="captured ÷ settled txns"
+                    accent="#8B5CF6"
+                    valueColor="#8B5CF6"
+                  />
+                  <StatCard
+                    label="Capture Gap"
+                    value={fmtAed(totalGap)}
+                    subtitle="adjusted − captured (Adyen)"
+                    accent={totalGap > 0 ? "#DC2626" : "#6b6860"}
+                    valueColor={totalGap > 0 ? "#DC2626" : "#0a0a0a"}
+                  />
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
+                {/* ── Segment summary table ── */}
+                <div
+                  style={{
+                    background: "white",
+                    border: "1px solid #e8e4de",
+                    borderRadius: 6,
+                    marginBottom: 20,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "12px 18px",
+                      borderBottom: "1px solid #e8e4de",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                    }}
+                  >
+                    <h3
+                      style={{
+                        fontFamily: font,
+                        fontWeight: 700,
+                        fontSize: 13,
+                        margin: 0,
+                      }}
+                    >
+                      Customer Segments
+                    </h3>
+                    <span style={{ fontSize: 10, color: "#6b6860" }}>
+                      Dossier methodology · settled≥5=Power User · 2-4=Returning
+                      · 1=One-off · 0=Failed · gap=Defaulter · risk{">"}
+                      50=Compromised
+                    </span>
+                  </div>
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "collapse",
+                      fontFamily: font,
+                    }}
+                  >
                     <thead style={{ background: "#f9f7f4" }}>
                       <tr>
-                        <th style={thStyle}>Card ID</th>
-                        <th style={thStyle}>Segment</th>
-                        <th style={thStyle}>Issuer</th>
-                        <th style={thStyle}>Country</th>
-                        <th style={thStyle}>Funding</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Total Txns</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Weimi Total</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Captured</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Avg / Visit</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Gap</th>
-                        <th style={thStyle}>First Seen</th>
-                        <th style={thStyle}>Last Seen</th>
-                        <th style={{ ...thStyle, textAlign: "right" }}>Risk</th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          Segment
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          Cards
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          % Cards
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          Txns
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          Revenue
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          % Revenue
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: 10,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: "#6b6860",
+                            padding: "8px 16px",
+                            borderBottom: "1px solid #e8e4de",
+                          }}
+                        >
+                          Avg / Card
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {pagedCusts.length === 0 && (
-                        <tr><td colSpan={13} style={{ ...tdStyle, color: "#6b6860", textAlign: "center", padding: "28px" }}>No customers match the current filter.</td></tr>
-                      )}
-                      {pagedCusts.map((cp) => {
-                        const isSelected = cp.key === selectedCustKey;
+                      {SEG_ORDER.filter((s) => segSummary[s]).map((seg) => {
+                        const d = segSummary[seg];
+                        const color = SEG_COLORS[seg] ?? "#6b6860";
+                        const isActive = custSegFilter === seg;
                         return (
                           <tr
-                            key={cp.key}
-                            onClick={() => setSelectedCustKey(isSelected ? null : cp.key)}
-                            style={{ background: isSelected ? "rgba(36,84,74,0.07)" : "white", cursor: "pointer", transition: "background .1s" }}
-                            onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLTableRowElement).style.background = "#fafaf8"; }}
-                            onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = isSelected ? "rgba(36,84,74,0.07)" : "white"; }}
+                            key={seg}
+                            onClick={() => {
+                              setCustSegFilter(
+                                isActive ? null : (seg as CustomerSegment),
+                              );
+                              setCustPage(0);
+                            }}
+                            style={{
+                              borderBottom: "1px solid #f5f2ee",
+                              cursor: "pointer",
+                              background: isActive ? `${color}12` : "white",
+                              transition: "background .1s",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isActive)
+                                (
+                                  e.currentTarget as HTMLTableRowElement
+                                ).style.background = "#fafaf8";
+                            }}
+                            onMouseLeave={(e) => {
+                              (
+                                e.currentTarget as HTMLTableRowElement
+                              ).style.background = isActive
+                                ? `${color}12`
+                                : "white";
+                            }}
                           >
-                            <td style={tdStyle}>
-                              <span style={{ fontWeight: 700, fontFamily: "monospace", fontSize: 11, color: isSelected ? "#24544a" : "#0a0a0a" }}>{cp.cardDisplay}</span>
-                            </td>
-                            <td style={tdStyle}>
-                              <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: `${SEG_COLORS[cp.segment]}18`, color: SEG_COLORS[cp.segment] }}>{cp.segment}</span>
-                            </td>
-                            <td style={{ ...tdStyle, fontSize: 11 }}>{cp.issuer ?? "—"}</td>
-                            <td style={{ ...tdStyle, fontSize: 11 }}>{cp.issuerCountry ?? "—"}</td>
-                            <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>{cp.fundingSource ?? "—"}</td>
-                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(cp.txnCount)}</td>
-                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#0E3F4D" }}>{cp.weimiTotal > 0 ? fmtAed(cp.weimiTotal) : <span style={{ color: "#e8e4de" }}>—</span>}</td>
-                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(cp.totalSpend)}</td>
-                            <td style={{ ...tdStyle, textAlign: "right", color: "#6b6860" }}>{fmtAed(cp.avgSpend)}</td>
-                            <td style={{ ...tdStyle, textAlign: "right", color: cp.gap > 0 ? "#DC2626" : "#e8e4de" }}>{cp.gap > 0 ? fmtAed(cp.gap) : "—"}</td>
-                            <td style={{ ...tdStyle, color: "#6b6860", fontSize: 11 }}>{dubaiDate(cp.firstSeen)}</td>
-                            <td style={{ ...tdStyle, color: "#6b6860", fontSize: 11 }}>{dubaiDate(cp.lastSeen)}</td>
-                            <td style={{ ...tdStyle, textAlign: "right" }}>
-                              {cp.maxRiskScore > 0 ? (
-                                <span style={{ fontSize: 10, fontWeight: 600, color: cp.hasHighRisk ? "#DC2626" : "#6b6860", background: cp.hasHighRisk ? "rgba(220,38,38,0.08)" : "transparent", padding: "2px 6px", borderRadius: 999 }}>
-                                  {Math.round(cp.maxRiskScore)}
+                            <td
+                              style={{ padding: "9px 16px", fontFamily: font }}
+                            >
+                              <span
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: 2,
+                                    background: color,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <span
+                                  style={{
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    color,
+                                  }}
+                                >
+                                  {seg}
                                 </span>
-                              ) : <span style={{ color: "#e8e4de" }}>—</span>}
+                                {isActive && (
+                                  <span
+                                    style={{
+                                      fontSize: 9,
+                                      fontWeight: 700,
+                                      color,
+                                      background: `${color}22`,
+                                      padding: "1px 6px",
+                                      borderRadius: 999,
+                                      marginLeft: 4,
+                                    }}
+                                  >
+                                    FILTERED ✕
+                                  </span>
+                                )}
+                              </span>
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 16px",
+                                textAlign: "right",
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {fmtN(d.cards)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 16px",
+                                textAlign: "right",
+                                fontSize: 11,
+                                color: "#6b6860",
+                              }}
+                            >
+                              {pct(d.cards, customerProfiles.length)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 16px",
+                                textAlign: "right",
+                                fontSize: 12,
+                              }}
+                            >
+                              {fmtN(d.txns)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 16px",
+                                textAlign: "right",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color,
+                              }}
+                            >
+                              {fmtAed(d.revenue)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 16px",
+                                textAlign: "right",
+                                fontSize: 11,
+                                color: "#6b6860",
+                              }}
+                            >
+                              {pct(d.revenue, totalCustSpend)}
+                            </td>
+                            <td
+                              style={{
+                                padding: "9px 16px",
+                                textAlign: "right",
+                                fontSize: 11,
+                                color: "#6b6860",
+                              }}
+                            >
+                              {d.cards > 0 ? fmtAed(d.revenue / d.cards) : "—"}
                             </td>
                           </tr>
                         );
@@ -4014,245 +4401,1538 @@ export default function PerformancePage() {
                   </table>
                 </div>
 
-                {/* pagination */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 18px", borderTop: "1px solid #e8e4de" }}>
-                  <span style={{ fontSize: 11, color: "#6b6860" }}>
-                    Page {safeCustPage + 1} of {custPageCount} &middot; {fmtN(filteredCusts.length)} customers
-                  </span>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button disabled={safeCustPage === 0} onClick={() => setCustPage((p) => Math.max(0, p - 1))} style={{ padding: "5px 14px", borderRadius: 4, border: "1px solid #e8e4de", background: "#ffffff", color: safeCustPage === 0 ? "#e8e4de" : "#6b6860", cursor: safeCustPage === 0 ? "default" : "pointer", fontFamily: font, fontSize: 11 }}>Prev</button>
-                    <button disabled={safeCustPage >= custPageCount - 1} onClick={() => setCustPage((p) => Math.min(custPageCount - 1, p + 1))} style={{ padding: "5px 14px", borderRadius: 4, border: "1px solid #e8e4de", background: "#ffffff", color: safeCustPage >= custPageCount - 1 ? "#e8e4de" : "#6b6860", cursor: safeCustPage >= custPageCount - 1 ? "default" : "pointer", fontFamily: font, fontSize: 11 }}>Next</button>
+                {/* ── Charts row 1: BIN frequency + Time of Day ── */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 14,
+                    marginBottom: 14,
+                  }}
+                >
+                  <div style={chartCard}>
+                    <h3
+                      style={{
+                        fontFamily: font,
+                        fontWeight: 600,
+                        fontSize: 15,
+                        marginBottom: 4,
+                      }}
+                    >
+                      Top Card Families by Revenue
+                    </h3>
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "#6b6860",
+                        marginBottom: 14,
+                      }}
+                    >
+                      Weimi billed revenue by issuer · hover for BIN + card
+                      count
+                    </p>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart
+                        data={binData}
+                        layout="vertical"
+                        margin={{ top: 0, right: 64, bottom: 0, left: 0 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="#f0ede8"
+                          horizontal={false}
+                        />
+                        <XAxis
+                          type="number"
+                          tick={{
+                            fontSize: 9,
+                            fontFamily: font,
+                            fill: "#6b6860",
+                          }}
+                          tickFormatter={(v) => `AED ${fmtN(v)}`}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="label"
+                          tick={{
+                            fontSize: 9,
+                            fontFamily: font,
+                            fill: "#6b6860",
+                          }}
+                          width={140}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            fontFamily: font,
+                            fontSize: 11,
+                            border: "1px solid #e8e4de",
+                            borderRadius: 4,
+                          }}
+                          formatter={(v: any, _name: any, props: any) => {
+                            const d = props.payload;
+                            return [
+                              `${fmtAed(v)} · BIN ${d.bin} · ${fmtN(d.cards)} cards · ${fmtN(d.txns)} txns${d.fraud > 0 ? ` · ⚠ ${d.fraud} fraud` : ""}`,
+                              d.issuer,
+                            ];
+                          }}
+                        />
+                        <Bar dataKey="revenue" radius={[0, 3, 3, 0]}>
+                          {binData.map((b, i) => (
+                            <Cell
+                              key={i}
+                              fill={b.fraud > 0 ? "#DC2626" : "#24544a"}
+                              opacity={b.fraud > 0 ? 1 : 0.9 - i * 0.03}
+                            />
+                          ))}
+                          <LabelList
+                            dataKey="revenue"
+                            position="right"
+                            style={{
+                              fontSize: 9,
+                              fontFamily: font,
+                              fill: "#6b6860",
+                            }}
+                            formatter={(v: any) => fmtAed(v)}
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <p style={{ fontSize: 10, color: "#DC2626", marginTop: 8 }}>
+                      Red bars = issuer has ≥1 fraud-flagged card in this window
+                    </p>
+                  </div>
+
+                  <div style={chartCard}>
+                    <h3
+                      style={{
+                        fontFamily: font,
+                        fontWeight: 600,
+                        fontSize: 15,
+                        marginBottom: 4,
+                      }}
+                    >
+                      Time of Day
+                    </h3>
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "#6b6860",
+                        marginBottom: 14,
+                      }}
+                    >
+                      Hour customers transact (Dubai time · all Adyen settled)
+                    </p>
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart
+                        data={hourData}
+                        margin={{ top: 0, right: 4, bottom: 0, left: -20 }}
+                      >
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="#f0ede8"
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="hour"
+                          tick={{
+                            fontSize: 9,
+                            fontFamily: font,
+                            fill: "#6b6860",
+                          }}
+                          interval={3}
+                        />
+                        <YAxis
+                          tick={{
+                            fontSize: 9,
+                            fontFamily: font,
+                            fill: "#6b6860",
+                          }}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            fontFamily: font,
+                            fontSize: 11,
+                            border: "1px solid #e8e4de",
+                            borderRadius: 4,
+                          }}
+                          formatter={(v: any) => [`${v} txns`, "Transactions"]}
+                        />
+                        <Bar
+                          dataKey="txns"
+                          fill="#24544a"
+                          radius={[2, 2, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                    <div style={{ marginTop: 14 }}>
+                      <p
+                        style={{
+                          fontSize: 10,
+                          color: "#6b6860",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Visit frequency distribution (identified cards)
+                      </p>
+                      <ResponsiveContainer width="100%" height={120}>
+                        <BarChart
+                          data={freqData}
+                          margin={{ top: 0, right: 4, bottom: 0, left: -20 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="#f0ede8"
+                            vertical={false}
+                          />
+                          <XAxis
+                            dataKey="label"
+                            tick={{
+                              fontSize: 10,
+                              fontFamily: font,
+                              fill: "#6b6860",
+                            }}
+                          />
+                          <YAxis
+                            tick={{
+                              fontSize: 9,
+                              fontFamily: font,
+                              fill: "#6b6860",
+                            }}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              fontFamily: font,
+                              fontSize: 11,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                            formatter={(v: any) => [`${v} cards`, "Cards"]}
+                          />
+                          <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+                            {freqData.map((_, i) => (
+                              <Cell
+                                key={i}
+                                fill={
+                                  i === 0
+                                    ? "#9a948e"
+                                    : i === 1
+                                      ? "#6366F1"
+                                      : i === 2
+                                        ? "#24544a"
+                                        : "#e1b460"
+                                }
+                              />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* ── Customer Detail Panel ── */}
-              {selectedCust && (
-                <div style={{ marginTop: 16, background: "white", border: "2px solid #24544a", borderRadius: 8, overflow: "hidden" }}>
-                  {/* header */}
-                  <div style={{ background: "#0F4D3A", padding: "14px 20px", display: "flex", alignItems: "center", gap: 16 }}>
-                    <div>
-                      <div style={{ fontSize: 10, color: "#86efac", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 2 }}>Customer Detail</div>
-                      <div style={{ fontFamily: font, fontWeight: 800, fontSize: 20, color: "white", letterSpacing: "-0.5px" }}>
-                        {selectedCust.cardDisplay}
-                        {selectedCust.cardBin && <span style={{ fontSize: 12, fontWeight: 400, color: "#86efac", marginLeft: 8 }}>BIN {selectedCust.cardBin}</span>}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 10, marginLeft: 24, flexWrap: "wrap" }}>
-                      {selectedCust.paymentMethod && <span style={{ fontSize: 11, color: "#cbd5e1", background: "rgba(255,255,255,0.1)", padding: "3px 10px", borderRadius: 999 }}>{selectedCust.paymentMethod}</span>}
-                      {selectedCust.fundingSource && <span style={{ fontSize: 11, color: "#cbd5e1", background: "rgba(255,255,255,0.1)", padding: "3px 10px", borderRadius: 999 }}>{selectedCust.fundingSource}</span>}
-                      {selectedCust.issuerCountry && <span style={{ fontSize: 11, color: "#cbd5e1", background: "rgba(255,255,255,0.1)", padding: "3px 10px", borderRadius: 999 }}>{selectedCust.issuerCountry}</span>}
-                      {selectedCust.isRepeat && <span style={{ fontSize: 11, fontWeight: 700, color: "#fef08a", background: "rgba(217,119,6,0.3)", padding: "3px 10px", borderRadius: 999 }}>REPEAT</span>}
-                      {selectedCust.hasHighRisk && <span style={{ fontSize: 11, fontWeight: 700, color: "#fca5a5", background: "rgba(220,38,38,0.25)", padding: "3px 10px", borderRadius: 999 }}>⚠ HIGH RISK</span>}
-                    </div>
-                    <button
-                      onClick={() => setSelectedCustKey(null)}
-                      style={{ marginLeft: "auto", padding: "6px 14px", border: "1px solid rgba(255,255,255,0.3)", background: "transparent", color: "white", borderRadius: 4, cursor: "pointer", fontSize: 11, fontFamily: font }}
+                {/* ── Customer List ── */}
+                <div
+                  style={{
+                    background: "white",
+                    border: "1px solid #e8e4de",
+                    borderRadius: 6,
+                    overflow: "hidden",
+                    marginBottom: selectedCust ? 0 : 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "14px 18px",
+                      borderBottom: "1px solid #e8e4de",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <h3
+                      style={{
+                        fontFamily: font,
+                        fontWeight: 700,
+                        fontSize: 14,
+                        margin: 0,
+                      }}
                     >
-                      Close ✕
-                    </button>
+                      {custSegFilter ? custSegFilter : "All Customers"}
+                    </h3>
+                    {custSegFilter && (
+                      <button
+                        onClick={() => {
+                          setCustSegFilter(null);
+                          setCustPage(0);
+                        }}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: SEG_COLORS[custSegFilter],
+                          background: `${SEG_COLORS[custSegFilter]}18`,
+                          border: `1px solid ${SEG_COLORS[custSegFilter]}44`,
+                          padding: "2px 10px",
+                          borderRadius: 999,
+                          cursor: "pointer",
+                          fontFamily: font,
+                        }}
+                      >
+                        {custSegFilter} ✕ clear
+                      </button>
+                    )}
+                    <span style={{ fontSize: 11, color: "#6b6860" }}>
+                      {fmtN(filteredCusts.length)} results
+                    </span>
+                    <input
+                      type="text"
+                      placeholder="Search card, method, issuer…"
+                      value={custSearch}
+                      onChange={(e) => {
+                        setCustSearch(e.target.value);
+                        setCustPage(0);
+                      }}
+                      style={{
+                        marginLeft: "auto",
+                        padding: "6px 12px",
+                        fontSize: 11,
+                        fontFamily: font,
+                        border: "1px solid #e8e4de",
+                        borderRadius: 4,
+                        width: 220,
+                        outline: "none",
+                      }}
+                    />
+                    <div
+                      style={{ display: "flex", gap: 6, alignItems: "center" }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: "#6b6860",
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        Sort
+                      </span>
+                      {(["txns", "spend", "last_seen", "risk"] as const).map(
+                        (s) => (
+                          <button
+                            key={s}
+                            style={sortPillStyle(custSort === s)}
+                            onClick={() => {
+                              if (custSort === s)
+                                setCustSortDir((d) =>
+                                  d === "desc" ? "asc" : "desc",
+                                );
+                              else {
+                                setCustSort(s);
+                                setCustSortDir("desc");
+                              }
+                              setCustPage(0);
+                            }}
+                          >
+                            {s === "txns"
+                              ? "Txns"
+                              : s === "spend"
+                                ? "Spend"
+                                : s === "last_seen"
+                                  ? "Last Seen"
+                                  : "Risk"}
+                            {custSort === s
+                              ? custSortDir === "desc"
+                                ? " ↓"
+                                : " ↑"
+                              : ""}
+                          </button>
+                        ),
+                      )}
+                    </div>
                   </div>
 
-                  <div style={{ padding: "18px 20px" }}>
-                    {/* mini KPIs */}
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 20 }}>
-                      <StatCard label="Settled Txns" value={fmtN(selectedCust.settledCount)} accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Captured Revenue" value={fmtAed(selectedCust.totalSpend)} subtitle="sum of Adyen captured_amount" accent="#24544a" valueColor="#24544a" />
-                      <StatCard label="Total Amount" value={selectedCust.weimiTotal > 0 ? fmtAed(selectedCust.weimiTotal) : fmtAed(selectedCapture + selectedDetailGap)} subtitle={selectedCust.weimiTotal > 0 ? "Weimi retail before discount" : "Adyen adjusted (no Weimi match)"} accent="#6366F1" valueColor="#6366F1" />
-                      <StatCard label="Capture Gap" value={selectedDetailGap >= 0.01 ? fmtAed(selectedDetailGap) : "AED 0"} subtitle={selectedDetailGap >= 0.01 ? "billed minus captured" : "fully settled ✓"} accent={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} valueColor={selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"} />
-                      <StatCard label="Avg per Visit" value={fmtAed(selectedCust.avgSpend)} accent="#8B5CF6" valueColor="#8B5CF6" />
-                      <StatCard label="Refused / Cancelled" value={`${fmtN(selectedCust.refusedCount)} / ${fmtN(selectedCust.cancelledCount)}`} subtitle="declined transactions" accent="#e1b460" valueColor="#d97706" />
-                    </div>
-
-                    {/* mini charts */}
-                    {(custDailyData.length > 0 || custHourData.some((h) => h.txns > 0)) && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
-                        {custDailyData.length > 1 && (
-                          <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
-                            <h4 style={{ fontFamily: font, fontWeight: 600, fontSize: 12, marginBottom: 10, color: "#0a0a0a" }}>Spend Over Time</h4>
-                            <ResponsiveContainer width="100%" height={130}>
-                              <LineChart data={custDailyData} margin={{ top: 0, right: 4, bottom: 0, left: -28 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" vertical={false} />
-                                <XAxis dataKey="date" tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} interval="preserveStartEnd" />
-                                <YAxis tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} />
-                                <Tooltip contentStyle={{ fontFamily: font, fontSize: 10, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [fmtAed(v), "Spend"]} />
-                                <Line type="monotone" dataKey="amount" stroke="#24544a" strokeWidth={2} dot={false} />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table
+                      style={{
+                        width: "100%",
+                        borderCollapse: "collapse",
+                        fontFamily: font,
+                      }}
+                    >
+                      <thead style={{ background: "#f9f7f4" }}>
+                        <tr>
+                          <th style={thStyle}>Card ID</th>
+                          <th style={thStyle}>Segment</th>
+                          <th style={thStyle}>Issuer</th>
+                          <th style={thStyle}>Country</th>
+                          <th style={thStyle}>Funding</th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>
+                            Total Txns
+                          </th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>
+                            Weimi Total
+                          </th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>
+                            Captured
+                          </th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>
+                            Avg / Visit
+                          </th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>
+                            Gap
+                          </th>
+                          <th style={thStyle}>First Seen</th>
+                          <th style={thStyle}>Last Seen</th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>
+                            Risk
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pagedCusts.length === 0 && (
+                          <tr>
+                            <td
+                              colSpan={13}
+                              style={{
+                                ...tdStyle,
+                                color: "#6b6860",
+                                textAlign: "center",
+                                padding: "28px",
+                              }}
+                            >
+                              No customers match the current filter.
+                            </td>
+                          </tr>
                         )}
-                        <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
-                          <h4 style={{ fontFamily: font, fontWeight: 600, fontSize: 12, marginBottom: 10, color: "#0a0a0a" }}>Hour Pattern (Dubai time)</h4>
-                          <ResponsiveContainer width="100%" height={130}>
-                            <BarChart data={custHourData} margin={{ top: 0, right: 4, bottom: 0, left: -28 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#e8e4de" vertical={false} />
-                              <XAxis dataKey="hour" tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} interval={5} />
-                              <YAxis tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} allowDecimals={false} />
-                              <Tooltip contentStyle={{ fontFamily: font, fontSize: 10, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [`${v} txns`, "Transactions"]} />
-                              <Bar dataKey="txns" fill="#24544a" radius={[2, 2, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
+                        {pagedCusts.map((cp) => {
+                          const isSelected = cp.key === selectedCustKey;
+                          return (
+                            <tr
+                              key={cp.key}
+                              onClick={() =>
+                                setSelectedCustKey(isSelected ? null : cp.key)
+                              }
+                              style={{
+                                background: isSelected
+                                  ? "rgba(36,84,74,0.07)"
+                                  : "white",
+                                cursor: "pointer",
+                                transition: "background .1s",
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected)
+                                  (
+                                    e.currentTarget as HTMLTableRowElement
+                                  ).style.background = "#fafaf8";
+                              }}
+                              onMouseLeave={(e) => {
+                                (
+                                  e.currentTarget as HTMLTableRowElement
+                                ).style.background = isSelected
+                                  ? "rgba(36,84,74,0.07)"
+                                  : "white";
+                              }}
+                            >
+                              <td style={tdStyle}>
+                                <span
+                                  style={{
+                                    fontWeight: 700,
+                                    fontFamily: "monospace",
+                                    fontSize: 11,
+                                    color: isSelected ? "#24544a" : "#0a0a0a",
+                                  }}
+                                >
+                                  {cp.cardDisplay}
+                                </span>
+                              </td>
+                              <td style={tdStyle}>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    padding: "2px 8px",
+                                    borderRadius: 999,
+                                    background: `${SEG_COLORS[cp.segment]}18`,
+                                    color: SEG_COLORS[cp.segment],
+                                  }}
+                                >
+                                  {cp.segment}
+                                </span>
+                              </td>
+                              <td style={{ ...tdStyle, fontSize: 11 }}>
+                                {cp.issuer ?? "—"}
+                              </td>
+                              <td style={{ ...tdStyle, fontSize: 11 }}>
+                                {cp.issuerCountry ?? "—"}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  fontSize: 11,
+                                  color: "#6b6860",
+                                }}
+                              >
+                                {cp.fundingSource ?? "—"}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  textAlign: "right",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {fmtN(cp.txnCount)}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  textAlign: "right",
+                                  fontWeight: 600,
+                                  color: "#0E3F4D",
+                                }}
+                              >
+                                {cp.weimiTotal > 0 ? (
+                                  fmtAed(cp.weimiTotal)
+                                ) : (
+                                  <span style={{ color: "#e8e4de" }}>—</span>
+                                )}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  textAlign: "right",
+                                  fontWeight: 600,
+                                  color: "#24544a",
+                                }}
+                              >
+                                {fmtAed(cp.totalSpend)}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  textAlign: "right",
+                                  color: "#6b6860",
+                                }}
+                              >
+                                {fmtAed(cp.avgSpend)}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  textAlign: "right",
+                                  color: cp.gap > 0 ? "#DC2626" : "#e8e4de",
+                                }}
+                              >
+                                {cp.gap > 0 ? fmtAed(cp.gap) : "—"}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  color: "#6b6860",
+                                  fontSize: 11,
+                                }}
+                              >
+                                {dubaiDate(cp.firstSeen)}
+                              </td>
+                              <td
+                                style={{
+                                  ...tdStyle,
+                                  color: "#6b6860",
+                                  fontSize: 11,
+                                }}
+                              >
+                                {dubaiDate(cp.lastSeen)}
+                              </td>
+                              <td style={{ ...tdStyle, textAlign: "right" }}>
+                                {cp.maxRiskScore > 0 ? (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: cp.hasHighRisk
+                                        ? "#DC2626"
+                                        : "#6b6860",
+                                      background: cp.hasHighRisk
+                                        ? "rgba(220,38,38,0.08)"
+                                        : "transparent",
+                                      padding: "2px 6px",
+                                      borderRadius: 999,
+                                    }}
+                                  >
+                                    {Math.round(cp.maxRiskScore)}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "#e8e4de" }}>—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* pagination */}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "10px 18px",
+                      borderTop: "1px solid #e8e4de",
+                    }}
+                  >
+                    <span style={{ fontSize: 11, color: "#6b6860" }}>
+                      Page {safeCustPage + 1} of {custPageCount} &middot;{" "}
+                      {fmtN(filteredCusts.length)} customers
+                    </span>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        disabled={safeCustPage === 0}
+                        onClick={() => setCustPage((p) => Math.max(0, p - 1))}
+                        style={{
+                          padding: "5px 14px",
+                          borderRadius: 4,
+                          border: "1px solid #e8e4de",
+                          background: "#ffffff",
+                          color: safeCustPage === 0 ? "#e8e4de" : "#6b6860",
+                          cursor: safeCustPage === 0 ? "default" : "pointer",
+                          fontFamily: font,
+                          fontSize: 11,
+                        }}
+                      >
+                        Prev
+                      </button>
+                      <button
+                        disabled={safeCustPage >= custPageCount - 1}
+                        onClick={() =>
+                          setCustPage((p) => Math.min(custPageCount - 1, p + 1))
+                        }
+                        style={{
+                          padding: "5px 14px",
+                          borderRadius: 4,
+                          border: "1px solid #e8e4de",
+                          background: "#ffffff",
+                          color:
+                            safeCustPage >= custPageCount - 1
+                              ? "#e8e4de"
+                              : "#6b6860",
+                          cursor:
+                            safeCustPage >= custPageCount - 1
+                              ? "default"
+                              : "pointer",
+                          fontFamily: font,
+                          fontSize: 11,
+                        }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Customer Detail Panel ── */}
+                {selectedCust && (
+                  <div
+                    style={{
+                      marginTop: 16,
+                      background: "white",
+                      border: "2px solid #24544a",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {/* header */}
+                    <div
+                      style={{
+                        background: "#0F4D3A",
+                        padding: "14px 20px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 16,
+                      }}
+                    >
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "#86efac",
+                            letterSpacing: "0.12em",
+                            textTransform: "uppercase",
+                            marginBottom: 2,
+                          }}
+                        >
+                          Customer Detail
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: font,
+                            fontWeight: 800,
+                            fontSize: 20,
+                            color: "white",
+                            letterSpacing: "-0.5px",
+                          }}
+                        >
+                          {selectedCust.cardDisplay}
+                          {selectedCust.cardBin && (
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 400,
+                                color: "#86efac",
+                                marginLeft: 8,
+                              }}
+                            >
+                              BIN {selectedCust.cardBin}
+                            </span>
+                          )}
                         </div>
                       </div>
-                    )}
-
-                    {/* transactions table */}
-                    <h4 style={{ fontFamily: font, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
-                      Transaction History &middot; <span style={{ fontWeight: 400, color: "#6b6860" }}>{fmtN(selectedTxns.length)} records</span>
-                    </h4>
-                    <div style={{ overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
-                        <thead style={{ background: "#f9f7f4" }}>
-                          <tr>
-                            <th style={thStyle}>Date (Dubai)</th>
-                            <th style={thStyle}>Store</th>
-                            <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
-                            <th style={thStyle}>Status</th>
-                            <th style={thStyle}>Method</th>
-                            <th style={thStyle}>Funding</th>
-                            <th style={{ ...thStyle, textAlign: "right" }}>Risk</th>
-                            <th style={thStyle}>PSP Ref</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedTxns.slice(0, 200).map((r) => {
-                            const isSettled = SETTLED_STATUSES.has(r.status ?? "");
-                            const riskScore = r.risk_score ?? 0;
-                            return (
-                              <tr key={r.adyen_txn_id} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                                <td style={tdStyle}>{dubaiDate(r.creation_date)} {dubaiTime(r.creation_date)}</td>
-                                <td style={{ ...tdStyle, color: "#6b6860", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{r.store_description ?? "—"}</td>
-                                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: isSettled ? "#24544a" : "#9a948e" }}>{fmtAed(r.captured_amount_value ?? 0)}</td>
-                                <td style={tdStyle}>
-                                  <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: isSettled ? "rgba(36,84,74,0.1)" : r.status === "Refused" ? "rgba(220,38,38,0.08)" : "rgba(107,104,96,0.08)", color: isSettled ? "#24544a" : r.status === "Refused" ? "#DC2626" : "#6b6860" }}>
-                                    {r.status ?? "—"}
-                                  </span>
-                                </td>
-                                <td style={{ ...tdStyle, fontSize: 11, color: "#2A3547" }}>{r.payment_method ?? "—"}</td>
-                                <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>{r.funding_source ?? "—"}</td>
-                                <td style={{ ...tdStyle, textAlign: "right" }}>
-                                  {riskScore > 0 ? (
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: riskScore > 50 ? "#DC2626" : "#6b6860", background: riskScore > 50 ? "rgba(220,38,38,0.08)" : "transparent", padding: "2px 6px", borderRadius: 999 }}>
-                                      {Math.round(riskScore)}
-                                    </span>
-                                  ) : <span style={{ color: "#e8e4de" }}>—</span>}
-                                </td>
-                                <td style={{ ...tdStyle, fontSize: 9, color: "#9a948e", fontFamily: "monospace" }}>{r.psp_reference?.slice(0, 16) ?? "—"}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {selectedTxns.length > 200 && (
-                      <div style={{ fontSize: 10, color: "#6b6860", padding: "10px 0", textAlign: "center" }}>
-                        Showing first 200 of {fmtN(selectedTxns.length)} transactions. Narrow the date range for full history.
-                      </div>
-                    )}
-
-                    {/* ── Weimi purchases section ── */}
-                    {custMerchantRefs.size > 0 && (
-                      <div style={{ marginTop: 24 }}>
-                        <h4 style={{ fontFamily: font, fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
-                          What They Purchased &middot;{" "}
-                          <span style={{ fontWeight: 400, color: "#6b6860" }}>
-                            {fmtN(custWeimi.length)} Weimi line items matched via merchant reference
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 10,
+                          marginLeft: 24,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        {selectedCust.paymentMethod && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "#cbd5e1",
+                              background: "rgba(255,255,255,0.1)",
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                            }}
+                          >
+                            {selectedCust.paymentMethod}
                           </span>
-                        </h4>
+                        )}
+                        {selectedCust.fundingSource && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "#cbd5e1",
+                              background: "rgba(255,255,255,0.1)",
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                            }}
+                          >
+                            {selectedCust.fundingSource}
+                          </span>
+                        )}
+                        {selectedCust.issuerCountry && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "#cbd5e1",
+                              background: "rgba(255,255,255,0.1)",
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                            }}
+                          >
+                            {selectedCust.issuerCountry}
+                          </span>
+                        )}
+                        {selectedCust.isRepeat && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#fef08a",
+                              background: "rgba(217,119,6,0.3)",
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                            }}
+                          >
+                            REPEAT
+                          </span>
+                        )}
+                        {selectedCust.hasHighRisk && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              color: "#fca5a5",
+                              background: "rgba(220,38,38,0.25)",
+                              padding: "3px 10px",
+                              borderRadius: 999,
+                            }}
+                          >
+                            ⚠ HIGH RISK
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setSelectedCustKey(null)}
+                        style={{
+                          marginLeft: "auto",
+                          padding: "6px 14px",
+                          border: "1px solid rgba(255,255,255,0.3)",
+                          background: "transparent",
+                          color: "white",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                          fontSize: 11,
+                          fontFamily: font,
+                        }}
+                      >
+                        Close ✕
+                      </button>
+                    </div>
 
-                        {weimiTopProducts.length > 0 && (
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
-                            {/* top products table */}
-                            <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
-                              <h5 style={{ fontFamily: font, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6860", marginBottom: 10 }}>Top Products</h5>
-                              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
-                                <thead>
-                                  <tr>
-                                    <th style={{ ...thStyle, background: "transparent", padding: "4px 8px" }}>Product</th>
-                                    <th style={{ ...thStyle, background: "transparent", padding: "4px 8px", textAlign: "right" }}>Qty</th>
-                                    <th style={{ ...thStyle, background: "transparent", padding: "4px 8px", textAlign: "right" }}>Spend</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {weimiTopProducts.map((p, i) => (
-                                    <tr key={i}>
-                                      <td style={{ ...tdStyle, padding: "6px 8px", fontSize: 11 }}>{p.name}</td>
-                                      <td style={{ ...tdStyle, padding: "6px 8px", fontSize: 11, textAlign: "right", color: "#6b6860" }}>{fmtN(p.qty)}</td>
-                                      <td style={{ ...tdStyle, padding: "6px 8px", fontSize: 11, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(p.spend)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                    <div style={{ padding: "18px 20px" }}>
+                      {/* mini KPIs */}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(6, 1fr)",
+                          gap: 12,
+                          marginBottom: 20,
+                        }}
+                      >
+                        <StatCard
+                          label="Settled Txns"
+                          value={fmtN(selectedCust.settledCount)}
+                          accent="#24544a"
+                          valueColor="#24544a"
+                        />
+                        <StatCard
+                          label="Captured Revenue"
+                          value={fmtAed(selectedCust.totalSpend)}
+                          subtitle="sum of Adyen captured_amount"
+                          accent="#24544a"
+                          valueColor="#24544a"
+                        />
+                        <StatCard
+                          label="Total Amount"
+                          value={
+                            selectedCust.weimiTotal > 0
+                              ? fmtAed(selectedCust.weimiTotal)
+                              : fmtAed(selectedCapture + selectedDetailGap)
+                          }
+                          subtitle={
+                            selectedCust.weimiTotal > 0
+                              ? "Weimi retail before discount"
+                              : "Adyen adjusted (no Weimi match)"
+                          }
+                          accent="#6366F1"
+                          valueColor="#6366F1"
+                        />
+                        <StatCard
+                          label="Capture Gap"
+                          value={
+                            selectedDetailGap >= 0.01
+                              ? fmtAed(selectedDetailGap)
+                              : "AED 0"
+                          }
+                          subtitle={
+                            selectedDetailGap >= 0.01
+                              ? "billed minus captured"
+                              : "fully settled ✓"
+                          }
+                          accent={
+                            selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"
+                          }
+                          valueColor={
+                            selectedDetailGap >= 0.01 ? "#DC2626" : "#6b6860"
+                          }
+                        />
+                        <StatCard
+                          label="Avg per Visit"
+                          value={fmtAed(selectedCust.avgSpend)}
+                          accent="#8B5CF6"
+                          valueColor="#8B5CF6"
+                        />
+                        <StatCard
+                          label="Refused / Cancelled"
+                          value={`${fmtN(selectedCust.refusedCount)} / ${fmtN(selectedCust.cancelledCount)}`}
+                          subtitle="declined transactions"
+                          accent="#e1b460"
+                          valueColor="#d97706"
+                        />
+                      </div>
 
-                            {/* product mini bar chart */}
-                            <div style={{ background: "#f9f7f4", borderRadius: 6, padding: "14px 16px" }}>
-                              <h5 style={{ fontFamily: font, fontWeight: 600, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6b6860", marginBottom: 10 }}>By Spend</h5>
-                              <ResponsiveContainer width="100%" height={160}>
-                                <BarChart data={weimiTopProducts.slice(0, 6)} layout="vertical" margin={{ top: 0, right: 50, bottom: 0, left: 0 }}>
-                                  <XAxis type="number" tick={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} />
-                                  <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fontFamily: font, fill: "#6b6860" }} width={80} />
-                                  <Tooltip contentStyle={{ fontFamily: font, fontSize: 10, border: "1px solid #e8e4de", borderRadius: 4 }} formatter={(v: any) => [fmtAed(v), "Spend"]} />
-                                  <Bar dataKey="spend" fill="#24544a" radius={[0, 3, 3, 0]}>
-                                    <LabelList dataKey="spend" position="right" style={{ fontSize: 8, fontFamily: font, fill: "#6b6860" }} formatter={(v: any) => fmtAed(v)} />
-                                  </Bar>
-                                </BarChart>
+                      {/* mini charts */}
+                      {(custDailyData.length > 0 ||
+                        custHourData.some((h) => h.txns > 0)) && (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: 14,
+                            marginBottom: 20,
+                          }}
+                        >
+                          {custDailyData.length > 1 && (
+                            <div
+                              style={{
+                                background: "#f9f7f4",
+                                borderRadius: 6,
+                                padding: "14px 16px",
+                              }}
+                            >
+                              <h4
+                                style={{
+                                  fontFamily: font,
+                                  fontWeight: 600,
+                                  fontSize: 12,
+                                  marginBottom: 10,
+                                  color: "#0a0a0a",
+                                }}
+                              >
+                                Spend Over Time
+                              </h4>
+                              <ResponsiveContainer width="100%" height={130}>
+                                <LineChart
+                                  data={custDailyData}
+                                  margin={{
+                                    top: 0,
+                                    right: 4,
+                                    bottom: 0,
+                                    left: -28,
+                                  }}
+                                >
+                                  <CartesianGrid
+                                    strokeDasharray="3 3"
+                                    stroke="#e8e4de"
+                                    vertical={false}
+                                  />
+                                  <XAxis
+                                    dataKey="date"
+                                    tick={{
+                                      fontSize: 8,
+                                      fontFamily: font,
+                                      fill: "#6b6860",
+                                    }}
+                                    interval="preserveStartEnd"
+                                  />
+                                  <YAxis
+                                    tick={{
+                                      fontSize: 8,
+                                      fontFamily: font,
+                                      fill: "#6b6860",
+                                    }}
+                                  />
+                                  <Tooltip
+                                    contentStyle={{
+                                      fontFamily: font,
+                                      fontSize: 10,
+                                      border: "1px solid #e8e4de",
+                                      borderRadius: 4,
+                                    }}
+                                    formatter={(v: any) => [fmtAed(v), "Spend"]}
+                                  />
+                                  <Line
+                                    type="monotone"
+                                    dataKey="amount"
+                                    stroke="#24544a"
+                                    strokeWidth={2}
+                                    dot={false}
+                                  />
+                                </LineChart>
                               </ResponsiveContainer>
                             </div>
+                          )}
+                          <div
+                            style={{
+                              background: "#f9f7f4",
+                              borderRadius: 6,
+                              padding: "14px 16px",
+                            }}
+                          >
+                            <h4
+                              style={{
+                                fontFamily: font,
+                                fontWeight: 600,
+                                fontSize: 12,
+                                marginBottom: 10,
+                                color: "#0a0a0a",
+                              }}
+                            >
+                              Hour Pattern (Dubai time)
+                            </h4>
+                            <ResponsiveContainer width="100%" height={130}>
+                              <BarChart
+                                data={custHourData}
+                                margin={{
+                                  top: 0,
+                                  right: 4,
+                                  bottom: 0,
+                                  left: -28,
+                                }}
+                              >
+                                <CartesianGrid
+                                  strokeDasharray="3 3"
+                                  stroke="#e8e4de"
+                                  vertical={false}
+                                />
+                                <XAxis
+                                  dataKey="hour"
+                                  tick={{
+                                    fontSize: 8,
+                                    fontFamily: font,
+                                    fill: "#6b6860",
+                                  }}
+                                  interval={5}
+                                />
+                                <YAxis
+                                  tick={{
+                                    fontSize: 8,
+                                    fontFamily: font,
+                                    fill: "#6b6860",
+                                  }}
+                                  allowDecimals={false}
+                                />
+                                <Tooltip
+                                  contentStyle={{
+                                    fontFamily: font,
+                                    fontSize: 10,
+                                    border: "1px solid #e8e4de",
+                                    borderRadius: 4,
+                                  }}
+                                  formatter={(v: any) => [
+                                    `${v} txns`,
+                                    "Transactions",
+                                  ]}
+                                />
+                                <Bar
+                                  dataKey="txns"
+                                  fill="#24544a"
+                                  radius={[2, 2, 0, 0]}
+                                />
+                              </BarChart>
+                            </ResponsiveContainer>
                           </div>
-                        )}
+                        </div>
+                      )}
 
-                        {/* full Weimi line items */}
-                        <div style={{ overflowX: "auto" }}>
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: font }}>
-                            <thead style={{ background: "#f9f7f4" }}>
-                              <tr>
-                                <th style={thStyle}>Date (Dubai)</th>
-                                <th style={thStyle}>Product</th>
-                                <th style={thStyle}>Machine</th>
-                                <th style={{ ...thStyle, textAlign: "right" }}>Qty</th>
-                                <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
-                                <th style={thStyle}>Status</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {custWeimi.slice(0, 100).map((s, i) => (
-                                <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                                  <td style={tdStyle}>{dubaiDate(s.transaction_date)} {dubaiTime(s.transaction_date)}</td>
-                                  <td style={{ ...tdStyle, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{s.pod_product_name ?? "—"}</td>
-                                  <td style={{ ...tdStyle, fontSize: 11, color: "#6b6860" }}>
-                                    {(s.machines as any)?.official_name ?? "—"}
-                                  </td>
-                                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{fmtN(s.qty ?? 0)}</td>
-                                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#24544a" }}>{fmtAed(s.total_amount ?? 0)}</td>
+                      {/* transactions table */}
+                      <h4
+                        style={{
+                          fontFamily: font,
+                          fontWeight: 700,
+                          fontSize: 13,
+                          marginBottom: 10,
+                        }}
+                      >
+                        Transaction History &middot;{" "}
+                        <span style={{ fontWeight: 400, color: "#6b6860" }}>
+                          {fmtN(selectedTxns.length)} records
+                        </span>
+                      </h4>
+                      <div style={{ overflowX: "auto" }}>
+                        <table
+                          style={{
+                            width: "100%",
+                            borderCollapse: "collapse",
+                            fontFamily: font,
+                          }}
+                        >
+                          <thead style={{ background: "#f9f7f4" }}>
+                            <tr>
+                              <th style={thStyle}>Date (Dubai)</th>
+                              <th style={thStyle}>Store</th>
+                              <th style={{ ...thStyle, textAlign: "right" }}>
+                                Amount
+                              </th>
+                              <th style={thStyle}>Status</th>
+                              <th style={thStyle}>Method</th>
+                              <th style={thStyle}>Funding</th>
+                              <th style={{ ...thStyle, textAlign: "right" }}>
+                                Risk
+                              </th>
+                              <th style={thStyle}>PSP Ref</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedTxns.slice(0, 200).map((r) => {
+                              const isSettled = SETTLED_STATUSES.has(
+                                r.status ?? "",
+                              );
+                              const riskScore = r.risk_score ?? 0;
+                              return (
+                                <tr
+                                  key={r.adyen_txn_id}
+                                  style={{ borderBottom: "1px solid #f5f2ee" }}
+                                >
                                   <td style={tdStyle}>
-                                    <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(36,84,74,0.1)", color: "#24544a" }}>
-                                      {s.delivery_status ?? "—"}
+                                    {dubaiDate(r.creation_date)}{" "}
+                                    {dubaiTime(r.creation_date)}
+                                  </td>
+                                  <td
+                                    style={{
+                                      ...tdStyle,
+                                      color: "#6b6860",
+                                      maxWidth: 180,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {r.store_description ?? "—"}
+                                  </td>
+                                  <td
+                                    style={{
+                                      ...tdStyle,
+                                      textAlign: "right",
+                                      fontWeight: 600,
+                                      color: isSettled ? "#24544a" : "#9a948e",
+                                    }}
+                                  >
+                                    {fmtAed(r.captured_amount_value ?? 0)}
+                                  </td>
+                                  <td style={tdStyle}>
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: 600,
+                                        padding: "2px 8px",
+                                        borderRadius: 999,
+                                        background: isSettled
+                                          ? "rgba(36,84,74,0.1)"
+                                          : r.status === "Refused"
+                                            ? "rgba(220,38,38,0.08)"
+                                            : "rgba(107,104,96,0.08)",
+                                        color: isSettled
+                                          ? "#24544a"
+                                          : r.status === "Refused"
+                                            ? "#DC2626"
+                                            : "#6b6860",
+                                      }}
+                                    >
+                                      {r.status ?? "—"}
                                     </span>
                                   </td>
+                                  <td
+                                    style={{
+                                      ...tdStyle,
+                                      fontSize: 11,
+                                      color: "#2A3547",
+                                    }}
+                                  >
+                                    {r.payment_method ?? "—"}
+                                  </td>
+                                  <td
+                                    style={{
+                                      ...tdStyle,
+                                      fontSize: 11,
+                                      color: "#6b6860",
+                                    }}
+                                  >
+                                    {r.funding_source ?? "—"}
+                                  </td>
+                                  <td
+                                    style={{ ...tdStyle, textAlign: "right" }}
+                                  >
+                                    {riskScore > 0 ? (
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 600,
+                                          color:
+                                            riskScore > 50
+                                              ? "#DC2626"
+                                              : "#6b6860",
+                                          background:
+                                            riskScore > 50
+                                              ? "rgba(220,38,38,0.08)"
+                                              : "transparent",
+                                          padding: "2px 6px",
+                                          borderRadius: 999,
+                                        }}
+                                      >
+                                        {Math.round(riskScore)}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: "#e8e4de" }}>
+                                        —
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td
+                                    style={{
+                                      ...tdStyle,
+                                      fontSize: 9,
+                                      color: "#9a948e",
+                                      fontFamily: "monospace",
+                                    }}
+                                  >
+                                    {r.psp_reference?.slice(0, 16) ?? "—"}
+                                  </td>
                                 </tr>
-                              ))}
-                              {custWeimi.length === 0 && (
-                                <tr><td colSpan={6} style={{ ...tdStyle, color: "#6b6860", textAlign: "center", padding: "20px" }}>
-                                  No Weimi purchase data matched — this customer&apos;s transactions may be settlement-batch records without merchant reference.
-                                </td></tr>
-                              )}
-                            </tbody>
-                          </table>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      {selectedTxns.length > 200 && (
+                        <div
+                          style={{
+                            fontSize: 10,
+                            color: "#6b6860",
+                            padding: "10px 0",
+                            textAlign: "center",
+                          }}
+                        >
+                          Showing first 200 of {fmtN(selectedTxns.length)}{" "}
+                          transactions. Narrow the date range for full history.
                         </div>
-                      </div>
-                    )}
-                    {custMerchantRefs.size === 0 && (
-                      <div style={{ marginTop: 16, padding: "12px 14px", background: "#f9f7f4", borderRadius: 6, fontSize: 11, color: "#6b6860" }}>
-                        <strong>No Weimi purchase data available.</strong> This customer&apos;s Adyen records are settlement-batch type (no merchant_reference). Product history requires the transaction-level Adyen report in n8n.
-                      </div>
-                    )}
+                      )}
+
+                      {/* ── Weimi purchases section ── */}
+                      {custMerchantRefs.size > 0 && (
+                        <div style={{ marginTop: 24 }}>
+                          <h4
+                            style={{
+                              fontFamily: font,
+                              fontWeight: 700,
+                              fontSize: 13,
+                              marginBottom: 10,
+                            }}
+                          >
+                            What They Purchased &middot;{" "}
+                            <span style={{ fontWeight: 400, color: "#6b6860" }}>
+                              {fmtN(custWeimi.length)} Weimi line items matched
+                              via merchant reference
+                            </span>
+                          </h4>
+
+                          {weimiTopProducts.length > 0 && (
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 1fr",
+                                gap: 14,
+                                marginBottom: 16,
+                              }}
+                            >
+                              {/* top products table */}
+                              <div
+                                style={{
+                                  background: "#f9f7f4",
+                                  borderRadius: 6,
+                                  padding: "14px 16px",
+                                }}
+                              >
+                                <h5
+                                  style={{
+                                    fontFamily: font,
+                                    fontWeight: 600,
+                                    fontSize: 11,
+                                    letterSpacing: "0.06em",
+                                    textTransform: "uppercase",
+                                    color: "#6b6860",
+                                    marginBottom: 10,
+                                  }}
+                                >
+                                  Top Products
+                                </h5>
+                                <table
+                                  style={{
+                                    width: "100%",
+                                    borderCollapse: "collapse",
+                                    fontFamily: font,
+                                  }}
+                                >
+                                  <thead>
+                                    <tr>
+                                      <th
+                                        style={{
+                                          ...thStyle,
+                                          background: "transparent",
+                                          padding: "4px 8px",
+                                        }}
+                                      >
+                                        Product
+                                      </th>
+                                      <th
+                                        style={{
+                                          ...thStyle,
+                                          background: "transparent",
+                                          padding: "4px 8px",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        Qty
+                                      </th>
+                                      <th
+                                        style={{
+                                          ...thStyle,
+                                          background: "transparent",
+                                          padding: "4px 8px",
+                                          textAlign: "right",
+                                        }}
+                                      >
+                                        Spend
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {weimiTopProducts.map((p, i) => (
+                                      <tr key={i}>
+                                        <td
+                                          style={{
+                                            ...tdStyle,
+                                            padding: "6px 8px",
+                                            fontSize: 11,
+                                          }}
+                                        >
+                                          {p.name}
+                                        </td>
+                                        <td
+                                          style={{
+                                            ...tdStyle,
+                                            padding: "6px 8px",
+                                            fontSize: 11,
+                                            textAlign: "right",
+                                            color: "#6b6860",
+                                          }}
+                                        >
+                                          {fmtN(p.qty)}
+                                        </td>
+                                        <td
+                                          style={{
+                                            ...tdStyle,
+                                            padding: "6px 8px",
+                                            fontSize: 11,
+                                            textAlign: "right",
+                                            fontWeight: 600,
+                                            color: "#24544a",
+                                          }}
+                                        >
+                                          {fmtAed(p.spend)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              {/* product mini bar chart */}
+                              <div
+                                style={{
+                                  background: "#f9f7f4",
+                                  borderRadius: 6,
+                                  padding: "14px 16px",
+                                }}
+                              >
+                                <h5
+                                  style={{
+                                    fontFamily: font,
+                                    fontWeight: 600,
+                                    fontSize: 11,
+                                    letterSpacing: "0.06em",
+                                    textTransform: "uppercase",
+                                    color: "#6b6860",
+                                    marginBottom: 10,
+                                  }}
+                                >
+                                  By Spend
+                                </h5>
+                                <ResponsiveContainer width="100%" height={160}>
+                                  <BarChart
+                                    data={weimiTopProducts.slice(0, 6)}
+                                    layout="vertical"
+                                    margin={{
+                                      top: 0,
+                                      right: 50,
+                                      bottom: 0,
+                                      left: 0,
+                                    }}
+                                  >
+                                    <XAxis
+                                      type="number"
+                                      tick={{
+                                        fontSize: 8,
+                                        fontFamily: font,
+                                        fill: "#6b6860",
+                                      }}
+                                    />
+                                    <YAxis
+                                      type="category"
+                                      dataKey="name"
+                                      tick={{
+                                        fontSize: 9,
+                                        fontFamily: font,
+                                        fill: "#6b6860",
+                                      }}
+                                      width={80}
+                                    />
+                                    <Tooltip
+                                      contentStyle={{
+                                        fontFamily: font,
+                                        fontSize: 10,
+                                        border: "1px solid #e8e4de",
+                                        borderRadius: 4,
+                                      }}
+                                      formatter={(v: any) => [
+                                        fmtAed(v),
+                                        "Spend",
+                                      ]}
+                                    />
+                                    <Bar
+                                      dataKey="spend"
+                                      fill="#24544a"
+                                      radius={[0, 3, 3, 0]}
+                                    >
+                                      <LabelList
+                                        dataKey="spend"
+                                        position="right"
+                                        style={{
+                                          fontSize: 8,
+                                          fontFamily: font,
+                                          fill: "#6b6860",
+                                        }}
+                                        formatter={(v: any) => fmtAed(v)}
+                                      />
+                                    </Bar>
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* full Weimi line items */}
+                          <div style={{ overflowX: "auto" }}>
+                            <table
+                              style={{
+                                width: "100%",
+                                borderCollapse: "collapse",
+                                fontFamily: font,
+                              }}
+                            >
+                              <thead style={{ background: "#f9f7f4" }}>
+                                <tr>
+                                  <th style={thStyle}>Date (Dubai)</th>
+                                  <th style={thStyle}>Product</th>
+                                  <th style={thStyle}>Machine</th>
+                                  <th
+                                    style={{ ...thStyle, textAlign: "right" }}
+                                  >
+                                    Qty
+                                  </th>
+                                  <th
+                                    style={{ ...thStyle, textAlign: "right" }}
+                                  >
+                                    Amount
+                                  </th>
+                                  <th style={thStyle}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {custWeimi.slice(0, 100).map((s, i) => (
+                                  <tr
+                                    key={i}
+                                    style={{
+                                      borderBottom: "1px solid #f5f2ee",
+                                    }}
+                                  >
+                                    <td style={tdStyle}>
+                                      {dubaiDate(s.transaction_date)}{" "}
+                                      {dubaiTime(s.transaction_date)}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...tdStyle,
+                                        maxWidth: 200,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                      }}
+                                    >
+                                      {s.pod_product_name ?? "—"}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...tdStyle,
+                                        fontSize: 11,
+                                        color: "#6b6860",
+                                      }}
+                                    >
+                                      {(s.machines as any)?.official_name ??
+                                        "—"}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...tdStyle,
+                                        textAlign: "right",
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      {fmtN(s.qty ?? 0)}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...tdStyle,
+                                        textAlign: "right",
+                                        fontWeight: 600,
+                                        color: "#24544a",
+                                      }}
+                                    >
+                                      {fmtAed(s.total_amount ?? 0)}
+                                    </td>
+                                    <td style={tdStyle}>
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          padding: "2px 8px",
+                                          borderRadius: 999,
+                                          background: "rgba(36,84,74,0.1)",
+                                          color: "#24544a",
+                                        }}
+                                      >
+                                        {s.delivery_status ?? "—"}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                                {custWeimi.length === 0 && (
+                                  <tr>
+                                    <td
+                                      colSpan={6}
+                                      style={{
+                                        ...tdStyle,
+                                        color: "#6b6860",
+                                        textAlign: "center",
+                                        padding: "20px",
+                                      }}
+                                    >
+                                      No Weimi purchase data matched — this
+                                      customer&apos;s transactions may be
+                                      settlement-batch records without merchant
+                                      reference.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                      {custMerchantRefs.size === 0 && (
+                        <div
+                          style={{
+                            marginTop: 16,
+                            padding: "12px 14px",
+                            background: "#f9f7f4",
+                            borderRadius: 6,
+                            fontSize: 11,
+                            color: "#6b6860",
+                          }}
+                        >
+                          <strong>No Weimi purchase data available.</strong>{" "}
+                          This customer&apos;s Adyen records are
+                          settlement-batch type (no merchant_reference). Product
+                          history requires the transaction-level Adyen report in
+                          n8n.
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+                )}
+              </div>
+            );
+          })()}
 
         {/* ── COMMERCIAL ── */}
         {activeTab === "Commercial" && (
@@ -4693,8 +6373,12 @@ export default function PerformancePage() {
                         const matchedA = adyenRows.find(
                           (a) =>
                             a.machine_id === r.machine_id &&
-                            (a.creation_date ? dubaiDate(a.creation_date) : null) ===
-                              (r.transaction_date ? dubaiDate(r.transaction_date) : null),
+                            (a.creation_date
+                              ? dubaiDate(a.creation_date)
+                              : null) ===
+                              (r.transaction_date
+                                ? dubaiDate(r.transaction_date)
+                                : null),
                         );
                         const adyenStatus = matchedA?.status ?? null;
                         const isSettled =
@@ -4723,7 +6407,9 @@ export default function PerformancePage() {
                                 fontSize: 10,
                               }}
                             >
-                              {r.transaction_date ? dubaiDate(r.transaction_date) : "—"}
+                              {r.transaction_date
+                                ? dubaiDate(r.transaction_date)
+                                : "—"}
                             </td>
                             <td
                               style={{
