@@ -674,25 +674,6 @@ export default function PerformancePage() {
       const machines = (machineRes.data ?? []) as MachineInfo[];
       setMachineList(machines);
 
-      // Resolve the in-scope machines for this view (group + explicit
-      // multi-select). Used to scope BOTH the sales query (server-side group
-      // filter) and the Adyen query (store_description filter), so e.g. the VOX
-      // dashboard pulls ~5k rows instead of the full ~13k fleet.
-      const isScoped = group !== "All" || selectedMachineIds.length > 0;
-      const scopedStoreDescs = Array.from(
-        new Set(
-          machines
-            .filter(
-              (m) =>
-                (group === "All" || m.venue_group === group) &&
-                (selectedMachineIds.length === 0 ||
-                  selectedMachineIds.includes(m.machine_id)),
-            )
-            .map((m) => m.adyen_store_description)
-            .filter((d): d is string => !!d),
-        ),
-      );
-
       // ── Step 2: paginated heavy fetches ──
       // Loop .range() until the result set is exhausted — removes the silent
       // 10k truncation that undercounted any group whose fleet window exceeded
@@ -729,7 +710,7 @@ export default function PerformancePage() {
         new Date(new Date(dateTo).getTime() + 7 * 24 * 60 * 60 * 1000),
       );
       const adyenRowsAll = await fetchAllPaged<AdyenTxn>((from, to) => {
-        let q = supabase
+        const q = supabase
           .from("adyen_transactions")
           .select(
             "adyen_txn_id, machine_id, creation_date, value_aed, captured_amount_value, adjusted_amount_value, status, payment_method, funding_source, store_description, psp_reference, merchant_reference, card_number_summary, card_bin, issuer, issuer_country, risk_score, shopper_country",
@@ -738,10 +719,12 @@ export default function PerformancePage() {
           .lte("creation_date", `${adyenTo}T23:59:59+04:00`) // Dubai end-of-day
           .order("adyen_txn_id", { ascending: true })
           .range(from, to);
-        // Scope to the in-view stores when this is a scoped view; the "All"
-        // view with no machine selection intentionally pulls every store.
-        if (isScoped && scopedStoreDescs.length > 0)
-          q = q.in("store_description", scopedStoreDescs);
+        // Do NOT filter by store_description or machine_id here. machine_id is
+        // NULL on adyen_transactions, and store_description does NOT reliably
+        // equal machines.adyen_store_description (only ~1 of 11 VOX stores line
+        // up). The basket↔Adyen join happens downstream by merchant_reference,
+        // so we pull the whole date window and match there. Filtering here drops
+        // real matches (caused the 60/4184-matched, Default 0.00% regression).
         return q as unknown as PromiseLike<{
           data: AdyenTxn[] | null;
           error: unknown;
