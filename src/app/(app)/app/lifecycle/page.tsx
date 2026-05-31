@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { jitter } from "@/lib/lifecycle/jitter";
+import HeatmapTab from "./HeatmapTab";
+import DivestTab from "./DivestTab";
 import {
   BarChart,
   Bar,
@@ -174,7 +176,7 @@ interface ProductOption {
   pod_product_name: string;
 }
 
-type Tab = "overview" | "matrix";
+type Tab = "overview" | "matrix" | "heatmap" | "divest";
 type ToggleA = "product" | "cluster";
 type ToggleB = "overall" | "machine";
 
@@ -337,6 +339,8 @@ export default function LifecyclePage() {
 
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  /** Phase F: count of products flagged inactive (excluded from analysis). */
+  const [inactiveCount, setInactiveCount] = useState(0);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const scatterLoaded = useRef(false);
   const urlInitialized = useRef(false);
@@ -350,6 +354,8 @@ export default function LifecyclePage() {
     // Accept both "matrix" (new) and "scatter" (old migration)
     if (t === "matrix" || t === "scatter") setTab("matrix");
     else if (t === "overview") setTab("overview");
+    else if (t === "heatmap") setTab("heatmap");
+    else if (t === "divest") setTab("divest");
 
     const ta = p.get("toggleA");
     if (ta === "cluster") setToggleA("cluster");
@@ -456,10 +462,10 @@ export default function LifecyclePage() {
   // ── Data fetches ──────────────────────────────────────────────────────────
   const fetchOverview = useCallback(async () => {
     const supabase = createClient();
-    const [slotsRes, flagsRes, machinesRes] = await Promise.all([
+    const [slotsRes, flagsRes, machinesRes, inactiveRes] = await Promise.all([
       supabase
         .from("slot_lifecycle")
-        .select("score,signal")
+        .select("score,signal,pod_product_id")
         .eq("archived", false)
         .limit(10000),
       supabase
@@ -471,9 +477,21 @@ export default function LifecyclePage() {
         .order("detected_at", { ascending: false })
         .limit(200),
       supabase.from("machines").select("machine_id,official_name").limit(10000),
+      // Phase F: products flagged inactive are excluded from the analysis.
+      supabase
+        .from("lifecycle_product_status")
+        .select("pod_product_id")
+        .eq("status", "inactive")
+        .limit(10000),
     ]);
 
-    const slots = slotsRes.data ?? [];
+    const inactiveSet = new Set(
+      (inactiveRes.data ?? []).map((r) => r.pod_product_id as string),
+    );
+    setInactiveCount(inactiveSet.size);
+    const slots = (slotsRes.data ?? []).filter(
+      (s) => !inactiveSet.has(s.pod_product_id),
+    );
     const flags = flagsRes.data ?? [];
     const machines = machinesRes.data ?? [];
     const machineNameMap = new Map(
@@ -560,41 +578,55 @@ export default function LifecyclePage() {
       lastSalesRes,
       podsRes,
       familiesRes,
+      inactiveRes2,
     ] = await Promise.all([
-        supabase
-          .from("product_lifecycle_global")
-          .select(
-            "pod_product_id,score,trend_component,total_velocity_30d,machine_count,signal,best_location_type,worst_location_type",
-          )
-          .limit(10000),
-        supabase
-          .from("slot_lifecycle")
-          .select(
-            "machine_id,pod_product_id,shelf_code,shelf_id,score,trend_component,signal,velocity_30d,is_current,rotated_out_at,rotated_in_at",
-          )
-          .eq("archived", false)
-          .limit(20000),
-        supabase
-          .from("machines")
-          .select("machine_id,official_name,location_type,include_in_refill")
-          .limit(10000),
-        // Phase B.4: per-machine last-sale to flag dark machines
-        supabase
-          .from("v_machine_first_sale")
-          .select("machine_id,last_sale_at")
-          .limit(10000),
-        supabase
-          .from("pod_products")
-          .select("pod_product_id,pod_product_name,product_family_id")
-          .limit(10000),
-        supabase
-          .from("product_families")
-          .select("product_family_id,family_name")
-          .limit(10000),
-      ]);
+      supabase
+        .from("product_lifecycle_global")
+        .select(
+          "pod_product_id,score,trend_component,total_velocity_30d,machine_count,signal,best_location_type,worst_location_type",
+        )
+        .limit(10000),
+      supabase
+        .from("slot_lifecycle")
+        .select(
+          "machine_id,pod_product_id,shelf_code,shelf_id,score,trend_component,signal,velocity_30d,is_current,rotated_out_at,rotated_in_at",
+        )
+        .eq("archived", false)
+        .limit(20000),
+      supabase
+        .from("machines")
+        .select("machine_id,official_name,location_type,include_in_refill")
+        .limit(10000),
+      // Phase B.4: per-machine last-sale to flag dark machines
+      supabase
+        .from("v_machine_first_sale")
+        .select("machine_id,last_sale_at")
+        .limit(10000),
+      supabase
+        .from("pod_products")
+        .select("pod_product_id,pod_product_name,product_family_id")
+        .limit(10000),
+      supabase
+        .from("product_families")
+        .select("product_family_id,family_name")
+        .limit(10000),
+      // Phase F: exclude inactive products from the Deep Dive too.
+      supabase
+        .from("lifecycle_product_status")
+        .select("pod_product_id")
+        .eq("status", "inactive")
+        .limit(10000),
+    ]);
 
-    const globs = globRes.data ?? [];
-    const slots = slotsRes.data ?? [];
+    const inactiveScatterSet = new Set(
+      (inactiveRes2.data ?? []).map((r) => r.pod_product_id as string),
+    );
+    const globs = (globRes.data ?? []).filter(
+      (g) => !inactiveScatterSet.has(g.pod_product_id),
+    );
+    const slots = (slotsRes.data ?? []).filter(
+      (s) => !inactiveScatterSet.has(s.pod_product_id),
+    );
     const machines = machinesRes.data ?? [];
     const lastSales = lastSalesRes.data ?? [];
     const pods = podsRes.data ?? [];
@@ -619,9 +651,7 @@ export default function LifecyclePage() {
     const activeMachineRows = machines.filter(
       (m) => m.include_in_refill === true,
     );
-    const machineMap = new Map(
-      activeMachineRows.map((m) => [m.machine_id, m]),
-    );
+    const machineMap = new Map(activeMachineRows.map((m) => [m.machine_id, m]));
     const podMap = new Map(pods.map((p) => [p.pod_product_id, p]));
     const globMap = new Map(globs.map((g) => [g.pod_product_id, g]));
     const familyMap = new Map(families.map((f) => [f.product_family_id, f]));
@@ -850,6 +880,12 @@ export default function LifecyclePage() {
                 dateStyle: "medium",
                 timeStyle: "short",
               })}
+              {inactiveCount > 0 && (
+                <span className="ml-2 text-neutral-400">
+                  · {inactiveCount} inactive product
+                  {inactiveCount === 1 ? "" : "s"} excluded
+                </span>
+              )}
             </p>
           )}
         </div>
@@ -863,7 +899,7 @@ export default function LifecyclePage() {
       </div>
 
       <div className="flex gap-1 border-b border-neutral-200 px-6 dark:border-neutral-800">
-        {(["overview", "matrix"] as Tab[]).map((t) => (
+        {(["overview", "matrix", "heatmap", "divest"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -873,7 +909,13 @@ export default function LifecyclePage() {
                 : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
-            {t === "overview" ? "Overview" : "Product Deep Dive"}
+            {t === "overview"
+              ? "Overview"
+              : t === "matrix"
+                ? "Product Deep Dive"
+                : t === "heatmap"
+                  ? "Heatmap"
+                  : "Divest Plan"}
           </button>
         ))}
       </div>
@@ -928,6 +970,8 @@ export default function LifecyclePage() {
             onTrendRangeChange={setTrendRange}
           />
         )}
+        {tab === "heatmap" && <HeatmapTab />}
+        {tab === "divest" && <DivestTab />}
       </div>
     </div>
   );
@@ -1115,10 +1159,7 @@ function MachineChipFilter({
 }) {
   const [open, setOpen] = useState(false);
 
-  const allIds = useMemo(
-    () => machines.map((m) => m.machine_id),
-    [machines],
-  );
+  const allIds = useMemo(() => machines.map((m) => m.machine_id), [machines]);
   // Phase B.4: dark machines (no sales in 14d) excluded from default selection.
   // User can re-include via the popover.
   const activeIds = useMemo(
@@ -1591,12 +1632,10 @@ function ScatterTab({
     // includes shelf_id when rotated-outs are visible so the dots stay distinct.
     if (!showRotatedOut) rows = rows.filter((s) => s.is_current);
 
-    const aggregated = aggregateSlots(
-      rows,
-      (s) =>
-        showRotatedOut
-          ? `${s.machine_id}:${s.shelf_code}:${s.pod_product_id}:${s.is_current ? "C" : "R"}`
-          : `${s.machine_id}:${s.pod_product_id}`,
+    const aggregated = aggregateSlots(rows, (s) =>
+      showRotatedOut
+        ? `${s.machine_id}:${s.shelf_code}:${s.pod_product_id}:${s.is_current ? "C" : "R"}`
+        : `${s.machine_id}:${s.pod_product_id}`,
     );
 
     if (debouncedSearch) {
@@ -2343,11 +2382,7 @@ function ScatterTab({
                             r={isSelected ? r + 2 : r}
                             fill={isRotatedOut ? "#9CA3AF" : color}
                             fillOpacity={
-                              isRotatedOut
-                                ? 0.4
-                                : isSelected
-                                  ? 0.92
-                                  : 0.75
+                              isRotatedOut ? 0.4 : isSelected ? 0.92 : 0.75
                             }
                             stroke={isRotatedOut ? "#6B7280" : "transparent"}
                             strokeWidth={isRotatedOut ? 1 : 0}
