@@ -208,6 +208,11 @@ export function RefillPlanningTab({
     Record<string, string | null>
   >({});
 
+  // PRD-015 AC#13: per-machine include/exclude toggle (machine_name -> included).
+  // Default included; synced to machines_to_visit.is_included via canonical RPCs.
+  const [inclusion, setInclusion] = useState<Record<string, boolean>>({});
+  const [inclusionBusy, setInclusionBusy] = useState(false);
+
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -304,6 +309,30 @@ export function RefillPlanningTab({
     setPlanRows(rows);
     setGenerated(true);
     setViewMode("draft");
+
+    // PRD-015 AC#13: hydrate include/exclude state from machines_to_visit.
+    // Graceful: if is_included is not yet deployed, default every machine to included.
+    const incl: Record<string, boolean> = {};
+    const nameById: Record<string, string> = {};
+    for (const r of rows)
+      if (r.machine_id) nameById[r.machine_id] = r.machine_name;
+    const { data: mtv, error: mtvErr } = await supabase
+      .from("machines_to_visit")
+      .select("machine_id, is_included")
+      .eq("plan_date", planDateFromDraft);
+    if (!mtvErr && mtv) {
+      for (const m of mtv as Array<{
+        machine_id: string;
+        is_included: boolean;
+      }>) {
+        const nm = nameById[m.machine_id];
+        if (nm) incl[nm] = m.is_included !== false;
+      }
+    }
+    for (const r of rows)
+      if (!(r.machine_name in incl)) incl[r.machine_name] = true;
+    setInclusion(incl);
+
     setLoadResult({
       ok: true,
       msg: `Draft loaded — ${rows.length} rows across ${new Set(rows.map((r) => r.machine_name)).size} machines`,
@@ -664,6 +693,60 @@ export function RefillPlanningTab({
     {} as Record<string, { row: PlanRow; idx: number }[]>,
   );
 
+  // PRD-015 AC#13: inclusion-aware derived state.
+  const machineIdByName: Record<string, string> = {};
+  for (const r of planRows)
+    if (r.machine_id) machineIdByName[r.machine_name] = r.machine_id;
+  const isIncluded = (name: string) => inclusion[name] !== false;
+  const cardMachineNames = Object.keys(byMachine);
+  const totalMachines = cardMachineNames.length;
+  const includedNames = cardMachineNames.filter(isIncluded);
+  const excludedNames = cardMachineNames.filter((n) => !isIncluded(n));
+  const includedCount = includedNames.length;
+  // included first (preserve picker order), excluded sink to the bottom.
+  const sortedMachineEntries: Array<[string, { row: PlanRow; idx: number }[]]> =
+    [...includedNames, ...excludedNames].map((n) => [n, byMachine[n]]);
+
+  async function toggleMachine(name: string) {
+    if (!draftPlanDate) return;
+    const next = !isIncluded(name);
+    setInclusion((prev) => ({ ...prev, [name]: next })); // optimistic
+    const machineId = machineIdByName[name];
+    if (!machineId) return;
+    const { error } = await supabase.rpc("set_machine_inclusion", {
+      p_plan_date: draftPlanDate,
+      p_machine_id: machineId,
+      p_is_included: next,
+    });
+    if (error) {
+      setInclusion((prev) => ({ ...prev, [name]: !next })); // revert
+      setRestoreToast({ ok: false, msg: `Toggle failed: ${error.message}` });
+    }
+  }
+
+  async function setAllInclusion(val: boolean) {
+    if (!draftPlanDate || inclusionBusy) return;
+    setInclusionBusy(true);
+    const prev = inclusion;
+    setInclusion(() => {
+      const next: Record<string, boolean> = {};
+      for (const n of cardMachineNames) next[n] = val;
+      return next;
+    });
+    const { error } = await supabase.rpc("bulk_set_machine_inclusion", {
+      p_plan_date: draftPlanDate,
+      p_is_included: val,
+    });
+    setInclusionBusy(false);
+    if (error) {
+      setInclusion(prev); // revert
+      setRestoreToast({
+        ok: false,
+        msg: `Bulk toggle failed: ${error.message}`,
+      });
+    }
+  }
+
   const noStockAlerts = alerts.filter((a) => a.type === "no_stock");
   const warnAlerts = alerts.filter((a) => a.type === "warning");
 
@@ -755,15 +838,23 @@ export function RefillPlanningTab({
         {generated && isDraft && activeRows.length > 0 && (
           <button
             onClick={commitDraft}
-            disabled={committing || !draftPlanDate}
-            title={!draftPlanDate ? "No draft loaded" : undefined}
+            disabled={committing || !draftPlanDate || includedCount === 0}
+            title={
+              !draftPlanDate
+                ? "No draft loaded"
+                : includedCount === 0
+                  ? "All machines excluded. Include at least one to commit."
+                  : undefined
+            }
             className="mt-3 flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-50"
           >
             {committing
               ? "Committing…"
               : !draftPlanDate
                 ? "No draft loaded"
-                : `Commit plan for ${draftPlanDate} — finalize + stitch + dispatch (${activeRows.length} rows)`}
+                : includedCount === 0
+                  ? "Commit (0 machines)"
+                  : `Commit (${includedCount} machine${includedCount === 1 ? "" : "s"}) for ${draftPlanDate} — finalize + stitch + dispatch`}
           </button>
         )}
 
@@ -884,178 +975,251 @@ export function RefillPlanningTab({
         </div>
       )}
 
+      {/* ── PRD-015 AC#13: include/exclude route bar ───────────────────── */}
+      {generated && isDraft && (
+        <div className="flex items-center justify-between gap-3 mb-3 px-1">
+          <span className="text-xs text-gray-600">
+            {includedCount} of {totalMachines} machines selected
+            {excludedNames.length > 0 && (
+              <span className="text-gray-400">
+                {" "}
+                · {excludedNames.length} excluded
+              </span>
+            )}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAllInclusion(true)}
+              disabled={inclusionBusy || !draftPlanDate}
+              className="text-[11px] font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded border border-gray-200 disabled:opacity-50"
+            >
+              Include all
+            </button>
+            <button
+              onClick={() => setAllInclusion(false)}
+              disabled={inclusionBusy || !draftPlanDate}
+              className="text-[11px] font-medium text-gray-600 hover:text-gray-900 px-2 py-1 rounded border border-gray-200 disabled:opacity-50"
+            >
+              Exclude all
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Plan table by machine ─────────────────────────────────────── */}
       {generated &&
-        Object.entries(byMachine).map(([machineName, rows]) => (
-          <div
-            key={machineName}
-            className="mb-4 border border-gray-200 rounded-xl overflow-hidden"
-          >
-            {/* Machine header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <div className="flex items-baseline gap-2">
-                <span className="font-medium text-sm">{machineName}</span>
-                {machineShortId(machineCodeByName[machineName]) && (
-                  <span className="font-mono text-[11px] tracking-wider text-gray-400">
-                    {machineShortId(machineCodeByName[machineName])}
-                  </span>
-                )}
+        sortedMachineEntries.map(([machineName, rows]) => {
+          const included = isIncluded(machineName);
+          return (
+            <div
+              key={machineName}
+              className={`mb-4 border rounded-xl overflow-hidden ${
+                included ? "border-gray-200" : "border-gray-100 opacity-50"
+              }`}
+            >
+              {/* Machine header */}
+              <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={included}
+                    onChange={() => toggleMachine(machineName)}
+                    title={
+                      included
+                        ? "Included in this route"
+                        : "Excluded from this route"
+                    }
+                    className="h-4 w-4 cursor-pointer accent-emerald-600"
+                  />
+                  <span className="font-medium text-sm">{machineName}</span>
+                  {machineShortId(machineCodeByName[machineName]) && (
+                    <span className="font-mono text-[11px] tracking-wider text-gray-400">
+                      {machineShortId(machineCodeByName[machineName])}
+                    </span>
+                  )}
+                </div>
+                <span className="text-xs text-gray-500">
+                  {rows.filter(({ idx }) => !removed.has(idx)).length} active
+                  lines ·{" "}
+                  {rows
+                    .filter(
+                      ({ row, idx }) =>
+                        !removed.has(idx) &&
+                        (row.action === "REFILL" || row.action === "ADD NEW"),
+                    )
+                    .reduce(
+                      (s, { row, idx }) =>
+                        s + (idx in editedQty ? editedQty[idx] : row.quantity),
+                      0,
+                    )}{" "}
+                  units
+                </span>
               </div>
-              <span className="text-xs text-gray-500">
-                {rows.filter(({ idx }) => !removed.has(idx)).length} active
-                lines ·{" "}
-                {rows
-                  .filter(
-                    ({ row, idx }) =>
-                      !removed.has(idx) &&
-                      (row.action === "REFILL" || row.action === "ADD NEW"),
-                  )
-                  .reduce(
-                    (s, { row, idx }) =>
-                      s + (idx in editedQty ? editedQty[idx] : row.quantity),
-                    0,
-                  )}{" "}
-                units
-              </span>
-            </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-gray-400 border-b border-gray-100 ">
-                    <th className="px-4 py-2 font-medium">Shelf</th>
-                    <th className="px-4 py-2 font-medium">Action</th>
-                    <th className="px-4 py-2 font-medium">Product</th>
-                    {isDraft && (
-                      <th className="px-4 py-2 font-medium">Signal</th>
-                    )}
-                    <th className="px-4 py-2 font-medium text-right">Stock</th>
-                    <th className="px-4 py-2 font-medium text-right">Qty</th>
-                    {isDraft && (
-                      <th className="px-4 py-2 font-medium text-right">v30d</th>
-                    )}
-                    {!isDraft && (
-                      <th className="px-4 py-2 font-medium text-right">7d</th>
-                    )}
-                    <th className="px-3 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(({ row, idx }) => (
-                    <tr
-                      key={idx}
-                      className={`border-b border-gray-100/50 last:border-0 transition-opacity ${
-                        removed.has(idx)
-                          ? "opacity-30 line-through"
-                          : "hover:bg-gray-50"
-                      }`}
-                    >
-                      <td className="px-4 py-2.5 font-mono text-xs">
-                        {priorityBadge(row.machine_priority)} {row.shelf_code}
-                      </td>
-                      <td className="px-4 py-2.5">{actionBadge(row.action)}</td>
-                      <td className="px-4 py-2.5 max-w-[200px]">
-                        <div className="flex items-center">
-                          {!isDraft && tierDot(row.tier)}
-                          <div className="min-w-0">
-                            <div className="truncate text-xs font-medium">
-                              {row.pod_product_name}
+              {/* Excluded machines collapse to a compact line (AC#13) */}
+              {!included && (
+                <div className="px-4 py-2 text-[11px] text-gray-400">
+                  Excluded from this route — {rows.length} line
+                  {rows.length === 1 ? "" : "s"} hidden. Re-include to commit.
+                </div>
+              )}
+
+              {/* Table (hidden when machine is excluded) */}
+              {included && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-gray-400 border-b border-gray-100 ">
+                        <th className="px-4 py-2 font-medium">Shelf</th>
+                        <th className="px-4 py-2 font-medium">Action</th>
+                        <th className="px-4 py-2 font-medium">Product</th>
+                        {isDraft && (
+                          <th className="px-4 py-2 font-medium">Signal</th>
+                        )}
+                        <th className="px-4 py-2 font-medium text-right">
+                          Stock
+                        </th>
+                        <th className="px-4 py-2 font-medium text-right">
+                          Qty
+                        </th>
+                        {isDraft && (
+                          <th className="px-4 py-2 font-medium text-right">
+                            v30d
+                          </th>
+                        )}
+                        {!isDraft && (
+                          <th className="px-4 py-2 font-medium text-right">
+                            7d
+                          </th>
+                        )}
+                        <th className="px-3 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(({ row, idx }) => (
+                        <tr
+                          key={idx}
+                          className={`border-b border-gray-100/50 last:border-0 transition-opacity ${
+                            removed.has(idx)
+                              ? "opacity-30 line-through"
+                              : "hover:bg-gray-50"
+                          }`}
+                        >
+                          <td className="px-4 py-2.5 font-mono text-xs">
+                            {priorityBadge(row.machine_priority)}{" "}
+                            {row.shelf_code}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {actionBadge(row.action)}
+                          </td>
+                          <td className="px-4 py-2.5 max-w-[200px]">
+                            <div className="flex items-center">
+                              {!isDraft && tierDot(row.tier)}
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-medium">
+                                  {row.pod_product_name}
+                                </div>
+                                {!isDraft && row.boonz_product_name && (
+                                  <div className="truncate text-[10px] text-gray-500">
+                                    {row.boonz_product_name}
+                                  </div>
+                                )}
+                                {isDraft && row.clamp_reason && (
+                                  <div className="truncate text-[10px] text-gray-400">
+                                    {row.clamp_reason.replace(/_/g, " ")}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            {!isDraft && row.boonz_product_name && (
-                              <div className="truncate text-[10px] text-gray-500">
-                                {row.boonz_product_name}
-                              </div>
+                          </td>
+                          {isDraft && (
+                            <td className="px-4 py-2.5">
+                              {signalBadge(row.signal)}
+                            </td>
+                          )}
+                          <td className="px-4 py-2.5 text-right text-gray-500 whitespace-nowrap">
+                            {row.current_stock}/{row.max_stock}
+                            {isDraft && row.fill_pct != null && (
+                              <span className="ml-1 text-[9px] text-gray-400">
+                                ({Math.round(row.fill_pct)}%)
+                              </span>
                             )}
-                            {isDraft && row.clamp_reason && (
-                              <div className="truncate text-[10px] text-gray-400">
-                                {row.clamp_reason.replace(/_/g, " ")}
-                              </div>
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            {row.action === "REMOVE" ? (
+                              <span className="text-gray-400">—</span>
+                            ) : (
+                              <input
+                                type="number"
+                                min={0}
+                                max={row.max_stock}
+                                value={
+                                  idx in editedQty
+                                    ? editedQty[idx]
+                                    : row.quantity
+                                }
+                                onChange={(e) => {
+                                  const v = parseInt(e.target.value) || 0;
+                                  setEditedQty((prev) => ({
+                                    ...prev,
+                                    [idx]: v,
+                                  }));
+                                }}
+                                disabled={removed.has(idx)}
+                                className="w-14 text-right rounded border border-gray-200 px-1.5 py-1 text-xs bg-white disabled:opacity-50"
+                              />
                             )}
-                          </div>
-                        </div>
-                      </td>
-                      {isDraft && (
-                        <td className="px-4 py-2.5">
-                          {signalBadge(row.signal)}
-                        </td>
-                      )}
-                      <td className="px-4 py-2.5 text-right text-gray-500 whitespace-nowrap">
-                        {row.current_stock}/{row.max_stock}
-                        {isDraft && row.fill_pct != null && (
-                          <span className="ml-1 text-[9px] text-gray-400">
-                            ({Math.round(row.fill_pct)}%)
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        {row.action === "REMOVE" ? (
-                          <span className="text-gray-400">—</span>
-                        ) : (
-                          <input
-                            type="number"
-                            min={0}
-                            max={row.max_stock}
-                            value={
-                              idx in editedQty ? editedQty[idx] : row.quantity
-                            }
-                            onChange={(e) => {
-                              const v = parseInt(e.target.value) || 0;
-                              setEditedQty((prev) => ({ ...prev, [idx]: v }));
-                            }}
-                            disabled={removed.has(idx)}
-                            className="w-14 text-right rounded border border-gray-200 px-1.5 py-1 text-xs bg-white disabled:opacity-50"
-                          />
-                        )}
-                      </td>
-                      {isDraft && (
-                        <td className="px-4 py-2.5 text-right text-gray-500">
-                          {row.velocity_30d?.toFixed(1) ?? "—"}
-                        </td>
-                      )}
-                      {!isDraft && (
-                        <td className="px-4 py-2.5 text-right text-gray-500">
-                          {row.sold_7d}
-                        </td>
-                      )}
-                      <td className="px-3 py-2.5 text-right">
-                        {row.status === "superseded" ? (
-                          // PRD-011 Bug 3: DB-side superseded row. The
-                          // Restore button calls restore_pod_refill_row so
-                          // the change reaches the database, not just FE
-                          // state.
-                          <button
-                            onClick={() => restoreSupersededRow(idx)}
-                            disabled={restoringIdx === idx}
-                            className="text-[10px] font-medium text-amber-600 hover:text-amber-800 px-1 py-0.5 rounded disabled:opacity-50"
-                            title="Flip status from superseded back to draft"
-                          >
-                            {restoringIdx === idx
-                              ? "Restoring…"
-                              : "Restore (superseded)"}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() =>
-                              setRemoved((prev) => {
-                                const n = new Set(prev);
-                                n.has(idx) ? n.delete(idx) : n.add(idx);
-                                return n;
-                              })
-                            }
-                            className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
-                          >
-                            {removed.has(idx) ? "Restore" : "×"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          </td>
+                          {isDraft && (
+                            <td className="px-4 py-2.5 text-right text-gray-500">
+                              {row.velocity_30d?.toFixed(1) ?? "—"}
+                            </td>
+                          )}
+                          {!isDraft && (
+                            <td className="px-4 py-2.5 text-right text-gray-500">
+                              {row.sold_7d}
+                            </td>
+                          )}
+                          <td className="px-3 py-2.5 text-right">
+                            {row.status === "superseded" ? (
+                              // PRD-011 Bug 3: DB-side superseded row. The
+                              // Restore button calls restore_pod_refill_row so
+                              // the change reaches the database, not just FE
+                              // state.
+                              <button
+                                onClick={() => restoreSupersededRow(idx)}
+                                disabled={restoringIdx === idx}
+                                className="text-[10px] font-medium text-amber-600 hover:text-amber-800 px-1 py-0.5 rounded disabled:opacity-50"
+                                title="Flip status from superseded back to draft"
+                              >
+                                {restoringIdx === idx
+                                  ? "Restoring…"
+                                  : "Restore (superseded)"}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  setRemoved((prev) => {
+                                    const n = new Set(prev);
+                                    n.has(idx) ? n.delete(idx) : n.add(idx);
+                                    return n;
+                                  })
+                                }
+                                className="text-[10px] text-gray-400 hover:text-red-500 px-1 py-0.5 rounded"
+                              >
+                                {removed.has(idx) ? "Restore" : "×"}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
 
       {/* ── Add Row Modal ──────────────────────────────────────────────── */}
       {showAdd && (
