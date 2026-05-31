@@ -15,6 +15,15 @@ Format:
 
 ---
 
+## 2026-05-31 — Phase F: lifecycle_product_status (inactive-product flag)
+**Phase / Article:** Phase F / Constitution Articles 1, 2, 4, 8, 12, 14
+**Applied to:** prod
+**Migration name:** phaseF_lifecycle_product_status
+**Summary:** New non-protected table `lifecycle_product_status(pod_product_id PK, status, reason, set_by, set_at)` flags products out of the lifecycle analysis (status='inactive'); absence of a row = active. Sole canonical writer `set_product_lifecycle_status(uuid,text,text)` (SECURITY DEFINER: validates auth + role operator_admin/superadmin/manager, status enum, pod_products FK; sets app.via_rpc/app.rpc_name). RLS: SELECT all authenticated, writes role-gated. Article 8 via universal `audit_log_write('pod_product_id')` trigger. Seeded 14 retired products with 0 live units (Tannourine, Mezzmix x2, Loacker Quadratini, Sprite, Almarai x2, Galaxy Kunafa, Lays, Coco Water, 7 Days Croissant, Nutella B Ready, Garden Veggie, Happy holidays) via in-migration INSERT (MCP apply lacks auth.uid(); trigger audited the seed). Cody verdict ⚠️→ revisions applied. FE: /app/lifecycle filters inactive across all tabs with a Show-inactive toggle + mark/unmark action.
+**Rollback:** `DROP TRIGGER trg_lps_audit ON public.lifecycle_product_status; DROP FUNCTION public.set_product_lifecycle_status(uuid,text,text); DROP TABLE public.lifecycle_product_status;`
+
+---
+
 ## 2026-05-30 - Phase G: add_stock canonical pod writer + HUAWEI-2003 / MC-2004 recounts (30-May punch list)
 
 **Phase / Article:** Phase G pod recount / Articles 1, 4, 5, 8, 12 (pod-only; Article 6 N/A, no warehouse_inventory write).

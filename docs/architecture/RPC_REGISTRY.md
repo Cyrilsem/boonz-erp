@@ -268,6 +268,10 @@ These functions write to `warehouse_inventory_status_proposal` only — never UP
 
 - `rename_machine_in_place_legacy` — replaced by `repurpose_machine`. **Deprecated 2026-04-25** via migration `phaseA_a2_deprecate_rename_machine_legacy`. Now `SECURITY INVOKER` with `EXECUTE` revoked from `anon`/`authenticated`. `service_role` retains EXECUTE through the monitor window. **Scheduled DROP date: 2026-07-24** (90 days after deprecation, per Article 13). Caller scan at deprecation time returned zero callers across code, n8n, cron, triggers, and other DEFINERs.
 
+## Lifecycle — NEW 2026-05-31 (Phase F)
+
+- `set_product_lifecycle_status(p_pod_product_id uuid, p_status text, p_reason text DEFAULT NULL)` → writes `lifecycle_product_status` (non-protected). ✅ 2026-05-31. Sole canonical writer for the lifecycle inclusion flag (status active/inactive). SECURITY DEFINER: requires `auth.uid()`, role gate `operator_admin/superadmin/manager`, validates status enum + `pod_products` FK, sets `app.via_rpc`/`app.rpc_name`. Audited via universal `audit_log_write('pod_product_id')` trigger on the table. Cody-reviewed (Articles 1, 2, 4, 8). Migration `phaseF_lifecycle_product_status`.
+
 ## How to add a new RPC
 
 1. Decide if it's a canonical writer (mutates a protected entity) or a helper.

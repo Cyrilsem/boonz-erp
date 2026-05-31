@@ -255,6 +255,14 @@ PROGRAM-2026-06-01 closes the FE call sites that write `refill_dispatching` dire
 
 ---
 
+## Phase F — Lifecycle inactive-product flag (2026-05-31)
+
+| Migration | Articles | Status | Date | Notes |
+|---|---|---|---|---|
+| `phaseF_lifecycle_product_status` | 1, 2, 4, 8, 12, 14 | ✅ Applied | 2026-05-31 | New non-protected table `lifecycle_product_status` + canonical writer `set_product_lifecycle_status(uuid,text,text)` (role-gated, validated, GUC-tagged) + universal `audit_log_write('pod_product_id')` trigger + RLS (SELECT all authenticated, writes role-gated). Seeded 14 retired/0-live-unit products as inactive (in-migration INSERT; MCP apply lacks auth.uid(); trigger audited). Cody ⚠️→revisions applied. Powers /app/lifecycle inactive-exclusion across all tabs. Rollback in CHANGELOG 2026-05-31. |
+
+---
+
 ## How to add a new entry
 
 1. Apply the migration via `mcp__supabase__apply_migration` with a descriptive name (`phaseX_NN_description`).
