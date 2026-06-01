@@ -218,7 +218,10 @@ function strategyTooltip(strategy: string | null): string {
 // what the user is looking at.
 
 type CardStyle = { card: string; bar: string };
-const EXCLUDED_STYLE: CardStyle = { card: "bg-gray-50 border-gray-200 opacity-50", bar: "bg-gray-200" };
+const EXCLUDED_STYLE: CardStyle = {
+  card: "bg-gray-50 border-gray-200 opacity-50",
+  bar: "bg-gray-200",
+};
 
 function statusCardColors(label: string): CardStyle {
   if (label.includes("Zombie"))
@@ -245,7 +248,10 @@ function urgencyCardColors(urgencyScore: number): CardStyle {
   return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
 }
 
-function metricCardColors(value: number, thresholds: [number, number, number]): CardStyle {
+function metricCardColors(
+  value: number,
+  thresholds: [number, number, number],
+): CardStyle {
   // thresholds = [red, amber, yellow] — value below red = red, below amber = amber, etc.
   const [red, amber, yellow] = thresholds;
   if (value <= red)
@@ -259,8 +265,7 @@ function metricCardColors(value: number, thresholds: [number, number, number]): 
 
 function expiryCardColors(daysToExpiry: number | null): CardStyle {
   const d = daysToExpiry ?? 9999;
-  if (d <= 7)
-    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (d <= 7) return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
   if (d <= 30)
     return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
   if (d <= 60)
@@ -271,7 +276,9 @@ function expiryCardColors(daysToExpiry: number | null): CardStyle {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function RefillPage() {
-  const [tab, setTab] = useState<"snapshot" | "planning" | "dispatching" | "tracker" | "signals">("snapshot");
+  const [tab, setTab] = useState<
+    "snapshot" | "planning" | "dispatching" | "tracker" | "signals"
+  >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
   // ── Hoisted refill planning state (persists across tab switches) ──────────────
@@ -391,8 +398,8 @@ export default function RefillPage() {
       // Filter out WH warehouse machines — not field machines, should not appear in refill view
       setMachineHealth(
         (healthData as MachineHealth[]).filter(
-          (m) => !m.machine_name.toUpperCase().startsWith("WH")
-        )
+          (m) => !m.machine_name.toUpperCase().startsWith("WH"),
+        ),
       );
   }, [getSupabase, lookbackDays]);
 
@@ -629,31 +636,37 @@ export default function RefillPage() {
   }, []);
 
   // ── Card color resolver — adapts to active sort mode ──────────────────
-  const getCardColors = useCallback((m: MachineHealth, sort: typeof sortBy): CardStyle => {
-    if (m.health_tier === "excluded") return EXCLUDED_STYLE;
-    switch (sort) {
-      case "priority":
-        return urgencyCardColors(refillUrgency(m));
-      case "status":
-        return statusCardColors(m.machine_health_label ?? "");
-      case "stock":
-        // Red ≤20 units, amber ≤50, yellow ≤80, green >80
-        return metricCardColors(m.total_stock, [20, 50, 80]);
-      case "fill":
-        // Red ≤25%, amber ≤50%, yellow ≤70%, green >70%
-        return metricCardColors(m.fill_pct, [25, 50, 70]);
-      case "expiry":
-        return expiryCardColors(m.days_to_earliest_expiry);
-      default:
-        return statusCardColors(m.machine_health_label ?? "");
-    }
-  }, [refillUrgency]);
+  const getCardColors = useCallback(
+    (m: MachineHealth, sort: typeof sortBy): CardStyle => {
+      if (m.health_tier === "excluded") return EXCLUDED_STYLE;
+      switch (sort) {
+        case "priority":
+          return urgencyCardColors(refillUrgency(m));
+        case "status":
+          return statusCardColors(m.machine_health_label ?? "");
+        case "stock":
+          // Red ≤20 units, amber ≤50, yellow ≤80, green >80
+          return metricCardColors(m.total_stock, [20, 50, 80]);
+        case "fill":
+          // Red ≤25%, amber ≤50%, yellow ≤70%, green >70%
+          return metricCardColors(m.fill_pct, [25, 50, 70]);
+        case "expiry":
+          return expiryCardColors(m.days_to_earliest_expiry);
+        default:
+          return statusCardColors(m.machine_health_label ?? "");
+      }
+    },
+    [refillUrgency],
+  );
 
   const sortedMachines = useMemo(() => {
-
     // ── Status rank (Zombie worst → Stable best) ─────────────────────────
     const labelOrder: Record<string, number> = {
-      Zombie: 0, "At Risk": 1, "Ramp-Up": 2, Star: 3, Stable: 4,
+      Zombie: 0,
+      "At Risk": 1,
+      "Ramp-Up": 2,
+      Star: 3,
+      Stable: 4,
     };
     const labelRank = (label: string): number => {
       for (const key of Object.keys(labelOrder)) {
@@ -670,8 +683,8 @@ export default function RefillPage() {
       case "status":
         sorted.sort(
           (a, b) =>
-            labelRank(a.machine_health_label) - labelRank(b.machine_health_label) ||
-            a.fill_pct - b.fill_pct,
+            labelRank(a.machine_health_label) -
+              labelRank(b.machine_health_label) || a.fill_pct - b.fill_pct,
         );
         break;
       case "stock":
@@ -701,19 +714,25 @@ export default function RefillPage() {
   // ── Dynamic legend pills — adapts to sort mode ─────────────────────────
   type LegendPill = { label: string; count: number; bg: string; text: string };
   const legendPills = useMemo((): LegendPill[] => {
-    const active = machineHealth.filter(m => m.health_tier !== "excluded");
+    const active = machineHealth.filter((m) => m.health_tier !== "excluded");
     const excluded = machineHealth.length - active.length;
 
-    const bucket = (items: MachineHealth[], fn: (m: MachineHealth) => string): Record<string, number> => {
+    const bucket = (
+      items: MachineHealth[],
+      fn: (m: MachineHealth) => string,
+    ): Record<string, number> => {
       const c: Record<string, number> = {};
-      for (const m of items) { const k = fn(m); c[k] = (c[k] ?? 0) + 1; }
+      for (const m of items) {
+        const k = fn(m);
+        c[k] = (c[k] ?? 0) + 1;
+      }
       return c;
     };
 
     let pills: LegendPill[] = [];
     switch (sortBy) {
       case "status": {
-        const c = bucket(active, m => {
+        const c = bucket(active, (m) => {
           const l = m.machine_health_label ?? "";
           if (l.includes("Zombie")) return "Zombie";
           if (l.includes("At Risk")) return "At Risk";
@@ -723,16 +742,41 @@ export default function RefillPage() {
           return "Other";
         });
         pills = [
-          { label: "zombie", count: c["Zombie"] ?? 0, bg: "bg-red-100", text: "text-red-700" },
-          { label: "at risk", count: c["At Risk"] ?? 0, bg: "bg-amber-100", text: "text-amber-700" },
-          { label: "ramp-up", count: c["Ramp-Up"] ?? 0, bg: "bg-blue-100", text: "text-blue-700" },
-          { label: "stable", count: c["Stable"] ?? 0, bg: "bg-yellow-100", text: "text-yellow-700" },
-          { label: "star", count: c["Star"] ?? 0, bg: "bg-green-100", text: "text-green-700" },
+          {
+            label: "zombie",
+            count: c["Zombie"] ?? 0,
+            bg: "bg-red-100",
+            text: "text-red-700",
+          },
+          {
+            label: "at risk",
+            count: c["At Risk"] ?? 0,
+            bg: "bg-amber-100",
+            text: "text-amber-700",
+          },
+          {
+            label: "ramp-up",
+            count: c["Ramp-Up"] ?? 0,
+            bg: "bg-blue-100",
+            text: "text-blue-700",
+          },
+          {
+            label: "stable",
+            count: c["Stable"] ?? 0,
+            bg: "bg-yellow-100",
+            text: "text-yellow-700",
+          },
+          {
+            label: "star",
+            count: c["Star"] ?? 0,
+            bg: "bg-green-100",
+            text: "text-green-700",
+          },
         ];
         break;
       }
       case "priority": {
-        const c = bucket(active, m => {
+        const c = bucket(active, (m) => {
           const s = refillUrgency(m);
           if (s >= 80) return "Critical";
           if (s >= 35) return "Moderate";
@@ -740,45 +784,105 @@ export default function RefillPage() {
           return "Fine";
         });
         pills = [
-          { label: "critical", count: c["Critical"] ?? 0, bg: "bg-red-100", text: "text-red-700" },
-          { label: "moderate", count: c["Moderate"] ?? 0, bg: "bg-amber-100", text: "text-amber-700" },
-          { label: "low", count: c["Low"] ?? 0, bg: "bg-yellow-100", text: "text-yellow-700" },
-          { label: "fine", count: c["Fine"] ?? 0, bg: "bg-green-100", text: "text-green-700" },
+          {
+            label: "critical",
+            count: c["Critical"] ?? 0,
+            bg: "bg-red-100",
+            text: "text-red-700",
+          },
+          {
+            label: "moderate",
+            count: c["Moderate"] ?? 0,
+            bg: "bg-amber-100",
+            text: "text-amber-700",
+          },
+          {
+            label: "low",
+            count: c["Low"] ?? 0,
+            bg: "bg-yellow-100",
+            text: "text-yellow-700",
+          },
+          {
+            label: "fine",
+            count: c["Fine"] ?? 0,
+            bg: "bg-green-100",
+            text: "text-green-700",
+          },
         ];
         break;
       }
       case "stock": {
-        const c = bucket(active, m => {
+        const c = bucket(active, (m) => {
           if (m.total_stock <= 20) return "Very Low";
           if (m.total_stock <= 50) return "Low";
           if (m.total_stock <= 80) return "Moderate";
           return "Good";
         });
         pills = [
-          { label: "very low", count: c["Very Low"] ?? 0, bg: "bg-red-100", text: "text-red-700" },
-          { label: "low", count: c["Low"] ?? 0, bg: "bg-amber-100", text: "text-amber-700" },
-          { label: "moderate", count: c["Moderate"] ?? 0, bg: "bg-yellow-100", text: "text-yellow-700" },
-          { label: "good", count: c["Good"] ?? 0, bg: "bg-green-100", text: "text-green-700" },
+          {
+            label: "very low",
+            count: c["Very Low"] ?? 0,
+            bg: "bg-red-100",
+            text: "text-red-700",
+          },
+          {
+            label: "low",
+            count: c["Low"] ?? 0,
+            bg: "bg-amber-100",
+            text: "text-amber-700",
+          },
+          {
+            label: "moderate",
+            count: c["Moderate"] ?? 0,
+            bg: "bg-yellow-100",
+            text: "text-yellow-700",
+          },
+          {
+            label: "good",
+            count: c["Good"] ?? 0,
+            bg: "bg-green-100",
+            text: "text-green-700",
+          },
         ];
         break;
       }
       case "fill": {
-        const c = bucket(active, m => {
+        const c = bucket(active, (m) => {
           if (m.fill_pct <= 25) return "Critical";
           if (m.fill_pct <= 50) return "Low";
           if (m.fill_pct <= 70) return "Moderate";
           return "Healthy";
         });
         pills = [
-          { label: "≤25%", count: c["Critical"] ?? 0, bg: "bg-red-100", text: "text-red-700" },
-          { label: "≤50%", count: c["Low"] ?? 0, bg: "bg-amber-100", text: "text-amber-700" },
-          { label: "≤70%", count: c["Moderate"] ?? 0, bg: "bg-yellow-100", text: "text-yellow-700" },
-          { label: ">70%", count: c["Healthy"] ?? 0, bg: "bg-green-100", text: "text-green-700" },
+          {
+            label: "≤25%",
+            count: c["Critical"] ?? 0,
+            bg: "bg-red-100",
+            text: "text-red-700",
+          },
+          {
+            label: "≤50%",
+            count: c["Low"] ?? 0,
+            bg: "bg-amber-100",
+            text: "text-amber-700",
+          },
+          {
+            label: "≤70%",
+            count: c["Moderate"] ?? 0,
+            bg: "bg-yellow-100",
+            text: "text-yellow-700",
+          },
+          {
+            label: ">70%",
+            count: c["Healthy"] ?? 0,
+            bg: "bg-green-100",
+            text: "text-green-700",
+          },
         ];
         break;
       }
       case "expiry": {
-        const c = bucket(active, m => {
+        const c = bucket(active, (m) => {
           const d = m.days_to_earliest_expiry ?? 9999;
           if (d <= 7) return "Urgent";
           if (d <= 30) return "Soon";
@@ -786,17 +890,43 @@ export default function RefillPage() {
           return "Safe";
         });
         pills = [
-          { label: "≤7d", count: c["Urgent"] ?? 0, bg: "bg-red-100", text: "text-red-700" },
-          { label: "≤30d", count: c["Soon"] ?? 0, bg: "bg-amber-100", text: "text-amber-700" },
-          { label: "≤60d", count: c["Watch"] ?? 0, bg: "bg-yellow-100", text: "text-yellow-700" },
-          { label: ">60d", count: c["Safe"] ?? 0, bg: "bg-green-100", text: "text-green-700" },
+          {
+            label: "≤7d",
+            count: c["Urgent"] ?? 0,
+            bg: "bg-red-100",
+            text: "text-red-700",
+          },
+          {
+            label: "≤30d",
+            count: c["Soon"] ?? 0,
+            bg: "bg-amber-100",
+            text: "text-amber-700",
+          },
+          {
+            label: "≤60d",
+            count: c["Watch"] ?? 0,
+            bg: "bg-yellow-100",
+            text: "text-yellow-700",
+          },
+          {
+            label: ">60d",
+            count: c["Safe"] ?? 0,
+            bg: "bg-green-100",
+            text: "text-green-700",
+          },
         ];
         break;
       }
     }
     // Filter out zero-count pills, add excluded if any
-    pills = pills.filter(p => p.count > 0);
-    if (excluded > 0) pills.push({ label: "excluded", count: excluded, bg: "bg-gray-100", text: "text-gray-400" });
+    pills = pills.filter((p) => p.count > 0);
+    if (excluded > 0)
+      pills.push({
+        label: "excluded",
+        count: excluded,
+        bg: "bg-gray-100",
+        text: "text-gray-400",
+      });
     return pills;
   }, [machineHealth, sortBy, refillUrgency]);
 
@@ -848,8 +978,8 @@ export default function RefillPage() {
         .limit(10000);
       setMachineHealth(
         ((healthData as MachineHealth[]) || []).filter(
-          (m) => !m.machine_name.toUpperCase().startsWith("WH")
-        )
+          (m) => !m.machine_name.toUpperCase().startsWith("WH"),
+        ),
       );
       setIncludeInRefill(include);
     }
@@ -1370,7 +1500,10 @@ export default function RefillPage() {
                 </h2>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
                   {legendPills.map((p) => (
-                    <span key={p.label} className={`px-2 py-0.5 rounded-full font-medium ${p.bg} ${p.text}`}>
+                    <span
+                      key={p.label}
+                      className={`px-2 py-0.5 rounded-full font-medium ${p.bg} ${p.text}`}
+                    >
                       {p.count} {p.label}
                     </span>
                   ))}
@@ -1378,30 +1511,30 @@ export default function RefillPage() {
               </div>
               <div className="flex items-center gap-1 text-xs text-gray-500">
                 <span>Sort:</span>
-                {(["priority", "status", "stock", "fill", "expiry"] as const).map(
-                  (opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      onClick={() => setSortBy(opt)}
-                      className={`px-2.5 py-1 rounded-md transition-colors ${
-                        sortBy === opt
-                          ? "bg-gray-900 text-white"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                      }`}
-                    >
-                      {opt === "priority"
-                        ? "Priority"
-                        : opt === "status"
-                          ? "Status"
-                          : opt === "stock"
-                            ? "Stock"
-                            : opt === "fill"
-                              ? "Fill %"
-                              : "Expiry"}
-                    </button>
-                  ),
-                )}
+                {(
+                  ["priority", "status", "stock", "fill", "expiry"] as const
+                ).map((opt) => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setSortBy(opt)}
+                    className={`px-2.5 py-1 rounded-md transition-colors ${
+                      sortBy === opt
+                        ? "bg-gray-900 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    }`}
+                  >
+                    {opt === "priority"
+                      ? "Priority"
+                      : opt === "status"
+                        ? "Status"
+                        : opt === "stock"
+                          ? "Stock"
+                          : opt === "fill"
+                            ? "Fill %"
+                            : "Expiry"}
+                  </button>
+                ))}
               </div>
             </div>
             <p className="text-xs text-gray-400 mb-3">
@@ -1428,7 +1561,12 @@ export default function RefillPage() {
                         </div>
                       )}
                       {m.is_picked_tomorrow && (
-                        <span title="Picked for tomorrow" className="text-[11px] leading-none">🎯</span>
+                        <span
+                          title="Picked for tomorrow"
+                          className="text-[11px] leading-none"
+                        >
+                          🎯
+                        </span>
                       )}
                     </div>
                     <div className="mb-0.5">
@@ -1457,13 +1595,26 @@ export default function RefillPage() {
                     </div>
                     {/* Quick stats: runway + visit + velocity + dead/hero + swaps */}
                     <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
-                      {m.days_until_empty != null && m.days_until_empty < 999 && (
-                        <span className={m.days_until_empty <= 3 ? "text-red-600 font-medium" : ""}>
-                          {m.days_until_empty}d runway
-                        </span>
-                      )}
+                      {m.days_until_empty != null &&
+                        m.days_until_empty < 999 && (
+                          <span
+                            className={
+                              m.days_until_empty <= 3
+                                ? "text-red-600 font-medium"
+                                : ""
+                            }
+                          >
+                            {m.days_until_empty}d runway
+                          </span>
+                        )}
                       {m.days_since_visit != null && (
-                        <span className={m.days_since_visit >= 7 ? "text-amber-600 font-medium" : ""}>
+                        <span
+                          className={
+                            m.days_since_visit >= 7
+                              ? "text-amber-600 font-medium"
+                              : ""
+                          }
+                        >
                           {m.days_since_visit}d ago
                         </span>
                       )}
@@ -1940,75 +2091,147 @@ export default function RefillPage() {
                     )}
 
                     {/* Intelligence summary bar + urgency breakdown */}
-                    {selectedHealth && (() => {
-                      const h = selectedHealth;
-                      const urgScore = refillUrgency(h);
-                      // Build score breakdown for display
-                      const reasons: { label: string; pts: number; color: string }[] = [];
-                      if (h.slots_at_zero > 0)
-                        reasons.push({ label: `${h.slots_at_zero} empty shelves`, pts: h.slots_at_zero * 15, color: "text-red-600" });
-                      const nearEmpty = Math.max(0, h.slots_below_25pct - h.slots_at_zero);
-                      if (nearEmpty > 0)
-                        reasons.push({ label: `${nearEmpty} shelves <25%`, pts: nearEmpty * 8, color: "text-amber-600" });
-                      const runway = h.days_until_empty ?? 999;
-                      if (runway <= 14) {
-                        const rPts = runway <= 1 ? 50 : runway <= 3 ? 35 : runway <= 7 ? 20 : 8;
-                        reasons.push({ label: `${Math.round(runway)}d runway`, pts: rPts, color: runway <= 3 ? "text-red-600" : "text-amber-600" });
-                      }
-                      if (h.daily_velocity > 0)
-                        reasons.push({ label: `↗ ${h.daily_velocity.toFixed(1)}/day velocity`, pts: Math.round(Math.min(h.daily_velocity * 2, 30)), color: "text-blue-600" });
-                      const daysSince = h.days_since_visit ?? 0;
-                      if (daysSince >= 4) {
-                        const vPts = daysSince >= 14 ? 25 : daysSince >= 7 ? 15 : 5;
-                        reasons.push({ label: `${daysSince}d since visit`, pts: vPts, color: daysSince >= 7 ? "text-amber-600" : "text-gray-600" });
-                      }
-                      if (h.expired_units > 0)
-                        reasons.push({ label: `${h.expired_units} expired units`, pts: 20 + h.expired_units * 2, color: "text-red-600" });
-                      if (h.pending_swap_count > 0)
-                        reasons.push({ label: `${h.pending_swap_count} pending swaps`, pts: h.pending_swap_count * 5, color: "text-purple-600" });
-                      if (h.is_picked_tomorrow)
-                        reasons.push({ label: "Picked for tomorrow", pts: 40, color: "text-blue-700" });
-                      if (h.fill_pct < 50) {
-                        const fPts = h.fill_pct < 30 ? 15 : 8;
-                        reasons.push({ label: `${h.fill_pct.toFixed(0)}% fill`, pts: fPts, color: "text-amber-600" });
-                      }
-                      if (h.dead_stock_count > 0)
-                        reasons.push({ label: `${h.dead_stock_count}/${h.total_slots} dead stock`, pts: 0, color: "text-red-600" });
-                      if (h.local_hero_count > 0)
-                        reasons.push({ label: `${h.local_hero_count} hero${h.local_hero_count !== 1 ? "s" : ""}`, pts: 0, color: "text-green-600" });
+                    {selectedHealth &&
+                      (() => {
+                        const h = selectedHealth;
+                        const urgScore = refillUrgency(h);
+                        // Build score breakdown for display
+                        const reasons: {
+                          label: string;
+                          pts: number;
+                          color: string;
+                        }[] = [];
+                        if (h.slots_at_zero > 0)
+                          reasons.push({
+                            label: `${h.slots_at_zero} empty shelves`,
+                            pts: h.slots_at_zero * 15,
+                            color: "text-red-600",
+                          });
+                        const nearEmpty = Math.max(
+                          0,
+                          h.slots_below_25pct - h.slots_at_zero,
+                        );
+                        if (nearEmpty > 0)
+                          reasons.push({
+                            label: `${nearEmpty} shelves <25%`,
+                            pts: nearEmpty * 8,
+                            color: "text-amber-600",
+                          });
+                        const runway = h.days_until_empty ?? 999;
+                        if (runway <= 14) {
+                          const rPts =
+                            runway <= 1
+                              ? 50
+                              : runway <= 3
+                                ? 35
+                                : runway <= 7
+                                  ? 20
+                                  : 8;
+                          reasons.push({
+                            label: `${Math.round(runway)}d runway`,
+                            pts: rPts,
+                            color:
+                              runway <= 3 ? "text-red-600" : "text-amber-600",
+                          });
+                        }
+                        if (h.daily_velocity > 0)
+                          reasons.push({
+                            label: `↗ ${h.daily_velocity.toFixed(1)}/day velocity`,
+                            pts: Math.round(Math.min(h.daily_velocity * 2, 30)),
+                            color: "text-blue-600",
+                          });
+                        const daysSince = h.days_since_visit ?? 0;
+                        if (daysSince >= 4) {
+                          const vPts =
+                            daysSince >= 14 ? 25 : daysSince >= 7 ? 15 : 5;
+                          reasons.push({
+                            label: `${daysSince}d since visit`,
+                            pts: vPts,
+                            color:
+                              daysSince >= 7
+                                ? "text-amber-600"
+                                : "text-gray-600",
+                          });
+                        }
+                        if (h.expired_units > 0)
+                          reasons.push({
+                            label: `${h.expired_units} expired units`,
+                            pts: 20 + h.expired_units * 2,
+                            color: "text-red-600",
+                          });
+                        if (h.pending_swap_count > 0)
+                          reasons.push({
+                            label: `${h.pending_swap_count} pending swaps`,
+                            pts: h.pending_swap_count * 5,
+                            color: "text-purple-600",
+                          });
+                        if (h.is_picked_tomorrow)
+                          reasons.push({
+                            label: "Picked for tomorrow",
+                            pts: 40,
+                            color: "text-blue-700",
+                          });
+                        if (h.fill_pct < 50) {
+                          const fPts = h.fill_pct < 30 ? 15 : 8;
+                          reasons.push({
+                            label: `${h.fill_pct.toFixed(0)}% fill`,
+                            pts: fPts,
+                            color: "text-amber-600",
+                          });
+                        }
+                        if (h.dead_stock_count > 0)
+                          reasons.push({
+                            label: `${h.dead_stock_count}/${h.total_slots} dead stock`,
+                            pts: 0,
+                            color: "text-red-600",
+                          });
+                        if (h.local_hero_count > 0)
+                          reasons.push({
+                            label: `${h.local_hero_count} hero${h.local_hero_count !== 1 ? "s" : ""}`,
+                            pts: 0,
+                            color: "text-green-600",
+                          });
 
-                      // Sort by points descending
-                      reasons.sort((a, b) => b.pts - a.pts);
+                        // Sort by points descending
+                        reasons.sort((a, b) => b.pts - a.pts);
 
-                      return (
-                        <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
-                          {/* Row 1: label + strategy + urgency score */}
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5">
-                            {h.machine_health_label && (
-                              <span className={`font-semibold px-1.5 py-0.5 rounded ${healthLabelBadgeClass(h.machine_health_label)}`}>
-                                {h.machine_health_label}
-                              </span>
-                            )}
-                            {h.machine_strategy && (
-                              <span className="text-gray-500">{h.machine_strategy}</span>
-                            )}
-                            <span className="ml-auto text-[10px] font-mono text-gray-400">
-                              urgency: {urgScore} pts
-                            </span>
-                          </div>
-                          {/* Row 2: score breakdown — WHY this machine matters */}
-                          {reasons.length > 0 && (
-                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-relaxed">
-                              {reasons.map((r, i) => (
-                                <span key={i} className={`${r.color} ${r.pts > 0 ? "font-medium" : ""}`}>
-                                  {r.label}{r.pts > 0 ? ` (+${r.pts})` : ""}
+                        return (
+                          <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
+                            {/* Row 1: label + strategy + urgency score */}
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5">
+                              {h.machine_health_label && (
+                                <span
+                                  className={`font-semibold px-1.5 py-0.5 rounded ${healthLabelBadgeClass(h.machine_health_label)}`}
+                                >
+                                  {h.machine_health_label}
                                 </span>
-                              ))}
+                              )}
+                              {h.machine_strategy && (
+                                <span className="text-gray-500">
+                                  {h.machine_strategy}
+                                </span>
+                              )}
+                              <span className="ml-auto text-[10px] font-mono text-gray-400">
+                                urgency: {urgScore} pts
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })()}
+                            {/* Row 2: score breakdown — WHY this machine matters */}
+                            {reasons.length > 0 && (
+                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-relaxed">
+                                {reasons.map((r, i) => (
+                                  <span
+                                    key={i}
+                                    className={`${r.color} ${r.pts > 0 ? "font-medium" : ""}`}
+                                  >
+                                    {r.label}
+                                    {r.pts > 0 ? ` (+${r.pts})` : ""}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                     {/* Sort controls */}
                     <div className="flex items-center gap-2 mb-3">

@@ -658,8 +658,7 @@ function MachineRow({
               <span
                 style={{
                   marginLeft: 8,
-                  fontFamily:
-                    "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                   fontSize: 11,
                   letterSpacing: "0.05em",
                   color: "#9b9890",

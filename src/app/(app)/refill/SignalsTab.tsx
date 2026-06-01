@@ -49,13 +49,29 @@ type StaleVisit = {
   days_since_last_refill: number;
 };
 
-type SignalCategory = "swaps" | "decom_wh" | "ghost_pods" | "stale_dispatch" | "stale_visits";
+type SignalCategory =
+  | "swaps"
+  | "decom_wh"
+  | "ghost_pods"
+  | "stale_dispatch"
+  | "stale_visits";
 
-const SIGNAL_META: Record<SignalCategory, { label: string; icon: string; description: string; color: string; borderColor: string; headerColor: string }> = {
+const SIGNAL_META: Record<
+  SignalCategory,
+  {
+    label: string;
+    icon: string;
+    description: string;
+    color: string;
+    borderColor: string;
+    headerColor: string;
+  }
+> = {
   swaps: {
     label: "Pending Swaps",
     icon: "🔄",
-    description: "planned_swaps with status='pending' — these feed into the advisory and engine SWAP pass",
+    description:
+      "planned_swaps with status='pending' — these feed into the advisory and engine SWAP pass",
     color: "#eff6ff",
     borderColor: "#bfdbfe",
     headerColor: "#1e40af",
@@ -63,7 +79,8 @@ const SIGNAL_META: Record<SignalCategory, { label: string; icon: string; descrip
   decom_wh: {
     label: "Decom WH Stock",
     icon: "🗑️",
-    description: "Decommissioned products still Active in warehouse_inventory — triggers drain signals",
+    description:
+      "Decommissioned products still Active in warehouse_inventory — triggers drain signals",
     color: "#fff7ed",
     borderColor: "#fed7aa",
     headerColor: "#9a3412",
@@ -71,7 +88,8 @@ const SIGNAL_META: Record<SignalCategory, { label: string; icon: string; descrip
   ghost_pods: {
     label: "Ghost Pod Inventory",
     icon: "👻",
-    description: "pod_inventory rows with status='Active' on Inactive machines — noise, should be archived",
+    description:
+      "pod_inventory rows with status='Active' on Inactive machines — noise, should be archived",
     color: "#fef2f2",
     borderColor: "#fecaca",
     headerColor: "#991b1b",
@@ -79,7 +97,8 @@ const SIGNAL_META: Record<SignalCategory, { label: string; icon: string; descrip
   stale_dispatch: {
     label: "Stale Dispatches",
     icon: "📦",
-    description: "refill_dispatching rows that are dispatched but not picked_up (and not returned) — may indicate field issues",
+    description:
+      "refill_dispatching rows that are dispatched but not picked_up (and not returned) — may indicate field issues",
     color: "#faf5ff",
     borderColor: "#e9d5ff",
     headerColor: "#6b21a8",
@@ -87,7 +106,8 @@ const SIGNAL_META: Record<SignalCategory, { label: string; icon: string; descrip
   stale_visits: {
     label: "Stale Visits (>10d)",
     icon: "⏰",
-    description: "Machines with no approved refill in >10 days — may need attention or are genuinely low-velocity",
+    description:
+      "Machines with no approved refill in >10 days — may need attention or are genuinely low-velocity",
     color: "#fefce8",
     borderColor: "#fef08a",
     headerColor: "#854d0e",
@@ -99,7 +119,7 @@ const SIGNAL_META: Record<SignalCategory, { label: string; icon: string; descrip
 export function SignalsTab() {
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
 
   const [loading, setLoading] = useState(true);
@@ -108,7 +128,9 @@ export function SignalsTab() {
   const [ghostPods, setGhostPods] = useState<GhostPodInventory[]>([]);
   const [staleDispatches, setStaleDispatches] = useState<StaleDispatch[]>([]);
   const [staleVisits, setStaleVisits] = useState<StaleVisit[]>([]);
-  const [expandedSection, setExpandedSection] = useState<SignalCategory | null>(null);
+  const [expandedSection, setExpandedSection] = useState<SignalCategory | null>(
+    null,
+  );
   // machine_name → adyen_store_code lookup so we can show the last-4 short ID
   // next to each row's machine column.
   const [machineCodeByName, setMachineCodeByName] = useState<
@@ -142,7 +164,9 @@ export function SignalsTab() {
     // 1. Pending swaps
     const { data: swapData } = await supabase
       .from("planned_swaps")
-      .select("machine_name, remove_pod_product_name, add_pod_product_name, notes, created_at")
+      .select(
+        "machine_name, remove_pod_product_name, add_pod_product_name, notes, created_at",
+      )
       .eq("status", "pending")
       .order("created_at", { ascending: false });
 
@@ -157,11 +181,15 @@ export function SignalsTab() {
     if (ghostData) setGhostPods(ghostData as GhostPodInventory[]);
 
     // 4. Stale dispatches (dispatched=true, picked_up=false, returned=false, dispatch_date < today)
-    const { data: staleDispData } = await supabase.rpc("get_stale_dispatch_signals");
+    const { data: staleDispData } = await supabase.rpc(
+      "get_stale_dispatch_signals",
+    );
     if (staleDispData) setStaleDispatches(staleDispData as StaleDispatch[]);
 
     // 5. Stale visits (>10 days since last approved refill)
-    const { data: staleVisitData } = await supabase.rpc("get_stale_visit_signals");
+    const { data: staleVisitData } = await supabase.rpc(
+      "get_stale_visit_signals",
+    );
     if (staleVisitData) setStaleVisits(staleVisitData as StaleVisit[]);
 
     setLoading(false);
@@ -189,11 +217,34 @@ export function SignalsTab() {
     <div>
       {/* ── Header ──────────────────────────────────────────────── */}
       <div style={{ marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: "#0a0a0a", margin: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 8,
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 16,
+              fontWeight: 700,
+              color: "#0a0a0a",
+              margin: 0,
+            }}
+          >
             Decision Signals
           </h2>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#6b6860", background: "#f5f3ee", padding: "3px 10px", borderRadius: 10 }}>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#6b6860",
+              background: "#f5f3ee",
+              padding: "3px 10px",
+              borderRadius: 10,
+            }}
+          >
             {totalSignals} active
           </span>
           <button
@@ -214,13 +265,18 @@ export function SignalsTab() {
             {loading ? "Loading…" : "↻ Refresh"}
           </button>
         </div>
-        <p style={{ fontSize: 12, color: "#9ca3af", margin: 0, lineHeight: 1.5 }}>
-          All data sources that feed into refill decisions. If something unexpected appears in the plan, check here first.
+        <p
+          style={{ fontSize: 12, color: "#9ca3af", margin: 0, lineHeight: 1.5 }}
+        >
+          All data sources that feed into refill decisions. If something
+          unexpected appears in the plan, check here first.
         </p>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>Loading signals...</div>
+        <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>
+          Loading signals...
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {(Object.keys(SIGNAL_META) as SignalCategory[]).map((cat) => {
@@ -256,10 +312,18 @@ export function SignalsTab() {
                 >
                   <span style={{ fontSize: 18 }}>{meta.icon}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: count > 0 ? meta.headerColor : "#9ca3af" }}>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: count > 0 ? meta.headerColor : "#9ca3af",
+                      }}
+                    >
                       {meta.label}
                     </div>
-                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                    <div
+                      style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}
+                    >
                       {meta.description}
                     </div>
                   </div>
@@ -276,40 +340,150 @@ export function SignalsTab() {
                   >
                     {count}
                   </span>
-                  <span style={{ fontSize: 12, color: "#9ca3af", transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: "#9ca3af",
+                      transform: isExpanded ? "rotate(180deg)" : "none",
+                      transition: "transform 0.2s",
+                    }}
+                  >
                     ▼
                   </span>
                 </button>
 
                 {/* ── Expanded content ── */}
                 {isExpanded && count > 0 && (
-                  <div style={{ padding: "0 18px 14px", borderTop: `1px solid ${meta.borderColor}` }}>
+                  <div
+                    style={{
+                      padding: "0 18px 14px",
+                      borderTop: `1px solid ${meta.borderColor}`,
+                    }}
+                  >
                     {cat === "swaps" && (
-                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", marginTop: 12 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          fontSize: 12,
+                          borderCollapse: "collapse",
+                          marginTop: 12,
+                        }}
+                      >
                         <thead>
-                          <tr style={{ borderBottom: "1px solid #e8e4de", color: "#6b6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Machine</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Remove</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Add</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Notes</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Created</th>
+                          <tr
+                            style={{
+                              borderBottom: "1px solid #e8e4de",
+                              color: "#6b6860",
+                              fontSize: 11,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Machine
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Remove
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Add
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Notes
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Created
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {swaps.map((s, i) => (
-                            <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                            <tr
+                              key={i}
+                              style={{ borderBottom: "1px solid #f5f3ee" }}
+                            >
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  fontFamily: "monospace",
+                                  fontWeight: 600,
+                                }}
+                              >
                                 {s.machine_name}
-                                {machineShortId(machineCodeByName[s.machine_name]) && (
-                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
-                                    {machineShortId(machineCodeByName[s.machine_name])}
+                                {machineShortId(
+                                  machineCodeByName[s.machine_name],
+                                ) && (
+                                  <span
+                                    style={{
+                                      marginLeft: 6,
+                                      fontWeight: 400,
+                                      color: "#9b9890",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {machineShortId(
+                                      machineCodeByName[s.machine_name],
+                                    )}
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: "8px 4px", color: "#dc2626" }}>{s.remove_pod_product_name}</td>
-                              <td style={{ padding: "8px 4px", color: "#16a34a" }}>{s.add_pod_product_name}</td>
-                              <td style={{ padding: "8px 4px", color: "#6b6860", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.notes || "—"}</td>
-                              <td style={{ padding: "8px 4px", color: "#9ca3af" }}>{new Date(s.created_at).toLocaleDateString()}</td>
+                              <td
+                                style={{ padding: "8px 4px", color: "#dc2626" }}
+                              >
+                                {s.remove_pod_product_name}
+                              </td>
+                              <td
+                                style={{ padding: "8px 4px", color: "#16a34a" }}
+                              >
+                                {s.add_pod_product_name}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  color: "#6b6860",
+                                  maxWidth: 200,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {s.notes || "—"}
+                              </td>
+                              <td
+                                style={{ padding: "8px 4px", color: "#9ca3af" }}
+                              >
+                                {new Date(s.created_at).toLocaleDateString()}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -317,22 +491,93 @@ export function SignalsTab() {
                     )}
 
                     {cat === "decom_wh" && (
-                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", marginTop: 12 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          fontSize: 12,
+                          borderCollapse: "collapse",
+                          marginTop: 12,
+                        }}
+                      >
                         <thead>
-                          <tr style={{ borderBottom: "1px solid #e8e4de", color: "#6b6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Product</th>
-                            <th style={{ textAlign: "right", padding: "8px 4px", fontWeight: 600 }}>WH Stock</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Expiry</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Warehouse</th>
+                          <tr
+                            style={{
+                              borderBottom: "1px solid #e8e4de",
+                              color: "#6b6860",
+                              fontSize: 11,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Product
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "right",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              WH Stock
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Expiry
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Warehouse
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {decomWh.map((d, i) => (
-                            <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontWeight: 600 }}>{d.boonz_product_name}</td>
-                              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: "#9a3412" }}>{d.warehouse_stock}</td>
-                              <td style={{ padding: "8px 4px", color: "#6b6860" }}>{d.expiration_date || "—"}</td>
-                              <td style={{ padding: "8px 4px", color: "#6b6860" }}>{d.warehouse_name || "—"}</td>
+                            <tr
+                              key={i}
+                              style={{ borderBottom: "1px solid #f5f3ee" }}
+                            >
+                              <td
+                                style={{ padding: "8px 4px", fontWeight: 600 }}
+                              >
+                                {d.boonz_product_name}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  textAlign: "right",
+                                  fontWeight: 700,
+                                  color: "#9a3412",
+                                }}
+                              >
+                                {d.warehouse_stock}
+                              </td>
+                              <td
+                                style={{ padding: "8px 4px", color: "#6b6860" }}
+                              >
+                                {d.expiration_date || "—"}
+                              </td>
+                              <td
+                                style={{ padding: "8px 4px", color: "#6b6860" }}
+                              >
+                                {d.warehouse_name || "—"}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -340,35 +585,132 @@ export function SignalsTab() {
                     )}
 
                     {cat === "ghost_pods" && (
-                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", marginTop: 12 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          fontSize: 12,
+                          borderCollapse: "collapse",
+                          marginTop: 12,
+                        }}
+                      >
                         <thead>
-                          <tr style={{ borderBottom: "1px solid #e8e4de", color: "#6b6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Machine</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Machine Status</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Product</th>
-                            <th style={{ textAlign: "right", padding: "8px 4px", fontWeight: 600 }}>Stock</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Pod Status</th>
+                          <tr
+                            style={{
+                              borderBottom: "1px solid #e8e4de",
+                              color: "#6b6860",
+                              fontSize: 11,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Machine
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Machine Status
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Product
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "right",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Stock
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Pod Status
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {ghostPods.map((g, i) => (
-                            <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                            <tr
+                              key={i}
+                              style={{ borderBottom: "1px solid #f5f3ee" }}
+                            >
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  fontFamily: "monospace",
+                                  fontWeight: 600,
+                                }}
+                              >
                                 {g.machine_name}
-                                {machineShortId(machineCodeByName[g.machine_name]) && (
-                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
-                                    {machineShortId(machineCodeByName[g.machine_name])}
+                                {machineShortId(
+                                  machineCodeByName[g.machine_name],
+                                ) && (
+                                  <span
+                                    style={{
+                                      marginLeft: 6,
+                                      fontWeight: 400,
+                                      color: "#9b9890",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {machineShortId(
+                                      machineCodeByName[g.machine_name],
+                                    )}
                                   </span>
                                 )}
                               </td>
                               <td style={{ padding: "8px 4px" }}>
-                                <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 4, background: "#fee2e2", color: "#991b1b", fontWeight: 600 }}>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                    background: "#fee2e2",
+                                    color: "#991b1b",
+                                    fontWeight: 600,
+                                  }}
+                                >
                                   {g.machine_status}
                                 </span>
                               </td>
-                              <td style={{ padding: "8px 4px" }}>{g.boonz_product_name}</td>
-                              <td style={{ padding: "8px 4px", textAlign: "right" }}>{g.current_stock}</td>
-                              <td style={{ padding: "8px 4px", color: "#6b6860" }}>{g.status}</td>
+                              <td style={{ padding: "8px 4px" }}>
+                                {g.boonz_product_name}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  textAlign: "right",
+                                }}
+                              >
+                                {g.current_stock}
+                              </td>
+                              <td
+                                style={{ padding: "8px 4px", color: "#6b6860" }}
+                              >
+                                {g.status}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -376,39 +718,172 @@ export function SignalsTab() {
                     )}
 
                     {cat === "stale_dispatch" && (
-                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", marginTop: 12 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          fontSize: 12,
+                          borderCollapse: "collapse",
+                          marginTop: 12,
+                        }}
+                      >
                         <thead>
-                          <tr style={{ borderBottom: "1px solid #e8e4de", color: "#6b6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Date</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Machine</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Action</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Product</th>
-                            <th style={{ textAlign: "right", padding: "8px 4px", fontWeight: 600 }}>Qty</th>
-                            <th style={{ textAlign: "center", padding: "8px 4px", fontWeight: 600 }}>State</th>
+                          <tr
+                            style={{
+                              borderBottom: "1px solid #e8e4de",
+                              color: "#6b6860",
+                              fontSize: 11,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Date
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Machine
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Action
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Product
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "right",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Qty
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "center",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              State
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {staleDispatches.map((d, i) => (
-                            <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", color: "#6b6860" }}>{d.dispatch_date}</td>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                            <tr
+                              key={i}
+                              style={{ borderBottom: "1px solid #f5f3ee" }}
+                            >
+                              <td
+                                style={{ padding: "8px 4px", color: "#6b6860" }}
+                              >
+                                {d.dispatch_date}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  fontFamily: "monospace",
+                                  fontWeight: 600,
+                                }}
+                              >
                                 {d.machine_name}
-                                {machineShortId(machineCodeByName[d.machine_name]) && (
-                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
-                                    {machineShortId(machineCodeByName[d.machine_name])}
+                                {machineShortId(
+                                  machineCodeByName[d.machine_name],
+                                ) && (
+                                  <span
+                                    style={{
+                                      marginLeft: 6,
+                                      fontWeight: 400,
+                                      color: "#9b9890",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {machineShortId(
+                                      machineCodeByName[d.machine_name],
+                                    )}
                                   </span>
                                 )}
                               </td>
                               <td style={{ padding: "8px 4px" }}>{d.action}</td>
-                              <td style={{ padding: "8px 4px" }}>{d.boonz_product_name}</td>
-                              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 600 }}>{d.quantity}</td>
-                              <td style={{ padding: "8px 4px", textAlign: "center", fontSize: 11 }}>
+                              <td style={{ padding: "8px 4px" }}>
+                                {d.boonz_product_name}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  textAlign: "right",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {d.quantity}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  textAlign: "center",
+                                  fontSize: 11,
+                                }}
+                              >
                                 {d.returned ? (
-                                  <span style={{ background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>Returned</span>
+                                  <span
+                                    style={{
+                                      background: "#fef3c7",
+                                      color: "#92400e",
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Returned
+                                  </span>
                                 ) : d.packed && !d.picked_up ? (
-                                  <span style={{ background: "#e9d5ff", color: "#6b21a8", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>Packed, not picked</span>
+                                  <span
+                                    style={{
+                                      background: "#e9d5ff",
+                                      color: "#6b21a8",
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Packed, not picked
+                                  </span>
                                 ) : (
-                                  <span style={{ background: "#fee2e2", color: "#991b1b", padding: "2px 6px", borderRadius: 4, fontWeight: 600 }}>Dispatched, stuck</span>
+                                  <span
+                                    style={{
+                                      background: "#fee2e2",
+                                      color: "#991b1b",
+                                      padding: "2px 6px",
+                                      borderRadius: 4,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Dispatched, stuck
+                                  </span>
                                 )}
                               </td>
                             </tr>
@@ -418,27 +893,100 @@ export function SignalsTab() {
                     )}
 
                     {cat === "stale_visits" && (
-                      <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse", marginTop: 12 }}>
+                      <table
+                        style={{
+                          width: "100%",
+                          fontSize: 12,
+                          borderCollapse: "collapse",
+                          marginTop: 12,
+                        }}
+                      >
                         <thead>
-                          <tr style={{ borderBottom: "1px solid #e8e4de", color: "#6b6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Machine</th>
-                            <th style={{ textAlign: "left", padding: "8px 4px", fontWeight: 600 }}>Last Refill</th>
-                            <th style={{ textAlign: "right", padding: "8px 4px", fontWeight: 600 }}>Days Since</th>
+                          <tr
+                            style={{
+                              borderBottom: "1px solid #e8e4de",
+                              color: "#6b6860",
+                              fontSize: 11,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Machine
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "left",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Last Refill
+                            </th>
+                            <th
+                              style={{
+                                textAlign: "right",
+                                padding: "8px 4px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              Days Since
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {staleVisits.map((v, i) => (
-                            <tr key={i} style={{ borderBottom: "1px solid #f5f3ee" }}>
-                              <td style={{ padding: "8px 4px", fontFamily: "monospace", fontWeight: 600 }}>
+                            <tr
+                              key={i}
+                              style={{ borderBottom: "1px solid #f5f3ee" }}
+                            >
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  fontFamily: "monospace",
+                                  fontWeight: 600,
+                                }}
+                              >
                                 {v.machine_name}
-                                {machineShortId(machineCodeByName[v.machine_name]) && (
-                                  <span style={{ marginLeft: 6, fontWeight: 400, color: "#9b9890", fontSize: 11 }}>
-                                    {machineShortId(machineCodeByName[v.machine_name])}
+                                {machineShortId(
+                                  machineCodeByName[v.machine_name],
+                                ) && (
+                                  <span
+                                    style={{
+                                      marginLeft: 6,
+                                      fontWeight: 400,
+                                      color: "#9b9890",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {machineShortId(
+                                      machineCodeByName[v.machine_name],
+                                    )}
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: "8px 4px", color: "#6b6860" }}>{v.last_refill_date}</td>
-                              <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: 700, color: v.days_since_last_refill > 20 ? "#dc2626" : "#854d0e" }}>
+                              <td
+                                style={{ padding: "8px 4px", color: "#6b6860" }}
+                              >
+                                {v.last_refill_date}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "8px 4px",
+                                  textAlign: "right",
+                                  fontWeight: 700,
+                                  color:
+                                    v.days_since_last_refill > 20
+                                      ? "#dc2626"
+                                      : "#854d0e",
+                                }}
+                              >
                                 {v.days_since_last_refill}d
                               </td>
                             </tr>
@@ -450,7 +998,14 @@ export function SignalsTab() {
                 )}
 
                 {isExpanded && count === 0 && (
-                  <div style={{ padding: "12px 18px", borderTop: `1px solid ${meta.borderColor}`, color: "#9ca3af", fontSize: 12 }}>
+                  <div
+                    style={{
+                      padding: "12px 18px",
+                      borderTop: `1px solid ${meta.borderColor}`,
+                      color: "#9ca3af",
+                      fontSize: 12,
+                    }}
+                  >
                     ✓ Clean — no signals from this source
                   </div>
                 )}

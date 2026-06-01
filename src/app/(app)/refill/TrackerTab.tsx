@@ -21,18 +21,43 @@ type ActionItem = {
   resolved_at: string | null;
 };
 
-type FilterType = "all" | "bug" | "driver_feedback" | "intent" | "decommission" | "task" | "other";
+type FilterType =
+  | "all"
+  | "bug"
+  | "driver_feedback"
+  | "intent"
+  | "decommission"
+  | "task"
+  | "other";
 type FilterStatus = "all" | "open" | "in_progress" | "done" | "dismissed";
 type Category = "tech" | "refill" | "products" | "others";
 
-const CATEGORIES: { key: Category; label: string; icon: string; types: string[] }[] = [
+const CATEGORIES: {
+  key: Category;
+  label: string;
+  icon: string;
+  types: string[];
+}[] = [
   { key: "tech", label: "Tech", icon: "🛠", types: ["bug"] },
-  { key: "refill", label: "Refill", icon: "🚚", types: ["driver_feedback", "task"] },
-  { key: "products", label: "Products", icon: "📦", types: ["decommission", "intent"] },
+  {
+    key: "refill",
+    label: "Refill",
+    icon: "🚚",
+    types: ["driver_feedback", "task"],
+  },
+  {
+    key: "products",
+    label: "Products",
+    icon: "📦",
+    types: ["decommission", "intent"],
+  },
   { key: "others", label: "Others", icon: "📋", types: ["other"] },
 ];
 
-const CATEGORY_COLORS: Record<Category, { bg: string; border: string; header: string }> = {
+const CATEGORY_COLORS: Record<
+  Category,
+  { bg: string; border: string; header: string }
+> = {
   tech: { bg: "#fef2f2", border: "#fecaca", header: "#991b1b" },
   refill: { bg: "#eff6ff", border: "#bfdbfe", header: "#1e40af" },
   products: { bg: "#fff7ed", border: "#fed7aa", header: "#9a3412" },
@@ -83,7 +108,7 @@ const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
 export function TrackerTab() {
   const supabase = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
 
   const [items, setItems] = useState<ActionItem[]>([]);
@@ -149,7 +174,7 @@ export function TrackerTab() {
         { event: "*", schema: "public", table: "action_tracker" },
         () => {
           fetchItems();
-        }
+        },
       )
       .subscribe();
     return () => {
@@ -224,7 +249,9 @@ export function TrackerTab() {
 
   // ── Counts ──
   const openCount = items.filter((i) => i.status === "open").length;
-  const inProgressCount = items.filter((i) => i.status === "in_progress").length;
+  const inProgressCount = items.filter(
+    (i) => i.status === "in_progress",
+  ).length;
 
   // ── Styles ──
   const badge = (colors: { bg: string; text: string }, label: string) => (
@@ -278,7 +305,15 @@ export function TrackerTab() {
             padding: "14px 18px",
           }}
         >
-          <div style={{ fontSize: 11, color: "#92400e", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "#92400e",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
             Open
           </div>
           <div style={{ fontSize: 28, fontWeight: 700, color: "#92400e" }}>
@@ -293,7 +328,15 @@ export function TrackerTab() {
             padding: "14px 18px",
           }}
         >
-          <div style={{ fontSize: 11, color: "#1e40af", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "#1e40af",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
             In progress
           </div>
           <div style={{ fontSize: 28, fontWeight: 700, color: "#1e40af" }}>
@@ -308,7 +351,15 @@ export function TrackerTab() {
             padding: "14px 18px",
           }}
         >
-          <div style={{ fontSize: 11, color: "#6b6860", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "#6b6860",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
             Total shown
           </div>
           <div style={{ fontSize: 28, fontWeight: 700, color: "#0a0a0a" }}>
@@ -329,31 +380,65 @@ export function TrackerTab() {
         }}
       >
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={() => setFilterCategory("all")} style={btnStyle(filterCategory === "all")}>All</button>
+          <button
+            onClick={() => setFilterCategory("all")}
+            style={btnStyle(filterCategory === "all")}
+          >
+            All
+          </button>
           {CATEGORIES.map((cat) => (
             <button
               key={cat.key}
               onClick={() => setFilterCategory(cat.key)}
-              style={filterCategory === cat.key
-                ? { ...btnStyle(false), background: CATEGORY_COLORS[cat.key].bg, color: CATEGORY_COLORS[cat.key].header, borderColor: CATEGORY_COLORS[cat.key].border, fontWeight: 700 }
-                : btnStyle(false)}
+              style={
+                filterCategory === cat.key
+                  ? {
+                      ...btnStyle(false),
+                      background: CATEGORY_COLORS[cat.key].bg,
+                      color: CATEGORY_COLORS[cat.key].header,
+                      borderColor: CATEGORY_COLORS[cat.key].border,
+                      fontWeight: 700,
+                    }
+                  : btnStyle(false)
+              }
             >
               {cat.icon} {cat.label}
             </button>
           ))}
         </div>
         <div style={{ display: "flex", gap: 6 }}>
-          {(["all", "open", "in_progress", "done", "dismissed"] as FilterStatus[]).map(
-            (s) => (
-              <button key={s} onClick={() => setFilterStatus(s)} style={btnStyle(filterStatus === s)}>
-                {s === "all" ? "All" : s === "in_progress" ? "In progress" : s.charAt(0).toUpperCase() + s.slice(1)}
-              </button>
-            )
-          )}
+          {(
+            [
+              "all",
+              "open",
+              "in_progress",
+              "done",
+              "dismissed",
+            ] as FilterStatus[]
+          ).map((s) => (
+            <button
+              key={s}
+              onClick={() => setFilterStatus(s)}
+              style={btnStyle(filterStatus === s)}
+            >
+              {s === "all"
+                ? "All"
+                : s === "in_progress"
+                  ? "In progress"
+                  : s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div style={{ marginBottom: 16, display: "flex", gap: 8, alignItems: "center" }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
         <button
           onClick={() => {
             setEditingId(null);
@@ -410,10 +495,30 @@ export function TrackerTab() {
             marginBottom: 20,
           }}
         >
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Type</label>
-              <select value={formType} onChange={(e) => setFormType(e.target.value)} style={inputStyle}>
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#6b6860",
+                  textTransform: "uppercase",
+                }}
+              >
+                Type
+              </label>
+              <select
+                value={formType}
+                onChange={(e) => setFormType(e.target.value)}
+                style={inputStyle}
+              >
                 <option value="bug">Bug</option>
                 <option value="driver_feedback">Driver Feedback</option>
                 <option value="decommission">Decommission</option>
@@ -423,8 +528,21 @@ export function TrackerTab() {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Priority</label>
-              <select value={formPriority} onChange={(e) => setFormPriority(e.target.value)} style={inputStyle}>
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#6b6860",
+                  textTransform: "uppercase",
+                }}
+              >
+                Priority
+              </label>
+              <select
+                value={formPriority}
+                onChange={(e) => setFormPriority(e.target.value)}
+                style={inputStyle}
+              >
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
@@ -432,26 +550,104 @@ export function TrackerTab() {
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Machine</label>
-              <input value={formMachine} onChange={(e) => setFormMachine(e.target.value)} placeholder="e.g. JET-1016-0000-O1" style={inputStyle} />
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#6b6860",
+                  textTransform: "uppercase",
+                }}
+              >
+                Machine
+              </label>
+              <input
+                value={formMachine}
+                onChange={(e) => setFormMachine(e.target.value)}
+                placeholder="e.g. JET-1016-0000-O1"
+                style={inputStyle}
+              />
             </div>
           </div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Title</label>
-            <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)} placeholder="Action item title" style={inputStyle} />
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#6b6860",
+                textTransform: "uppercase",
+              }}
+            >
+              Title
+            </label>
+            <input
+              value={formTitle}
+              onChange={(e) => setFormTitle(e.target.value)}
+              placeholder="Action item title"
+              style={inputStyle}
+            />
           </div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Description</label>
-            <textarea value={formDesc} onChange={(e) => setFormDesc(e.target.value)} placeholder="Details..." rows={3} style={{ ...inputStyle, resize: "vertical" }} />
+            <label
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "#6b6860",
+                textTransform: "uppercase",
+              }}
+            >
+              Description
+            </label>
+            <textarea
+              value={formDesc}
+              onChange={(e) => setFormDesc(e.target.value)}
+              placeholder="Details..."
+              rows={3}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Assignee</label>
-              <input value={formAssignee} onChange={(e) => setFormAssignee(e.target.value)} placeholder="Name" style={inputStyle} />
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#6b6860",
+                  textTransform: "uppercase",
+                }}
+              >
+                Assignee
+              </label>
+              <input
+                value={formAssignee}
+                onChange={(e) => setFormAssignee(e.target.value)}
+                placeholder="Name"
+                style={inputStyle}
+              />
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6b6860", textTransform: "uppercase" }}>Due date</label>
-              <input type="date" value={formDueDate} onChange={(e) => setFormDueDate(e.target.value)} style={inputStyle} />
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#6b6860",
+                  textTransform: "uppercase",
+                }}
+              >
+                Due date
+              </label>
+              <input
+                type="date"
+                value={formDueDate}
+                onChange={(e) => setFormDueDate(e.target.value)}
+                style={inputStyle}
+              />
             </div>
           </div>
           <button
@@ -474,13 +670,19 @@ export function TrackerTab() {
 
       {/* ── Items list — grouped by category ────────────────────────── */}
       {loading ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>Loading...</div>
+        <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>
+          Loading...
+        </div>
       ) : items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>No action items match filters</div>
+        <div style={{ textAlign: "center", padding: 40, color: "#6b6860" }}>
+          No action items match filters
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
           {CATEGORIES.map((cat) => {
-            const catItems = items.filter((i) => getCategory(i.type) === cat.key);
+            const catItems = items.filter(
+              (i) => getCategory(i.type) === cat.key,
+            );
             if (catItems.length === 0) return null;
             const colors = CATEGORY_COLORS[cat.key];
             return (
@@ -497,15 +699,34 @@ export function TrackerTab() {
                   }}
                 >
                   <span style={{ fontSize: 16 }}>{cat.icon}</span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: colors.header, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  <span
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: colors.header,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                    }}
+                  >
                     {cat.label}
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: colors.header, background: colors.bg, padding: "2px 8px", borderRadius: 10 }}>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: colors.header,
+                      background: colors.bg,
+                      padding: "2px 8px",
+                      borderRadius: 10,
+                    }}
+                  >
                     {catItems.length}
                   </span>
                 </div>
                 {/* ── Category items ── */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                >
                   {catItems.map((item) => (
                     <div
                       key={item.action_id}
@@ -517,45 +738,157 @@ export function TrackerTab() {
                         borderLeft: `4px solid ${PRIORITY_COLORS[item.priority]?.text || "#6b6860"}`,
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                          {badge(TYPE_COLORS[item.type] || TYPE_COLORS.other, TYPE_LABELS[item.type] || item.type)}
-                          {badge(PRIORITY_COLORS[item.priority] || PRIORITY_COLORS.medium, item.priority)}
-                          {badge(STATUS_COLORS[item.status] || STATUS_COLORS.open, item.status.replace("_", " "))}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "flex-start",
+                          marginBottom: 6,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {badge(
+                            TYPE_COLORS[item.type] || TYPE_COLORS.other,
+                            TYPE_LABELS[item.type] || item.type,
+                          )}
+                          {badge(
+                            PRIORITY_COLORS[item.priority] ||
+                              PRIORITY_COLORS.medium,
+                            item.priority,
+                          )}
+                          {badge(
+                            STATUS_COLORS[item.status] || STATUS_COLORS.open,
+                            item.status.replace("_", " "),
+                          )}
                           {item.machine_name && (
-                            <span style={{ fontSize: 11, color: "#6b6860", fontFamily: "monospace" }}>{item.machine_name}</span>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: "#6b6860",
+                                fontFamily: "monospace",
+                              }}
+                            >
+                              {item.machine_name}
+                            </span>
                           )}
                         </div>
                         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                           {item.status === "open" && (
-                            <button onClick={() => updateStatus(item.action_id, "in_progress")} style={{ fontSize: 11, padding: "3px 8px", background: "#dbeafe", color: "#1e40af", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
+                            <button
+                              onClick={() =>
+                                updateStatus(item.action_id, "in_progress")
+                              }
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 8px",
+                                background: "#dbeafe",
+                                color: "#1e40af",
+                                border: "none",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
                               Start
                             </button>
                           )}
-                          {(item.status === "open" || item.status === "in_progress") && (
-                            <button onClick={() => updateStatus(item.action_id, "done")} style={{ fontSize: 11, padding: "3px 8px", background: "#d1fae5", color: "#065f46", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
+                          {(item.status === "open" ||
+                            item.status === "in_progress") && (
+                            <button
+                              onClick={() =>
+                                updateStatus(item.action_id, "done")
+                              }
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 8px",
+                                background: "#d1fae5",
+                                color: "#065f46",
+                                border: "none",
+                                borderRadius: 4,
+                                cursor: "pointer",
+                                fontWeight: 600,
+                              }}
+                            >
                               Done
                             </button>
                           )}
-                          <button onClick={() => startEdit(item)} style={{ fontSize: 11, padding: "3px 8px", background: "#f5f3ee", color: "#6b6860", border: "none", borderRadius: 4, cursor: "pointer" }}>
+                          <button
+                            onClick={() => startEdit(item)}
+                            style={{
+                              fontSize: 11,
+                              padding: "3px 8px",
+                              background: "#f5f3ee",
+                              color: "#6b6860",
+                              border: "none",
+                              borderRadius: 4,
+                              cursor: "pointer",
+                            }}
+                          >
                             Edit
                           </button>
-                          <button onClick={() => updateStatus(item.action_id, "dismissed")} style={{ fontSize: 11, padding: "3px 8px", background: "#f3f4f6", color: "#9ca3af", border: "none", borderRadius: 4, cursor: "pointer" }}>
+                          <button
+                            onClick={() =>
+                              updateStatus(item.action_id, "dismissed")
+                            }
+                            style={{
+                              fontSize: 11,
+                              padding: "3px 8px",
+                              background: "#f3f4f6",
+                              color: "#9ca3af",
+                              border: "none",
+                              borderRadius: 4,
+                              cursor: "pointer",
+                            }}
+                          >
                             Dismiss
                           </button>
                         </div>
                       </div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#0a0a0a", marginBottom: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: "#0a0a0a",
+                          marginBottom: 4,
+                        }}
+                      >
                         {item.title}
                       </div>
                       {item.description && (
-                        <div style={{ fontSize: 12, color: "#6b6860", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: "#6b6860",
+                            lineHeight: 1.5,
+                            whiteSpace: "pre-wrap",
+                          }}
+                        >
                           {item.description}
                         </div>
                       )}
-                      <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 11, color: "#9ca3af" }}>
-                        <span>Created {new Date(item.created_at).toLocaleDateString()}</span>
-                        {item.assignee && <span>Assignee: {item.assignee}</span>}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 12,
+                          marginTop: 8,
+                          fontSize: 11,
+                          color: "#9ca3af",
+                        }}
+                      >
+                        <span>
+                          Created{" "}
+                          {new Date(item.created_at).toLocaleDateString()}
+                        </span>
+                        {item.assignee && (
+                          <span>Assignee: {item.assignee}</span>
+                        )}
                         {item.due_date && <span>Due: {item.due_date}</span>}
                         {item.source && <span>Source: {item.source}</span>}
                       </div>
