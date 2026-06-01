@@ -49,12 +49,13 @@ export default function LoginForm() {
         .select("role")
         .eq("id", loggedInUser.id)
         .single();
-      if (
-        profile?.role === "operator_admin" ||
-        profile?.role === "warehouse"
-      ) {
+      if (profile?.role === "operator_admin" || profile?.role === "warehouse") {
         const redirectTo = searchParams.get("redirectTo") || "/app";
         router.push(redirectTo);
+        return;
+      }
+      if (profile?.role === "tracker_boonz") {
+        router.push("/tracker");
         return;
       }
     }
