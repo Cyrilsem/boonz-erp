@@ -49,6 +49,7 @@ export default async function TrackerPage() {
     ? ["Boonz", "AKY", "Gebran", "Personal"]
     : ["Boonz"];
   const canEditMeta = isOwner; // partners: status + notes only
+  const canAdd = true; // owner: all; tracker_boonz: Boonz only (enforced by RLS)
 
   const { data: items } = await supabase
     .from("agenda_items")
@@ -64,6 +65,7 @@ export default async function TrackerPage() {
       initialItems={(items ?? []) as AgendaItem[]}
       allowedCategories={allowedCategories}
       canEditMeta={canEditMeta}
+      canAdd={canAdd}
     />
   );
 }
