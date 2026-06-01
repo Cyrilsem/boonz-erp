@@ -15,6 +15,26 @@ Format:
 
 ---
 
+## 2026-06-01 — Refill System v2 Phase 0 / B2: shelf aisle-index regression guard
+
+**Phase / Article:** Refill v2 Phase 0 / Constitution Articles 4, 8, 11, 12, 14
+**Applied to:** prod
+**Migration name:** `refillv2_b2_shelf_index_drift_guard` (file `supabase/migrations/20260601090100_refillv2_b2_shelf_index_drift_guard.sql`)
+**Summary:** B2 audit found the historical `v_live_shelf_stock` off-by-one (WEIMI `aisle_code` is 0-indexed `0-A00..0-A15`; `slot_name`/showName is 1-indexed `A1..A16`; `shelf_code` is `A01..A16` and aligns with `slot_name`) is **already resolved end-to-end**: `seed_shelf_configurations` derives `shelf_code` as `letter || (aisle_code_number + 1)`, and all five named read-callers (`engine_add_pod`, `engine_swap_pod`, `get_pod_refill_draft`, `get_machine_slots_with_expiry`, `pick_machines_for_refill`) join on `slot_name = LEFT(shelf_code,1)||SUBSTR(shelf_code,2)::int`. Live proof: 727/727 fleet slots satisfy the invariant (0 drift); WPP Nescafe sits correctly on A02 (signal KEEP), not A01. The "WPP A01 Nescafe wrong-removal" in the learning baseline was the pre-fix state. Rather than edit already-correct joins (no-refactor rule), installed an **additive read-only regression guard**: view `v_shelf_aisle_index_drift` recomputes the `aisle_code+1 == slot_name` invariant per live slot (verdict `ok|index_drift|unparseable_aisle_code`, `expected_slot_name` mirrors the seed exactly), and cron `shelf_aisle_index_drift_alert` (jobid 24, `30 3 * * *` = 07:30 Dubai) → `cron_shelf_index_drift_alert()` writes one deduped `monitoring_alerts` (`shelf_aisle_index_drift`, critical) finding if any slot ever drifts or a malformed aisle_code appears, warning ops NOT to re-seed `shelf_configurations` until resolved. Cody ✅. Verified live: view 0 non-ok, function `status:ok`, 0 inserted.
+**Rollback:** `SELECT cron.unschedule('shelf_aisle_index_drift_alert'); DROP FUNCTION IF EXISTS public.cron_shelf_index_drift_alert(); DROP VIEW IF EXISTS public.v_shelf_aisle_index_drift;`
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 0 / B1: draft-missing alert
+
+**Phase / Article:** Refill v2 Phase 0 / Constitution Articles 4, 8, 11, 12, 14
+**Applied to:** prod
+**Migration name:** `refillv2_b1_draft_missing_alert` (file `supabase/migrations/20260601090000_refillv2_b1_draft_missing_alert.sql`)
+**Summary:** The 8pm Dubai builder cron (job 13 `phaseF_stage1_prep_8pm_dubai` → `build_draft_for_confirmed(CURRENT_DATE+1)`) returns a jsonb `status` of `draft_ready` | `awaiting_confirmation` | `no_included_machines` without raising, so pg_cron logs every outcome identically as "succeeded / 1 row". A night where nobody confirmed the picked machines produced no draft and no signal; ops discovered the empty plan the next morning. Added a companion cron `refill_draft_missing_alert` (jobid 23, `15 16 * * *` = 20:15 Dubai, 15 min after the builder) calling new DEFINER `cron_refill_draft_missing_alert()`. It checks `refill_plan_output` for tomorrow; if zero rows it writes ONE `monitoring_alerts` (`source='refill_draft_missing'`, severity `critical`) row carrying the precise reason — recomputed read-only from `machines_to_visit` with the same predicates the builder uses (`no_machines_picked` / `awaiting_confirmation` / `no_included_machines` / `engine_produced_no_rows`) plus an `action_needed` line — deduped per plan_date per calendar day. Alert-only: does NOT auto-confirm machines (PRD-015 human-gate preserved). Shape mirrors the approved `cron_unmatched_weimi_alert`. Cody ✅ (Articles 4, 8, 11, 12, 14). Verified live: cron active; rolled-back dry run returned `{status: ok, refill_plan_output_rows: 149, inserted: 0}` against today's existing plan (no false alert).
+**Rollback:** `SELECT cron.unschedule('refill_draft_missing_alert'); DROP FUNCTION IF EXISTS public.cron_refill_draft_missing_alert();`
+
+---
+
 ## 2026-05-31 — PRD-016B: Track 7 return/transfer guardrails (Migration 2 + Guardrails 1 & 2)
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 6, 8, 12

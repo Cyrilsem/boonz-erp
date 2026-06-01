@@ -273,6 +273,12 @@ These functions write to `warehouse_inventory_status_proposal` only — never UP
 
 - `set_product_lifecycle_status(p_pod_product_id uuid, p_status text, p_reason text DEFAULT NULL)` → writes `lifecycle_product_status` (non-protected). ✅ 2026-05-31. Sole canonical writer for the lifecycle inclusion flag (status active/inactive). SECURITY DEFINER: requires `auth.uid()`, role gate `operator_admin/superadmin/manager`, validates status enum + `pod_products` FK, sets `app.via_rpc`/`app.rpc_name`. Audited via universal `audit_log_write('pod_product_id')` trigger on the table. Cody-reviewed (Articles 1, 2, 4, 8). Migration `phaseF_lifecycle_product_status`.
 
+## Refill System v2 — NEW 2026-06-01 (Phase 0)
+
+- `cron_refill_draft_missing_alert()` → writes `monitoring_alerts` (non-protected alert ledger). ✅ 2026-06-01. B1 reliability monitor. Cron-only (jobid 23, `15 16 * * *` = 20:15 Dubai); reads `refill_plan_output` + `machines_to_visit`, writes one deduped finding (`source='refill_draft_missing'`, severity `critical`) when tomorrow's draft is missing, with the recomputed reason + `action_needed`. SECURITY DEFINER: cron-context bypass (`auth.uid() IS NULL` proceeds), authenticated caller must be `operator_admin/superadmin/manager`; sets `app.via_rpc`/`app.rpc_name`. No protected entity touched (alert-only; does not auto-confirm machines). Cody-reviewed (Articles 4, 8, 11, 12, 14). Migration `refillv2_b1_draft_missing_alert`.
+- `cron_shelf_index_drift_alert()` → writes `monitoring_alerts` (non-protected alert ledger). ✅ 2026-06-01. B2 regression guard. Cron-only (jobid 24, `30 3 * * *` = 07:30 Dubai); reads the new read-only view `v_shelf_aisle_index_drift`, writes one deduped finding (`source='shelf_aisle_index_drift'`, severity `critical`) if any live slot violates the WEIMI `aisle_code(0-indexed)+1 == slot_name(1-indexed)` invariant or has a malformed aisle_code. SECURITY DEFINER: cron-context bypass, authenticated caller must be `operator_admin/superadmin/manager`; sets `app.via_rpc`/`app.rpc_name`. Additive; does NOT modify the (already-correct) refill read path. Cody-reviewed (Articles 4, 8, 11, 12, 14). Migration `refillv2_b2_shelf_index_drift_guard`.
+- `v_shelf_aisle_index_drift` (read-only view, SECURITY INVOKER) → diagnostic backing the B2 guard above. verdict in (`ok`|`index_drift`|`unparseable_aisle_code`); `expected_slot_name` mirrors `seed_shelf_configurations`. Same migration.
+
 ## How to add a new RPC
 
 1. Decide if it's a canonical writer (mutates a protected entity) or a helper.
