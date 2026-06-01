@@ -6,13 +6,25 @@ import { machineShortId } from "@/lib/utils/machine-id";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+// Canonical action vocabulary — matches pod_refill_plan.action and the
+// add_pod_refill_row CHECK constraint exactly. Display labels are mapped
+// separately in actionBadge / ACTION_LABELS.
+export type RefillAction = "REFILL" | "ADD_NEW" | "REMOVE" | "M2W";
+
+const ACTION_LABELS: Record<RefillAction, string> = {
+  REFILL: "REFILL",
+  ADD_NEW: "ADD NEW",
+  REMOVE: "REMOVE",
+  M2W: "MOVE TO WH",
+};
+
 export type PlanRow = {
   machine_name: string;
   machine_priority: number;
   shelf_code: string;
   pod_product_name: string;
   boonz_product_name: string;
-  action: "REFILL" | "REMOVE" | "ADD NEW";
+  action: RefillAction;
   quantity: number;
   current_stock: number;
   max_stock: number;
@@ -43,15 +55,17 @@ type PlanAlert = {
   reason?: string;
 };
 
+// F4 (Refill v2): action-first add-row form. machine_name + shelf_id +
+// pod_product_id all resolve to real identifiers, so the row is persisted via
+// add_pod_refill_row (no more identifier-less local-only rows that the commit
+// had to silently skip). current_stock/max_stock are autofill context only and
+// are NOT sent to the RPC (add_pod_refill_row does not take them).
 type AddRowForm = {
+  action: RefillAction;
   machine_name: string;
-  shelf_code: string;
-  action: "REFILL" | "ADD NEW" | "REMOVE";
-  pod_product_name: string;
-  boonz_product_name: string;
+  shelf_id: string;
+  pod_product_id: string;
   quantity: number;
-  current_stock: number;
-  max_stock: number;
   comment: string;
 };
 
@@ -63,15 +77,17 @@ function actionBadge(action: string) {
   const styles: Record<string, string> = {
     REFILL: "bg-blue-100 text-blue-700 ",
     REMOVE: "bg-red-100 text-red-700 ",
-    "ADD NEW": "bg-green-100 text-green-700 ",
+    ADD_NEW: "bg-green-100 text-green-700 ",
+    M2W: "bg-purple-100 text-purple-700 ",
   };
+  const label = ACTION_LABELS[action as RefillAction] ?? action;
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
         styles[action] ?? "bg-gray-100 text-gray-600"
       }`}
     >
-      {action}
+      {label}
     </span>
   );
 }
@@ -124,14 +140,11 @@ function priorityBadge(p: number) {
 }
 
 const BLANK_FORM: AddRowForm = {
-  machine_name: "",
-  shelf_code: "",
   action: "REFILL",
-  pod_product_name: "",
-  boonz_product_name: "",
+  machine_name: "",
+  shelf_id: "",
+  pod_product_id: "",
   quantity: 1,
-  current_stock: 0,
-  max_stock: 10,
   comment: "",
 };
 
@@ -202,6 +215,17 @@ export function RefillPlanningTab({
   // Add row modal
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<AddRowForm>(BLANK_FORM);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  // F4: catalogs for the forced product dropdown + per-machine shelf resolver,
+  // hydrated when a draft loads. pod_products is the canonical product list;
+  // shelvesByMachine maps machine_name -> its non-phantom shelves.
+  const [podProducts, setPodProducts] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [shelvesByMachine, setShelvesByMachine] = useState<
+    Record<string, Array<{ shelf_id: string; shelf_code: string }>>
+  >({});
 
   // machine_name → adyen_store_code lookup
   const [machineCodeByName, setMachineCodeByName] = useState<
@@ -333,6 +357,58 @@ export function RefillPlanningTab({
       if (!(r.machine_name in incl)) incl[r.machine_name] = true;
     setInclusion(incl);
 
+    // F4: hydrate the add-row catalogs — the canonical product list (forced
+    // dropdown) and each draft machine's non-phantom shelves (shelf dropdown +
+    // shelf_id resolution). Both .limit(10000) per the query-size rule.
+    const machineIds = [
+      ...new Set(rows.map((r) => r.machine_id).filter(Boolean)),
+    ] as string[];
+    const { data: prods } = await supabase
+      .from("pod_products")
+      .select("pod_product_id, pod_product_name")
+      .order("pod_product_name")
+      .limit(10000);
+    setPodProducts(
+      (
+        (prods as Array<{
+          pod_product_id: string;
+          pod_product_name: string;
+        }>) ?? []
+      ).map((p) => ({ id: p.pod_product_id, name: p.pod_product_name })),
+    );
+    const byMachineShelves: Record<
+      string,
+      Array<{ shelf_id: string; shelf_code: string }>
+    > = {};
+    if (machineIds.length) {
+      const nameByMachineId: Record<string, string> = {};
+      for (const r of rows)
+        if (r.machine_id) nameByMachineId[r.machine_id] = r.machine_name;
+      const { data: shelves } = await supabase
+        .from("shelf_configurations")
+        .select("machine_id, shelf_id, shelf_code")
+        .in("machine_id", machineIds)
+        .eq("is_phantom", false)
+        .limit(10000);
+      for (const s of (shelves as Array<{
+        machine_id: string;
+        shelf_id: string;
+        shelf_code: string;
+      }>) ?? []) {
+        const nm = nameByMachineId[s.machine_id];
+        if (!nm) continue;
+        (byMachineShelves[nm] ??= []).push({
+          shelf_id: s.shelf_id,
+          shelf_code: s.shelf_code,
+        });
+      }
+      for (const nm of Object.keys(byMachineShelves))
+        byMachineShelves[nm].sort((a, b) =>
+          a.shelf_code.localeCompare(b.shelf_code),
+        );
+    }
+    setShelvesByMachine(byMachineShelves);
+
     setLoadResult({
       ok: true,
       msg: `Draft loaded — ${rows.length} rows across ${new Set(rows.map((r) => r.machine_name)).size} machines`,
@@ -431,6 +507,17 @@ export function RefillPlanningTab({
       }
       const planDate = draftPlanDate;
 
+      // Honor the per-machine include/exclude toggle in the commit itself.
+      // Previously the checkbox was cosmetic: the persist loops below walked
+      // every machine's staged edits/removals regardless of inclusion, so an
+      // excluded machine's broken row could still abort the whole Commit
+      // (2026-05-31 WPP-1002 / A01 incident).
+      const isRowIncluded = (machineName: string) =>
+        inclusion[machineName] !== false;
+      const includedMachineNames = [
+        ...new Set(planRows.map((r) => r.machine_name)),
+      ].filter(isRowIncluded);
+
       // PRD-011 Bug 2 Step 0a: persist inline quantity edits BEFORE Gate 1
       // approves the draft. Without this, the stitch silently uses the
       // engine-generated quantities and CS's edits are lost.
@@ -438,10 +525,13 @@ export function RefillPlanningTab({
         const rowIndex = Number(rowIndexStr);
         const row = planRows[rowIndex];
         if (!row) continue;
+        // Skip excluded machines — their rows are not part of this commit.
+        if (!isRowIncluded(row.machine_name)) continue;
+        // An unsaved manual row (no resolved identifiers) was never persisted,
+        // so there is nothing to edit in the DB. Skip rather than abort the
+        // whole commit. (Manual adds should go through add_pod_refill_row.)
         if (!row.machine_id || !row.shelf_id || !row.pod_product_id) {
-          throw new Error(
-            `Edit persist failed at row ${rowIndex} (${row.machine_name}/${row.shelf_code}): missing pod identifiers`,
-          );
+          continue;
         }
         const { error: editErr } = await supabase.rpc("edit_pod_refill_row", {
           p_plan_date: planDate,
@@ -465,10 +555,14 @@ export function RefillPlanningTab({
       for (const rowIndex of removed) {
         const row = planRows[rowIndex];
         if (!row) continue;
+        // Skip excluded machines.
+        if (!isRowIncluded(row.machine_name)) continue;
+        // An unsaved manual row with no resolved identifiers was never written
+        // to pod_refill_plan, so there is nothing to remove. Drop it from local
+        // state silently instead of aborting the commit with "missing pod
+        // identifiers" (2026-05-31 WPP-1002 / A01 "Plaay Truffle 2pcs" orphan).
         if (!row.machine_id || !row.shelf_id || !row.pod_product_id) {
-          throw new Error(
-            `Row removal persist failed at row ${rowIndex} (${row.machine_name}/${row.shelf_code}): missing pod identifiers`,
-          );
+          continue;
         }
         const { error: removeErr } = await supabase.rpc("edit_pod_refill_row", {
           p_plan_date: planDate,
@@ -492,10 +586,11 @@ export function RefillPlanningTab({
       setEditedQty({});
       setRemoved(new Set());
 
-      // Step 1: Approve pod_refill_plan (Gate 1)
+      // Step 1: Approve pod_refill_plan (Gate 1), scoped to included machines so
+      // excluded machines stay 'draft' and are not stitched/dispatched.
       const { error: approveErr } = await supabase.rpc(
         "approve_pod_refill_plan",
-        { p_plan_date: planDate },
+        { p_plan_date: planDate, p_machine_names: includedMachineNames },
       );
       if (approveErr) throw new Error(`Gate 1 failed: ${approveErr.message}`);
 
@@ -518,8 +613,8 @@ export function RefillPlanningTab({
         machines?: number;
       } | null;
 
-      // Step 4: Approve boonz-level plan (auto-create dispatching)
-      const activeMachines = [...new Set(planRows.map((r) => r.machine_name))];
+      // Step 4: Approve boonz-level plan (auto-create dispatching) — included only.
+      const activeMachines = includedMachineNames;
       const { data: dispatchData, error: dispatchErr } = await supabase.rpc(
         "approve_refill_plan",
         { p_plan_date: planDate, p_machine_names: activeMachines },
@@ -555,6 +650,7 @@ export function RefillPlanningTab({
     planRows,
     removed,
     editedQty,
+    inclusion,
     setPlanRows,
     setGenerated,
     setEditedQty,
@@ -638,44 +734,45 @@ export function RefillPlanningTab({
     setViewMode("empty");
   }, [planRows, removed, selectedDate, supabase, setPlanRows, setGenerated]);
 
-  // ── Add row ──────────────────────────────────────────────────────────────
-  const addRow = useCallback(() => {
-    if (
-      !addForm.machine_name ||
-      !addForm.shelf_code ||
-      !addForm.boonz_product_name
-    )
+  // ── Add row (F4: persisted via add_pod_refill_row) ─────────────────────────
+  // Resolves machine_id from the loaded draft (the machine dropdown only offers
+  // machines already in the plan), shelf_id + pod_product_id come straight from
+  // the dropdowns, so the row is written to pod_refill_plan immediately instead
+  // of living as an identifier-less local row that the commit would skip. On
+  // success we reload the draft so the new row appears with real identifiers and
+  // restitch-on-commit picks it up.
+  const addRow = useCallback(async () => {
+    const machineId = planRows.find(
+      (r) => r.machine_name === addForm.machine_name && r.machine_id,
+    )?.machine_id;
+    if (!machineId || !addForm.shelf_id || !addForm.pod_product_id) return;
+    const planDate = draftPlanDate ?? selectedDate;
+    setAddBusy(true);
+    setAddError(null);
+    const { error } = await supabase.rpc("add_pod_refill_row", {
+      p_plan_date: planDate,
+      p_machine_id: machineId,
+      p_shelf_id: addForm.shelf_id,
+      p_pod_product_id: addForm.pod_product_id,
+      p_action: addForm.action,
+      p_qty: addForm.quantity,
+      p_reason:
+        addForm.comment || `Manual add — ${ACTION_LABELS[addForm.action]}`,
+    });
+    setAddBusy(false);
+    if (error) {
+      setAddError(error.message);
       return;
-    const newRow: PlanRow = {
-      machine_name: addForm.machine_name,
-      machine_priority: 5,
-      shelf_code: addForm.shelf_code.toUpperCase(),
-      pod_product_name: addForm.pod_product_name || addForm.boonz_product_name,
-      boonz_product_name: addForm.boonz_product_name,
-      action: addForm.action,
-      quantity: addForm.quantity,
-      current_stock: addForm.current_stock,
-      max_stock: addForm.max_stock,
-      smart_target: addForm.quantity + addForm.current_stock,
-      tier: "keep",
-      global_score: 0,
-      sold_7d: 0,
-      fill_pct:
-        addForm.max_stock > 0
-          ? Math.round((addForm.current_stock / addForm.max_stock) * 100)
-          : 0,
-      comment: addForm.comment || `Manual addition — ${addForm.action}`,
-    };
-    setPlanRows((prev) => [...prev, newRow]);
+    }
     setShowAdd(false);
     setAddForm(BLANK_FORM);
-    if (!generated) setGenerated(true);
-  }, [addForm, generated]);
+    await loadDraft();
+  }, [addForm, planRows, draftPlanDate, selectedDate, supabase, loadDraft]);
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const activeRows = planRows.filter((_, i) => !removed.has(i));
   const totalUnits = activeRows
-    .filter((r) => r.action === "REFILL" || r.action === "ADD NEW")
+    .filter((r) => r.action === "REFILL" || r.action === "ADD_NEW")
     .reduce((s, r) => {
       const realIdx = planRows.indexOf(r);
       return s + (realIdx in editedQty ? editedQty[realIdx] : r.quantity);
@@ -779,7 +876,11 @@ export function RefillPlanningTab({
           {/* Add row */}
           {generated && (
             <button
-              onClick={() => setShowAdd(true)}
+              onClick={() => {
+                setAddError(null);
+                setAddForm(BLANK_FORM);
+                setShowAdd(true);
+              }}
               className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               + Add row
@@ -1045,7 +1146,7 @@ export function RefillPlanningTab({
                     .filter(
                       ({ row, idx }) =>
                         !removed.has(idx) &&
-                        (row.action === "REFILL" || row.action === "ADD NEW"),
+                        (row.action === "REFILL" || row.action === "ADD_NEW"),
                     )
                     .reduce(
                       (s, { row, idx }) =>
@@ -1236,7 +1337,33 @@ export function RefillPlanningTab({
             </div>
 
             <div className="space-y-3">
-              {/* Machine */}
+              {/* Action first — drives what the row means */}
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Action <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(
+                    ["REFILL", "ADD_NEW", "REMOVE", "M2W"] as RefillAction[]
+                  ).map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setAddForm((f) => ({ ...f, action: a }))}
+                      className={`rounded-lg px-2 py-2 text-[11px] font-semibold border transition ${
+                        addForm.action === a
+                          ? "border-gray-900 bg-gray-900 text-white"
+                          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {ACTION_LABELS[a]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Machine — only machines already in the loaded draft (so the
+                  machine_id resolves and the row can be persisted). */}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">
                   Machine <span className="text-red-500">*</span>
@@ -1244,153 +1371,120 @@ export function RefillPlanningTab({
                 <select
                   value={addForm.machine_name}
                   onChange={(e) =>
-                    setAddForm((f) => ({ ...f, machine_name: e.target.value }))
+                    setAddForm((f) => ({
+                      ...f,
+                      machine_name: e.target.value,
+                      shelf_id: "", // reset shelf when machine changes
+                    }))
                   }
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 >
                   <option value="">Select machine…</option>
-                  {machineNames.map((m) => (
+                  {cardMachineNames.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
                   ))}
                 </select>
+                {cardMachineNames.length === 0 && (
+                  <p className="mt-1 text-[11px] text-amber-600">
+                    Load a draft first — rows are added to machines already in
+                    the plan.
+                  </p>
+                )}
               </div>
 
-              {/* Shelf + Action */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Shelf <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="A01"
-                    value={addForm.shelf_code}
-                    onChange={(e) =>
-                      setAddForm((f) => ({ ...f, shelf_code: e.target.value }))
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Action
-                  </label>
-                  <select
-                    value={addForm.action}
-                    onChange={(e) =>
-                      setAddForm((f) => ({
-                        ...f,
-                        action: e.target.value as AddRowForm["action"],
-                      }))
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                  >
-                    <option value="REFILL">REFILL</option>
-                    <option value="ADD NEW">ADD NEW</option>
-                    <option value="REMOVE">REMOVE</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Boonz product */}
+              {/* Shelf — resolved to shelf_id from the machine's configuration */}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">
-                  Boonz product name <span className="text-red-500">*</span>
+                  Shelf <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Evian - Regular"
-                  value={addForm.boonz_product_name}
+                <select
+                  value={addForm.shelf_id}
+                  disabled={!addForm.machine_name}
+                  onChange={(e) =>
+                    setAddForm((f) => ({ ...f, shelf_id: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                >
+                  <option value="">
+                    {addForm.machine_name
+                      ? "Select shelf…"
+                      : "Pick a machine first"}
+                  </option>
+                  {(shelvesByMachine[addForm.machine_name] ?? []).map((s) => (
+                    <option key={s.shelf_id} value={s.shelf_id}>
+                      {s.shelf_code}
+                    </option>
+                  ))}
+                </select>
+                {/* Autofill context: if the chosen shelf already has a draft row,
+                    show its live stock so CS picks a sensible qty. */}
+                {(() => {
+                  const ctx = planRows.find(
+                    (r) =>
+                      r.machine_name === addForm.machine_name &&
+                      r.shelf_id === addForm.shelf_id,
+                  );
+                  return ctx ? (
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Shelf currently: {ctx.pod_product_name} · stock{" "}
+                      {ctx.current_stock}/{ctx.max_stock}
+                    </p>
+                  ) : null;
+                })()}
+              </div>
+
+              {/* Forced product dropdown — resolves to pod_product_id. No free
+                  text: this is the root-cause fix for identifier-less rows. */}
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  Product <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={addForm.pod_product_id}
                   onChange={(e) =>
                     setAddForm((f) => ({
                       ...f,
-                      boonz_product_name: e.target.value,
+                      pod_product_id: e.target.value,
+                    }))
+                  }
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
+                >
+                  <option value="">Select product…</option>
+                  {podProducts.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Qty */}
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  {addForm.action === "REMOVE" || addForm.action === "M2W"
+                    ? "Quantity to remove"
+                    : "Quantity"}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={addForm.quantity}
+                  onChange={(e) =>
+                    setAddForm((f) => ({
+                      ...f,
+                      quantity: parseInt(e.target.value) || 0,
                     }))
                   }
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 />
-              </div>
-
-              {/* Pod product */}
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">
-                  Pod product name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Evian (defaults to boonz name)"
-                  value={addForm.pod_product_name}
-                  onChange={(e) =>
-                    setAddForm((f) => ({
-                      ...f,
-                      pod_product_name: e.target.value,
-                    }))
-                  }
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                />
-              </div>
-
-              {/* Qty / Current / Max */}
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Qty
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={addForm.quantity}
-                    onChange={(e) =>
-                      setAddForm((f) => ({
-                        ...f,
-                        quantity: parseInt(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Current stock
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={addForm.current_stock}
-                    onChange={(e) =>
-                      setAddForm((f) => ({
-                        ...f,
-                        current_stock: parseInt(e.target.value) || 0,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">
-                    Max stock
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={addForm.max_stock}
-                    onChange={(e) =>
-                      setAddForm((f) => ({
-                        ...f,
-                        max_stock: parseInt(e.target.value) || 10,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
-                  />
-                </div>
               </div>
 
               {/* Comment */}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">
-                  Comment (optional)
+                  Reason / comment (optional)
                 </label>
                 <input
                   type="text"
@@ -1401,6 +1495,12 @@ export function RefillPlanningTab({
                   className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white"
                 />
               </div>
+
+              {addError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  {addError}
+                </p>
+              )}
             </div>
 
             <div className="mt-5 flex gap-3">
@@ -1413,13 +1513,14 @@ export function RefillPlanningTab({
               <button
                 onClick={addRow}
                 disabled={
+                  addBusy ||
                   !addForm.machine_name ||
-                  !addForm.shelf_code ||
-                  !addForm.boonz_product_name
+                  !addForm.shelf_id ||
+                  !addForm.pod_product_id
                 }
                 className="flex-1 rounded-xl bg-gray-900 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-40 "
               >
-                Add row
+                {addBusy ? "Adding…" : "Add row"}
               </button>
             </div>
           </div>
