@@ -15,6 +15,36 @@ Format:
 
 ---
 
+## 2026-06-01 — get_vox_consumer_report: raise recent_txns cap (banner/list discrepancy mismatch)
+
+**Phase / Article:** Phase F / Constitution Articles 12, 14
+**Applied to:** prod
+**Migration name:** `phaseF_vox_consumer_report_raise_recent_txns_limit`
+**Summary:** `/refill/consumers` banner showed "32 Discrepancies" while the Default-filtered list showed only 15. Root cause: `summary.disc_count` is computed server-side over ALL matched baskets (32), but the FE Default view filters `D.transactions`, which is the RPC's `recent_txns` subquery capped at `LIMIT 2000` (the 2000 most-recent baskets). With ~90 baskets/day the 2000-row window only reached back to ~09 May, so 17 older discrepancies were counted but never loaded. Same cap-then-filter family as the `/app/performance` 10k truncation. Fix: bumped the single `recent_txns` literal `LIMIT 2000` → `LIMIT 100000` so the list covers the full bounded date window. Read-only `STABLE` `SECURITY INVOKER` function; no protected-entity write path. Applied as a forward `CREATE OR REPLACE` re-derived from the live definition via `pg_get_functiondef` + single-literal `replace()` with a guard (aborts if `LIMIT 2000` not found), avoiding manual transcription of the large body. Cody ✅ (Articles 12, 14). Verified live: function now carries `LIMIT 100000`; RPC returns all 4,190 baskets, `disc_count`=32 and disc rows in `transactions`=32 (was 15). Payload grows from 2k to ~4k transaction rows for a normal quarter.
+**Rollback:** Re-run the same DO-block pattern replacing `LIMIT 100000` → `LIMIT 2000` (or `CREATE OR REPLACE` the prior body). No data change; pure function-body edit.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 1 / F1: reschedule_refill_plan
+
+**Phase / Article:** Refill v2 Phase 1 / Constitution Articles 1, 3, 4, 5, 8, 12
+**Applied to:** prod
+**Migration name:** `refillv2_p1_reschedule_refill_plan` (file `supabase/migrations/20260601100100_refillv2_p1_reschedule_refill_plan.sql`)
+**Summary:** Second lifecycle writer — "plan movable between dates" (DONE-WHEN). `reschedule_refill_plan(p_from_date, p_to_date, p_reason)` moves a whole plan coherently: key-move `UPDATE plan_date` on both `machines_to_visit` (the full visit list, preserving `status`/`confirmed_at`/`is_included`) and the live `pod_refill_plan` rows (`draft/approved/stitched`, stamped `reasoning.rescheduled_from`). Never DELETE. DEFINER, `operator_admin/superadmin`, GUCs set, reason ≥10, `from≠to`. Guards: refuses if `p_from_date` is dispatched (`refill_plan_output` past `pending`) or if `p_to_date` is already occupied in either table (no clobber); terminal rows (`voided/superseded`) stay on the old date. Chose full coherent move (Option A) over draft-only (Option B, which would leave the target date with a draft but no visit list / confirm gate). `pod_refill_plan` audited by `tg_audit_pod_refill_plan`; `machines_to_visit` has no audit trigger (matches its existing writers — traceable via `reasoning.rescheduled_from`). Cody ⚠️-approved (machines_to_visit audit gap tracked). Verified live: no-op move between two empty future dates → `machines_moved:0, plan_rows_moved:0`.
+**Rollback:** `DROP FUNCTION IF EXISTS public.reschedule_refill_plan(date,date,text);` (data moves are not auto-reverted — reschedule back to the original date if needed).
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 1 / F1: void_refill_plan
+
+**Phase / Article:** Refill v2 Phase 1 / Constitution Articles 1, 3, 4, 5, 8, 12
+**Applied to:** prod
+**Migration name:** `refillv2_p1_void_refill_plan` (file `supabase/migrations/20260601100000_refillv2_p1_void_refill_plan.sql`)
+**Summary:** First Phase 1 lifecycle writer. Adds a distinct `voided` terminal state to `pod_refill_plan_status_check` (forward-only drop + re-add; new value set is a superset so existing rows re-validate) and the canonical writer `void_refill_plan(p_plan_date, p_reason)`. DEFINER, role `operator_admin/superadmin`, sets `app.via_rpc`/`app.rpc_name`, reason ≥10 chars. Archive-only: `UPDATE … SET status='voided'` on rows in `draft/approved/stitched`, appending `{voided_reason,voided_by,voided_at}` to `reasoning`; never DELETE; idempotent (re-void skips already-`voided` rows). Refuses if any `refill_plan_output` row for the date is past `pending` (plan already dispatched → cancel the dispatch leg first), so it cannot orphan downstream dispatching. Scoped to `pod_refill_plan` only (does not touch `machines_to_visit` — reschedule's job — nor `refill_plan_output`). Audited by the existing universal trigger `tg_audit_pod_refill_plan` (`audit_log_write`), confirmed installed on the table. Mirrors the `reject_pod_refill_rows` template. Cody ✅. Verified live: constraint updated; no-op call on an empty future date returned `voided_rows:0`.
+**Rollback:** `DROP FUNCTION IF EXISTS public.void_refill_plan(date,text);` and restore the prior CHECK (`ALTER TABLE public.pod_refill_plan DROP CONSTRAINT pod_refill_plan_status_check; ADD CONSTRAINT … CHECK (status = ANY (ARRAY['draft','approved','stitched','superseded']));`) — only safe once no row is in the `voided` state.
+
+---
+
 ## 2026-06-01 — Refill System v2 Phase 0 / B2: shelf aisle-index regression guard
 
 **Phase / Article:** Refill v2 Phase 0 / Constitution Articles 4, 8, 11, 12, 14
