@@ -70,10 +70,12 @@ export default function TrackerClient({
   initialItems,
   allowedCategories = ["Boonz", "AKY", "Gebran", "Personal"],
   canEditMeta = true,
+  canAdd = true,
 }: {
   initialItems: AgendaItem[];
   allowedCategories?: Category[];
   canEditMeta?: boolean;
+  canAdd?: boolean;
 }) {
   const cats = allowedCategories;
   const supabase = useMemo(() => createClient(), []);
@@ -382,7 +384,7 @@ export default function TrackerClient({
                         Nothing here.
                       </div>
                     )}
-                    {canEditMeta && (
+                    {canAdd && (
                       <AddRow
                         accent={CAT_ACCENT[cat]}
                         busy={busy}
