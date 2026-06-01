@@ -68,9 +68,14 @@ type Filter = "all" | "open" | "done";
 
 export default function TrackerClient({
   initialItems,
+  allowedCategories = ["Boonz", "AKY", "Gebran", "Personal"],
+  canEditMeta = true,
 }: {
   initialItems: AgendaItem[];
+  allowedCategories?: Category[];
+  canEditMeta?: boolean;
 }) {
+  const cats = allowedCategories;
   const supabase = useMemo(() => createClient(), []);
   const [items, setItems] = useState<AgendaItem[]>(initialItems);
   const [view, setView] = useState<"overview" | "detail">("overview");
@@ -148,7 +153,7 @@ export default function TrackerClient({
   }
 
   // ── derived ─────────────────────────────────────────────────────────────────
-  const visibleCats = activeCat === "All" ? CATEGORIES : [activeCat];
+  const visibleCats = activeCat === "All" ? cats : [activeCat];
 
   const totals = useMemo(() => {
     const done = items.filter((i) => i.status === "done").length;
@@ -209,8 +214,7 @@ export default function TrackerClient({
             Agenda Tracker
           </h1>
           <div style={{ fontSize: 14, color: "#7a7160" }}>
-            {totals.done} of {totals.total} done · Boonz · AKY (Aky &amp;
-            Gebran) · Personal
+            {totals.done} of {totals.total} done · {cats.join(" · ")}
           </div>
         </div>
 
@@ -237,6 +241,7 @@ export default function TrackerClient({
         {view === "overview" ? (
           <OverviewView
             items={items}
+            categories={cats}
             onCycle={cycleStatus}
             onSetStatus={setStatus}
           />
@@ -252,12 +257,14 @@ export default function TrackerClient({
                 marginBottom: 20,
               }}
             >
-              <CatPill
-                label="All"
-                active={activeCat === "All"}
-                onClick={() => setActiveCat("All")}
-              />
-              {CATEGORIES.map((c) => (
+              {cats.length > 1 && (
+                <CatPill
+                  label="All"
+                  active={activeCat === "All"}
+                  onClick={() => setActiveCat("All")}
+                />
+              )}
+              {cats.map((c) => (
                 <CatPill
                   key={c}
                   label={c}
@@ -358,6 +365,7 @@ export default function TrackerClient({
                       <Row
                         key={it.id}
                         item={it}
+                        canEditMeta={canEditMeta}
                         onCycle={() => cycleStatus(it)}
                         onUpdate={(p) => updateItem(it.id, p)}
                         onDelete={() => deleteItem(it.id)}
@@ -374,11 +382,13 @@ export default function TrackerClient({
                         Nothing here.
                       </div>
                     )}
-                    <AddRow
-                      accent={CAT_ACCENT[cat]}
-                      busy={busy}
-                      onAdd={(t) => addItem(cat, t)}
-                    />
+                    {canEditMeta && (
+                      <AddRow
+                        accent={CAT_ACCENT[cat]}
+                        busy={busy}
+                        onAdd={(t) => addItem(cat, t)}
+                      />
+                    )}
                   </div>
                 </section>
               );
@@ -407,39 +417,55 @@ type Bridge = {
 
 function OverviewView({
   items,
+  categories,
   onCycle,
   onSetStatus,
 }: {
   items: AgendaItem[];
+  categories: Category[];
   onCycle: (it: AgendaItem) => void;
   onSetStatus: (id: string, status: Status) => void;
 }) {
-  // Build one "bridge" per cross-cutting initiative. Each bridge spans from the
-  // left-most to the right-most category it touches, so it reads as a single
-  // initiative running across the columns at one level.
+  // Build one "bridge" per cross-cutting initiative. A bridge only forms when the
+  // initiative touches 2+ of the *visible* categories — so it reads as a single
+  // bar running across columns. If only one visible column is involved (e.g. a
+  // partner who only sees Boonz), the row falls back to a normal chip.
   const grouped = new Map<string, AgendaItem[]>();
-  for (const it of items.filter((i) => i.cross_cutting)) {
+  for (const it of items.filter(
+    (i) => i.cross_cutting && categories.includes(i.category),
+  )) {
     const key = it.title
       .replace(/\s*\(with [^)]*\)\s*:?/i, " ")
       .replace(/\s+/g, " ")
       .trim();
     grouped.set(key, [...(grouped.get(key) ?? []), it]);
   }
-  const bridges: Bridge[] = [...grouped.entries()].map(([key, rows]) => {
-    const idxs = rows.map((r) => CATEGORIES.indexOf(r.category));
-    return {
+  const bridges: Bridge[] = [];
+  const bridgeRowIds = new Set<string>();
+  for (const [key, rows] of grouped.entries()) {
+    const idxs = rows
+      .map((r) => categories.indexOf(r.category))
+      .filter((i) => i >= 0);
+    const distinct = new Set(idxs);
+    if (distinct.size < 2) continue; // not a true cross-column bridge
+    rows.forEach((r) => bridgeRowIds.add(r.id));
+    bridges.push({
       key,
       rows,
-      title: rows[0].title.replace(/\s*\(with [^)]*\)\s*:?/i, ": ").replace(/:\s*:/, ":").trim(),
+      title: rows[0].title
+        .replace(/\s*\(with [^)]*\)\s*:?/i, ": ")
+        .replace(/:\s*:/, ":")
+        .trim(),
       minIdx: Math.min(...idxs),
       maxIdx: Math.max(...idxs),
-    };
-  });
+    });
+  }
 
   // Columns covered by at least one bridge drop one row so the bridge sits above
   // them; uncovered columns rise to fill the full height.
   const covered = new Set<number>();
-  for (const b of bridges) for (let i = b.minIdx; i <= b.maxIdx; i++) covered.add(i);
+  for (const b of bridges)
+    for (let i = b.minIdx; i <= b.maxIdx; i++) covered.add(i);
   const hasBridge = bridges.length > 0;
   const bridgeMin = hasBridge ? Math.min(...bridges.map((b) => b.minIdx)) : 0;
   const bridgeMax = hasBridge ? Math.max(...bridges.map((b) => b.maxIdx)) : 0;
@@ -468,18 +494,35 @@ function OverviewView({
               fontWeight: 600,
             }}
           >
-            <span style={{ width: 11, height: 11, borderRadius: 3, background: STATUS_DOT[s] }} />
+            <span
+              style={{
+                width: 11,
+                height: 11,
+                borderRadius: 3,
+                background: STATUS_DOT[s],
+              }}
+            />
             {STATUS_LABEL[s]}
           </span>
         ))}
-        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7a7160", fontWeight: 600 }}>
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            color: "#7a7160",
+            fontWeight: 600,
+          }}
+        >
           <span style={{ fontSize: 14 }}>↔</span> Cross-program initiative
         </span>
-        <span style={{ fontSize: 11.5, color: "#b3a98f" }}>tip: click a status dot to advance it</span>
+        <span style={{ fontSize: 11.5, color: "#b3a98f" }}>
+          tip: click a status dot to advance it
+        </span>
       </div>
 
       <style>{`
-        .ov-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; align-items: start; }
         @media (max-width: 900px) {
           .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
           .ov-grid > * { grid-column: auto !important; grid-row: auto !important; }
@@ -489,8 +532,16 @@ function OverviewView({
         }
       `}</style>
 
-      {/* Board: 4 columns, with cross-program bridges laid across the top */}
-      <div className="ov-grid">
+      {/* Board: one column per visible category, with cross-program bridges across the top */}
+      <div
+        className={categories.length > 1 ? "ov-grid" : undefined}
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${categories.length}, minmax(0, 1fr))`,
+          gap: 14,
+          alignItems: "start",
+        }}
+      >
         {/* Bridge lane — spans the columns its initiative touches, on row 1 */}
         {hasBridge && (
           <div
@@ -506,9 +557,13 @@ function OverviewView({
             {bridges.map((b) => {
               const cs = combinedStatus(b.rows);
               const next: Status =
-                cs === "todo" ? "in_progress" : cs === "in_progress" ? "done" : "todo";
-              const left = CATEGORIES[b.minIdx];
-              const right = CATEGORIES[b.maxIdx];
+                cs === "todo"
+                  ? "in_progress"
+                  : cs === "in_progress"
+                    ? "done"
+                    : "todo";
+              const left = categories[b.minIdx];
+              const right = categories[b.maxIdx];
               return (
                 <div
                   key={b.key}
@@ -532,12 +587,22 @@ function OverviewView({
                       background: `linear-gradient(90deg, ${CAT_TINT[left]}, ${CAT_TINT[right]})`,
                     }}
                   >
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#3a342c", lineHeight: 1.35, flex: 1 }}>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: "#3a342c",
+                        lineHeight: 1.35,
+                        flex: 1,
+                      }}
+                    >
                       {b.title}
                     </span>
                     <span style={{ fontSize: 15, color: "#8a7e63" }}>↔</span>
                     <button
-                      onClick={() => b.rows.forEach((r) => onSetStatus(r.id, next))}
+                      onClick={() =>
+                        b.rows.forEach((r) => onSetStatus(r.id, next))
+                      }
                       title="Click to advance both sides"
                       style={{
                         border: "none",
@@ -563,15 +628,17 @@ function OverviewView({
         )}
 
         {/* Category columns */}
-        {CATEGORIES.map((cat, idx) => {
+        {categories.map((cat, idx) => {
           const list = items
-            .filter((i) => i.category === cat && !i.cross_cutting)
+            .filter((i) => i.category === cat && !bridgeRowIds.has(i.id))
             .sort((a, b) => {
               if (a.status === "done" && b.status !== "done") return 1;
               if (b.status === "done" && a.status !== "done") return -1;
               return a.sort_order - b.sort_order;
             });
-          const done = items.filter((i) => i.category === cat && i.status === "done").length;
+          const done = items.filter(
+            (i) => i.category === cat && i.status === "done",
+          ).length;
           const total = items.filter((i) => i.category === cat).length;
           const isCovered = covered.has(idx);
           return (
@@ -587,9 +654,26 @@ function OverviewView({
                 padding: "12px 12px 14px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "baseline", gap: 7, marginBottom: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: CAT_ACCENT[cat] }}>{cat}</span>
-                <span style={{ fontSize: 12, color: "#9a917f", fontWeight: 700 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 7,
+                  marginBottom: 10,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 800,
+                    color: CAT_ACCENT[cat],
+                  }}
+                >
+                  {cat}
+                </span>
+                <span
+                  style={{ fontSize: 12, color: "#9a917f", fontWeight: 700 }}
+                >
                   {done}/{total}
                 </span>
               </div>
@@ -598,7 +682,9 @@ function OverviewView({
                   <MiniChip key={it.id} item={it} onCycle={() => onCycle(it)} />
                 ))}
                 {list.length === 0 && (
-                  <span style={{ fontSize: 12, color: "#b3a98f" }}>No standalone items.</span>
+                  <span style={{ fontSize: 12, color: "#b3a98f" }}>
+                    No standalone items.
+                  </span>
                 )}
               </div>
             </div>
@@ -745,11 +831,13 @@ function CatPill({
 // ── Row ────────────────────────────────────────────────────────────────────────
 function Row({
   item,
+  canEditMeta = true,
   onCycle,
   onUpdate,
   onDelete,
 }: {
   item: AgendaItem;
+  canEditMeta?: boolean;
   onCycle: () => void;
   onUpdate: (patch: Partial<AgendaItem>) => void;
   onDelete: () => void;
@@ -831,14 +919,14 @@ function Row({
             />
           ) : (
             <div
-              onDoubleClick={() => setEditing(true)}
+              onDoubleClick={() => canEditMeta && setEditing(true)}
               style={{
                 fontSize: 14,
                 fontWeight: 600,
                 lineHeight: 1.4,
                 color: done ? "#a39a88" : "#2b2620",
                 textDecoration: done ? "line-through" : "none",
-                cursor: "text",
+                cursor: canEditMeta ? "text" : "default",
               }}
             >
               {item.title}
@@ -865,42 +953,71 @@ function Row({
               <option value="done">Done</option>
             </select>
 
-            {/* urgency select */}
-            <select
-              value={item.urgency}
-              onChange={(e) => onUpdate({ urgency: e.target.value as Urgency })}
-              style={pillSelect(u.bg, u.fg)}
-            >
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
+            {/* urgency */}
+            {canEditMeta ? (
+              <select
+                value={item.urgency}
+                onChange={(e) =>
+                  onUpdate({ urgency: e.target.value as Urgency })
+                }
+                style={pillSelect(u.bg, u.fg)}
+              >
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            ) : (
+              <span style={{ ...pillSelect(u.bg, u.fg), cursor: "default" }}>
+                {item.urgency === "high"
+                  ? "High"
+                  : item.urgency === "low"
+                    ? "Low"
+                    : "Medium"}
+              </span>
+            )}
 
             {/* due date */}
-            <input
-              type="date"
-              value={item.due_date ?? ""}
-              onChange={(e) => onUpdate({ due_date: e.target.value || null })}
-              style={{
-                border: "1px solid #e6e1d7",
-                borderRadius: 999,
-                padding: "3px 9px",
-                fontSize: 12,
-                color: item.due_date ? "#5a5346" : "#b3a98f",
-                fontFamily: "inherit",
-                background: "#fff",
-              }}
-            />
+            {canEditMeta ? (
+              <input
+                type="date"
+                value={item.due_date ?? ""}
+                onChange={(e) =>
+                  onUpdate({ due_date: e.target.value || null })
+                }
+                style={{
+                  border: "1px solid #e6e1d7",
+                  borderRadius: 999,
+                  padding: "3px 9px",
+                  fontSize: 12,
+                  color: item.due_date ? "#5a5346" : "#b3a98f",
+                  fontFamily: "inherit",
+                  background: "#fff",
+                }}
+              />
+            ) : (
+              item.due_date && (
+                <span style={{ fontSize: 12, color: "#5a5346", fontWeight: 600 }}>
+                  due {item.due_date}
+                </span>
+              )
+            )}
 
             <button onClick={() => setShowNotes((v) => !v)} style={textBtn}>
               {item.notes ? "📝 Notes" : "+ Note"}
             </button>
-            <button onClick={() => setEditing(true)} style={textBtn}>
-              Edit
-            </button>
-            <button onClick={onDelete} style={{ ...textBtn, color: "#c0492f" }}>
-              Delete
-            </button>
+            {canEditMeta && (
+              <>
+                <button onClick={() => setEditing(true)} style={textBtn}>
+                  Edit
+                </button>
+                <button
+                  onClick={onDelete}
+                  style={{ ...textBtn, color: "#c0492f" }}
+                >
+                  Delete
+                </button>
+              </>
+            )}
           </div>
 
           {showNotes && (

@@ -13,7 +13,11 @@ import {
 const AUTH_TIMEOUT_MS = 5000;
 const PROFILE_TIMEOUT_MS = 3000;
 
-function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(
+  p: PromiseLike<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   return Promise.race([
     Promise.resolve(p),
     new Promise<T>((_, reject) =>
@@ -76,7 +80,8 @@ export async function middleware(request: NextRequest) {
 
   // Always use getUser() — validates JWT server-side (not getSession() which reads cookie only)
   // Bounded by AUTH_TIMEOUT_MS so we never hit Vercel's 25s middleware ceiling.
-  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] = null;
+  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] =
+    null;
   let authError: unknown = null;
   try {
     const result = await withTimeout(
@@ -228,6 +233,15 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/portal", request.url));
     }
     return supabaseResponse;
+  }
+
+  // ── Boonz tracker partner (tracker_boonz) ────────────────────────────────────
+  // Allow: /tracker only. Everything else → redirect to /tracker.
+  if (role === "tracker_boonz") {
+    if (path === "/tracker" || path.startsWith("/tracker/")) {
+      return supabaseResponse;
+    }
+    return NextResponse.redirect(new URL("/tracker", request.url));
   }
 
   // ── Unknown role — pass through, page-level guards handle it ─────────────────

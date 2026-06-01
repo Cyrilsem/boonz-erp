@@ -1,10 +1,14 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import TrackerClient, { type AgendaItem } from "./tracker-client";
+import TrackerClient, {
+  type AgendaItem,
+  type Category,
+} from "./tracker-client";
 
-// Hard owner gate. Only this account may ever load /tracker. Anyone else
-// (including other authenticated Boonz users) is bounced. RLS on
-// agenda_items enforces the same rule at the data layer as defence in depth.
+// Access model:
+//  - OWNER (cyrilsem@gmail.com): full tracker, all categories, full edit.
+//  - tracker_boonz partner (e.g. Raffy): Boonz column only, status + notes only.
+// RLS on agenda_items enforces the same data scope as defence in depth.
 const OWNER_EMAIL = "cyrilsem@gmail.com";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +27,28 @@ export default async function TrackerPage() {
   if (!user) {
     redirect("/login?redirectTo=/tracker");
   }
-  if ((user.email ?? "").toLowerCase() !== OWNER_EMAIL) {
-    // Not the owner: do not reveal the page exists.
+
+  const isOwner = (user.email ?? "").toLowerCase() === OWNER_EMAIL;
+
+  let role: string | null = null;
+  if (!isOwner) {
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    role = profile?.role ?? null;
+  }
+
+  // Only the owner and tracker_boonz partners may load this page.
+  if (!isOwner && role !== "tracker_boonz") {
     redirect("/login?redirectTo=/tracker&error=forbidden");
   }
+
+  const allowedCategories: Category[] = isOwner
+    ? ["Boonz", "AKY", "Gebran", "Personal"]
+    : ["Boonz"];
+  const canEditMeta = isOwner; // partners: status + notes only
 
   const { data: items } = await supabase
     .from("agenda_items")
@@ -37,5 +59,11 @@ export default async function TrackerPage() {
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
-  return <TrackerClient initialItems={(items ?? []) as AgendaItem[]} />;
+  return (
+    <TrackerClient
+      initialItems={(items ?? []) as AgendaItem[]}
+      allowedCategories={allowedCategories}
+      canEditMeta={canEditMeta}
+    />
+  );
 }
