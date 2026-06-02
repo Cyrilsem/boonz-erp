@@ -15,6 +15,36 @@ Format:
 
 ---
 
+## 2026-06-02 — get_machine_health v2: expose v7 tier/track on Stock Snapshot (APPLIED to prod)
+
+**Phase / Article:** Phase F / Article 12 (forward-only); read-only helper
+**Applied to:** prod
+**Migration name:** `phaseF_get_machine_health_v2_tier_track`
+**Summary:** Extended the read-only `get_machine_health()` dashboard helper to emit `service_track` ('main'|'vox'), `priority_tier` ('P1_RESTOCK'|'P2_MAINTAIN'|'skip'), and `priority_score` using the SAME thresholds as picker v7, so the Stock Snapshot "Priority" card grid matches the picker instead of its old bespoke client-side `refillUrgency()`. Carried `machines.venue_group` through `device_metrics`; added a `CROSS JOIN LATERAL` computing units_7d (daily_velocity×7), runway (days_until_empty), dead% (dead_stock_count/total_slots), days_since_visit, and an intent proxy (pending_swap_count). Return-type widen required `DROP FUNCTION` + `CREATE` (function, not a data table); grants restored (PUBLIC/anon/authenticated/service_role). No writes; stays STABLE SECURITY DEFINER (justified — reads RLS-protected weimi/sales for the dashboard). FE (`src/app/(app)/refill/page.tsx`): `refillUrgency` now returns `priority_score`; priority sort = service_track→priority_tier→score; dashed "VOX · refilled daily on the spot" separator at the main→vox boundary; legend pills → P1 restock / P2 maintain / VOX (daily). tsc clean. **Note:** card-grid scores differ slightly from the picker because get_machine_health derives velocity from `sales_history` while the picker uses `v_machine_health_signals`; ordering intent is identical. Unify the velocity source later if exact parity is wanted.
+**Rollback:** `DROP FUNCTION public.get_machine_health(); CREATE FUNCTION ...` restored from the pre-v2 (30-col) body in migration history; revert the FE diff in `refill/page.tsx`.
+
+---
+
+## 2026-06-02 — Picker v7: velocity + shelf reweight + VOX parallel track (APPLIED to prod)
+
+**Phase / Article:** Phase F / Articles 1, 2, 4, 5, 8, 12
+**Applied to:** prod
+**Migration name:** `phaseF_picker_v7_velocity_shelf_reweight`
+**Summary:** Reweighted `pick_machines_for_refill` (canonical writer for `machines_to_visit`, a protected entity) from the old fill%/expiry-dominant severity CASE to a two-tier, velocity- and shelf-weighted model. **P1_RESTOCK** = any empty shelf (hard top, 50pts + 12 each extra), a selling machine running dry (runway <14d when units_7d≥20, or <7d for any), or a shelf <25% on a selling machine. **P2_MAINTAIN** = dead slots (≥15%), long refill gap (≥14d stale), expiry, or active intent — small weights so they never outrank a stockout. VOX machines are scored in the same pass but tagged `service_track='vox'` and ordered below all `main` rows (CS decision: VOX is refilled daily on the spot; keep visible as a parallel track below a dashed separator). Two additive columns on `machines_to_visit`: `service_track` (NOT NULL DEFAULT 'main', CHECK main/vox) and `priority_tier` (nullable, CHECK P1_RESTOCK/P2_MAINTAIN). Legacy `severity`/`priority_score` kept populated (tier→band map) for back-compat; downstream `engine_add_pod`/`engine_swap_pod` gate only on `status IN ('picked','cs_added')` — verified no dependency on severity granularity. Resolves known nit #17 (sibling rows now carry a real score). Dara-designed, Cody-reviewed (approve with revisions, all cleared). Verified: 30 machines for 2026-06-03 (22 main + 8 vox), AMZ-1038 correctly promoted from old "high" to #1 P1 (3 empty shelves, 81 units/wk); picker runs in ~2.3s.
+**Rollback:** `CREATE OR REPLACE FUNCTION public.pick_machines_for_refill(date)` restored from the v6 body (in migration history); the two columns are additive and may be left in place. Re-running the restored v6 function supersedes and re-picks.
+
+---
+
+## 2026-06-02 — PRD-017 refill availability bugs (APPLIED to prod)
+
+**Phase / Article:** PRD-017 / Articles 1, 4, 6, 12
+**Applied to:** prod (`eizcexopcuoycuosittm`)
+**Migrations:** `prd017_buga_v_dispatch_availability_serving_wh`, `prd017_buga_get_pod_refill_draft_wh_avail_s1`, `prd017_buga_engine_add_pod_s1_suppress`
+**Summary:** **BUG-A** — the WH-availability used by packing/draft/sizing now uses the §1 _Available_ definition (serving WH = machine primary+secondary, `status='Active'`, `quarantined=false`, in-date `expiration_date>=CURRENT_DATE`/NULL, `reserved_for_machine_id` NULL-or-self; never `consumer_stock`). Three surfaces, each verbatim-repro with only the WH-stock lines changed: `v_dispatch_availability` (CTE rekeyed per-(machine,product), join on both keys — **verified 47/47 rows match §1, 0 mismatch; 40 warehouse rows now `blocked_no_wh`; 0 vox/internal ever blocked** = edges 1/2/3/5/6, edge 4 surfaced as blocked_no_wh), `get_pod_refill_draft.wh_avail` (+expiry/serving-WH/reservation clauses), `engine_add_pod` → **v12_wh_avail_s1_suppress** (wh_avail = §1 per-machine; `wh_avail=0` ⇒ `final_qty=0`, `clamp_reason='blocked_no_wh'`, while `gap_rows` still emits the procurement_gap = edge 4 not silent). **BUG-B** — classified all three against §1 (all machines serve WH_CENTRAL only): YoPRO Choc@OMDCW = Case 1 (set 3 via `adjust_warehouse_stock` as the warehouse manager, provenance manual_adjust → Available 3); Hunter Ridge@HUAWEI = already Available 1 (pickup-0 was the read bug, fixed by BUG-A); VW Upgrade@MINDSHARE = already Available 1, the 19+5 in WH_MCC flagged Case 2 (wrong-WH, transfer = policy) + Case 3 (quarantined, manager propose-then-confirm — never auto). **Cleanups:** GH Popped Chips **Sweet BBQ** (only qualifier: mapped+present+3 WH) retro Add New @ MINDSHARE 2026-06-01 via `log_retroactive_refill_visit`; YoPRO count set to 3. Cody ✅ each change. Article-6 honored (no auto status/quarantine flip; warehouse writes ran as the warehouse manager with audit).
+**Rollback:** `CREATE OR REPLACE` each view/function to its prior body (v_dispatch_availability prior def, get_pod_refill_draft prior wh_avail, engine_add_pod v11); the data adjusts reverse via `adjust_warehouse_stock` back to prior counts.
+
+---
+
 ## 2026-06-01 — Refill-Day capabilities RD-01/03/05 (FILES WRITTEN, NOT APPLIED)
 
 **Phase / Article:** Refill-Day batch / Articles 2,3,4,5,7,8,12,14,15

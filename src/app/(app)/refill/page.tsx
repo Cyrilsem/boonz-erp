@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import Link from "next/link";
 import { createBrowserClient } from "@supabase/ssr";
 // RefillPlanReview removed from snapshot tab — plan review is in the Refill Planning tab
@@ -36,19 +36,6 @@ type DeviceRow = {
   is_online: boolean;
   total_curr_stock: number;
   snapshot_at: string;
-};
-
-type SummaryRow = {
-  machine_name: string;
-  is_online: boolean;
-  total_slots: number;
-  total_capacity: number;
-  total_current_stock: number;
-  total_shortage: number;
-  shortage_pct: number;
-  slots_at_zero: number;
-  slots_below_25pct: number;
-  snapshot_date: string;
 };
 
 type SaleRow = {
@@ -128,6 +115,10 @@ type MachineHealth = {
   pending_swap_count: number;
   is_picked_tomorrow: boolean;
   picker_reasons: string[] | null;
+  // Picker v7 alignment (from get_machine_health v2)
+  service_track: "main" | "vox";
+  priority_tier: "P1_RESTOCK" | "P2_MAINTAIN" | "skip";
+  priority_score: number;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -301,7 +292,6 @@ export default function RefillPage() {
   const [lookbackDays, setLookbackDays] = useState(90);
 
   const [devices, setDevices] = useState<DeviceRow[]>([]);
-  const [summaries, setSummaries] = useState<SummaryRow[]>([]);
   const [salesByMachine, setSalesByMachine] = useState<SaleRow[]>([]);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [salesCount, setSalesCount] = useState<number | null>(null);
@@ -369,14 +359,6 @@ export default function RefillPage() {
       );
       setLastRefresh(latest[0]?.snapshot_at || null);
     }
-
-    // Machine summaries from aisle view
-    const { data: summaryData } = await supabase
-      .from("v_machine_summary")
-      .select("*")
-      .limit(10000);
-    if (summaryData && summaryData.length > 0)
-      setSummaries(summaryData as SummaryRow[]);
 
     // Sales by machine (RPC with lookback filter)
     const { data: salesData } = await supabase
@@ -601,39 +583,21 @@ export default function RefillPage() {
   );
 
   // ── Refill-urgency score (higher = more urgent to visit) ────────────────
-  // Extracted so both sort and card-color can use it.
-  const refillUrgency = useCallback((m: MachineHealth): number => {
-    let score = 0;
-    // Empty shelves — strongest signal (each empty shelf = 15 pts)
-    score += m.slots_at_zero * 15;
-    // Shelves below 25% — about to go empty (each = 8 pts)
-    // Subtract slots_at_zero to avoid double-counting
-    const nearEmpty = Math.max(0, m.slots_below_25pct - m.slots_at_zero);
-    score += nearEmpty * 8;
-    // Low runway — exponential urgency as it approaches 0
-    const runway = m.days_until_empty ?? 999;
-    if (runway <= 1) score += 50;
-    else if (runway <= 3) score += 35;
-    else if (runway <= 7) score += 20;
-    else if (runway <= 14) score += 8;
-    // High velocity — busier machines drain faster
-    score += Math.min(m.daily_velocity * 2, 30);
-    // Stale visit — haven't been there in a while
-    const daysSince = m.days_since_visit ?? 0;
-    if (daysSince >= 14) score += 25;
-    else if (daysSince >= 7) score += 15;
-    else if (daysSince >= 4) score += 5;
-    // Expired stock — needs physical removal
-    if (m.expired_units > 0) score += 20 + m.expired_units * 2;
-    // Pending swaps — reason to visit (strategic + Plaay etc.)
-    score += m.pending_swap_count * 5;
-    // Already picked by engine — boost to top
-    if (m.is_picked_tomorrow) score += 40;
-    // Low fill % bonus
-    if (m.fill_pct < 30) score += 15;
-    else if (m.fill_pct < 50) score += 8;
-    return score;
-  }, []);
+  // v7: single source of truth — the backend get_machine_health() computes
+  // priority_score with the SAME formula as pick_machines_for_refill v7
+  // (empty shelves + velocity/runway dominate; dead/stale/expiry secondary).
+  // We just surface it here so card color + sort both key off one number.
+  const refillUrgency = useCallback(
+    (m: MachineHealth): number => m.priority_score ?? 0,
+    [],
+  );
+
+  // Tier rank for sorting: P1 first, then P2, skip last.
+  const tierRank = useCallback(
+    (t: MachineHealth["priority_tier"]): number =>
+      t === "P1_RESTOCK" ? 0 : t === "P2_MAINTAIN" ? 1 : 2,
+    [],
+  );
 
   // ── Card color resolver — adapts to active sort mode ──────────────────
   const getCardColors = useCallback(
@@ -678,7 +642,17 @@ export default function RefillPage() {
     const sorted = [...machineHealth];
     switch (sortBy) {
       case "priority":
-        sorted.sort((a, b) => refillUrgency(b) - refillUrgency(a));
+        // v7: main track first, then P1 before P2, then by score desc.
+        // VOX (service_track='vox') sinks below all main rows (parallel
+        // daily-on-the-spot track) — a dashed separator is rendered at the
+        // main→vox boundary in the card grid.
+        sorted.sort(
+          (a, b) =>
+            Number(a.service_track === "vox") -
+              Number(b.service_track === "vox") ||
+            tierRank(a.priority_tier) - tierRank(b.priority_tier) ||
+            refillUrgency(b) - refillUrgency(a),
+        );
         break;
       case "status":
         sorted.sort(
@@ -776,37 +750,31 @@ export default function RefillPage() {
         break;
       }
       case "priority": {
-        const c = bucket(active, (m) => {
-          const s = refillUrgency(m);
-          if (s >= 80) return "Critical";
-          if (s >= 35) return "Moderate";
-          if (s >= 15) return "Low";
-          return "Fine";
-        });
+        // v7 buckets: P1/P2 on the main track + a muted VOX (daily) count.
+        const main = active.filter((m) => m.service_track !== "vox");
+        const p1 = main.filter((m) => m.priority_tier === "P1_RESTOCK").length;
+        const p2 = main.filter(
+          (m) => m.priority_tier === "P2_MAINTAIN",
+        ).length;
+        const vox = active.filter((m) => m.service_track === "vox").length;
         pills = [
           {
-            label: "critical",
-            count: c["Critical"] ?? 0,
+            label: "P1 restock",
+            count: p1,
             bg: "bg-red-100",
             text: "text-red-700",
           },
           {
-            label: "moderate",
-            count: c["Moderate"] ?? 0,
+            label: "P2 maintain",
+            count: p2,
             bg: "bg-amber-100",
             text: "text-amber-700",
           },
           {
-            label: "low",
-            count: c["Low"] ?? 0,
-            bg: "bg-yellow-100",
-            text: "text-yellow-700",
-          },
-          {
-            label: "fine",
-            count: c["Fine"] ?? 0,
-            bg: "bg-green-100",
-            text: "text-green-700",
+            label: "VOX (daily)",
+            count: vox,
+            bg: "bg-slate-100",
+            text: "text-slate-600",
           },
         ];
         break;
@@ -1541,16 +1509,29 @@ export default function RefillPage() {
               Click a machine to see slot inventory
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-              {sortedMachines.map((m) => {
+              {sortedMachines.map((m, i) => {
                 const tc = getCardColors(m, sortBy);
+                const prev = sortedMachines[i - 1];
+                // v7: dashed separator at the main→vox boundary (priority sort only)
+                const showVoxDivider =
+                  sortBy === "priority" &&
+                  m.service_track === "vox" &&
+                  prev?.service_track !== "vox";
 
                 return (
-                  <button
-                    key={m.machine_id}
-                    type="button"
-                    onClick={() => setSelectedMachine(m.machine_name)}
-                    className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
-                  >
+                  <Fragment key={m.machine_id}>
+                    {showVoxDivider && (
+                      <div className="col-span-full mt-2 mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                        <span className="flex-1 border-t border-dashed border-slate-300" />
+                        VOX · refilled daily on the spot
+                        <span className="flex-1 border-t border-dashed border-slate-300" />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMachine(m.machine_name)}
+                      className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
+                    >
                     {/* Health label badge + picked-tomorrow indicator */}
                     <div className="flex items-center gap-1 mb-1">
                       {m.machine_health_label && (
@@ -1679,6 +1660,7 @@ export default function RefillPage() {
                       </div>
                     )}
                   </button>
+                  </Fragment>
                 );
               })}
             </div>
@@ -1787,94 +1769,15 @@ export default function RefillPage() {
           </div>
         )}
 
-        {/* Inventory summary table */}
-        {summaries.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-lg p-5">
-            <h2 className="text-base font-medium text-gray-900 mb-4">
-              Inventory summary
-            </h2>
-            <div className="overflow-x-auto -mx-5 px-5">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 text-gray-500 text-xs">
-                    <th className="text-left py-2.5 pr-3 font-medium">
-                      Machine
-                    </th>
-                    <th className="text-right py-2.5 px-2 font-medium">
-                      Slots
-                    </th>
-                    <th className="text-right py-2.5 px-2 font-medium">
-                      Capacity
-                    </th>
-                    <th className="text-right py-2.5 px-2 font-medium">
-                      Current
-                    </th>
-                    <th className="text-right py-2.5 px-2 font-medium">
-                      Shortage
-                    </th>
-                    <th className="text-right py-2.5 px-2 font-medium">
-                      Empty
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...summaries]
-                    .sort(
-                      (a, b) => (b.shortage_pct || 0) - (a.shortage_pct || 0),
-                    )
-                    .map((s) => (
-                      <tr
-                        key={s.machine_name}
-                        className="border-b border-gray-50 hover:bg-gray-50/50"
-                      >
-                        <td className="py-2 pr-3 font-medium text-gray-900">
-                          {s.machine_name}
-                        </td>
-                        <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
-                          {s.total_slots}
-                        </td>
-                        <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
-                          {s.total_capacity}
-                        </td>
-                        <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
-                          {s.total_current_stock}
-                        </td>
-                        <td className="py-2 px-2 text-right">
-                          <span
-                            className={`inline-block min-w-[3rem] text-center px-1.5 py-0.5 rounded text-xs font-medium ${
-                              (s.shortage_pct || 0) > 50
-                                ? "bg-red-100 text-red-700"
-                                : (s.shortage_pct || 0) > 25
-                                  ? "bg-amber-100 text-amber-700"
-                                  : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            {s.shortage_pct ?? 0}%
-                          </span>
-                        </td>
-                        <td className="py-2 px-2 text-right text-gray-600 tabular-nums">
-                          {s.slots_at_zero}
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
+        {/* Empty state */}
+        {devices.length === 0 && machineHealth.length === 0 && !refreshing && (
+          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+            <div className="text-gray-400 text-sm mb-2">No data yet</div>
+            <p className="text-gray-500 text-sm">
+              Click &quot;Refresh data&quot; to pull the latest from Weimi API
+            </p>
           </div>
         )}
-
-        {/* Empty state */}
-        {devices.length === 0 &&
-          summaries.length === 0 &&
-          machineHealth.length === 0 &&
-          !refreshing && (
-            <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-              <div className="text-gray-400 text-sm mb-2">No data yet</div>
-              <p className="text-gray-500 text-sm">
-                Click &quot;Refresh data&quot; to pull the latest from Weimi API
-              </p>
-            </div>
-          )}
 
         {/* Machine Detail Modal */}
         {selectedMachine && (
