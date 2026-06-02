@@ -228,14 +228,15 @@ function statusCardColors(label: string): CardStyle {
   return EXCLUDED_STYLE;
 }
 
-function urgencyCardColors(urgencyScore: number): CardStyle {
-  // Red = urgent (≥80), amber = moderate (≥35), yellow = low (≥15), green = fine
-  if (urgencyScore >= 80)
+function tierCardColors(m: MachineHealth): CardStyle {
+  // Priority mode colors by TIER (consistent within a group) instead of the
+  // raw urgency score, so a low-score P1 doesn't render as "healthy green".
+  if (m.service_track === "vox")
+    return { card: "bg-slate-50 border-slate-200", bar: "bg-slate-300" };
+  if (m.priority_tier === "P1_RESTOCK")
     return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
-  if (urgencyScore >= 35)
-    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
-  if (urgencyScore >= 15)
-    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  if (m.priority_tier === "P2_MAINTAIN")
+    return { card: "bg-amber-50 border-amber-200", bar: "bg-amber-400" };
   return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
 }
 
@@ -301,6 +302,16 @@ export default function RefillPage() {
   const [sortBy, setSortBy] = useState<
     "priority" | "status" | "stock" | "fill" | "expiry"
   >("priority");
+
+  // Card-grid filters: search box + clickable legend pills + swaps/dead chips.
+  const [search, setSearch] = useState("");
+  const [selectedPills, setSelectedPills] = useState<Set<string>>(new Set());
+  const [attrSwaps, setAttrSwaps] = useState(false);
+  const [attrDead, setAttrDead] = useState(false);
+  // Pill labels are per-sort-mode, so reset the selection when the mode changes.
+  useEffect(() => {
+    setSelectedPills(new Set());
+  }, [sortBy]);
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [machineSlots, setMachineSlots] = useState<SlotWithExpiry[]>([]);
@@ -605,7 +616,7 @@ export default function RefillPage() {
       if (m.health_tier === "excluded") return EXCLUDED_STYLE;
       switch (sort) {
         case "priority":
-          return urgencyCardColors(refillUrgency(m));
+          return tierCardColors(m);
         case "status":
           return statusCardColors(m.machine_health_label ?? "");
         case "stock":
@@ -897,6 +908,79 @@ export default function RefillPage() {
       });
     return pills;
   }, [machineHealth, sortBy, refillUrgency]);
+
+  // Map a pill label to a machine predicate (mirrors the legend buckets above)
+  // so clicking a legend pill filters the grid. Keyed by the exact pill labels.
+  const pillMatcher = useCallback(
+    (label: string) =>
+      (m: MachineHealth): boolean => {
+        if (label === "excluded") return m.health_tier === "excluded";
+        if (m.health_tier === "excluded") return false;
+        switch (sortBy) {
+          case "priority":
+            if (label === "P1 restock")
+              return (
+                m.service_track !== "vox" && m.priority_tier === "P1_RESTOCK"
+              );
+            if (label === "P2 maintain")
+              return (
+                m.service_track !== "vox" && m.priority_tier === "P2_MAINTAIN"
+              );
+            if (label === "VOX (daily)") return m.service_track === "vox";
+            return false;
+          case "status": {
+            const l = m.machine_health_label ?? "";
+            if (label === "zombie") return l.includes("Zombie");
+            if (label === "at risk") return l.includes("At Risk");
+            if (label === "ramp-up") return l.includes("Ramp-Up");
+            if (label === "stable") return l.includes("Stable");
+            if (label === "star") return l.includes("Star");
+            return false;
+          }
+          case "stock":
+            if (label === "very low") return m.total_stock <= 20;
+            if (label === "low")
+              return m.total_stock > 20 && m.total_stock <= 50;
+            if (label === "moderate")
+              return m.total_stock > 50 && m.total_stock <= 80;
+            if (label === "good") return m.total_stock > 80;
+            return false;
+          case "fill":
+            if (label === "≤25%") return m.fill_pct <= 25;
+            if (label === "≤50%") return m.fill_pct > 25 && m.fill_pct <= 50;
+            if (label === "≤70%") return m.fill_pct > 50 && m.fill_pct <= 70;
+            if (label === ">70%") return m.fill_pct > 70;
+            return false;
+          case "expiry": {
+            const d = m.days_to_earliest_expiry ?? 9999;
+            if (label === "≤7d") return d <= 7;
+            if (label === "≤30d") return d > 7 && d <= 30;
+            if (label === "≤60d") return d > 30 && d <= 60;
+            if (label === ">60d") return d > 60;
+            return false;
+          }
+        }
+        return false;
+      },
+    [sortBy],
+  );
+
+  // Apply search + swaps/dead chips + selected legend pills on top of the sort.
+  const displayedMachines = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return sortedMachines.filter((m) => {
+      if (q && !m.machine_name.toLowerCase().includes(q)) return false;
+      if (attrSwaps && m.pending_swap_count <= 0) return false;
+      if (attrDead && m.dead_stock_count <= 0) return false;
+      if (selectedPills.size > 0) {
+        const matchAny = Array.from(selectedPills).some((lbl) =>
+          pillMatcher(lbl)(m),
+        );
+        if (!matchAny) return false;
+      }
+      return true;
+    });
+  }, [sortedMachines, search, attrSwaps, attrDead, selectedPills, pillMatcher]);
 
   // Normalize a shelf/slot code so single-digit numbers are zero-padded:
   // "A1" → "A01", "B7" → "B07", "A12" → "A12" (untouched). This is for display
@@ -1467,14 +1551,31 @@ export default function RefillPage() {
                   Machine health
                 </h2>
                 <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  {legendPills.map((p) => (
-                    <span
-                      key={p.label}
-                      className={`px-2 py-0.5 rounded-full font-medium ${p.bg} ${p.text}`}
-                    >
-                      {p.count} {p.label}
-                    </span>
-                  ))}
+                  {legendPills.map((p) => {
+                    const selected = selectedPills.has(p.label);
+                    return (
+                      <button
+                        key={p.label}
+                        type="button"
+                        title="Click to filter by this group"
+                        onClick={() =>
+                          setSelectedPills((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(p.label)) next.delete(p.label);
+                            else next.add(p.label);
+                            return next;
+                          })
+                        }
+                        className={`px-2 py-0.5 rounded-full font-medium transition ${p.bg} ${p.text} ${
+                          selected
+                            ? "ring-2 ring-gray-500 ring-offset-1"
+                            : "hover:opacity-80"
+                        }`}
+                      >
+                        {p.count} {p.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className="flex items-center gap-1 text-xs text-gray-500">
@@ -1505,13 +1606,65 @@ export default function RefillPage() {
                 ))}
               </div>
             </div>
+            {/* Search + attribute filters */}
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search machines…"
+                className="px-2.5 py-1 text-xs border border-gray-200 rounded-md w-48 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+              <button
+                type="button"
+                onClick={() => setAttrSwaps((s) => !s)}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                  attrSwaps
+                    ? "bg-purple-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                📌 Has swaps
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttrDead((s) => !s)}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                  attrDead
+                    ? "bg-red-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+              >
+                Has dead slots
+              </button>
+              {(search ||
+                attrSwaps ||
+                attrDead ||
+                selectedPills.size > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setAttrSwaps(false);
+                    setAttrDead(false);
+                    setSelectedPills(new Set());
+                  }}
+                  className="px-2.5 py-1 text-xs rounded-md bg-gray-100 text-gray-500 hover:bg-gray-200"
+                >
+                  Clear filters
+                </button>
+              )}
+              <span className="text-xs text-gray-400 ml-auto">
+                {displayedMachines.length} of {sortedMachines.length} shown
+              </span>
+            </div>
             <p className="text-xs text-gray-400 mb-3">
               Click a machine to see slot inventory
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-              {sortedMachines.map((m, i) => {
+              {displayedMachines.map((m, i) => {
                 const tc = getCardColors(m, sortBy);
-                const prev = sortedMachines[i - 1];
+                const prev = displayedMachines[i - 1];
                 // v7: dashed separator at the main→vox boundary (priority sort only)
                 const showVoxDivider =
                   sortBy === "priority" &&
@@ -1664,6 +1817,11 @@ export default function RefillPage() {
                 );
               })}
             </div>
+            {displayedMachines.length === 0 && (
+              <p className="text-center text-xs text-gray-400 py-8">
+                No machines match these filters.
+              </p>
+            )}
           </div>
         )}
 
