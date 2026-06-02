@@ -15,6 +15,106 @@ Format:
 
 ---
 
+## 2026-06-01 — Refill-Day capabilities RD-01/03/05 (FILES WRITTEN, NOT APPLIED)
+
+**Phase / Article:** Refill-Day batch / Articles 2,3,4,5,7,8,12,14,15
+**Applied to:** repo only (output-only goal; CS reviews + applies)
+**Migration names:** `20260601200000_rd01_create_plan_add_machine`, `20260601210000_rd05_fefo_pick`, `20260601220000_rd03_driver_self_service`
+**Summary:** Phase 1 of the Refill-Day PRD set (RD-00..RD-06). RD-01: `add_machine_to_plan`/`create_refill_plan` (ad-hoc plan/machine; cs*added/operator; never runs engine). RD-05: `preferred_wh_inventory_id` pin + read-only `get_shelf_fefo_options` + `edit*/add_pod_refill_row`extended to 9-arg via no-DROP wrapper (#6 precedent). RD-03:`driver_outcome`cols +`driver_recommendations`table +`driver_report_dispatch_outcome`/`driver_propose_adjustment`. Phase 2 (RD-02/04/06) HELD: depends on FIX-1 (`v_live_shelf_stock`aisle fix) which is unapplied (closed as misdiagnosis — off-by-one only in unused`aisle_code`; callers read `slot_name`). RD-03 open question: no `dispatch_plan`/driver-assignment model exists, so per-driver ownership scoping is role+active-line only (Cody must rule).
+**Rollback:** n/a (nothing applied; delete the migration files to discard).
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #10 stage-2a: engine_swap_pod consumes signals (feeding)
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 4, 12
+**Applied to:** prod
+**Migration name:** `refillv2_p2_learning_loop_feed_swaps`
+**Summary:** Closes the "feeding the engine" half of #10. `engine_swap_pod` v9_3→`v9_4_signal_feedback` (verbatim repro, diff-gated to: a new `ON COMMIT DROP` temp `_suppressed_swap_subs` = (machine_id, pod_product_id) from `refill_edit_signals WHERE signal_type='swap_rejected' AND created_at >= now()-30d GROUP BY machine,pod HAVING COUNT(*)>=3` — the 3-in-30d rule CS chose; a `LEFT JOIN` + `WHERE sss.pod_in IS NULL` in `sub_candidates`; version bump x3). A substitute CS has rejected 3+ times in 30d on a machine is never re-proposed. Read-only on `refill_edit_signals`; no new write path (still `pod_swaps`); composes cleanly with the F6 swaps-disabled gate and the #2 machine-present dedup. No-op at zero signal volume. Cody ✅. Verified pg_proc v9_4. The other two #10 feedback mechanisms (per-shelf qty bias in `engine_add_pod`; raise-repeatedly-missed-items, a placement-layer concern) are documented stage-2b follow-ups, deliberately deferred until real signal volume.
+**Rollback:** `CREATE OR REPLACE` engine_swap_pod back to the v9_3 body.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #10 stage-1: learning-loop capture
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 2, 4, 7, 8, 12, 14 (+15 Appendix A)
+**Applied to:** prod
+**Migration name:** `refillv2_p2_learning_loop_capture`
+**Summary:** Captures the learning loop's facts (DONE-WHEN: "edit-signals captured"). Two new append-only tables (Dara): `engine_recommendation_snapshot` (immutable per plan_date; UNIQUE 5-tuple) and `refill_edit_signals` (typed signals: qty_raised/qty_lowered/item_added/item_removed/swap_rejected + delta). Both RLS-enabled, operator SELECT, no-update/no-delete, DEFINER-only writes. New write-once DEFINER `snapshot_engine_recommendations(plan_date, machine_ids[])` (`ON CONFLICT DO NOTHING`). Capture by trigger (Dara D6): `tg_capture_refill_edit_signal` AFTER INSERT/UPDATE on `pod_refill_plan` fires only for manual-edit RPCs (reads `app.rpc_name` ∈ edit/add_pod_refill_row), diffs vs the snapshot, inserts a typed signal — engine/orchestrator writes are skipped so the engine never logs itself. Seeded 10 rows from the 2026-06-01 `driver_feedback`. Cody ✅. Verified: both tables RLS + 3 policies, snapshot RPC, trigger, 10 seed rows. TODO: add both tables to Appendix A.
+**Rollback:** `DROP TRIGGER tg_capture_refill_edit_signal ON pod_refill_plan; DROP FUNCTION tg_capture_refill_edit_signal(), snapshot_engine_recommendations(date,uuid[]); DROP TABLE refill_edit_signals, engine_recommendation_snapshot;`.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #8 F6: swaps on/off flag
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 2, 4, 12, 14 (+15 Appendix A)
+**Applied to:** prod
+**Migration name:** `refillv2_f6_swaps_flag`
+**Summary:** Lets CS toggle the autonomous swap engine off globally or per-machine (DONE-WHEN: "swaps toggleable"). (A) New KV config table `refill_settings(setting_key PK, setting_value jsonb, updated_at, updated_by)` — CS chose this over altering the protected `machines` table. RLS: SELECT for operator/superadmin/manager; no write policies (sole writer is the DEFINER via owner-bypass; it is mutable config, NOT an append-only log, so intentionally no no_update/no_delete). Seeds `('swaps_enabled','true')`. (B) New DEFINER `set_swaps_enabled(p_enabled boolean, p_machine_id uuid DEFAULT NULL)` upserts global key `swaps_enabled` or per-machine `swaps_enabled:<id>`; gate operator_admin/superadmin + service bypass. (C) `engine_swap_pod` v9_2→v9_3 (verbatim repro, diff-gated to: a new `ON COMMIT DROP` temp `_swaps_disabled_machines` = machines whose effective flag [per-machine override ?? global ?? true] = false; `AND NOT EXISTS(_swaps_disabled_machines)` on BOTH `picked` CTEs (pass-1 tag + pass-2 autonomous); version bump x3). A disabled machine generates zero swaps in either pass. Dara table, Cody ✅. Verified: settings RLS on + seed='true', `set_swaps_enabled` + `engine_swap_pod` v9_3 with the gate in pg_proc. TODO: add `refill_settings` to Appendix A.
+**Rollback:** `CREATE OR REPLACE` engine_swap_pod back to v9_2 body; `DROP FUNCTION set_swaps_enabled(boolean,uuid); DROP TABLE refill_settings;`.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #8 F5: commit_refill_plan + refill_commit_log
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 2, 4, 7, 12, 14 (+15 Appendix A)
+**Applied to:** prod
+**Migration name:** `refillv2_f5_commit_refill_plan`
+**Summary:** Captures every refill-plan push with the operator's free-text comment (DONE-WHEN: "push comments captured"). New append-only table `refill_commit_log` (commit_id PK, plan_date, comment [CHECK non-empty], committed_by→user_profiles ON DELETE SET NULL, committed_at, machine_ids uuid[] [NULL=whole plan], scope all/subset, summary jsonb, via_rpc, rpc_name; index (plan_date, committed_at DESC)). RLS enabled: SELECT for operator_admin/superadmin/manager via `(SELECT auth.uid())` user_profiles join; `no_update`/`no_delete` USING(false); NO insert policy so the DEFINER (owner) is the sole writer (Article 7, same pattern as pod_inventory_audit_log). New DEFINER `commit_refill_plan(p_plan_date, p_comment, p_machine_ids uuid[] DEFAULT NULL)`: role gate + `auth.uid() IS NULL` bypass, validates plan_date + non-empty comment, computes a read-only summary (line counts by action + machine count from refill_plan_output), inserts one log row. Dara-designed table, Cody ✅. Verified: table RLS on + 3 policies, function in pg_proc. TODO: add `refill_commit_log` to Constitution Appendix A (Article 15 housekeeping).
+**Rollback:** `DROP FUNCTION commit_refill_plan(date,text,uuid[]); DROP TABLE refill_commit_log;` (no other dependants).
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #7: reset_and_restitch (plans editable without raw writes)
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 4, 5, 8, 12
+**Applied to:** prod
+**Migration name:** `refillv2_p2_reset_and_restitch`
+**Summary:** One canonical call to re-derive + re-stitch a plan subset, replacing the ~8 raw dispatch edits a live correction used to need (DONE-WHEN: "plans editable without raw writes"). `reset_and_restitch(p_plan_date, p_machine_ids uuid[], p_reason text)` composes existing canonical writers: (1) dispatch guard refuses if any subset `refill_plan_output` row is past `pending`; (2) RESET — archive-only supersede of all active subset `pod_refill_plan` rows (full reset per CS: discards manual adds; manual qty-edits overwritten in step 3); (3) `engine_finalize_pod(date, ids)` [#6 subset-aware] re-derives engine rows → draft; (4) `approve_pod_refill_plan(date, names)` draft → approved; (5) `stitch_pod_to_boonz(date, false)` re-emits — SAFE because `write_refill_plan` deletes per-machine + pending-only, so dispatched machines are untouched. Role gate operator_admin/superadmin + `auth.uid() IS NULL` bypass; reason ≥10; sets app.via_rpc. The only direct protected-entity write is the archive-only supersede (same family as void_refill_plan). Caveat (documented): stitch is whole-plan (reads all approved); bounded-safe via the per-machine pending-only write. Cody ✅. Verified pg_proc.
+**Rollback:** `DROP FUNCTION reset_and_restitch(date,uuid[],text);` (composes existing writers; no data migration).
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #6 (B6): engine_finalize_pod subset-aware
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod
+**Migration name:** `refillv2_b6_finalize_subset_aware`
+**Summary:** Makes the `pod_refill_plan` finalize/stitch writer subset-aware so a single machine (or set) can be re-stitched without clobbering the rest of the plan (foundation for #7 reset_and_restitch). Shape (Cody, Article 12 — NO DROP): the existing 1-arg `engine_finalize_pod(date)` is replaced in place with a thin wrapper that delegates to a new 2-arg `engine_finalize_pod(date, uuid[])` passing NULL (whole plan). The 2-arg carries no defaults (a `DEFAULT NULL` would make the 1-arg call ambiguous; Postgres also forbids a defaulted param before a non-defaulted one). FE/orchestrator one-arg calls hit the wrapper unchanged (verified 0 SQL-function callers, 0 cron). The 2-arg body is a verbatim reproduction of live v12_1, diff-gated to exactly: 14 machine gates `(p_machine_ids IS NULL OR <tbl>.machine_id = ANY(p_machine_ids))` on every machine-scoped clause (supersede UPDATE, the 4 INSERT-source CTEs, empty_shelf UPDATE, orphan_m2w SELECT + suppress UPDATE, the v_refills_in/v_swaps_in/v_overruled counts, swap_counts r7, high_velocity capacity scan) + version v12_1→v13_subset_aware. When `p_machine_ids IS NULL` behaviour is identical to v12_1. Role gate (operator_admin + `auth.uid() IS NULL` bypass), `app.via_rpc`, the `ON CONFLICT` upsert, and the universal audit trigger are unchanged. The 2-arg granted EXECUTE to authenticated/anon/service_role (mirroring the original). No schema change. Cody ✅ (revised from DROP+CREATE to the no-DROP wrapper). Verified live: 2 overloads exist, 2-arg is v13_subset_aware, 1-arg delegates.
+**Rollback:** `CREATE OR REPLACE` the 1-arg with the original v12_1 body and `DROP FUNCTION engine_finalize_pod(date, uuid[])`. Pure function-body change; no data change.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #4 (B4): stitch_pod_to_boonz cap REMOVE/M2W qty at shelf stock
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 4, 6, 8, 12, 14
+**Applied to:** prod
+**Migration name:** `refillv2_b4_cap_remove_qty_live_stock`
+**Summary:** Caps mapped REMOVE/M2W dispatch quantities at what is physically on the shelf. The engine had emitted removes far above capacity (Nescafe 96, Nutella 234, Be-kind 144) because `remove_lines` fanned the PLANNED qty across pod_inventory variants with no cap. Fix (verbatim reproduction of stitch v13, diff-gated to two lines): `remove_lines.variant_final` wrapped in `CASE WHEN source_origin='internal_transfer' THEN <uncapped fan-out> ELSE LEAST(<fan-out>, current_stock) END` where `current_stock` is the per-variant `pil.current_stock` already in `remove_lines_raw` (which filters `current_stock>0`); plus `engine_version` v13→v14_remove_qty_capped. `internal_transfer` rows are left UNCAPPED so the `v_remove_violations` fan-out invariant (actual vs planned, internal_transfer only) still holds. The #3 physical-fallback path already caps at `v_live_shelf_stock`. REFILL/ADD path, deviations, procurement_alerts, role gate, `app.via_rpc` unchanged. No new write path, no schema change. Cody ✅. Verified live: `v14_remove_qty_capped` + the `LEAST(...)` cap present.
+**Rollback:** `CREATE OR REPLACE` the prior v13 body (unwrap the CASE back to the uncapped fan-out, revert version literal). Pure function-body change.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #3: stitch_pod_to_boonz physical REMOVE/M2W fallback
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 4, 6, 8, 12, 14
+**Applied to:** prod
+**Migration name:** `refillv2_p2_stitch_physical_remove_fallback`
+**Summary:** Fixes REMOVE/M2W rows silently producing no driver dispatch line for VOX/untracked products (e.g. OMDCW A01 Popit remove never reached the driver). Root cause: `remove_lines_raw` INNER JOINs `v_pod_inventory_latest` with `current_stock>0`; VOX-sourced products are physically present (`v_live_shelf_stock`) but not tracked in `pod_inventory`, so the line was dropped and only surfaced in the `diag` array as `no_inventory_to_remove` (driver never sees diag). Confirmed not a mapping gap: Popit has 117 active mappings and 0 pods are physically-present-unmapped fleet-wide. Fix (verbatim reproduction of stitch v12, diff-gated to intended lines only): (A) new CTE `remove_lines_physical_fallback` — for REMOVE/M2W rows that are NOT `internal_transfer` and where the mapped+inventory path produced no line for that (machine,shelf,pod), emit a driver line with `boonz_product_id` NULL and qty = `v_live_shelf_stock.current_stock` (joined `slot_name`<->`shelf_code`, `current_stock>0`); (B) `UNION ALL` into `all_lines`; (C) two comment-CASE branches for `boonz_product_id IS NULL` removes (physical remove / untracked M2W, both flagged "no WH credit"); (D) `engine_version` `v12_wh_decoupled_fanout_fix_diag` -> `v13_physical_remove_fallback`. The existing mapped remove path, the `internal_transfer` fan-out invariant (`v_remove_violations` RAISE), `refill_plan_deviations`, `procurement_alerts`, the role gate, and `app.via_rpc` are byte-identical. The emitted `v_lines` jsonb keys on `boonz_product_name` (set to `pod_product_name`) and never carried `boonz_product_id`, so the NULL id stays internal — no leak to `write_refill_plan`/dispatch. No new write path, no schema change. Cody ✅ (Articles 1, 4, 6, 8, 12, 14). Verified live: `pg_get_functiondef` shows the fallback CTE, the comment branch, and `v13` with no `v12` remnant. Dry-run on a real approved plan deferred (no plan currently in `approved`).
+**Rollback:** `CREATE OR REPLACE` the prior `v12_wh_decoupled_fanout_fix_diag` body (drop `remove_lines_physical_fallback`, its `UNION ALL`, the two comment branches, revert the version literal). Pure function-body edit; no data change.
+
+---
+
+## 2026-06-01 — Refill System v2 Phase 2 / #2: engine_swap_pod machine-present dedup
+
+**Phase / Article:** Refill v2 Phase 2 / Constitution Articles 1, 4, 8, 12, 14
+**Applied to:** prod
+**Migration name:** `refillv2_p2_swap_dedup_machine_present`
+**Summary:** Fixes the dedup-guard bug where the swap engine introduced a substitute already present on the machine (e.g. OMDBB-1020 Barebells duplicated to a 2nd shelf; `dedup_demoted_to_m2w=false`). Root cause: pass-2 substitute selection only excluded a substitute that had an Active `v_pod_inventory_latest` row (the ERP's belief via `product_mapping`); it never checked `slot_lifecycle` placement or physical WEIMI stock, so a product physically present but with a mapping/inventory gap looked "absent" and got swapped onto a second shelf. Fix (verbatim reproduction of `engine_swap_pod`, diff-gated to only the intended lines): (A) new `ON COMMIT DROP` temp table `_machine_present_pods` = `slot_lifecycle` is_current UNION `v_live_shelf_stock` physical (`current_stock>0`), keyed (machine_id, pod_product_id); (B) `sub_candidates` LEFT JOINs it on the substitute and requires `mpp.pod_product_id IS NULL`, so a substitute already present anywhere on the machine is dropped from the pool and the dead shelf falls to M2W — never duplicated; (C) `engine_version` `v9_1_product_match_planned_swap` → `v9_2_machine_present_dedup` (3x). No schema change, no role/gate change (operator_admin + `auth.uid() IS NULL` service bypass preserved), no new raw write path. Investigation also closed the goal's #1 (the `v_live_shelf_stock` aisle off-by-one is real but lives only in the unused `aisle_code` field; all six callers read `slot_name`, so no view rewrite was needed) and ruled OUT an `engine_add_pod` refill-dedup (20 legitimate multi-facings across 11 machines — e.g. Aquafina on 6 shelves — would be regressed by collapsing same-product-multiple-shelf rows; the YoPro duplicate was a bad placement, prevented going forward by this swap-side guard). Cody ✅ (Articles 1, 4, 8, 12, 14). Verified live: `pg_get_functiondef` shows the temp table, the join+`mpp ... IS NULL` guard, and `v9_2` with no `v9_1` remnant.
+**Rollback:** `CREATE OR REPLACE` the prior `v9_1_product_match_planned_swap` body (remove `_machine_present_pods`, its LEFT JOIN, the `AND mpp.pod_product_id IS NULL` predicate, and revert the 3 version literals). Pure function-body edit; no data change.
+
+---
+
 ## 2026-06-01 — get_vox_consumer_report: raise recent_txns cap (banner/list discrepancy mismatch)
 
 **Phase / Article:** Phase F / Constitution Articles 12, 14
