@@ -86,7 +86,11 @@ interface DemandRow {
   wh_stock: number;
   gap: number;
   suggested_qty: number;
+  source_of_supply: string;
 }
+
+// "boonz" = Boonz buys & stocks it · "venue_team" = VOX/venue team sources it
+type DemandSource = "boonz" | "venue_team";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -145,13 +149,17 @@ export default function ProcurementPage() {
   const [demandDraftSupplier, setDemandDraftSupplier] = useState("");
   const [demandDraftSaving, setDemandDraftSaving] = useState(false);
   const [demandToast, setDemandToast] = useState<string | null>(null);
+  // Sourcing view: Boonz-sourced (what we buy) vs venue/VOX-sourced (the venue
+  // team supplies). Drives the get_procurement_demand p_source filter.
+  const [demandSource, setDemandSource] = useState<DemandSource>("boonz");
 
-  const loadDemand = useCallback(async () => {
+  const loadDemand = useCallback(async (source: DemandSource) => {
     setDemandLoading(true);
     const supabase = createClient();
     const { data, error } = await supabase.rpc("get_procurement_demand", {
       p_lookback_days: 14,
       p_buffer_pct: 0.1,
+      p_source: source,
     });
     if (!error) {
       setDemandRows((data ?? []) as DemandRow[]);
@@ -160,10 +168,21 @@ export default function ProcurementPage() {
     setDemandLoading(false);
   }, []);
 
+  // Switch the VOX/Boonz toggle: clear selection and re-fetch for the new view.
+  const handleDemandSourceChange = useCallback(
+    (source: DemandSource) => {
+      if (source === demandSource) return;
+      setDemandSource(source);
+      setSelectedDemandIds(new Set());
+      loadDemand(source);
+    },
+    [demandSource, loadDemand],
+  );
+
   const handleTabChange = useCallback(
     (t: TabFilter) => {
       setTab(t);
-      if (t === "demand" && !demandLoaded) loadDemand();
+      if (t === "demand" && !demandLoaded) loadDemand(demandSource);
       // Load suppliers for the "Create Draft PO" flow if not already loaded
       if (t === "demand" && suppliers.length === 0) {
         const supabase = createClient();
@@ -175,7 +194,7 @@ export default function ProcurementPage() {
           .then(({ data }) => setSuppliers(data ?? []));
       }
     },
-    [demandLoaded, loadDemand, suppliers.length],
+    [demandLoaded, loadDemand, suppliers.length, demandSource],
   );
 
   const fetchOrders = useCallback(async () => {
@@ -754,7 +773,7 @@ export default function ProcurementPage() {
         )}
         {tab === "demand" && (
           <button
-            onClick={loadDemand}
+            onClick={() => loadDemand(demandSource)}
             disabled={demandLoading}
             style={{
               marginLeft: tab === "demand" ? 0 : "auto",
@@ -794,19 +813,62 @@ export default function ProcurementPage() {
       {/* ── Demand Tab View ─────────────────────────────────────────────────── */}
       {tab === "demand" && (
         <>
+          {/* Sourcing toggle — Boonz-sourced (what we procure) vs venue/VOX-sourced
+              (supplied by the venue team). Helps separate refill planning. */}
           <div
             style={{
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
+              display: "inline-flex",
+              border: "1px solid #e8e4de",
+              borderRadius: 8,
+              overflow: "hidden",
+              marginBottom: 12,
+            }}
+          >
+            {(
+              [
+                { key: "boonz", label: "Boonz Sourced" },
+                { key: "venue_team", label: "VOX Sourced" },
+              ] as { key: DemandSource; label: string }[]
+            ).map((opt) => {
+              const active = demandSource === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => handleDemandSourceChange(opt.key)}
+                  disabled={demandLoading}
+                  style={{
+                    border: "none",
+                    padding: "7px 16px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: demandLoading ? "not-allowed" : "pointer",
+                    background: active ? "#14532d" : "white",
+                    color: active ? "white" : "#6b6860",
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div
+            style={{
+              background: demandSource === "boonz" ? "#f0fdf4" : "#eff6ff",
+              border:
+                demandSource === "boonz"
+                  ? "1px solid #bbf7d0"
+                  : "1px solid #bfdbfe",
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 13,
-              color: "#065f46",
+              color: demandSource === "boonz" ? "#065f46" : "#1e40af",
               marginBottom: 14,
             }}
           >
-            Demand based on last 14 days of sales · VOX-sourced products
-            excluded · Suggested qty includes 10% buffer
+            {demandSource === "boonz"
+              ? "Boonz-sourced demand · last 14 days of sales · VOX-sourced products excluded · suggested qty includes 10% buffer"
+              : "VOX-sourced demand · supplied by the venue team, not procured by Boonz · shown for refill planning only"}
           </div>
 
           <div
