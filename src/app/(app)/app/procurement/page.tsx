@@ -80,17 +80,28 @@ interface DemandRow {
   boonz_product_name: string;
   pod_product_name: string;
   product_category: string;
-  split_pct: number;
+  split_pct: number | null;
   sales_14d: number;
   variant_demand_14d: number;
   wh_stock: number;
   gap: number;
   suggested_qty: number;
+  units_per_box: number | null;
   source_of_supply: string;
 }
 
 // "boonz" = Boonz buys & stocks it · "venue_team" = VOX/venue team sources it
 type DemandSource = "boonz" | "venue_team";
+
+// Sortable demand columns -> the DemandRow field each header sorts by.
+type DemandSortKey =
+  | "boonz_product_name"
+  | "product_category"
+  | "sales_14d"
+  | "variant_demand_14d"
+  | "wh_stock"
+  | "gap"
+  | "suggested_qty";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -152,6 +163,38 @@ export default function ProcurementPage() {
   // Sourcing view: Boonz-sourced (what we buy) vs venue/VOX-sourced (the venue
   // team supplies). Drives the get_procurement_demand p_source filter.
   const [demandSource, setDemandSource] = useState<DemandSource>("boonz");
+  // Column sort for the demand table. Default: gap desc (most urgent first).
+  const [demandSort, setDemandSort] = useState<{
+    key: DemandSortKey;
+    dir: "asc" | "desc";
+  }>({ key: "gap", dir: "desc" });
+
+  const handleDemandSort = useCallback((key: DemandSortKey) => {
+    setDemandSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : // first click: numbers default to desc, text to asc
+          {
+            key,
+            dir: key === "boonz_product_name" || key === "product_category"
+              ? "asc"
+              : "desc",
+          },
+    );
+  }, []);
+
+  const sortedDemandRows = useMemo(() => {
+    const { key, dir } = demandSort;
+    const factor = dir === "asc" ? 1 : -1;
+    return [...demandRows].sort((a, b) => {
+      const av = a[key];
+      const bv = b[key];
+      if (typeof av === "string" || typeof bv === "string") {
+        return String(av).localeCompare(String(bv)) * factor;
+      }
+      return ((av as number) - (bv as number)) * factor;
+    });
+  }, [demandRows, demandSort]);
 
   const loadDemand = useCallback(async (source: DemandSource) => {
     setDemandLoading(true);
@@ -893,29 +936,46 @@ export default function ProcurementPage() {
                       style={{ cursor: "pointer" }}
                     />
                   </th>
-                  {[
-                    "Product",
-                    "Category",
-                    "14d Sales",
-                    "Variant Demand",
-                    "WH Stock",
-                    "Gap",
-                    "Suggested Qty",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-3 py-3"
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 500,
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase",
-                        color: "#6b6860",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
+                  {(
+                    [
+                      { h: "Product", key: "boonz_product_name" },
+                      { h: "Category", key: "product_category" },
+                      { h: "14d Sales", key: "sales_14d" },
+                      { h: "Variant Demand", key: "variant_demand_14d" },
+                      { h: "WH Stock", key: "wh_stock" },
+                      { h: "Gap", key: "gap" },
+                      { h: "Suggested Qty", key: "suggested_qty" },
+                    ] as { h: string; key: DemandSortKey }[]
+                  ).map(({ h, key }) => {
+                    const active = demandSort.key === key;
+                    return (
+                      <th
+                        key={h}
+                        onClick={() => handleDemandSort(key)}
+                        className="text-left px-3 py-3"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 500,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          color: active ? "#14532d" : "#6b6860",
+                          cursor: "pointer",
+                          userSelect: "none",
+                          whiteSpace: "nowrap",
+                        }}
+                        title="Sort"
+                      >
+                        {h}
+                        <span style={{ marginLeft: 4, opacity: active ? 1 : 0.25 }}>
+                          {active
+                            ? demandSort.dir === "asc"
+                              ? "↑"
+                              : "↓"
+                            : "↕"}
+                        </span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -948,7 +1008,7 @@ export default function ProcurementPage() {
                     </td>
                   </tr>
                 ) : (
-                  demandRows.map((r) => {
+                  sortedDemandRows.map((r) => {
                     const isSelected = selectedDemandIds.has(
                       r.boonz_product_id,
                     );
@@ -1032,7 +1092,7 @@ export default function ProcurementPage() {
                           style={{ color: "#0a0a0a", fontSize: 13 }}
                         >
                           {r.variant_demand_14d.toFixed(0)}
-                          {r.split_pct < 100 && (
+                          {r.split_pct != null && r.split_pct < 100 && (
                             <span
                               style={{
                                 fontSize: 10,
@@ -1080,6 +1140,18 @@ export default function ProcurementPage() {
                           >
                             {r.suggested_qty.toFixed(0)}
                           </span>
+                          {r.units_per_box ? (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "#6b6860",
+                                marginLeft: 6,
+                              }}
+                              title={`Rounded up to a multiple of ${r.units_per_box} (box size)`}
+                            >
+                              ×{r.units_per_box}
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     );
