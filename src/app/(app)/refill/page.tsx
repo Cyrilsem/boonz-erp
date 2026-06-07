@@ -9,7 +9,6 @@ import { DailyDispatchingTab } from "./DailyDispatchingTab";
 import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
 import { TrackerTab } from "./TrackerTab";
 import { SignalsTab } from "./SignalsTab";
-import { ManualRefillTab } from "./ManualRefillTab";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -294,7 +293,7 @@ function expiryCardColors(daysToExpiry: number | null): CardStyle {
 
 export default function RefillPage() {
   const [tab, setTab] = useState<
-    "snapshot" | "manual" | "planning" | "dispatching" | "tracker" | "signals"
+    "snapshot" | "planning" | "dispatching" | "tracker" | "signals"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
@@ -1274,7 +1273,6 @@ export default function RefillPage() {
         {(
           [
             ["snapshot", "Stock Snapshot"],
-            ["manual", "Manual Refill"],
             ["planning", "Refill Planning"],
             ["dispatching", "Refill Dispatch"],
             ["tracker", "Tracker"],
@@ -1308,9 +1306,6 @@ export default function RefillPage() {
       {tab === "dispatching" && (
         <DailyDispatchingTab selectedDate={selectedDate} />
       )}
-
-      {/* ── Manual Refill tab — pick machines, edit shelves, submit ──────────── */}
-      {tab === "manual" && <ManualRefillTab />}
 
       {/* ── Refill Planning tab — RPC-driven plan builder ────────────────────── */}
       {tab === "planning" && (
