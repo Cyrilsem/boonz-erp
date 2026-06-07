@@ -56,14 +56,22 @@ type SlotWithExpiry = {
   fill_pct: number;
   expiry_days: number | null;
   expiry_qty: number | null;
-  strategy: string | null;
+  // PRD-UNIFY: stance replaces the PROTECT/SUSTAIN strategy; final_score replaces base_score; decision = breakdown
+  stance: string | null;
   action_code: string | null;
   global_product_status: string | null;
   local_performance_role: string | null;
-  local_product_strategy: string | null;
   suggested_product: string | null;
   units_sold_7d: number | null;
-  product_base_score: number | null;
+  final_score: number | null;
+  decision: {
+    reasoning?: {
+      demand_base?: number;
+      stance_mult?: number;
+      placement_mult?: number;
+      urgency_mult?: number;
+    };
+  } | null;
 };
 
 type ProgressMsg = { step: string; detail: string; elapsed: string };
@@ -180,6 +188,22 @@ function healthLabelBadgeClass(label: string): string {
   return "bg-gray-100 text-gray-700 border border-gray-200";
 }
 
+// PRD-UNIFY: stance badge colour (grow = green, maintain = blue, drain/exit = red/gray)
+function stanceBadgeClass(stance: string | null): string {
+  if (!stance) return "bg-gray-100 text-gray-500";
+  if (stance === "STAR" || stance === "DOUBLE DOWN")
+    return "bg-green-100 text-green-700";
+  if (stance === "KEEP GROWING") return "bg-emerald-100 text-emerald-700";
+  if (stance === "KEEP") return "bg-blue-100 text-blue-700";
+  if (stance === "RAMPING") return "bg-indigo-100 text-indigo-700";
+  if (stance === "WATCH") return "bg-amber-100 text-amber-700";
+  if (stance === "WIND DOWN") return "bg-orange-100 text-orange-700";
+  if (stance === "ROTATE OUT" || stance === "DEAD")
+    return "bg-red-100 text-red-700";
+  return "bg-gray-100 text-gray-600";
+}
+
+// Deprecated by PRD-UNIFY (stance replaces strategy); kept to avoid churn in other callers.
 function strategyBadgeClass(strategy: string | null): string {
   if (!strategy) return "bg-gray-100 text-gray-500";
   if (strategy === "PROTECT") return "bg-green-100 text-green-700";
@@ -764,9 +788,7 @@ export default function RefillPage() {
         // v7 buckets: P1/P2 on the main track + a muted VOX (daily) count.
         const main = active.filter((m) => m.service_track !== "vox");
         const p1 = main.filter((m) => m.priority_tier === "P1_RESTOCK").length;
-        const p2 = main.filter(
-          (m) => m.priority_tier === "P2_MAINTAIN",
-        ).length;
+        const p2 = main.filter((m) => m.priority_tier === "P2_MAINTAIN").length;
         const vox = active.filter((m) => m.service_track === "vox").length;
         pills = [
           {
@@ -1008,11 +1030,15 @@ export default function RefillPage() {
           return aExp - bExp;
         });
         break;
-      default:
-        // Default = sort by Slot (A01, A02, ... A10, A11, B01, ...)
+      case "slot":
+        // Sort by Slot (A01, A02, ... A10, A11, B01, ...)
         sorted.sort((a, b) =>
           normalizeSlot(a.slot).localeCompare(normalizeSlot(b.slot)),
         );
+        break;
+      default:
+        // PRD-UNIFY A8: default = sort by Final Score desc (the one number the engine ranks by)
+        sorted.sort((a, b) => (b.final_score ?? 0) - (a.final_score ?? 0));
         break;
     }
     return sorted;
@@ -1637,10 +1663,7 @@ export default function RefillPage() {
               >
                 Has dead slots
               </button>
-              {(search ||
-                attrSwaps ||
-                attrDead ||
-                selectedPills.size > 0) && (
+              {(search || attrSwaps || attrDead || selectedPills.size > 0) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1685,134 +1708,134 @@ export default function RefillPage() {
                       onClick={() => setSelectedMachine(m.machine_name)}
                       className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
                     >
-                    {/* Health label badge + picked-tomorrow indicator */}
-                    <div className="flex items-center gap-1 mb-1">
-                      {m.machine_health_label && (
+                      {/* Health label badge + picked-tomorrow indicator */}
+                      <div className="flex items-center gap-1 mb-1">
+                        {m.machine_health_label && (
+                          <div
+                            className={`text-[9px] font-semibold px-1.5 py-0.5 rounded inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
+                          >
+                            {m.machine_health_label}
+                          </div>
+                        )}
+                        {m.is_picked_tomorrow && (
+                          <span
+                            title="Picked for tomorrow"
+                            className="text-[11px] leading-none"
+                          >
+                            🎯
+                          </span>
+                        )}
+                      </div>
+                      <div className="mb-0.5">
+                        <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
+                          {m.machine_name}
+                        </span>
+                        {m.machine_strategy && (
+                          <span className="text-[10px] text-gray-400 leading-tight block truncate">
+                            {m.machine_strategy}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm font-semibold text-gray-900 mt-1">
+                        {m.total_stock.toLocaleString()}
+                        <span className="text-[11px] text-gray-400 font-normal">
+                          {" "}
+                          / {m.max_capacity.toLocaleString()}
+                        </span>
+                      </div>
+                      {/* Fill bar */}
+                      <div className="mt-1.5 h-1 rounded-full bg-gray-200 overflow-hidden">
                         <div
-                          className={`text-[9px] font-semibold px-1.5 py-0.5 rounded inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
-                        >
-                          {m.machine_health_label}
-                        </div>
-                      )}
-                      {m.is_picked_tomorrow && (
-                        <span
-                          title="Picked for tomorrow"
-                          className="text-[11px] leading-none"
-                        >
-                          🎯
-                        </span>
-                      )}
-                    </div>
-                    <div className="mb-0.5">
-                      <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
-                        {m.machine_name}
-                      </span>
-                      {m.machine_strategy && (
-                        <span className="text-[10px] text-gray-400 leading-tight block truncate">
-                          {m.machine_strategy}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm font-semibold text-gray-900 mt-1">
-                      {m.total_stock.toLocaleString()}
-                      <span className="text-[11px] text-gray-400 font-normal">
-                        {" "}
-                        / {m.max_capacity.toLocaleString()}
-                      </span>
-                    </div>
-                    {/* Fill bar */}
-                    <div className="mt-1.5 h-1 rounded-full bg-gray-200 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${tc.bar}`}
-                        style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
-                      />
-                    </div>
-                    {/* Quick stats: runway + visit + velocity + dead/hero + swaps */}
-                    <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
-                      {m.days_until_empty != null &&
-                        m.days_until_empty < 999 && (
+                          className={`h-full rounded-full ${tc.bar}`}
+                          style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
+                        />
+                      </div>
+                      {/* Quick stats: runway + visit + velocity + dead/hero + swaps */}
+                      <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
+                        {m.days_until_empty != null &&
+                          m.days_until_empty < 999 && (
+                            <span
+                              className={
+                                m.days_until_empty <= 3
+                                  ? "text-red-600 font-medium"
+                                  : ""
+                              }
+                            >
+                              {m.days_until_empty}d runway
+                            </span>
+                          )}
+                        {m.days_since_visit != null && (
                           <span
                             className={
-                              m.days_until_empty <= 3
+                              m.days_since_visit >= 7
+                                ? "text-amber-600 font-medium"
+                                : ""
+                            }
+                          >
+                            {m.days_since_visit}d ago
+                          </span>
+                        )}
+                        {m.daily_velocity > 0 && (
+                          <span>↗ {m.daily_velocity.toFixed(1)}/day</span>
+                        )}
+                        {m.dead_stock_count > 0 && (
+                          <span className="text-red-500 font-medium">
+                            {m.dead_stock_count}/{m.total_slots} dead
+                          </span>
+                        )}
+                        {m.local_hero_count > 0 && (
+                          <span className="text-green-600 font-medium">
+                            {m.local_hero_count} hero
+                          </span>
+                        )}
+                        {m.slots_at_zero > 0 && (
+                          <span
+                            className={
+                              m.machine_health_label?.includes("Zombie")
                                 ? "text-red-600 font-medium"
                                 : ""
                             }
                           >
-                            {m.days_until_empty}d runway
+                            {m.slots_at_zero} empty
                           </span>
                         )}
-                      {m.days_since_visit != null && (
-                        <span
-                          className={
-                            m.days_since_visit >= 7
-                              ? "text-amber-600 font-medium"
-                              : ""
-                          }
-                        >
-                          {m.days_since_visit}d ago
-                        </span>
-                      )}
-                      {m.daily_velocity > 0 && (
-                        <span>↗ {m.daily_velocity.toFixed(1)}/day</span>
-                      )}
-                      {m.dead_stock_count > 0 && (
-                        <span className="text-red-500 font-medium">
-                          {m.dead_stock_count}/{m.total_slots} dead
-                        </span>
-                      )}
-                      {m.local_hero_count > 0 && (
-                        <span className="text-green-600 font-medium">
-                          {m.local_hero_count} hero
-                        </span>
-                      )}
-                      {m.slots_at_zero > 0 && (
-                        <span
-                          className={
-                            m.machine_health_label?.includes("Zombie")
-                              ? "text-red-600 font-medium"
-                              : ""
-                          }
-                        >
-                          {m.slots_at_zero} empty
-                        </span>
-                      )}
-                      {m.pending_swap_count > 0 && (
-                        <span className="text-purple-600 font-medium">
-                          📌 {m.pending_swap_count} swaps
-                        </span>
-                      )}
-                    </div>
-                    {/* Expiry badge */}
-                    {m.expired_units > 0 ? (
-                      <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-red-100 text-red-600 inline-block">
-                        ⚠ {m.expired_units} expired
+                        {m.pending_swap_count > 0 && (
+                          <span className="text-purple-600 font-medium">
+                            📌 {m.pending_swap_count} swaps
+                          </span>
+                        )}
                       </div>
-                    ) : m.expiring_7d_units > 0 ? (
-                      <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-700 inline-block">
-                        ⏰ {m.expiring_7d_units} exp. 7d
-                      </div>
-                    ) : m.expiring_30d_units > 0 ? (
-                      <div className="mt-1 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 inline-block">
-                        📅 {m.expiring_30d_units} exp. 30d
-                      </div>
-                    ) : null}
-                    {/* Claude reviewed badge */}
-                    {reviewResults[m.machine_name] && (
-                      <div className="mt-1 text-[10px] text-purple-600 font-medium">
-                        ✓ Reviewed
-                      </div>
-                    )}
-                    {m.health_tier === "excluded" && (
-                      <div className="mt-1 text-[10px] text-gray-400 italic">
-                        excluded
-                      </div>
-                    )}
-                    {m.has_sensor_errors && (
-                      <div className="mt-1 text-[10px] text-amber-600 font-medium">
-                        ⚠ sensor
-                      </div>
-                    )}
-                  </button>
+                      {/* Expiry badge */}
+                      {m.expired_units > 0 ? (
+                        <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-red-100 text-red-600 inline-block">
+                          ⚠ {m.expired_units} expired
+                        </div>
+                      ) : m.expiring_7d_units > 0 ? (
+                        <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-700 inline-block">
+                          ⏰ {m.expiring_7d_units} exp. 7d
+                        </div>
+                      ) : m.expiring_30d_units > 0 ? (
+                        <div className="mt-1 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 inline-block">
+                          📅 {m.expiring_30d_units} exp. 30d
+                        </div>
+                      ) : null}
+                      {/* Claude reviewed badge */}
+                      {reviewResults[m.machine_name] && (
+                        <div className="mt-1 text-[10px] text-purple-600 font-medium">
+                          ✓ Reviewed
+                        </div>
+                      )}
+                      {m.health_tier === "excluded" && (
+                        <div className="mt-1 text-[10px] text-gray-400 italic">
+                          excluded
+                        </div>
+                      )}
+                      {m.has_sensor_errors && (
+                        <div className="mt-1 text-[10px] text-amber-600 font-medium">
+                          ⚠ sensor
+                        </div>
+                      )}
+                    </button>
                   </Fragment>
                 );
               })}
@@ -2338,8 +2361,11 @@ export default function RefillPage() {
                             <th className="text-right py-2 px-2 font-medium">
                               Fill
                             </th>
-                            <th className="text-center py-2 px-2 font-medium">
-                              Strategy
+                            <th
+                              className="text-center py-2 px-2 font-medium cursor-help"
+                              title="Lifecycle stance — sets refill direction (DOUBLE DOWN / KEEP / WIND DOWN …)"
+                            >
+                              Stance
                             </th>
                             <th
                               className="text-center py-2 px-2 font-medium cursor-help"
@@ -2356,8 +2382,11 @@ export default function RefillPage() {
                             <th className="text-right py-2 px-2 font-medium">
                               7d Sales
                             </th>
-                            <th className="text-right py-2 px-2 font-medium">
-                              Score
+                            <th
+                              className="text-right py-2 px-2 font-medium cursor-help"
+                              title="Final Score = demand_base × stance × placement × urgency (the one number the engine ranks by)"
+                            >
+                              Final Score
                             </th>
                             <th className="text-left py-2 px-2 font-medium">
                               Suggestion
@@ -2375,10 +2404,11 @@ export default function RefillPage() {
                             const claudeSlot = reviewResults[
                               selectedMachine ?? ""
                             ]?.slot_reviews.find((r) => r.slot === s.slot);
-                            const isReplace =
-                              claudeSlot?.action === "REPLACE" ||
-                              s.strategy === "REPLACE";
-                            const isRemove = s.strategy === "REMOVE";
+                            const isReplace = claudeSlot?.action === "REPLACE";
+                            const isRemove =
+                              s.stance === "ROTATE OUT" ||
+                              s.stance === "DEAD" ||
+                              s.stance === "WIND DOWN";
 
                             return (
                               <tr
@@ -2417,14 +2447,14 @@ export default function RefillPage() {
                                     {s.fill_pct}%
                                   </span>
                                 </td>
-                                {/* Strategy */}
+                                {/* Stance (PRD-UNIFY) */}
                                 <td className="py-1.5 px-2 text-center">
-                                  {s.strategy ? (
+                                  {s.stance ? (
                                     <span
-                                      title={strategyTooltip(s.strategy)}
-                                      className={`text-[10px] px-1.5 py-0.5 rounded font-medium cursor-help ${strategyBadgeClass(s.strategy)}`}
+                                      title="Lifecycle stance — sets refill direction + ceiling"
+                                      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${stanceBadgeClass(s.stance)}`}
                                     >
-                                      {s.strategy}
+                                      {s.stance}
                                     </span>
                                   ) : (
                                     <span className="text-gray-300 text-xs">
@@ -2523,11 +2553,22 @@ export default function RefillPage() {
                                     <span className="text-gray-300">—</span>
                                   )}
                                 </td>
-                                {/* Score */}
-                                <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-500">
-                                  {s.product_base_score != null
-                                    ? s.product_base_score.toFixed(1)
-                                    : "—"}
+                                {/* Final Score (PRD-UNIFY) — one blended number; hover = breakdown */}
+                                <td className="py-1.5 px-2 text-right tabular-nums text-xs font-semibold text-gray-900">
+                                  {s.final_score != null ? (
+                                    <span
+                                      className="cursor-help"
+                                      title={
+                                        s.decision?.reasoning
+                                          ? `demand ${s.decision.reasoning.demand_base ?? "?"} × stance ${s.decision.reasoning.stance_mult ?? "?"} × placement ${s.decision.reasoning.placement_mult ?? "?"} × urgency ${s.decision.reasoning.urgency_mult ?? "?"}`
+                                          : "Final Score"
+                                      }
+                                    >
+                                      {s.final_score.toFixed(1)}
+                                    </span>
+                                  ) : (
+                                    "—"
+                                  )}
                                 </td>
                                 {/* Suggestion */}
                                 <td className="py-1.5 px-2 text-xs max-w-[140px]">
