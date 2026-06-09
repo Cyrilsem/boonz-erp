@@ -251,6 +251,13 @@ BEGIN
      WHERE mpp.pod_product_id IS NULL
        AND sss.pod_in IS NULL
        AND rc.pod_product_id IS NULL
+       -- REFILL-V2 fix (CS 2026-06-08 scenario test): also exclude any product already
+       -- chosen as a swap-in earlier in THIS run for this machine, so two dead shelves
+       -- don't both get the same top candidate (no duplicate product on one machine).
+       AND NOT EXISTS (
+         SELECT 1 FROM public.pod_swaps ps2
+          WHERE ps2.plan_date = p_plan_date AND ps2.machine_id = r.machine_id
+            AND ps2.pod_product_id_in = fs.pod_product_id)
      ORDER BY fs.rank
      LIMIT 1;
 
@@ -258,7 +265,14 @@ BEGIN
       -- Sub found: resolve the tag in place (reason stays 'dead'/'rotate_out').
       UPDATE public.pod_swaps
          SET pod_product_id_in = v_sub.pod_product_id,
-             qty_in            = GREATEST(COALESCE(v_sub.wh_stock_units,0)::int, 4),
+             -- REFILL-V2 (CS 2026-06-08): a swap-in fills the emptied shelf to CAPACITY,
+             -- capped by available WH stock (was GREATEST(wh,4) — an arbitrary floor that
+             -- could under- or over-fill). Consistent with the add engine's fill-to-cap.
+             qty_in            = LEAST(
+                                   GREATEST(COALESCE((SELECT MAX(sms.max_stock_weimi)::int
+                                                        FROM public.v_shelf_max_stock sms
+                                                       WHERE sms.shelf_id = r.shelf_id), 8), 1),
+                                   COALESCE(v_sub.wh_stock_units,0)::int),
              substitute_source = v_sub.source,
              substitute_score  = v_sub.pearson_score,
              reasoning         = reasoning || jsonb_build_object(
@@ -327,7 +341,7 @@ BEGIN
                          WHERE vls.machine_id = r.machine_id AND sc.shelf_id = r.shelf_id
                            AND vls.pod_product_id = r.pod_out), 1), 1)::int,
       GREATEST(COALESCE((SELECT MAX(sms.max_stock_weimi)::int FROM public.v_shelf_max_stock sms
-                          WHERE sms.shelf_id = r.shelf_id),8)/2,4)::int,
+                          WHERE sms.shelf_id = r.shelf_id),8),1)::int,  -- fill to shelf capacity (CS 2026-06-08); stitch/availability WH-limits at dispatch
       'rotate_out', 'driver_recommendation', NULL::numeric, NULL::uuid,
       jsonb_build_object('pass','2b','source','driver_recommendation',
                          'rec_id', r.rec_id, 'resolved_by','engine_swap_pod_v10',

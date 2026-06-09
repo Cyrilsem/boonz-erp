@@ -1,5 +1,36 @@
 # PRD-REFILL-V2 — apply order, review flags, items 4 & 7
 
+## ⭐ LIVE STATUS 2026-06-08 (applied to prod via MCP, CS green light)
+
+Applied & validated end-to-end (scenario on ACTIVATE-2005, plan_date 2026-06-20, then cleaned up):
+- **find_substitutes_for_shelf → global-performer-first** (NEW reco). Was anchored on the dead
+  product's co-purchase → returned NOTHING for 2 of 3 dead shelves. Now: global performers not in
+  the machine, in real WH stock (consumer_stock excluded), ranked by correlation to the machine's
+  basket. All 3 test dead shelves now get strong in-stock swap-ins.
+- **Item 3 resolve_driver_intent** — applied.
+- **Item 1 engine_add_pod v15** — applied. Dead test changed to sales-based (v7=0 AND v30=0); WIND-DOWN
+  drain removed; lifecycle stance no longer gates refill. Idempotency fix: opening cleanup deletes ALL
+  its own dead tags (resolved or not) so a re-run after swap doesn't collide on uq_pod_swaps_slot.
+- **Item 2 engine_swap_pod v10** — applied. qty_in = fill-to-cap capped by WH. Dup-swap-in fix: a
+  product chosen as swap-in earlier in the same run is excluded for later dead shelves on the same
+  machine (no two shelves get the same swap-in).
+- **Item 5 pick_machines_for_refill v8** — applied (P1 bands mirror get_machine_health; warehouses excluded).
+
+Scenario proof: ACTIVATE-2005 — 6 shelves filled to capacity, 2 genuinely-dead shelves tagged →
+resolved to distinct swap-ins (B04 Starbucks Ice Coffee→Pepsi Black, B08 Almarai Juice→Nutella
+Biscuits), procurement gaps emitted only where WH genuinely short.
+
+**NOT applied via MCP — apply from the migration file on branch push:**
+- **Item 6 stitch v19** (792 lines, writes refill_plan_output). No behavioral change today (driver
+  overlay no-op until driver data exists; shelf guard defensive). Current live stitch v18 handles
+  commit fine. Apply via `supabase db push` / CC, not a hand-paste.
+
+NOTE: MCP applies used names without the file's timestamp prefix; the edited branch files carry the
+same fixes and are all CREATE OR REPLACE / DROP IF EXISTS → re-running them on push is idempotent.
+
+---
+
+
 Status: ALL STAGED. Nothing applied to prod. Each engine writer needs CS green light.
 Branch: `feat/refill-v2-staged-engines`. Dry-run anchor: plan_date 2026-06-09.
 
@@ -15,8 +46,8 @@ Recommended sequence: **3 → 1 → 2 → 5 → 6**. After each apply, re-run th
 
 ## Per-item review flags (decide at sign-off)
 
-- **Item 1**: (a) pod_swaps.reason reuse 'dead'/'rotate_out' + provenance — CONFIRMED (no constraint ALTER). (b) WIND DOWN kept as drain (qty 0, no swap tag), not filled — confirm or flip.
-- **Item 2 (v10)**: (a) `qty_in` for a resolved swap-in uses `GREATEST(wh_stock_units, 4)` (find_substitutes has no "suggested fill" column) — confirm basis, or switch to half-shelf-max like Pass 1. (b) Pass 1 strategic-intent swaps KEPT — remove only if you want a pure dead-tag+driver-rec engine. (c) driver_recommendations open-status literal assumed `'open'` (table empty today; forward-support no-op). (d) M2W return stays downstream at stitch — CONFIRMED.
+- **Item 1**: (a) pod_swaps.reason reuse 'dead'/'rotate_out' + provenance — CONFIRMED (no constraint ALTER). (b) WIND DOWN drain — **RESOLVED 2026-06-08: flipped.** Dead is now sales-based (velocity_7d=0 AND velocity_30d=0); lifecycle stance no longer gates refill; the is_drain branch is retired. A WIND DOWN shelf that sells fills to capacity. Live recheck: dead 137→50, 0 selling shelves tagged, 192 selling shelves recovered from lifecycle starve.
+- **Item 2 (v10)**: (a) `qty_in` — **RESOLVED 2026-06-08: fill-to-cap.** A resolved swap-in now fills the emptied shelf to capacity (`v_shelf_max_stock`) capped by available WH stock; driver-rec swap-in aligned to shelf capacity. (b) Pass 1 strategic-intent swaps KEPT — remove only if you want a pure dead-tag+driver-rec engine. (c) driver_recommendations open-status literal assumed `'open'` (table empty today; forward-support no-op). (d) M2W return stays downstream at stitch — CONFIRMED.
 - **Item 6 (v19)**: (a) overlay = driver SKU first-claim, remainder by mix_weight — CONFIRMED, invariant `sum(variant)=pod_qty` validated (4/2/4=10 with a pin). (b) shelf-code guard is defensive only (all 2615 live codes already canonical A01..E16); the WEIMI ELSE branch never fires today.
 
 ## Item 4 — expiry daily rule (lightweight; NO separate engine)

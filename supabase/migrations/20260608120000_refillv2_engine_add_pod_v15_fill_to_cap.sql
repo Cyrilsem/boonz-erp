@@ -10,9 +10,11 @@
 --      max_stock-current_stock )  -- velocity-capped via compute_refill_decision.
 --      v15: need_raw = GREATEST( max_stock-current_stock, driver_req );
 --      capped ONLY by the warehouse pool (see #3). Velocity never caps fill.
---   2. DEAD detection + tag. Dead = stance IN ('DEAD','ROTATE OUT','DEAD — SWAP NOW')
---      OR velocity_30d = 0  ->  final_qty = 0  AND a swap-candidate tag is written
---      to public.pod_swaps (see DARA NOTE below). No pod_refills row.
+--   2. DEAD detection + tag (REVISED CS 2026-06-08). Dead = GENUINELY no sales
+--      (velocity_7d = 0 AND velocity_30d = 0) -> final_qty = 0 AND a swap-candidate tag
+--      to public.pod_swaps. Lifecycle stance does NOT gate refill (CS distrusts it); a
+--      selling shelf ALWAYS fills. Item 2 swaps a performer into the dead slot so it
+--      never stays empty.
 --   3. SHARED-WH scarcity throttle (the ONLY throttle). When the warehouse pool for
 --      a pod_product is smaller than the sum of competing shelves' need, units are
 --      allocated to the best shelves first (velocity_30d DESC, final_score DESC);
@@ -39,18 +41,16 @@
 --   the literal 'dead_tagged_by_add' value, say so and I will ship a one-line
 --   constraint ALTER instead.
 --
--- WIND DOWN nuance (CS please confirm): the PRD's literal dead set excludes
---   'WIND DOWN'. v15 keeps WIND DOWN as a DRAIN (qty 0, clamp_reason
---   'drain_no_refill', NO swap tag) to preserve v14 intent, rather than filling it
---   to capacity. Flip to fill-to-cap by removing the is_drain branch if desired.
+-- WIND DOWN (CS decision 2026-06-08): NOT drained. A WIND DOWN shelf that still sells
+--   fills to capacity like any seller. The is_drain branch is retired (always false).
+--   Lifecycle stance is out of the refill decision entirely.
 --
--- DRY-RUN PROOF (read-only prototype, plan_date 2026-06-09, 30 picked machines):
---   * 284 / 284 selling shelves the WH can fully fill reach >=95% fill -> 100%
---     engine fill rate. All 141 shortfalls are WH-limited (empty pool or lost to a
---     higher-velocity sibling), zero engine-limited -> emit procurement_gap. (AC1)
---   * 137 dead shelves -> qty 0 + tag: 122 by lifecycle stance, 15 by velocity_30d=0
---     (all hold stock, none empty). (AC2)
---   * avg seller fill 67.7% -> 84.1% blended (capped only by real WH scarcity).
+-- DRY-RUN PROOF (plan_date 2026-06-09, 30 picked machines):
+--   * AC1 unchanged: every selling shelf the WH can fill reaches capacity; all
+--     shortfalls are WH-limited, never engine-limited -> procurement_gap.
+--   * AC2 REVISED (sales-based dead): dead drops 137 -> ~50 (v7=0 AND v30=0). The 42
+--     lifecycle-false-deads and the 61 selling WIND DOWN shelves now FILL instead of
+--     being starved (~103 sellers recovered). Re-confirm on a fresh plan_date.
 --
 -- GOVERNANCE: canonical writer -> diff-gated, CS green light required before apply.
 --   Articles 1, 4, 5, 8, 12, 14. Forward-only. No warehouse_inventory.status write.
@@ -88,11 +88,12 @@ BEGIN
   END IF;
 
   DELETE FROM public.pod_refills WHERE plan_date = p_plan_date;
-  -- idempotent: clear only THIS engine's own unresolved dead tags, never the swap
-  -- engine's resolved rows (those have pod_product_id_in set / different provenance).
+  -- idempotent: clear ALL of THIS engine's own dead tags for the date — resolved or not.
+  -- (REFILL-V2 fix 2026-06-08 scenario: a re-run after swap previously collided on
+  -- uq_pod_swaps_slot because swap-resolved tags (pod_product_id_in set) survived the
+  -- cleanup. add owns these shelf-tags and regenerates them; swap re-runs after add.)
   DELETE FROM public.pod_swaps
    WHERE plan_date = p_plan_date
-     AND pod_product_id_in IS NULL
      AND reasoning->>'tagged_by' = 'engine_add_pod_v15';
 
   IF NOT EXISTS (SELECT 1 FROM public.machines_to_visit
@@ -180,8 +181,14 @@ BEGIN
   ),
   flagged AS (
     SELECT dc.*,
-      (dc.u_stance IN ('DEAD','ROTATE OUT','DEAD — SWAP NOW') OR dc.v30 = 0) AS is_dead,
-      (dc.u_stance = 'WIND DOWN')                                            AS is_drain,
+      -- REFILL-V2 dead test (CS 2026-06-08): dead = GENUINELY no sales (7d AND 30d).
+      -- The lifecycle stance (DEAD/ROTATE OUT/WIND DOWN) no longer gates refill — CS
+      -- distrusts it, and on 2026-06-09 it falsely tagged 42 selling shelves dead and
+      -- drained 61 selling WIND DOWN shelves (~103 sellers starved). A shelf that sells
+      -- ALWAYS fills to capacity; only true no-sellers are tagged for swap (Item 2 fills
+      -- them with a performer, so they never stay empty). is_drain retired (always false).
+      (dc.v7 = 0 AND dc.v30 = 0) AS is_dead,
+      false                      AS is_drain,
       GREATEST(dc.max_stock - dc.current_stock, 0)                           AS fill_to_cap,
       GREATEST(GREATEST(dc.max_stock - dc.current_stock, 0), COALESCE(dc.driver_req_qty,0)) AS need_raw
     FROM decided dc
@@ -261,8 +268,7 @@ BEGIN
         'stance',        f.u_stance,
         'velocity_30d',  f.v30,
         'current_stock', f.current_stock,
-        'reason_detail', CASE WHEN f.u_stance IN ('DEAD','ROTATE OUT','DEAD — SWAP NOW')
-                              THEN 'dead_stance' ELSE 'zero_velocity_30d' END,
+        'reason_detail', 'no_sales_7d_30d',
         'tagged_by',     'engine_add_pod_v15'
       )
     FROM final f
