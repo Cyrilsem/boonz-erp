@@ -13,6 +13,48 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-10 — PRD-4 (Procurement Brain v3): shelf-stock snapshot infra; forecast v4 swap REJECTED by replay
+
+**Phase / Article:** Phase F / Constitution Articles 2, 4, 11, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phasef_proc_shelf_stock_daily_snapshot` (4b). Forecast v4 (4a): **NOT applied — validation failed.**
+**Summary (4b, applied):** New analytics table `shelf_stock_daily` (per-(machine,pod_product) nightly snapshot) + sole DEFINER writer `snapshot_shelf_stock()` (idempotent upsert from `v_live_shelf_stock`, eligible+enabled slots, Asia/Dubai date, caller gate system/operator_admin/superadmin, GUCs set) + pg_cron `shelf_stock_daily_snapshot` at 20:30 UTC (after nightly-fleet-refresh). RLS: authenticated SELECT-only, service_role ALL, no authenticated write. First manual run captured 301 rows (290 in-stock) across 20 machines / 63 products. Purpose: accrue days-in-stock history so availability-adjusted velocity (sales/days-in-stock) becomes measurable for a future forecast. Cody ✅ (Articles 2, 4, 11, 12, 14).
+**Summary (4a, REJECTED):** Backtested the spec's blended forecast (0.7×14d + 0.3×prior-28d) and alternatives against actuals over a 5-window replay (as-of 04-29…05-27, each predicting next 14d, pod level). Result: the blend is **worse than flat-14d in 4 of 5 windows** (MAE e.g. 957 vs 820); trend-extrapolation/momentum overshoot (MAE 1166–1217); a static ×1.1 uplift helps only in growth regimes and hurts in steady ones (regime-dependent, not robust). **No tested basis change robustly beats flat-14d**, so `get_procurement_demand` keeps its v3 flat-14d × ctx basis. The genuine improvement — availability-adjusted velocity — is unvalidatable until `shelf_stock_daily` accrues ~3-4 weeks; revisit then. Validation-before-swap (per goal) prevented a forecast regression.
+**Rollback (4b):** `SELECT cron.unschedule('shelf_stock_daily_snapshot'); DROP FUNCTION public.snapshot_shelf_stock(); DROP TABLE public.shelf_stock_daily;`
+
+## 2026-06-10 — PRD-5 (Procurement Brain v3): merge duplicate Union Coop supplier
+
+**Phase / Article:** Phase F / Constitution Articles 1, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phasef_proc_merge_union_coop_dupe`
+**Summary:** Data hygiene. Merged duplicate supplier "Union Coop" (`3cec0b3a…47d7`, was Inactive, 19 PO lines, 18 supplier_products) into canonical (`31b6355d…64d8`, Active, 334 lines, 94 products). No deletes. Repointed all 19 PO lines (audited one row each to `write_audit_log` before mutation); repointed the 2 supplier_products canonical lacked (Barkthins Pretzel + Almond, kept preferred); retired the 16 overlap dupe rows in place (`status='Inactive'`, `is_preferred=false`); promoted canonical's Coco Water to preferred (it lost its only preferred when the dupe's flag cleared); renamed the dupe `"Union Coop (DUP merged to 31b6355d on 2026-06-10)"` (kept Inactive). Ordering (clear-preferred → repoint-non-overlap → restore → retire → promote) avoids the partial-unique `uq_supplier_products_one_preferred` clash. CS reviewed the row diff + signed off; Cody ✅ (Articles 1 — migration-path exception with explicit audit, 8, 12). Verified post-apply: dupe 0 PO lines / 0 Active / 0 preferred / renamed; canonical 353 lines (+19), 96 products (+2); 0 products with multiple preferred; 20 audit rows (19 + summary).
+**Rollback:** Repoint the 19 lines + 2 supplier_products back to `3cec0b3a…`, restore the dupe's preferred flags + Active status + original name, re-clear the promoted Coco Water flag. Audit rows are append-only (kept).
+
+## 2026-06-10 — PRD-3 (Procurement Brain v3): pod-level demand RPC
+
+**Phase / Article:** Phase F / Constitution Articles 4 (read-only DEFINER), 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phasef_proc_demand_pod_level_rpc`
+**Summary:** New read-only `get_procurement_demand_pod(integer, text)` (STABLE SECURITY DEFINER, LANGUAGE sql, zero writes). Emits demand at the pod_product level — the sales reality BEFORE `get_procurement_demand`'s mix_weight trickle-down — with columns `sales_14d, velocity_per_day, ctx_multiplier (category>global>1), forecast_demand, mapped_variant_count, pod_breakdown jsonb`. Each `pod_breakdown` entry lists a mapped boonz variant with mix_weight/split_pct/attributed_14d/source_of_supply and its PRD-1 `block_reason`. Reuses the same pod-sales window + `demand_context_factors` machinery as the boonz RPC so the two FE sub-tabs reconcile (breakdown attributed_14d sums back to pod sales, verified e.g. Chocolate Bar 251). DEFINER for parity with the sibling RPC over the same RLS-gated read sources. Cody-reviewed ✅ (read-only; Articles 4, 12). Powers PRD-2's "Pod demand" sub-tab. Validated live: top pods return correct velocity/forecast and breakdowns.
+**Rollback:** `DROP FUNCTION public.get_procurement_demand_pod(integer, text);`
+
+## 2026-06-10 — PRD-1 (Procurement Brain v3) guardrail: block ordering decommissioned / never-order products
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phasef_proc_block_decommissioned_po_writes`
+**Summary:** No path could previously stop a PO line for a decommissioned product — Ritz Cracker - Regular was ordered 2026-06-10 (PO-2026-MQ7MQIHO, cancelled). Added shared detection helper `boonz_product_block_reason(uuid)` (STABLE, SECURITY DEFINER) returning `decommissioned_product | never_order_flavor | NULL`: a product is BLOCKED when it has >=1 `supplier_products` row and **every** row is `status='Inactive'` with notes matching `never_order_flavor`/`decommissioned_product` (no rows at all = "Unassigned", orderable). Re-created both canonical PO writers from their **live** bodies with a guard before insert/edit — no behavior reverted (create kept verbatim; edit kept the PRD-002 received-lock + `lock_level`). Guard has **no service-role / system bypass** by design (safety rail, not auth gate); `create_purchase_order` blocks for everyone, `edit_purchase_order_line` blocks for everyone except `superadmin` (CS carve-out for historical price corrections — removal otherwise via `cancel_po_line`). Added read-only view `v_procurement_blocked_products` to back PRD-2's struck-through "Blocked" group. Verified `create_purchase_order` is the sole PO-line inserter and there are zero FE/edge direct inserts. Cody-reviewed (✅ Articles 1, 4, 12; the review caught that the first draft re-created `edit_purchase_order_line` from the stale 2026-05-23 file body — which would have silently reverted PRD-002 received-lock — and rebuilt it from live). Tested live (operator*admin impersonation): create blocked Ritz rejected naming the rule; edit blocked Ritz line as operator_admin rejected; control product still orderable; 0 leaked test rows.
+**Pre-existing note (not in scope):** `purchase_orders` has no universal audit trigger; `edit*\*`compensates with a manual`write_audit_log`insert but`create_purchase_order`writes only`procurement_events`, not `write_audit_log`(Article 8 gap predating this change). Flagged for a separate follow-up.
+**Rollback:**`CREATE OR REPLACE FUNCTION` both writers from their pre-`phasef_proc_block_decommissioned_po_writes`live bodies (drop the`v_block_reason`block), then`DROP VIEW public.v_procurement_blocked_products;`and`DROP FUNCTION public.boonz_product_block_reason(uuid);`.
+
+## 2026-06-10 — PRD-020 log_retroactive_refill_visit dedup key now includes expiry
+
+**Phase / Article:** PRD-020 / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd020_retro_log_dedup_include_expiry`
+**Summary:** The per-line dedup `EXISTS` in canonical RETRO-LOG writer `log_retroactive_refill_visit` keyed on machine+date+boonz+qty+action+shelf+`[RETRO-LOG` comment but **omitted expiry_date**. Two genuinely distinct same-qty/same-shelf batches that differ only by expiry (e.g. ALJLT-1015 Dubai Popcorn Butter 1@2027-02-01 and 1@2027-02-07) were wrongly collapsed — the second was skipped as a false-positive duplicate, violating FIFO "keep batches separate". Added one conjunct `AND (expiry_date IS NOT DISTINCT FROM v_expiry)`. Strictly narrower dedup: cannot over-write or lose data, only stops false-positive skips. Signature, SECURITY DEFINER, search_path, role gate, audit GUCs all verbatim. Cody-reviewed (✅ Articles 1, 4, 8, 12). Verified: both Dubai Butter batches now persist as separate rows with distinct expiries; all other PRD-020 Part A/B1 lines logged 0 dup-skips.
+**Rollback:** `CREATE OR REPLACE FUNCTION` the prior body (remove the added `AND (expiry_date IS NOT DISTINCT FROM v_expiry)` conjunct). No data migration to undo.
+
 ## 2026-06-08 — PRD-REFILL-V2 (STAGED — per-item CS apply gate; NOTHING APPLIED YET)
 
 **Phase / Article:** PRD-REFILL-V2 / Articles 1, 4, 5, 8, 12, 14 (Hard Rule 10 — diff-gate + CS green light per writer)
