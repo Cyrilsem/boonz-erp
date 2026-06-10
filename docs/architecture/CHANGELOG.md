@@ -13,6 +13,46 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-11 — PRD-022 D3b: add_purchase_order_lines (owner append to open PO) + FE drawer
+
+**Phase / Article:** PRD-022 / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration names:** `prd022_d3b_add_purchase_order_lines`, `prd022_d3b_widen_proc_event_type`
+**Summary:** New owner-only DEFINER writer `add_purchase_order_lines(p_po_id text, p_lines jsonb)` — Dara chose Option B (dedicated sibling writer) over overloading create_purchase_order. operator_admin/superadmin only; appends lines to an existing OPEN PO reusing its po_number/supplier_id/purchase_date; same blocked-product + qty validation as create; regenerates `driver_tasks.notes` (DF2 mechanism); audits to procurement_events('lines_appended') + write_audit_log. Refuses fully-received/cancelled POs. It is the operation-scoped canonical writer for "append to open PO" (the 2nd and final INSERT path on purchase_orders alongside create; disjoint by precondition - create rejects existing po_id, append requires it). DF1 trigger skips it (existing po_id). Companion `prd022_d3b_widen_proc_event_type` widened the `procurement_events_event_type_check` to permit 'lines_appended' (caught by the verification test). Dara + Cody ✅ (Cody noted: two INSERT writers is the ceiling). Verified (rolled-back): owner append adds 1 line reusing po_number 9136 + regenerates notes; blocked product rejected; non-owner (warehouse) rejected; fully-received PO refused; 0 leaks. FE: owner-only add-line control in the Open POs drawer tab.
+**Rollback:** `DROP FUNCTION public.add_purchase_order_lines(text, jsonb);` (constraint widen is additive, harmless to leave).
+
+## 2026-06-11 — PRD-022 D5: get_open_po_lines reader RPC
+
+**Phase / Article:** PRD-022 / Constitution Articles 4 (read-only DEFINER), 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd022_d5_get_open_po_lines`
+**Summary:** New read-only `get_open_po_lines(p_supplier_id uuid DEFAULT NULL)` (STABLE SECURITY DEFINER, sql, no writes). Returns open PO lines (`received_date IS NULL AND purchase_outcome <> 'not_purchased'` - identical to `get_procurement_demand.on_order` so D1 chips reconcile) with optional server-side supplier filter; columns po_line_id/po_id/po_number/supplier_id/supplier_name/boonz_product_id/boonz_product_name/ordered_qty/price_per_unit_aed/expiry_date/purchase_date/age_days. Powers PRD-022 D1 ordered-state chips + D3 Open POs drawer list. DEFINER kept for parity with sibling readers (zero exposure delta; INVOKER would also suffice). Dara shape-checked, Cody ✅ (read-only; Articles 4, 12). Verified: 87 open lines total, 37 filtered to Union Coop.
+**Rollback:** `DROP FUNCTION public.get_open_po_lines(uuid);`
+
+## 2026-06-11 — PRD-022 DF2: cancel_po_line regenerates driver_tasks.notes
+
+**Phase / Article:** PRD-022 / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd022_df2_cancel_regenerates_driver_notes`
+**Summary:** Cancelling a PO line left the driver task's `notes` checklist stale, so drivers still saw the cancelled product. `cancel_po_line` rebuilt verbatim from live (role gate, reason>=10, received-line guard, dual audit intact) with one added block: after the cancel UPDATE, it rewrites `driver_tasks.notes` for the PO's still-actionable task (status pending/acknowledged only) from the remaining lines (`purchase_outcome <> 'not_purchased'`), matching create_purchase_order's "Name xQty" format, with an `(all lines cancelled)` fallback. Touches only `notes`, never `status` (Article 5 clear). Cody ✅ (Articles 1, 4, 8, 12). Verified (rolled-back test): cancelling the Krambals line removed it from PO-2026-MQ7MO2T9's task notes; no commit leaked.
+**Rollback:** `CREATE OR REPLACE` cancel_po_line without the driver_tasks.notes UPDATE block.
+
+## 2026-06-11 — PRD-022 DF1: po_number allocation fix + cross-po_id uniqueness guard
+
+**Phase / Article:** PRD-022 / Constitution Articles 1, 4, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd022_df1_po_number_allocation`
+**Summary:** `po_number_seq` had drifted BELOW `max(po_number)` (last_value 9143 < max 9144) because the retired FE path inserted `MAX+1` po_numbers directly while the RPC advanced the sequence; `nextval` was re-issuing existing numbers (incident: 9140 collision, PO renumbered to 9144). Fix, all go-forward, zero historical rows touched (23 historical duplicate po_numbers left as-is per CS): (0) `idx_po_number` index; (1) `setval(po_number_seq, COALESCE(MAX(po_number), last_value))` resync; (2) `BEFORE INSERT` trigger `trg_po_number_one_po_id` (DEFINER) blocking a brand-new `po_id` from claiming a `po_number` already owned by a different `po_id` (skips same-`po_id` multi-line + D3b appends; never re-validates historical dups); (3) `create_purchase_order` rebuilt verbatim from live (PRD-1 blocked-product guard intact) plus a skip-used loop after `nextval` to self-heal future drift. Dara shape-checked (trigger is a backstop not a hard constraint - acceptable since nextval is the atomic sole allocator + direct writes RLS-dropped; header-table-UNIQUE alternative rejected as historical dups block its backfill). Cody ✅ (Articles 1, 4, 12). Verified live: new po_id reusing 9144 blocked with the named rule; same po_id allowed; seq >= max; live traffic allocated 9145 cleanly; 0 leaked test rows.
+**Rollback:** `DROP TRIGGER trg_po_number_one_po_id ON public.purchase_orders; DROP FUNCTION public.trg_po_number_one_po_id_fn();` and `CREATE OR REPLACE` create_purchase_order without the skip loop. Index + setval are harmless to leave.
+
+## 2026-06-10 — PRD-021 abandon_intent service-role bypass (lift Ritz Cracker decommission)
+
+**Phase / Article:** PRD-021 / Constitution Articles 1, 4, 5, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd021_abandon_intent_service_role_bypass`
+**Summary:** `abandon_intent` rejected the service-role connection (auth.uid() IS NULL) in its role guard, blocking programmatic intent closure. Added the standard service-role bypass: the guard line changed from `v_user_id IS NULL OR NOT EXISTS(operator role)` to `v_user_id IS NOT NULL AND NOT EXISTS(operator role)` — an authenticated non-operator is still rejected; only NULL-uid service-role now passes. Same bypass class as `prd019_set_dispatch_include_service_role_bypass`. Body otherwise verbatim (signature, SECURITY DEFINER, search_path, audit GUCs, p_intent_id/p_reason validation, FOR UPDATE lock, abandonable-status guard, UPDATE). Used to close strategic_intent `ba1ef467` (Ritz Cracker decommission) — CS lifted it 2026-06-10 (selling well at Amazon). `closed_by` NULL under service-role; CS attribution in `closure_reason`. Loacker Quadratini decommission (`9e117317`) untouched. Cody ✅. Verified: target → abandoned w/ closed_at; zero active decommission intents remain on Ritz `2e20605a`.
+**Rollback:** `CREATE OR REPLACE FUNCTION` the prior body (restore `v_user_id IS NULL OR NOT EXISTS`). No data migration to undo; to re-queue the intent, write a new `strategic_intents` row (do not edit the abandoned one in place).
+
 ## 2026-06-10 — PRD-4 (Procurement Brain v3): shelf-stock snapshot infra; forecast v4 swap REJECTED by replay
 
 **Phase / Article:** Phase F / Constitution Articles 2, 4, 11, 12

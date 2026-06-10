@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
+import {
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  Fragment,
+  type CSSProperties,
+} from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { CancelPOLineDrawer } from "@/app/(field)/components/CancelPOLineDrawer";
@@ -134,11 +141,40 @@ interface BlockedProduct {
   block_reason: string | null;
 }
 
+// PRD-022 D5: a line from get_open_po_lines (open = not received, not cancelled).
+interface OpenPoLine {
+  po_line_id: string;
+  po_id: string;
+  po_number: number | null;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  boonz_product_id: string;
+  boonz_product_name: string;
+  ordered_qty: number;
+  price_per_unit_aed: number | null;
+  expiry_date: string | null;
+  purchase_date: string | null;
+  age_days: number | null;
+}
+
+// PRD-022 D2: one editable line in a supplier's draft basket.
+interface BasketLine {
+  boonz_product_id: string;
+  boonz_product_name: string;
+  qty: number;
+  price_per_unit_aed: number | null;
+  units_per_box: number | null;
+  off_box: boolean; // qty not a multiple of units_per_box, explicitly confirmed
+}
+
 // "boonz" = Boonz buys & stocks it · "venue_team" = VOX/venue team sources it
 type DemandSource = "boonz" | "venue_team";
 
 // Two-level Demand surface: pod-product view vs boonz-SKU view (PRD-2).
 type DemandView = "pod" | "sku";
+
+// PRD-022 D2/D3: supplier drawer tabs.
+type DrawerTab = "new" | "open";
 
 // Sortable demand columns -> the DemandRow field each header sorts by.
 type DemandSortKey =
@@ -174,6 +210,28 @@ function genPoId(): string {
   ).join("");
   return `PO-${new Date().getFullYear()}-${token}`;
 }
+
+// PRD-022 drawer button styles.
+const stepperBtnStyle: CSSProperties = {
+  width: 26,
+  height: 26,
+  border: "1px solid #e8e4de",
+  borderRadius: 6,
+  background: "white",
+  fontSize: 15,
+  cursor: "pointer",
+  lineHeight: 1,
+};
+const drawerSmallBtnStyle: CSSProperties = {
+  border: "1px solid #e8e4de",
+  borderRadius: 6,
+  background: "white",
+  padding: "3px 10px",
+  fontSize: 11,
+  fontWeight: 600,
+  color: "#6b6860",
+  cursor: "pointer",
+};
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
@@ -249,6 +307,35 @@ export default function ProcurementPage() {
   const [setSupplierChoice, setSetSupplierChoice] = useState("");
   const [setSupplierSaving, setSetSupplierSaving] = useState(false);
   const [collapsedBlocked, setCollapsedBlocked] = useState(true);
+
+  // PRD-022 D1/D5: open PO lines (drives ordered-state chips + D3 list).
+  const [openPoLines, setOpenPoLines] = useState<OpenPoLine[]>([]);
+  // PRD-022 D2/D3: supplier drawer.
+  const [drawerSupplier, setDrawerSupplier] = useState<{
+    supplier_id: string;
+    supplier_name: string;
+  } | null>(null);
+  const [drawerTab, setDrawerTab] = useState<DrawerTab>("new");
+  const [basket, setBasket] = useState<BasketLine[]>([]);
+  const [drawerSaving, setDrawerSaving] = useState(false);
+  const [drawerLineErrors, setDrawerLineErrors] = useState<
+    Record<string, string>
+  >({});
+  // Add-product search inside the drawer (supplier's Active catalog).
+  const [drawerSearch, setDrawerSearch] = useState("");
+  const [drawerCatalog, setDrawerCatalog] = useState<
+    {
+      boonz_product_id: string;
+      boonz_product_name: string;
+      units_per_box: number | null;
+      last_unit_price_aed: number | null;
+    }[]
+  >([]);
+  // Rows the operator explicitly chose to "order more" on despite existing on-order.
+  const [orderMoreIds, setOrderMoreIds] = useState<Set<string>>(new Set());
+  // D3b: owner-only add-line target (which open po_id is being appended to) + its search.
+  const [addLinesPoId, setAddLinesPoId] = useState<string | null>(null);
+  const [addLinesSearch, setAddLinesSearch] = useState("");
 
   const handleDemandSort = useCallback((key: DemandSortKey) => {
     setDemandSort((prev) =>
@@ -354,6 +441,15 @@ export default function ProcurementPage() {
     setSupplierMetaLoaded(true);
   }, []);
 
+  // PRD-022 D1/D5: open PO lines for ordered-state chips + the Open POs drawer tab.
+  const loadOpenPoLines = useCallback(async () => {
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("get_open_po_lines", {
+      p_supplier_id: null,
+    });
+    if (!error) setOpenPoLines((data ?? []) as OpenPoLine[]);
+  }, []);
+
   // Switch the VOX/Boonz toggle: clear selection and re-fetch BOTH views for the
   // new source (pod + sku), and refresh supplier resolution.
   const handleDemandSourceChange = useCallback(
@@ -374,6 +470,7 @@ export default function ProcurementPage() {
         if (!demandLoaded) loadDemand(demandSource);
         if (!podLoaded) loadPodDemand(demandSource);
         if (!supplierMetaLoaded) loadSupplierMeta();
+        loadOpenPoLines();
         // Load suppliers for the "Create Draft PO" + set-supplier flows.
         if (suppliers.length === 0) {
           const supabase = createClient();
@@ -393,6 +490,7 @@ export default function ProcurementPage() {
       loadPodDemand,
       supplierMetaLoaded,
       loadSupplierMeta,
+      loadOpenPoLines,
       suppliers.length,
       demandSource,
     ],
@@ -540,10 +638,15 @@ export default function ProcurementPage() {
   };
 
   const toggleAllDemand = () => {
-    // Never select blocked products — create_purchase_order would reject the batch.
+    // Never select blocked products (RPC would reject the batch) or already-on-order
+    // products (PRD-022 D1 - re-order only via the explicit "order more" path).
     const selectable = demandRows
       .map((r) => r.boonz_product_id)
-      .filter((id) => !blockedIds.has(id));
+      .filter(
+        (id) =>
+          !blockedIds.has(id) &&
+          !(onOrderByProduct.get(id)?.qty && !orderMoreIds.has(id)),
+      );
     if (selectedDemandIds.size === selectable.length && selectable.length > 0) {
       setSelectedDemandIds(new Set());
     } else {
@@ -592,6 +695,35 @@ export default function ProcurementPage() {
     return { unassigned, blocked, suppliers };
   }, [sortedDemandRows, supplierMeta, blockedIds]);
 
+  // PRD-022 D1: per-product on-order rollup from get_open_po_lines (qty + PO numbers).
+  // Plain derivation (the React Compiler auto-memoizes it).
+  const onOrderByProduct = openPoLines.reduce((m, l) => {
+    const prev = m.get(l.boonz_product_id) ?? {
+      qty: 0,
+      poNumbers: [] as number[],
+    };
+    m.set(l.boonz_product_id, {
+      qty: prev.qty + (l.ordered_qty ?? 0),
+      poNumbers:
+        l.po_number != null && !prev.poNumbers.includes(l.po_number)
+          ? [...prev.poNumbers, l.po_number]
+          : prev.poNumbers,
+    });
+    return m;
+  }, new Map<string, { qty: number; poNumbers: number[] }>());
+
+  // PRD-022 D3: open lines grouped by supplier for the Open POs drawer tab.
+  const openLinesBySupplier = useMemo(() => {
+    const m = new Map<string, OpenPoLine[]>();
+    for (const l of openPoLines) {
+      if (!l.supplier_id) continue;
+      const arr = m.get(l.supplier_id) ?? [];
+      arr.push(l);
+      m.set(l.supplier_id, arr);
+    }
+    return m;
+  }, [openPoLines]);
+
   // PRD-2: assign a preferred supplier to an "Unassigned" product. supplier_products
   // is NOT an Appendix-A protected entity, so a direct RLS-gated insert is the
   // canonical path (CLAUDE.md: direct client inserts over edge fns for simple writes).
@@ -621,6 +753,320 @@ export default function ProcurementPage() {
     setTimeout(() => setDemandToast(null), 4000);
   };
 
+  // ── PRD-022 D2/D3/D4 supplier drawer ───────────────────────────────────────
+  const basketStorageKey = (sid: string) => `boonz_basket_${sid}`;
+
+  const snapToBox = (qty: number, box: number | null) => {
+    if (!box || box <= 0) return Math.max(0, Math.round(qty));
+    return Math.max(box, Math.round(qty / box) * box);
+  };
+
+  // Open the drawer for a supplier: restore a saved basket or seed it from that
+  // supplier's gap rows (qty=suggested_qty box-rounded, price from supplier_products).
+  const openSupplierDrawer = useCallback(
+    (supplier_id: string, supplier_name: string, seedRows: DemandRow[]) => {
+      setDrawerSupplier({ supplier_id, supplier_name });
+      setDrawerTab("new");
+      setDrawerLineErrors({});
+      setDrawerSearch("");
+      let restored: BasketLine[] | null = null;
+      try {
+        const raw = localStorage.getItem(basketStorageKey(supplier_id));
+        if (raw) restored = JSON.parse(raw) as BasketLine[];
+      } catch {
+        restored = null;
+      }
+      if (restored && restored.length) {
+        setBasket(restored);
+      } else {
+        setBasket(
+          seedRows
+            .filter((r) => !blockedIds.has(r.boonz_product_id))
+            .map((r) => ({
+              boonz_product_id: r.boonz_product_id,
+              boonz_product_name: r.boonz_product_name,
+              qty: r.suggested_qty ?? 0,
+              price_per_unit_aed:
+                supplierMeta.get(r.boonz_product_id)?.last_unit_price_aed ??
+                null,
+              units_per_box: r.units_per_box,
+              off_box: false,
+            })),
+        );
+      }
+      const supabase = createClient();
+      supabase
+        .from("supplier_products")
+        .select(
+          "boonz_product_id, units_per_box, last_unit_price_aed, boonz_products!inner(boonz_product_name)",
+        )
+        .eq("supplier_id", supplier_id)
+        .eq("status", "Active")
+        .limit(10000)
+        .then(({ data }) => {
+          setDrawerCatalog(
+            (
+              (data ?? []) as unknown as Array<{
+                boonz_product_id: string;
+                units_per_box: number | null;
+                last_unit_price_aed: number | null;
+                boonz_products: { boonz_product_name: string } | null;
+              }>
+            ).map((row) => ({
+              boonz_product_id: row.boonz_product_id,
+              boonz_product_name: row.boonz_products?.boonz_product_name ?? "",
+              units_per_box: row.units_per_box,
+              last_unit_price_aed: row.last_unit_price_aed,
+            })),
+          );
+        });
+    },
+    [blockedIds, supplierMeta],
+  );
+
+  // Persist the open supplier's basket to localStorage (D2 survives reload).
+  useEffect(() => {
+    if (!drawerSupplier) return;
+    try {
+      if (basket.length)
+        localStorage.setItem(
+          basketStorageKey(drawerSupplier.supplier_id),
+          JSON.stringify(basket),
+        );
+      else
+        localStorage.removeItem(basketStorageKey(drawerSupplier.supplier_id));
+    } catch {
+      /* ignore quota / privacy-mode errors */
+    }
+  }, [basket, drawerSupplier]);
+
+  const setBasketQty = (id: string, qty: number) =>
+    setBasket((prev) =>
+      prev.map((l) =>
+        l.boonz_product_id === id
+          ? {
+              ...l,
+              qty: Math.max(0, qty),
+              off_box: l.units_per_box ? qty % l.units_per_box !== 0 : false,
+            }
+          : l,
+      ),
+    );
+
+  const stepBasketQty = (id: string, dir: 1 | -1) =>
+    setBasket((prev) =>
+      prev.map((l) => {
+        if (l.boonz_product_id !== id) return l;
+        const step =
+          l.units_per_box && l.units_per_box > 0 ? l.units_per_box : 1;
+        const base = l.off_box ? snapToBox(l.qty, l.units_per_box) : l.qty;
+        return { ...l, qty: Math.max(0, base + dir * step), off_box: false };
+      }),
+    );
+
+  const removeBasketLine = (id: string) =>
+    setBasket((prev) => prev.filter((l) => l.boonz_product_id !== id));
+
+  const addToBasket = (p: {
+    boonz_product_id: string;
+    boonz_product_name: string;
+    units_per_box: number | null;
+    last_unit_price_aed: number | null;
+  }) => {
+    setBasket((prev) =>
+      prev.some((l) => l.boonz_product_id === p.boonz_product_id)
+        ? prev
+        : [
+            ...prev,
+            {
+              boonz_product_id: p.boonz_product_id,
+              boonz_product_name: p.boonz_product_name,
+              qty: p.units_per_box ?? 1,
+              price_per_unit_aed: p.last_unit_price_aed,
+              units_per_box: p.units_per_box,
+              off_box: false,
+            },
+          ],
+    );
+    setDrawerSearch("");
+  };
+
+  // D4: add a single SKU (from a Boonz SKU row) to its preferred supplier's basket,
+  // opening the drawer if needed. Unassigned SKUs route through set-supplier first.
+  const addRowToBasket = (r: DemandRow) => {
+    const meta = supplierMeta.get(r.boonz_product_id);
+    if (!meta || !meta.supplier_id) {
+      setSetSupplierFor(r);
+      setSetSupplierChoice("");
+      return;
+    }
+    if (!drawerSupplier || drawerSupplier.supplier_id !== meta.supplier_id) {
+      const group = skuGroups.suppliers.find(
+        (g) => g.supplier_id === meta.supplier_id,
+      );
+      openSupplierDrawer(
+        meta.supplier_id,
+        meta.supplier_name ?? "Supplier",
+        group ? group.rows : [r],
+      );
+    } else {
+      addToBasket({
+        boonz_product_id: r.boonz_product_id,
+        boonz_product_name: r.boonz_product_name,
+        units_per_box: r.units_per_box,
+        last_unit_price_aed: meta.last_unit_price_aed,
+      });
+    }
+  };
+
+  // D2: issue the PO via the canonical create_purchase_order RPC (atomic).
+  const issuePO = async () => {
+    if (!drawerSupplier) return;
+    const lines = basket.filter((l) => l.qty > 0);
+    if (!lines.length) return;
+    setDrawerSaving(true);
+    setDrawerLineErrors({});
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("create_purchase_order", {
+      p_po_id: genPoId(),
+      p_supplier_id: drawerSupplier.supplier_id,
+      p_purchase_date: getDubaiDate(),
+      p_lines: lines.map((l) => ({
+        boonz_product_id: l.boonz_product_id,
+        ordered_qty: l.qty,
+        price_per_unit_aed: l.price_per_unit_aed ?? null,
+      })),
+      p_force_driver_task: true,
+    });
+    if (error) {
+      setDrawerSaving(false);
+      const msg = error.message ?? "Failed to issue PO";
+      const offender = lines.find((l) => msg.includes(l.boonz_product_name));
+      setDrawerLineErrors(
+        offender ? { [offender.boonz_product_id]: msg } : { __general: msg },
+      );
+      return;
+    }
+    try {
+      localStorage.removeItem(basketStorageKey(drawerSupplier.supplier_id));
+    } catch {
+      /* ignore */
+    }
+    const poNumber = (data as { po_number?: number } | null)?.po_number ?? null;
+    // D1 optimistic: synthetic open lines so the rows grey immediately.
+    setOpenPoLines((prev) => [
+      ...prev,
+      ...lines.map((l) => ({
+        po_line_id: `optimistic-${l.boonz_product_id}`,
+        po_id: "optimistic",
+        po_number: poNumber,
+        supplier_id: drawerSupplier.supplier_id,
+        supplier_name: drawerSupplier.supplier_name,
+        boonz_product_id: l.boonz_product_id,
+        boonz_product_name: l.boonz_product_name,
+        ordered_qty: l.qty,
+        price_per_unit_aed: l.price_per_unit_aed,
+        expiry_date: null,
+        purchase_date: getDubaiDate(),
+        age_days: 0,
+      })),
+    ]);
+    setOrderMoreIds(new Set());
+    setBasket([]);
+    setDrawerSaving(false);
+    setDrawerSupplier(null);
+    setDemandToast(
+      `✓ PO #${poNumber ?? ""} issued to ${drawerSupplier.supplier_name} (${lines.length} line${lines.length !== 1 ? "s" : ""})`,
+    );
+    setTimeout(() => setDemandToast(null), 4000);
+    loadOpenPoLines();
+    loadDemand(demandSource);
+    setLoading(true);
+    fetchOrders();
+  };
+
+  // D3: edit / cancel an open PO line via the canonical RPCs (reason required).
+  const editOpenLine = async (
+    line: OpenPoLine,
+    patch: { qty?: number; price?: number; expiry?: string | null },
+  ) => {
+    const reason = window.prompt(
+      `Reason for editing ${line.boonz_product_name} (min 10 chars):`,
+    );
+    if (!reason || reason.trim().length < 10) {
+      alert("Edit needs a reason of at least 10 characters.");
+      return;
+    }
+    const supabase = createClient();
+    const { error } = await supabase.rpc("edit_purchase_order_line", {
+      p_po_line_id: line.po_line_id,
+      p_new_ordered_qty: patch.qty ?? null,
+      p_new_price_per_unit_aed: patch.price ?? null,
+      p_new_expiry_date: patch.expiry ?? null,
+      p_reason: reason,
+    });
+    if (error) {
+      alert(`Edit failed: ${error.message}`);
+      return;
+    }
+    loadOpenPoLines();
+    setDemandToast(`✓ Updated ${line.boonz_product_name}`);
+    setTimeout(() => setDemandToast(null), 4000);
+  };
+
+  const cancelOpenLine = async (line: OpenPoLine) => {
+    const reason = window.prompt(
+      `Reason to cancel ${line.boonz_product_name} (min 10 chars):`,
+    );
+    if (!reason || reason.trim().length < 10) {
+      alert("Cancel needs a reason of at least 10 characters.");
+      return;
+    }
+    const supabase = createClient();
+    const { error } = await supabase.rpc("cancel_po_line", {
+      p_po_line_id: line.po_line_id,
+      p_reason: reason,
+    });
+    if (error) {
+      alert(`Cancel failed: ${error.message}`);
+      return;
+    }
+    loadOpenPoLines();
+    loadDemand(demandSource);
+    setDemandToast(`✓ Cancelled ${line.boonz_product_name}`);
+    setTimeout(() => setDemandToast(null), 4000);
+  };
+
+  // D3b: owner-only append a line to an existing open PO via add_purchase_order_lines.
+  const appendLineToPo = async (
+    po_id: string,
+    p: {
+      boonz_product_id: string;
+      boonz_product_name: string;
+      units_per_box: number | null;
+    },
+  ) => {
+    const supabase = createClient();
+    const { error } = await supabase.rpc("add_purchase_order_lines", {
+      p_po_id: po_id,
+      p_lines: [
+        {
+          boonz_product_id: p.boonz_product_id,
+          ordered_qty: p.units_per_box ?? 1,
+        },
+      ],
+    });
+    if (error) {
+      alert(`Add line failed: ${error.message}`);
+      return;
+    }
+    setAddLinesPoId(null);
+    setAddLinesSearch("");
+    loadOpenPoLines();
+    setDemandToast(`✓ Added ${p.boonz_product_name} to ${po_id}`);
+    setTimeout(() => setDemandToast(null), 4000);
+  };
+
   // One SKU row for the Boonz SKU view. `mode` controls the bucket styling:
   // "normal" = selectable orderable row · "unassigned" = shows a Set-supplier
   // action · "blocked" = struck-through, never selectable (PRD-1).
@@ -634,22 +1080,58 @@ export default function ProcurementPage() {
     const gapColor =
       gapPct > 0.75 ? "#dc2626" : gapPct > 0.4 ? "#d97706" : "#0a0a0a";
     const blockReason = blockedIds.get(r.boonz_product_id)?.block_reason;
+    // PRD-022 D1: ordered-state. A normal row with open on-order is greyed +
+    // unselectable until the operator explicitly chooses "order more".
+    const onOrder = onOrderByProduct.get(r.boonz_product_id);
+    const ordered =
+      mode === "normal" &&
+      !!onOrder &&
+      onOrder.qty > 0 &&
+      !orderMoreIds.has(r.boonz_product_id);
+    const inert = blocked || ordered;
+    const poChip =
+      onOrder && onOrder.poNumbers.length
+        ? "PO-" + onOrder.poNumbers.map((n) => n).join(", PO-")
+        : null;
     return (
       <tr
         key={r.boonz_product_id}
         style={{
           borderBottom: "1px solid #f5f2ee",
-          background: blocked ? "#fafafa" : isSelected ? "#f0fdf4" : undefined,
-          cursor: blocked ? "default" : "pointer",
-          opacity: blocked ? 0.6 : 1,
+          background: blocked
+            ? "#fafafa"
+            : ordered
+              ? "#f7f7f5"
+              : isSelected
+                ? "#f0fdf4"
+                : undefined,
+          cursor: inert ? "default" : "pointer",
+          opacity: blocked ? 0.6 : ordered ? 0.7 : 1,
         }}
-        onClick={
-          blocked ? undefined : () => toggleDemandRow(r.boonz_product_id)
-        }
+        onClick={inert ? undefined : () => toggleDemandRow(r.boonz_product_id)}
       >
         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
           {blocked ? (
             <span title={`Blocked: ${blockReason ?? "never order"}`}>🚫</span>
+          ) : ordered ? (
+            <button
+              title={`Already on order (${onOrder?.qty} units, ${poChip}). Click to order more anyway.`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setOrderMoreIds((prev) =>
+                  new Set(prev).add(r.boonz_product_id),
+                );
+              }}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 14,
+                color: "#9ca3af",
+              }}
+            >
+              ↻
+            </button>
           ) : (
             <input
               type="checkbox"
@@ -663,12 +1145,29 @@ export default function ProcurementPage() {
           <div
             style={{
               fontWeight: 600,
-              color: blocked ? "#6b6860" : "#24544a",
+              color: blocked || ordered ? "#6b6860" : "#24544a",
               fontSize: 13,
               textDecoration: blocked ? "line-through" : undefined,
             }}
           >
             {r.boonz_product_name}
+            {ordered && poChip && (
+              <span
+                style={{
+                  marginLeft: 8,
+                  background: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 6,
+                  padding: "1px 7px",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "#1e40af",
+                  verticalAlign: "middle",
+                }}
+              >
+                On order {poChip} ({onOrder?.qty}u)
+              </span>
+            )}
           </div>
           <div style={{ fontSize: 11, color: "#6b6860", marginTop: 1 }}>
             {r.pod_product_name}
@@ -767,6 +1266,30 @@ export default function ProcurementPage() {
                 >
                   ⚠ no box
                 </span>
+              )}
+              {!ordered && (
+                <button
+                  title="Add to this supplier's basket"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    addRowToBasket(r);
+                  }}
+                  style={{
+                    marginLeft: 8,
+                    border: "1px solid #bbf7d0",
+                    background: "#f0fdf4",
+                    color: "#14532d",
+                    borderRadius: 6,
+                    width: 22,
+                    height: 22,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    lineHeight: 1,
+                  }}
+                >
+                  +
+                </button>
               )}
             </>
           )}
@@ -1592,7 +2115,17 @@ export default function ProcurementPage() {
                       {/* Supplier baskets */}
                       {skuGroups.suppliers.map((g) => (
                         <Fragment key={g.supplier_id}>
-                          <tr style={{ background: "#f0fdf4" }}>
+                          <tr
+                            style={{ background: "#f0fdf4", cursor: "pointer" }}
+                            onClick={() =>
+                              openSupplierDrawer(
+                                g.supplier_id,
+                                g.supplier_name,
+                                g.rows,
+                              )
+                            }
+                            title="Open this supplier's basket"
+                          >
                             <td
                               colSpan={9}
                               className="px-4 py-2"
@@ -1603,6 +2136,33 @@ export default function ProcurementPage() {
                               }}
                             >
                               {g.supplier_name}
+                              {(openLinesBySupplier.get(g.supplier_id)
+                                ?.length ?? 0) > 0 && (
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: "#2563eb",
+                                  }}
+                                >
+                                  {
+                                    openLinesBySupplier.get(g.supplier_id)
+                                      ?.length
+                                  }{" "}
+                                  open
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  float: "right",
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: "#14532d",
+                                }}
+                              >
+                                Open basket →
+                              </span>
                             </td>
                           </tr>
                           {g.rows.map((r) => renderSkuRow(r, "normal"))}
@@ -1755,6 +2315,671 @@ export default function ProcurementPage() {
               >
                 ✕
               </button>
+            </div>
+          )}
+
+          {/* PRD-022 D2/D3 supplier drawer */}
+          {drawerSupplier && (
+            <div
+              onClick={() => !drawerSaving && setDrawerSupplier(null)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.3)",
+                zIndex: 60,
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  background: "white",
+                  width: 520,
+                  maxWidth: "95vw",
+                  height: "100%",
+                  overflowY: "auto",
+                  boxShadow: "-8px 0 32px rgba(0,0,0,0.15)",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                {/* Header + tabs */}
+                <div
+                  style={{
+                    padding: "16px 20px",
+                    borderBottom: "1px solid #e8e4de",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 700,
+                        color: "#14532d",
+                      }}
+                    >
+                      {drawerSupplier.supplier_name}
+                    </div>
+                    <button
+                      onClick={() => setDrawerSupplier(null)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        fontSize: 18,
+                        color: "#6b6860",
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+                    {(
+                      [
+                        { k: "new", label: "New order" },
+                        {
+                          k: "open",
+                          label: `Open POs (${openLinesBySupplier.get(drawerSupplier.supplier_id)?.length ?? 0})`,
+                        },
+                      ] as { k: DrawerTab; label: string }[]
+                    ).map((t) => (
+                      <button
+                        key={t.k}
+                        onClick={() => setDrawerTab(t.k)}
+                        style={{
+                          border: "1px solid #e8e4de",
+                          background: drawerTab === t.k ? "#24544a" : "white",
+                          color: drawerTab === t.k ? "white" : "#6b6860",
+                          borderRadius: 8,
+                          padding: "5px 14px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {drawerTab === "new" ? (
+                  <div style={{ padding: "12px 20px", flex: 1 }}>
+                    {basket.length === 0 ? (
+                      <div
+                        style={{
+                          color: "#6b6860",
+                          fontSize: 13,
+                          padding: "20px 0",
+                        }}
+                      >
+                        Basket empty. Add products below.
+                      </div>
+                    ) : (
+                      basket.map((l) => {
+                        const lineTotal =
+                          l.price_per_unit_aed != null
+                            ? l.price_per_unit_aed * l.qty
+                            : null;
+                        const err = drawerLineErrors[l.boonz_product_id];
+                        return (
+                          <div
+                            key={l.boonz_product_id}
+                            style={{
+                              padding: "8px 0",
+                              borderBottom: "1px solid #f5f2ee",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                gap: 8,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  color: "#0a0a0a",
+                                }}
+                              >
+                                {l.boonz_product_name}
+                                {l.units_per_box ? (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: "#6b6860",
+                                      marginLeft: 6,
+                                    }}
+                                  >
+                                    ×{l.units_per_box}/box
+                                  </span>
+                                ) : null}
+                              </div>
+                              <button
+                                onClick={() =>
+                                  removeBasketLine(l.boonz_product_id)
+                                }
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "#9ca3af",
+                                  cursor: "pointer",
+                                  fontSize: 14,
+                                }}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                                marginTop: 6,
+                              }}
+                            >
+                              <button
+                                onClick={() =>
+                                  stepBasketQty(l.boonz_product_id, -1)
+                                }
+                                style={stepperBtnStyle}
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                value={l.qty}
+                                onChange={(e) =>
+                                  setBasketQty(
+                                    l.boonz_product_id,
+                                    Number(e.target.value),
+                                  )
+                                }
+                                style={{
+                                  width: 60,
+                                  border: "1px solid #e8e4de",
+                                  borderRadius: 6,
+                                  padding: "4px 6px",
+                                  fontSize: 13,
+                                  textAlign: "center",
+                                }}
+                              />
+                              <button
+                                onClick={() =>
+                                  stepBasketQty(l.boonz_product_id, 1)
+                                }
+                                style={stepperBtnStyle}
+                              >
+                                +
+                              </button>
+                              {l.off_box && (
+                                <span
+                                  title="Quantity is not a multiple of the box size"
+                                  style={{
+                                    fontSize: 10,
+                                    color: "#9a3412",
+                                    background: "#fff7ed",
+                                    border: "1px solid #fdba74",
+                                    borderRadius: 6,
+                                    padding: "1px 6px",
+                                  }}
+                                >
+                                  off-box
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: "#6b6860",
+                                  marginLeft: 4,
+                                }}
+                              >
+                                AED
+                              </span>
+                              <input
+                                type="number"
+                                value={l.price_per_unit_aed ?? ""}
+                                placeholder="price"
+                                onChange={(e) =>
+                                  setBasket((prev) =>
+                                    prev.map((x) =>
+                                      x.boonz_product_id === l.boonz_product_id
+                                        ? {
+                                            ...x,
+                                            price_per_unit_aed:
+                                              e.target.value === ""
+                                                ? null
+                                                : Number(e.target.value),
+                                          }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                                style={{
+                                  width: 70,
+                                  border: "1px solid #e8e4de",
+                                  borderRadius: 6,
+                                  padding: "4px 6px",
+                                  fontSize: 13,
+                                }}
+                              />
+                              {lineTotal != null && (
+                                <span
+                                  style={{
+                                    fontSize: 12,
+                                    color: "#0a0a0a",
+                                    marginLeft: "auto",
+                                  }}
+                                >
+                                  = {lineTotal.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            {err && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#b91c1c",
+                                  marginTop: 4,
+                                }}
+                              >
+                                {err}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                    {drawerLineErrors.__general && (
+                      <div
+                        style={{ fontSize: 12, color: "#b91c1c", marginTop: 8 }}
+                      >
+                        {drawerLineErrors.__general}
+                      </div>
+                    )}
+
+                    {/* Add product from supplier catalog (blocked products never appear) */}
+                    <div style={{ marginTop: 14 }}>
+                      <input
+                        value={drawerSearch}
+                        onChange={(e) => setDrawerSearch(e.target.value)}
+                        placeholder="Add product from this supplier's catalog…"
+                        style={{
+                          width: "100%",
+                          border: "1px solid #e8e4de",
+                          borderRadius: 8,
+                          padding: "7px 10px",
+                          fontSize: 13,
+                        }}
+                      />
+                      {drawerSearch.trim() && (
+                        <div
+                          style={{
+                            border: "1px solid #e8e4de",
+                            borderRadius: 8,
+                            marginTop: 4,
+                            maxHeight: 200,
+                            overflowY: "auto",
+                          }}
+                        >
+                          {drawerCatalog
+                            .filter(
+                              (p) =>
+                                p.boonz_product_name
+                                  .toLowerCase()
+                                  .includes(drawerSearch.toLowerCase()) &&
+                                !basket.some(
+                                  (b) =>
+                                    b.boonz_product_id === p.boonz_product_id,
+                                ) &&
+                                !blockedIds.has(p.boonz_product_id),
+                            )
+                            .slice(0, 20)
+                            .map((p) => (
+                              <div
+                                key={p.boonz_product_id}
+                                onClick={() => addToBasket(p)}
+                                style={{
+                                  padding: "6px 10px",
+                                  fontSize: 13,
+                                  cursor: "pointer",
+                                  borderBottom: "1px solid #f5f2ee",
+                                }}
+                              >
+                                {p.boonz_product_name}
+                                {p.units_per_box ? (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: "#6b6860",
+                                      marginLeft: 6,
+                                    }}
+                                  >
+                                    ×{p.units_per_box}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: "12px 20px", flex: 1 }}>
+                    {(openLinesBySupplier.get(drawerSupplier.supplier_id) ?? [])
+                      .length === 0 ? (
+                      <div
+                        style={{
+                          color: "#6b6860",
+                          fontSize: 13,
+                          padding: "20px 0",
+                        }}
+                      >
+                        No open POs for this supplier.
+                      </div>
+                    ) : (
+                      (
+                        openLinesBySupplier.get(drawerSupplier.supplier_id) ??
+                        []
+                      ).map((line) => (
+                        <div
+                          key={line.po_line_id}
+                          style={{
+                            padding: "8px 0",
+                            borderBottom: "1px solid #f5f2ee",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: "#0a0a0a",
+                            }}
+                          >
+                            {line.boonz_product_name}
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "#6b6860",
+                                marginLeft: 6,
+                              }}
+                            >
+                              PO-{line.po_number}
+                            </span>
+                            {line.age_days != null && line.age_days > 7 && (
+                              <span
+                                style={{
+                                  marginLeft: 6,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#92400e",
+                                  background: "#fef9ee",
+                                  border: "1px solid #fbbf24",
+                                  borderRadius: 6,
+                                  padding: "1px 6px",
+                                }}
+                              >
+                                chase {line.age_days}d
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b6860",
+                              marginTop: 2,
+                            }}
+                          >
+                            {line.ordered_qty} units
+                            {line.price_per_unit_aed != null
+                              ? ` · AED ${line.price_per_unit_aed}`
+                              : ""}
+                            {line.expiry_date
+                              ? ` · exp ${line.expiry_date}`
+                              : ""}
+                          </div>
+                          <div
+                            style={{ display: "flex", gap: 8, marginTop: 4 }}
+                          >
+                            <button
+                              onClick={() => {
+                                const v = window.prompt(
+                                  "New qty:",
+                                  String(line.ordered_qty),
+                                );
+                                if (v != null && v !== "")
+                                  editOpenLine(line, { qty: Number(v) });
+                              }}
+                              style={drawerSmallBtnStyle}
+                            >
+                              Edit qty
+                            </button>
+                            <button
+                              onClick={() => {
+                                const v = window.prompt(
+                                  "New price (AED):",
+                                  line.price_per_unit_aed != null
+                                    ? String(line.price_per_unit_aed)
+                                    : "",
+                                );
+                                if (v != null && v !== "")
+                                  editOpenLine(line, { price: Number(v) });
+                              }}
+                              style={drawerSmallBtnStyle}
+                            >
+                              Edit price
+                            </button>
+                            <button
+                              onClick={() => cancelOpenLine(line)}
+                              style={{
+                                ...drawerSmallBtnStyle,
+                                color: "#b91c1c",
+                                borderColor: "#fca5a5",
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+
+                    {/* D3b: owner-only add lines to an open PO */}
+                    {(userRole === "operator_admin" ||
+                      userRole === "superadmin") &&
+                      (
+                        openLinesBySupplier.get(drawerSupplier.supplier_id) ??
+                        []
+                      ).length > 0 && (
+                        <div
+                          style={{
+                            marginTop: 14,
+                            paddingTop: 12,
+                            borderTop: "1px dashed #e8e4de",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "#6b6860",
+                              marginBottom: 6,
+                            }}
+                          >
+                            Owner: add a product to an open PO
+                          </div>
+                          <select
+                            value={addLinesPoId ?? ""}
+                            onChange={(e) =>
+                              setAddLinesPoId(e.target.value || null)
+                            }
+                            style={{
+                              width: "100%",
+                              border: "1px solid #e8e4de",
+                              borderRadius: 8,
+                              padding: "6px 8px",
+                              fontSize: 13,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <option value="">Select an open PO…</option>
+                            {Array.from(
+                              new Map(
+                                (
+                                  openLinesBySupplier.get(
+                                    drawerSupplier.supplier_id,
+                                  ) ?? []
+                                ).map((l) => [l.po_id, l.po_number]),
+                              ).entries(),
+                            ).map(([poId, poNum]) => (
+                              <option key={poId} value={poId}>
+                                PO-{poNum} ({poId})
+                              </option>
+                            ))}
+                          </select>
+                          {addLinesPoId && (
+                            <>
+                              <input
+                                value={addLinesSearch}
+                                onChange={(e) =>
+                                  setAddLinesSearch(e.target.value)
+                                }
+                                placeholder="Search product to append…"
+                                style={{
+                                  width: "100%",
+                                  border: "1px solid #e8e4de",
+                                  borderRadius: 8,
+                                  padding: "6px 8px",
+                                  fontSize: 13,
+                                }}
+                              />
+                              {addLinesSearch.trim() && (
+                                <div
+                                  style={{
+                                    border: "1px solid #e8e4de",
+                                    borderRadius: 8,
+                                    marginTop: 4,
+                                    maxHeight: 180,
+                                    overflowY: "auto",
+                                  }}
+                                >
+                                  {drawerCatalog
+                                    .filter(
+                                      (p) =>
+                                        p.boonz_product_name
+                                          .toLowerCase()
+                                          .includes(
+                                            addLinesSearch.toLowerCase(),
+                                          ) &&
+                                        !blockedIds.has(p.boonz_product_id),
+                                    )
+                                    .slice(0, 20)
+                                    .map((p) => (
+                                      <div
+                                        key={p.boonz_product_id}
+                                        onClick={() =>
+                                          appendLineToPo(addLinesPoId, p)
+                                        }
+                                        style={{
+                                          padding: "6px 10px",
+                                          fontSize: 13,
+                                          cursor: "pointer",
+                                          borderBottom: "1px solid #f5f2ee",
+                                        }}
+                                      >
+                                        {p.boonz_product_name}
+                                        {p.units_per_box ? (
+                                          <span
+                                            style={{
+                                              fontSize: 10,
+                                              color: "#6b6860",
+                                              marginLeft: 6,
+                                            }}
+                                          >
+                                            +{p.units_per_box}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                {drawerTab === "new" && (
+                  <div
+                    style={{
+                      padding: "14px 20px",
+                      borderTop: "1px solid #e8e4de",
+                    }}
+                  >
+                    {(() => {
+                      const lines = basket.filter((l) => l.qty > 0);
+                      const units = lines.reduce((s, l) => s + l.qty, 0);
+                      const total = lines.reduce(
+                        (s, l) =>
+                          s +
+                          (l.price_per_unit_aed != null
+                            ? l.price_per_unit_aed * l.qty
+                            : 0),
+                        0,
+                      );
+                      return (
+                        <>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "#6b6860",
+                              marginBottom: 8,
+                            }}
+                          >
+                            {lines.length} line{lines.length !== 1 ? "s" : ""} ·{" "}
+                            {units} units · est. AED {total.toFixed(2)}
+                          </div>
+                          <button
+                            onClick={issuePO}
+                            disabled={drawerSaving || lines.length === 0}
+                            style={{
+                              width: "100%",
+                              background:
+                                drawerSaving || lines.length === 0
+                                  ? "#e8e4de"
+                                  : "#24544a",
+                              color:
+                                drawerSaving || lines.length === 0
+                                  ? "#6b6860"
+                                  : "white",
+                              border: "none",
+                              borderRadius: 8,
+                              padding: "10px",
+                              fontSize: 14,
+                              fontWeight: 600,
+                              cursor:
+                                drawerSaving || lines.length === 0
+                                  ? "not-allowed"
+                                  : "pointer",
+                            }}
+                          >
+                            {drawerSaving ? "Issuing…" : "Issue PO →"}
+                          </button>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
