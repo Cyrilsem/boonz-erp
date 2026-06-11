@@ -103,6 +103,7 @@ interface Props {
 
 export default function ConsumerDashboardClient({
   hideCommercialTab = false,
+  hideInternalLinks = false,
 }: Props) {
   const [cjs, setCjs] = useState(false);
   const [pods, setPods] = useState<string[]>(["Mercato", "Mirdif"]);
@@ -139,7 +140,9 @@ export default function ConsumerDashboardClient({
     "field_staff",
   ];
   const [userRole, setUserRole] = useState<string | null>(null);
-  const canRecordCash = CASH_ROLES.includes(userRole ?? "");
+  // Partner-facing mounts (consumers_vox) never show the cash action, regardless of role.
+  const canRecordCash =
+    !hideInternalLinks && CASH_ROLES.includes(userRole ?? "");
   useEffect(() => {
     const supabase = createClient();
     let active = true;
