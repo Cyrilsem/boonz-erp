@@ -170,8 +170,12 @@ BEGIN
     LEFT JOIN shelf_u25 u ON u.machine_id = s.machine_id
   ),
   primary_picks AS (
+    -- REFILL-V2 (CS 2026-06-09): the daily route is P1 + siblings ONLY. P2_MAINTAIN
+    -- (dead-slot / stale / expiry / pending-swap maintenance) stays on the health page
+    -- but does NOT auto-enter the nightly refill. Was `p_tier <> 'skip'` (picked P1 AND
+    -- all P2 → 30 machines incl. 19 standalone P2). Now P1 only; siblings layer on top.
     SELECT *, p_tier AS final_tier, p_score AS final_score, false AS sibling
-    FROM scored WHERE p_tier <> 'skip'
+    FROM scored WHERE p_tier = 'P1_RESTOCK'
   ),
   sibling_picks AS (
     SELECT sc.*, 'P2_MAINTAIN' AS final_tier, sc.p_score AS final_score, true AS sibling
