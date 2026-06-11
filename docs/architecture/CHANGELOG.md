@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-11 — PRD-023h: commercial default_amount excludes refunds
+
+**Phase / Article:** PRD-023 follow-up / read-only, no protected writes (class c fast-path)
+**Applied to:** both (remote via MCP as `prd023_h_commercial_default_excludes_refunds`; repo `supabase/migrations/20260611205500_prd023_h_commercial_default_excludes_refunds.sql`)
+**Migration name:** `prd023_h_commercial_default_excludes_refunds`
+**Summary:** CS decision: a deliberate refund is not a payment default. `get_vox_commercial_report` default_amount now assesses the gap against the originally captured amount (adyen_captured_net + refund_returned + cash_recovered). Aligns the green PAYMENT DEFAULT ribbon with the consumer-report DEFAULT card and /app/performance: 06Feb-01Jun 1,361.90/1.43%/37disc -> 1,076.90/1.13%/32disc. Refunds stay on their own waterfall line. Money waterfall (net revenue, shares, vox_net_dues) unchanged.
+**Rollback:** re-run the same guarded DO block with the two expressions swapped.
+
 ## 2026-06-11 — PRD-023: VOX dashboard commercial fixes (read-only RPCs)
 
 **Phase / Article:** PRD-023 / Constitution Articles 1, 2, 12, 15 (read-only; no protected writes)
