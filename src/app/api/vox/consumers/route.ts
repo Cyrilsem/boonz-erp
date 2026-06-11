@@ -15,12 +15,14 @@ export async function GET(request: NextRequest) {
     const dateTo =
       searchParams.get("date_to") || new Date().toISOString().split("T")[0];
     const pods = podsParam.split(",").filter(Boolean);
+    const machine = searchParams.get("machine"); // AC3: machine_id scope, null = all
 
     const { data, error } = await supabase.rpc("get_vox_consumer_report", {
       p_pods: pods,
       p_consolidated: consolidated,
       p_date_from: dateFrom,
       p_date_to: dateTo,
+      p_machine: machine || null,
     });
 
     if (error) {

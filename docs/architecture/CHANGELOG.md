@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-11 — PRD-023: VOX dashboard commercial fixes (read-only RPCs)
+
+**Phase / Article:** PRD-023 / Constitution Articles 1, 2, 12, 15 (read-only; no protected writes)
+**Applied to:** both (remote via MCP apply*migration; repo `supabase/migrations/20260611120000_prd023_vox_commercial_reporting.sql`)
+**Migration name:** applied as `prd023_a*..`, `prd023*b*..`, `prd023_c_vox_commercial_txn_lines`, `prd023_d_vox_report_grants_drop_anon`(+`prd023_a/b_fix_machineid_groupby`); repo-consolidated into one file
+**Summary:** Made the VOX Commercial ribbon, cards and CSV tell one story. (a) `get_vox_commercial_report`displays machine identity by`official_name`/`machine_id`(was historic`machine_mapping`, which duplicated renamed machines, e.g. ACTIVATE-2005 ↔ MPMCC-2005); money logic unchanged (waterfall re-verified at 36,940.00 / captured 36,389.40 / default 550.60 / COGS 1,878.02 / 1592 txns). (b) `get_vox_consumer_report`nets refunds via the SettledBulk+RefundedBulk pattern on`v_adyen_transactions_attributed`(was gross, Δ115.00), groups machine aggregates +`num_machines`by`machine_id`(9→8), derives`total_captured`from the matched set (was NULL via the`adyen_full`store_description join), and gains`p_machine uuid DEFAULT NULL`for server-side machine scoping (added via DROP+CREATE to avoid a PGRST203 overload; sole caller uses named params). (c) NEW read-only`get_vox_commercial_txn_lines(p_pods,p_date_from,p_date_to)`(SQL STABLE, SECURITY INVOKER) returns one row per`sales_history`line incl. VOX-sourced (COGS 0),`supply_source`three-valued (Boonz/VOX/LLFP, unmapped surfaced); line sums reproduce the waterfall (36,940.00 / 1,878.02). (d) Grants dropped`anon`/`PUBLIC`, narrowed to `authenticated, service_role`(no client-side anon rpc() exists; routes call as service_role). Cody approved (read-only; DROP+CREATE acceptable; anon dropped). FE: ribbon binds the commercial waterfall + commercial fetched on (period,pods) change; SKU "Line detail" CSV export (UTF-8 BOM); Products machine dropdown; VOX dashboard Commercial tab mounted (route gated to`vox_admin`; RPCs structurally VOX-only so a crafted non-VOX pod returns empty).
+**Rollback:** restore the prior 4-arg bodies of `get_vox_commercial_report`/`get_vox_consumer_report`from git history;`DROP FUNCTION public.get_vox_commercial_txn_lines(text[],date,date)`; revert the FE files. No data changed (read-only).
+
 ## 2026-06-11 — PRD-022 D3b: add_purchase_order_lines (owner append to open PO) + FE drawer
 
 **Phase / Article:** PRD-022 / Constitution Articles 1, 4, 8, 12

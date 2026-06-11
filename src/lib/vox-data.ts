@@ -13,7 +13,8 @@ export interface VoxWeeklyEntry {
 }
 export interface VoxMachineEntry {
   site: string;
-  machine: string;
+  machine: string; // official_name
+  machine_id?: string; // AC2: stable machine identity
   amount: number;
 }
 export interface VoxProductEntry {
@@ -289,6 +290,7 @@ export async function fetchVoxConsumerReport(
   consolidated: boolean = true,
   dateFrom: string = "2026-02-06",
   dateTo: string = new Date().toISOString().split("T")[0],
+  machine: string | null = null, // AC3: machine_id to scope to, or null for all
 ): Promise<VoxConsumerReport> {
   const params = new URLSearchParams({
     pods: pods.join(","),
@@ -296,6 +298,7 @@ export async function fetchVoxConsumerReport(
     date_from: dateFrom,
     date_to: dateTo,
   });
+  if (machine) params.set("machine", machine);
   const res = await fetch(`/api/vox/consumers?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
   return res.json();

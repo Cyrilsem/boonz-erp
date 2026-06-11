@@ -121,6 +121,12 @@ export default function ConsumerDashboardClient({
   const [dateFrom, setDateFrom] = useState("2026-02-06");
   const [dateTo, setDateTo] = useState(new Date().toISOString().split("T")[0]);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  // AC3: Products page machine filter (machine_id, server-side via p_machine).
+  const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
+  // Full machine list for the dropdown, captured from an unscoped fetch.
+  const [allMachines, setAllMachines] = useState<
+    { id: string; name: string; site: string }[]
+  >([]);
 
   const isC = vm === "consolidated" && pods.length > 1;
 
@@ -275,7 +281,35 @@ export default function ConsumerDashboardClient({
     setLoading(true);
     setErr(null);
     try {
-      setD(await fetchVoxConsumerReport(pods, isC, dateFrom, dateTo));
+      const d = await fetchVoxConsumerReport(
+        pods,
+        isC,
+        dateFrom,
+        dateTo,
+        selectedMachine, // AC3
+      );
+      setD(d);
+      // Capture the full machine list for the dropdown only on unscoped fetches.
+      if (!selectedMachine) {
+        const seen = new Map<
+          string,
+          { id: string; name: string; site: string }
+        >();
+        for (const m of d.machines ?? []) {
+          if (m.machine_id && !seen.has(m.machine_id))
+            seen.set(m.machine_id, {
+              id: m.machine_id,
+              name: m.machine,
+              site: m.site,
+            });
+        }
+        setAllMachines(
+          Array.from(seen.values()).sort(
+            (a, b) =>
+              a.site.localeCompare(b.site) || a.name.localeCompare(b.name),
+          ),
+        );
+      }
       setLastUpdated(
         new Date().toLocaleTimeString("en-GB", {
           hour: "2-digit",
@@ -287,7 +321,7 @@ export default function ConsumerDashboardClient({
     } finally {
       setLoading(false);
     }
-  }, [pods, vm, dateFrom, dateTo]);
+  }, [pods, vm, dateFrom, dateTo, selectedMachine]);
   useEffect(() => {
     load();
   }, [load]);
@@ -303,9 +337,11 @@ export default function ConsumerDashboardClient({
       setCLoading(false);
     }
   }, [pods, dateFrom, dateTo]);
+  // AC1 (P1): load the commercial report on mount and whenever (pods, period) change,
+  // not only when the Commercial tab opens, so the green ribbon never shows a stale window.
   useEffect(() => {
-    if (tab === "commercial") loadCommercial();
-  }, [tab, loadCommercial]);
+    loadCommercial();
+  }, [loadCommercial]);
 
   const tog = (p: string) =>
     setPods((v) => {
@@ -322,6 +358,22 @@ export default function ConsumerDashboardClient({
     tc = S?.total_captured ?? 0;
   const dp = ha ? (S?.default_rate?.toFixed(2) ?? "0") : "0";
   const gp = ha ? (S?.default_gap ?? 0) : 0;
+
+  // AC1: the green ribbon binds to the COMMERCIAL waterfall (same source as the cards),
+  // so the ribbon and the Commercial cards always tell one story for the same (period, pods).
+  const W = C?.waterfall;
+  const ribTotal = W ? Number(W.total_amount) : ts;
+  const ribCaptured = W
+    ? Number(W.captured_amount)
+    : (S?.matched_captured ?? 0);
+  const ribGap = W ? Number(W.default_amount) : gp;
+  const ribDefault = W ? Number(W.default_rate_pct).toFixed(2) : dp;
+  const ribMatched = W ? Number(W.matched_txns) : (S?.matched_txns ?? 0);
+  const ribTotalTxns = W ? Number(W.txn_count) : (S?.total_txns ?? 0);
+  const ribDisc = W
+    ? (C?.transactions?.filter((t) => Number(t.default_amount || 0) > 0)
+        .length ?? 0)
+    : (S?.disc_count ?? 0);
 
   const bds = useCallback(
     (raw: any[], kf: string, vf: string, keys: any[]) => {
@@ -1280,7 +1332,7 @@ export default function ConsumerDashboardClient({
             </span>
           </div>
         )}
-        {D && ha && (
+        {(W || (D && ha)) && (
           <div
             style={{
               background: "#24544a",
@@ -1304,28 +1356,29 @@ export default function ConsumerDashboardClient({
               Payment Default
             </span>
             <span style={{ color: "rgba(255,255,255,0.8)" }}>
-              Total <strong style={{ color: "#ffffff" }}>{aed(ts)}</strong>
+              Total{" "}
+              <strong style={{ color: "#ffffff" }}>{aed(ribTotal)}</strong>
             </span>
             <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
             <span style={{ color: "rgba(255,255,255,0.8)" }}>
               Captured{" "}
-              <strong style={{ color: "#a7f3d0" }}>
-                {aed(S?.matched_captured ?? 0)}
-              </strong>
+              <strong style={{ color: "#a7f3d0" }}>{aed(ribCaptured)}</strong>
             </span>
             <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
             <span style={{ color: "rgba(255,255,255,0.8)" }}>
-              Gap <strong style={{ color: "#fca5a5" }}>{aed(gp)}</strong>
+              Gap <strong style={{ color: "#fca5a5" }}>{aed(ribGap)}</strong>
             </span>
             <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
             <span style={{ color: "rgba(255,255,255,0.8)" }}>
               Default{" "}
-              <strong style={{ color: "#fde68a", fontSize: 14 }}>{dp}%</strong>
+              <strong style={{ color: "#fde68a", fontSize: 14 }}>
+                {ribDefault}%
+              </strong>
             </span>
             <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
             <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}>
-              {S?.disc_count ?? 0} discrepancies {"\u00B7"}{" "}
-              {S?.matched_txns ?? 0}/{S?.total_txns ?? 0} matched
+              {ribDisc} discrepancies {"\u00B7"} {ribMatched}/{ribTotalTxns}{" "}
+              matched
             </span>
           </div>
         )}
@@ -1642,6 +1695,57 @@ export default function ConsumerDashboardClient({
                     Filtered by:{" "}
                     {isC ? "All pods (consolidated)" : pods.join(" + ")}
                   </p>
+                  {/* AC3: machine filter, server-side scope via p_machine */}
+                  <div
+                    style={{
+                      marginTop: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <label
+                      style={{
+                        fontSize: 11,
+                        color: "var(--grey)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      Machine
+                    </label>
+                    <select
+                      value={selectedMachine ?? ""}
+                      onChange={(e) =>
+                        setSelectedMachine(e.target.value || null)
+                      }
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 4,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        color: "var(--white)",
+                        fontSize: 11,
+                        fontFamily: "var(--font-mono)",
+                        outline: "none",
+                        minWidth: 240,
+                      }}
+                    >
+                      <option value="">All machines</option>
+                      {["Mercato", "Mirdif"].map((site) => {
+                        const opts = allMachines.filter((m) => m.site === site);
+                        if (!opts.length) return null;
+                        return (
+                          <optgroup key={site} label={site}>
+                            {opts.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                    </select>
+                  </div>
                 </div>
                 <div className="gr g2" style={{ marginBottom: 14 }}>
                   <div className="cd">
@@ -2696,6 +2800,89 @@ export default function ConsumerDashboardClient({
                                   return haystack.includes(cqLower);
                                 })
                               : C.transactions;
+                            // AC4: SKU line-level export via get_vox_commercial_txn_lines (UTF-8 BOM).
+                            const downloadLineCsv = async () => {
+                              try {
+                                const qs = new URLSearchParams({
+                                  pods: pods.join(","),
+                                  date_from: dateFrom,
+                                  date_to: dateTo,
+                                });
+                                const res = await fetch(
+                                  `/api/vox/commercial-lines?${qs.toString()}`,
+                                );
+                                if (!res.ok)
+                                  throw new Error(`HTTP ${res.status}`);
+                                const lines: any[] = await res.json();
+                                const h = [
+                                  "Base Txn",
+                                  "PSP",
+                                  "Date",
+                                  "Site",
+                                  "Machine",
+                                  "Product",
+                                  "Qty",
+                                  "Unit Price",
+                                  "Line Total",
+                                  "Unit COGS",
+                                  "Line COGS",
+                                  "Supply Source",
+                                  "Txn Captured",
+                                  "Txn Default",
+                                  "Txn Refunded",
+                                  "Txn Status",
+                                ];
+                                const esc = (v: any) => {
+                                  const s =
+                                    v === null || v === undefined
+                                      ? ""
+                                      : String(v);
+                                  return /[",\n]/.test(s)
+                                    ? `"${s.replace(/"/g, '""')}"`
+                                    : s;
+                                };
+                                const rows = lines.map((l) =>
+                                  [
+                                    l.base_txn_sn,
+                                    l.psp_reference || "",
+                                    fmtDateLocal(l.transaction_date),
+                                    l.site,
+                                    l.machine,
+                                    l.pod_product_name,
+                                    l.qty,
+                                    l.unit_price,
+                                    l.line_total,
+                                    l.unit_cogs ?? "",
+                                    l.line_cogs,
+                                    l.supply_source,
+                                    l.txn_captured,
+                                    l.txn_default,
+                                    l.txn_refunded,
+                                    l.txn_status,
+                                  ]
+                                    .map(esc)
+                                    .join(","),
+                                );
+                                // UTF-8 BOM so Excel reads it as UTF-8.
+                                const csv =
+                                  "﻿" + [h.join(","), ...rows].join("\n");
+                                const blob = new Blob([csv], {
+                                  type: "text/csv;charset=utf-8;",
+                                });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url;
+                                a.download = `VOX_Commercial_Lines_${dateFrom}_${dateTo}.csv`;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              } catch (e: any) {
+                                alert(
+                                  `Line detail export failed: ${e?.message ?? String(e)}`,
+                                );
+                              }
+                            };
                             const downloadCsv = () => {
                               const headers = [
                                 "Date",
@@ -2832,7 +3019,7 @@ export default function ConsumerDashboardClient({
                                   <button
                                     onClick={downloadCsv}
                                     className="cbb"
-                                    title="Download CSV"
+                                    title="Download transactions (current view) as CSV"
                                     style={{
                                       borderColor: MERC,
                                       color: MERC,
@@ -2840,7 +3027,20 @@ export default function ConsumerDashboardClient({
                                       fontWeight: 600,
                                     }}
                                   >
-                                    ↓ CSV
+                                    ↓ Transactions
+                                  </button>
+                                  <button
+                                    onClick={downloadLineCsv}
+                                    className="cbb"
+                                    title="Download SKU line detail (one row per item, includes VOX-sourced lines)"
+                                    style={{
+                                      borderColor: MERC,
+                                      color: MERC,
+                                      background: `${MERC}10`,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    ↓ Line detail (SKU)
                                   </button>
                                 </div>
                                 <div

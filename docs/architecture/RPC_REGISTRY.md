@@ -335,6 +335,12 @@ These functions write to `warehouse_inventory_status_proposal` only — never UP
 - `get_refill_plan_output_enriched(p_plan_date date)` (read-only STABLE helper) → joins `refill_plan_output` pending rows to `v_live_shelf_stock` + LATERAL 7d `v_sales_history_attributed`. ✅ 2026-06-04. WS7: backs the pending Refill Planning view's Stock + 7d columns (stitch writes 0/0 placeholders). No writes. Migration `refillv2_ws7_pending_enriched_reader`.
 - `v_driver_feedback_demand` (read-only view) → per `(machine_id, pod_product_id)` unresolved driver-feedback demand within a 14-day decay window, mapped boonz→pod via `product_mapping`. ✅ 2026-06-04. WS4a. Consumed by `engine_add_pod` v13. Migration `refillv2_ws4a_driver_feedback_demand_view`.
 
+### PRD-023 — VOX commercial reporting (read-only, ✅ 2026-06-11)
+
+- `get_vox_commercial_txn_lines(p_pods text[], p_date_from date, p_date_to date)` → **NEW read-only helper (SECURITY INVOKER, STABLE, SET TimeZone Asia/Dubai).** One row per `sales_history` line for Active `venue_group='VOX'` machines (same filters as `get_vox_commercial_report`), reusing its per-txn waterfall so `txn_captured/default/refunded/status` match the cards; `supply_source` three-valued (Boonz/VOX/LLFP, unmapped surfaced), `unit_cogs` from `vox_product_mapping.cost_incl_vat` (0 for VOX-sourced). No writes. Grants: `authenticated, service_role` (anon dropped). Migration `prd023_c_vox_commercial_txn_lines`. Cody-reviewed (read-only; Article 15). Validated SUM(line_total)=36,940.00 / SUM(line_cogs)=1,878.02 / 1592 txns / 2448 units (06Feb–30Apr).
+- `get_vox_commercial_report(text[],date,date)` (read-only, same signature) → patched: machine display by `official_name`/`machine_id` (was `machine_mapping`); money unchanged. Migrations `prd023_a_..` + `prd023_a_fix_machineid_groupby`.
+- `get_vox_consumer_report(text[],boolean,date,date,uuid)` (read-only) → **signature changed**: trailing `p_machine uuid DEFAULT NULL` (server-side machine scope) via DROP+CREATE (avoids PGRST203 overload; sole caller uses named params). Refund-netted captured (SettledBulk+RefundedBulk on `v_adyen_transactions_attributed`), `machine_id` grouping + distinct `num_machines`, `total_captured` from the matched set. Migrations `prd023_b_..` + `prd023_b_fix_machineid_groupby`. Grants narrowed to `authenticated, service_role`.
+
 ## How to add a new RPC
 
 1. Decide if it's a canonical writer (mutates a protected entity) or a helper.
