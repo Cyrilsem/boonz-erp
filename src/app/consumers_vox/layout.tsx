@@ -33,7 +33,7 @@ export default function ConsumersVoxLayout({
               }}
             >
               BOONZ <span style={{ color: "#8892A4", fontWeight: 400 }}>×</span>{" "}
-              VOX Cinemas
+              MAF
             </div>
             <div
               style={{

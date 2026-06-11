@@ -127,6 +127,38 @@ export default function ConsumerDashboardClient({
   const [allMachines, setAllMachines] = useState<
     { id: string; name: string; site: string }[]
   >([]);
+  // Cash-recovery is a Boonz-internal write. Default-deny: the "+ cash" button is hidden
+  // until we confirm the signed-in user_profiles.role is an internal role. VOX client
+  // logins (tracker_boonz) and vox_admin (no user_profiles row) therefore never see it.
+  // Defense-in-depth only: record_cash_recovery is role-gated server-side
+  // (migration prd023_e_record_cash_recovery_role_gate, same role set).
+  const CASH_ROLES = [
+    "operator_admin",
+    "superadmin",
+    "warehouse",
+    "field_staff",
+  ];
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const canRecordCash = CASH_ROLES.includes(userRole ?? "");
+  useEffect(() => {
+    const supabase = createClient();
+    let active = true;
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (active) setUserRole((profile?.role as string) ?? null);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const isC = vm === "consolidated" && pods.length > 1;
 
@@ -2210,7 +2242,7 @@ export default function ConsumerDashboardClient({
                                 ? `AED ${t2.captured}`
                                 : "\u2014"}
                             </span>
-                            {t2.disc && t2.merchant_ref && (
+                            {canRecordCash && t2.disc && t2.merchant_ref && (
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -3186,7 +3218,8 @@ export default function ConsumerDashboardClient({
                                               {isDisc
                                                 ? aed2(t.default_amount)
                                                 : "\u2014"}
-                                              {isDisc &&
+                                              {canRecordCash &&
+                                                isDisc &&
                                                 (t.merchant_ref ||
                                                   t.txn_base) && (
                                                   <button
