@@ -255,8 +255,8 @@ function statusCardColors(label: string): CardStyle {
 function tierCardColors(m: MachineHealth): CardStyle {
   // Priority mode colors by TIER (consistent within a group) instead of the
   // raw urgency score, so a low-score P1 doesn't render as "healthy green".
-  if (m.service_track === "vox")
-    return { card: "bg-slate-50 border-slate-200", bar: "bg-slate-300" };
+  // VOX cards keep their own section (sort divider) but share the same
+  // P1/P2/P3 color coding as the main track (CS, 2026-06-11).
   if (m.priority_tier === "P1_RESTOCK")
     return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
   if (m.priority_tier === "P2_MAINTAIN")
