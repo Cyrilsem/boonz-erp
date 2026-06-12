@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-028 dispatch-state-integrity steps 2+3: driver app + packing FE inertness, unskip writer
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 5, 12 (FE wiring + one new canonical writer)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`, `phaseF_unskip_dispatch_line` 20260612141205) + FE `src/app/(field)/field/dispatching/[machineId]/page.tsx`, `src/app/(field)/field/packing/[machineId]/page.tsx` (committed; deploy per step 4)
+**Migration name:** `phaseF_unskip_dispatch_line`
+**Summary:** Driver app (3a/3b/3c): the visit fetch now filters `skipped=false AND cancelled=false` (flagged lines absent, shelf totals exclude them); the bulk "All returned" button and `handleMarkAllReturned` are REMOVED (the Incident-B engine: it swept un-actioned lines into return_dispatch_line); Save now finalizes only explicitly actioned lines and no longer requires every line to be actioned (untouched lines fall to the EOD sweep, label says so); per-line Return requires a confirm naming qty + destination warehouse. Packing FE (3c): main fetch filters `skipped=false AND cancelled=false` (Incident A: skipped lines rendered packable); the un-skip affordance list widens to include=false OR skipped OR cancelled. NEW canonical writer `unskip_dispatch_line(p_dispatch_id, p_actor DEFAULT NULL)`: clears skipped + include=false in one logged write (actor = COALESCE(p_actor, auth.uid()) in mutation_reason, skip_reason preserved for history), REFUSES cancelled lines; FE handleUnskip rewired to it (set_dispatch_include could not clear skipped, which would have made un-skip silently dead under the step-1 guards). Battery 5-6 green in rolled-back tx: B5 driver predicate hides all 25 flagged lines of the 06-13 machine (0 visible); B6 incident-B replay, 5 system returns ALL refused, zero WH writes (stock 2021 / 1207 rows unchanged); unskip smoke round-trips with actor + previous reason. tsc + build green.
+**Rollback:** git revert the FE commits; `DROP FUNCTION unskip_dispatch_line(uuid, uuid)` and re-point handleUnskip at set_dispatch_include.
+
 ## 2026-06-12 — PRD-028 dispatch-state-integrity step 1: pack/return guards (skipped lines are inert)
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 12 (canonical-writer hardening)

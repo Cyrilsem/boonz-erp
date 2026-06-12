@@ -325,10 +325,15 @@ export default function PackingDetailPage() {
       )
       .eq("dispatch_date", today)
       .eq("include", true)
+      // PRD-028 dispatch-state-integrity 3c: skipped/cancelled lines must never
+      // appear packable (Incident A: skipped OMDBB swap lines were packed).
+      // The pack_dispatch_line guard is the backstop if a stale client misses this.
+      .eq("skipped", false)
+      .eq("cancelled", false)
       .eq("machine_id", machineId);
 
-    // B3.1 Issue 6: fetch skipped-but-recoverable lines (include=false)
-    // so the UI can show an "Un-skip" affordance.
+    // B3.1 Issue 6 + PRD-028: fetch skipped-but-recoverable lines (include=false
+    // OR skipped OR cancelled) so the UI can show an "Un-skip" affordance.
     const { data: skippedRaw } = await supabase
       .from("refill_dispatching")
       .select(
@@ -340,7 +345,7 @@ export default function PackingDetailPage() {
       `,
       )
       .eq("dispatch_date", today)
-      .eq("include", false)
+      .or("include.eq.false,skipped.eq.true,cancelled.eq.true")
       .eq("packed", false)
       .eq("machine_id", machineId)
       .limit(10000);
@@ -1316,13 +1321,15 @@ export default function PackingDetailPage() {
   }
 
   async function handleUnskip(dispatchId: string) {
+    // PRD-028 dispatch-state-integrity: un-skip is an explicit, logged action.
+    // unskip_dispatch_line clears skipped AND include=false in one canonical
+    // write, records the actor, and refuses cancelled lines.
     const supabase = createClient();
-    const { error } = await supabase.rpc("set_dispatch_include", {
+    const { error } = await supabase.rpc("unskip_dispatch_line", {
       p_dispatch_id: dispatchId,
-      p_include: true,
     });
     if (error) {
-      console.error("[B3.1] un-skip failed", error);
+      console.error("[PRD-028] un-skip failed", error);
       setWhWarnMsg(`Un-skip failed: ${error.message}`);
       return;
     }
