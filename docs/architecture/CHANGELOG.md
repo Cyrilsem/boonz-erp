@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-024 section 2 EXECUTED: 06-13 plan rebuilt (Gates 1+2 passed); WS5 stitch v21 + lifecycle v14 deployed upstream
+
+**Phase / Article:** Phase F / canonical-RPC-only runbook (no raw writes; the two upstream code changes were separately Cody-approved)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phaseF_stitch_v21_ws5_real_stock` (upstream, CS green-lit the within-24h second stitch rewrite; reverse-fragment md5 proof vs v20 `8a9f0f3e...6a01`). evaluate-lifecycle v14 deployed (platform v23; 10,223 sales rows / 2 pages; floors live with CS-confirmed 0.5/1.0 thresholds; named stance absurdities resolved; WIND DOWN 109->80, DEAD 91->51).
+**Summary (runbook):** 65 stale drafts for CS-dropped NISSAN-0804/NOOK-1019/VML-1003 superseded via reject_pod_refill_rows (5 plan dates); reset_approved_undispatched structurally no-op (103 rpo rows already pending, no dispatch links); re-pick on v14 signals (8) -> NISSAN+VML dropped via unpick_machine_to_visit + set_machine_inclusion(false) (engines do not read is_included; unpick is operative); Gate 0 (6 confirmed); engine_add v16 (101 refills, 11 dead tags) -> engine_swap v10.2 first live run (8 resolved, 3 deferred_by_cap, 2 below-pearson explicit fallbacks) -> finalize v14 (120 drafts, 3 orphan-M2W suppressed). Gate 1 (CS GO): approve subset 7 machines, 117 rows (VOXMCC-1005 via sticky cs_added). Stitch v21 dry-run + FULL PRD-024 battery green incl. item 3 vs FRESH post-transfer WH (42 zero-WH variants excluded) + item 6 (deviations 0, noncanonical 0); 109/109 shelves real current/max stock. Gate 2 (CS GO): commit 102 lines / 117 stitched; approve_refill_plan -> 102 dispatch rows back-populated; cleanup_orphan_dispatching deleted 22 true orphans; remaining 81 stale lines auto-skipped by the resilient bridge. Post-commit: coverage 7/7 (102 active lines), 0 shelves with SUM(variants) > pod_qty (28 exact, 20 WH-limited).
+**Rollback:** plan layer only - reset_and_restitch / reset_approved_undispatched on 2026-06-13. WS5: redeploy v20; v14: redeploy v13.1 (platform v22).
+
 ## 2026-06-12 — PRD-028 WS2: canonical machine velocity rollup (v_machine_velocity)
 
 **Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12 (implements Article 16 draft)
