@@ -70,6 +70,6 @@ Proposed (CS to confirm thresholds):
 
 ## 6. Acceptance criteria
 
-- [ ] No silent truncation possible (assertion or pagination in place).
-- [ ] Velocity floor + trend guard live with CS-approved thresholds.
-- [ ] Regression set green; one week without a "selling but negative stance" report.
+- [x] No silent truncation possible. v14 paginates (.range pages of 10,000, ordered transaction_date+transaction_id) and THROWS at the 30-page cap instead of scoring on partial data. Deployed 2026-06-12 (platform version 23); first run fetched 10,223 rows across 2 pages (v13.1 was silently dropping ~220).
+- [x] Velocity floor + trend guard live with CS-CONFIRMED thresholds (2026-06-12): v30 >= 0.5/day never ROTATE OUT/DEAD; v30 >= 1.0/day never below WATCH; DEAD requires literal zero 30d sales; score >= 8 + flat trend -> KEEP, score >= 6 -> WATCH.
+- [x] Regression set green: fleet-wide floor assertions all zero (the single DEAD-with-sales row is a stale pre-v14 stance on dark ALJLT-1015-0100-B1, documented P4 freeze). Named slots: IFLYMCC Aquafina DEAD->WATCH, MPMCC-1058 ROTATE OUT->WATCH, VOXMM WIND DOWN->WATCH, VOXMCC A06 Pepsi 9.39 ->KEEP, ALJLT A09 Barebells 7.94 ->WATCH. Distribution: WIND DOWN 109->80, DEAD 91->51, WATCH 11->39, KEEP 138->148. One-week zero-report criterion accrues to ~2026-06-19.

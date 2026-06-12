@@ -20,7 +20,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //         score >= 6 AND trend < 4 → WATCH (was WIND DOWN)
 //         score >= 4 AND trend < 4 → WIND DOWN (unchanged)
 //   P2. Absolute velocity floor applied to SLOT signals after relative
-//       scoring (thresholds PROPOSED in PRD-026 §4, pending CS confirm):
+//       scoring (thresholds CONFIRMED by CS 2026-06-12):
 //         DEAD requires literal zero sales in 30d (aligns w/ ENGINE ADD).
 //         v30 >= 0.5/day (15+ u/mo): never ROTATE OUT or DEAD.
 //         v30 >= 1.0/day (30+ u/mo): never worse than WATCH.
@@ -76,7 +76,7 @@ const SALES_PAGE_SIZE = 10000;
 const SALES_MAX_PAGES = 30;
 
 // P2 (v14): absolute velocity floors (units/day over 30d).
-// PRD-026 §4 PROPOSED thresholds — CS sign-off pending as of 2026-06-12.
+// PRD-026 §4 thresholds — CS confirmed 2026-06-12.
 const VELOCITY_FLOOR_NEVER_NEG = 0.5; // 15+ u/mo: never ROTATE OUT / DEAD
 const VELOCITY_FLOOR_WATCH_MIN = 1.0; // 30+ u/mo: never worse than WATCH
 

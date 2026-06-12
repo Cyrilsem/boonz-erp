@@ -13,6 +13,15 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-027 WS5 APPLIED: stitch v21 real stock fields; PRD-026 v14 DEPLOYED + verified
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phaseF_stitch_v21_ws5_real_stock` (repo file `20260612230000_*.sql`)
+**Summary (WS5):** CS explicitly green-lit the second stitch rewrite within 24h of v20 (Hard Rule 10), sequenced BEFORE the PRD-024 section-2 re-stitch. stitch v20 -> v21: two read-only CTEs (`shelf_stock` from v_live_shelf_stock, `shelf_caps` from v_shelf_max_stock) + the emit's hardcoded `current_stock/max_stock = 0` become COALESCE(real, 0); engine_version -> v21_ws5_real_stock. Cody approved the full verbatim body at apply time. Verified by reverse-fragment md5 proof: live v21 def with the 4 fragments reversed reproduces v20's md5 `8a9f0f3e5a119240442bd31418556a01` byte-exact.
+**Summary (PRD-026 deploy):** CS confirmed the velocity-floor thresholds (0.5 / 1.0 per day; DEAD requires zero 30d sales). evaluate-lifecycle v14 deployed (platform version 23) and run: `sales_rows_fetched=10,223` across `sales_pages=2` (the v13.1 cap was silently dropping ~220 rows), 674 slots in 25.7s. Floor assertions fleet-wide: 0 negative stances above 0.5/day, 0 below-WATCH above 1.0/day, 0 high-score WIND DOWNs; the single DEAD-with-sales row is a stale pre-v14 stance on dark machine ALJLT-1015-0100-B1 (documented P4 freeze). Named regressions all resolved: IFLYMCC Aquafina DEAD->WATCH, MPMCC-1058 ROTATE OUT->WATCH, VOXMM WIND DOWN->WATCH, VOXMCC A06 Pepsi (9.39) WIND DOWN->KEEP, ALJLT A09 Barebells (7.94) ->WATCH. Stance distribution before -> after: WIND DOWN 109->80, DEAD 91->51, ROTATE OUT 49->79, WATCH 11->39, KEEP 138->148 (DEAD mass moved to ROTATE OUT/WATCH per the zero-sales rule).
+**Rollback:** WS5: redeploy v20 (repo file 20260612200000). v14: redeploy v13.1 (platform version 22).
+
 ## 2026-06-12 — PRD-027 WS1: engine_swap_pod v10.2 swap guards; WS5 drafted (held); WS2/3/4 ticketed
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 8, 12
