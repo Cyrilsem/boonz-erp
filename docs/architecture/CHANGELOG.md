@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-026: evaluate-lifecycle v14 built (scoring integrity) — DEPLOY HELD for CS thresholds
+
+**Phase / Article:** Phase E lifecycle / Constitution Articles 1, 9 (inherited scorer pattern; no new write paths)
+**Applied to:** repo only (`supabase/functions/evaluate-lifecycle/index.ts` rebuilt from the DEPLOYED v13.1 source - the repo copy was stale pre-v13). **NOT deployed**: PRD-026 §4 velocity-floor thresholds need CS sign-off first.
+**Migration name:** none (edge function source change only).
+**Summary:** Three fixes, everything else verbatim from deployed v13.1. **P1 (silent sales truncation):** the single `.limit(10000)` sales fetch dropped ~217 of the 10,217 rows in the 62d window today (no ORDER BY, arbitrary which) -> understated velocities -> false DEAD tags feeding the swap engine. v14 paginates (`.order(transaction_date, transaction_id)`, `.range` pages of 10,000, hard cap 30 pages) and THROWS instead of scoring on possibly-truncated sales; response reports `sales_rows_fetched` + `sales_pages`. **P3 (trend overrides absolute strength):** guards inserted in `getSignalV2`: score>=8 AND trend<4 -> KEEP (was WIND DOWN; KEEP chosen over PLATEAU so no new enum value enters `slot_lifecycle.signal` fixed-list matches downstream); score>=6 AND trend<4 -> WATCH. **P2 (relative scoring condemns absolute sellers):** new `applyVelocityFloor` at slot level after relative scoring: DEAD requires literal zero v30 (else ROTATE OUT); v30>=0.5/day never ROTATE OUT/DEAD; v30>=1.0/day never worse than WATCH. Thresholds are constants marked PROPOSED pending CS. Cody ✅ (deploy-hold sequencing confirmed). Post-deploy plan: one scoring run, assert rows>10000/pages>=2, 25-slot regression set + stance-distribution diff for CS.
+**Rollback:** redeploy the v13.1 source (captured verbatim in this commit's parent diff and live as platform version 22).
+
 ## 2026-06-12 — PRD-025 Option A: engine_finalize_pod preserves approved rows
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 5, 8, 12

@@ -1,6 +1,53 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+// ─────────────────────────────────────────────────────────────────────────
+// evaluate-lifecycle  v14 (PRD-026 scoring integrity)
+//
+// Changes vs v13.1:
+//   P1. sales_history fetch is PAGINATED (.range loop, ordered) — the old
+//       single .limit(10000) silently truncated (62d window held 10,219
+//       rows on 2026-06-12 and grows weekly; no ORDER BY, so WHICH rows
+//       dropped was arbitrary). Hard assertion: refuses to score if the
+//       page loop exceeds SALES_MAX_PAGES rather than scoring on
+//       possibly-truncated sales. Response reports sales_rows_fetched.
+//   P3. Trend guard in getSignalV2: strong absolute sellers can no longer
+//       be condemned by a flat trend alone.
+//         score >= 8 AND trend < 4 → KEEP  (was WIND DOWN; PRD-026 offered
+//                                          PLATEAU-or-KEEP — KEEP chosen so
+//                                          downstream signal lists need no
+//                                          new enum value)
+//         score >= 6 AND trend < 4 → WATCH (was WIND DOWN)
+//         score >= 4 AND trend < 4 → WIND DOWN (unchanged)
+//   P2. Absolute velocity floor applied to SLOT signals after relative
+//       scoring (thresholds PROPOSED in PRD-026 §4, pending CS confirm):
+//         DEAD requires literal zero sales in 30d (aligns w/ ENGINE ADD).
+//         v30 >= 0.5/day (15+ u/mo): never ROTATE OUT or DEAD.
+//         v30 >= 1.0/day (30+ u/mo): never worse than WATCH.
+//       Relative ranking still drives placement; it stops condemning slots
+//       that cover their shelf rent (Aquafina 36u/30d was DEAD — SWAP NOW).
+//
+// Changes vs v12 (carried from v13/v13.1):
+//   1. STAR signal — score ≥ 9 AND fleet_vel_ratio ≥ 5  (new top tier)
+//      Captures absolute fleet leaders that growth-only signals (DOUBLE
+//      DOWN) miss because they're saturated and trend reads flat.
+//   2. machines SELECT now pulls `relaunched_at`. When set, it overrides
+//      first_sale_at as the RAMPING anchor — used when a machine is
+//      physically relocated to a new venue.
+//   3. isRampingMachine() reads relaunched_at first.
+//   4. scorableSlots no longer silently drops machines with NULL
+//      location_type. They get scored with an 'office' fallback; the
+//      existing data-quality flag (UNNORMALIZED_LOCATION) still fires.
+//   5. Per-slot signal call now passes fleetVelRatio (v30 / productAvg).
+//      Product-level signal still uses default 1.0 — STAR doesn't apply
+//      to global product scores by definition.
+//   6. (v13.1) Dark filter whitelists ramping machines so newly-relaunched
+//      slots flip to RAMPING instead of leaving stale DEAD on slot_lifecycle.
+//
+// Article 9: edge function remains a wrapper. Scoring math unchanged;
+//             only classification rules, pagination, and floors added.
+// ─────────────────────────────────────────────────────────────────────────
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -12,37 +59,40 @@ const VALID_LOCATION_TYPES = new Set([
   "entertainment",
   "warehouse",
 ]);
+const FALLBACK_LOCATION_TYPE = "office";
 
-// Phase B.1.1: machines within MACHINE_RAMP_DAYS of their first sale (or
-// creation if no sales yet) are too young to judge — signals get overridden
-// to "RAMPING" so we don't prematurely brand products as DEAD/ROTATE OUT.
 const MACHINE_RAMP_DAYS = 30;
-
-// Phase B.7: products within their first 30 days of being seen anywhere
-// (sales OR snapshot, whichever is earlier) get a RAMPING grace — same
-// semantic as machine ramping, applied at the product level.
 const PRODUCT_RAMP_DAYS = 30;
-
-// Phase B.3: EMA blend factor for compound scoring with memory.
-// α=0.67 → recent ≈ 2× historical (the "compound upwards/downwards" pattern CS asked for).
 const EMA_ALPHA = 0.67;
-
-// Phase B.9: trend EMA is slower than score EMA — trend should be earned over weeks,
-// not whipped by a single week. α=0.4 → priorTrend weighted 1.5× heavier than today.
 const TREND_EMA_ALPHA = 0.4;
-
-// Phase B.9: products/slots reach the full [0, 10] trend band only after 60 days.
-// Younger entities are capped to a narrower band centered on 5 — they haven't
-// earned the right to be classed as "trendy" or "dying" yet.
 const TREND_MATURITY_FULL_DAYS = 60;
 
-// Phase B.3: signalV2 — hard-gate on both score AND trend.
-// Score is now velocity-only (Global = rank-percentile, Local = spectrum-vs-product-avg).
-// Trend is a separate axis. DOUBLE DOWN / KEEP GROWING require BOTH to clear.
-function getSignalV2(score: number, trend: number): string {
+// STAR thresholds (E-1.1)
+const STAR_SCORE_MIN = 9;
+const STAR_FLEET_RATIO_MIN = 5.0;
+
+// P1 (v14): paginated sales fetch — no silent truncation.
+const SALES_PAGE_SIZE = 10000;
+const SALES_MAX_PAGES = 30;
+
+// P2 (v14): absolute velocity floors (units/day over 30d).
+// PRD-026 §4 PROPOSED thresholds — CS sign-off pending as of 2026-06-12.
+const VELOCITY_FLOOR_NEVER_NEG = 0.5; // 15+ u/mo: never ROTATE OUT / DEAD
+const VELOCITY_FLOOR_WATCH_MIN = 1.0; // 30+ u/mo: never worse than WATCH
+
+function getSignalV2(
+  score: number,
+  trend: number,
+  fleetVelRatio: number = 1.0,
+): string {
+  if (score >= STAR_SCORE_MIN && fleetVelRatio >= STAR_FLEET_RATIO_MIN)
+    return "STAR";
   if (score >= 8 && trend >= 7) return "DOUBLE DOWN";
   if (score >= 6 && trend >= 7) return "KEEP GROWING";
   if (score >= 4 && trend >= 4) return "KEEP";
+  // P3 (v14): trend guard — absolute strength wins over a flat trend.
+  if (score >= 8 && trend < 4) return "KEEP";
+  if (score >= 6 && trend < 4) return "WATCH";
   if (score >= 4 && trend < 4) return "WIND DOWN";
   if (score >= 2 && trend >= 7) return "WATCH";
   if (score >= 2) return "WIND DOWN";
@@ -50,13 +100,25 @@ function getSignalV2(score: number, trend: number): string {
   return "DEAD — SWAP NOW";
 }
 
-function median(arr: number[]): number {
-  if (arr.length === 0) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[mid - 1] + sorted[mid]) / 2
-    : sorted[mid];
+// P2 (v14): slot-level absolute velocity floor, applied after relative scoring.
+// Severity order: WATCH < WIND DOWN < ROTATE OUT < DEAD — SWAP NOW.
+function applyVelocityFloor(signal: string, v30: number): string {
+  let s = signal;
+  // DEAD requires literal zero sales over 30d (ENGINE ADD alignment).
+  if (s === "DEAD — SWAP NOW" && v30 > 0) s = "ROTATE OUT";
+  if (
+    v30 >= VELOCITY_FLOOR_NEVER_NEG &&
+    (s === "ROTATE OUT" || s === "DEAD — SWAP NOW")
+  ) {
+    s = "WIND DOWN";
+  }
+  if (
+    v30 >= VELOCITY_FLOOR_WATCH_MIN &&
+    (s === "WIND DOWN" || s === "ROTATE OUT" || s === "DEAD — SWAP NOW")
+  ) {
+    s = "WATCH";
+  }
+  return s;
 }
 
 type DailySales = Map<string, number>;
@@ -70,37 +132,11 @@ function velocityN(daily: DailySales, days: number): number {
   return total / days;
 }
 
-// Legacy: kept for audit, no longer used in scoring. Replaced by trendV2 (B.9).
-function trendComponent(daily: DailySales): number {
-  let last14 = 0,
-    prior14 = 0;
-  const now = Date.now();
-  for (const [d, q] of daily) {
-    const age = (now - new Date(d).getTime()) / 86400000;
-    if (age <= 14) last14 += q;
-    else if (age <= 28) prior14 += q;
-  }
-  const l = last14 / 14;
-  const p = prior14 / 14;
-  if (p === 0 && l === 0) return 5;
-  if (p === 0) return 10;
-  const pct = (l - p) / p;
-  if (pct >= 0.5) return 10;
-  if (pct >= 0.1) return 5 + ((pct - 0.1) / 0.4) * 5;
-  if (pct >= -0.1) return 5;
-  if (pct >= -0.5) return 5 - ((Math.abs(pct) - 0.1) / 0.4) * 5;
-  return 0;
-}
-
-// Phase B.9: trend = sustained-acceleration across multiple windows, capped by
-// time-in-market, and EMA-smoothed. 10 has to be earned across 60+ days of
-// consistent v7>v14>v30>v60. Young products sit near 5 until they prove duration.
 function trendV2(
   daily: DailySales,
   ageDays: number,
   priorTrend: number | null,
 ): number {
-  // 1) Multi-window acceleration count
   const v7 = velocityN(daily, 7);
   const v14 = velocityN(daily, 14);
   const v30 = velocityN(daily, 30);
@@ -108,29 +144,21 @@ function trendV2(
 
   let accel = 0;
   let decel = 0;
-  // Pair 1: v7 vs v14 — recent week vs trailing fortnight
   if (v14 > 0 && v7 > v14 * 1.1) accel++;
   if (v14 > 0 && v7 < v14 * 0.9) decel++;
-  // Pair 2: v14 vs v30 — fortnight vs month
   if (v30 > 0 && v14 > v30 * 1.1) accel++;
   if (v30 > 0 && v14 < v30 * 0.9) decel++;
-  // Pair 3: v30 vs v60 — month vs two-months
   if (v60 > 0 && v30 > v60 * 1.1) accel++;
   if (v60 > 0 && v30 < v60 * 0.9) decel++;
 
   const net = Math.max(-3, Math.min(3, accel - decel));
-  const rawTrend = 5 + (net / 3) * 5; // -3 → 0, 0 → 5, +3 → 10
+  const rawTrend = 5 + (net / 3) * 5;
 
-  // 2) Time-in-market cap
-  const maturity = Math.max(
-    0,
-    Math.min(1, ageDays / TREND_MATURITY_FULL_DAYS),
-  );
+  const maturity = Math.max(0, Math.min(1, ageDays / TREND_MATURITY_FULL_DAYS));
   const ceiling = 5 + 5 * maturity;
   const floor = 5 - 5 * maturity;
   const capped = Math.max(floor, Math.min(ceiling, rawTrend));
 
-  // 3) EMA smoothing on the trend itself — slow movement both directions
   if (priorTrend === null || isNaN(priorTrend)) return r2(capped);
   return r2(TREND_EMA_ALPHA * capped + (1 - TREND_EMA_ALPHA) * priorTrend);
 }
@@ -173,6 +201,11 @@ function padShelf(code: string | null | undefined): string {
     : (code ?? "").toUpperCase();
 }
 
+function effectiveLocationType(loc: string | null | undefined): string {
+  if (loc && VALID_LOCATION_TYPES.has(loc)) return loc;
+  return FALLBACK_LOCATION_TYPE;
+}
+
 Deno.serve(async (_req) => {
   const t0 = Date.now();
   try {
@@ -181,14 +214,13 @@ Deno.serve(async (_req) => {
       snapshotsRes,
       shelfConfigsRes,
       podsRes,
-      salesRes,
       podInvRes,
       nameConvRes,
     ] = await Promise.all([
       supabase
         .from("machines")
         .select(
-          "machine_id,official_name,location_type,include_in_refill,created_at",
+          "machine_id,official_name,location_type,include_in_refill,created_at,relaunched_at",
         )
         .eq("include_in_refill", true)
         .limit(10000),
@@ -207,15 +239,6 @@ Deno.serve(async (_req) => {
         .select("pod_product_id,pod_product_name,product_family_id")
         .limit(10000),
       supabase
-        .from("sales_history")
-        .select("machine_id,pod_product_name,qty,transaction_date")
-        .eq("delivery_status", "Successful")
-        .gte(
-          "transaction_date",
-          new Date(Date.now() - 62 * 86400000).toISOString(),
-        )
-        .limit(10000),
-      supabase
         .from("pod_inventory")
         .select("machine_id,shelf_id,current_stock,status")
         .limit(10000),
@@ -225,13 +248,52 @@ Deno.serve(async (_req) => {
         .limit(10000),
     ]);
 
-    // Phase B.1.2: all-time first-sale-per-machine for ramping detection.
+    // P1 (v14): paginated sales fetch — the 62d window exceeds any single
+    // PostgREST page. Ordered so pages are deterministic; loud failure
+    // instead of silent truncation.
+    const sales: Array<{
+      machine_id: string;
+      pod_product_name: string;
+      qty: number;
+      transaction_date: string;
+    }> = [];
+    let salesPages = 0;
+    {
+      const since = new Date(Date.now() - 62 * 86400000).toISOString();
+      for (;;) {
+        const { data, error } = await supabase
+          .from("sales_history")
+          .select("machine_id,pod_product_name,qty,transaction_date")
+          .eq("delivery_status", "Successful")
+          .gte("transaction_date", since)
+          .order("transaction_date", { ascending: true })
+          .order("transaction_id", { ascending: true })
+          .range(
+            salesPages * SALES_PAGE_SIZE,
+            (salesPages + 1) * SALES_PAGE_SIZE - 1,
+          );
+        if (error) {
+          throw new Error(
+            `sales_history page ${salesPages} fetch failed: ${error.message}`,
+          );
+        }
+        sales.push(...(data ?? []));
+        salesPages++;
+        if ((data ?? []).length < SALES_PAGE_SIZE) break;
+        if (salesPages >= SALES_MAX_PAGES) {
+          throw new Error(
+            `sales_history pagination exceeded ${SALES_MAX_PAGES} pages ` +
+              `(${sales.length} rows) — refusing to score on possibly-truncated sales`,
+          );
+        }
+      }
+    }
+
     const firstSaleRes = await supabase
       .from("v_machine_first_sale")
       .select("machine_id,first_sale_at")
       .limit(10000);
 
-    // Phase B.7: per-product first-seen (earlier of first sale OR first snapshot).
     const productFirstSeenRes = await supabase
       .from("v_product_first_seen")
       .select("pod_product_id,first_seen_at")
@@ -241,7 +303,6 @@ Deno.serve(async (_req) => {
     const snapshots = snapshotsRes.data ?? [];
     const shelfConfigs = shelfConfigsRes.data ?? [];
     const pods = podsRes.data ?? [];
-    const sales = salesRes.data ?? [];
     const podInv = podInvRes.data ?? [];
     const nameConv = nameConvRes.data ?? [];
     const firstSales = firstSaleRes.data ?? [];
@@ -259,12 +320,9 @@ Deno.serve(async (_req) => {
     );
     const resolvePodId = (name: string): string | null => {
       const k = normalizeName(name);
-      return (
-        podByName.get(k) ?? podByName.get(nameAlias.get(k) ?? "") ?? null
-      );
+      return podByName.get(k) ?? podByName.get(nameAlias.get(k) ?? "") ?? null;
     };
 
-    // ── Reality builder (snapshot-anchored, B.1) ────────────────────────────
     const shelfIdMap = new Map<string, string>();
     for (const sc of shelfConfigs) {
       if (sc.machine_id && sc.shelf_code) {
@@ -272,7 +330,7 @@ Deno.serve(async (_req) => {
       }
     }
 
-    const latestSnap = new Map<string, typeof snapshots[0]>();
+    const latestSnap = new Map<string, (typeof snapshots)[0]>();
     for (const s of snapshots) {
       const k = `${s.machine_id}:${s.slot_code}`;
       if (!latestSnap.has(k)) latestSnap.set(k, s);
@@ -320,11 +378,6 @@ Deno.serve(async (_req) => {
       });
     }
 
-    // ── Phase B.5: Auto-archive ghost rows for inactive/excluded machines ───
-    // Any slot_lifecycle row whose machine is NOT include_in_refill=true should
-    // not appear in the matrix. Archive them so they don't accumulate as
-    // machines get deactivated. The `machines` array above already filters by
-    // include_in_refill=true, so any row outside its set is a ghost.
     const activeMachineIds = new Set(machines.map((m) => m.machine_id));
     const { data: ghostRows } = await supabase
       .from("slot_lifecycle")
@@ -346,17 +399,7 @@ Deno.serve(async (_req) => {
         .eq("archived", false);
     }
 
-    // Phase B.7: archive repurpose-ghost rows on every cron tick (rows whose
-    // first_seen_at predates the machine's repurposed_at — leftovers from the
-    // prior identity that survived the repurpose).
     const repurposeMap = new Map<string, Date>();
-    for (const m of machines) {
-      // Note: machinesRes already filters include_in_refill=true, so repurposed
-      // machines that are still active are in here (they get repurposed but stay
-      // include_in_refill=true with the new identity).
-      // We need to load all machines (including non-refill) for this check, but
-      // for now this covers the active-after-repurpose case.
-    }
     const { data: repurposedMachines } = await supabase
       .from("machines")
       .select("machine_id,repurposed_at")
@@ -395,30 +438,33 @@ Deno.serve(async (_req) => {
       }
     }
 
-    // ── Ramping check (B.1.2) ────────────────────────────────────────────────
     const firstSaleByMachine = new Map<string, Date>();
     for (const r of firstSales) {
       if (r.machine_id && r.first_sale_at) {
         firstSaleByMachine.set(r.machine_id, new Date(r.first_sale_at));
       }
     }
+
     const isRampingMachine = (machineId: string): boolean => {
       const m = machineMap.get(machineId);
       if (!m) return false;
+      if (m.relaunched_at) {
+        const days =
+          (Date.now() - new Date(m.relaunched_at).getTime()) / 86400000;
+        return days < MACHINE_RAMP_DAYS;
+      }
       const firstSale = firstSaleByMachine.get(machineId);
       if (firstSale) {
         const days = (Date.now() - firstSale.getTime()) / 86400000;
         return days < MACHINE_RAMP_DAYS;
       }
       if (m.created_at) {
-        const days =
-          (Date.now() - new Date(m.created_at).getTime()) / 86400000;
+        const days = (Date.now() - new Date(m.created_at).getTime()) / 86400000;
         if (days < MACHINE_RAMP_DAYS) return true;
       }
       return false;
     };
 
-    // Phase B.7: per-product first-seen map → isRampingProduct check.
     const firstSeenByProduct = new Map<string, Date>();
     for (const r of productFirstSeen) {
       if (r.pod_product_id && r.first_seen_at) {
@@ -427,12 +473,11 @@ Deno.serve(async (_req) => {
     }
     const isRampingProduct = (pid: string): boolean => {
       const fs = firstSeenByProduct.get(pid);
-      if (!fs) return true; // never seen → treat as new (defensive)
+      if (!fs) return true;
       const days = (Date.now() - fs.getTime()) / 86400000;
       return days < PRODUCT_RAMP_DAYS;
     };
 
-    // ── Dark machines (0 sales in 14d) ───────────────────────────────────────
     const cut14 = Date.now() - 14 * 86400000;
     const activeMachines = new Set(
       sales
@@ -445,8 +490,6 @@ Deno.serve(async (_req) => {
         .map((m) => m.machine_id),
     );
 
-    // ── Existing slot_lifecycle state (for EMA prior + rotation detection) ──
-    // Phase B.9: also pull prior trend_component so we can EMA-smooth it.
     const [existingSlotsRes, existingProductsRes] = await Promise.all([
       supabase
         .from("slot_lifecycle")
@@ -483,7 +526,6 @@ Deno.serve(async (_req) => {
         Number(p.score),
       ]),
     );
-    // Phase B.9: prior trend_component lookup for EMA smoothing.
     const existingProductTrends = new Map<string, number>(
       (existingProductsRes.data ?? [])
         .filter((p) => p.trend_component !== null)
@@ -501,7 +543,6 @@ Deno.serve(async (_req) => {
 
     const nowIso = new Date().toISOString();
 
-    // ── Phase 1.5: Detect rotations — flip prior is_current=false ───────────
     const rotationsToClose: Array<{
       machine_id: string;
       shelf_id: string;
@@ -524,7 +565,6 @@ Deno.serve(async (_req) => {
     }
     disc.rotations = rotationsToClose.length;
 
-    // ── Phase 1.6: Archive slots whose shelf_id vanished ────────────────────
     const stillConfiguredShelfIds = new Set(
       shelfConfigs.map((sc) => sc.shelf_id),
     );
@@ -541,7 +581,6 @@ Deno.serve(async (_req) => {
     }
     disc.archived_slots = toArchive.length;
 
-    // New product seeds (unchanged from prior phases)
     const existingProdIds = new Set(existingProductScores.keys());
     const newProdRows = pods.filter(
       (p) => !existingProdIds.has(p.pod_product_id),
@@ -558,7 +597,6 @@ Deno.serve(async (_req) => {
       );
     }
 
-    // ── Phase 2: DQ flags (resolve stale, insert fresh) ─────────────────────
     await supabase
       .from("lifecycle_data_quality_flags")
       .update({ resolved_at: nowIso })
@@ -582,7 +620,7 @@ Deno.serve(async (_req) => {
     }> = [];
 
     for (const m of machines) {
-      if (darkMachines.has(m.machine_id)) {
+      if (darkMachines.has(m.machine_id) && !isRampingMachine(m.machine_id)) {
         dqFlags.push({
           flag_type: "MACHINE_DARK",
           severity: "critical",
@@ -597,27 +635,31 @@ Deno.serve(async (_req) => {
           severity: "warning",
           scope: "machine",
           machine_id: m.machine_id,
-          message: `location_type '${m.location_type}' is null or unnormalized`,
+          message: `location_type '${m.location_type}' is null or unnormalized — scoring with '${FALLBACK_LOCATION_TYPE}' fallback`,
         });
       }
       if (isRampingMachine(m.machine_id)) {
+        const relaunched = m.relaunched_at ? new Date(m.relaunched_at) : null;
         const firstSale = firstSaleByMachine.get(m.machine_id);
-        const daysSinceFirstSale = firstSale
-          ? Math.floor((Date.now() - firstSale.getTime()) / 86400000)
-          : null;
-        const daysSinceCreation = m.created_at
-          ? Math.floor(
-              (Date.now() - new Date(m.created_at).getTime()) / 86400000,
-            )
-          : null;
+        const anchor = relaunched ?? firstSale ?? null;
+        const anchorLabel = relaunched
+          ? "relaunch"
+          : firstSale
+            ? "first sale"
+            : "deployment";
+        const daysSinceAnchor = anchor
+          ? Math.floor((Date.now() - anchor.getTime()) / 86400000)
+          : m.created_at
+            ? Math.floor(
+                (Date.now() - new Date(m.created_at).getTime()) / 86400000,
+              )
+            : null;
         dqFlags.push({
           flag_type: "MACHINE_RAMPING",
           severity: "info",
           scope: "machine",
           machine_id: m.machine_id,
-          message: firstSale
-            ? `${m.official_name} ramping — ${daysSinceFirstSale}/${MACHINE_RAMP_DAYS}d since first sale. Lifecycle signal capped at RAMPING.`
-            : `${m.official_name} active but not yet selling — ${daysSinceCreation ?? "?"}d since deployment. Lifecycle signal = RAMPING.`,
+          message: `${m.official_name} ramping — ${daysSinceAnchor ?? "?"}/${MACHINE_RAMP_DAYS}d since ${anchorLabel}. Lifecycle signal capped at RAMPING.`,
         });
       }
     }
@@ -633,10 +675,7 @@ Deno.serve(async (_req) => {
         .insert(allMachineDq.slice(i, i + 25));
     }
 
-    // ── Phase 3a (B.3): Build per-(machine,product) sales velocity ─────────
     const salesMap = new Map<string, DailySales>();
-    // Phase B.8: also build a per-product daily sales map (across ALL machines)
-    // so the global trend reflects fleet-wide trajectory, not just current slots.
     const productSalesMap = new Map<string, DailySales>();
     for (const s of sales) {
       const pid = resolvePodId(s.pod_product_name);
@@ -647,25 +686,20 @@ Deno.serve(async (_req) => {
       if (!salesMap.has(k)) salesMap.set(k, new Map());
       const ds = salesMap.get(k)!;
       ds.set(d, (ds.get(d) ?? 0) + qty);
-      // Per-product aggregation
       if (!productSalesMap.has(pid)) productSalesMap.set(pid, new Map());
       const pds = productSalesMap.get(pid)!;
       pds.set(d, (pds.get(d) ?? 0) + qty);
     }
 
-    // Phase B.4: skip dark machines (no sales in 14d) — their slots have v30=0
-    // across the board and would just pollute the matrix with score=0.41/DEAD
-    // signals. They're already surfaced via the MACHINE_DARK DQ flag above.
+    // (E-1.5) — null-location-type machines no longer silently dropped.
+    // Dark machines (no sales in 14d) are excluded from scoring EXCEPT
+    // when ramping (just relaunched / brand new) — those slots need to
+    // pass through scoring so the RAMPING override fires; otherwise their
+    // existing slot_lifecycle rows keep stale DEAD signals.
     const scorableSlots = reality.filter(
-      (r) =>
-        !darkMachines.has(r.machine_id) &&
-        VALID_LOCATION_TYPES.has(
-          machineMap.get(r.machine_id)?.location_type ?? "",
-        ),
+      (r) => !darkMachines.has(r.machine_id) || isRampingMachine(r.machine_id),
     );
 
-    // Phase B.9: trend is now computed lazily inside the per-slot and per-product
-    // scoring loops where age + priorTrend are available. vMap stores raw daily.
     type VData = {
       v7: number;
       v14: number;
@@ -686,13 +720,6 @@ Deno.serve(async (_req) => {
       });
     }
 
-    // ── Phase 3b (B.3): Per-product totals BEFORE per-slot scoring ────────
-    // For each pod_product, aggregate v30 across its current slots and count
-    // unique machines. This is the input to per_machine_avg_v30 for both Global
-    // formula and Local spectrum.
-    // Phase B.10: aggregate per-product to compute per-slot AND per-machine
-    // averages. Global rank + Local spectrum now both anchor on per_slot_avg
-    // (the per-facing productivity), which keeps the two views consistent.
     type ProductAgg = {
       total_v30: number;
       slot_count: number;
@@ -707,7 +734,7 @@ Deno.serve(async (_req) => {
       );
       if (!v) continue;
       const m = machineMap.get(slot.machine_id);
-      if (!m?.location_type) continue;
+      const locType = effectiveLocationType(m?.location_type);
       let agg = productAgg.get(slot.pod_product_id);
       if (!agg) {
         agg = {
@@ -724,12 +751,9 @@ Deno.serve(async (_req) => {
       agg.machine_set.add(slot.machine_id);
       if (isRampingMachine(slot.machine_id))
         agg.ramping_machine_set.add(slot.machine_id);
-      if (!agg.best_loc.has(m.location_type))
-        agg.best_loc.set(m.location_type, []);
+      if (!agg.best_loc.has(locType)) agg.best_loc.set(locType, []);
     }
 
-    // Phase B.10: per_slot_avg is the new anchor. per_machine_avg kept for
-    // backward compat (still written to DB for FE during transition).
     const productPerSlotAvg = new Map<string, number>();
     const productPerMachineAvg = new Map<string, number>();
     for (const [pid, agg] of productAgg) {
@@ -742,9 +766,6 @@ Deno.serve(async (_req) => {
       );
     }
 
-    // ── Phase 3c (B.10): Global rank-percentile across all products by per_slot.
-    // Sort products by per_slot_avg_v30 DESC, assign 1-indexed rank.
-    // score_raw = (1 - (rank-1)/(N-1)) * 10 → top per-facing earner = 10, bottom = 0.
     const productEntriesSorted = [...productPerSlotAvg.entries()].sort(
       (a, b) => b[1] - a[1],
     );
@@ -758,7 +779,6 @@ Deno.serve(async (_req) => {
       productGlobalRawScore.set(pid, raw);
     });
 
-    // ── Phase 3d (B.3): Per-slot scoring with spectrum + EMA ───────────────
     const today = new Date().toISOString().split("T")[0];
     const slotUpdates: Record<string, unknown>[] = [];
     const slotHistory: Record<string, unknown>[] = [];
@@ -772,18 +792,13 @@ Deno.serve(async (_req) => {
       const ledgerKey = `${slot.machine_id}:${slot.shelf_id}:${slot.pod_product_id}`;
       const v = vMap.get(ledgerKey)!;
 
-      // Phase B.10: Local spectrum now anchors on per_slot_avg (matches Global
-      // rank base) so Global hero status maps onto Local slot story consistently.
       const productAvg = productPerSlotAvg.get(slot.pod_product_id) ?? 0;
 
-      // B.6: Local spectrum — 5.0 = at product's per-slot avg, 10.0 = 2× avg.
-      // Zero-velocity slots are DEAD regardless of product anchor — never score
-      // them as "neutral 5.0" just because the product is also dead.
       let spectrum_ratio: number;
       if (v.v30 <= 0) {
-        spectrum_ratio = 0; // slot has no sales → score 0 → DEAD/ROTATE OUT
+        spectrum_ratio = 0;
       } else if (productAvg <= 0) {
-        spectrum_ratio = 2; // slot has sales but no global anchor → top of spectrum
+        spectrum_ratio = 2;
       } else {
         spectrum_ratio = v.v30 / productAvg;
       }
@@ -795,7 +810,6 @@ Deno.serve(async (_req) => {
         (Date.now() - new Date(firstSeen).getTime()) / 86400000,
       );
 
-      // Slot-age cap: still applies for new slots (< 14d)
       if (ageD < 14) {
         local_score_raw = Math.min(local_score_raw, 4.5);
         slotDqFlags.push({
@@ -819,7 +833,6 @@ Deno.serve(async (_req) => {
         });
       }
 
-      // EMA blend with prior slot score
       const priorScore = existingSlot?.score
         ? Number(existingSlot.score)
         : null;
@@ -830,15 +843,19 @@ Deno.serve(async (_req) => {
         else if (priorScore - score >= 0.5) slotScoreDelta.down++;
       }
 
-      // Phase B.9: trend computed with slot age + EMA against prior slot trend
       const priorSlotTrend =
         existingSlot?.trend_component != null
           ? Number(existingSlot.trend_component)
           : null;
       const tc = trendV2(v.daily, ageD, priorSlotTrend);
-      const rawSignal = getSignalV2(score, tc);
-      // Phase B.7: signal RAMPING if EITHER the machine OR the product is in
-      // its first 30 days. Either way, we don't want to drop the product.
+
+      const fleetVelRatio = productAvg > 0 ? v.v30 / productAvg : 1.0;
+
+      // P2 (v14): relative signal, then absolute velocity floor.
+      const rawSignal = applyVelocityFloor(
+        getSignalV2(score, tc, fleetVelRatio),
+        v.v30,
+      );
       const signal =
         isRampingMachine(slot.machine_id) ||
         isRampingProduct(slot.pod_product_id)
@@ -903,7 +920,6 @@ Deno.serve(async (_req) => {
         .insert(slotDqFlags.slice(i, i + 25));
     }
 
-    // ── Phase 4 (B.3): Global product upsert with rank-percentile + EMA ────
     const prodUpdates: Record<string, unknown>[] = [];
     const prodHistory: Record<string, unknown>[] = [];
 
@@ -917,26 +933,18 @@ Deno.serve(async (_req) => {
       const slotCount = agg ? agg.slot_count : 0;
       const machineCount = agg ? agg.machine_set.size : 0;
       const rampingCount = agg ? agg.ramping_machine_set.size : 0;
-      // Phase B.8: global trend uses fleet-wide product velocity (not avg of
-      // current-slot trends) so historical machines factor into the trajectory.
-      // Phase B.9: trendV2 — sustained-acceleration across 4 windows, capped by
-      // product time-in-market, EMA-smoothed against priorTrend.
       const productDaily = productSalesMap.get(pod.pod_product_id);
       const fs = firstSeenByProduct.get(pod.pod_product_id);
-      const productAgeD = fs
-        ? (Date.now() - fs.getTime()) / 86400000
-        : 0;
+      const productAgeD = fs ? (Date.now() - fs.getTime()) / 86400000 : 0;
       const priorProductTrend =
         existingProductTrends.get(pod.pod_product_id) ?? null;
       const globalTrend = productDaily
         ? trendV2(productDaily, productAgeD, priorProductTrend)
         : 5.0;
 
-      // EMA blend
       const priorScore = existingProductScores.get(pod.pod_product_id) ?? null;
       const score = ema(rawScore, priorScore);
 
-      // best/worst location_type by avg slot score (still useful as a flag)
       let bestLoc: string | null = null;
       let worstLoc: string | null = null;
       if (agg) {
@@ -954,7 +962,6 @@ Deno.serve(async (_req) => {
       }
 
       const rawProdSignal = getSignalV2(score, globalTrend);
-      // Phase B.7: products in their first 30 days (anywhere) signal RAMPING
       const signal = isRampingProduct(pod.pod_product_id)
         ? "RAMPING"
         : rawProdSignal;
@@ -1000,7 +1007,6 @@ Deno.serve(async (_req) => {
         .insert(prodHistory.slice(i, i + 25));
     }
 
-    // ── Phase 5: Family aggregation (unchanged) ────────────────────────────
     const { data: families } = await supabase
       .from("product_families")
       .select("product_family_id")
@@ -1059,10 +1065,13 @@ Deno.serve(async (_req) => {
 
     return new Response(
       JSON.stringify({
+        version: "v14",
         duration_ms: Date.now() - t0,
         slots_evaluated: slotsEval,
         products_evaluated: pods.length,
         families_aggregated: (families ?? []).length,
+        sales_rows_fetched: sales.length,
+        sales_pages: salesPages,
         auto_discovery: disc,
         score_delta: slotScoreDelta,
         flags: flagCounts,
