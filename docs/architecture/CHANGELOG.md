@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-028 WS1: canonical machine expiry metric (v_machine_expiry_summary + batch-resolution view)
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12, 13 (implements Article 16 draft, ratification in WS6)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612063856_prd028_ws1_expiry_canonical.sql`
+**Migration name:** `prd028_ws1_expiry_canonical`
+**Summary:** Kills the two-sources-of-truth expiry bug class (live repro OMDBB-1020: priority tier said expired=1, health badge said 0; 5 machines disagreed fleet-wide). NEW `v_machine_expiry_batches` holds the single batch-resolution rule: pod_inventory `status='Active' AND current_stock>0`, latest snapshot per shelf (legacy NULL-shelf rows per machine+product), NO 30-day lookback window (the window silently zeroed badges as snapshots aged; Active rows are operational truth and must stay visible). `v_machine_expiry_summary` redefined as the CANONICAL machine-grain metric over it - existing columns preserved in order, SKU-grain columns appended (expired_skus_now, expiring_skus_3d/7d/30d), "today" standardized on the Dubai operational date (CURRENT_DATE was the same UTC disease as the plan-date bug). `v_machine_health_signals.expiry_state` now consumes the summary (was: its own no-window scan); `get_machine_expiry_detail` (DEFINER, gains `SET search_path`) and `get_machine_slots_with_expiry` (INVOKER) realigned onto the batches view. `v_pod_inventory_expiry_status` + `v_pod_inventory_health` COMMENT-deprecated (zero consumers found; drop deferred for CS approval per Article 13). Value changes (all documented in `docs/prds/prd-028/WS1-expiry-unification-design.md`): ALJLT-1015 0->1, MC-2004 0->1, NISSAN-0804 0->2, OMDBB-1020 0->2 badge units (now critical, correct); AMZ-1038 16->0 (phantom Inactive rows). AC verified post-apply: 30 machines compared, 0 zero/non-zero disagreements between `v_machine_priority.expired_skus_now` and `get_machine_health().expired_units`. Cody ⚠️->cleared.
+**Rollback:** re-apply the previous definitions of the 2 views + 2 functions (captured verbatim in the design note's "current objects" section / pg history); `DROP VIEW v_machine_expiry_batches` last (no other dependents).
+
 ## 2026-06-12 — PRD-027 WS1: engine_swap_pod v10.2 swap guards; WS5 drafted (held); WS2/3/4 ticketed
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 8, 12
