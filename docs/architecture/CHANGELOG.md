@@ -21,6 +21,14 @@ Format:
 **Summary (runbook):** 65 stale drafts for CS-dropped NISSAN-0804/NOOK-1019/VML-1003 superseded via reject_pod_refill_rows (5 plan dates); reset_approved_undispatched structurally no-op (103 rpo rows already pending, no dispatch links); re-pick on v14 signals (8) -> NISSAN+VML dropped via unpick_machine_to_visit + set_machine_inclusion(false) (engines do not read is_included; unpick is operative); Gate 0 (6 confirmed); engine_add v16 (101 refills, 11 dead tags) -> engine_swap v10.2 first live run (8 resolved, 3 deferred_by_cap, 2 below-pearson explicit fallbacks) -> finalize v14 (120 drafts, 3 orphan-M2W suppressed). Gate 1 (CS GO): approve subset 7 machines, 117 rows (VOXMCC-1005 via sticky cs_added). Stitch v21 dry-run + FULL PRD-024 battery green incl. item 3 vs FRESH post-transfer WH (42 zero-WH variants excluded) + item 6 (deviations 0, noncanonical 0); 109/109 shelves real current/max stock. Gate 2 (CS GO): commit 102 lines / 117 stitched; approve_refill_plan -> 102 dispatch rows back-populated; cleanup_orphan_dispatching deleted 22 true orphans; remaining 81 stale lines auto-skipped by the resilient bridge. Post-commit: coverage 7/7 (102 active lines), 0 shelves with SUM(variants) > pod_qty (28 exact, 20 WH-limited).
 **Rollback:** plan layer only - reset_and_restitch / reset_approved_undispatched on 2026-06-13. WS5: redeploy v20; v14: redeploy v13.1 (platform v22).
 
+## 2026-06-12 — PRD-028 WS6: Article 16 ratified (one canonical object per business metric)
+
+**Phase / Article:** Constitution amendment - NEW Article 16
+**Applied to:** repo docs (`01_constitution.html` Article 16 + TOC; `.claude/skills/cody/SKILL.md` playbook; `METRICS_REGISTRY.md` status -> RATIFIED)
+**Migration name:** none
+**Summary:** Article 16 text (from METRICS_REGISTRY.md) added to the Constitution with Why (the June 2026 triple-incident root cause) and Enforcement (Cody blocks inline re-derivation; registry row + canonical object land in the same PR; Phase B CI lint). Cody SKILL.md: 16-article identity, quick-reference row 16, Article 16 checks added to review classes (b) writer DEFINER, (c) read-only DEFINER, (d) FE/edge - "computes a registered metric inline -> block, point to canonical object"; METRICS_REGISTRY.md added to Cody's knowledge base. Registry statuses current through WS5: expiry, velocity, WH pickable, dispatch availability, fleet scope all LIVE; payment-default banners wired on /app/performance, consumer ribbons CS-gated (WS4 memo).
+**Rollback:** revert the three doc files.
+
 ## 2026-06-12 — PRD-028 WS5: v_active_fleet canonical fleet scope
 
 **Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12, 14 (implements Article 16 draft)

@@ -1,6 +1,6 @@
 # Metrics Registry — single source of truth for every business parameter
 
-**Status:** Draft for ratification as Constitution Article 16 · **Owner:** CS · **Created:** 2026-06-11
+**Status:** RATIFIED as Constitution Article 16 (2026-06-12, PRD-028 WS6; `01_constitution.html#a16`) · **Owner:** CS · **Created:** 2026-06-11
 
 > NOTE 2026-06-12: this file (untracked) disappeared from disk during the PRD-028 WS1 session and was
 > restored from the session's read buffer, with the WS1 row updated to LIVE. Content otherwise verbatim.

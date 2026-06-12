@@ -367,6 +367,11 @@
               >Article 15 — PRs declare invariants and CI enforces</a
             >
           </li>
+          <li>
+            <a href="#a16"
+              >Article 16 — One canonical object per business metric</a
+            >
+          </li>
         </ol>
       </div>
 
@@ -837,6 +842,58 @@
               <code>.github/workflows/governance.yml</code> runs on every PR.
               Failures block merge. Bypass requires a one-line ADR pinned in the
               PR.
+            </div>
+          </div>
+        </article>
+
+        <article class="art" id="a16">
+          <header>
+            <div class="num">Article 16</div>
+            <h3>One canonical object per business metric</h3>
+          </header>
+          <p class="stmt">
+            For every business metric (a number an operator, partner, or engine
+            acts on), there is exactly ONE canonical definition object in the
+            database: a view or read-only function, registered in
+            <code>METRICS_REGISTRY.md</code>. Every consumer (FE page, RPC,
+            engine, cron, advisory, skill, export) reads that object. No view,
+            function, or component may re-derive a registered metric inline.
+            Changing a metric definition = changing the canonical object,
+            nothing else.
+          </p>
+          <div class="row">
+            <div class="k">Why</div>
+            <div class="v">
+              In June 2026 alone, three production incident classes traced to
+              one disease: multiple surfaces computing their own version of one
+              number (machine priority: 3 definitions; payment default: 3
+              formulas, none netting refunds; expiry: card badge and priority
+              tier disagreed on the same screen). Each unification killed a bug
+              class permanently (<code>v_machine_priority</code>,
+              <code>get_payment_default_summary</code>,
+              <code>resolve_refill_plan_date</code>,
+              <code>v_machine_expiry_summary</code>,
+              <code>v_machine_velocity</code>, <code>v_wh_pickable</code>,
+              <code>v_dispatch_availability</code>,
+              <code>v_active_fleet</code>).
+            </div>
+          </div>
+          <div class="row">
+            <div class="k">Enforcement</div>
+            <div class="v">
+              Cody blocks any PR or migration that computes a registered metric
+              outside its canonical object (review playbook class b/c/d checks).
+              Adding a metric = adding a row to
+              <code>METRICS_REGISTRY.md</code> + the canonical object in the
+              same PR. CI lint (Phase B) greps for signature patterns outside
+              canonical objects.
+            </div>
+          </div>
+          <div class="row">
+            <div class="k">Ratified</div>
+            <div class="v">
+              2026-06-12, PRD-028. Registry:
+              <code>docs/architecture/METRICS_REGISTRY.md</code>.
             </div>
           </div>
         </article>
