@@ -1,0 +1,62 @@
+# Metrics Registry — single source of truth for every business parameter
+
+**Status:** RATIFIED as Constitution Article 16 (2026-06-12, PRD-028 WS6; `01_constitution.html#a16`) · **Owner:** CS · **Created:** 2026-06-11
+
+> NOTE 2026-06-12: this file (untracked) disappeared from disk during the PRD-028 WS1 session and was
+> restored from the session's read buffer, with the WS1 row updated to LIVE. Content otherwise verbatim.
+
+## The rule (Article 16 draft)
+
+> For every business metric (a number an operator, partner, or engine acts on), there is exactly ONE
+> canonical definition object in the database — a view or read-only function. Every consumer (FE page,
+> RPC, engine, cron, advisory, skill, export) reads that object. No view, function, or component may
+> re-derive a registered metric inline. Changing a metric definition = changing the canonical object,
+> nothing else. Cody blocks any PR or migration that computes a registered metric outside its canonical
+> object.
+
+Why: in June 2026 alone, three production incidents traced to the same disease — multiple surfaces
+computing their own version of one number (machine priority: 3 definitions; payment default: 3
+formulas, none correct; expiry: card badge and tier logic disagreed on the same screen). Each unification
+killed a bug class permanently.
+
+## Registry
+
+| Metric                                                    | Canonical object                                                                                                                           | Status                                                                                                                                                                                            | Known illegal copies to retire                                                                                                                                                                                                                           |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Machine priority tier + score (P1/P2/P3)                  | `v_machine_priority`                                                                                                                       | ✅ LIVE (stock-led v2, 2026-06-11)                                                                                                                                                                | ~~picker inline~~ retired (v9.2 reads view) · ~~get_machine_health inline~~ retired (2026-06-11) · FE `refillUrgency()` in `refill/page.tsx` line ~625 — still used for in-tier sort only; retire or rename to make non-authoritative                    |
+| Payment default / captured / gap (reconciliation)         | `get_payment_default_summary(from,to,venue_group,machine_ids)`                                                                             | ✅ LIVE v2.1 `matched_only_v2_1_refund_aligned` (CS chose Option 1 + age-split, 2026-06-12; migrations `prd028_ws4_payment_default_matched_only_v2` + `..._v2_1_refund_aligned`). Gap/default over MATCHED refs, refunds are not default (PRD-023h-aligned, per-ref floor); `unmatched_exposure` explicit + age-split at 7d (recent=lag, aged=true default). Verified cent-equal with the commercial waterfall (141.30 == 141.30, VOX 06-01..11; exposure 2,209.85 all recent) | ~~/app/performance ribbon + dark bar client calc~~ wired (one pdSummary call; refunds+cash own fields) · consumer ribbon full-scope wiring to the summary ticketed to Stax (action_tracker 09a15262); pod-subset stays on the (cent-equal) waterfall until a pod_location scope param is designed |
+| Plan date (today vs tomorrow)                             | `resolve_refill_plan_date()`                                                                                                               | ✅ LIVE                                                                                                                                                                                           | any `CURRENT_DATE`/`CURRENT_DATE+1` used as a plan date (UTC bug). Audit FE + remaining RPCs                                                                                                                                                             |
+| Live shelf stock                                          | `v_live_shelf_stock`                                                                                                                       | ✅ LIVE (house rule since 2026-05-19)                                                                                                                                                             | any pod_inventory-based stock count                                                                                                                                                                                                                      |
+| Machine expiry counts (expired now / 7d / 30d / earliest) | `v_machine_expiry_summary` (aggregates `v_machine_expiry_batches`, the batch-resolution rule view)                                         | ✅ LIVE (PRD-028 WS1, 2026-06-12, `prd028_ws1_expiry_canonical`)                                                                                                                                  | ~~signals expired*skus*\*~~ rewired (consume summary) · ~~detail/slots RPC drift~~ realigned on batches view · ~~`v_pod_inventory_expiry_status` / `v_pod_inventory_health`~~ DROPPED 2026-06-12 (CS approved; pg_depend re-check 0 dependents; `prd028_ws1_drop_deprecated_expiry_views`)                                   |
+| Machine velocity (7d/30d, daily)                          | `v_machine_velocity` (units_7d/30d, daily_velocity_7d/30d; Success-only, rolling windows)                                                  | ✅ LIVE (PRD-028 WS2, 2026-06-12, `prd028_ws2_velocity_canonical`)                                                                                                                                | ~~get_machine_health inline daily_velocity~~ rewired · ~~signals units_last_7d inline~~ rewired · slot_lifecycle stored velocities (slot grain: keep) · FE Stock Snapshot displays get_machine_health (no recompute)                                     |
+| WH pickable stock                                         | `v_wh_pickable` (batch grain; Active, NOT quarantined, in-date Dubai or NULL, stock>0; security_invoker)                                   | ✅ LIVE (PRD-028 WS3, 2026-06-12, `prd028_ws3_wh_pickable_dispatch_availability`)                                                                                                                 | ~~packing FE batch fetch inline predicate~~ rewired to view (28 quarantined/expired-but-Active leak rows excluded) · ad-hoc queries                                                                                                                      |
+| Dispatch committed / available                            | `v_dispatch_availability` (consumes v_wh_pickable; commitments = unpacked+unpicked warehouse-origin claims, same dispatch_date)            | ✅ LIVE (PRD-028 WS3, 2026-06-12)                                                                                                                                                                 | ~~packing FE committed=packed double-count~~ fixed (commitment = unpacked+unpicked claims; packed lines are already debited from WH) · FE per-batch pick caps still client-side (Stax follow-up: consume view per line)                                  |
+| Dead slot %                                               | `v_machine_priority.dead_slot_pct` (inherits signals)                                                                                      | ⚠️ verify                                                                                                                                                                                         | `get_machine_health.dead_stock_count` uses a different formula (blended-score HAVING) than signals' dead_slot_pct — reconcile                                                                                                                            |
+| Refill quantity decision                                  | `compute_refill_decision` + engine v16 fill-to-cap                                                                                         | ✅ LIVE                                                                                                                                                                                           | none known                                                                                                                                                                                                                                               |
+| Machine scope "active fleet"                              | `v_active_fleet` (status NOT IN Inactive/Warehouse; exposes include_in_refill, repurposed_at, service_track for declared consumer filters) | ✅ LIVE (PRD-028 WS5, 2026-06-12, `prd028_ws5_active_fleet`)                                                                                                                                      | ~~get_payment_default_summary inline scope~~ rewired (value-identical, jsonb-equality proven) · get_vox_commercial_report pods scope + signals base = follow-up consumers (wire on next change) · data smell: 5 Active machines carry repurposed_at      |
+
+## Enforcement
+
+1. **Cody checklist addition (class b/c reviews):** "Does this object compute a registered metric inline?
+   If yes → block, point to canonical object." Add to cody SKILL.md review playbook.
+2. **CI lint (Phase B):** grep migrations + src for signature patterns (`expiration_date <`, `daily_velocity`,
+   `captured_amount_value` aggregations, `CURRENT_DATE + 1`) outside canonical objects → fail with pointer here.
+3. **This file is the registry.** Adding a metric = adding a row here + the canonical object in the same PR.
+
+## Execution order (each step: Dara design → Cody review → migrate → verify consumers)
+
+1. ~~**P0 expiry**~~ ✅ DONE 2026-06-12 (`prd028_ws1_expiry_canonical`): `v_machine_expiry_summary` canonical
+   over new `v_machine_expiry_batches`; signals rewired; detail/slots RPCs realigned; AC green (30 machines,
+   0 disagreements; OMDBB-1020 fixed).
+2. ~~**P1 velocity**~~ ✅ DONE 2026-06-12 (`prd028_ws2_velocity_canonical`): `v_machine_velocity` canonical;
+   `get_machine_health` (values identical) + `v_machine_health_signals` consume it; AC green (0 mismatches,
+   no inline machine-level SUM(qty)/7 left).
+3. ~~**P1 WH pickable + dispatch availability**~~ ✅ DONE 2026-06-12 (`prd028_ws3_wh_pickable_dispatch_availability`):
+   `v_wh_pickable` created (28 leak rows excluded); `v_dispatch_availability` consumes it + picked_up
+   condition; packing FE badges rewired (pickable fetch, unpacked-claims commitments, product-grain
+   Available). FE build green.
+4. **P1 FE banner wiring** — get_payment_default_summary into the 3 reconciliation banners (prompt already drafted).
+5. ~~**P2 active-fleet scope view**~~ ✅ DONE 2026-06-12 (`prd028_ws5_active_fleet`): `v_active_fleet` live,
+   `get_payment_default_summary` consumes (jsonb-equality zero value change); remaining consumers wire on
+   their next change.
+6. **Ratify Article 16** into 01_constitution.html, update Cody SKILL.md.

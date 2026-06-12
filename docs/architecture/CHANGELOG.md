@@ -13,6 +13,70 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-028 WS4 Option 1 (matched-only + age-split exposure) APPLIED; WS1 deprecated views DROPPED
+
+**Phase / Article:** Article 16 (canonical payment-default metric) / Articles 4, 12, 13
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd028_ws4_payment_default_matched_only_v2` + `prd028_ws4_payment_default_v2_1_refund_aligned` + `prd028_ws1_drop_deprecated_expiry_views`
+**Summary:** CS decided WS4 Option 1 with age-split exposure. `get_payment_default_summary` now reports gap/default over MATCHED refs only (settlement-lag refs no longer inflate the partner default: 21.03% class -> 1.28%), with `unmatched_refs`/`unmatched_exposure` explicit and age-split at 7 days (`recent` = lag window, `aged` = likely true default). v2.1 also aligns refunds with PRD-023h (per-ref `default_short = GREATEST(total - settled - refunded - cash, 0)`) after Cody's required live comparison caught v2 double-counting a refund-only ref (gap 567.30 vs waterfall 141.30; delta exactly 2x the 213 refund). Verified cent-equal post-apply: gap 141.30 == waterfall 141.30 (VOX 06-01..11); unmatched exposure 2,209.85 ALL in the recent bucket (0 aged). Signature unchanged (no pg_proc overload). All v1 jsonb keys preserved (/app/performance unaffected structurally). Consumer ribbon full-scope wiring ticketed to Stax (action_tracker `09a15262`). WS1 closure: `v_pod_inventory_expiry_status` + `v_pod_inventory_health` DROPPED with explicit CS approval (zero consumers re-verified via pg_depend in-session; canonical `v_machine_expiry_summary` live). Cody ✅ (Articles 4, 12, 13, 16).
+**Rollback:** redeploy v1 body (md5 `10662ff4870ef54a0907dbe4b3f65926`); views recreate from `prd028_ws1_expiry_canonical`-era definitions if ever needed (none expected; zero consumers).
+
+## 2026-06-12 — PRD-024 section 2 EXECUTED: 06-13 plan rebuilt (Gates 1+2 passed); WS5 stitch v21 + lifecycle v14 deployed upstream
+
+**Phase / Article:** Phase F / canonical-RPC-only runbook (no raw writes; the two upstream code changes were separately Cody-approved)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `phaseF_stitch_v21_ws5_real_stock` (upstream, CS green-lit the within-24h second stitch rewrite; reverse-fragment md5 proof vs v20 `8a9f0f3e...6a01`). evaluate-lifecycle v14 deployed (platform v23; 10,223 sales rows / 2 pages; floors live with CS-confirmed 0.5/1.0 thresholds; named stance absurdities resolved; WIND DOWN 109->80, DEAD 91->51).
+**Summary (runbook):** 65 stale drafts for CS-dropped NISSAN-0804/NOOK-1019/VML-1003 superseded via reject_pod_refill_rows (5 plan dates); reset_approved_undispatched structurally no-op (103 rpo rows already pending, no dispatch links); re-pick on v14 signals (8) -> NISSAN+VML dropped via unpick_machine_to_visit + set_machine_inclusion(false) (engines do not read is_included; unpick is operative); Gate 0 (6 confirmed); engine_add v16 (101 refills, 11 dead tags) -> engine_swap v10.2 first live run (8 resolved, 3 deferred_by_cap, 2 below-pearson explicit fallbacks) -> finalize v14 (120 drafts, 3 orphan-M2W suppressed). Gate 1 (CS GO): approve subset 7 machines, 117 rows (VOXMCC-1005 via sticky cs_added). Stitch v21 dry-run + FULL PRD-024 battery green incl. item 3 vs FRESH post-transfer WH (42 zero-WH variants excluded) + item 6 (deviations 0, noncanonical 0); 109/109 shelves real current/max stock. Gate 2 (CS GO): commit 102 lines / 117 stitched; approve_refill_plan -> 102 dispatch rows back-populated; cleanup_orphan_dispatching deleted 22 true orphans; remaining 81 stale lines auto-skipped by the resilient bridge. Post-commit: coverage 7/7 (102 active lines), 0 shelves with SUM(variants) > pod_qty (28 exact, 20 WH-limited).
+**Rollback:** plan layer only - reset_and_restitch / reset_approved_undispatched on 2026-06-13. WS5: redeploy v20; v14: redeploy v13.1 (platform v22).
+
+## 2026-06-12 — PRD-028 WS6: Article 16 ratified (one canonical object per business metric)
+
+**Phase / Article:** Constitution amendment - NEW Article 16
+**Applied to:** repo docs (`01_constitution.html` Article 16 + TOC; `.claude/skills/cody/SKILL.md` playbook; `METRICS_REGISTRY.md` status -> RATIFIED)
+**Migration name:** none
+**Summary:** Article 16 text (from METRICS_REGISTRY.md) added to the Constitution with Why (the June 2026 triple-incident root cause) and Enforcement (Cody blocks inline re-derivation; registry row + canonical object land in the same PR; Phase B CI lint). Cody SKILL.md: 16-article identity, quick-reference row 16, Article 16 checks added to review classes (b) writer DEFINER, (c) read-only DEFINER, (d) FE/edge - "computes a registered metric inline -> block, point to canonical object"; METRICS_REGISTRY.md added to Cody's knowledge base. Registry statuses current through WS5: expiry, velocity, WH pickable, dispatch availability, fleet scope all LIVE; payment-default banners wired on /app/performance, consumer ribbons CS-gated (WS4 memo).
+**Rollback:** revert the three doc files.
+
+## 2026-06-12 — PRD-028 WS5: v_active_fleet canonical fleet scope
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12, 14 (implements Article 16 draft)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612072352_prd028_ws5_active_fleet.sql`
+**Migration name:** `prd028_ws5_active_fleet`
+**Summary:** NEW `v_active_fleet` (34 machines): base rule status NOT IN (Inactive, Warehouse); `include_in_refill`, `repurposed_at`, `service_track` are EXPOSED columns so each consumer declares its extra filter instead of re-deriving it. Measured why repurposed_at is not baked in: 4 of 11 VOX reconciliation-scope machines are repurposed-but-Active and carry 3,620.75 AED of 06-01..11 sales - excluding them would silently drop 27% of period money. `get_payment_default_summary` venue-scope branch rewired to the view; full jsonb equality with the pre-migration output proven on 06-01..11 VOX (zero value change). Data smell flagged for CS: 5 Active machines fleet-wide have repurposed_at set (old identities never archived). Follow-up consumers (wire on their next change): get_vox_commercial_report pods scope, v_machine_health_signals base.
+**Rollback:** re-apply the previous get_payment_default_summary body (inline scope); DROP VIEW v_active_fleet.
+
+## 2026-06-12 — PRD-028 WS4: /app/performance banners wired to get_payment_default_summary; consumer ribbons deferred on CS decision
+
+**Phase / Article:** PRD-028 metrics registry / Article 16 draft (FE read wiring only; no DB change)
+**Applied to:** repo FE `src/app/(app)/app/performance/page.tsx` (committed, not deployed)
+**Migration name:** none
+**Summary:** ONE `get_payment_default_summary` call per (period, scope) now feeds BOTH the green Payment Default strip and the Transactions dark bar on /app/performance (state `pdSummary`); refunds + cash rendered as their own fields on both. Scope = explicit machine picker -> p_machine_ids, else group filter (All -> NULL = fleet). Banner value changes documented in the WS4 design note (Captured: any-status client calc -> canonical settled-refunds+cash; Gap: matched-only -> total exposure). **DEFERRED with CS decision memo** (docs/prds/prd-028/WS4-reconciliation-banners-design.md): /refill/consumers + /consumers_vox ribbons - live comparison shows the canonical summary vs the PRD-023-bound commercial waterfall differ SEMANTICALLY (gap 2,777.15 / 21.03% vs 141.30 / 1.27% for 06-01..11 VOX) because the summary counts 89 unmatched refs as gap; flipping a partner-facing default rate 16x and breaking the ribbon==cards invariant needs CS to pick: (1) matched-only metric + explicit unmatched_exposure field [recommended], (2) total-exposure everywhere incl. waterfall, or (3) settlement-lag cutoff. tsc + build green.
+**Rollback:** git revert the FE commit.
+
+## 2026-06-12 — PRD-028 WS3: canonical WH pickable + dispatch availability + packing FE wiring
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 2, 3, 12, 14 (implements Article 16 draft)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612070658_prd028_ws3_wh_pickable_dispatch_availability.sql` + FE `src/app/(field)/field/packing/[machineId]/page.tsx`
+**Migration name:** `prd028_ws3_wh_pickable_dispatch_availability`
+**Summary:** NEW `v_wh_pickable` = the canonical pickable predicate (Active, NOT quarantined, in-date Dubai-or-NULL, stock>0; batch grain; `security_invoker=true` so it cannot widen warehouse_inventory RLS). Live impact: 28 of 167 Active-stock batches were leak-class (quarantined or expired but Active) and are now excluded - the Simran "WH badge shows unpickable stock" class. `v_dispatch_availability` (had ZERO consumers - built, never wired) redefined: wh_avail consumes `v_wh_pickable` (inline predicate deleted), commitments gain `picked_up=false` per the registry rule; before/after distribution IDENTICAL on current data (value-stable, structural). Packing FE wired: batch fetch reads `v_wh_pickable`; the committed fetch flips from `packed=true` to `packed=false AND picked_up=false` - packing PHYSICALLY DEBITS warehouse_inventory, so counting packed lines double-subtracted and produced the "Available: 0" class; Available badge is now product-grain `max(0, WH - Committed)`. tsc + build green. The commit also carries the concurrent session's uncommitted WS7 "reserved-to" display (same hunks, attributed). FLAGGED, pre-existing, NOT fixed (scope): packing page restore helper writes warehouse_inventory (incl. status) directly from FE - Articles 3/6; ticket to Stax.
+**Rollback:** re-apply the previous `v_dispatch_availability` body (in this migration's header comment via WS3 design note); `DROP VIEW v_wh_pickable` after un-wiring FE; revert the FE file via git.
+
+## 2026-06-12 — PRD-028 WS2: canonical machine velocity rollup (v_machine_velocity)
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12 (implements Article 16 draft)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612065444_prd028_ws2_velocity_canonical.sql`
+**Migration name:** `prd028_ws2_velocity_canonical`
+**Summary:** One machine-grain velocity object. NEW `v_machine_velocity` (units_7d, units_30d, daily_velocity_7d, daily_velocity_30d; Success-only; rolling now()-interval windows). `get_machine_health.daily_velocity` consumes it (formula identical, values unchanged; fn also gains `SET search_path = public, pg_temp`). `v_machine_health_signals.sales_recent` consumes it: units_last_7d gains the Success filter (no-op today, all last-30d rows are 'Successful') and moves from UTC-midnight CURRENT_DATE anchor to rolling now() (9 machines shift 1-2 units at apply time; one boundary artifact AMZ-1057 50->49 documented in the design note). Product/slot-grain velocities (flag_intent_threats v7/v60, slot_lifecycle, get_sales_by_machine lookback report) intentionally out of scope per registry. AC verified post-apply: 0 velocity mismatches get_machine_health vs canonical; 0 signals mismatches; no inline machine-level SUM(qty)/7 remains.
+**Rollback:** re-apply previous `v_machine_health_signals` + `get_machine_health` bodies (WS1 versions, in `20260612063856_prd028_ws1_expiry_canonical.sql`); `DROP VIEW v_machine_velocity` last.
+
+## 2026-06-12 — PRD-028 WS1: canonical machine expiry metric (v_machine_expiry_summary + batch-resolution view)
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12, 13 (implements Article 16 draft, ratification in WS6)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612063856_prd028_ws1_expiry_canonical.sql`
+**Migration name:** `prd028_ws1_expiry_canonical`
+**Summary:** Kills the two-sources-of-truth expiry bug class (live repro OMDBB-1020: priority tier said expired=1, health badge said 0; 5 machines disagreed fleet-wide). NEW `v_machine_expiry_batches` holds the single batch-resolution rule: pod_inventory `status='Active' AND current_stock>0`, latest snapshot per shelf (legacy NULL-shelf rows per machine+product), NO 30-day lookback window (the window silently zeroed badges as snapshots aged; Active rows are operational truth and must stay visible). `v_machine_expiry_summary` redefined as the CANONICAL machine-grain metric over it - existing columns preserved in order, SKU-grain columns appended (expired_skus_now, expiring_skus_3d/7d/30d), "today" standardized on the Dubai operational date (CURRENT_DATE was the same UTC disease as the plan-date bug). `v_machine_health_signals.expiry_state` now consumes the summary (was: its own no-window scan); `get_machine_expiry_detail` (DEFINER, gains `SET search_path`) and `get_machine_slots_with_expiry` (INVOKER) realigned onto the batches view. `v_pod_inventory_expiry_status` + `v_pod_inventory_health` COMMENT-deprecated (zero consumers found; drop deferred for CS approval per Article 13). Value changes (all documented in `docs/prds/prd-028/WS1-expiry-unification-design.md`): ALJLT-1015 0->1, MC-2004 0->1, NISSAN-0804 0->2, OMDBB-1020 0->2 badge units (now critical, correct); AMZ-1038 16->0 (phantom Inactive rows). AC verified post-apply: 30 machines compared, 0 zero/non-zero disagreements between `v_machine_priority.expired_skus_now` and `get_machine_health().expired_units`. Cody ⚠️->cleared.
+**Rollback:** re-apply the previous definitions of the 2 views + 2 functions (captured verbatim in the design note's "current objects" section / pg history); `DROP VIEW v_machine_expiry_batches` last (no other dependents).
+
 ## 2026-06-12 — PRD-027 WS1: engine_swap_pod v10.2 swap guards; WS5 drafted (held); WS2/3/4 ticketed
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 8, 12

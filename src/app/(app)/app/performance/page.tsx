@@ -591,6 +591,21 @@ export default function PerformancePage() {
   const [cashRows, setCashRows] = useState<
     { merchant_reference: string | null; recovered_amount: number | null }[]
   >([]);
+  // PRD-028 WS4: ONE call to the canonical reconciliation metric
+  // (get_payment_default_summary, Article 16). Both the green strip and the
+  // Transactions dark bar render from this object - never re-derive inline.
+  const [pdSummary, setPdSummary] = useState<{
+    total_sales: number;
+    captured_card_gross: number;
+    refunds: number;
+    cash_recovered: number;
+    captured_net: number;
+    gap: number;
+    default_pct: number | null;
+    txn_refs: number;
+    matched_refs: number;
+    default_refs: number;
+  } | null>(null);
   const [machineList, setMachineList] = useState<MachineInfo[]>([]);
   // B3: DB-driven commercial agreements (venue_group → boonz/partner split).
   // Keyed by venue_group. Empty {} until the initial fetch resolves.
@@ -767,6 +782,29 @@ export default function PerformancePage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // PRD-028 WS4: canonical reconciliation banner. Scope mirrors the page scope:
+  // explicit machine selection wins, else the group filter (All -> whole fleet).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc(
+        "get_payment_default_summary",
+        {
+          p_date_from: dateFrom,
+          p_date_to: dateTo,
+          p_venue_group: group === "All" ? null : group,
+          p_machine_ids:
+            selectedMachineIds.length > 0 ? selectedMachineIds : null,
+        },
+      );
+      if (!cancelled) setPdSummary(error ? null : (data as never));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dateFrom, dateTo, group, selectedMachineIds]);
 
   // Close machine dropdown when clicking outside
   useEffect(() => {
@@ -1365,7 +1403,9 @@ export default function PerformancePage() {
       const base = (s.internal_txn_sn ?? "").replace(/_\d+$/, "");
       if (!base) continue;
       const effectiveTotal =
-        (s.total_amount ?? 0) > 0 ? (s.total_amount ?? 0) : (s.paid_amount ?? 0);
+        (s.total_amount ?? 0) > 0
+          ? (s.total_amount ?? 0)
+          : (s.paid_amount ?? 0);
       let b = baskets.get(base);
       if (!b) {
         b = {
@@ -1414,8 +1454,7 @@ export default function PerformancePage() {
         psp: matchedAny?.psp_reference || "",
         paymentMethod: matchedAny?.payment_method || "",
         isWallet: (matchedAny?.funding_source || "").toUpperCase() === "WALLET",
-        isDefault:
-          matchedAny !== undefined && captured < b.total_amount - 0.01,
+        isDefault: matchedAny !== undefined && captured < b.total_amount - 0.01,
       };
     });
     if (txnGroup !== "All")
@@ -1437,7 +1476,14 @@ export default function PerformancePage() {
     return rows.sort((a, b) =>
       (b.transaction_date || "").localeCompare(a.transaction_date || ""),
     );
-  }, [salesRows, adyenByMerchantRef, cashByMerchantRef, txnGroup, txnFunding, txnSearch]);
+  }, [
+    salesRows,
+    adyenByMerchantRef,
+    cashByMerchantRef,
+    txnGroup,
+    txnFunding,
+    txnSearch,
+  ]);
 
   // defaultBasketCount lives inside txnMatchStats (basket-level, mirrors RPC disc_count).
   const defaultTxnCount = txnMatchStats.defaultBasketCount;
@@ -2036,32 +2082,53 @@ export default function PerformancePage() {
         </span>
         <span style={{ color: "rgba(255,255,255,0.8)" }}>
           Total{" "}
-          <strong style={{ color: "#ffffff" }}>AED {fmtN(totalWeimi)}</strong>
+          <strong style={{ color: "#ffffff" }}>
+            AED {fmtN(pdSummary ? pdSummary.total_sales : totalWeimi)}
+          </strong>
         </span>
         <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
         <span style={{ color: "rgba(255,255,255,0.8)" }}>
           Captured{" "}
           <strong style={{ color: "#a7f3d0" }}>
-            AED {fmtN(txnMatchStats.matchedCapture)}
+            AED{" "}
+            {fmtN(
+              pdSummary ? pdSummary.captured_net : txnMatchStats.matchedCapture,
+            )}
+          </strong>
+        </span>
+        <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+        <span style={{ color: "rgba(255,255,255,0.8)" }}>
+          Refunds{" "}
+          <strong style={{ color: "#fdba74" }}>
+            AED {fmtN(pdSummary?.refunds ?? 0)}
+          </strong>
+        </span>
+        <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+        <span style={{ color: "rgba(255,255,255,0.8)" }}>
+          Cash{" "}
+          <strong style={{ color: "#a7f3d0" }}>
+            AED {fmtN(pdSummary?.cash_recovered ?? 0)}
           </strong>
         </span>
         <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
         <span style={{ color: "rgba(255,255,255,0.8)" }}>
           Gap{" "}
           <strong style={{ color: "#fca5a5" }}>
-            AED {fmtN(Math.abs(gap))}
+            AED {fmtN(pdSummary ? pdSummary.gap : Math.abs(gap))}
           </strong>
         </span>
         <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
         <span style={{ color: "rgba(255,255,255,0.8)" }}>
           Default{" "}
           <strong style={{ color: "#fde68a", fontSize: 14 }}>
-            {defaultPct.toFixed(2)}%
+            {(pdSummary ? (pdSummary.default_pct ?? 0) : defaultPct).toFixed(2)}
+            %
           </strong>
         </span>
         <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
         <span style={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }}>
-          {matchedCount}/{totalCount} matched
+          {pdSummary ? pdSummary.matched_refs : matchedCount}/
+          {pdSummary ? pdSummary.txn_refs : totalCount} matched
         </span>
       </div>
 
@@ -3329,25 +3396,61 @@ export default function PerformancePage() {
               >
                 PAYMENT DEFAULT
               </span>
-              <span>Total {fmtAed(totalWeimi)}</span>
-              <span style={{ color: "#cbd5e1" }}>|</span>
-              <span>Captured {fmtAed(capturedAdyen)}</span>
-              <span style={{ color: "#cbd5e1" }}>|</span>
-              <span style={{ color: gap > 0 ? "#fca5a5" : "#86efac" }}>
-                Gap {fmtAed(gap)}
-              </span>
-              <span style={{ color: "#cbd5e1" }}>|</span>
-              <span>Default {defaultPct.toFixed(2)}%</span>
-              <span style={{ color: "#cbd5e1" }}>|</span>
-              <span
-                style={{ color: defaultTxnCount > 0 ? "#fca5a5" : undefined }}
-              >
-                {fmtN(defaultTxnCount)} default
-                {defaultTxnCount === 1 ? "" : "s"}
+              <span>
+                Total {fmtAed(pdSummary ? pdSummary.total_sales : totalWeimi)}
               </span>
               <span style={{ color: "#cbd5e1" }}>|</span>
               <span>
-                {fmtN(matchedCount)}/{fmtN(totalCount)} matched
+                Captured{" "}
+                {fmtAed(pdSummary ? pdSummary.captured_net : capturedAdyen)}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span style={{ color: "#fdba74" }}>
+                Refunds {fmtAed(pdSummary?.refunds ?? 0)}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span style={{ color: "#86efac" }}>
+                Cash {fmtAed(pdSummary?.cash_recovered ?? 0)}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span
+                style={{
+                  color:
+                    (pdSummary ? pdSummary.gap : gap) > 0
+                      ? "#fca5a5"
+                      : "#86efac",
+                }}
+              >
+                Gap {fmtAed(pdSummary ? pdSummary.gap : gap)}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span>
+                Default{" "}
+                {(pdSummary
+                  ? (pdSummary.default_pct ?? 0)
+                  : defaultPct
+                ).toFixed(2)}
+                %
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span
+                style={{
+                  color:
+                    (pdSummary ? pdSummary.default_refs : defaultTxnCount) > 0
+                      ? "#fca5a5"
+                      : undefined,
+                }}
+              >
+                {fmtN(pdSummary ? pdSummary.default_refs : defaultTxnCount)}{" "}
+                default
+                {(pdSummary ? pdSummary.default_refs : defaultTxnCount) === 1
+                  ? ""
+                  : "s"}
+              </span>
+              <span style={{ color: "#cbd5e1" }}>|</span>
+              <span>
+                {fmtN(pdSummary ? pdSummary.matched_refs : matchedCount)}/
+                {fmtN(pdSummary ? pdSummary.txn_refs : totalCount)} matched
               </span>
             </div>
 
