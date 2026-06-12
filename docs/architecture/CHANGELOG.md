@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-028 dispatch-state-integrity step 1: pack/return guards (skipped lines are inert)
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 12 (canonical-writer hardening)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612135850_phaseF_dispatch_state_guards.sql`
+**Migration name:** `phaseF_dispatch_state_guards`
+**Summary:** Both canonical dispatch writers now enforce the skip/cancel/exclude flags that were display-only (Incidents A+B, 2026-06-12). `pack_dispatch_line`: unconditional three-flag refusal (skipped / cancelled / include=false) placed before ANY mutation including the packed_no_pick early path; error names the flag and the skip_reason. `return_dispatch_line`: three-flag refusal CONDITIONAL on `packed=false AND picked_up=false` (nothing physical to return); flagged-but-packed lines stay returnable because that is the Incident-A recovery path and the EOD sweep contract; PLUS a system-actor guard (no p_returned_by AND nothing physical -> refuse) that kills the Dispatch Complete auto-return burst. PRD section 2b assumption corrected during verification: `eod_auto_release_unpicked` pass 1 DOES route through return_dispatch_line (packed=true picked_up=false only), so the unconditional refusal the PRD literally asked for would have broken the sweep and stranded debited consumer_stock; Cody endorsed the conditional form. Rollback functiondefs captured verbatim with md5s (`76be9334...` / `8520614a...`) in `docs/prds/prd-028-dispatch/ROLLBACK-pre-guards-functiondefs.sql`. Battery 1-4 green in one rolled-back tx: B1 pack-skipped refused naming the reason; B2 system-return-skipped refused, WH totals+rowcount untouched; B3 synthetic pack(2u)->mark_picked_up->driver return, WH 192->190->192, path pinned; B4 eod sweep released=1 failed=0 + stale release clean through the guards. Pre-existing note (not fixed): neither writer role-gates its caller.
+**Rollback:** run `docs/prds/prd-028-dispatch/ROLLBACK-pre-guards-functiondefs.sql` verbatim.
+
 ## 2026-06-12 — PRD-028 WS4 Option 1 (matched-only + age-split exposure) APPLIED; WS1 deprecated views DROPPED
 
 **Phase / Article:** Article 16 (canonical payment-default metric) / Articles 4, 12, 13
