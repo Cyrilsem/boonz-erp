@@ -4,6 +4,12 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-024 — stitch split normalization + 06-13 reset (section 1 APPLIED 2026-06-12; section 2 gated)
+
+| Migration name                      | Article(s)         | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------- | ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `phaseF_stitch_split_pct_normalize` | 1, 4, 5, 8, 12, 14 | ✅ Applied to prod | stitch v19 -> v20 self-normalizing SKU split (reads `pm.split_pct`, divides by windowed total at 4 sites + new `pm_norm` procurement CTE). Kills multi-flavor inflation (VOXMCC A10 10->30). Battery sim green (106 shelf-pods conserve; 0 single-SKU drift; Activia 170 -> 4/3/3). Cody ✅. v19 md5 `16fb196b...4614`. Section 2 (06-13 plan reset runbook) is CS-gated and pending. |
+
 ## PRD-022 — Procurement PO experience (IN PROGRESS 2026-06-11)
 
 | Migration name                               | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                    |

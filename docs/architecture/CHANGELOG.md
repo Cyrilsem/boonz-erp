@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-024 section 1: stitch v20 self-normalizing SKU split (CRITICAL)
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 5, 8, 12, 14
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612200000_phaseF_stitch_split_pct_normalize.sql`
+**Migration name:** `phaseF_stitch_split_pct_normalize`
+**Summary:** `stitch_pod_to_boonz` v19 read `pm.mix_weight` raw and only normalized the per-shelf split when the total was 0. With 1,713 active machine-scoped `product_mapping` rows carrying `mix_weight = 1.0`, every variant on a multi-flavor shelf received `floor(pod_qty x 1.0)` = the full shelf quantity (VOXMCC-1005 A10: pod qty 10 -> 30 units dispatched on the committed 06-13 plan). A data-only resync was rejected because raw `split_pct` scales vary (machine-scoped Activia sums to 170; a global set sums to 0.66), so v20 makes the RPC self-normalizing: all four mapping reads switch to `pm.split_pct`, and the four split sites (`pull_norm`, `remove_phys_split`, deviation `n`, new procurement `pm_norm` CTE) divide by the windowed `total_split`, so shares sum to 1.0 at any raw scale. Procurement demand drops the arbitrary 0.20 default for the shared even-split-when-zero rule. Largest-remainder distribution, driver-pin first-claim, WH redistribution, signature, role gate, GUCs: unchanged (9-delta diff, rest of the 32,354-char body verbatim). Cody approved pre-apply; his required audit found 0 variants losing allocation (all 753 `split_pct=0` rows already had `mix_weight=0`) and no all-zero variant set. Verification battery (read-only simulation on the real 06-13 plan rows, 106 shelf-pods / 82 multi-SKU): v19 math inflates 4 shelf-pods (worst +60 units), v20 conserves on all 106, 0 single-SKU drift vs v19, Activia sum-170 regression splits 4/3/3 = 10. Battery items 3 and 6 re-fire at the gated 06-13 rebuild's stitch dry-run (PRD-024 section 2).
+**Rollback:** redeploy the v19 body (md5 fingerprint `16fb196b820c97a31b8cfccfdff84614`, capture record in `docs/prds/refill-pipeline/_staging/live/stitch_pod_to_boonz_v19_rollback_fingerprint_2026-06-12.md`; verbatim body = migration `20260608124000_refillv2_stitch_driver_overlay_shelfguard.sql`).
+
 ## 2026-06-11 — PRD-023h: commercial default_amount excludes refunds
 
 **Phase / Article:** PRD-023 follow-up / read-only, no protected writes (class c fast-path)
