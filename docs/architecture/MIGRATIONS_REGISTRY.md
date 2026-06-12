@@ -4,6 +4,15 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-028 WS4 Option 1 + WS1 view drops (APPLIED 2026-06-12)
+
+| Migration name                                   | Article(s) | Status             | Note                                                                                                                                                                                                       |
+| ------------------------------------------------ | ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `prd028_ws4_payment_default_matched_only_v2`     | 4, 12, 16  | ✅ Applied to prod | get_payment_default_summary v2: matched-only gap/default + explicit unmatched_exposure age-split at 7d (CS Option 1). Signature unchanged. Cody ✅. v1 md5 `10662ff4...5926`.                              |
+| `prd028_ws4_payment_default_v2_1_refund_aligned` | 4, 12, 16  | ✅ Applied to prod | v2.1: per-ref default_short floors at 0 and excludes refunds (PRD-023h). Cody's required live comparison caught v2's refund double-count (567.30 -> 141.30, now cent-equal with the commercial waterfall). |
+| `prd028_ws1_drop_deprecated_expiry_views`        | 12, 13, 16 | ✅ Applied to prod | DROP v_pod_inventory_expiry_status + v_pod_inventory_health (CS-approved; pg_depend re-check 0 dependents in-session; canonical v_machine_expiry_summary live).                                            |
+
+
 ## PRD-028 — metrics registry / Article 16 (WS1-WS5 APPLIED 2026-06-12; WS4 consumer ribbons CS-gated)
 
 | Migration name                                 | Article(s)                | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |

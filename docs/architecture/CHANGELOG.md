@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-028 WS4 Option 1 (matched-only + age-split exposure) APPLIED; WS1 deprecated views DROPPED
+
+**Phase / Article:** Article 16 (canonical payment-default metric) / Articles 4, 12, 13
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`)
+**Migration name:** `prd028_ws4_payment_default_matched_only_v2` + `prd028_ws4_payment_default_v2_1_refund_aligned` + `prd028_ws1_drop_deprecated_expiry_views`
+**Summary:** CS decided WS4 Option 1 with age-split exposure. `get_payment_default_summary` now reports gap/default over MATCHED refs only (settlement-lag refs no longer inflate the partner default: 21.03% class -> 1.28%), with `unmatched_refs`/`unmatched_exposure` explicit and age-split at 7 days (`recent` = lag window, `aged` = likely true default). v2.1 also aligns refunds with PRD-023h (per-ref `default_short = GREATEST(total - settled - refunded - cash, 0)`) after Cody's required live comparison caught v2 double-counting a refund-only ref (gap 567.30 vs waterfall 141.30; delta exactly 2x the 213 refund). Verified cent-equal post-apply: gap 141.30 == waterfall 141.30 (VOX 06-01..11); unmatched exposure 2,209.85 ALL in the recent bucket (0 aged). Signature unchanged (no pg_proc overload). All v1 jsonb keys preserved (/app/performance unaffected structurally). Consumer ribbon full-scope wiring ticketed to Stax (action_tracker `09a15262`). WS1 closure: `v_pod_inventory_expiry_status` + `v_pod_inventory_health` DROPPED with explicit CS approval (zero consumers re-verified via pg_depend in-session; canonical `v_machine_expiry_summary` live). Cody ✅ (Articles 4, 12, 13, 16).
+**Rollback:** redeploy v1 body (md5 `10662ff4870ef54a0907dbe4b3f65926`); views recreate from `prd028_ws1_expiry_canonical`-era definitions if ever needed (none expected; zero consumers).
+
 ## 2026-06-12 — PRD-024 section 2 EXECUTED: 06-13 plan rebuilt (Gates 1+2 passed); WS5 stitch v21 + lifecycle v14 deployed upstream
 
 **Phase / Article:** Phase F / canonical-RPC-only runbook (no raw writes; the two upstream code changes were separately Cody-approved)
