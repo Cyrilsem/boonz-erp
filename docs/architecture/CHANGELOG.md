@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-028 WS2: canonical machine velocity rollup (v_machine_velocity)
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12 (implements Article 16 draft)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612065444_prd028_ws2_velocity_canonical.sql`
+**Migration name:** `prd028_ws2_velocity_canonical`
+**Summary:** One machine-grain velocity object. NEW `v_machine_velocity` (units_7d, units_30d, daily_velocity_7d, daily_velocity_30d; Success-only; rolling now()-interval windows). `get_machine_health.daily_velocity` consumes it (formula identical, values unchanged; fn also gains `SET search_path = public, pg_temp`). `v_machine_health_signals.sales_recent` consumes it: units_last_7d gains the Success filter (no-op today, all last-30d rows are 'Successful') and moves from UTC-midnight CURRENT_DATE anchor to rolling now() (9 machines shift 1-2 units at apply time; one boundary artifact AMZ-1057 50->49 documented in the design note). Product/slot-grain velocities (flag_intent_threats v7/v60, slot_lifecycle, get_sales_by_machine lookback report) intentionally out of scope per registry. AC verified post-apply: 0 velocity mismatches get_machine_health vs canonical; 0 signals mismatches; no inline machine-level SUM(qty)/7 remains.
+**Rollback:** re-apply previous `v_machine_health_signals` + `get_machine_health` bodies (WS1 versions, in `20260612063856_prd028_ws1_expiry_canonical.sql`); `DROP VIEW v_machine_velocity` last.
+
 ## 2026-06-12 — PRD-028 WS1: canonical machine expiry metric (v_machine_expiry_summary + batch-resolution view)
 
 **Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12, 13 (implements Article 16 draft, ratification in WS6)
