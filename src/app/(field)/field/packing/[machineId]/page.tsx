@@ -244,6 +244,10 @@ export default function PackingDetailPage() {
   const [committedByProduct, setCommittedByProduct] = useState<
     Map<string, number>
   >(new Map());
+  /** WS7: boonz_product_id → set of OTHER machine names that have committed (reserved) this stock today. */
+  const [reservedMachinesByProduct, setReservedMachinesByProduct] = useState<
+    Map<string, Set<string>>
+  >(new Map());
   /** `${boonz_product_id}|||${expiry_date ?? 'null'}` → committed qty (per-batch FIFO key) */
   // Phase F dispatch-editing wiring (2026-05-19): WH manager edits qty / add / remove / source pre-pickup.
   const [editingDispatch, setEditingDispatch] = useState<{
@@ -480,7 +484,9 @@ export default function PackingDetailPage() {
       expiration_date: string | null;
     }
 
-    // Fetch Active warehouse batches for relevant boonz products only.
+    // Fetch pickable warehouse batches for relevant boonz products only.
+    // v_wh_pickable is the canonical pickable predicate (Article 16): Active,
+    // not quarantined, in-date or no expiry, stock > 0 — never re-derive inline.
     // When allBoonzIds is empty (e.g. dispatch lines with null boonz_product_id),
     // skip the query entirely — no warehouse rows needed.
     // Filter by the machine's allowed warehouses (primary + WH_CENTRAL for cold).
@@ -489,14 +495,12 @@ export default function PackingDetailPage() {
     const { data: rawBatchData } =
       allBoonzIds.length > 0
         ? await supabase
-            .from("warehouse_inventory")
+            .from("v_wh_pickable")
             .select(
               "wh_inventory_id, boonz_product_id, warehouse_stock, expiration_date",
             )
             .in("boonz_product_id", allBoonzIds)
             .in("warehouse_id", allowedWarehouseIds)
-            .eq("status", "Active")
-            .gt("warehouse_stock", 0)
             .order("expiration_date", { ascending: true, nullsFirst: false })
             .limit(10000)
         : { data: [] };
@@ -954,12 +958,20 @@ export default function PackingDetailPage() {
         fillBatches(line.dispatch_id, line.singleBatches, line.recommended_qty);
       }
     }
-    // Fetch committed (packed=true, dispatched=false) for other machines today
+    // Fetch committed claims for other machines today. Commitment = unpacked AND
+    // unpicked (canonical rule, v_dispatch_availability / METRICS_REGISTRY.md):
+    // a line claims stock only while it has NOT been packed — packing physically
+    // debits warehouse_inventory, so counting packed lines double-subtracted and
+    // produced the Available: 0 bug class (PRD-028 WS3).
+    // WS7: also pull the committing machine's name so packing can show "reserved to {machines}".
     const { data: committedRows } = await supabase
       .from("refill_dispatching")
-      .select("boonz_product_id, expiry_date, filled_quantity, quantity")
+      .select(
+        "boonz_product_id, expiry_date, filled_quantity, quantity, machines(official_name)",
+      )
       .eq("dispatch_date", today)
-      .eq("packed", true)
+      .eq("packed", false)
+      .eq("picked_up", false)
       .eq("dispatched", false)
       .eq("include", true)
       .neq("machine_id", machineId)
@@ -967,6 +979,7 @@ export default function PackingDetailPage() {
 
     const committedMap = new Map<string, number>();
     const committedBatchMap = new Map<string, number>();
+    const reservedMachinesMap = new Map<string, Set<string>>();
     for (const row of committedRows ?? []) {
       if (!row.boonz_product_id) continue;
       const qty =
@@ -979,9 +992,22 @@ export default function PackingDetailPage() {
       );
       const bk = `${row.boonz_product_id}|||${(row.expiry_date as string | null) ?? "null"}`;
       committedBatchMap.set(bk, (committedBatchMap.get(bk) ?? 0) + qty);
+      // machines(official_name) embeds as an object (or array) depending on the relationship shape.
+      const rel = (row as { machines?: unknown }).machines;
+      const name = Array.isArray(rel)
+        ? ((rel[0] as { official_name?: string } | undefined)?.official_name ??
+          null)
+        : ((rel as { official_name?: string } | null)?.official_name ?? null);
+      if (name) {
+        if (!reservedMachinesMap.has(row.boonz_product_id)) {
+          reservedMachinesMap.set(row.boonz_product_id, new Set());
+        }
+        reservedMachinesMap.get(row.boonz_product_id)!.add(name);
+      }
     }
     setCommittedByProduct(committedMap);
     setCommittedByBatch(committedBatchMap);
+    setReservedMachinesByProduct(reservedMachinesMap);
 
     // Cap initBatchPickQtys to batchAvailable (WH stock minus committed to other machines)
     for (const dispatchId of Object.keys(initBatchPickQtys)) {
@@ -2817,13 +2843,27 @@ export default function PackingDetailPage() {
                                 {" | "}
                                 <span
                                   className={
-                                    totalBatchAvailable > 0
+                                    Math.max(0, lineAvailable) > 0
                                       ? "text-green-700 dark:text-green-400"
                                       : "text-red-600 dark:text-red-400"
                                   }
                                 >
-                                  Available: {totalBatchAvailable}
+                                  Available: {Math.max(0, lineAvailable)}
                                 </span>
+                                {(() => {
+                                  const names = reservedMachinesByProduct.get(
+                                    line.boonz_product_id,
+                                  );
+                                  return names && names.size > 0 ? (
+                                    <p className="mt-1 text-neutral-500 dark:text-neutral-400">
+                                      Reserved to:{" "}
+                                      {Array.from(names).sort().join(", ")}.
+                                      Committed means claimed by those
+                                      machines&apos; unpacked lines today (WH
+                                      still holds it, but it is spoken for).
+                                    </p>
+                                  ) : null;
+                                })()}
                                 {totalBatchAvailable <= 0 && (
                                   <p className="mt-1 font-medium text-red-600 dark:text-red-400">
                                     ✗ All batches fully committed — no stock
