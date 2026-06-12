@@ -191,6 +191,11 @@ export default function DispatchingDetailPage() {
       )
       .eq("dispatch_date", today)
       .eq("include", true)
+      // PRD-028 dispatch-state-integrity 3a: skipped/cancelled lines are inert.
+      // They are not rendered at all and never enter shelf totals; the
+      // pack/return RPC guards are the backstop if a stale client misses this.
+      .eq("skipped", false)
+      .eq("cancelled", false)
       .eq("machine_id", machineId)
       .eq("picked_up", true);
 
@@ -550,16 +555,11 @@ export default function DispatchingDetailPage() {
     );
   }
 
-  function handleMarkAllReturned() {
-    setLines((prev) =>
-      prev.map((l) => ({
-        ...l,
-        action: "returned" as LineAction,
-        filled_qty: 0,
-        return_reason: l.return_reason || "Not added to machine",
-      })),
-    );
-  }
+  // PRD-028 dispatch-state-integrity 3b: the bulk "All returned" action was
+  // removed (Incident B: it swept un-actioned lines, including skipped lines
+  // of a cancelled swap, into return_dispatch_line and credited phantom WH
+  // units). Returns are now strictly per-line with an explicit confirm; lines
+  // the driver does not action are left untouched for the EOD sweep.
 
   // ── Save dispatch ──────────────────────────────────────────────────────────
 
@@ -1271,9 +1271,26 @@ export default function DispatchingDetailPage() {
                             : "✓ Added to machine"}
                         </button>
                         <button
-                          onClick={() =>
-                            updateAction(line.dispatch_id, "returned")
-                          }
+                          onClick={() => {
+                            // PRD-028 3c: returns are an explicit per-line act
+                            // with a confirm naming qty + destination WH.
+                            if (line.action !== "returned") {
+                              const qty =
+                                line.dispatch_action === "Remove"
+                                  ? Math.abs(line.quantity ?? 0)
+                                  : (line.filled_qty ?? line.quantity ?? 0);
+                              const dest =
+                                line.from_warehouse_name ??
+                                "the source warehouse";
+                              if (
+                                !confirm(
+                                  `Return ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} to ${dest}? This credits warehouse stock when you save.`,
+                                )
+                              )
+                                return;
+                            }
+                            updateAction(line.dispatch_id, "returned");
+                          }}
                           className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
                             line.action === "returned"
                               ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
@@ -1489,30 +1506,27 @@ export default function DispatchingDetailPage() {
           </button>
         ) : (
           <div className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <button
                 onClick={handleMarkAllAdded}
                 className="rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
                 ✓ All added
               </button>
-              <button
-                onClick={handleMarkAllReturned}
-                className="rounded-lg border border-amber-300 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
-              >
-                ↩ All returned
-              </button>
             </div>
+            {/* PRD-028 3b: Save finalizes ONLY explicitly actioned lines. Lines
+                left untouched stay pending and are released by the EOD sweep
+                (the designed safety net); they are never auto-returned. */}
             <button
               onClick={handleSave}
-              disabled={!allActioned || saving}
+              disabled={addedCount + returnedCount === 0 || saving}
               className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               {saving
                 ? "Saving…"
                 : allActioned
                   ? `Save dispatch (${addedCount} added, ${returnedCount} returned)`
-                  : `Save dispatch — ${lines.filter((l) => l.action === null).length} pending`}
+                  : `Save ${addedCount + returnedCount} actioned line${addedCount + returnedCount === 1 ? "" : "s"} (${lines.filter((l) => l.action === null).length} untouched left for EOD release)`}
             </button>
           </div>
         )}
