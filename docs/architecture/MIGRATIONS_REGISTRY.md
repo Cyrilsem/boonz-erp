@@ -4,6 +4,12 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-025 — finalize preserves approved rows (APPLIED 2026-06-12)
+
+| Migration name                      | Article(s)     | Status             | Note                                                                                                                                                                                                                                                                                              |
+| ----------------------------------- | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `phaseF_finalize_preserve_approved` | 1, 4, 5, 8, 12 | ✅ Applied to prod | `engine_finalize_pod` (2-arg) v13 -> v14: upsert preserves `approved` when qty+action unchanged, else draft. Kills the "Stitch failed: no approved rows" FE Commit race. Rolled-back regression green (133/133 kept; 1 mutated row drafts; subset 24/24 kept). Cody ✅. v13 md5 `ec8ace36...b6d`. |
+
 ## PRD-024 — stitch split normalization + 06-13 reset (section 1 APPLIED 2026-06-12; section 2 gated)
 
 | Migration name                      | Article(s)         | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                  |

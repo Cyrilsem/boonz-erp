@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-025 Option A: engine_finalize_pod preserves approved rows
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 5, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612210000_phaseF_finalize_preserve_approved.sql`
+**Migration name:** `phaseF_finalize_preserve_approved`
+**Summary:** `engine_finalize_pod`'s upsert unconditionally `SET status='draft'`, so whenever finalize ran after `approve_pod_refill_plan` (FE Commit ordering race, observed 2026-06-11/12: approve 01:53:30.2 -> finalize 01:53:30.7), every approved row silently reverted to draft and the next stitch raised "no approved rows" to the operator. v14 preserves `approved` when the incumbent row is materially unchanged (same qty + action); material changes still revert to draft and demand re-approval. Two deltas vs v13 (md5 `ec8ace36cc2b1a6527bc0eb8ea185b6d`), rest of the 15,927-char 2-arg body verbatim; 1-arg wrapper untouched. Article 5 note: this removes an implicit, undocumented approved->draft demotion; `approved -> stitched` remains exclusive to `confirm_stitched_plan`. Rolled-back regression on 2026-06-13 (119 pod_refills + 7 pod_swaps): (1) no-op re-finalize keeps 133/133 approved with 0 drafts; (2) one mutated pod_refills qty -> exactly that row drafts (132 approved / 1 draft); (4) subset re-finalize keeps the machine's 24/24 approved. Option B (FE always orders finalize -> approve -> stitch) ticketed to Stax as cheap insurance.
+**Rollback:** redeploy the v13 body (restore `status = 'draft'` and the `v13_subset_aware_decision` version string).
+
 ## 2026-06-12 — PRD-024 section 1: stitch v20 self-normalizing SKU split (CRITICAL)
 
 **Phase / Article:** Phase F / Constitution Articles 1, 4, 5, 8, 12, 14
