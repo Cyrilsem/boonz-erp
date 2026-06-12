@@ -4,6 +4,13 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-027 — refill hardening batch (WS1 APPLIED 2026-06-12; WS5 drafted-held; WS2/3/4 ticketed)
+
+| Migration name                            | Article(s)  | Status                    | Note                                                                                                                                                                                                                                                                            |
+| ----------------------------------------- | ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `phaseF_swap_pod_v10_2_ws1_guards`        | 1, 4, 8, 12 | ✅ Applied to prod        | engine_swap_pod v10.1 -> v10.2: p_min_pearson applied w/ explicit `global_performer_fallback` marker; per-machine cap across passes (overflow dead-tags deferred + carried); `clamp_reason=default_capacity_8` audit marker. Cody ✅. v10.1 md5 `c30f1165...4894`. Smoke green. |
+| `_DRAFT_phaseF_stitch_v21_ws5_real_stock` | 1, 4, 8, 12 | 🟡 DRAFT - HELD (CS gate) | stitch v21: emit real current/max stock instead of hardcoded zeros. Second stitch rewrite within 24h of v20 -> needs CS green light + apply-time Cody on the full verbatim body. Underscore prefix keeps db push from applying it.                                              |
+
 ## PRD-025 — finalize preserves approved rows (APPLIED 2026-06-12)
 
 | Migration name                      | Article(s)     | Status             | Note                                                                                                                                                                                                                                                                                              |

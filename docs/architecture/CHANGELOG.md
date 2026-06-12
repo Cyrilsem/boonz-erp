@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-12 — PRD-027 WS1: engine_swap_pod v10.2 swap guards; WS5 drafted (held); WS2/3/4 ticketed
+
+**Phase / Article:** Phase F / Constitution Articles 1, 4, 8, 12
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612220000_phaseF_swap_pod_v10_2_ws1_guards.sql`
+**Migration name:** `phaseF_swap_pod_v10_2_ws1_guards`
+**Summary:** Three WS1 guards on the canonical Stage-2b writer, rest of the 15,359-char v10.1 body verbatim (md5 `c30f1165329034488967b1dfca5e4894`). **1a:** `p_min_pearson` is now actually applied in the dead-tag resolution - threshold-qualifying candidates are preferred (`ORDER BY (pearson >= p_min_pearson) DESC, rank`); when none qualify the best remaining candidate is taken EXPLICITLY with `substitute_source='global_performer_fallback'` + `reasoning.below_pearson_threshold=true` (last night shipped corr 0.214/0.242 swaps with no marker). **1b:** `p_max_swaps_per_machine` now caps ACROSS passes - strategic tags consume the budget first, dead-tags resolve worst-shelf-first (lowest live stock), overflow rows are deferred with `reasoning.deferred_by_cap=true` and carry to the next cycle (pod_in stays NULL so finalize's orphan-M2W suppression keeps them off the driver plan). Driver-rec swaps stay uncapped (driver-initiated). **1c:** when the swap-in qty falls back to the hardcoded 8 (no `v_shelf_max_stock` row), `reasoning.clamp_reason='default_capacity_8'` makes it auditable until the WS4 backfill. New return counters `dead_tags_deferred_by_cap` + `dead_tags_below_pearson_fallback`. Cody ✅. Rolled-back smoke on 06-13 (gate-0 confirmed in-tx): executes end-to-end, new return shape verified. **WS5** (stitch emits real current/max stock) drafted as `_DRAFT_phaseF_stitch_v21_ws5_real_stock.sql` - HELD: second stitch rewrite within 24h of v20 needs CS green light + apply-time Cody on the full body. **WS2/WS3/WS4** ticketed in action_tracker (Stax FE source-WH column; push_plan_to_dispatch WH-assignment audit; Dara max_capacity backfill design).
+**Rollback:** redeploy the v10.1 body (md5 above).
+
 ## 2026-06-12 — PRD-026: evaluate-lifecycle v14 built (scoring integrity) — DEPLOY HELD for CS thresholds
 
 **Phase / Article:** Phase E lifecycle / Constitution Articles 1, 9 (inherited scorer pattern; no new write paths)

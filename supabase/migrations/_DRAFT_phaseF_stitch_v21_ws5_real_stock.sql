@@ -1,0 +1,47 @@
+-- _DRAFT (PRD-027 WS5) — stitch v20 -> v21: emit REAL current_stock / max_stock.
+-- HELD: this would be the SECOND stitch_pod_to_boonz rewrite within 24h of
+-- phaseF_stitch_split_pct_normalize (applied 2026-06-12), so per the
+-- 24h-second-rewrite rule it needs explicit CS green light, plus a Cody
+-- verdict on the final verbatim body at apply time. The underscore prefix
+-- keeps `supabase db push` from picking this file up.
+--
+-- Problem: stitch v19/v20 hardcodes 'current_stock',0,'max_stock',0 in every
+-- emitted refill_plan_output line, so any FE comparison renders every row
+-- "above cap" (contributed to the 2026-06-12 cap scare).
+--
+-- Exact delta vs live v20 (md5 to be re-captured at apply; body otherwise
+-- verbatim):
+-- 1. Add two CTEs to the big WITH chain, after `all_lines`:
+--
+--    shelf_stock AS (
+--      SELECT vls.machine_id, sc.shelf_id, MAX(vls.current_stock)::int AS current_stock
+--        FROM public.v_live_shelf_stock vls
+--        JOIN public.shelf_configurations sc
+--          ON sc.machine_id = vls.machine_id AND sc.is_phantom = false
+--         AND vls.slot_name = LEFT(sc.shelf_code,1) || (SUBSTR(sc.shelf_code,2)::int)::text
+--       GROUP BY vls.machine_id, sc.shelf_id
+--    ),
+--    shelf_caps AS (
+--      SELECT sms.shelf_id, MAX(sms.max_stock_weimi)::int AS max_stock
+--        FROM public.v_shelf_max_stock sms
+--       GROUP BY sms.shelf_id
+--    )
+--
+-- 2. Final emit changes FROM `all_lines` to:
+--      FROM all_lines al
+--      LEFT JOIN shelf_stock ss ON ss.machine_id = al.machine_id AND ss.shelf_id = al.shelf_id
+--      LEFT JOIN shelf_caps  cap ON cap.shelf_id = al.shelf_id
+--    and the two hardcoded fields become:
+--      'current_stock', COALESCE(ss.current_stock, 0),
+--      'max_stock',     COALESCE(cap.max_stock, 0),
+--    (all_lines column references gain the al. prefix in the jsonb_build_object).
+--
+-- 3. engine_version: 'v20_split_pct_normalize' -> 'v21_ws5_real_stock'.
+--
+-- Notes: write_refill_plan already accepts current_stock/max_stock from the
+-- line jsonb (columns exist on refill_plan_output; stitch was feeding zeros).
+-- COALESCE keeps 0 for shelves absent from both views, which is the WS4
+-- backfill population - those stay flagged rather than invented.
+-- Apply procedure: fetch live v20 functiondef, apply deltas 1-3, Cody review
+-- of the full body, apply as phaseF_stitch_v21_ws5_real_stock, verify
+-- engine_version + spot-check emitted lines on the next dry-run.
