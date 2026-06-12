@@ -21,6 +21,14 @@ Format:
 **Summary (runbook):** 65 stale drafts for CS-dropped NISSAN-0804/NOOK-1019/VML-1003 superseded via reject_pod_refill_rows (5 plan dates); reset_approved_undispatched structurally no-op (103 rpo rows already pending, no dispatch links); re-pick on v14 signals (8) -> NISSAN+VML dropped via unpick_machine_to_visit + set_machine_inclusion(false) (engines do not read is_included; unpick is operative); Gate 0 (6 confirmed); engine_add v16 (101 refills, 11 dead tags) -> engine_swap v10.2 first live run (8 resolved, 3 deferred_by_cap, 2 below-pearson explicit fallbacks) -> finalize v14 (120 drafts, 3 orphan-M2W suppressed). Gate 1 (CS GO): approve subset 7 machines, 117 rows (VOXMCC-1005 via sticky cs_added). Stitch v21 dry-run + FULL PRD-024 battery green incl. item 3 vs FRESH post-transfer WH (42 zero-WH variants excluded) + item 6 (deviations 0, noncanonical 0); 109/109 shelves real current/max stock. Gate 2 (CS GO): commit 102 lines / 117 stitched; approve_refill_plan -> 102 dispatch rows back-populated; cleanup_orphan_dispatching deleted 22 true orphans; remaining 81 stale lines auto-skipped by the resilient bridge. Post-commit: coverage 7/7 (102 active lines), 0 shelves with SUM(variants) > pod_qty (28 exact, 20 WH-limited).
 **Rollback:** plan layer only - reset_and_restitch / reset_approved_undispatched on 2026-06-13. WS5: redeploy v20; v14: redeploy v13.1 (platform v22).
 
+## 2026-06-12 — PRD-028 WS5: v_active_fleet canonical fleet scope
+
+**Phase / Article:** PRD-028 metrics registry / Constitution Articles 4, 12, 14 (implements Article 16 draft)
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo file `20260612072352_prd028_ws5_active_fleet.sql`
+**Migration name:** `prd028_ws5_active_fleet`
+**Summary:** NEW `v_active_fleet` (34 machines): base rule status NOT IN (Inactive, Warehouse); `include_in_refill`, `repurposed_at`, `service_track` are EXPOSED columns so each consumer declares its extra filter instead of re-deriving it. Measured why repurposed_at is not baked in: 4 of 11 VOX reconciliation-scope machines are repurposed-but-Active and carry 3,620.75 AED of 06-01..11 sales - excluding them would silently drop 27% of period money. `get_payment_default_summary` venue-scope branch rewired to the view; full jsonb equality with the pre-migration output proven on 06-01..11 VOX (zero value change). Data smell flagged for CS: 5 Active machines fleet-wide have repurposed_at set (old identities never archived). Follow-up consumers (wire on their next change): get_vox_commercial_report pods scope, v_machine_health_signals base.
+**Rollback:** re-apply the previous get_payment_default_summary body (inline scope); DROP VIEW v_active_fleet.
+
 ## 2026-06-12 — PRD-028 WS4: /app/performance banners wired to get_payment_default_summary; consumer ribbons deferred on CS decision
 
 **Phase / Article:** PRD-028 metrics registry / Article 16 draft (FE read wiring only; no DB change)
