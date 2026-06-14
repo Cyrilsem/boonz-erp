@@ -53,6 +53,21 @@ export default function DispatchingPage() {
       return;
     }
 
+    // PRD-030 Article 16: a machine is ready to dispatch when
+    // v_machine_pack_status.is_pickup_complete (computed over the physical
+    // subset) — not_filled / skipped lines must not hold dispatch below 100%.
+    const { data: statusRows } = await supabase
+      .from("v_machine_pack_status")
+      .select("machine_id, is_pickup_complete")
+      .eq("dispatch_date", today)
+      .limit(10000);
+    const pickupCompleteByMachine = new Map<string, boolean>(
+      (statusRows ?? []).map((s) => [
+        s.machine_id as string,
+        !!s.is_pickup_complete,
+      ]),
+    );
+
     const grouped = new Map<
       string,
       {
@@ -105,9 +120,10 @@ export default function DispatchingPage() {
       }
     }
 
-    // Only include machines where ALL lines have been picked up
+    // PRD-030 Article 16: ready-to-dispatch is canonical (is_pickup_complete over
+    // the physical subset), not "every line picked up".
     const result: DispatchMachine[] = Array.from(grouped.values())
-      .filter((m) => m.picked_up_count === m.total)
+      .filter((m) => pickupCompleteByMachine.get(m.machine_id) ?? false)
       .map((m) => ({
         machine_id: m.machine_id,
         official_name: m.official_name,

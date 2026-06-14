@@ -12,7 +12,10 @@ import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type LineAction = "packed" | "skip" | null;
+// PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
+// marked done with no WH debit (pack_dispatch_line with empty picks). "partial" =
+// picked < planned (engine keeps planned qty; remainder is a not_filled remainder line).
+type LineAction = "packed" | "skip" | "not_filled" | "partial" | null;
 
 interface BatchAllocation {
   wh_inventory_id: string;
@@ -53,6 +56,8 @@ interface PackLine {
   action: LineAction;
   /** DB packed boolean — true if this line was already packed+saved in a prior session */
   packed: boolean;
+  /** PRD-030 canonical pack outcome: 'packed' | 'partial' | 'not_filled' | null (pending) */
+  pack_outcome: "packed" | "partial" | "not_filled" | null;
   /** DB dispatched boolean — true once driver has dispatched. Hard lock on Override & re-pack. */
   dispatched: boolean;
   fifo_expiry: string | null;
@@ -214,6 +219,11 @@ export default function PackingDetailPage() {
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [whWarnMsg, setWhWarnMsg] = useState<string>("");
+  /** PRD-030: confirm_machine_packed blocked result — unresolved lines hold the gate. */
+  const [confirmBlock, setConfirmBlock] = useState<{
+    message: string;
+    unresolved: { shelf_code?: string; pod_product_name?: string }[];
+  } | null>(null);
   /** B3.1: skipped-but-recoverable lines (include=false, packed=false) */
   const [skippedLines, setSkippedLines] = useState<
     {
@@ -308,6 +318,7 @@ export default function PackingDetailPage() {
         quantity,
         filled_quantity,
         packed,
+        pack_outcome,
         dispatched,
         returned,
         return_reason,
@@ -677,6 +688,14 @@ export default function PackingDetailPage() {
         primary_expiry: null,
       };
       const isPacked = !!line.packed;
+      // PRD-030 canonical pack outcome. A not_filled line has packed=false but a
+      // recorded outcome — it must still count as actioned (no dark stage).
+      const packOutcome =
+        ((line as Record<string, unknown>).pack_outcome as
+          | "packed"
+          | "partial"
+          | "not_filled"
+          | null) ?? null;
       const podId = line.pod_product_id ?? "";
       // A line is only mix if the pod has >1 variant AND this line has no
       // boonz_product_id (refill engine left it for packing to split).
@@ -736,8 +755,15 @@ export default function PackingDetailPage() {
         packed_qty:
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
         filled_quantity: (line.filled_quantity as number | null) ?? null,
-        action: isPacked ? "packed" : null,
+        action: isPacked
+          ? packOutcome === "partial"
+            ? "partial"
+            : "packed"
+          : packOutcome === "not_filled"
+            ? "not_filled"
+            : null,
         packed: isPacked,
+        pack_outcome: packOutcome,
         dispatched: !!line.dispatched,
         fifo_expiry: fifo.primary_expiry,
         expiry_date: (line.expiry_date as string | null) ?? null,
@@ -1315,6 +1341,40 @@ export default function PackingDetailPage() {
     // child rows — no optimistic caching.
     await fetchData();
 
+    // PRD-030: confirm_machine_packed is the canonical "machine packing done"
+    // gate (Article 16). It blocks if any line is still pending (not packed /
+    // not_filled / skipped). Surface the unresolved list instead of navigating.
+    setConfirmBlock(null);
+    if (machine?.official_name) {
+      const { data: confirmData, error: confirmErr } = await supabase.rpc(
+        "confirm_machine_packed",
+        {
+          p_machine_name: machine.official_name,
+          p_dispatch_date: getDubaiDate(),
+          p_reason: "Packing confirmed by warehouse via packing screen",
+        },
+      );
+      if (confirmErr) {
+        console.error("[PRD-030] confirm_machine_packed failed", confirmErr);
+        setWhWarnMsg(`Confirm failed: ${confirmErr.message}`);
+        setSaving(false);
+        return;
+      }
+      const result = confirmData as {
+        status?: string;
+        message?: string;
+        unresolved?: { shelf_code?: string; pod_product_name?: string }[];
+      } | null;
+      if (result?.status === "blocked") {
+        setConfirmBlock({
+          message: result.message ?? "Some lines are still unresolved.",
+          unresolved: result.unresolved ?? [],
+        });
+        setSaving(false);
+        return;
+      }
+    }
+
     setSaving(false);
     setSaved(true);
     setEditingAfterSave(false);
@@ -1343,6 +1403,28 @@ export default function PackingDetailPage() {
       setZeroQtyWarnings((prev) => new Set([...prev, line.dispatch_id]));
     }
     updateAction(line.dispatch_id, "packed");
+  }
+
+  // PRD-030: mark a zero-stock line "not filled" via the canonical RPC.
+  // pack_dispatch_line with an empty pick array debits no warehouse stock and
+  // leaves packed=false / pack_outcome='not_filled' — no dark stage, no skip.
+  async function handleMarkNotFilled(line: PackLine) {
+    setSaving(true);
+    setWhWarnMsg("");
+    const supabase = createClient();
+    const { error } = await supabase.rpc("pack_dispatch_line", {
+      p_dispatch_id: line.dispatch_id,
+      p_picks: [],
+    });
+    if (error) {
+      console.error("[PRD-030] mark not_filled failed", error);
+      setWhWarnMsg(`Mark not filled failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+    updateAction(line.dispatch_id, "not_filled");
+    await fetchData();
+    setSaving(false);
   }
 
   if (loading) {
@@ -2899,6 +2981,20 @@ export default function PackingDetailPage() {
                       </div>
                     )}
 
+                    {/* PRD-030 outcome labels — surface not_filled / partial state */}
+                    {line.pack_outcome === "not_filled" && (
+                      <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                        Not filled (planned {line.recommended_qty}, packed 0)
+                      </p>
+                    )}
+                    {line.pack_outcome === "partial" && (
+                      <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                        Partial: packed{" "}
+                        {line.filled_quantity ?? line.packed_qty} of{" "}
+                        {line.recommended_qty}
+                      </p>
+                    )}
+
                     {/* Action toggle */}
                     {!isReadOnly && (
                       <div className="flex gap-2">
@@ -2934,6 +3030,21 @@ export default function PackingDetailPage() {
                           }`}
                         >
                           {fullyCommitted ? "✗ No stock" : "✓ Packed"}
+                        </button>
+                        {/* PRD-030: no-stock lines mark not_filled via the
+                            canonical RPC (empty picks) — no WH debit, counts as
+                            actioned, no dark stage. */}
+                        <button
+                          onClick={() => handleMarkNotFilled(line)}
+                          disabled={saving}
+                          title="No batch to pick — mark not filled (no warehouse debit)"
+                          className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                            line.action === "not_filled"
+                              ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                              : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                          }`}
+                        >
+                          ⊘ Not filled
                         </button>
                         <button
                           onClick={() => updateAction(line.dispatch_id, "skip")}
@@ -2990,6 +3101,28 @@ export default function PackingDetailPage() {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* PRD-030: confirm_machine_packed blocked — unresolved lines hold the gate */}
+      {confirmBlock && (
+        <div className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="mb-2 font-semibold text-amber-800 dark:text-amber-300">
+            {confirmBlock.message}
+          </p>
+          {confirmBlock.unresolved.length > 0 && (
+            <ul className="space-y-1">
+              {confirmBlock.unresolved.map((u, i) => (
+                <li
+                  key={i}
+                  className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400"
+                >
+                  <span className="font-mono">{u.shelf_code ?? "—"}</span>
+                  <span className="truncate">{u.pod_product_name ?? "—"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

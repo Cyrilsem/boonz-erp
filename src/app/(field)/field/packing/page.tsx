@@ -15,6 +15,9 @@ interface PackingMachine {
   adyen_store_code: string | null;
   sku_count: number;
   packed_count: number;
+  /** PRD-030 Article 16: canonical readiness from v_machine_pack_status */
+  is_pack_complete: boolean;
+  pack_confirmed: boolean;
 }
 
 export default function PackingPage() {
@@ -40,6 +43,30 @@ export default function PackingPage() {
       return;
     }
 
+    // PRD-030 Article 16: read canonical pack readiness instead of counting
+    // packed lines client-side. is_pack_complete is true once every included
+    // line is resolved (packed / not_filled / skipped), so not_filled lines
+    // don't hold the machine below 100%.
+    const { data: statusRows } = await supabase
+      .from("v_machine_pack_status")
+      .select(
+        "machine_id, is_pack_complete, pack_confirmed, not_filled, total_included, resolved",
+      )
+      .eq("dispatch_date", today)
+      .limit(10000);
+    const statusByMachine = new Map<
+      string,
+      { is_pack_complete: boolean; pack_confirmed: boolean }
+    >(
+      (statusRows ?? []).map((s) => [
+        s.machine_id as string,
+        {
+          is_pack_complete: !!s.is_pack_complete,
+          pack_confirmed: !!s.pack_confirmed,
+        },
+      ]),
+    );
+
     const grouped = new Map<string, PackingMachine>();
 
     for (const line of lines) {
@@ -52,12 +79,15 @@ export default function PackingPage() {
         existing.sku_count += 1;
         if (line.packed) existing.packed_count += 1;
       } else {
+        const status = statusByMachine.get(line.machine_id);
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
           official_name: m.official_name,
           adyen_store_code: m.adyen_store_code,
           sku_count: 1,
           packed_count: line.packed ? 1 : 0,
+          is_pack_complete: status?.is_pack_complete ?? false,
+          pack_confirmed: status?.pack_confirmed ?? false,
         });
       }
     }
@@ -125,7 +155,9 @@ export default function PackingPage() {
       )}
       <ul data-tour="packing-list" className="space-y-2">
         {machines.map((machine, idx) => {
-          const ready = machine.packed_count === machine.sku_count;
+          // PRD-030 Article 16: readiness is canonical (is_pack_complete), not a
+          // client-side packed-count match. pack_confirmed shows the sub-state.
+          const ready = machine.is_pack_complete;
           return (
             <li key={machine.machine_id}>
               <Link
@@ -155,7 +187,11 @@ export default function PackingPage() {
                       : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
                   }`}
                 >
-                  {ready ? "Ready" : "Packing"}
+                  {machine.pack_confirmed
+                    ? "Confirmed"
+                    : ready
+                      ? "Ready"
+                      : "Packing"}
                 </span>
               </Link>
             </li>

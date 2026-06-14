@@ -18,6 +18,10 @@ interface PickupLine {
   filled_quantity: number;
   dispatched: boolean;
   returned: boolean;
+  /** DB packed boolean — not_filled lines are packed=false and must NOT be sent to mark_picked_up */
+  packed: boolean;
+  /** PRD-030 canonical pack outcome */
+  pack_outcome: "packed" | "partial" | "not_filled" | null;
   /** True if this is a machine-to-machine transfer (no WH packing was needed) */
   is_m2m: boolean;
   /** Route comment for M2M lines (e.g. "M2M: AMZ-1029 → AMZ-1057") */
@@ -49,7 +53,7 @@ export default function PickupPage() {
       .from("refill_dispatching")
       .select(
         `
-        dispatch_id, machine_id, action, packed, picked_up, quantity,
+        dispatch_id, machine_id, action, packed, pack_outcome, picked_up, quantity,
         filled_quantity, dispatched, returned, is_m2m, comment,
         machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code),
         shelf_configurations(shelf_code),
@@ -66,6 +70,21 @@ export default function PickupPage() {
       setLoading(false);
       return;
     }
+
+    // PRD-030 Article 16: a machine is ready for pickup when v_machine_pack_status
+    // .is_pack_complete (computed over the physical subset), NOT when every line
+    // is packed — not_filled lines (packed=false) must not block pickup.
+    const { data: statusRows } = await supabase
+      .from("v_machine_pack_status")
+      .select("machine_id, is_pack_complete")
+      .eq("dispatch_date", today)
+      .limit(10000);
+    const packCompleteByMachine = new Map<string, boolean>(
+      (statusRows ?? []).map((s) => [
+        s.machine_id as string,
+        !!s.is_pack_complete,
+      ]),
+    );
 
     const grouped = new Map<
       string,
@@ -95,7 +114,8 @@ export default function PickupPage() {
       const existing = grouped.get(line.machine_id);
       const pickupLine: PickupLine = {
         dispatch_id: line.dispatch_id,
-        dispatch_action: (((line as Record<string, unknown>).action as string) ?? "Refill") as DispatchAction,
+        dispatch_action: (((line as Record<string, unknown>)
+          .action as string) ?? "Refill") as DispatchAction,
         shelf_code: shelf?.shelf_code ?? null,
         pod_product_name: product?.pod_product_name ?? "Transfer",
         quantity: line.quantity ?? 0,
@@ -103,8 +123,16 @@ export default function PickupPage() {
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
         dispatched: !!(line.dispatched as boolean | null),
         returned: !!(line.returned as boolean | null),
+        packed: !!(line.packed as boolean | null),
+        pack_outcome:
+          ((line as Record<string, unknown>).pack_outcome as
+            | "packed"
+            | "partial"
+            | "not_filled"
+            | null) ?? null,
         is_m2m: !!((line as Record<string, unknown>).is_m2m as boolean | null),
-        comment: ((line as Record<string, unknown>).comment as string | null) ?? null,
+        comment:
+          ((line as Record<string, unknown>).comment as string | null) ?? null,
       };
 
       if (existing) {
@@ -125,9 +153,10 @@ export default function PickupPage() {
       }
     }
 
-    // Only include machines where ALL lines are packed
+    // PRD-030 Article 16: ready-for-pickup is canonical (is_pack_complete), not
+    // "every line packed" — not_filled lines don't hold the machine back.
     const result: PickupMachine[] = Array.from(grouped.values())
-      .filter((m) => m.packed_count === m.total)
+      .filter((m) => packCompleteByMachine.get(m.machine_id) ?? false)
       .map((m) => ({
         machine_id: m.machine_id,
         official_name: m.official_name,
@@ -164,9 +193,11 @@ export default function PickupPage() {
     setConfirming(machineId);
     const supabase = createClient();
 
-    // Gather every dispatch_id for this machine from current state.
+    // PRD-030: only the PHYSICAL (packed) lines go to mark_picked_up. not_filled
+    // lines have packed=false and must be excluded — there is nothing to collect.
     const machine = machines.find((m) => m.machine_id === machineId);
-    const dispatchIds = machine?.lines.map((l) => l.dispatch_id) ?? [];
+    const dispatchIds =
+      machine?.lines.filter((l) => l.packed).map((l) => l.dispatch_id) ?? [];
     if (dispatchIds.length === 0) {
       setConfirming(null);
       return;
@@ -306,7 +337,8 @@ export default function PickupPage() {
                         </span>
                         <span className="text-neutral-400">·</span>
                         <span className="text-neutral-500">
-                          Pack only Refill + Add new. Remove = collect. M2M = machine swap, no pack needed.
+                          Pack only Refill + Add new. Remove = collect. M2M =
+                          machine swap, no pack needed.
                         </span>
                       </div>
                       <ul className="mt-3 space-y-1">
@@ -344,9 +376,11 @@ export default function PickupPage() {
                             <li
                               key={line.dispatch_id}
                               className={`flex flex-col gap-1 rounded px-3 py-2 text-sm ${
-                                line.is_m2m
-                                  ? "bg-teal-50/50 dark:bg-teal-950/10"
-                                  : "bg-neutral-50 dark:bg-neutral-900"
+                                line.pack_outcome === "not_filled"
+                                  ? "bg-amber-50/50 opacity-70 dark:bg-amber-950/10"
+                                  : line.is_m2m
+                                    ? "bg-teal-50/50 dark:bg-teal-950/10"
+                                    : "bg-neutral-50 dark:bg-neutral-900"
                               }`}
                             >
                               <div className="flex items-center gap-2">
@@ -368,6 +402,12 @@ export default function PickupPage() {
                               {line.is_m2m && line.comment && (
                                 <p className="text-[11px] text-teal-600 dark:text-teal-400 pl-7">
                                   {line.comment}
+                                </p>
+                              )}
+                              {line.pack_outcome === "not_filled" && (
+                                <p className="pl-7 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                                  Not filled (planned {line.quantity}, packed 0)
+                                  — nothing to collect
                                 </p>
                               )}
                             </li>
