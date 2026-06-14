@@ -10,6 +10,10 @@ Migrations not listed here are pre-reform (operational migrations from before 20
 | -------------- | ---------- | ------ | ---- |
 | `prd030_pack_outcome_enum_and_column` | 12, 14 | ✅ Applied to prod | CREATE TYPE pack_outcome_enum(packed/partial/not_filled) + ADD COLUMN refill_dispatching.pack_outcome (nullable). Forward-only column evolution. Cody class (a) ✅. |
 | `prd030_pack_dispatch_line_partial_notfilled` | 1,4,5,8,12,14 | ✅ Applied to prod | Empty picks => not_filled (no WH debit), partial keeps planned in original_quantity, conserve trigger untouched. Battery green. Cody ✅. v-before md5 `63454d3d...703c`. |
+| `prd030_dispatch_pack_confirmation_table` (+`_add_id_pk`) | 2,7,8,12 | ✅ Applied to prod | New dispatch_pack_confirmation table (id PK + UNIQUE(machine_id,dispatch_date)); RLS read-all + DEFINER-only + audit_log_write. |
+| `prd030_confirm_machine_packed` | 1,4,8,12 | ✅ Applied to prod | Machine-level pack gate; blocked unless all lines resolved; writes only the confirmation table. Battery green. Cody ✅. |
+| `prd030_pack_status_and_notfilled_views` | 16 | ✅ Applied to prod | Canonical v_machine_pack_status (readiness) + v_not_filled_lines (unfilled demand, incl. partial remainders). |
+| `prd030_release_stale_exclude_not_filled` | 1,4,12 | ✅ Applied to prod | EOD release excludes not_filled lines. |
 
 
 ## PRD-029 dispatch-state-integrity — skipped lines inert (step 1 APPLIED 2026-06-12)

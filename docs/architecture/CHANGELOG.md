@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-14 — PRD-030 partial-pack (step 3): confirm_machine_packed + readiness/fleet views + EOD exclusion
+
+**Phase / Article:** Phase F dispatch / Constitution Articles 1, 2, 4, 7, 8, 12, 16
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo migration files
+**Migration name:** `prd030_dispatch_pack_confirmation_table` + `..._add_id_pk` + `prd030_confirm_machine_packed` + `prd030_pack_status_and_notfilled_views` + `prd030_release_stale_exclude_not_filled`
+**Summary:** New canonical `confirm_machine_packed(machine,date,packed_by,reason)` flips a machine to packed once every included non-cancelled fillable line is resolved (packed/partial/not_filled/skipped); returns `status='blocked'` + the unresolved lines otherwise (never invents picks). It writes only the new `dispatch_pack_confirmation` table (surrogate id PK + UNIQUE(machine_id,dispatch_date) for the upsert; RLS read-all + DEFINER-only write + generic audit_log_write trigger — the id PK was added because audit_log_write addresses rows by .id). Two Article-16 canonical views replace the three ad-hoc FE count predicates: `v_machine_pack_status` (is_pack_complete over resolved lines; is_pickup/dispatch_complete over the PHYSICAL packed subset, so not_filled/skipped never block) and `v_not_filled_lines` (unfilled demand incl. partial remainders, per Cody revision #2). `release_stale_unpacked_dispatches` now excludes `not_filled` lines from the EOD auto-cancel (a packed machine with not-filled lines is complete, not stale). Rolled-back battery green: confirm blocked with an unresolved line, ok when resolved (machine with 2 not_filled lines reaches is_pack_complete=true AND is_pickup_complete=true); v_not_filled_lines reports shortfall 7 across 2 lines; EOD predicate counts a plain stale line and excludes a not_filled line. Step 4 (FE) + step 5 (real-data battery + Vercel) follow.
+**Rollback:** drop the two views + confirm RPC + table; redeploy release_stale prior body. All additive.
+
 ## 2026-06-14 — PRD-030 partial-pack (steps 1-2): not_filled marker + pack_dispatch_line
 
 **Phase / Article:** Phase F dispatch / Constitution Articles 1, 4, 5, 8, 12, 14
