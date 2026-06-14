@@ -33,7 +33,6 @@ type RefillPlanRow = {
   smart_target: number | null;
   tier: string | null;
   global_score: number | null;
-  sold_7d: number | null;
   fill_pct: number | null;
   comment: string | null;
   operator_status: string;
