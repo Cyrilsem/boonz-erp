@@ -71,6 +71,36 @@ type AddRowForm = {
 
 type ViewMode = "empty" | "draft" | "pending";
 
+// PRD-031 WS-4: refill execution accuracy (canonical view v_refill_accuracy via get_refill_plan_accuracy)
+export type AccuracyLine = {
+  machine_name: string;
+  shelf_code: string;
+  pod_product_name: string;
+  action: string;
+  pod_intent: number;
+  dispatched_qty: number;
+  shelf_gap: number;
+  wh_short: boolean;
+  shortfall: number;
+  status: "ok" | "wh_short" | "leak" | "over";
+};
+type AccuracySummary = {
+  lines: AccuracyLine[];
+  summary: {
+    shelf_pods: number;
+    ok: number;
+    wh_short: number;
+    leak: number;
+    over: number;
+    total_intent: number;
+    total_dispatched: number;
+    total_gap: number;
+    intent_fill_ratio: number;
+    gap_fill_ratio: number;
+    verdict: "pass" | "flag" | "block";
+  };
+};
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function actionBadge(action: string) {
@@ -212,6 +242,9 @@ export function RefillPlanningTab({
   // View mode: empty | draft (pod_refill_plan) | pending (refill_plan_output)
   const [viewMode, setViewMode] = useState<ViewMode>("empty");
 
+  // PRD-031 WS-4: refill accuracy gate (intent vs dispatched vs gap per shelf-pod)
+  const [accuracy, setAccuracy] = useState<AccuracySummary | null>(null);
+
   // Add row modal
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<AddRowForm>(BLANK_FORM);
@@ -333,6 +366,7 @@ export function RefillPlanningTab({
     setPlanRows(rows);
     setGenerated(true);
     setViewMode("draft");
+    setAccuracy(null); // accuracy applies to the dispatched (pending) plan only
 
     // PRD-015 AC#13: hydrate include/exclude state from machines_to_visit.
     // Graceful: if is_included is not yet deployed, default every machine to included.
@@ -439,13 +473,11 @@ export function RefillPlanningTab({
     setRemoved(new Set());
     setEditedQty({});
 
-    const { data, error } = await supabase
-      .from("refill_plan_output")
-      .select("*")
-      .eq("plan_date", selectedDate)
-      .eq("operator_status", "pending")
-      .order("shelf_code")
-      .order("action", { ascending: false });
+    // WS7: enriched reader joins live shelf stock + 7d sales (refill_plan_output stores 0/0 placeholders).
+    const { data, error } = await supabase.rpc(
+      "get_refill_plan_output_enriched",
+      { p_plan_date: selectedDate },
+    );
 
     setLoading(false);
     if (error) {
@@ -485,6 +517,17 @@ export function RefillPlanningTab({
       ok: true,
       msg: `Loaded ${rows.length} pending lines for ${selectedDate}`,
     });
+
+    // PRD-031 WS-4: load the accuracy gate (intent vs dispatched vs gap) for this plan
+    const { data: accData, error: accErr } = await supabase.rpc(
+      "get_refill_plan_accuracy",
+      { p_plan_date: selectedDate },
+    );
+    if (!accErr && accData) {
+      setAccuracy(accData as AccuracySummary);
+    } else {
+      setAccuracy(null);
+    }
   }, [
     selectedDate,
     supabase,
@@ -1058,6 +1101,96 @@ export function RefillPlanningTab({
               <div className="text-xs text-gray-500 mt-1">{label}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── PRD-031 WS-4: refill accuracy gate ────────────────────────── */}
+      {generated && !isDraft && accuracy && (
+        <div
+          className={`rounded-xl border p-4 mb-6 ${
+            accuracy.summary.verdict === "block"
+              ? "border-red-300 bg-red-50"
+              : accuracy.summary.verdict === "flag"
+                ? "border-amber-300 bg-amber-50"
+                : "border-green-300 bg-green-50"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">
+                {accuracy.summary.verdict === "block"
+                  ? `🚫 Accuracy: ${accuracy.summary.leak} leak line(s) — pod intent not reaching the shelf`
+                  : accuracy.summary.verdict === "flag"
+                    ? `⚠️ Accuracy: under-fill (gap fill ${Math.round(
+                        accuracy.summary.gap_fill_ratio * 100,
+                      )}%)`
+                    : "✅ Accuracy: pod intent survives to the shelf"}
+              </span>
+            </div>
+            <div className="text-xs text-gray-600">
+              intent {accuracy.summary.total_dispatched}/
+              {accuracy.summary.total_intent} ·{" "}
+              {Math.round(accuracy.summary.intent_fill_ratio * 100)}% · gap fill{" "}
+              {Math.round(accuracy.summary.gap_fill_ratio * 100)}%
+            </div>
+          </div>
+          {accuracy.lines.filter((l) => l.status !== "ok").length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-gray-500">
+                    <th className="py-1 pr-3 font-medium">Machine</th>
+                    <th className="py-1 pr-3 font-medium">Shelf</th>
+                    <th className="py-1 pr-3 font-medium">Product</th>
+                    <th className="py-1 pr-3 font-medium text-right">Intent</th>
+                    <th className="py-1 pr-3 font-medium text-right">
+                      Dispatched
+                    </th>
+                    <th className="py-1 pr-3 font-medium text-right">Gap</th>
+                    <th className="py-1 pr-3 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accuracy.lines
+                    .filter((l) => l.status !== "ok")
+                    .map((l, i) => (
+                      <tr key={i} className="border-t border-black/5">
+                        <td className="py-1 pr-3">{l.machine_name}</td>
+                        <td className="py-1 pr-3">{l.shelf_code}</td>
+                        <td className="py-1 pr-3">{l.pod_product_name}</td>
+                        <td className="py-1 pr-3 text-right">{l.pod_intent}</td>
+                        <td className="py-1 pr-3 text-right">
+                          {l.dispatched_qty}
+                        </td>
+                        <td className="py-1 pr-3 text-right">{l.shelf_gap}</td>
+                        <td className="py-1 pr-3">
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              l.status === "leak"
+                                ? "bg-red-100 text-red-700"
+                                : l.status === "wh_short"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {l.status === "wh_short"
+                              ? "WH short"
+                              : l.status === "leak"
+                                ? "leak"
+                                : l.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              <p className="text-[10px] text-gray-400 mt-2">
+                leak = intent missing with shelf room and no warehouse shortage
+                (pod-to-dispatch loss). WH short = warehouse genuinely out (not
+                a leak). Excludes lines that filled correctly.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

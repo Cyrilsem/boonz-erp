@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-4): refill accuracy gate
+
+**Phase / Article:** Phase F stitch / Constitution Articles 4, 12, 16
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo migration file + FE
+**Migration name:** `prd031_ws4_refill_accuracy_gate`
+**Summary:** A real per-shelf accuracy gate replaces the stitch deviation block, which is structurally vacuous (its `ex_final` sets `variant_target` and `variant_final` to the identical expression, so `expected_qty > actual_qty` never fires — exactly PRD-031 root-cause D, "0 deviations while 40% leaked"). New canonical Article-16 metric "refill execution accuracy": view `v_refill_accuracy` (`security_invoker`, grain plan_date,machine,shelf,pod,action) driven from pod intent LEFT JOIN the dispatched aggregate so a fully-leaked shelf-pod with zero `refill_plan_output` rows is still visible at `dispatched_qty=0`. Per shelf-pod `status` = `ok` (filled, or shelf already at gap under WS-3 cover-floor) | `wh_short` (line carries `[WH_WARNING]`/`[WH_STOCK_UNKNOWN]` — excused) | `leak` (intent missing with shelf room and no WH cause — the WS-2/WS-2b regression tripwire) | `over`. Read-only `SECURITY INVOKER` RPC `get_refill_plan_accuracy(date)` returns the per-line detail + a plan summary with `intent_fill_ratio`, `gap_fill_ratio`, and a `verdict`: `block` on any leak, `flag` on under-fill (`gap_fill_ratio < 0.5`, soft under WS-3 cover-floor), else `pass`. The old deviation block is left verbatim (forward-only). FE: `RefillPlanningTab` loads the gate after the pending-plan load and renders a pass/flag/block banner + a table of non-ok shelf-pods (leak red, WH-short amber) so a human sees the leak before pushing to drivers; reads only the canonical RPC (no client re-derivation). Rolled-back battery on synthetic date 2099-06-15 (crafted intent + output rows): A14 Red Bull disp1/gap15 → `leak`; A14 Snack Bar disp0 (no output row) → `leak` (zero-dispatch visible); A08 Snack Bar disp1 with WH_WARNING → `wh_short`; A08 Red Bull disp6=intent → `ok`; gate `verdict='block'`, 2 leak / 1 wh_short / 1 ok. tsc clean; eslint 0 errors.
+**Rollback:** `DROP FUNCTION get_refill_plan_accuracy(date); DROP VIEW v_refill_accuracy;` — additive, no data migration; the stitch deviation block was untouched.
+
 ## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-1 audit + WS-2/WS-2b): stitch v22_onshelf_scoped
 
 **Phase / Article:** Phase F stitch / Constitution Articles 1, 4, 5, 8, 12, 14
