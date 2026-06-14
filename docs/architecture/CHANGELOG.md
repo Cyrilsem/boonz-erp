@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-6): drop dead sold_7d placeholder
+
+**Phase / Article:** Phase F refill / Constitution Articles 12, 16
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo migration file + FE
+**Migration name:** `prd031_ws6_drop_sold_7d_column`
+**Summary:** `refill_plan_output.sold_7d` was a placeholder that stitch always emitted as 0 — a silent always-zero metric that actively misled anyone querying the table directly (PRD root-cause: "looks like a dead-velocity bug; it is not"). The real 7d-sales display value is computed independently by `get_refill_plan_output_enriched` from `v_sales_history_attributed` (canonical sales source) and shown in the refill FE, so the stored column was pure dead weight. Per the PRD's "populate or drop" option, dropped it: `write_refill_plan` no longer writes `sold_7d` (column + value removed from its INSERT), then `ALTER TABLE refill_plan_output DROP COLUMN sold_7d`. The enriched reader still returns a real `sold_7d` (RefillPlanningTab pending view unaffected); `RefillPlanReview.tsx` (the only direct raw-column consumer) had its dead type field removed. No DB view depended on the column. tsc clean.
+**Rollback:** `ALTER TABLE refill_plan_output ADD COLUMN sold_7d int;` + restore the two `sold_7d` refs in `write_refill_plan`. The column had no meaningful data to restore (always 0).
+
 ## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-3): engine fill target = cover-capped
 
 **Phase / Article:** Phase F engine / Constitution Articles 1, 4, 8, 12, 16
