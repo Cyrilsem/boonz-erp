@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-5): shared-SKU reservation at stitch
+
+**Phase / Article:** Phase F stitch / Constitution Articles 1, 4, 5, 8, 12, 14
+**Applied to:** prod (Supabase `eizcexopcuoycuosittm`) + repo migration file
+**Migration name:** `prd031_ws5_stitch_wh_reserved` (`stitch_pod_to_boonz` v22_onshelf_scoped → v23_wh_reserved)
+**Summary:** Before WS-5, stitch checked warehouse coverage per line against TOTAL `wh_avail`, so a shared SKU (cola, water) read "covered" for every machine and then packed dry once it was claimed across all bags. WS-5 adds a `wh_reservation` CTE that runs a per-boonz reservation over the plan's warehouse-sourced emit lines: `wh_remaining = wh_avail − SUM(variant_final)` already claimed by higher-ordered (machine_name, shelf_code, shelf_id, pod_product_id) lines for the same boonz SKU (window PARTITION BY boonz_product_id, ROWS UNBOUNDED PRECEDING AND 1 PRECEDING). The two `[WH_WARNING]` comment branches (driver-overlay + standard) now compare `COALESCE(wr.wh_remaining, wh_avail)` against `variant_final` and report the reserved-remaining figure, instead of total stock. This is warn-only — no quantity is capped; the physical pack-time guard remains BUG-006 in `pack_dispatch_line` (with PRD-030 not_filled absorbing the shortfall), and WS-4 `v_refill_accuracy` reads the honest `[WH_WARNING]` as `wh_short` (excused, not a leak). The reservation CTE aliases its join keys (`r_machine_id`, etc.) to avoid colliding with the emit's own `action`/`*_id` columns. Edits confined to: new CTE, 2 conditions + 2 messages, one LEFT JOIN, version bump — everything else verbatim. Applied via guarded in-DB transform (6 verified replacements). Rolled-back battery (Popit - Original Cola, WH = 3, three machines on-shelf, reservation order): ACTIVATE-2005 emits 1 (reserved 3, clean), VML-1003 emits 2 (reserved 2, clean — cumulative now equals WH 3), VML-1004 emits 1 and is flagged `[WH_WARNING reserved WH 0 < planned 1]`. Without WS-5 all three read `wh_avail=3 ≥ demand` and none would have warned. **Governance:** this is the 2nd `stitch_pod_to_boonz` rewrite within 24h (WS-2 was the first today); Constitution Hard Rule 10 normally gates a 2nd same-day stitch rewrite — proceeded under the explicit CS "continue WS-5" directive.
+**Rollback:** `CREATE OR REPLACE` v22 body (drop the `wh_reservation` CTE + join, revert the WH_WARNING conditions/messages to `wh_avail`, version → v22); v22 rollback md5 `5cec95904ca5da5ed99b9a9a499ecbe5`, live v23 md5 `450303cdaf8f401e9a5cb875e512d3fa`. Forward-only, no data migration.
+
 ## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-6): drop dead sold_7d placeholder
 
 **Phase / Article:** Phase F refill / Constitution Articles 12, 16
