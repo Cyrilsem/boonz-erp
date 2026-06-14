@@ -4,17 +4,23 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-031 refill-execution-accuracy (IN PROGRESS 2026-06-14)
+
+| Migration name                          | Article(s)    | Status              | Note                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------------------------- | ------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WS-1 product_mapping integrity          | (audit only)  | ✅ No-op (verified) | Read-only audit found ZERO (pod,boonz,machine) duplicates; UNIQUE(pod,boonz,machine_id) + global-default partial-unique constraints ALREADY live. "80 Red Bull rows" = 38 distinct per-machine scoped + global, not dupes. PRD premise wrong; no dedup written (would have deleted legit per-machine rows). Leak is purely the two stitch faults (WS-2/WS-2b).                     |
+| `prd031_ws2_ws2b_stitch_onshelf_scoped` | 1,4,5,8,12,14 | ✅ Applied to prod  | `stitch_pod_to_boonz` v21→`v22_onshelf_scoped`. WS-2b scoped-authoritative mapping (pull_raw + pm_per_row NOT-EXISTS gate); WS-2 off-shelf redistribution (on_shelf + shelf_has_known_variant; residual predicate auto-renormalizes via PRD-024 window) with ADD_NEW exemption. v21 md5 `52a6d3b1…a01e`, live v22 md5 `5cec9590…cbe5`. Rolled-back battery green. Cody ⚠️→cleared. |
+
 ## PRD-030 partial-pack / no-dark-stage (IN PROGRESS 2026-06-14)
 
-| Migration name | Article(s) | Status | Note |
-| -------------- | ---------- | ------ | ---- |
-| `prd030_pack_outcome_enum_and_column` | 12, 14 | ✅ Applied to prod | CREATE TYPE pack_outcome_enum(packed/partial/not_filled) + ADD COLUMN refill_dispatching.pack_outcome (nullable). Forward-only column evolution. Cody class (a) ✅. |
-| `prd030_pack_dispatch_line_partial_notfilled` | 1,4,5,8,12,14 | ✅ Applied to prod | Empty picks => not_filled (no WH debit), partial keeps planned in original_quantity, conserve trigger untouched. Battery green. Cody ✅. v-before md5 `63454d3d...703c`. |
-| `prd030_dispatch_pack_confirmation_table` (+`_add_id_pk`) | 2,7,8,12 | ✅ Applied to prod | New dispatch_pack_confirmation table (id PK + UNIQUE(machine_id,dispatch_date)); RLS read-all + DEFINER-only + audit_log_write. |
-| `prd030_confirm_machine_packed` | 1,4,8,12 | ✅ Applied to prod | Machine-level pack gate; blocked unless all lines resolved; writes only the confirmation table. Battery green. Cody ✅. |
-| `prd030_pack_status_and_notfilled_views` | 16 | ✅ Applied to prod | Canonical v_machine_pack_status (readiness) + v_not_filled_lines (unfilled demand, incl. partial remainders). |
-| `prd030_release_stale_exclude_not_filled` | 1,4,12 | ✅ Applied to prod | EOD release excludes not_filled lines. |
-
+| Migration name                                            | Article(s)    | Status             | Note                                                                                                                                                                     |
+| --------------------------------------------------------- | ------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `prd030_pack_outcome_enum_and_column`                     | 12, 14        | ✅ Applied to prod | CREATE TYPE pack_outcome_enum(packed/partial/not_filled) + ADD COLUMN refill_dispatching.pack_outcome (nullable). Forward-only column evolution. Cody class (a) ✅.      |
+| `prd030_pack_dispatch_line_partial_notfilled`             | 1,4,5,8,12,14 | ✅ Applied to prod | Empty picks => not_filled (no WH debit), partial keeps planned in original_quantity, conserve trigger untouched. Battery green. Cody ✅. v-before md5 `63454d3d...703c`. |
+| `prd030_dispatch_pack_confirmation_table` (+`_add_id_pk`) | 2,7,8,12      | ✅ Applied to prod | New dispatch_pack_confirmation table (id PK + UNIQUE(machine_id,dispatch_date)); RLS read-all + DEFINER-only + audit_log_write.                                          |
+| `prd030_confirm_machine_packed`                           | 1,4,8,12      | ✅ Applied to prod | Machine-level pack gate; blocked unless all lines resolved; writes only the confirmation table. Battery green. Cody ✅.                                                  |
+| `prd030_pack_status_and_notfilled_views`                  | 16            | ✅ Applied to prod | Canonical v_machine_pack_status (readiness) + v_not_filled_lines (unfilled demand, incl. partial remainders).                                                            |
+| `prd030_release_stale_exclude_not_filled`                 | 1,4,12        | ✅ Applied to prod | EOD release excludes not_filled lines.                                                                                                                                   |
 
 ## PRD-029 dispatch-state-integrity — skipped lines inert (step 1 APPLIED 2026-06-12)
 
