@@ -56,6 +56,8 @@ exceeds 3 minutes, something went wrong — stop and diagnose rather than retryi
 - `--fill=target` — strict v5.10: velocity_target + floors, no max-filling. Safer when warehouse stock is tight.
 - `--fill=conservative` — 14-day cover, flat floor=3, no max-filling. For new machines or low-confidence weeks.
 
+> **Production engine vs this skill (PRD-031 WS-3, CS decision 2026-06-14).** The automated cron path (`engine_add_pod`) is now **v17_cover_capped** = "cover is the target, capacity caps" (CS Option B): `need_raw = LEAST(GREATEST(cover_units, driver_req), fill_to_cap)`, where `cover_units` = stance-aware velocity cover (`compute_refill_decision.velocity_target` = velocity×days_cover×cover_mult, `p_days_cover` default 14), wind-down/rotate-out/dead → 0, every other live shelf floored at 1. Slow movers fill lean, capacity binds only for fast movers. This skill's `--fill=target` is the mode that mirrors production; `--fill=max` is an explicit hero-fill OVERRIDE of the production default, not the standing behavior. The engine consumes `velocity_target`, NOT `compute_refill_decision.refill_qty`/`target_units` (those keep a visual floor and are advisory). Keep this skill's default in mind when comparing a manual run to the cron plan.
+
 ---
 
 ## The six v5.10 rules (applied by this skill — no longer in a separate memory file)
