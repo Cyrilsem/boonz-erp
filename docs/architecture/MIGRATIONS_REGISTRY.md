@@ -4,7 +4,15 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
-## PRD-028 dispatch-state-integrity — skipped lines inert (step 1 APPLIED 2026-06-12)
+## PRD-030 partial-pack / no-dark-stage (IN PROGRESS 2026-06-14)
+
+| Migration name | Article(s) | Status | Note |
+| -------------- | ---------- | ------ | ---- |
+| `prd030_pack_outcome_enum_and_column` | 12, 14 | ✅ Applied to prod | CREATE TYPE pack_outcome_enum(packed/partial/not_filled) + ADD COLUMN refill_dispatching.pack_outcome (nullable). Forward-only column evolution. Cody class (a) ✅. |
+| `prd030_pack_dispatch_line_partial_notfilled` | 1,4,5,8,12,14 | ✅ Applied to prod | Empty picks => not_filled (no WH debit), partial keeps planned in original_quantity, conserve trigger untouched. Battery green. Cody ✅. v-before md5 `63454d3d...703c`. |
+
+
+## PRD-029 dispatch-state-integrity — skipped lines inert (step 1 APPLIED 2026-06-12)
 
 | Migration name                 | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------ | ----------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
