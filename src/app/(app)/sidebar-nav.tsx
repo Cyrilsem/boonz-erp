@@ -25,7 +25,7 @@ const allNavItems: NavItem[] = [
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "SIM Cards", href: "/app/sims", icon: "◈" },
   { label: "Sales Pipeline", href: "/app/sales-pipeline", icon: "◎" },
-  { label: "Tracker", href: "/tracker", icon: "✓", ownerOnly: true },
+  { label: "Tracker", href: "/app/tracker", icon: "✓", ownerOnly: true },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
