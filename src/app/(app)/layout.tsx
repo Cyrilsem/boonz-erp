@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import SidebarNav from "./sidebar-nav";
 import { InventorySessionProvider } from "@/lib/inventory/session";
+import { OWNER_EMAIL } from "@/lib/auth/owner";
 
 export default async function AppLayout({
   children,
@@ -22,6 +23,8 @@ export default async function AppLayout({
     role = profile?.role ?? "operator_admin";
   }
 
+  const isOwner = (user?.email ?? "").toLowerCase() === OWNER_EMAIL;
+
   return (
     <>
       {/* Plus Jakarta Sans — scoped to /app shell */}
@@ -31,7 +34,7 @@ export default async function AppLayout({
         className="flex h-screen"
         style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
       >
-        <SidebarNav role={role} />
+        <SidebarNav role={role} isOwner={isOwner} />
         <main
           className="flex-1 overflow-y-auto"
           style={{ background: "#faf9f7" }}
