@@ -29,12 +29,28 @@ export default async function AppTrackerPage() {
   }
 
   const isOwner = (user.email ?? "").toLowerCase() === OWNER_EMAIL;
+
+  // Flagged collaborators (e.g. Raffy) get a Boonz-only scope; the owner gets all.
+  let trackerBoonzAccess = false;
   if (!isOwner) {
-    // Only the owner gets the in-app tracker; send everyone else to the dashboard.
+    const { data: profile } = await supabase
+      .from("user_profiles")
+      .select("tracker_boonz_access")
+      .eq("id", user.id)
+      .single();
+    trackerBoonzAccess = profile?.tracker_boonz_access ?? false;
+  }
+
+  if (!isOwner && !trackerBoonzAccess) {
+    // Not the owner and not a collaborator: send to the dashboard.
     redirect("/app");
   }
 
-  const allowedCategories: Category[] = ["Boonz", "AKY", "Gebran", "Personal"];
+  const allowedCategories: Category[] = isOwner
+    ? ["Boonz", "AKY", "Gebran", "Personal"]
+    : ["Boonz"];
+  const canEditMeta = isOwner; // collaborators: status + notes only
+  const canAdd = true; // owner: all categories; collaborator: Boonz only (RLS-enforced)
 
   const { data: items } = await supabase
     .from("agenda_items")
@@ -49,8 +65,8 @@ export default async function AppTrackerPage() {
     <TrackerClient
       initialItems={(items ?? []) as AgendaItem[]}
       allowedCategories={allowedCategories}
-      canEditMeta={true}
-      canAdd={true}
+      canEditMeta={canEditMeta}
+      canAdd={canAdd}
     />
   );
 }

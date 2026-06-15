@@ -53,10 +53,10 @@ const hiddenByRole: Record<string, string[]> = {
 
 export default function SidebarNav({
   role,
-  isOwner,
+  canSeeTracker,
 }: {
   role: string;
-  isOwner: boolean;
+  canSeeTracker: boolean;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -64,9 +64,9 @@ export default function SidebarNav({
   const hidden = hiddenByRole[role] ?? [];
   const items = allNavItems
     .filter((item) => !hidden.includes(item.label))
-    // Owner-only items (e.g. Tracker) are dropped for everyone else, because the
-    // target page bounces non-owners to login.
-    .filter((item) => !item.ownerOnly || isOwner);
+    // Owner-only items (the Tracker) show for the owner and flagged Boonz
+    // collaborators; everyone else is dropped because the page bounces them.
+    .filter((item) => !item.ownerOnly || canSeeTracker);
 
   return (
     <aside

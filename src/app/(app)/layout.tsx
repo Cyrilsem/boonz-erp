@@ -14,16 +14,21 @@ export default async function AppLayout({
   } = await supabase.auth.getUser();
 
   let role = "operator_admin";
+  let trackerBoonzAccess = false;
   if (user) {
     const { data: profile } = await supabase
       .from("user_profiles")
-      .select("role")
+      .select("role, tracker_boonz_access")
       .eq("id", user.id)
       .single();
     role = profile?.role ?? "operator_admin";
+    trackerBoonzAccess = profile?.tracker_boonz_access ?? false;
   }
 
   const isOwner = (user?.email ?? "").toLowerCase() === OWNER_EMAIL;
+  // The owner sees the full tracker; flagged collaborators (e.g. Raffy) see the
+  // Boonz-only scope. Both get the sidebar entry.
+  const canSeeTracker = isOwner || trackerBoonzAccess;
 
   return (
     <>
@@ -34,7 +39,7 @@ export default async function AppLayout({
         className="flex h-screen"
         style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
       >
-        <SidebarNav role={role} isOwner={isOwner} />
+        <SidebarNav role={role} canSeeTracker={canSeeTracker} />
         <main
           className="flex-1 overflow-y-auto"
           style={{ background: "#faf9f7" }}
