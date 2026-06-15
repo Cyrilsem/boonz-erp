@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { OWNER_EMAIL } from "@/lib/auth/owner";
 import TrackerClient, {
   type AgendaItem,
   type Category,
@@ -9,7 +10,7 @@ import TrackerClient, {
 //  - OWNER (cyrilsem@gmail.com): full tracker, all categories, full edit.
 //  - tracker_boonz partner (e.g. Raffy): Boonz column only, status + notes only.
 // RLS on agenda_items enforces the same data scope as defence in depth.
-const OWNER_EMAIL = "cyrilsem@gmail.com";
+// OWNER_EMAIL is shared with the (app) layout via @/lib/auth/owner.
 
 export const dynamic = "force-dynamic";
 

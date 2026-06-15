@@ -8,6 +8,7 @@ interface NavItem {
   label: string;
   href: string;
   icon: string;
+  ownerOnly?: boolean;
 }
 
 const allNavItems: NavItem[] = [
@@ -24,6 +25,7 @@ const allNavItems: NavItem[] = [
   { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
   { label: "SIM Cards", href: "/app/sims", icon: "◈" },
   { label: "Sales Pipeline", href: "/app/sales-pipeline", icon: "◎" },
+  { label: "Tracker", href: "/tracker", icon: "✓", ownerOnly: true },
   { label: "Settings", href: "/app/settings", icon: "⚙" },
 ];
 
@@ -49,12 +51,22 @@ const hiddenByRole: Record<string, string[]> = {
   ],
 };
 
-export default function SidebarNav({ role }: { role: string }) {
+export default function SidebarNav({
+  role,
+  isOwner,
+}: {
+  role: string;
+  isOwner: boolean;
+}) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
   const hidden = hiddenByRole[role] ?? [];
-  const items = allNavItems.filter((item) => !hidden.includes(item.label));
+  const items = allNavItems
+    .filter((item) => !hidden.includes(item.label))
+    // Owner-only items (e.g. Tracker) are dropped for everyone else, because the
+    // target page bounces non-owners to login.
+    .filter((item) => !item.ownerOnly || isOwner);
 
   return (
     <aside
