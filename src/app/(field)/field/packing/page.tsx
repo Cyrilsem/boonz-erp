@@ -18,6 +18,8 @@ interface PackingMachine {
   /** PRD-030 Article 16: canonical readiness from v_machine_pack_status */
   is_pack_complete: boolean;
   pack_confirmed: boolean;
+  /** PRD-020: machine finished as Complete but Partial (skipped or not_filled > 0) */
+  is_partial: boolean;
 }
 
 export default function PackingPage() {
@@ -50,19 +52,26 @@ export default function PackingPage() {
     const { data: statusRows } = await supabase
       .from("v_machine_pack_status")
       .select(
-        "machine_id, is_pack_complete, pack_confirmed, not_filled, total_included, resolved",
+        "machine_id, is_pack_complete, pack_confirmed, not_filled, skipped, total_included, resolved",
       )
       .eq("dispatch_date", today)
       .limit(10000);
     const statusByMachine = new Map<
       string,
-      { is_pack_complete: boolean; pack_confirmed: boolean }
+      {
+        is_pack_complete: boolean;
+        pack_confirmed: boolean;
+        is_partial: boolean;
+      }
     >(
       (statusRows ?? []).map((s) => [
         s.machine_id as string,
         {
           is_pack_complete: !!s.is_pack_complete,
           pack_confirmed: !!s.pack_confirmed,
+          // PRD-020: partial = finished with at least one skipped or not_filled line.
+          is_partial:
+            Number(s.skipped ?? 0) > 0 || Number(s.not_filled ?? 0) > 0,
         },
       ]),
     );
@@ -88,6 +97,7 @@ export default function PackingPage() {
           packed_count: line.packed ? 1 : 0,
           is_pack_complete: status?.is_pack_complete ?? false,
           pack_confirmed: status?.pack_confirmed ?? false,
+          is_partial: status?.is_partial ?? false,
         });
       }
     }
@@ -182,15 +192,23 @@ export default function PackingPage() {
                 <span
                   {...(idx === 0 ? { "data-tour": "packing-status" } : {})}
                   className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    ready
-                      ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                      : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                    ready && machine.is_partial
+                      ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                      : ready
+                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                        : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
                   }`}
                 >
+                  {/* PRD-020 (AC-5): a partial finish is amber "Partial", never a
+                      red / incomplete state. */}
                   {machine.pack_confirmed
-                    ? "Confirmed"
+                    ? machine.is_partial
+                      ? "Confirmed (partial)"
+                      : "Confirmed"
                     : ready
-                      ? "Ready"
+                      ? machine.is_partial
+                        ? "Partial"
+                        : "Ready"
                       : "Packing"}
                 </span>
               </Link>

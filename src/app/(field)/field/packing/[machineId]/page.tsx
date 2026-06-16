@@ -167,45 +167,6 @@ function computeVariantQtys(
 
 // ─── WH stock helpers (module-level, reusable) ───────────────────────────────
 
-/**
- * Restore `qty` units back to warehouse_inventory for the given expiry batch.
- * Called when a previously-packed line is skipped (WH deduction reversal).
- */
-async function restoreWarehouseStock(
-  sb: ReturnType<typeof createClient>,
-  boonzProductId: string,
-  expiry: string | null,
-  qty: number,
-): Promise<void> {
-  if (expiry) {
-    const { data: batch } = await sb
-      .from("warehouse_inventory")
-      .select("wh_inventory_id, warehouse_stock")
-      .eq("boonz_product_id", boonzProductId)
-      .eq("expiration_date", expiry)
-      .maybeSingle(); // include Inactive rows — may need to reactivate
-
-    if (batch) {
-      const newStock = (batch.warehouse_stock ?? 0) + qty;
-      await sb
-        .from("warehouse_inventory")
-        .update({ warehouse_stock: newStock, status: "Active" })
-        .eq("wh_inventory_id", batch.wh_inventory_id);
-      return;
-    }
-  }
-
-  // Defensive fallback: batch not found — create a new WH row
-  // (should not occur in normal flow)
-  await sb.from("warehouse_inventory").insert({
-    boonz_product_id: boonzProductId,
-    warehouse_stock: qty,
-    expiration_date: expiry,
-    status: "Active",
-    snapshot_date: getDubaiDate(),
-  });
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PackingDetailPage() {
@@ -224,15 +185,37 @@ export default function PackingDetailPage() {
     message: string;
     unresolved: { shelf_code?: string; pod_product_name?: string }[];
   } | null>(null);
-  /** B3.1: skipped-but-recoverable lines (include=false, packed=false) */
+  /** B3.1 + PRD-020: skipped-but-recoverable lines (include=false, packed=false).
+   * skip_reason / skipped / cancelled / picked_up drive the Complete-but-Partial
+   * banner and the per-line Undo affordance. */
   const [skippedLines, setSkippedLines] = useState<
     {
       dispatch_id: string;
       shelf_code: string;
       display_name: string;
       quantity: number;
+      skip_reason: string | null;
+      skipped: boolean;
+      cancelled: boolean;
+      picked_up: boolean;
+      fillable: boolean;
     }[]
   >([]);
+
+  /** PRD-020: per-line Skip reason picker. Holds the line being skipped + the
+   * composed reason inputs. skip_dispatch_line requires reason >= 10 chars. */
+  const [skipDialogLine, setSkipDialogLine] = useState<PackLine | null>(null);
+  const [skipCategory, setSkipCategory] = useState<string>("");
+  const [skipNote, setSkipNote] = useState<string>("");
+  /** PRD-020: confirm_machine_packed success summary for the Complete / Complete
+   * but Partial banner. */
+  const [confirmSummary, setConfirmSummary] = useState<{
+    total_included?: number;
+    packed?: number;
+    partial?: number;
+    not_filled?: number;
+    skipped?: number;
+  } | null>(null);
 
   /**
    * Per-batch pick quantities for mix lines.
@@ -351,6 +334,11 @@ export default function PackingDetailPage() {
         `
         dispatch_id,
         quantity,
+        action,
+        skipped,
+        cancelled,
+        picked_up,
+        skip_reason,
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
       `,
@@ -361,6 +349,7 @@ export default function PackingDetailPage() {
       .eq("machine_id", machineId)
       .limit(10000);
 
+    const FILLABLE_ACTIONS = new Set(["Refill", "Add New", "Add"]);
     setSkippedLines(
       (skippedRaw ?? []).map((r) => {
         const shelf = r.shelf_configurations as unknown as {
@@ -369,11 +358,17 @@ export default function PackingDetailPage() {
         const prod = r.pod_products as unknown as {
           pod_product_name: string | null;
         } | null;
+        const rec = r as Record<string, unknown>;
         return {
           dispatch_id: r.dispatch_id,
-          shelf_code: shelf?.shelf_code ?? "—",
-          display_name: prod?.pod_product_name ?? "—",
+          shelf_code: shelf?.shelf_code ?? "-",
+          display_name: prod?.pod_product_name ?? "-",
           quantity: Number(r.quantity ?? 0),
+          skip_reason: (rec.skip_reason as string | null) ?? null,
+          skipped: !!(rec.skipped as boolean | null),
+          cancelled: !!(rec.cancelled as boolean | null),
+          picked_up: !!(rec.picked_up as boolean | null),
+          fillable: FILLABLE_ACTIONS.has((rec.action as string) ?? ""),
         };
       }),
     );
@@ -1303,33 +1298,11 @@ export default function PackingDetailPage() {
           continue;
         }
         console.log(`[B3.1] Packed via RPC: ${line.pod_product_name}`, rpcData);
-      } else if (line.action === "skip") {
-        // If this line was already packed (WH was deducted), restore WH stock first.
-        // SCENARIO B (admin sets include=false directly in DB) must be handled manually.
-        const wasAlreadyPacked = line.packed && line.packed_qty > 0;
-        if (wasAlreadyPacked && line.boonz_product_id) {
-          try {
-            await restoreWarehouseStock(
-              supabase,
-              line.boonz_product_id,
-              line.expiry_date,
-              line.packed_qty,
-            );
-          } catch (err) {
-            console.error("[Pack] WH restore failed:", err);
-          }
-        }
-
-        await supabase
-          .from("refill_dispatching")
-          .update({
-            packed: false,
-            filled_quantity: 0,
-            expiry_date: null,
-            include: false,
-          })
-          .eq("dispatch_id", line.dispatch_id);
       }
+      // PRD-020: skipping is now an immediate skip_dispatch_line RPC (submitSkip),
+      // not a deferred direct write here. By confirm time a skipped line has
+      // skipped=true / include=false and is no longer in `lines`, so there is no
+      // per-line skip branch to run in this loop.
     }
 
     if (warnings.length > 0) {
@@ -1364,6 +1337,13 @@ export default function PackingDetailPage() {
         status?: string;
         message?: string;
         unresolved?: { shelf_code?: string; pod_product_name?: string }[];
+        summary?: {
+          total_included?: number;
+          packed?: number;
+          partial?: number;
+          not_filled?: number;
+          skipped?: number;
+        };
       } | null;
       if (result?.status === "blocked") {
         setConfirmBlock({
@@ -1373,6 +1353,8 @@ export default function PackingDetailPage() {
         setSaving(false);
         return;
       }
+      // PRD-020: capture the Complete / Complete but Partial summary.
+      setConfirmSummary(result?.summary ?? null);
     }
 
     setSaving(false);
@@ -1394,6 +1376,38 @@ export default function PackingDetailPage() {
       return;
     }
     await fetchData();
+  }
+
+  // PRD-020: skip an unfulfillable line via the canonical skip_dispatch_line RPC.
+  // Composes the picker category + free note into a reason (>= 10 chars, RPC rule),
+  // sets skipped=true / include=false / skip_reason, then refetches so the line
+  // moves into the Skipped panel and out of the outstanding-to-pack set.
+  async function submitSkip() {
+    if (!skipDialogLine) return;
+    const note = skipNote.trim();
+    const reason = note ? `${skipCategory}: ${note}` : skipCategory;
+    if (reason.length < 10) {
+      setWhWarnMsg("Skip reason must be at least 10 characters.");
+      return;
+    }
+    setSaving(true);
+    setWhWarnMsg("");
+    const supabase = createClient();
+    const { error } = await supabase.rpc("skip_dispatch_line", {
+      p_dispatch_id: skipDialogLine.dispatch_id,
+      p_reason: reason,
+    });
+    if (error) {
+      console.error("[PRD-020] skip_dispatch_line failed", error);
+      setWhWarnMsg(`Skip failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+    setSkipDialogLine(null);
+    setSkipCategory("");
+    setSkipNote("");
+    await fetchData();
+    setSaving(false);
   }
 
   // Intercept Packed button for mix lines: show warning if total = 0
@@ -1438,10 +1452,20 @@ export default function PackingDetailPage() {
     );
   }
 
-  const allActioned = lines.length > 0 && lines.every((l) => l.action !== null);
   const packedCount = lines.filter((l) => l.action === "packed").length;
-  const skippedCount = lines.filter((l) => l.action === "skip").length;
+  const notFilledCount = lines.filter((l) => l.action === "not_filled").length;
   const pendingCount = lines.filter((l) => l.action === null).length;
+  // PRD-020: skipped lines live in skippedLines (skipped=true, include=false) once
+  // skip_dispatch_line runs, so they are no longer in `lines`. Count the genuinely
+  // skipped (not cancelled) ones as resolved against the fillable total.
+  const skippedActive = skippedLines.filter((s) => s.skipped && !s.cancelled);
+  const skippedCount = skippedActive.length;
+  // Progress (AC-3): resolved = packed + not_filled + skipped over the included,
+  // non-cancelled, fillable set. Skipped lines are both resolved and part of total,
+  // so they cancel out of the gate (resolved === total <=> all `lines` actioned).
+  const resolvedCount =
+    lines.filter((l) => l.action !== null).length + skippedCount;
+  const totalCount = lines.length + skippedCount;
   const isReadOnly = saved && !editingAfterSave;
   // Issue #6: detect if this machine was already packed (DB-side) and no driver
   // has picked it up yet — packer can re-pack with override.
@@ -1728,19 +1752,56 @@ export default function PackingDetailPage() {
         </div>
       )}
 
-      {/* Save summary */}
-      {saved && (
-        <div className="mb-4 rounded-xl bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30">
-          <span className="font-medium text-green-700 dark:text-green-400">
-            ✓ {packedCount} items packed
-          </span>
-          {skippedCount > 0 && (
-            <span className="ml-3 font-medium text-neutral-500 dark:text-neutral-400">
-              — {skippedCount} skipped
-            </span>
-          )}
-        </div>
-      )}
+      {/* PRD-020: Complete / Complete but Partial banner (AC-5). Success when
+          nothing was skipped or left not_filled; amber-but-still-complete
+          otherwise. Never a red / incomplete state. */}
+      {saved &&
+        (() => {
+          const sk = confirmSummary?.skipped ?? skippedCount;
+          const nf = confirmSummary?.not_filled ?? notFilledCount;
+          const pk = confirmSummary?.packed ?? packedCount;
+          const isPartial = sk > 0 || nf > 0;
+          const parts: string[] = [];
+          if (sk > 0) parts.push(`${sk} skipped`);
+          if (nf > 0) parts.push(`${nf} not filled`);
+          return (
+            <div
+              className={`mb-4 rounded-xl px-4 py-3 text-sm ${
+                isPartial
+                  ? "bg-amber-50 dark:bg-amber-950/30"
+                  : "bg-green-50 dark:bg-green-950/30"
+              }`}
+            >
+              <span
+                className={`font-semibold ${
+                  isPartial
+                    ? "text-amber-800 dark:text-amber-300"
+                    : "text-green-700 dark:text-green-400"
+                }`}
+              >
+                {isPartial
+                  ? `Complete but Partial - ${parts.join(", ")}`
+                  : "Complete"}
+              </span>
+              <span className="ml-3 text-neutral-500 dark:text-neutral-400">
+                {pk} packed
+              </span>
+              {isPartial && skippedActive.length > 0 && (
+                <ul className="mt-2 space-y-0.5">
+                  {skippedActive.map((s) => (
+                    <li
+                      key={s.dispatch_id}
+                      className="text-xs text-amber-700 dark:text-amber-400"
+                    >
+                      {s.display_name}
+                      {s.skip_reason ? `: ${s.skip_reason}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
       {whWarnMsg && (
         <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
           ⚠ {whWarnMsg}
@@ -3046,13 +3107,18 @@ export default function PackingDetailPage() {
                         >
                           ⊘ Not filled
                         </button>
+                        {/* PRD-020: Skip opens a reason picker, then calls the
+                            canonical skip_dispatch_line RPC (records skip_reason,
+                            sets skipped=true / include=false). */}
                         <button
-                          onClick={() => updateAction(line.dispatch_id, "skip")}
-                          className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
-                            line.action === "skip"
-                              ? "border-neutral-400 bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
-                              : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                          }`}
+                          onClick={() => {
+                            setSkipDialogLine(line);
+                            setSkipCategory("");
+                            setSkipNote("");
+                          }}
+                          disabled={saving}
+                          title="Cannot fill this line - skip with a reason"
+                          className="flex-1 rounded-lg border border-neutral-200 py-1.5 text-xs font-semibold text-neutral-500 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
                         >
                           ✗ Skip
                         </button>
@@ -3079,25 +3145,36 @@ export default function PackingDetailPage() {
             {skippedLines.map((s) => (
               <li
                 key={s.dispatch_id}
-                className="flex items-center justify-between rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
+                className="flex items-start justify-between gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
               >
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                    {s.shelf_code}
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                      {s.shelf_code}
+                    </span>
+                    <span className="truncate text-neutral-600 line-through decoration-neutral-400 dark:text-neutral-400">
+                      {s.display_name}
+                    </span>
+                    <span className="shrink-0 text-xs text-neutral-400">
+                      {s.quantity}u
+                    </span>
                   </span>
-                  <span className="truncate text-neutral-600 dark:text-neutral-400">
-                    {s.display_name}
-                  </span>
-                  <span className="shrink-0 text-xs text-neutral-400">
-                    — {s.quantity}u
-                  </span>
+                  {/* PRD-020 (AC-2): show the recorded skip reason inline. */}
+                  {s.skip_reason && (
+                    <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                      Skipped: {s.skip_reason}
+                    </span>
+                  )}
                 </span>
-                <button
-                  onClick={() => handleUnskip(s.dispatch_id)}
-                  className="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  ↩ Un-skip
-                </button>
+                {/* AC-2: Undo is available while the line has not been picked up. */}
+                {!s.picked_up && (
+                  <button
+                    onClick={() => handleUnskip(s.dispatch_id)}
+                    className="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    ↩ Un-skip
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -3140,22 +3217,37 @@ export default function PackingDetailPage() {
           </button>
         ) : (
           <div className="space-y-2">
+            {/* PRD-020 (AC-3): resolved = packed + not_filled + skipped over total. */}
+            <div className="flex items-center justify-between px-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+              <span>
+                Resolved {resolvedCount}/{totalCount}
+              </span>
+              <span className="flex gap-2">
+                <span>{packedCount} packed</span>
+                {notFilledCount > 0 && <span>{notFilledCount} not filled</span>}
+                {skippedCount > 0 && <span>{skippedCount} skipped</span>}
+              </span>
+            </div>
             <button
               onClick={handleMarkAllPacked}
               className="w-full rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               Mark all as packed
             </button>
+            {/* AC-4: gated on resolved === total (every fillable line resolved), so
+                confirm_machine_packed never returns blocked from this happy path. */}
             <button
               onClick={handleConfirmPacking}
-              disabled={!allActioned || saving}
+              disabled={
+                resolvedCount !== totalCount || totalCount === 0 || saving
+              }
               className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               {saving
                 ? "Saving…"
-                : allActioned
+                : resolvedCount === totalCount
                   ? `Confirm packing (${packedCount} packed${skippedCount > 0 ? `, ${skippedCount} skipped` : ""})`
-                  : `Confirm packing — ${pendingCount} pending`}
+                  : `Confirm packing - ${pendingCount} pending`}
             </button>
           </div>
         )}
@@ -3201,6 +3293,83 @@ export default function PackingDetailPage() {
           }}
         />
       )}
+
+      {/* PRD-020: per-line Skip reason picker. Composes category + optional note
+          into a reason and calls skip_dispatch_line (reason must be >= 10 chars). */}
+      {skipDialogLine &&
+        (() => {
+          const note = skipNote.trim();
+          const composed = note ? `${skipCategory}: ${note}` : skipCategory;
+          const valid = !!skipCategory && composed.length >= 10;
+          const CATEGORIES = [
+            "out of stock",
+            "expired",
+            "damaged",
+            "wrong product",
+            "other",
+          ];
+          return (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+              <div className="w-full max-w-md rounded-t-2xl bg-white p-5 dark:bg-neutral-950 sm:rounded-2xl">
+                <h3 className="mb-1 text-base font-semibold text-neutral-900 dark:text-neutral-100">
+                  Skip {skipDialogLine.display_name}
+                </h3>
+                <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
+                  {skipDialogLine.shelf_code} · {skipDialogLine.recommended_qty}
+                  u. This line will be marked skipped and will not go to the
+                  driver.
+                </p>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {CATEGORIES.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setSkipCategory(c)}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                        skipCategory === c
+                          ? "border-neutral-800 bg-neutral-900 text-white dark:border-neutral-200 dark:bg-neutral-100 dark:text-neutral-900"
+                          : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={skipNote}
+                  onChange={(e) => setSkipNote(e.target.value)}
+                  placeholder="Add a short note (required for short reasons)"
+                  rows={2}
+                  className="mb-1 w-full resize-none rounded-lg border border-neutral-300 px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+                />
+                <p className="mb-4 text-[11px] text-neutral-400">
+                  {valid
+                    ? `Reason: ${composed}`
+                    : "Pick a reason; add a note so it reads clearly (10+ characters)."}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setSkipDialogLine(null);
+                      setSkipCategory("");
+                      setSkipNote("");
+                    }}
+                    disabled={saving}
+                    className="flex-1 rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void submitSkip()}
+                    disabled={!valid || saving}
+                    className="flex-1 rounded-lg bg-neutral-900 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                  >
+                    {saving ? "Skipping…" : "Skip line"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }
