@@ -245,6 +245,34 @@ export function RefillPlanningTab({
   // PRD-031 WS-4: refill accuracy gate (intent vs dispatched vs gap per shelf-pod)
   const [accuracy, setAccuracy] = useState<AccuracySummary | null>(null);
 
+  // PRD-019 C2: compact all-rows planning view (v_refill_planning_compact).
+  type CompactRow = {
+    machine_name: string;
+    slot: string;
+    product: string | null;
+    current_stock: number | null;
+    max_stock: number | null;
+    fill_pct: number | null;
+    stance: string | null;
+    global_badge: string | null;
+    local_badge: string | null;
+    sales_7d: number | null;
+    final_score: number | null;
+    planned_action: string | null;
+    planned_qty: number | null;
+    wh_availability: number | null;
+    wh_unsourceable: boolean | null;
+    edit_comment: string | null;
+    add_comment: string | null;
+    clamp_reason: string | null;
+  };
+  const [compactRows, setCompactRows] = useState<CompactRow[]>([]);
+  const [compactOpen, setCompactOpen] = useState(false);
+  const [compactLoading, setCompactLoading] = useState(false);
+  const [compactSort, setCompactSort] = useState<
+    "fill" | "slot" | "stock" | "score"
+  >("fill");
+
   // Add row modal
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<AddRowForm>(BLANK_FORM);
@@ -550,6 +578,22 @@ export function RefillPlanningTab({
       }
       const planDate = draftPlanDate;
 
+      // PRD-019 D1/D2: take the single-writer lock for this plan_date so a
+      // chat-engine rebuild cannot collide with this Commit mid-chain. Released
+      // in the finally below. The engines refuse to run under another context.
+      const { error: lockErr } = await supabase.rpc(
+        "acquire_refill_plan_lock",
+        {
+          p_plan_date: planDate,
+          p_context: "commit",
+        },
+      );
+      if (lockErr) {
+        throw new Error(
+          `Cannot commit: ${lockErr.message}. Another writer (chat or a parallel commit) holds this plan_date.`,
+        );
+      }
+
       // Honor the per-machine include/exclude toggle in the commit itself.
       // Previously the checkbox was cosmetic: the persist loops below walked
       // every machine's staged edits/removals regardless of inclusion, so an
@@ -629,50 +673,42 @@ export function RefillPlanningTab({
       setEditedQty({});
       setRemoved(new Set());
 
-      // Step 1: Approve pod_refill_plan (Gate 1), scoped to included machines so
-      // excluded machines stay 'draft' and are not stitched/dispatched.
-      const { error: approveErr } = await supabase.rpc(
-        "approve_pod_refill_plan",
+      // PRD-019 E4: ONE atomic call replaces the multi-step saga (approve_pod ->
+      // scoped finalize -> stitch -> approve_refill + the post-write invariants).
+      // It runs in a single DB transaction that rolls back entirely on any
+      // failure, so the pipeline can never land "stitched but dispatch empty".
+      // The RPC resolves names -> ids and verifies counts server-side.
+      const { data: commitData, error: commitErr } = await supabase.rpc(
+        "commit_refill_plan_atomic",
         { p_plan_date: planDate, p_machine_names: includedMachineNames },
       );
-      if (approveErr) throw new Error(`Gate 1 failed: ${approveErr.message}`);
-
-      // Step 2: Finalize (conflict resolution)
-      const { error: finalizeErr } = await supabase.rpc("engine_finalize_pod", {
-        p_plan_date: planDate,
-      });
-      if (finalizeErr)
-        throw new Error(`Finalize failed: ${finalizeErr.message}`);
-
-      // Step 3: Stitch (pod → boonz via SQL join) — commit mode
-      const { data: stitchData, error: stitchErr } = await supabase.rpc(
-        "stitch_pod_to_boonz",
-        { p_plan_date: planDate, p_dry_run: false },
-      );
-      if (stitchErr) throw new Error(`Stitch failed: ${stitchErr.message}`);
-
-      const stitchResult = stitchData as {
-        rows_written?: number;
+      if (commitErr) throw new Error(`Commit failed: ${commitErr.message}`);
+      const c = commitData as {
+        status?: string;
+        output_rows?: number;
+        dispatch_rows?: number;
         machines?: number;
+        soft_flags?: { machine: string; note: string }[];
+        error?: string;
       } | null;
+      if (!c || c.status !== "ok") {
+        throw new Error(`Commit failed: ${c?.error ?? "unknown error"}`);
+      }
 
-      // Step 4: Approve boonz-level plan (auto-create dispatching) — included only.
-      const activeMachines = includedMachineNames;
-      const { data: dispatchData, error: dispatchErr } = await supabase.rpc(
-        "approve_refill_plan",
-        { p_plan_date: planDate, p_machine_names: activeMachines },
-      );
-      if (dispatchErr)
-        throw new Error(`Dispatch failed: ${dispatchErr.message}`);
-
-      const dispResult = dispatchData as {
-        dispatching_rows_written?: number;
-      } | null;
+      // PRD-019 E2 soft flag: machines that committed but produced no actionable
+      // dispatch lines (everything blocked/dropped). Reported, never a rollback.
+      const softFlags = c.soft_flags ?? [];
+      const softLine =
+        softFlags.length > 0
+          ? ` Note: ${softFlags.length} machine(s) committed with no actionable lines (${softFlags
+              .map((s) => s.machine)
+              .join(", ")}).`
+          : "";
 
       setCommitting(false);
       setCommitResult({
         ok: true,
-        msg: `Plan committed for ${planDate} — ${stitchResult?.rows_written ?? "?"} boonz rows stitched, ${dispResult?.dispatching_rows_written ?? "?"} dispatch lines created. Drivers will see it.`,
+        msg: `Plan committed for ${planDate} — VERIFIED ${c.output_rows ?? 0} approved boonz rows and ${c.dispatch_rows ?? 0} dispatch lines across ${c.machines ?? 0} machine(s). Drivers will see it.${softLine}`,
       });
 
       // Clear state — plan is now live
@@ -686,6 +722,13 @@ export function RefillPlanningTab({
         ok: false,
         msg: err instanceof Error ? err.message : "Unknown error during commit",
       });
+    } finally {
+      // PRD-019 D1: always release the single-writer lock, even on failure.
+      if (draftPlanDate) {
+        await supabase.rpc("release_refill_plan_lock", {
+          p_plan_date: draftPlanDate,
+        });
+      }
     }
   }, [
     draftPlanDate,
@@ -699,6 +742,26 @@ export function RefillPlanningTab({
     setEditedQty,
     setRemoved,
   ]);
+
+  // ── PRD-019 C2: load the compact all-rows planning view ─────────────────
+  const loadCompact = useCallback(async () => {
+    setCompactLoading(true);
+    try {
+      const machineNames = [...new Set(planRows.map((r) => r.machine_name))];
+      let q = supabase
+        .from("v_refill_planning_compact")
+        .select(
+          "machine_name, slot, product, current_stock, max_stock, fill_pct, stance, global_badge, local_badge, sales_7d, final_score, planned_action, planned_qty, wh_availability, wh_unsourceable, edit_comment, add_comment, clamp_reason",
+        )
+        .limit(10000);
+      // Scope to the machines on screen when a draft is loaded; else show all.
+      if (machineNames.length > 0) q = q.in("machine_name", machineNames);
+      const { data, error } = await q;
+      if (!error && data) setCompactRows(data as CompactRow[]);
+    } finally {
+      setCompactLoading(false);
+    }
+  }, [supabase, planRows]);
 
   // ── PRD-011 Bug 3: restore a superseded row to draft ────────────────────
   const restoreSupersededRow = useCallback(
@@ -893,6 +956,140 @@ export function RefillPlanningTab({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
+      {/* ── PRD-019 C2: compact all-rows planning view ──────────────────── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+        <div className="flex items-center gap-3 flex-wrap mb-3">
+          <button
+            onClick={() => {
+              const next = !compactOpen;
+              setCompactOpen(next);
+              if (next && compactRows.length === 0) loadCompact();
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {compactOpen ? "▾" : "▸"} Compact view (all slots)
+          </button>
+          {compactOpen && (
+            <>
+              <button
+                onClick={loadCompact}
+                disabled={compactLoading}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {compactLoading ? "Loading…" : "↻ Refresh"}
+              </button>
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                Sort:
+                {(["fill", "slot", "stock", "score"] as const).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => setCompactSort(k)}
+                    className={`px-2 py-1 rounded ${
+                      compactSort === k
+                        ? "bg-gray-900 text-white"
+                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {k === "fill"
+                      ? "Fill %"
+                      : k.charAt(0).toUpperCase() + k.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {compactOpen && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="py-2 pr-3">Machine</th>
+                  <th className="py-2 pr-3">Slot</th>
+                  <th className="py-2 pr-3">Product</th>
+                  <th className="py-2 pr-3">Stock</th>
+                  <th className="py-2 pr-3">Fill %</th>
+                  <th className="py-2 pr-3">Stance</th>
+                  <th className="py-2 pr-3">Global</th>
+                  <th className="py-2 pr-3">Local</th>
+                  <th className="py-2 pr-3">7d</th>
+                  <th className="py-2 pr-3">Score</th>
+                  <th className="py-2 pr-3">Planned</th>
+                  <th className="py-2 pr-3">WH Avail</th>
+                  <th className="py-2 pr-3">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...compactRows]
+                  .sort((a, b) => {
+                    if (compactSort === "slot")
+                      return (
+                        a.machine_name.localeCompare(b.machine_name) ||
+                        a.slot.localeCompare(b.slot)
+                      );
+                    if (compactSort === "stock")
+                      return (a.current_stock ?? 0) - (b.current_stock ?? 0);
+                    if (compactSort === "score")
+                      return (b.final_score ?? 0) - (a.final_score ?? 0);
+                    // default: fill % ascending (lowest fill first)
+                    return (a.fill_pct ?? 0) - (b.fill_pct ?? 0);
+                  })
+                  .map((r, i) => (
+                    <tr
+                      key={`${r.machine_name}-${r.slot}-${i}`}
+                      className="border-b border-gray-100"
+                    >
+                      <td className="py-1.5 pr-3 whitespace-nowrap text-gray-600">
+                        {r.machine_name}
+                      </td>
+                      <td className="py-1.5 pr-3 font-mono">{r.slot}</td>
+                      <td className="py-1.5 pr-3">{r.product ?? "—"}</td>
+                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                        {r.current_stock ?? 0}/{r.max_stock ?? 0}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        {r.fill_pct == null ? "—" : `${r.fill_pct}%`}
+                      </td>
+                      <td className="py-1.5 pr-3">{r.stance ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{r.global_badge ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{r.local_badge ?? "—"}</td>
+                      <td className="py-1.5 pr-3">{r.sales_7d ?? 0}</td>
+                      <td className="py-1.5 pr-3">{r.final_score ?? 0}</td>
+                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                        {r.planned_action
+                          ? `${r.planned_action} ${r.planned_qty ?? 0}`
+                          : "—"}
+                      </td>
+                      <td
+                        className={`py-1.5 pr-3 ${
+                          r.wh_unsourceable
+                            ? "text-red-600 font-semibold"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        {r.wh_availability ?? 0}
+                        {r.wh_unsourceable ? " ⚠" : ""}
+                      </td>
+                      <td className="py-1.5 pr-3 text-gray-500">
+                        {r.clamp_reason === "capacity_capped" ? "capped " : ""}
+                        {r.edit_comment ?? r.add_comment ?? ""}
+                      </td>
+                    </tr>
+                  ))}
+                {compactRows.length === 0 && !compactLoading && (
+                  <tr>
+                    <td colSpan={13} className="py-3 text-center text-gray-400">
+                      No rows. Load a draft or click Refresh.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ── Controls ──────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
