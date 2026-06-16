@@ -31,6 +31,20 @@ Replaces AppSheet for field operations. Stack: Next.js 15 on Vercel, Supabase (`
 
 ---
 
+## Deploying
+
+A change ships across three independent layers: Git (code), Supabase (DB), Vercel (FE).
+"Committed" is not "live". Before calling any deploy-touching task done, run the one-screen
+status check and tick all three layers:
+
+```bash
+bash scripts/deploy-status.sh
+```
+
+Full checklist: [docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md).
+
+---
+
 ## Supabase project
 
 - **Project ID:** `eizcexopcuoycuosittm`
