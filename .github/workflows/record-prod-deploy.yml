@@ -1,0 +1,87 @@
+name: Record production deploy
+
+# Vercel's GitHub integration posts a deployment_status event on every deploy.
+# We record only the successful Production ones so the live commit SHA is visible
+# in the repo without logging into Vercel (closes the Layer 3 "cannot see the
+# deployed SHA" gap). See docs/DEPLOY_CHECKLIST.md.
+on:
+  deployment_status:
+
+# Least privilege: only what the two record steps need.
+permissions:
+  contents: write   # append + commit docs/DEPLOYMENTS.md
+  statuses: write   # set the live/production commit status
+
+# Serialize so two near-simultaneous prod deploys cannot race the file append.
+concurrency:
+  group: record-prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  record:
+    # Only a SUCCESSFUL Production deploy. Vercel sets environment to
+    # "Production" or "production"; match both.
+    if: >-
+      github.event.deployment_status.state == 'success' &&
+      (github.event.deployment_status.environment == 'Production' ||
+       github.event.deployment_status.environment == 'production')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set live/production commit status
+        id: status
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.deployment.sha;
+            const url = context.payload.deployment_status.target_url || '';
+            const ts = new Date().toISOString();
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: 'success',
+              context: 'live/production',
+              description: `Deployed to production at ${ts}`.slice(0, 140),
+              ...(url ? { target_url: url } : {}),
+            });
+            core.setOutput('sha', sha);
+            core.setOutput('short', sha.substring(0, 7));
+            core.setOutput('url', url);
+            core.setOutput('ts', ts);
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Append to docs/DEPLOYMENTS.md
+        env:
+          TS: ${{ steps.status.outputs.ts }}
+          SHORT: ${{ steps.status.outputs.short }}
+          URL: ${{ steps.status.outputs.url }}
+        run: |
+          set -euo pipefail
+          mkdir -p docs
+          if [ ! -f docs/DEPLOYMENTS.md ]; then
+            {
+              echo "# Production deployments"
+              echo ""
+              echo "Auto-recorded by .github/workflows/record-prod-deploy.yml on every"
+              echo "successful Vercel production deploy. Newest entries are appended at the bottom."
+              echo ""
+              echo "| timestamp (UTC) | short-sha | url |"
+              echo "| --- | --- | --- |"
+            } > docs/DEPLOYMENTS.md
+          fi
+          printf '| %s | %s | %s |\n' "$TS" "$SHORT" "$URL" >> docs/DEPLOYMENTS.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/DEPLOYMENTS.md
+          # [skip ci] makes Vercel skip deploying this docs commit, so it does NOT
+          # produce a new deployment_status event and the workflow cannot loop.
+          if git commit -m "chore(deploy): record production ${SHORT} [skip ci]"; then
+            git push origin HEAD:main \
+              || echo "::warning::Push to main blocked (branch protection?). Commit status was still set; DEPLOYMENTS.md not updated."
+          else
+            echo "Nothing to commit (SHA already recorded)."
+          fi

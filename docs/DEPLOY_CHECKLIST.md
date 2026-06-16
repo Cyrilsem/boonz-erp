@@ -36,11 +36,9 @@ Every goal that touches code, the database, or the FE ends by ticking all three 
 
 ## Layer 3 — Vercel (frontend)
 
-- [ ] Production deployment is built from the new `origin/main` commit (`cf52c03` or newer).
-      Vercel auto-deploys on every push to `main`; confirm the deployed commit in
-      `vercel ls --prod` / `vercel inspect` or the dashboard.
-- [ ] Smoke the live site for the shipped feature (the actual user-facing control, on the
-      real URL), not just a green build.
+- [ ] Production SHA is auto-recorded by `record-prod-deploy.yml`. Confirm
+      [docs/DEPLOYMENTS.md](DEPLOYMENTS.md) (or the commit status `live/production` on that SHA)
+      shows the merged SHA. Visual smoke of the two routes still requires a logged-in browser.
 
 ## Why this exists
 
