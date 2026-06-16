@@ -19,6 +19,7 @@ interface PerfRow {
   total_units: number;
   revenue: number;
   avg_price: number;
+  wh_available: number;
   month_labels: string[];
 }
 
@@ -1721,12 +1722,20 @@ function PerformanceTab({
       acc.expected += r.expected;
       acc.total_units += r.total_units;
       acc.revenue += r.revenue;
+      acc.wh_available += r.wh_available;
       return acc;
     },
-    { m3: 0, m2: 0, m1: 0, mtd: 0, expected: 0, total_units: 0, revenue: 0 },
+    {
+      m3: 0,
+      m2: 0,
+      m1: 0,
+      mtd: 0,
+      expected: 0,
+      total_units: 0,
+      revenue: 0,
+      wh_available: 0,
+    },
   );
-  const totalsAvg =
-    totals.total_units > 0 ? totals.revenue / totals.total_units : 0;
 
   // Dark surface palette
   const panelBg = "#0f172a";
@@ -1778,7 +1787,7 @@ function PerformanceTab({
     transition: "background 0.15s, color 0.15s",
   });
 
-  const colCount = 10;
+  const colCount = 9;
 
   return (
     <>
@@ -1862,8 +1871,7 @@ function PerformanceTab({
                   Expected
                 </th>
                 <th style={th}>Units</th>
-                <th style={th}>Revenue</th>
-                <th style={th}>Avg</th>
+                <th style={th}>WH Avail</th>
               </tr>
             </thead>
             <tbody>
@@ -1944,11 +1952,13 @@ function PerformanceTab({
                       <td style={{ ...td, fontWeight: 600 }}>
                         {fmtInt(r.total_units)}
                       </td>
-                      <td style={{ ...td, color: muted }}>
-                        {fmtAed(r.revenue)}
-                      </td>
-                      <td style={{ ...td, color: muted }}>
-                        {r.avg_price.toFixed(2)}
+                      <td
+                        style={{
+                          ...td,
+                          color: r.wh_available > 0 ? textColor : "#64748b",
+                        }}
+                      >
+                        {fmtInt(r.wh_available)}
                       </td>
                     </tr>
                   ))}
@@ -2020,17 +2030,7 @@ function PerformanceTab({
                         fontWeight: 700,
                       }}
                     >
-                      {fmtAed(totals.revenue)}
-                    </td>
-                    <td
-                      style={{
-                        ...td,
-                        borderTop: `2px solid #334155`,
-                        borderBottom: "none",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {totalsAvg.toFixed(2)}
+                      {fmtInt(totals.wh_available)}
                     </td>
                   </tr>
                 </>
@@ -2052,7 +2052,10 @@ function PerformanceTab({
         Trailing 3 complete months plus current-month-to-date, ranked by total
         units. <span style={{ color: expText }}>Expected</span> projects
         month-end demand from the current daily run-rate, adjusted by active
-        demand-context factors (events, weather). Revenue and avg price in AED.
+        demand-context factors (events, weather).{" "}
+        <span style={{ color: textColor }}>WH Avail</span> = pickable warehouse
+        stock (Active, in-date, not quarantined) across the product&rsquo;s
+        mapped variants.
       </p>
     </>
   );
