@@ -3,6 +3,8 @@
 > Smart vending operations platform · UAE · March 2026
 > Built for agentic execution — all context an agent needs to pick up any phase and build.
 
+**Production:** the commit currently live is recorded in [docs/DEPLOYMENTS.md](docs/DEPLOYMENTS.md) (or the `live/production` commit status on that SHA), updated automatically on every Vercel production deploy by [record-prod-deploy.yml](.github/workflows/record-prod-deploy.yml).
+
 ## What this project is
 
 Boonz operates smart vending machines across UAE locations. This ERP platform covers:
