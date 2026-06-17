@@ -365,10 +365,24 @@ export default function ConsumerDashboardClient({
     setCLoading(true);
     setCErr(null);
     try {
-      setC(await fetchVoxCommercialReport(pods, dateFrom, dateTo));
+      // PRD-023j: fetch cards/waterfall first WITHOUT the heavy transactions[] (~1 KB),
+      // so the page renders instantly and never cold-start 504s on wide windows.
+      const cards = await fetchVoxCommercialReport(pods, dateFrom, dateTo, false);
+      setC(cards);
+      setCLoading(false);
+      // Then fill the Transaction Detail table with a second, non-blocking fetch.
+      // A slow/huge window only spins this panel; cards are already on screen.
+      fetchVoxCommercialReport(pods, dateFrom, dateTo, true)
+        .then((full) =>
+          setC((prev) =>
+            prev ? { ...prev, transactions: full.transactions } : full,
+          ),
+        )
+        .catch(() => {
+          /* table stays empty; cards/waterfall already shown. CSV export still refetches. */
+        });
     } catch (e: any) {
       setCErr(e.message);
-    } finally {
       setCLoading(false);
     }
   }, [pods, dateFrom, dateTo]);

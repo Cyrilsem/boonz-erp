@@ -274,11 +274,15 @@ export async function fetchVoxCommercialReport(
   pods: string[] = ["Mercato", "Mirdif"],
   dateFrom: string = "2026-02-06",
   dateTo: string = new Date().toISOString().split("T")[0],
+  includeTransactions: boolean = true,
 ): Promise<VoxCommercialReport> {
   const params = new URLSearchParams({
     pods: pods.join(","),
     date_from: dateFrom,
     date_to: dateTo,
+    // PRD-023j: cards/waterfall fetch with include_transactions=false is ~1 KB and never
+    // cold-start 504s on wide windows; the transaction table fills via a second call.
+    include_transactions: String(includeTransactions),
   });
   const res = await fetch(`/api/vox/commercial?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch commercial: ${res.status}`);

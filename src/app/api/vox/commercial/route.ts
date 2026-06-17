@@ -17,6 +17,9 @@ export async function GET(req: NextRequest) {
     const dateFrom = searchParams.get("date_from") || "2026-02-06";
     const dateTo =
       searchParams.get("date_to") || new Date().toISOString().slice(0, 10);
+    // PRD-023j: cards/waterfall can skip the heavy transactions[] payload (~1 KB vs ~1.5 MB/mo).
+    const includeTransactions =
+      searchParams.get("include_transactions") !== "false";
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,6 +30,7 @@ export async function GET(req: NextRequest) {
       p_pods: pods,
       p_date_from: dateFrom,
       p_date_to: dateTo,
+      p_include_transactions: includeTransactions,
     });
 
     if (error) {
