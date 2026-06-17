@@ -13,6 +13,13 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-17 — PRD-023i: VOX line-detail money columns + report timeout headroom
+
+**Phase / Article:** PRD-023 follow-up / read-only, no protected writes (class c). Articles 12/13 (DROP+CREATE of a reporting fn).
+**Applied to:** both (remote via MCP as `prd023_i_lines_money_cols_and_timeout`; repo `supabase/migrations/20260617150000_prd023_i_lines_money_cols_and_timeout.sql`)
+**Summary:** (1) `get_vox_commercial_txn_lines` (SKU "Line detail" export) gains txn-level Adyen Fees, Net Revenue, Boonz 20%, VOX 80% so MAFE has one report (Default/Refund/COGS already present). Money math mirrors `get_vox_commercial_report`; line totals tie to the waterfall (per-txn 2-dp rounding = <2 AED/month drift on fee/share subtotals, expected). FE line-CSV header/rows extended. (2) Function-local `statement_timeout='30s'` on the 3 VOX report RPCs + `maxDuration=30` on the 3 /api/vox routes. Fixes the intermittent "Failed to fetch: 500" on wide (month+) windows: warm runtime ~1.9s but transient DB contention (e.g. concurrent refill-engine session) pushed cold/queued executions past the authenticated 8s default and they were cancelled. 30s gives headroom.
+**Rollback:** restore the pre-i `get_vox_commercial_txn_lines` body (16-col signature) from migration `20260611120000`; `ALTER FUNCTION ... RESET statement_timeout` on the 3 RPCs.
+
 ## 2026-06-14 — PRD-031 refill-execution-accuracy (WS-5): shared-SKU reservation at stitch
 
 **Phase / Article:** Phase F stitch / Constitution Articles 1, 4, 5, 8, 12, 14

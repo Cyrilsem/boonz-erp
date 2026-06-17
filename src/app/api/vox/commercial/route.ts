@@ -1,5 +1,7 @@
 // app/api/vox/commercial/route.ts
 import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 30;
 import { createClient } from "@supabase/supabase-js";
 
 export const revalidate = 300;

@@ -2865,6 +2865,10 @@ export default function ConsumerDashboardClient({
                                   "Txn Captured",
                                   "Txn Default",
                                   "Txn Refunded",
+                                  "Txn Adyen Fees",
+                                  "Txn Net Revenue",
+                                  "Txn Boonz 20%",
+                                  "Txn VOX 80%",
                                   "Txn Status",
                                 ];
                                 const esc = (v: any) => {
@@ -2893,6 +2897,10 @@ export default function ConsumerDashboardClient({
                                     l.txn_captured,
                                     l.txn_default,
                                     l.txn_refunded,
+                                    l.txn_adyen_fees,
+                                    l.txn_net_revenue,
+                                    l.txn_boonz_share,
+                                    l.txn_vox_share,
                                     l.txn_status,
                                   ]
                                     .map(esc)

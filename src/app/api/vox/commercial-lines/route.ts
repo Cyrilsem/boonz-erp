@@ -1,6 +1,8 @@
 // app/api/vox/commercial-lines/route.ts
 // AC4: SKU line-level export. Read-only RPC get_vox_commercial_txn_lines, server-side (service role).
 import { NextRequest, NextResponse } from "next/server";
+
+export const maxDuration = 30;
 import { createClient } from "@supabase/supabase-js";
 
 export const revalidate = 0;
