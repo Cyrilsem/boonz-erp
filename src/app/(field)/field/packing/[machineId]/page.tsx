@@ -103,8 +103,17 @@ interface MachineInfo {
   official_name: string;
   pod_location: string | null;
   primary_warehouse_id?: string | null;
+  secondary_warehouse_id?: string | null;
   adyen_store_code: string | null;
 }
+
+// PRD-036 Phase A: friendly names for the stranded-stock note.
+const WH_NAMES: Record<string, string> = {
+  "4bebef68-9e36-4a5c-9c2c-142f8dbdae85": "WH Central",
+  "0aef9ccf-32ad-4545-8413-29bebd931d0b": "WH MM",
+  "4fcfb52c-271f-4aa7-a373-3495e3271cd3": "WH MCC",
+};
+const whLabel = (id: string): string => WH_NAMES[id] ?? `WH ${id.slice(0, 8)}`;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -258,6 +267,20 @@ export default function PackingDetailPage() {
     new Map(),
   );
 
+  // PRD-036 Phase A: canonical pickable-stock truth per dispatch line from
+  // v_dispatch_pickable. Used to render the stranded-stock note so a 0 is
+  // trusted (stock exists in a non-serving warehouse) rather than a binding gap.
+  const [pickableByDispatch, setPickableByDispatch] = useState<
+    Map<
+      string,
+      {
+        serving_pickable_units: number;
+        stranded_units: number;
+        stranded_warehouses: string[] | null;
+      }
+    >
+  >(new Map());
+
   const fetchData = useCallback(async () => {
     const supabase = createClient();
     const today = getDubaiDate();
@@ -265,7 +288,7 @@ export default function PackingDetailPage() {
     const { data: machineData } = await supabase
       .from("machines")
       .select(
-        "official_name, pod_location, primary_warehouse_id, adyen_store_code",
+        "official_name, pod_location, primary_warehouse_id, secondary_warehouse_id, adyen_store_code",
       )
       .eq("machine_id", machineId)
       .single();
@@ -273,11 +296,19 @@ export default function PackingDetailPage() {
     if (machineData) setMachine(machineData);
     const primaryWarehouseId =
       (machineData?.primary_warehouse_id as string | null) ?? null;
+    // PRD-036 Phase A: include the machine's secondary serving warehouse (was
+    // ignored before, hiding genuinely-pickable stock at the secondary WH).
+    const secondaryWarehouseId =
+      (machineData?.secondary_warehouse_id as string | null) ?? null;
     // WH_CENTRAL is the global cold-chain warehouse; cold products always come from there.
     const WH_CENTRAL_ID = "4bebef68-9e36-4a5c-9c2c-142f8dbdae85";
-    const allowedWarehouseIds = primaryWarehouseId
-      ? [...new Set([primaryWarehouseId, WH_CENTRAL_ID])]
-      : [WH_CENTRAL_ID];
+    const allowedWarehouseIds = [
+      ...new Set(
+        [primaryWarehouseId, secondaryWarehouseId, WH_CENTRAL_ID].filter(
+          (w): w is string => !!w,
+        ),
+      ),
+    ];
 
     // Fetch warehouse name map for source-warehouse display
     const { data: warehouseRows } = await supabase
@@ -1089,6 +1120,38 @@ export default function PackingDetailPage() {
     const allResolved =
       mapped.length > 0 && mapped.every((l) => l.action !== null);
     if (allResolved) setSaved(true);
+
+    // PRD-036 Phase A: load canonical pickable truth (serving units + stranded
+    // signal) for the loaded dispatch lines from v_dispatch_pickable.
+    const dispatchIds = mapped
+      .map((l) => l.dispatch_id)
+      .filter((id): id is string => !!id);
+    if (dispatchIds.length > 0) {
+      const { data: pickRows } = await supabase
+        .from("v_dispatch_pickable")
+        .select(
+          "dispatch_id, serving_pickable_units, stranded_units, stranded_warehouses",
+        )
+        .in("dispatch_id", dispatchIds)
+        .limit(10000);
+      const pmap = new Map<
+        string,
+        {
+          serving_pickable_units: number;
+          stranded_units: number;
+          stranded_warehouses: string[] | null;
+        }
+      >();
+      for (const r of pickRows ?? []) {
+        pmap.set(r.dispatch_id as string, {
+          serving_pickable_units: (r.serving_pickable_units as number) ?? 0,
+          stranded_units: (r.stranded_units as number) ?? 0,
+          stranded_warehouses:
+            (r.stranded_warehouses as string[] | null) ?? null,
+        });
+      }
+      setPickableByDispatch(pmap);
+    }
 
     setLoading(false);
   }, [machineId]);
@@ -2851,9 +2914,30 @@ export default function PackingDetailPage() {
                               WH stock depleted — packed qty shown above
                             </p>
                           ) : (
-                            <p className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                              ⚠ No stock found in warehouse
-                            </p>
+                            (() => {
+                              const pick = pickableByDispatch.get(
+                                line.dispatch_id,
+                              );
+                              const stranded = pick?.stranded_units ?? 0;
+                              const whs = pick?.stranded_warehouses ?? [];
+                              return (
+                                <span className="inline-flex flex-col gap-1">
+                                  <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                    ⚠ No pickable stock in serving warehouse
+                                  </span>
+                                  {stranded > 0 && (
+                                    <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
+                                      {stranded} unit{stranded !== 1 ? "s" : ""}{" "}
+                                      stranded in{" "}
+                                      {whs.length > 0
+                                        ? whs.map(whLabel).join(", ")
+                                        : "another warehouse"}{" "}
+                                      — transfer to serving WH
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()
                           )
                         ) : (
                           <div className="w-full overflow-hidden rounded-lg border border-neutral-200 divide-y divide-neutral-100 dark:divide-neutral-800 dark:border-neutral-700">

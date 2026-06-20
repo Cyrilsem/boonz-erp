@@ -9,6 +9,7 @@ import { DailyDispatchingTab } from "./DailyDispatchingTab";
 import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
 import { TrackerTab } from "./TrackerTab";
 import { SignalsTab } from "./SignalsTab";
+import { FieldCapturePanel } from "./FieldCapturePanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -293,7 +294,12 @@ function expiryCardColors(daysToExpiry: number | null): CardStyle {
 
 export default function RefillPage() {
   const [tab, setTab] = useState<
-    "snapshot" | "planning" | "dispatching" | "tracker" | "signals"
+    | "snapshot"
+    | "planning"
+    | "dispatching"
+    | "tracker"
+    | "signals"
+    | "field_capture"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
@@ -1277,6 +1283,7 @@ export default function RefillPage() {
             ["dispatching", "Refill Dispatch"],
             ["tracker", "Tracker"],
             ["signals", "Signals"],
+            ["field_capture", "Field Capture"],
           ] as const
         ).map(([t, label]) => (
           <button
@@ -1328,6 +1335,9 @@ export default function RefillPage() {
 
       {/* ── Signals tab — all decision-feeding data sources ───────────────── */}
       {tab === "signals" && <SignalsTab />}
+
+      {/* ── Field Capture tab — PRD-036 Phase B field batch+expiry capture ──── */}
+      {tab === "field_capture" && <FieldCapturePanel />}
 
       {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
       <div style={{ display: tab === "snapshot" ? undefined : "none" }}>

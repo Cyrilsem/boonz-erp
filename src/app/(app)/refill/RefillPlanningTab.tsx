@@ -265,13 +265,22 @@ export function RefillPlanningTab({
     edit_comment: string | null;
     add_comment: string | null;
     clamp_reason: string | null;
+    is_configured: boolean | null;
   };
   const [compactRows, setCompactRows] = useState<CompactRow[]>([]);
   const [compactOpen, setCompactOpen] = useState(false);
   const [compactLoading, setCompactLoading] = useState(false);
+  // PRD-019c: Machine is the default sort (machine_name ASC, then slot ASC).
   const [compactSort, setCompactSort] = useState<
-    "fill" | "slot" | "stock" | "score"
-  >("fill");
+    "machine" | "fill" | "slot" | "stock" | "score"
+  >("machine");
+  // PRD-019c: client-side filters over the already-fetched compact rows.
+  const [fltStance, setFltStance] = useState<Set<string>>(new Set());
+  const [fltWhUnsourceable, setFltWhUnsourceable] = useState(false);
+  const [fltNeedsRefill, setFltNeedsRefill] = useState(false);
+  const [fltMachines, setFltMachines] = useState<Set<string>>(new Set());
+  // Hide unconfigured + empty shelves (e.g. AMZ second cabinet) by default.
+  const [hideUnconfigured, setHideUnconfigured] = useState(true);
 
   // Add row modal
   const [showAdd, setShowAdd] = useState(false);
@@ -751,7 +760,7 @@ export function RefillPlanningTab({
       let q = supabase
         .from("v_refill_planning_compact")
         .select(
-          "machine_name, slot, product, current_stock, max_stock, fill_pct, stance, global_badge, local_badge, sales_7d, final_score, planned_action, planned_qty, wh_availability, wh_unsourceable, edit_comment, add_comment, clamp_reason",
+          "machine_name, slot, product, current_stock, max_stock, fill_pct, stance, global_badge, local_badge, sales_7d, final_score, planned_action, planned_qty, wh_availability, wh_unsourceable, edit_comment, add_comment, clamp_reason, is_configured",
         )
         .limit(10000);
       // Scope to the machines on screen when a draft is loaded; else show all.
@@ -953,6 +962,69 @@ export function RefillPlanningTab({
   const noStockAlerts = alerts.filter((a) => a.type === "no_stock");
   const warnAlerts = alerts.filter((a) => a.type === "warning");
 
+  // ── PRD-019c: client-side filter + sort over the compact rows ─────────────
+  const STANCE_OPTIONS = [
+    "DOUBLE DOWN",
+    "STAR",
+    "KEEP",
+    "WIND DOWN",
+    "ROTATE OUT",
+    "DEAD",
+    "WATCH",
+    "RAMPING",
+  ];
+  const compactMachines = [
+    ...new Set(compactRows.map((r) => r.machine_name)),
+  ].sort((a, b) => a.localeCompare(b));
+  const activeFilterCount =
+    fltStance.size +
+    fltMachines.size +
+    (fltWhUnsourceable ? 1 : 0) +
+    (fltNeedsRefill ? 1 : 0) +
+    (hideUnconfigured ? 1 : 0);
+  const clearCompactFilters = () => {
+    setFltStance(new Set());
+    setFltMachines(new Set());
+    setFltWhUnsourceable(false);
+    setFltNeedsRefill(false);
+    setHideUnconfigured(false);
+  };
+  // Filters compose: AND across categories, OR within a multi-select.
+  const visibleCompactRows = [...compactRows]
+    .filter((r) => {
+      // "Hide unconfigured/empty": is_configured=false AND no stock AND no plan.
+      if (
+        hideUnconfigured &&
+        r.is_configured === false &&
+        (r.current_stock ?? 0) === 0 &&
+        r.planned_qty == null
+      )
+        return false;
+      if (fltMachines.size > 0 && !fltMachines.has(r.machine_name))
+        return false;
+      if (fltStance.size > 0 && !(r.stance != null && fltStance.has(r.stance)))
+        return false;
+      if (
+        fltWhUnsourceable &&
+        !(r.wh_unsourceable === true || (r.wh_availability ?? 0) === 0)
+      )
+        return false;
+      if (fltNeedsRefill && !((r.planned_qty ?? 0) > 0)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (compactSort === "stock")
+        return (a.current_stock ?? 0) - (b.current_stock ?? 0);
+      if (compactSort === "score")
+        return (b.final_score ?? 0) - (a.final_score ?? 0);
+      if (compactSort === "fill") return (a.fill_pct ?? 0) - (b.fill_pct ?? 0);
+      // "machine" (default) and "slot": machine_name ASC, then natural slot ASC.
+      return (
+        a.machine_name.localeCompare(b.machine_name) ||
+        a.slot.localeCompare(b.slot, undefined, { numeric: true })
+      );
+    });
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
@@ -980,25 +1052,135 @@ export function RefillPlanningTab({
               </button>
               <div className="flex items-center gap-1 text-xs text-gray-500">
                 Sort:
-                {(["fill", "slot", "stock", "score"] as const).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => setCompactSort(k)}
-                    className={`px-2 py-1 rounded ${
-                      compactSort === k
-                        ? "bg-gray-900 text-white"
-                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    {k === "fill"
-                      ? "Fill %"
-                      : k.charAt(0).toUpperCase() + k.slice(1)}
-                  </button>
-                ))}
+                {(["machine", "fill", "slot", "stock", "score"] as const).map(
+                  (k) => (
+                    <button
+                      key={k}
+                      onClick={() => setCompactSort(k)}
+                      className={`px-2 py-1 rounded ${
+                        compactSort === k
+                          ? "bg-gray-900 text-white"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {k === "fill"
+                        ? "Fill %"
+                        : k.charAt(0).toUpperCase() + k.slice(1)}
+                    </button>
+                  ),
+                )}
               </div>
             </>
           )}
         </div>
+
+        {/* ── PRD-019c: client-side filter bar (no refetch) ─────────────────── */}
+        {compactOpen && (
+          <div className="flex flex-col gap-2 mb-3 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-gray-500">Stance:</span>
+              {STANCE_OPTIONS.map((s) => {
+                const on = fltStance.has(s);
+                return (
+                  <button
+                    key={s}
+                    onClick={() =>
+                      setFltStance((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(s)) next.delete(s);
+                        else next.add(s);
+                        return next;
+                      })
+                    }
+                    className={`px-2 py-1 rounded ${
+                      on
+                        ? "bg-gray-900 text-white"
+                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setFltWhUnsourceable((v) => !v)}
+                className={`px-2 py-1 rounded ${
+                  fltWhUnsourceable
+                    ? "bg-red-600 text-white"
+                    : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                WH unsourceable
+              </button>
+              <button
+                onClick={() => setFltNeedsRefill((v) => !v)}
+                className={`px-2 py-1 rounded ${
+                  fltNeedsRefill
+                    ? "bg-gray-900 text-white"
+                    : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                Needs refill
+              </button>
+              <button
+                onClick={() => setHideUnconfigured((v) => !v)}
+                className={`px-2 py-1 rounded ${
+                  hideUnconfigured
+                    ? "bg-gray-900 text-white"
+                    : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {hideUnconfigured ? "Hiding unconfigured" : "Show unconfigured"}
+              </button>
+              <span className="text-gray-400">
+                {visibleCompactRows.length} of {compactRows.length} rows
+                {activeFilterCount > 0
+                  ? ` · ${activeFilterCount} filter${
+                      activeFilterCount === 1 ? "" : "s"
+                    } active`
+                  : ""}
+              </span>
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearCompactFilters}
+                  className="px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-50"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {compactMachines.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-gray-500">Machine:</span>
+                {compactMachines.map((m) => {
+                  const on = fltMachines.has(m);
+                  return (
+                    <button
+                      key={m}
+                      onClick={() =>
+                        setFltMachines((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(m)) next.delete(m);
+                          else next.add(m);
+                          return next;
+                        })
+                      }
+                      className={`px-2 py-1 rounded font-mono ${
+                        on
+                          ? "bg-gray-900 text-white"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {machineShortId(m)}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {compactOpen && (
           <div className="overflow-x-auto">
@@ -1021,66 +1203,54 @@ export function RefillPlanningTab({
                 </tr>
               </thead>
               <tbody>
-                {[...compactRows]
-                  .sort((a, b) => {
-                    if (compactSort === "slot")
-                      return (
-                        a.machine_name.localeCompare(b.machine_name) ||
-                        a.slot.localeCompare(b.slot)
-                      );
-                    if (compactSort === "stock")
-                      return (a.current_stock ?? 0) - (b.current_stock ?? 0);
-                    if (compactSort === "score")
-                      return (b.final_score ?? 0) - (a.final_score ?? 0);
-                    // default: fill % ascending (lowest fill first)
-                    return (a.fill_pct ?? 0) - (b.fill_pct ?? 0);
-                  })
-                  .map((r, i) => (
-                    <tr
-                      key={`${r.machine_name}-${r.slot}-${i}`}
-                      className="border-b border-gray-100"
+                {visibleCompactRows.map((r, i) => (
+                  <tr
+                    key={`${r.machine_name}-${r.slot}-${i}`}
+                    className="border-b border-gray-100"
+                  >
+                    <td className="py-1.5 pr-3 whitespace-nowrap text-gray-600">
+                      {r.machine_name}
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono">{r.slot}</td>
+                    <td className="py-1.5 pr-3">{r.product ?? "—"}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">
+                      {r.current_stock ?? 0}/{r.max_stock ?? 0}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      {r.fill_pct == null ? "—" : `${r.fill_pct}%`}
+                    </td>
+                    <td className="py-1.5 pr-3">{r.stance ?? "—"}</td>
+                    <td className="py-1.5 pr-3">{r.global_badge ?? "—"}</td>
+                    <td className="py-1.5 pr-3">{r.local_badge ?? "—"}</td>
+                    <td className="py-1.5 pr-3">{r.sales_7d ?? 0}</td>
+                    <td className="py-1.5 pr-3">{r.final_score ?? 0}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">
+                      {r.planned_action
+                        ? `${r.planned_action} ${r.planned_qty ?? 0}`
+                        : "—"}
+                    </td>
+                    <td
+                      className={`py-1.5 pr-3 ${
+                        r.wh_unsourceable
+                          ? "text-red-600 font-semibold"
+                          : "text-gray-700"
+                      }`}
                     >
-                      <td className="py-1.5 pr-3 whitespace-nowrap text-gray-600">
-                        {r.machine_name}
-                      </td>
-                      <td className="py-1.5 pr-3 font-mono">{r.slot}</td>
-                      <td className="py-1.5 pr-3">{r.product ?? "—"}</td>
-                      <td className="py-1.5 pr-3 whitespace-nowrap">
-                        {r.current_stock ?? 0}/{r.max_stock ?? 0}
-                      </td>
-                      <td className="py-1.5 pr-3">
-                        {r.fill_pct == null ? "—" : `${r.fill_pct}%`}
-                      </td>
-                      <td className="py-1.5 pr-3">{r.stance ?? "—"}</td>
-                      <td className="py-1.5 pr-3">{r.global_badge ?? "—"}</td>
-                      <td className="py-1.5 pr-3">{r.local_badge ?? "—"}</td>
-                      <td className="py-1.5 pr-3">{r.sales_7d ?? 0}</td>
-                      <td className="py-1.5 pr-3">{r.final_score ?? 0}</td>
-                      <td className="py-1.5 pr-3 whitespace-nowrap">
-                        {r.planned_action
-                          ? `${r.planned_action} ${r.planned_qty ?? 0}`
-                          : "—"}
-                      </td>
-                      <td
-                        className={`py-1.5 pr-3 ${
-                          r.wh_unsourceable
-                            ? "text-red-600 font-semibold"
-                            : "text-gray-700"
-                        }`}
-                      >
-                        {r.wh_availability ?? 0}
-                        {r.wh_unsourceable ? " ⚠" : ""}
-                      </td>
-                      <td className="py-1.5 pr-3 text-gray-500">
-                        {r.clamp_reason === "capacity_capped" ? "capped " : ""}
-                        {r.edit_comment ?? r.add_comment ?? ""}
-                      </td>
-                    </tr>
-                  ))}
-                {compactRows.length === 0 && !compactLoading && (
+                      {r.wh_availability ?? 0}
+                      {r.wh_unsourceable ? " ⚠" : ""}
+                    </td>
+                    <td className="py-1.5 pr-3 text-gray-500">
+                      {r.clamp_reason === "capacity_capped" ? "capped " : ""}
+                      {r.edit_comment ?? r.add_comment ?? ""}
+                    </td>
+                  </tr>
+                ))}
+                {visibleCompactRows.length === 0 && !compactLoading && (
                   <tr>
                     <td colSpan={13} className="py-3 text-center text-gray-400">
-                      No rows. Load a draft or click Refresh.
+                      {compactRows.length === 0
+                        ? "No rows. Load a draft or click Refresh."
+                        : "No rows match the active filters."}
                     </td>
                   </tr>
                 )}
