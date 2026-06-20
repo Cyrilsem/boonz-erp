@@ -13,6 +13,29 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-20 — PRD-039 Refill v4 swap value-model (Phase 1) APPLIED
+
+**Phase / Article:** PRD-039 Phase 1 / Articles 1, 4, 5, 12, 16.
+**Applied to:** both (prod via MCP `prd039_p1_engine_swap_pod_v13`; repo `supabase/migrations/20260620130000_prd039_p1_engine_swap_pod_v13.sql`).
+**Summary:** Forward-only `CREATE OR REPLACE` evolving the canonical `engine_swap_pod` v12 → **v13_value_model_broad** (same signature; NO parallel `_v13`). Pass-1 / dead-tag / Pass-2b reproduced byte-for-byte (labels bumped to v13). **Pass-3 rewritten:** WS-A broad candidate universe from `v_wh_pickable` (`find_substitutes_for_shelf` no longer the gate — it stays untouched; Pearson is the w3 term only via the set-based mirror of `get_candidate_affinity`); WS-B candidate-specific cap = COALESCE(`slot_capacity_max.override_max_stock`, floor(`product_slot_capacity_units(physical_type, shelf_size)`×0.85), `shelf_configurations.max_capacity`, 8); WS-C greedy-by-marginal-value unique assignment (each product once/machine/cycle); WS-D homogenisation cap K=3 machines/product/cycle; fleet ≤10, ≤2/machine, 14-day cooldown preserved. Projection (sister velocity + affinity) computed SET-BASED (per-pair scalar calls timed out fleet-wide). **Latent v12 bug fixed:** Pass-3 inserted `reason='score_swap'` which violates `pod_swaps_reason_check` (dead path only because `swaps_enabled=false`) → now `reason='rotate_out'` + `reasoning->>'source'='value_model_swap_broad'`; the two internal counters re-keyed off `reasoning->>'source'`. `engine_add_pod` v18 UNTOUCHED (T12). `swaps_enabled` stays **false** (Pass-3 no-op until P2). Rolled-back replay (plan_date 2026-06-21, 8 machines, 10 swaps): U1/U2/C1/C2/A1/A2/H1/R1 + T7 + T12 all PASS. Cody approved (Articles 1/4/5/12/16). Post-apply: engine v13, add v18, swaps_enabled false, full-function smoke green + rolled back clean.
+**Rollback:** forward-only; to revert, `CREATE OR REPLACE engine_swap_pod` back to the v12_value_model body (no data dependency while swaps_enabled=false).
+
+## 2026-06-20 — PRD-039 Refill v4 swap value-model (Phase 0) APPLIED
+
+**Phase / Article:** PRD-039 Phase 0 / Articles 2, 12, 14, 16.
+**Applied to:** both (prod via MCP `prd039_p0_product_slot_capacity` + `prd039_p0_get_candidate_affinity`; repo `supabase/migrations/20260620120000_*.sql` + `20260620120100_*.sql`).
+**Summary:** Data prerequisites for the Pass-3 value-model rewrite. Added `product_slot_capacity(physical_type, shelf_size, max_units)` read-only reference table (RLS select-to-authenticated, PK (physical_type,shelf_size)) seeded with **33 observed cells** — CS chose Option B (observed physical max from `v_shelf_max_stock` on the live 14-value taxonomy) over the layout.md §4 crosswalk (stale 15-name taxonomy, lossy). Plus matrix-miss resolver `product_slot_capacity_units(text,text)` (ladder: exact → nearest size same type → bar_standard of size → 8); coverage proven **42/42** (14 physical_types × {Small,Medium,Large}), 9 cells via fallback. Added scoring-only `get_candidate_affinity(machine, cand_pod)` (read-only DEFINER) that mirrors `find_substitutes_for_shelf` basket_corr exactly, so Phase-1 WS-A can carry the Pearson w3 term WITHOUT using `find_substitutes` as the candidate gate; `find_substitutes` left untouched → PRD-037 R1 stays byte-identical. `engine_swap_pod` still v12, `engine_add_pod` still v18, `swaps_enabled` still `false`. Cody approved (Articles 2/12/14/16).
+**Open follow-up (Article 16 hygiene):** register "candidate basket affinity" in METRICS_REGISTRY with `get_candidate_affinity` canonical; converge `find_substitutes` on it at its next legitimate change.
+**Rollback:** forward-only; to revert, `DROP FUNCTION get_candidate_affinity(uuid,uuid)`, `DROP FUNCTION product_slot_capacity_units(text,text)`, `DROP TABLE product_slot_capacity` (no consumers until Phase 1 lands).
+
+## 2026-06-20 — PRD-037 Refill v4 swap engine (Phase 0 + Phase 1) APPLIED
+
+**Phase / Article:** PRD-037; Articles 1, 2, 3, 4, 6, 8, 12, 14.
+**Applied to:** prod (eizcexopcuoycuosittm), CS-authorized via Cowork.
+**Migration names:** `prd037_p0_coexistence_rules_brand_owner`, `prd037_p1_engine_swap_pod_v12`.
+**Summary:** Phase 0 added `boonz_products.brand_owner` (6 TCCC tagged) + `coexistence_rules` table (RLS read-only, 12 seeded rules: Rule 1 TCCC venue exclusion + Groups 1-7). Phase 1 added read-only helpers `_coexistence_blocks` / `_travel_scope_blocks` and rewrote `engine_swap_pod` v11 -> v12 (value-model Pass-3: V=margin x min(velocity x D, cap), theta 0.15, rate limits, intra-cycle swap-in dedup). `engine_add_pod` v18 UNTOUCHED (T12). `swaps_enabled` stays `false` (Pass-3 no-op until Phase 3). Re-scoped T13 (literal products + redeploy moved to Phase 2 / PRD-039); full re-scoped T1-T13 green in rolled-back replays. Cody approved Phase 0 schema (2/3/12/14), v12 body (1/4/6/8), dedup delta (1/4/8/12).
+**Rollback:** forward-only; to revert, CREATE OR REPLACE engine_swap_pod back to v10_2 body and DROP the two helpers + coexistence_rules + brand_owner column (no data dependency while swaps_enabled=false).
+
 ## 2026-06-17 — PRD-023i: VOX line-detail money columns + report timeout headroom
 
 **Phase / Article:** PRD-023 follow-up / read-only, no protected writes (class c). Articles 12/13 (DROP+CREATE of a reporting fn).
