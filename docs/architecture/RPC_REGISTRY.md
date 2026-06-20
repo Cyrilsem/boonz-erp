@@ -374,6 +374,12 @@ These functions write to `warehouse_inventory_status_proposal` only — never UP
 - `get_candidate_affinity(p_machine_id uuid, p_cand_pod_product_id uuid)` → **read-only helper (SECURITY DEFINER, STABLE, search_path pinned; EXECUTE to authenticated/service_role).** ✅ 2026-06-20 (`prd039_p0_get_candidate_affinity`). Scoring-only Pearson/co-purchase score for an arbitrary candidate pod vs a machine basket (velocity>0 on-machine pods); per-machine correlation then loc-type fallback, COALESCE 0. Mirrors `find_substitutes_for_shelf` basket_corr exactly so the Phase-1 broad universe carries the w3 term without `find_substitutes` as a gate. No writes. Cody Articles 2/12/14/16. **Art-16 follow-up:** register "candidate basket affinity" in METRICS_REGISTRY with this as canonical; converge `find_substitutes` on it later.
 - New reference table `product_slot_capacity(physical_type, shelf_size, max_units)` (RLS read-only `psc_select`, written by migration only; `prd039_p0_product_slot_capacity`). Seed = observed physical max from `v_shelf_max_stock` (CS choice, 33 cells). Cody Articles 2/12/14/16.
 
+### PRD-040 — Track A closeout (✅ 2026-06-20)
+
+- `log_manual_refill(p_machine_name text, p_source_warehouse_id uuid, p_refill_date date, p_lines jsonb, p_reason text)` → canonical writer (warehouse_inventory + pod_inventory). ✅ 2026-06-20 (`prd036_b_log_manual_refill_new_purchase`). Per-line `new_purchase` boolean added: `false` (default) = unchanged FEFO-decrement of existing WH stock → pod; `true` = INSERT a `warehouse_inventory` receipt batch (Active, `NEW-PURCHASE-<date>`, captured expiry, audited) → draw it fully → same pod insert. Field new-purchase with no PO is receipted via this RPC (CS-confirmed). Sets app.via_rpc/app.rpc_name/app.provenance_reason='manual_adjust'; role-gated; never UPDATEs warehouse_inventory.status (the new batch's Active→Inactive on draw-to-0 is the pre-existing depletion trigger). Cody Articles 1/4/6/8/12.
+- `v_refill_planning_compact` (read-only VIEW) → patched ✅ 2026-06-20 (`prd019c_compact_product_fallback_is_configured`): product COALESCE chain gains a planogram fallback (0 row change in current data) + new trailing `is_configured` column (a product exists in any source: live/lifecycle/planogram/planned). Sole consumer FE `RefillPlanningTab.tsx`. Cody Articles 12/14/16. (Pre-existing `wh_availability` inline WH-sum is grandfathered Art-16 debt, unchanged.)
+
+
 ## How to add a new RPC
 
 1. Decide if it's a canonical writer (mutates a protected entity) or a helper.
