@@ -37,6 +37,16 @@ export default function QuarantinedInventoryPanel() {
   const [error, setError] = useState<string | null>(null);
   const [warehouseFilter, setWarehouseFilter] = useState<string>("all");
 
+  // PRD-033 / Track C C2: release a quarantined row via the canonical
+  // release_wh_quarantine RPC (sets provenance_reason='manual_adjust'; never
+  // touches warehouse_inventory.status — Article 6 safe). Reason >= 10 chars.
+  const [releaseTarget, setReleaseTarget] = useState<QuarantinedRow | null>(
+    null,
+  );
+  const [releaseReason, setReleaseReason] = useState("");
+  const [releaseBusy, setReleaseBusy] = useState(false);
+  const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
+
   const fetchRows = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -58,6 +68,42 @@ export default function QuarantinedInventoryPanel() {
     }
     setLoading(false);
   }, []);
+
+  const confirmRelease = useCallback(async () => {
+    if (!releaseTarget || releaseReason.trim().length < 10) return;
+    setReleaseBusy(true);
+    setToast(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const { data, error: rpcErr } = await supabase.rpc(
+      "release_wh_quarantine",
+      {
+        p_wh_inventory_id: releaseTarget.wh_inventory_id,
+        p_reason: releaseReason.trim(),
+        p_verified_by: user?.id ?? null,
+      },
+    );
+    setReleaseBusy(false);
+    if (rpcErr) {
+      // Surface the guard reason verbatim.
+      setToast({ ok: false, msg: rpcErr.message });
+      return;
+    }
+    const res = data as { status?: string; message?: string } | null;
+    if (res?.status === "noop") {
+      setToast({ ok: false, msg: res.message ?? "Row was not quarantined." });
+    } else {
+      setToast({
+        ok: true,
+        msg: `Released ${releaseTarget.product_name ?? "row"} — provenance set to manual_adjust. Pickable only if Active, in-date, stock>0 (v_wh_pickable).`,
+      });
+    }
+    setReleaseTarget(null);
+    setReleaseReason("");
+    void fetchRows();
+  }, [releaseTarget, releaseReason, fetchRows]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch; same pattern as sibling PendingProposalsPanel / PendingRemoveApprovalsPanel
@@ -150,6 +196,7 @@ export default function QuarantinedInventoryPanel() {
               <th className="px-3 py-2 font-semibold">Batch</th>
               <th className="px-3 py-2 font-semibold">Provenance</th>
               <th className="px-3 py-2 font-semibold">Last audit</th>
+              <th className="px-3 py-2 text-right font-semibold">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-amber-200 dark:divide-amber-800">
@@ -182,21 +229,83 @@ export default function QuarantinedInventoryPanel() {
                 <td className="px-3 py-2 text-neutral-500">
                   {r.last_audit_reason ?? "—"}
                 </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    onClick={() => {
+                      setReleaseTarget(r);
+                      setReleaseReason("");
+                      setToast(null);
+                    }}
+                    className="rounded border border-amber-400 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 dark:bg-neutral-900 dark:text-amber-200"
+                  >
+                    Release
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
+      {/* PRD-033 / Track C C2: inline release form (reason >= 10 chars). */}
+      {releaseTarget && (
+        <div className="border-t border-amber-300 bg-white px-3 py-3 dark:bg-neutral-900">
+          <div className="text-xs font-semibold">
+            Release quarantine — {releaseTarget.product_name ?? "(unknown)"} @{" "}
+            {releaseTarget.warehouse_name ?? "—"} (batch{" "}
+            {releaseTarget.batch_id ?? "—"})
+          </div>
+          <div className="mt-1 text-[11px] text-neutral-600 dark:text-neutral-400">
+            Sets provenance to <code>manual_adjust</code> so the refill brain
+            stops skipping it. Does not change WH status. State what you
+            verified (min 10 chars).
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={releaseReason}
+              onChange={(e) => setReleaseReason(e.target.value)}
+              placeholder="e.g. physical recount confirms batch + expiry"
+              className="min-w-[280px] flex-1 rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950"
+            />
+            <button
+              onClick={confirmRelease}
+              disabled={releaseBusy || releaseReason.trim().length < 10}
+              className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              {releaseBusy ? "Releasing…" : "Confirm release"}
+            </button>
+            <button
+              onClick={() => {
+                setReleaseTarget(null);
+                setReleaseReason("");
+              }}
+              className="rounded border border-neutral-300 px-3 py-1 text-xs dark:border-neutral-700"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          className={`border-t px-3 py-2 text-[11px] ${
+            toast.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+              : "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200"
+          }`}
+        >
+          {toast.ok ? "✓ " : "✗ "}
+          {toast.msg}
+        </div>
+      )}
+
       <div className="border-t border-amber-200 bg-amber-100/60 px-3 py-2 text-[11px] text-neutral-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-neutral-300">
-        Unblock a row by calling{" "}
-        <code>
-          adjust_warehouse_stock(p_warehouse_id, p_lines, p_snapshot_date,
-          p_reason)
-        </code>{" "}
-        with the correct provenance set via{" "}
-        <code>SET LOCAL app.provenance_reason = &apos;manual_adjust&apos;</code>{" "}
-        in the same transaction.
+        Use <strong>Release</strong> (canonical{" "}
+        <code>release_wh_quarantine</code>) once a row is physically verified.
+        For a quantity correction instead, call{" "}
+        <code>adjust_warehouse_stock</code> with the correct provenance.
       </div>
     </div>
   );

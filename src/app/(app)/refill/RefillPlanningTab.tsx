@@ -226,6 +226,34 @@ export function RefillPlanningTab({
     msg: string;
   } | null>(null);
 
+  // PRD-033 / Track C C2: pre-commit REMOVE-without-replace gate. Populated by
+  // check_remove_without_replace at commit time; when status='block' the commit
+  // is refused unless the operator ticks Override. No client re-derivation: the
+  // flagged set and pickable_units come straight from the RPC.
+  const [removeGate, setRemoveGate] = useState<{
+    status: string;
+    flagged: Array<{
+      machine: string;
+      shelf: string;
+      add_pod_product: string;
+      add_qty: number;
+      pickable_units: number;
+    }>;
+  } | null>(null);
+  const [removeGateOverride, setRemoveGateOverride] = useState(false);
+
+  // PRD-033 / Track C C2: re-stitch (reopen) controls for the pending view.
+  // Machine-level: reopen_stitched_rows takes machine_ids[] and (optionally)
+  // shelf_ids[]; passing shelf_ids=null reopens every stitched shelf for the
+  // selected machines. Then stitch_pod_to_boonz(date,false) re-resolves them.
+  const [reopenSel, setReopenSel] = useState<Set<string>>(new Set());
+  const [reopenReason, setReopenReason] = useState("");
+  const [reopenBusy, setReopenBusy] = useState(false);
+  const [reopenResult, setReopenResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+
   // PRD-011 Bug 1: the plan_date the loaded draft was generated for. Distinct
   // from `selectedDate` (the date-picker value), which can drift from the
   // draft, e.g. cron generates a 2026-05-25 draft at 8pm 2026-05-24 and CS
@@ -296,6 +324,30 @@ export function RefillPlanningTab({
   const [shelvesByMachine, setShelvesByMachine] = useState<
     Record<string, Array<{ shelf_id: string; shelf_code: string }>>
   >({});
+
+  // PRD-033 / Track C C2: convert_shelf modal (draft mode). Swaps a slot's
+  // product in one action (REMOVE/M2W the old + ADD_NEW the new). Headroom is
+  // read live from v_shelf_capacity (no client-side capacity math); the RPC
+  // clamps qty to it server-side. return_mode is one of wh/m2m/truck_transfer/
+  // unknown (the RPC validates).
+  const [convertRow, setConvertRow] = useState<{
+    machine_id: string;
+    shelf_id: string;
+    shelf_code: string;
+    machine_name: string;
+    old_pod_product_id: string;
+    old_pod_product_name: string;
+  } | null>(null);
+  const [convertNewProd, setConvertNewProd] = useState("");
+  const [convertQty, setConvertQty] = useState("");
+  const [convertMode, setConvertMode] = useState("wh");
+  const [convertReason, setConvertReason] = useState("");
+  const [convertHeadroom, setConvertHeadroom] = useState<number | null>(null);
+  const [convertBusy, setConvertBusy] = useState(false);
+  const [convertResult, setConvertResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
 
   // machine_name → adyen_store_code lookup
   const [machineCodeByName, setMachineCodeByName] = useState<
@@ -574,6 +626,165 @@ export function RefillPlanningTab({
     setEditedQty,
   ]);
 
+  // ── PRD-033 / Track C C2: reopen stitched rows then re-stitch ────────────
+  const reopenSelected = useCallback(async () => {
+    if (reopenSel.size === 0 || reopenReason.trim().length < 10) return;
+    setReopenBusy(true);
+    setReopenResult(null);
+    try {
+      const names = [...reopenSel];
+      // Resolve machine_name -> machine_id (the enriched pending reader returns
+      // names only). reopen_stitched_rows is keyed by machine_id.
+      const { data: machineRows, error: mErr } = await supabase
+        .from("machines")
+        .select("machine_id, official_name")
+        .in("official_name", names)
+        .limit(10000);
+      if (mErr) throw new Error(`Machine lookup failed: ${mErr.message}`);
+      const ids = (machineRows ?? []).map(
+        (m) => (m as { machine_id: string }).machine_id,
+      );
+      if (ids.length === 0) throw new Error("No matching machines resolved.");
+
+      // shelf_ids=null -> reopen every stitched shelf for these machines.
+      const { data: reopenData, error: reErr } = await supabase.rpc(
+        "reopen_stitched_rows",
+        {
+          p_plan_date: selectedDate,
+          p_machine_ids: ids,
+          p_shelf_ids: null,
+          p_reason: reopenReason.trim(),
+        },
+      );
+      if (reErr) throw new Error(reErr.message);
+      const res = reopenData as {
+        status?: string;
+        reopened?: number;
+        message?: string;
+      } | null;
+      if (res?.status === "blocked") {
+        // Surface the guard reason verbatim (dispatched/reviewed output).
+        throw new Error(
+          res.message ??
+            "Some selected rows have dispatched/reviewed output and cannot be reopened.",
+        );
+      }
+
+      // Re-resolve the reopened rows against current warehouse stock.
+      const { error: stErr } = await supabase.rpc("stitch_pod_to_boonz", {
+        p_plan_date: selectedDate,
+        p_dry_run: false,
+      });
+      if (stErr) {
+        throw new Error(
+          `Reopened ${res?.reopened ?? 0} row(s) but the re-stitch failed: ${stErr.message}`,
+        );
+      }
+
+      setReopenResult({
+        ok: true,
+        msg: `Reopened ${res?.reopened ?? 0} row(s) across ${ids.length} machine(s) and re-stitched. Reloading the plan…`,
+      });
+      setReopenSel(new Set());
+      setReopenReason("");
+      await loadPendingPlan();
+    } catch (err) {
+      setReopenResult({
+        ok: false,
+        msg: err instanceof Error ? err.message : "Reopen failed",
+      });
+    } finally {
+      setReopenBusy(false);
+    }
+  }, [reopenSel, reopenReason, selectedDate, supabase, loadPendingPlan]);
+
+  // ── PRD-033 / Track C C2: open the convert_shelf modal for a draft row ────
+  const openConvert = useCallback(
+    async (row: PlanRow) => {
+      if (!row.machine_id || !row.shelf_id || !row.pod_product_id) return;
+      setConvertRow({
+        machine_id: row.machine_id,
+        shelf_id: row.shelf_id,
+        shelf_code: row.shelf_code,
+        machine_name: row.machine_name,
+        old_pod_product_id: row.pod_product_id,
+        old_pod_product_name: row.pod_product_name,
+      });
+      setConvertNewProd("");
+      setConvertQty("");
+      setConvertMode("wh");
+      setConvertReason("");
+      setConvertResult(null);
+      setConvertHeadroom(null);
+      // Live headroom from the canonical capacity view (no client-side math).
+      const { data, error } = await supabase
+        .from("v_shelf_capacity")
+        .select("headroom")
+        .eq("shelf_id", row.shelf_id)
+        .maybeSingle();
+      if (!error && data) {
+        setConvertHeadroom((data as { headroom: number | null }).headroom);
+      }
+    },
+    [supabase],
+  );
+
+  const submitConvert = useCallback(async () => {
+    if (!convertRow || !convertNewProd) return;
+    const qty = Number(convertQty);
+    if (!Number.isFinite(qty) || qty < 0) {
+      setConvertResult({ ok: false, msg: "Enter a valid quantity (>= 0)." });
+      return;
+    }
+    setConvertBusy(true);
+    setConvertResult(null);
+    try {
+      const planDate = draftPlanDate ?? selectedDate;
+      const { data, error } = await supabase.rpc("convert_shelf", {
+        p_plan_date: planDate,
+        p_machine_id: convertRow.machine_id,
+        p_shelf_id: convertRow.shelf_id,
+        p_old_pod_product_id: convertRow.old_pod_product_id,
+        p_new_pod_product_id: convertNewProd,
+        p_new_qty: Math.trunc(qty),
+        p_return_mode: convertMode,
+        p_reason: convertReason.trim() || null,
+      });
+      if (error) throw new Error(error.message);
+      const res = data as {
+        added?: { qty?: number; requested_qty?: number; clamp_reason?: string };
+      } | null;
+      const added = res?.added;
+      const clampNote =
+        added?.clamp_reason === "capacity_capped"
+          ? ` (clamped to ${added?.qty} by shelf capacity; you asked for ${added?.requested_qty})`
+          : "";
+      setConvertResult({
+        ok: true,
+        msg: `Converted. Old product set to remove, new product added at ${added?.qty ?? Math.trunc(qty)}${clampNote}. Re-stitch on commit. Reloading draft…`,
+      });
+      setConvertRow(null);
+      await loadDraft();
+    } catch (err) {
+      setConvertResult({
+        ok: false,
+        msg: err instanceof Error ? err.message : "Convert failed",
+      });
+    } finally {
+      setConvertBusy(false);
+    }
+  }, [
+    convertRow,
+    convertNewProd,
+    convertQty,
+    convertMode,
+    convertReason,
+    draftPlanDate,
+    selectedDate,
+    supabase,
+    loadDraft,
+  ]);
+
   // ── Commit draft (finalize → stitch → auto-dispatch) ─────────────────────
   const commitDraft = useCallback(async () => {
     setCommitting(true);
@@ -682,6 +893,41 @@ export function RefillPlanningTab({
       setEditedQty({});
       setRemoved(new Set());
 
+      // PRD-033 / Track C C2: REMOVE-without-replace gate. Evaluate the FINAL
+      // post-edit plan (edits/removals above are now durable). If any shelf is a
+      // REMOVE paired with an ADD_NEW that resolves to 0 pickable WH units, the
+      // RPC returns status='block'. Refuse the commit unless the operator has
+      // explicitly ticked Override. The RPC is the sole source of truth — no
+      // client-side re-derivation of pickable stock.
+      const { data: gateData, error: gateErr } = await supabase.rpc(
+        "check_remove_without_replace",
+        { p_plan_date: planDate },
+      );
+      if (gateErr) {
+        throw new Error(`Pre-commit safety check failed: ${gateErr.message}`);
+      }
+      const gate = gateData as {
+        status?: string;
+        flagged?: Array<{
+          machine: string;
+          shelf: string;
+          add_pod_product: string;
+          add_qty: number;
+          pickable_units: number;
+        }>;
+      } | null;
+      const gateFlagged = gate?.flagged ?? [];
+      setRemoveGate(
+        gate?.status
+          ? { status: gate.status, flagged: gateFlagged }
+          : null,
+      );
+      if (gate?.status === "block" && !removeGateOverride) {
+        throw new Error(
+          `REMOVE-without-replace gate blocked the commit: ${gateFlagged.length} shelf(s) would strip a slot whose paired new product has 0 pickable warehouse units. Review the flagged shelves below; fix the plan, or tick "Override" and re-commit to proceed anyway.`,
+        );
+      }
+
       // PRD-019 E4: ONE atomic call replaces the multi-step saga (approve_pod ->
       // scoped finalize -> stitch -> approve_refill + the post-write invariants).
       // It runs in a single DB transaction that rolls back entirely on any
@@ -750,6 +996,7 @@ export function RefillPlanningTab({
     setGenerated,
     setEditedQty,
     setRemoved,
+    removeGateOverride,
   ]);
 
   // ── PRD-019 C2: load the compact all-rows planning view ─────────────────
@@ -1380,6 +1627,88 @@ export function RefillPlanningTab({
           </button>
         )}
 
+        {/* PRD-033 / Track C C2: reopen stitched rows + re-stitch (pending mode,
+            operator_admin only — the RPC enforces the role). Reverts the selected
+            machines' stitched rows to approved, then re-stitches against current
+            warehouse stock. */}
+        {generated && !isDraft && activeRows.length > 0 && (
+          <details className="mt-3 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900">
+            <summary className="cursor-pointer font-medium text-neutral-700 dark:text-neutral-200">
+              Re-stitch machines (reopen stitched rows)
+            </summary>
+            <div className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+              Pick the machines to reopen, give a reason (min 10 chars), then
+              reopen + re-stitch. Refuses any machine whose output is already
+              dispatched or reviewed.
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {[...new Set(planRows.map((r) => r.machine_name))]
+                .sort()
+                .map((mn) => {
+                  const on = reopenSel.has(mn);
+                  return (
+                    <label
+                      key={mn}
+                      className={`flex items-center gap-1.5 rounded border px-2 py-1 text-xs ${
+                        on
+                          ? "border-amber-400 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+                          : "border-neutral-300 dark:border-neutral-700"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => {
+                          setReopenSel((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(mn);
+                            else next.delete(mn);
+                            return next;
+                          });
+                        }}
+                      />
+                      {mn}
+                    </label>
+                  );
+                })}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={reopenReason}
+                onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="Reason (min 10 chars), e.g. WH recount changed pickable stock"
+                className="min-w-[280px] flex-1 rounded border border-neutral-300 px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950"
+              />
+              <button
+                onClick={reopenSelected}
+                disabled={
+                  reopenBusy ||
+                  reopenSel.size === 0 ||
+                  reopenReason.trim().length < 10
+                }
+                className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {reopenBusy
+                  ? "Reopening…"
+                  : `Reopen & re-stitch (${reopenSel.size})`}
+              </button>
+            </div>
+            {reopenResult && (
+              <div
+                className={`mt-2 rounded px-2 py-1 text-xs font-medium ${
+                  reopenResult.ok
+                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200"
+                    : "bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-200"
+                }`}
+              >
+                {reopenResult.ok ? "✓ " : "✗ "}
+                {reopenResult.msg}
+              </div>
+            )}
+          </details>
+        )}
+
         {/* Commit result */}
         {commitResult && (
           <div
@@ -1391,6 +1720,53 @@ export function RefillPlanningTab({
           >
             {commitResult.ok ? "✓ " : "✗ "}
             {commitResult.msg}
+          </div>
+        )}
+
+        {/* PRD-033 / Track C C2: REMOVE-without-replace gate banner. Shows the
+            shelves flagged by check_remove_without_replace and the Override that
+            unblocks the commit. Values come straight from the RPC. */}
+        {removeGate?.status === "block" && (
+          <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm">
+            <div className="font-semibold text-amber-800">
+              ⚠ Remove-without-replace: {removeGate.flagged.length} shelf
+              {removeGate.flagged.length === 1 ? "" : "s"} would lose stock with
+              no pickable warehouse replacement.
+            </div>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-amber-700">
+                    <th className="py-1 pr-3">Machine</th>
+                    <th className="py-1 pr-3">Shelf</th>
+                    <th className="py-1 pr-3">New product (ADD)</th>
+                    <th className="py-1 pr-3 text-right">Add qty</th>
+                    <th className="py-1 pr-3 text-right">Pickable WH</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {removeGate.flagged.map((f, i) => (
+                    <tr key={i} className="border-t border-amber-200">
+                      <td className="py-1 pr-3">{f.machine}</td>
+                      <td className="py-1 pr-3">{f.shelf}</td>
+                      <td className="py-1 pr-3">{f.add_pod_product}</td>
+                      <td className="py-1 pr-3 text-right">{f.add_qty}</td>
+                      <td className="py-1 pr-3 text-right font-semibold text-red-700">
+                        {f.pickable_units}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-xs text-amber-800">
+              <input
+                type="checkbox"
+                checked={removeGateOverride}
+                onChange={(e) => setRemoveGateOverride(e.target.checked)}
+              />
+              Override: commit anyway (I accept these shelves will lose stock).
+            </label>
           </div>
         )}
 
@@ -1811,6 +2187,19 @@ export function RefillPlanningTab({
                                 {removed.has(idx) ? "Restore" : "×"}
                               </button>
                             )}
+                            {/* PRD-033 / Track C C2: convert this slot's product. */}
+                            {isDraft &&
+                              row.machine_id &&
+                              row.shelf_id &&
+                              row.pod_product_id && (
+                                <button
+                                  onClick={() => openConvert(row)}
+                                  className="ml-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 px-1 py-0.5 rounded"
+                                  title="Convert this slot to a different product (convert_shelf)"
+                                >
+                                  Convert
+                                </button>
+                              )}
                           </td>
                         </tr>
                       ))}
@@ -2024,6 +2413,121 @@ export function RefillPlanningTab({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PRD-033 / Track C C2: convert_shelf modal. */}
+      {convertRow && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => !convertBusy && setConvertRow(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-semibold text-gray-900">
+              Convert shelf {convertRow.shelf_code} @ {convertRow.machine_name}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              Removes <strong>{convertRow.old_pod_product_name}</strong> and adds
+              the new product in one step. Re-stitch happens on commit.
+            </div>
+
+            <label className="mt-3 block text-xs font-medium text-gray-700">
+              New product
+            </label>
+            <select
+              value={convertNewProd}
+              onChange={(e) => setConvertNewProd(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              <option value="">Select a product…</option>
+              {podProducts
+                .filter((p) => p.id !== convertRow.old_pod_product_id)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+
+            <div className="mt-3 flex gap-3">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-700">
+                  New qty
+                  {convertHeadroom !== null && (
+                    <span className="ml-1 font-normal text-gray-400">
+                      (shelf headroom {convertHeadroom})
+                    </span>
+                  )}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={convertQty}
+                  onChange={(e) => setConvertQty(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-700">
+                  Return mode
+                </label>
+                <select
+                  value={convertMode}
+                  onChange={(e) => setConvertMode(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="wh">wh (return to warehouse / M2W)</option>
+                  <option value="m2m">m2m (machine to machine)</option>
+                  <option value="truck_transfer">truck_transfer</option>
+                  <option value="unknown">unknown</option>
+                </select>
+              </div>
+            </div>
+
+            <label className="mt-3 block text-xs font-medium text-gray-700">
+              Reason (optional)
+            </label>
+            <input
+              type="text"
+              value={convertReason}
+              onChange={(e) => setConvertReason(e.target.value)}
+              placeholder="why this conversion"
+              className="mt-1 w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+            />
+
+            {convertResult && !convertResult.ok && (
+              <div className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">
+                {convertResult.msg}
+              </div>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setConvertRow(null)}
+                disabled={convertBusy}
+                className="flex-1 rounded-xl border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitConvert}
+                disabled={convertBusy || !convertNewProd || convertQty === ""}
+                className="flex-1 rounded-xl bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+              >
+                {convertBusy ? "Converting…" : "Convert"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRD-033 / Track C C2: convert success toast (errors render in-modal). */}
+      {convertResult?.ok && (
+        <div className="fixed bottom-6 right-6 z-[210] max-w-sm rounded-lg bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-800 shadow-lg">
+          ✓ {convertResult.msg}
         </div>
       )}
     </div>
