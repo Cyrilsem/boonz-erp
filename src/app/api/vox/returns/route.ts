@@ -38,9 +38,12 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "public, s-maxage=30, stale-while-revalidate=60",
       },
     });
-  } catch (err: any) {
+  } catch (err) {
     return NextResponse.json(
-      { error: "Internal error", details: err.message },
+      {
+        error: "Internal error",
+        details: err instanceof Error ? err.message : String(err),
+      },
       { status: 500 },
     );
   }

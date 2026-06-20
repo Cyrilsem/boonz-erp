@@ -47,8 +47,8 @@ export default function VoxReturnsPanel() {
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
       setRows(Array.isArray(body) ? body : []);
-    } catch (e: any) {
-      setErr(e.message || "Failed to load returns");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load returns");
       setRows([]);
     } finally {
       setLoading(false);
