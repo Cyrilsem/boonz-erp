@@ -18,6 +18,7 @@ import {
   fetchVoxConsumerReport,
   fetchVoxCommercialReport,
 } from "@/lib/vox-data";
+import VoxReturnsPanel from "./VoxReturnsPanel";
 
 const GRID = "#e8e4de";
 const MERC = "#24544a";
@@ -142,6 +143,11 @@ export default function ConsumerDashboardClient({
   const [userRole, setUserRole] = useState<string | null>(null);
   // Partner-facing mounts (consumers_vox) never show the cash action, regardless of role.
   const canRecordCash =
+    !hideInternalLinks && CASH_ROLES.includes(userRole ?? "");
+  // Returns ledger is internal-only (staff names / source / reasons). Same gate as cash:
+  // hidden on partner mounts and for non-internal roles. get_vox_returns is also not granted
+  // to anon server-side, so this is defense-in-depth, not the only control.
+  const canSeeReturns =
     !hideInternalLinks && CASH_ROLES.includes(userRole ?? "");
   useEffect(() => {
     const supabase = createClient();
@@ -367,7 +373,12 @@ export default function ConsumerDashboardClient({
     try {
       // PRD-023j: fetch cards/waterfall first WITHOUT the heavy transactions[] (~1 KB),
       // so the page renders instantly and never cold-start 504s on wide windows.
-      const cards = await fetchVoxCommercialReport(pods, dateFrom, dateTo, false);
+      const cards = await fetchVoxCommercialReport(
+        pods,
+        dateFrom,
+        dateTo,
+        false,
+      );
       setC(cards);
       setCLoading(false);
       // Then fill the Transaction Detail table with a second, non-blocking fetch.
@@ -1260,6 +1271,7 @@ export default function ConsumerDashboardClient({
     { id: "payments", l: "Payments" },
     { id: "transactions", l: "Transactions" },
     ...(!hideCommercialTab ? [{ id: "commercial", l: "Commercial" }] : []),
+    ...(canSeeReturns ? [{ id: "returns", l: "Returns" }] : []),
   ];
 
   return (
@@ -1457,6 +1469,9 @@ export default function ConsumerDashboardClient({
             Loading&hellip;
           </div>
         )}
+
+        {/* Returns ledger is independent of the consumer report (D); render outside its gate. */}
+        {tab === "returns" && canSeeReturns && <VoxReturnsPanel />}
 
         {D && (
           <>
