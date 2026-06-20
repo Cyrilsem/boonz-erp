@@ -13,6 +13,16 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-20 — PRD-040 Track C: VOX returns surface + PRD-033 FE wiring + landing
+**Phase / Article:** Track C / Articles 1, 3, 6, 12, 13, 16
+**Applied to:** repo (FE + migration files) + prod (get_vox_returns RPC only)
+**Migration name:** `prd040_c1_get_vox_returns`, `prd040_c1_get_vox_returns_revoke_anon` (new); `prd033_a..e`, `get_product_performance_rpc`/`_add_wh_available` (already-live files landed for repo==prod parity)
+**Summary:**
+- **C1** — new read-only `get_vox_returns(date, date, uuid)` over `vox_return_log` (venue_group='VOX' scope; resolves machine/product/received-by names). SECURITY DEFINER to read staff names past the own-row-only `user_profiles` RLS (mirrors `get_product_performance`); anon EXECUTE revoked (RLS-bypassing reader, operator-facing only). Cody-approved read-only class-c. FE: `/api/vox/returns` + `VoxReturnsPanel` internal-role-gated "Returns" tab on the MAFE dashboard.
+- **C2** — wired the four live PRD-033 RPCs in FE, all via existing RPCs (Article 3, no direct table writes): `check_remove_without_replace` pre-commit gate (default BLOCK + Override), `reopen_stitched_rows` (machine-level re-stitch), `convert_shelf` (draft-row modal, headroom from `v_shelf_capacity`), `release_wh_quarantine` (QuarantinedInventoryPanel "Release"; provenance_reason only, never status — Article 6 clear).
+- **C3** — landed PRD-033 migrations (a-e) + Product Performance tab (`get_product_performance`) + the restored PRD-033/036 refill FE onto the Track C branch additively. prd023i/j migration files were already on main. Registry union: PRD-033 + product-performance sections added to RPC_REGISTRY; no in-scope METRICS change. `swaps_enabled` untouched; `engine_add_pod`/`engine_swap_pod` byte-identical.
+**Rollback:** `DROP FUNCTION public.get_vox_returns(date,date,uuid);` (the only new prod object). FE is revertible by branch; the landed prd033/performance migration files are inert against prod (objects pre-exist).
+
 ## 2026-06-20 — PRD-040 B3 + B4: landed-cost value model + stitch WH-read unification APPLIED
 
 **Phase / Article:** PRD-040 Track B3 + B4 / Articles 12, 16 (+ T12 regression).
