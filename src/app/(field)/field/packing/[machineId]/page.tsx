@@ -262,6 +262,18 @@ export default function PackingDetailPage() {
     allowed_tabs: ("qty" | "shelf" | "product" | "source" | "remove")[];
   } | null>(null);
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
+  // PRD-047 1b: one-tap shelf swap (Remove old + Add New via swap_dispatch_shelf).
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [swapShelfId, setSwapShelfId] = useState<string>("");
+  const [swapRemoveBoonz, setSwapRemoveBoonz] = useState<string>("");
+  const [swapAddBoonz, setSwapAddBoonz] = useState<string>("");
+  const [swapAddQty, setSwapAddQty] = useState<string>("");
+  const [swapReason, setSwapReason] = useState<string>("");
+  const [swapBusy, setSwapBusy] = useState(false);
+  const [swapMsg, setSwapMsg] = useState<string | null>(null);
+  const [swapProducts, setSwapProducts] = useState<
+    { id: string; name: string }[]
+  >([]);
 
   const [committedByBatch, setCommittedByBatch] = useState<Map<string, number>>(
     new Map(),
@@ -1457,6 +1469,80 @@ export default function PackingDetailPage() {
     setEditingAfterSave(false);
   }
 
+  // PRD-047 1b: open the swap sheet — fetch the machine's Active-mapped products
+  // for the "Add New" picker (add_dispatch_row requires an Active mapping).
+  async function openSwap() {
+    setSwapOpen(true);
+    setSwapMsg(null);
+    setSwapShelfId("");
+    setSwapRemoveBoonz("");
+    setSwapAddBoonz("");
+    setSwapAddQty("");
+    setSwapReason("");
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("product_mapping")
+      .select("boonz_product_id, boonz_products(boonz_product_name)")
+      .eq("machine_id", machineId)
+      .eq("status", "Active")
+      .limit(10000);
+    const seen = new Map<string, string>();
+    for (const r of (data ?? []) as Record<string, unknown>[]) {
+      const id = r.boonz_product_id as string | null;
+      const bpRaw = r.boonz_products;
+      const bp = Array.isArray(bpRaw) ? bpRaw[0] : bpRaw;
+      const name =
+        (bp as { boonz_product_name?: string } | null)?.boonz_product_name ??
+        id ??
+        "";
+      if (id && !seen.has(id)) seen.set(id, name);
+    }
+    setSwapProducts(
+      Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    );
+  }
+
+  async function submitSwap() {
+    if (
+      !swapShelfId ||
+      !swapRemoveBoonz ||
+      !swapAddBoonz ||
+      swapReason.trim().length < 10 ||
+      Number(swapAddQty) <= 0
+    ) {
+      setSwapMsg(
+        "Pick a shelf, the product to remove and the one to add, an add qty > 0, and a reason (min 10 chars).",
+      );
+      return;
+    }
+    setSwapBusy(true);
+    setSwapMsg(null);
+    const removeLine = lines.find(
+      (l) =>
+        l.shelf_id === swapShelfId && l.boonz_product_id === swapRemoveBoonz,
+    );
+    const supabase = createClient();
+    const { error } = await supabase.rpc("swap_dispatch_shelf", {
+      p_plan_date: getDubaiDate(),
+      p_machine_id: machineId,
+      p_shelf_id: swapShelfId,
+      p_remove_boonz_id: swapRemoveBoonz,
+      p_remove_qty: removeLine?.recommended_qty ?? 0,
+      p_add_boonz_id: swapAddBoonz,
+      p_add_qty: Math.trunc(Number(swapAddQty)),
+      p_reason: swapReason.trim(),
+    });
+    setSwapBusy(false);
+    if (error) {
+      setSwapMsg(error.message);
+      return;
+    }
+    setSwapOpen(false);
+    await fetchData();
+  }
+
   async function handleUnskip(dispatchId: string) {
     // PRD-028 dispatch-state-integrity: un-skip is an explicit, logged action.
     // unskip_dispatch_line clears skipped AND include=false in one canonical
@@ -1775,12 +1861,22 @@ export default function PackingDetailPage() {
             )}
           </div>
           {!isReadOnly && (
-            <button
-              onClick={() => setAddingToShelf("")}
-              className="shrink-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60"
-            >
-              + Add product
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={openSwap}
+                aria-label="Swap a product on a shelf"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+              >
+                ⇄ Swap
+              </button>
+              <button
+                onClick={() => setAddingToShelf("")}
+                aria-label="Add a product to a shelf"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60"
+              >
+                + Add product
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -3434,6 +3530,141 @@ export default function PackingDetailPage() {
             void fetchData();
           }}
         />
+      )}
+
+      {/* PRD-047 1b: one-tap Swap sheet → swap_dispatch_shelf (atomic Remove + Add New) */}
+      {swapOpen && (
+        <div
+          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4"
+          onClick={() => !swapBusy && setSwapOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-label="Swap a product on a shelf"
+            className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl dark:bg-neutral-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold">Swap a product</h2>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              Removes the old product and adds the new one in one step
+              (warehouse sourced, FEFO at pack).
+            </p>
+
+            {(() => {
+              const shelves = Array.from(
+                new Map(
+                  lines
+                    .filter((l) => l.shelf_id)
+                    .map((l) => [l.shelf_id as string, l.shelf_code]),
+                ),
+                ([id, code]) => ({ id, code }),
+              ).sort((a, b) => a.code.localeCompare(b.code));
+              const removeOpts = lines.filter(
+                (l) => l.shelf_id === swapShelfId && l.boonz_product_id,
+              );
+              return (
+                <div className="mt-3 space-y-3">
+                  <label className="block text-xs font-medium">
+                    Shelf
+                    <select
+                      value={swapShelfId}
+                      onChange={(e) => {
+                        setSwapShelfId(e.target.value);
+                        setSwapRemoveBoonz("");
+                      }}
+                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+                    >
+                      <option value="">Select a shelf…</option>
+                      {shelves.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.code}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-xs font-medium">
+                    Remove (current product)
+                    <select
+                      value={swapRemoveBoonz}
+                      onChange={(e) => setSwapRemoveBoonz(e.target.value)}
+                      disabled={!swapShelfId}
+                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950"
+                    >
+                      <option value="">Select product to remove…</option>
+                      {removeOpts.map((l) => (
+                        <option key={l.dispatch_id} value={l.boonz_product_id}>
+                          {l.display_name ?? l.pod_product_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-xs font-medium">
+                    Add new product
+                    <select
+                      value={swapAddBoonz}
+                      onChange={(e) => setSwapAddBoonz(e.target.value)}
+                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+                    >
+                      <option value="">Select product to add…</option>
+                      {swapProducts.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block text-xs font-medium">
+                    Add qty
+                    <input
+                      type="number"
+                      min={1}
+                      value={swapAddQty}
+                      onChange={(e) => setSwapAddQty(e.target.value)}
+                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+                    />
+                  </label>
+
+                  <label className="block text-xs font-medium">
+                    Reason (min 10 chars)
+                    <input
+                      type="text"
+                      value={swapReason}
+                      onChange={(e) => setSwapReason(e.target.value)}
+                      placeholder="why this swap"
+                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+                    />
+                  </label>
+                </div>
+              );
+            })()}
+
+            {swapMsg && (
+              <p className="mt-2 rounded-lg bg-rose-50 px-2 py-1.5 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                {swapMsg}
+              </p>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setSwapOpen(false)}
+                disabled={swapBusy}
+                className="min-h-[44px] flex-1 rounded-lg border border-neutral-300 text-sm font-medium text-neutral-700 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitSwap}
+                disabled={swapBusy}
+                className="min-h-[44px] flex-1 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 disabled:opacity-50"
+              >
+                {swapBusy ? "Swapping…" : "Confirm swap"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* PRD-020: per-line Skip reason picker. Composes category + optional note
