@@ -1,13 +1,13 @@
 # PRD-045 - Warehouse availability & commitment correctness
 
-**Status:** ✅ APPLIED 2026-06-21 (backend P0 live in prod; P2 FE = NEEDS IMPLEMENTATION + DEPLOY). Read-model only; no stock mutation. swaps_enabled untouched (false).
+**Status:** ✅ APPLIED 2026-06-21 (backend P0 + P2 FE availability/oversubscribed SHIPPED to prod, deploy `37ce14d`). Read-model only; no stock mutation. swaps_enabled untouched (false).
 
 ## EXECUTION LOG (2026-06-21)
 
 - **P0** `prd045_p0_wh_commitment_correctness` APPLIED. The committed/available model lives in `v_dispatch_availability` (consumed by `v_dispatch_pickable`); `v_wh_pickable` is raw pickable (engine input) and was left unchanged. Fix to `reserved_by_earlier`: (a) qualifying line now also requires NOT cancelled, NOT skipped, pack_outcome <> not_filled (dead lines released); (b) `= earlier-over(product,date) MINUS earlier-over(product,date,machine)` = earlier OTHER-machine commitment only (self-commit removed, FEFO running fairness kept). New `oversubscribed` flag; `available_qty` floors at 0. No table change. Cody Art 1/2/4/12/16 (canonical dispatch-availability object corrected, not parallelized).
 - **Verified no function consumes** `v_dispatch_availability`/`v_dispatch_pickable` (engine/stitch/picker untouched).
 - **Tests (BEGIN..ROLLBACK, product with 12 WH, M1=VOXMCC, M2=ACTIVATE):** T1 available=full ✓; T3 cancelled / T4 packed / skip / not_filled NOT committed (M1 available=3) ✓; T9 self-commit reserved=0 ✓; T10 oversubscribed (q20 vs 12 → available 12 + flag) ✓; T5/T8 cross-machine counted once, sum ≤ stock, no negative ✓; T6 expired excluded by v_wh_pickable ✓; T7 stocked product pickable ✓.
-- **DEFERRED:** P2 FE (corrected available + per-batch FEFO + oversubscribed badge) — NEEDS IMPLEMENTATION + DEPLOY.
+- **P2 FE SHIPPED 2026-06-21** (deploy commit `37ce14d`, boonz-erp.vercel.app): packing page now reads `v_dispatch_pickable.available_qty` (corrected committed-aware) + `oversubscribed`; shows "N available to pick" (green ✓) instead of the false "no pickable stock", and an **Oversubscribed** badge (⚑ icon + text, status-not-color-only) when demand>stock. Build green; prod deploy success. (Note: the page's legacy client-side per-batch committed math still exists alongside; full removal in favour of the view's `available_qty` is a follow-up.)
   **Owner:** CS (cyrilsem@gmail.com)
   **Created:** 2026-06-21
   **Severity:** HIGH. False "out of stock" blocks legitimate refills.

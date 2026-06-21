@@ -1,6 +1,6 @@
 # PRD-044 - Packing confirm must accept skip / not-filled / partial
 
-**Status:** ✅ APPLIED 2026-06-21 (backend P0 + P1 live in prod; P2 FE = NEEDS IMPLEMENTATION + DEPLOY). swaps_enabled untouched (false).
+**Status:** ✅ APPLIED 2026-06-21 (backend P0+P1 + P2 FE two-button confirm SHIPPED to prod, deploy `37ce14d`). swaps_enabled untouched (false).
 **Owner:** CS (cyrilsem@gmail.com)
 
 ## EXECUTION LOG (2026-06-21)
@@ -8,7 +8,7 @@
 - **P0** `prd044_p0_packing_confirm_state` APPLIED: `refill_dispatching.not_filled_reason`, `dispatch_pack_confirmation.final` (default true), `v_machine_pack_status` re-exposed with `pack_final` + `pack_state` (open/in_progress/completed). The `pack_outcome_enum` {packed,partial,not_filled} + resolved/partial/not_filled counters pre-existed. Cody Art 2/12/14.
 - **P1** `prd044_p1_confirm_two_mode` APPLIED: new 5-arg `confirm_machine_packed(...,p_final)` two-mode (Save=false never blocks → in_progress + {resolved_n,remaining_n}; Finish=true blocks on unresolved → completed); 4-arg form delegates to Finish (no drop). `pack_dispatch_line` records `not_filled_reason` from the picks payload. Cody Art 1/4/5/8/12.
 - **Tests (BEGIN..ROLLBACK, synthetic 2026-12-01, ACTIVATE-2005):** T3 partial filled=3 ✓; T4 not_filled+reason ✓; T5 Finish blocked / Save saved ✓; T12 Save→skip→Finish completed ✓; T7 idempotent ✓; T2/T10/T11 covered; T6 repack gate + T8 audit preserved.
-- **DEFERRED:** P2 FE (Finish + Save buttons, lossless resume) — NEEDS IMPLEMENTATION + DEPLOY (pairs with PRD-047 FE).
+- **P2 FE SHIPPED 2026-06-21** (deploy commit `37ce14d`, boonz-erp.vercel.app): two-button bottom bar — **Save & come back** (`confirm_machine_packed(...,p_final:=false)`, enabled ≥1 resolved → in_progress, lossless resume via re-fetch + editingAfterSave) and **Finish** (`p_final:=true`, gated resolved==total → completed). Pick 0+reason→not_filled and partial picks already flowed through `pack_dispatch_line`. 44px targets, aria-labels, focus-visible. Build green; prod deploy success. (Full shelf-grouped resume UI is part of PRD-047 B3, deferred.)
   **Created:** 2026-06-21
   **Severity:** HIGH. Blocks refill-day completion: operators cannot confirm a machine unless every line is fully packed, so skipped, not-filled, and partially-picked lines force a manual workaround on /refill. Operators also need to confirm progress, leave, and come back to finish.
 
