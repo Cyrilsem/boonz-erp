@@ -397,6 +397,15 @@ Five objects, all verified live in `pg_proc`; FE wired in Track C C2 (Article 3 
 
 - `get_product_performance(p_bucket text, p_as_of date)` → read-only helper (SECURITY DEFINER, STABLE, `search_path=public, pg_temp`; EXECUTE authenticated/service_role). Migrations `get_product_performance_rpc` + `get_product_performance_add_wh_available`. Per-product performance buckets (Remaining Expected, Missing WH Inv) for the Products → Performance tab; resolves staff names past `user_profiles` own-row RLS (the DEFINER precedent `get_vox_returns` reuses). No writes. Article 16: reporting reader.
 
+### PRD-042 — Swap engine v5 slot-profile pools (✅ 2026-06-20, gated OFF)
+
+- `rebuild_slot_profile_pool()` → writer DEFINER (sets app.via_rpc). ✅ 2026-06-20 (`prd042_p0_slot_profile_pools`). Full nightly refresh of the precomputed `slot_profile_pool` cache = derived (lane_family × shelf_size × product, `fill_qty = floor(product_slot_capacity_units(physical_type, size)×0.85)`) MINUS `slot_pool_curation` excludes PLUS includes; `computed_at=now()`. Grant: service_role. Scheduled via pg_cron `rebuild_slot_profile_pool_nightly` 15:30 UTC (before job 13). Cody Articles 1/4/12/16.
+- `engine_swap_pod(date,integer,numeric,integer)` v14 → **v15_slot_profile** → canonical writer to `pod_swaps`/`pod_refill_plan`. ✅ 2026-06-20 (`prd042_p1_engine_swap_pod_v15_slot_profile`). Pass-3 candidate universe now the precomputed `slot_profile_pool` for the slot's (lane_family, shelf_size) intersected with the live `_p3_cand` guardrail universe; `cand_cap = pool fill_qty` (profile quantity). Value model unchanged. `swaps_enabled=false` keeps Pass-3 a no-op. engine_add_pod UNTOUCHED (T12). Cody Articles 1/4/12/16. New ref tables `physical_type_lane_family`, `slot_pool_curation`, `slot_profile_pool` (all RLS read-only).
+
+### PRD-043 — Picker v11 VOX calendar gate (✅ 2026-06-20)
+
+- `days_until_next_vox_day(date)` → read-only helper, LANGUAGE sql IMMUTABLE, no table access. ✅ 2026-06-20 (`prd043_p0_days_until_next_vox_day`). Days from p_plan_date to the next Wed/Fri (DOW 3/5); 0 on a VOX day. Grant authenticated/service_role.
+- `pick_machines_for_refill(date,integer,integer)` v10 → **v11** → canonical writer to `machines_to_visit`. ✅ 2026-06-20 (`prd043_p1_pick_machines_for_refill_v11`). VOX venue gate on the normal-day `ranked_primary` (Option B: VOX excluded off-calendar except `runway_days < days_until_next_vox_day`, tagged `vox_emergency_offday`, counted vs cap). `sibling_ranked` / VOX-day sweep / Saturday guard unchanged. NOT flag-gated (live pick). Cody Articles 1/12/16.
 
 ## How to add a new RPC
 

@@ -13,15 +13,31 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-20 — PRD-043 picker v11: VOX Wed/Fri calendar gate APPLIED
+
+**Phase / Article:** PRD-043 / Articles 1, 12, 16
+**Applied to:** prod. Migrations `prd043_p0_days_until_next_vox_day`, `prd043_p1_pick_machines_for_refill_v11`.
+**Summary:** `pick_machines_for_refill` v10 → v11. Adds the VOX venue gate to the normal-day `ranked_primary` (Option B: VOX excluded on non-VOX days except `runway_days < days_until_next_vox_day`, tagged `vox_emergency_offday`, counted vs cap-8). New IMMUTABLE helper `days_until_next_vox_day(date)`. NOT flag-gated — changes the live pick (the intended fix for off-day VOX service + main-track cap starvation). Replay: V1/V2/V3/V5/V6/R1 + V4-negative pass; VOX-day output byte-identical to v10; V4-positive logic-verified, not live-reproduced (no live VOX below threshold). `sibling_ranked` / VOX-day sweep / Saturday guard unchanged.
+**Rollback:** re-CREATE OR REPLACE the v10 body (no schema change). Drop `days_until_next_vox_day` if unused.
+
+## 2026-06-20 — PRD-042 swap engine v5: slot-profile assortment pools APPLIED (gated OFF)
+
+**Phase / Article:** PRD-042 / Articles 1, 2, 4, 12, 14, 16
+**Applied to:** prod. Migrations `prd042_p0_slot_profile_pools`, `prd042_p1_engine_swap_pod_v15_slot_profile`.
+**Summary:** New data layer `physical_type_lane_family` (14→7 families), `slot_pool_curation` (RLS read-only, empty), `slot_profile_pool` (precomputed cache, 921 rows) + `rebuild_slot_profile_pool()` RPC + nightly cron 15:30 UTC (before job 13 @16:00). `engine_swap_pod` v14 → **v15_slot_profile**: Pass-3 candidate universe is now the precomputed pool for the slot's (lane_family, shelf_size) intersected with the live guardrail universe, `cand_cap = pool fill_qty`. Replay SP1-SP6 + R1 all pass. `swaps_enabled=false` (no-op until Track D); `engine_add_pod` byte-identical (md5 `244de950…`). Replaces abandoned PRD-041.
+**Rollback:** re-CREATE OR REPLACE engine_swap_pod v14 body; drop the 3 tables + rebuild RPC + cron.
+
 ## 2026-06-20 — PRD-040 Track C: VOX returns surface + PRD-033 FE wiring + landing
+
 **Phase / Article:** Track C / Articles 1, 3, 6, 12, 13, 16
 **Applied to:** repo (FE + migration files) + prod (get_vox_returns RPC only)
 **Migration name:** `prd040_c1_get_vox_returns`, `prd040_c1_get_vox_returns_revoke_anon` (new); `prd033_a..e`, `get_product_performance_rpc`/`_add_wh_available` (already-live files landed for repo==prod parity)
 **Summary:**
+
 - **C1** — new read-only `get_vox_returns(date, date, uuid)` over `vox_return_log` (venue_group='VOX' scope; resolves machine/product/received-by names). SECURITY DEFINER to read staff names past the own-row-only `user_profiles` RLS (mirrors `get_product_performance`); anon EXECUTE revoked (RLS-bypassing reader, operator-facing only). Cody-approved read-only class-c. FE: `/api/vox/returns` + `VoxReturnsPanel` internal-role-gated "Returns" tab on the MAFE dashboard.
 - **C2** — wired the four live PRD-033 RPCs in FE, all via existing RPCs (Article 3, no direct table writes): `check_remove_without_replace` pre-commit gate (default BLOCK + Override), `reopen_stitched_rows` (machine-level re-stitch), `convert_shelf` (draft-row modal, headroom from `v_shelf_capacity`), `release_wh_quarantine` (QuarantinedInventoryPanel "Release"; provenance_reason only, never status — Article 6 clear).
 - **C3** — landed PRD-033 migrations (a-e) + Product Performance tab (`get_product_performance`) + the restored PRD-033/036 refill FE onto the Track C branch additively. prd023i/j migration files were already on main. Registry union: PRD-033 + product-performance sections added to RPC_REGISTRY; no in-scope METRICS change. `swaps_enabled` untouched; `engine_add_pod`/`engine_swap_pod` byte-identical.
-**Rollback:** `DROP FUNCTION public.get_vox_returns(date,date,uuid);` (the only new prod object). FE is revertible by branch; the landed prd033/performance migration files are inert against prod (objects pre-exist).
+  **Rollback:** `DROP FUNCTION public.get_vox_returns(date,date,uuid);` (the only new prod object). FE is revertible by branch; the landed prd033/performance migration files are inert against prod (objects pre-exist).
 
 ## 2026-06-20 — PRD-040 B3 + B4: landed-cost value model + stitch WH-read unification APPLIED
 
