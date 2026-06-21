@@ -277,6 +277,8 @@ export default function PackingDetailPage() {
         serving_pickable_units: number;
         stranded_units: number;
         stranded_warehouses: string[] | null;
+        available_qty: number;
+        oversubscribed: boolean;
       }
     >
   >(new Map());
@@ -1130,7 +1132,10 @@ export default function PackingDetailPage() {
       const { data: pickRows } = await supabase
         .from("v_dispatch_pickable")
         .select(
-          "dispatch_id, serving_pickable_units, stranded_units, stranded_warehouses",
+          // PRD-045: available_qty is the corrected committed-aware availability
+          // (excludes cancelled/skipped/not_filled/packed + no self-commit), and
+          // oversubscribed flags demand>stock instead of a silent 0.
+          "dispatch_id, serving_pickable_units, stranded_units, stranded_warehouses, available_qty, oversubscribed",
         )
         .in("dispatch_id", dispatchIds)
         .limit(10000);
@@ -1140,6 +1145,8 @@ export default function PackingDetailPage() {
           serving_pickable_units: number;
           stranded_units: number;
           stranded_warehouses: string[] | null;
+          available_qty: number;
+          oversubscribed: boolean;
         }
       >();
       for (const r of pickRows ?? []) {
@@ -1148,6 +1155,8 @@ export default function PackingDetailPage() {
           stranded_units: (r.stranded_units as number) ?? 0,
           stranded_warehouses:
             (r.stranded_warehouses as string[] | null) ?? null,
+          available_qty: (r.available_qty as number) ?? 0,
+          oversubscribed: (r.oversubscribed as boolean) ?? false,
         });
       }
       setPickableByDispatch(pmap);
@@ -1203,7 +1212,10 @@ export default function PackingDetailPage() {
 
   // ── Save ────────────────────────────────────────────────────────────────────
 
-  async function handleConfirmPacking() {
+  // PRD-044: two-mode confirm. p_final=true = Finish (requires every line resolved,
+  // marks completed); p_final=false = Save & come back (commits resolved-so-far, leaves
+  // the machine in_progress, no all-resolved requirement). Lossless resume.
+  async function handleConfirmPacking(p_final = true) {
     setSaving(true);
     setWhWarnMsg("");
     const supabase = createClient();
@@ -1387,7 +1399,10 @@ export default function PackingDetailPage() {
         {
           p_machine_name: machine.official_name,
           p_dispatch_date: getDubaiDate(),
-          p_reason: "Packing confirmed by warehouse via packing screen",
+          p_reason: p_final
+            ? "Packing finished by warehouse via packing screen"
+            : "Partial packing saved via packing screen (come back to finish)",
+          p_final: p_final,
         },
       );
       if (confirmErr) {
@@ -1399,6 +1414,9 @@ export default function PackingDetailPage() {
       const result = confirmData as {
         status?: string;
         message?: string;
+        pack_state?: string;
+        resolved_n?: number;
+        remaining_n?: number;
         unresolved?: { shelf_code?: string; pod_product_name?: string }[];
         summary?: {
           total_included?: number;
@@ -1418,6 +1436,20 @@ export default function PackingDetailPage() {
       }
       // PRD-020: capture the Complete / Complete but Partial summary.
       setConfirmSummary(result?.summary ?? null);
+
+      // PRD-044: Save & come back leaves the machine in_progress (NOT marked done).
+      // Re-fetch so already-resolved lines show locked and the rest stay editable
+      // (lossless resume); surface the running breakdown instead of navigating away.
+      if (!p_final && result?.status === "saved") {
+        await fetchData();
+        setSaving(false);
+        setSaved(false);
+        setEditingAfterSave(true);
+        setWhWarnMsg(
+          `Saved. ${result.resolved_n ?? resolvedCount} resolved, ${result.remaining_n ?? pendingCount} remaining. Come back any time to finish.`,
+        );
+        return;
+      }
     }
 
     setSaving(false);
@@ -2920,11 +2952,26 @@ export default function PackingDetailPage() {
                               );
                               const stranded = pick?.stranded_units ?? 0;
                               const whs = pick?.stranded_warehouses ?? [];
+                              // PRD-045: the view's corrected committed-aware available.
+                              const avail = pick?.available_qty ?? 0;
+                              const oversub = pick?.oversubscribed ?? false;
                               return (
                                 <span className="inline-flex flex-col gap-1">
-                                  <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                                    ⚠ No pickable stock in serving warehouse
-                                  </span>
+                                  {avail > 0 ? (
+                                    <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                                      ✓ {avail} available to pick
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                      ⚠ No pickable stock in serving warehouse
+                                    </span>
+                                  )}
+                                  {oversub && (
+                                    <span className="inline-flex items-center gap-1 rounded bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700 dark:bg-orange-950/30 dark:text-orange-300">
+                                      ⚑ Oversubscribed — demand exceeds
+                                      warehouse stock
+                                    </span>
+                                  )}
                                   {stranded > 0 && (
                                     <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-950/30 dark:text-blue-300">
                                       {stranded} unit{stranded !== 1 ? "s" : ""}{" "}
@@ -3318,20 +3365,31 @@ export default function PackingDetailPage() {
             >
               Mark all as packed
             </button>
-            {/* AC-4: gated on resolved === total (every fillable line resolved), so
-                confirm_machine_packed never returns blocked from this happy path. */}
+            {/* PRD-044: Save & come back - commits resolved-so-far, machine stays
+                in_progress. Subordinate to Finish. Enabled at >= 1 resolved. */}
             <button
-              onClick={handleConfirmPacking}
+              onClick={() => handleConfirmPacking(false)}
+              disabled={resolvedCount < 1 || saving}
+              aria-label="Save progress and come back later"
+              className="min-h-[44px] w-full rounded-lg border border-neutral-300 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              {saving ? "Saving…" : `Save & come back (${resolvedCount} done)`}
+            </button>
+            {/* PRD-044 Finish: gated on resolved === total (every fillable line
+                resolved → packed | not_filled | skipped). Never requires 100% packed. */}
+            <button
+              onClick={() => handleConfirmPacking(true)}
               disabled={
                 resolvedCount !== totalCount || totalCount === 0 || saving
               }
-              className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+              aria-label="Finish packing for this machine"
+              className="min-h-[44px] w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               {saving
                 ? "Saving…"
                 : resolvedCount === totalCount
-                  ? `Confirm packing (${packedCount} packed${skippedCount > 0 ? `, ${skippedCount} skipped` : ""})`
-                  : `Confirm packing - ${pendingCount} pending`}
+                  ? `Finish (${packedCount} packed${notFilledCount > 0 ? `, ${notFilledCount} not filled` : ""}${skippedCount > 0 ? `, ${skippedCount} skipped` : ""})`
+                  : `Finish - ${pendingCount} to resolve`}
             </button>
           </div>
         )}
