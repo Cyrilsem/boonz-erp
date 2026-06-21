@@ -13,6 +13,20 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-21 — PRD-044/045/046/047 refill-day fixes APPLIED (MCP; pending prod-sync git-commit)
+
+**Phase / Article:** PRD-044..047 / Articles 1, 2, 4, 5, 8, 12, 14, 16
+**Applied to:** prod (MCP apply_migration only; NOT yet git-committed — for a later prod-sync). swaps_enabled untouched (false); engine_add_pod byte-identical (md5 244de950…); picker/engines untouched.
+**Migrations applied (5):**
+
+- `prd044_p0_packing_confirm_state` — `refill_dispatching.not_filled_reason`, `dispatch_pack_confirmation.final`, `v_machine_pack_status` + `pack_state` (open/in_progress/completed).
+- `prd044_p1_confirm_two_mode` — `confirm_machine_packed(...,p_final)` 5-arg two-mode (Save vs Finish), 4-arg delegates; `pack_dispatch_line` records `not_filled_reason`.
+- `prd045_p0_wh_commitment_correctness` — `v_dispatch_availability`/`v_dispatch_pickable` commitment fix (exclude cancelled/skipped/not_filled/packed; no self-commit; `oversubscribed`; floor 0). Read-model only.
+- `prd046_stitch_v26_multivariant_spread` — `stitch_pod_to_boonz` v25→v26: multi-variant SKU spread (distribution CTEs only; AMZ-1029 A07 17 → 6/5/4/1/1; conservation). ADD/SWAP/FINALIZE byte-identical.
+- `prd047_p0_swap_dispatch_shelf` — atomic one-tap `swap_dispatch_shelf` (Remove + Add New via canonical add_dispatch_row).
+  **FE NEEDS DEPLOY:** PRD-044 two-button confirm; PRD-045 available/oversubscribed badge; PRD-047 shelf-grouped page + Swap wiring.
+  **Rollback:** re-CREATE OR REPLACE the prior function/view bodies; drop the two new columns + swap_dispatch_shelf if unused.
+
 ## 2026-06-20 — PRD-043 picker v11: VOX Wed/Fri calendar gate APPLIED
 
 **Phase / Article:** PRD-043 / Articles 1, 12, 16
