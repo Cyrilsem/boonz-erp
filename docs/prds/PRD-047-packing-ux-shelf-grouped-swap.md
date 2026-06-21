@@ -1,6 +1,6 @@
 # PRD-047 - Packing page UX: shelf-grouped panels + one-tap Swap
 
-**Status:** ✅ PARTIAL 2026-06-21 - backend P0 (swap_dispatch_shelf) APPLIED to prod; P1/P2 FE (shelf-grouped page + Swap wiring + a11y) = NEEDS IMPLEMENTATION + DEPLOY. swaps_enabled untouched (false).
+**Status:** ✅ APPLIED 2026-06-21 - backend P0 (swap_dispatch_shelf) live; FE Swap dialog (1b) committed to main (`c7ac999`) + build-verified. Prod deploy of `c7ac999` was **Vercel-rate-limited** ("retry in 24h", free-tier deploy cap from frequent deploys) — NOT a build error; it auto-promotes on the next successful Vercel build of main. B1 (PRD-045) + B2 (PRD-044) are LIVE (deploy `37ce14d`). Shelf-grouped compact-table LAYOUT (1a) = follow-up (large visual rebuild needing browser a11y/375px verification). swaps_enabled untouched (false).
 
 ## EXECUTION LOG (2026-06-21)
 
