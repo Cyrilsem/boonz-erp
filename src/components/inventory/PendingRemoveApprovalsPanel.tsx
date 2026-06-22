@@ -61,6 +61,15 @@ export default function PendingRemoveApprovalsPanel() {
     Record<string, VariantSplitEntry[]>
   >({}); // dispatch_id → driver's per-variant breakdown
 
+  // PRD-049 Phase D: expiry-split state — ONE product returned across multiple
+  // expiry batches. Mutually exclusive with variant split.
+  const [expirySplitMode, setExpirySplitMode] = useState<
+    Record<string, boolean>
+  >({});
+  const [expirySplits, setExpirySplits] = useState<
+    Record<string, { expiry: string; qty: number }[]>
+  >({}); // dispatch_id → per-expiry {expiry, qty} breakdown
+
   const fetchRows = useCallback(async () => {
     const supabase = createClient();
     const { data, error } = await supabase
@@ -201,6 +210,55 @@ export default function PendingRemoveApprovalsPanel() {
     });
   }
 
+  // PRD-049 Phase D: per-expiry split helpers (one product, multiple batches).
+  function toggleExpirySplit(row: PendingRemoveRow) {
+    const willOpen = !expirySplitMode[row.dispatch_id];
+    if (willOpen) {
+      setExpirySplits((prev) =>
+        prev[row.dispatch_id]?.length
+          ? prev
+          : {
+              ...prev,
+              [row.dispatch_id]: [
+                {
+                  expiry:
+                    expiryOverrides[row.dispatch_id] ||
+                    row.dispatch_expiry ||
+                    "",
+                  qty: 0,
+                },
+              ],
+            },
+      );
+    }
+    setExpirySplitMode((prev) => ({ ...prev, [row.dispatch_id]: willOpen }));
+  }
+  function updateExpiryEntry(
+    dispatchId: string,
+    idx: number,
+    patch: Partial<{ expiry: string; qty: number }>,
+  ) {
+    setExpirySplits((prev) => {
+      const list = prev[dispatchId] ?? [];
+      return {
+        ...prev,
+        [dispatchId]: list.map((e, i) => (i === idx ? { ...e, ...patch } : e)),
+      };
+    });
+  }
+  function addExpiryRow(dispatchId: string) {
+    setExpirySplits((prev) => ({
+      ...prev,
+      [dispatchId]: [...(prev[dispatchId] ?? []), { expiry: "", qty: 0 }],
+    }));
+  }
+  function removeExpiryRow(dispatchId: string, idx: number) {
+    setExpirySplits((prev) => ({
+      ...prev,
+      [dispatchId]: (prev[dispatchId] ?? []).filter((_, i) => i !== idx),
+    }));
+  }
+
   async function handleApproveSingleVariant(row: PendingRemoveRow) {
     setActing(row.dispatch_id);
     const supabase = createClient();
@@ -238,6 +296,71 @@ export default function PendingRemoveApprovalsPanel() {
       console.error("[PendingRemoveApprovals] approve failed:", error);
     } else {
       await fetchRows();
+    }
+    setActing(null);
+  }
+
+  // PRD-049 Phase D: approve a single-product return split across several expiry
+  // batches. Builds a MULTI-element p_batch_breakdown and calls the SAME existing
+  // wh_approve_remove_receipt RPC, which credits each {expiry, qty} to its own
+  // warehouse_inventory batch row. No backend change; no new .from() writes.
+  async function handleApproveExpirySplit(row: PendingRemoveRow) {
+    const entries = (expirySplits[row.dispatch_id] ?? []).filter(
+      (e) => e.qty > 0,
+    );
+    const target = overrides[row.dispatch_id] ?? row.driver_confirmed_qty;
+    if (entries.length === 0) {
+      alert("Add at least one expiry batch with qty > 0, or close split mode.");
+      return;
+    }
+    const sum = entries.reduce((s, e) => s + e.qty, 0);
+    if (sum !== target) {
+      alert(
+        `Expiry breakdown sums to ${sum}, but verified qty is ${target}. ` +
+          `Adjust the per-batch quantities so they total ${target}.`,
+      );
+      return;
+    }
+    const missing = entries.find((e) => !e.expiry);
+    if (missing) {
+      alert(
+        "Every expiry batch needs a date — each credit goes to its own warehouse batch row.",
+      );
+      return;
+    }
+
+    setActing(row.dispatch_id);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const breakdown = entries.map((e) => ({ expiry: e.expiry, qty: e.qty }));
+    const reason = `WH manager verified — ${sum} units across ${entries.length} expiry batches`;
+    const { error } = await supabase.rpc("wh_approve_remove_receipt", {
+      p_dispatch_id: row.dispatch_id,
+      p_actual_qty: target,
+      p_batch_breakdown: breakdown,
+      p_approved_by: user?.id ?? null,
+      p_reason: reason,
+    });
+    if (error) {
+      alert(`Approve failed: ${error.message}`);
+      console.error(
+        "[PendingRemoveApprovals] expiry-split approve failed:",
+        error,
+      );
+    } else {
+      await fetchRows();
+      setExpirySplitMode((prev) => {
+        const n = { ...prev };
+        delete n[row.dispatch_id];
+        return n;
+      });
+      setExpirySplits((prev) => {
+        const n = { ...prev };
+        delete n[row.dispatch_id];
+        return n;
+      });
     }
     setActing(null);
   }
@@ -341,6 +464,9 @@ export default function PendingRemoveApprovalsPanel() {
           const splits = variantSplits[row.dispatch_id] ?? [];
           const splitSum = splits.reduce((s, e) => s + (e.qty || 0), 0);
           const opts = variantOptions[row.dispatch_id] ?? [];
+          const isExpirySplit = !!expirySplitMode[row.dispatch_id];
+          const eSplits = expirySplits[row.dispatch_id] ?? [];
+          const eSplitSum = eSplits.reduce((s, e) => s + (e.qty || 0), 0);
           return (
             <li
               key={row.dispatch_id}
@@ -399,8 +525,8 @@ export default function PendingRemoveApprovalsPanel() {
                 )}
               </div>
 
-              {/* Single-variant expiry input — hidden when split mode active */}
-              {!isSplit && (
+              {/* Single-batch expiry input — hidden when any split mode active */}
+              {!isSplit && !isExpirySplit && (
                 <div className="mb-3 flex items-center gap-2 text-xs">
                   <label className="flex items-center gap-2 text-neutral-500">
                     Batch expiry:
@@ -430,7 +556,7 @@ export default function PendingRemoveApprovalsPanel() {
               )}
 
               {/* Split-by-variant toggle + UI */}
-              {row.pod_product_id && (
+              {row.pod_product_id && !isExpirySplit && (
                 <div className="mb-3">
                   <button
                     type="button"
@@ -511,6 +637,98 @@ export default function PendingRemoveApprovalsPanel() {
                 </div>
               )}
 
+              {/* PRD-049 Phase D: split-by-expiry (same product, multiple batches) */}
+              {!isSplit && (
+                <div className="mb-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpirySplit(row)}
+                    className="text-xs font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
+                  >
+                    {isExpirySplit
+                      ? "← Cancel expiry split, approve as single batch"
+                      : "↳ Split by expiry (same product returned across multiple expiry dates)"}
+                  </button>
+                  {isExpirySplit && (
+                    <div className="mt-2 rounded border border-amber-200 bg-amber-50/50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
+                      <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-300">
+                        Enter the qty + expiry of each physical batch returned.
+                        Total must equal <strong>{editedQty}</strong>. Each
+                        batch is credited to its own warehouse expiry row.
+                      </p>
+                      <ul className="space-y-1.5">
+                        {eSplits.map((entry, idx) => (
+                          <li
+                            key={idx}
+                            className="flex flex-wrap items-center gap-2 text-xs"
+                          >
+                            <input
+                              type="number"
+                              min={0}
+                              value={entry.qty}
+                              onChange={(e) =>
+                                updateExpiryEntry(row.dispatch_id, idx, {
+                                  qty: parseFloat(e.target.value) || 0,
+                                })
+                              }
+                              placeholder="0"
+                              className="w-14 rounded border border-neutral-300 px-2 py-1 text-center dark:border-neutral-600 dark:bg-neutral-900"
+                            />
+                            <input
+                              type="date"
+                              value={entry.expiry}
+                              onChange={(e) =>
+                                updateExpiryEntry(row.dispatch_id, idx, {
+                                  expiry: e.target.value,
+                                })
+                              }
+                              className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                            />
+                            {eSplits.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removeExpiryRow(row.dispatch_id, idx)
+                                }
+                                aria-label="Remove this expiry batch"
+                                className="text-rose-600 hover:text-rose-800"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => addExpiryRow(row.dispatch_id)}
+                        className="mt-2 text-xs font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
+                      >
+                        + Add expiry batch
+                      </button>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <span
+                          className={
+                            eSplitSum === editedQty
+                              ? "font-semibold text-green-700 dark:text-green-400"
+                              : "font-semibold text-rose-700 dark:text-rose-400"
+                          }
+                        >
+                          Sum: {eSplitSum} / {editedQty}
+                        </span>
+                        {eSplitSum !== editedQty && (
+                          <span className="text-rose-700 dark:text-rose-400">
+                            {eSplitSum < editedQty
+                              ? `Need ${editedQty - eSplitSum} more`
+                              : `Over by ${eSplitSum - editedQty}`}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {row.comment && (
                 <p className="mb-2 truncate text-xs text-neutral-500">
                   Note: {row.comment}
@@ -521,11 +739,14 @@ export default function PendingRemoveApprovalsPanel() {
                 onClick={() =>
                   isSplit
                     ? handleApproveMultiVariant(row)
-                    : handleApproveSingleVariant(row)
+                    : isExpirySplit
+                      ? handleApproveExpirySplit(row)
+                      : handleApproveSingleVariant(row)
                 }
                 disabled={
                   acting === row.dispatch_id ||
-                  (isSplit && splitSum !== editedQty)
+                  (isSplit && splitSum !== editedQty) ||
+                  (isExpirySplit && eSplitSum !== editedQty)
                 }
                 className="w-full rounded-lg bg-green-600 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
               >
@@ -533,7 +754,9 @@ export default function PendingRemoveApprovalsPanel() {
                   ? "Approving…"
                   : isSplit
                     ? `✓ Approve ${splitSum} units across ${splits.filter((e) => e.qty > 0).length} variants`
-                    : `✓ Approve receipt — credit ${editedQty} units to warehouse`}
+                    : isExpirySplit
+                      ? `✓ Approve ${eSplitSum} units across ${eSplits.filter((e) => e.qty > 0).length} expiry batches`
+                      : `✓ Approve receipt — credit ${editedQty} units to warehouse`}
               </button>
             </li>
           );

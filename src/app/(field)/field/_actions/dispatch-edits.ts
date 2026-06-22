@@ -44,6 +44,31 @@ export async function editDispatchQty(input: {
   return { ok: true, data };
 }
 
+// ─── 1b) edit_transfer_qty (PRD-049 Phase C) ──────────────────────────────────
+// Atomic both-leg qty edit for an M2M transfer pair. Use this instead of
+// editDispatchQty when the row is an M2M transfer (sourceKind 'm2m'); the single-leg
+// editDispatchQty would desync the Remove+Add New legs.
+export async function editTransferQty(input: {
+  dispatchId: string;
+  newQty: number;
+  editRole: EditRole;
+  reason?: string;
+  revalidate?: string;
+}): Promise<ActionResult> {
+  if (input.newQty <= 0)
+    return { ok: false, error: "Transfer quantity must be > 0" };
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("edit_transfer_qty", {
+    p_dispatch_id: input.dispatchId,
+    p_new_qty: input.newQty,
+    p_edit_role: input.editRole,
+    p_reason: input.reason ?? null,
+  });
+  if (error) return { ok: false, error: error.message };
+  if (input.revalidate) revalidatePath(input.revalidate);
+  return { ok: true, data };
+}
+
 // ─── 2) edit_dispatch_shelf ───────────────────────────────────────────────────
 
 export async function editDispatchShelf(input: {

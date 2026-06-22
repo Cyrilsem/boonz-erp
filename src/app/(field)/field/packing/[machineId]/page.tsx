@@ -1211,6 +1211,17 @@ export default function PackingDetailPage() {
     );
   }
 
+  // PRD-049 Phase B: zero out every batch of one variant on a mix line. A flavor
+  // set to 0 is excluded from the pack_dispatch_line picks (qty <= 0 is skipped),
+  // so it never moves to pod inventory. Local-state only; persists like any edit.
+  function zeroVariant(dispatchId: string, batchIds: string[]) {
+    setBatchPickQtys((prev) => {
+      const cur = { ...(prev[dispatchId] ?? {}) };
+      for (const id of batchIds) cur[id] = 0;
+      return { ...prev, [dispatchId]: cur };
+    });
+  }
+
   function handleMarkAllPacked() {
     setLines((prev) =>
       prev.map((l) => ({
@@ -1453,7 +1464,21 @@ export default function PackingDetailPage() {
       // Re-fetch so already-resolved lines show locked and the rest stay editable
       // (lossless resume); surface the running breakdown instead of navigating away.
       if (!p_final && result?.status === "saved") {
+        // PRD-049 Phase B: snapshot the user's edited pick quantities BEFORE the
+        // refetch. fetchData() reinitializes batchPickQtys from FIFO/packQty, which
+        // otherwise resets pending (not-yet-committed) per-variant edits back toward
+        // 0/recommended ("variantQtys reset after confirm"). Re-apply the snapshot on
+        // top of the fresh init: committed lines are locked (disabled inputs) so the
+        // overlay is inert for them, and still-editable lines keep their edits.
+        const editSnapshot = batchPickQtys;
         await fetchData();
+        setBatchPickQtys((fresh) => {
+          const merged: typeof fresh = { ...fresh };
+          for (const [did, batches] of Object.entries(editSnapshot)) {
+            merged[did] = { ...(fresh[did] ?? {}), ...batches };
+          }
+          return merged;
+        });
         setSaving(false);
         setSaved(false);
         setEditingAfterSave(true);
@@ -1565,17 +1590,20 @@ export default function PackingDetailPage() {
   // moves into the Skipped panel and out of the outstanding-to-pack set.
   async function submitSkip() {
     if (!skipDialogLine) return;
+    const skipped = skipDialogLine;
+    // PRD-049 issue 2: skip_dispatch_line requires reason >= 10 chars. A
+    // category-only skip (e.g. "OOS") is too short, so the RPC used to throw and
+    // the driver fell back to not_filled. Auto-pad the composed reason to >= 10
+    // instead of blocking; surface any RPC error (never swallow it).
     const note = skipNote.trim();
-    const reason = note ? `${skipCategory}: ${note}` : skipCategory;
-    if (reason.length < 10) {
-      setWhWarnMsg("Skip reason must be at least 10 characters.");
-      return;
-    }
+    const category = skipCategory.trim() || "Skipped";
+    let reason = note ? `${category}: ${note}` : category;
+    if (reason.length < 10) reason = `${reason} - skipped at packing`;
     setSaving(true);
     setWhWarnMsg("");
     const supabase = createClient();
     const { error } = await supabase.rpc("skip_dispatch_line", {
-      p_dispatch_id: skipDialogLine.dispatch_id,
+      p_dispatch_id: skipped.dispatch_id,
       p_reason: reason,
     });
     if (error) {
@@ -1584,10 +1612,32 @@ export default function PackingDetailPage() {
       setSaving(false);
       return;
     }
+    // PRD-049 issues 1+3: do NOT fetchData() here. A full refetch rebuilds `lines`
+    // and `batchPickQtys` from the DB, discarding locally-staged pack actions and
+    // edited pick quantities on OTHER lines (packing is staged locally and only
+    // committed at Finish). Move the skipped line into the Skipped panel surgically
+    // so the rest of the session's progress and edits survive. The skip RPC has
+    // already persisted skipped=true/include=false; a later load is authoritative.
+    setLines((prev) =>
+      prev.filter((l) => l.dispatch_id !== skipped.dispatch_id),
+    );
+    setSkippedLines((prev) => [
+      ...prev.filter((s) => s.dispatch_id !== skipped.dispatch_id),
+      {
+        dispatch_id: skipped.dispatch_id,
+        shelf_code: skipped.shelf_code,
+        display_name: skipped.display_name,
+        quantity: skipped.recommended_qty,
+        skip_reason: reason,
+        skipped: true,
+        cancelled: false,
+        picked_up: false,
+        fillable: true,
+      },
+    ]);
     setSkipDialogLine(null);
     setSkipCategory("");
     setSkipNote("");
-    await fetchData();
     setSaving(false);
   }
 
@@ -1618,7 +1668,12 @@ export default function PackingDetailPage() {
       return;
     }
     updateAction(line.dispatch_id, "not_filled");
-    await fetchData();
+    // PRD-049 issue 3: do NOT fetchData() here. The RPC has already persisted
+    // pack_outcome='not_filled' (the line is resolved server-side); a full refetch
+    // would rebuild every line from the DB and wipe locally-staged pack actions and
+    // edited pick quantities on OTHER lines, flipping Finish back to "N to resolve".
+    // The local action='not_filled' keeps this line resolved for the gate; the
+    // confirm_machine_packed gate reads the persisted DB outcome at Finish.
     setSaving(false);
   }
 
@@ -2925,14 +2980,35 @@ export default function PackingDetailPage() {
                                         );
                                       })}
                                       {/* Total row */}
-                                      <div className="grid grid-cols-4 border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
+                                      <div className="grid grid-cols-4 items-center border-t border-neutral-200 bg-neutral-50 px-3 py-1.5 dark:border-neutral-800 dark:bg-neutral-900">
                                         <span className="col-span-2 text-xs text-neutral-500">
                                           Total picked
                                         </span>
                                         <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
                                           {variantPickTotal}
                                         </span>
-                                        <span />
+                                        {/* PRD-049 Phase B: per-variant skip / set-0.
+                                            A zeroed flavor is excluded from the picks
+                                            so it never moves to pod inventory. */}
+                                        {!isReadOnly && variantPickTotal > 0 ? (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              zeroVariant(
+                                                line.dispatch_id,
+                                                v.batches.map(
+                                                  (b) => b.wh_inventory_id,
+                                                ),
+                                              )
+                                            }
+                                            aria-label={`Skip ${v.name} (set quantity to 0)`}
+                                            className="justify-self-end rounded border border-neutral-300 px-2 py-0.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                          >
+                                            Set 0
+                                          </button>
+                                        ) : (
+                                          <span />
+                                        )}
                                       </div>
                                       {/* B3.1 Issue 7: per-batch availability.
                                           Summed across batches — stays positive

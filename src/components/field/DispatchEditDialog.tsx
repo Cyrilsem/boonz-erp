@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import {
   editDispatchQty,
+  editTransferQty,
   editDispatchShelf,
   editDispatchProduct,
   setDispatchSource,
@@ -102,13 +103,25 @@ export function DispatchEditDialog({
       let res;
       switch (tab) {
         case "qty":
-          res = await editDispatchQty({
-            dispatchId,
-            newQty: qty,
-            editRole,
-            reason: reason || undefined,
-            revalidate,
-          });
+          // PRD-049 Phase C: an M2M transfer is a paired Remove+Add New. Editing one
+          // leg via edit_dispatch_qty desyncs the pair, so route M2M rows to the
+          // atomic both-leg edit_transfer_qty. Non-transfer rows use edit_dispatch_qty.
+          res =
+            currentSourceKind === "m2m"
+              ? await editTransferQty({
+                  dispatchId,
+                  newQty: qty,
+                  editRole,
+                  reason: reason || undefined,
+                  revalidate,
+                })
+              : await editDispatchQty({
+                  dispatchId,
+                  newQty: qty,
+                  editRole,
+                  reason: reason || undefined,
+                  revalidate,
+                });
           break;
         case "shelf":
           res = await editDispatchShelf({
