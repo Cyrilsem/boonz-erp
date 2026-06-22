@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
@@ -181,6 +181,13 @@ function computeVariantQtys(
 export default function PackingDetailPage() {
   const params = useParams<{ machineId: string }>();
   const machineId = params.machineId;
+  // PRD-047 1a: shelf-grouped compact layout, opt-in via ?layout=grouped so the
+  // live per-SKU field tool is never bricked by this new path.
+  const searchParams = useSearchParams();
+  const groupedLayout = searchParams?.get("layout") === "grouped";
+  const [collapsedShelves, setCollapsedShelves] = useState<Set<string>>(
+    new Set(),
+  );
 
   const [machine, setMachine] = useState<MachineInfo | null>(null);
   const [lines, setLines] = useState<PackLine[]>([]);
@@ -1211,6 +1218,36 @@ export default function PackingDetailPage() {
     );
   }
 
+  // PRD-047 1a: set a single-SKU pick from the grouped compact view. Clamps to the
+  // corrected available_qty (PRD-045), FEFO-allocates the total across the line's
+  // batches (earliest expiry first) into batchPickQtys, and marks the line resolved
+  // (action='packed'; a 0 pick resolves to not_filled at pack time per PRD-044).
+  function setGroupedPick(line: PackLine, qtyRaw: number) {
+    const cap =
+      pickableByDispatch.get(line.dispatch_id)?.available_qty ??
+      line.warehouse_stock ??
+      0;
+    const qty = Math.max(0, Math.min(Math.trunc(qtyRaw || 0), cap));
+    const batches = [...(line.singleBatches ?? [])].sort((a, b) => {
+      if (a.expiry === b.expiry) return 0;
+      if (!a.expiry) return 1;
+      if (!b.expiry) return -1;
+      return a.expiry < b.expiry ? -1 : 1;
+    });
+    const alloc: Record<string, number> = {};
+    let remaining = qty;
+    for (const b of batches) {
+      if (remaining <= 0) break;
+      const take = Math.min(b.stock, remaining);
+      if (take > 0) {
+        alloc[b.wh_inventory_id] = take;
+        remaining -= take;
+      }
+    }
+    setBatchPickQtys((prev) => ({ ...prev, [line.dispatch_id]: alloc }));
+    updateAction(line.dispatch_id, "packed");
+  }
+
   // PRD-049 Phase B: zero out every batch of one variant on a mix line. A flavor
   // set to 0 is excluded from the pack_dispatch_line picks (qty <= 0 is skipped),
   // so it never moves to pod inventory. Local-state only; persists like any edit.
@@ -2054,7 +2091,188 @@ export default function PackingDetailPage() {
         </div>
       )}
 
-      {sections.map((section) => (
+      {/* PRD-047 1a: shelf-grouped compact layout (opt-in via ?layout=grouped). */}
+      {groupedLayout &&
+        Array.from(
+          lines.reduce((m, l) => {
+            const arr = m.get(l.shelf_code) ?? [];
+            arr.push(l);
+            m.set(l.shelf_code, arr);
+            return m;
+          }, new Map<string, PackLine[]>()),
+        )
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .map(([shelfCode, shelfLines]) => {
+            const primary = shelfLines[0]?.display_name ?? "";
+            const shelfTotal = shelfLines.reduce(
+              (s, l) => s + variantTotal(l.dispatch_id),
+              0,
+            );
+            const allResolved =
+              shelfLines.length > 0 &&
+              shelfLines.every((l) => l.action !== null || l.packed);
+            const collapsed = collapsedShelves.has(shelfCode) && allResolved;
+            return (
+              <section
+                key={shelfCode}
+                className="mb-3 overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCollapsedShelves((prev) => {
+                      const n = new Set(prev);
+                      if (n.has(shelfCode)) n.delete(shelfCode);
+                      else n.add(shelfCode);
+                      return n;
+                    })
+                  }
+                  aria-expanded={!collapsed}
+                  className="sticky top-0 z-10 flex min-h-[44px] w-full items-center justify-between gap-2 bg-neutral-50 px-3 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-neutral-900 dark:bg-neutral-900/70"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="rounded bg-neutral-200 px-1.5 py-0.5 font-mono text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                      {shelfCode}
+                    </span>
+                    <span className="truncate text-sm font-medium">
+                      {primary}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2 text-xs text-neutral-500">
+                    {allResolved && (
+                      <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
+                        ✓ done
+                      </span>
+                    )}
+                    <span aria-hidden="true">{collapsed ? "▸" : "▾"}</span>
+                  </span>
+                </button>
+                {!collapsed && (
+                  <div className="px-2 pb-2">
+                    <table className="w-full table-fixed text-xs">
+                      <thead>
+                        <tr className="text-left text-[10px] uppercase tracking-wide text-neutral-400">
+                          <th className="w-2/5 py-1 font-medium">Product</th>
+                          <th className="py-1 font-medium">Expired</th>
+                          <th className="py-1 text-right font-medium">Req</th>
+                          <th className="py-1 text-right font-medium">Pick</th>
+                          <th className="py-1 text-right font-medium">
+                            In&nbsp;Stock
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shelfLines.map((l) => {
+                          const pk = pickableByDispatch.get(l.dispatch_id);
+                          const avail =
+                            pk?.available_qty ?? l.warehouse_stock ?? 0;
+                          const oversub = pk?.oversubscribed ?? false;
+                          const expired =
+                            !!l.expiry_date &&
+                            new Date(l.expiry_date) < new Date();
+                          const cur = variantTotal(l.dispatch_id);
+                          return (
+                            <tr
+                              key={l.dispatch_id}
+                              className="border-t border-neutral-100 dark:border-neutral-800"
+                            >
+                              <td className="py-1.5 pr-1 align-middle">
+                                <span className="block truncate font-medium">
+                                  {l.display_name}
+                                </span>
+                              </td>
+                              <td className="py-1.5 align-middle">
+                                {expired ? (
+                                  <span className="inline-flex items-center gap-0.5 rounded bg-rose-50 px-1 text-[10px] font-medium text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                                    ⚠ exp
+                                  </span>
+                                ) : (
+                                  <span className="text-neutral-400">—</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 text-right align-middle tabular-nums text-neutral-500">
+                                {l.recommended_qty}
+                              </td>
+                              <td className="py-1.5 text-right align-middle">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={avail}
+                                  inputMode="numeric"
+                                  aria-label={`Pick quantity for ${l.display_name} on shelf ${shelfCode}`}
+                                  value={l.action !== null ? cur : ""}
+                                  placeholder={String(
+                                    Math.min(l.recommended_qty, avail),
+                                  )}
+                                  disabled={l.packed || isReadOnly}
+                                  onChange={(e) =>
+                                    setGroupedPick(l, Number(e.target.value))
+                                  }
+                                  className="h-9 w-14 rounded border border-neutral-300 px-1 text-right text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950"
+                                />
+                              </td>
+                              <td className="py-1.5 text-right align-middle">
+                                <span className="inline-flex flex-col items-end gap-0.5">
+                                  <span
+                                    className={
+                                      avail > 0
+                                        ? "tabular-nums text-emerald-700 dark:text-emerald-300"
+                                        : "tabular-nums text-neutral-400"
+                                    }
+                                  >
+                                    {avail}
+                                  </span>
+                                  {oversub && (
+                                    <span className="inline-flex items-center gap-0.5 rounded bg-orange-50 px-1 text-[9px] font-medium text-orange-700 dark:bg-orange-950/30 dark:text-orange-300">
+                                      ⚑ over
+                                    </span>
+                                  )}
+                                  {avail === 0 && !l.packed && (
+                                    <span className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                      ⚠ 0→not filled
+                                    </span>
+                                  )}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-neutral-200 dark:border-neutral-700">
+                          <td
+                            className="py-1.5 text-xs font-semibold"
+                            colSpan={3}
+                          >
+                            Shelf total
+                          </td>
+                          <td className="py-1.5 text-right text-sm font-semibold tabular-nums">
+                            {shelfTotal}
+                          </td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                    {!isReadOnly && (
+                      <div className="mt-1 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={openSwap}
+                          aria-label={`Swap a product on shelf ${shelfCode}`}
+                          className="inline-flex min-h-[44px] items-center gap-1 rounded-lg px-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                        >
+                          ⇄ Swap
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+
+      {!groupedLayout &&
+        sections.map((section) => (
         <div key={section.key} className="mb-6">
           <h2
             className={`mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide ${
