@@ -270,17 +270,20 @@ export default function PackingDetailPage() {
   } | null>(null);
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
   // PRD-047 1b: one-tap shelf swap (Remove old + Add New via swap_dispatch_shelf).
+  // PRD-047 v2 PHASE 2: pod-level whole-shelf swap state.
   const [swapOpen, setSwapOpen] = useState(false);
   const [swapShelfId, setSwapShelfId] = useState<string>("");
-  const [swapRemoveBoonz, setSwapRemoveBoonz] = useState<string>("");
-  const [swapAddBoonz, setSwapAddBoonz] = useState<string>("");
-  const [swapAddQty, setSwapAddQty] = useState<string>("");
+  const [swapShelfCode, setSwapShelfCode] = useState<string>("");
+  const [swapCurrentPodLabel, setSwapCurrentPodLabel] = useState<string>("");
+  const [swapNewPodId, setSwapNewPodId] = useState<string>("");
   const [swapReason, setSwapReason] = useState<string>("");
   const [swapBusy, setSwapBusy] = useState(false);
   const [swapMsg, setSwapMsg] = useState<string | null>(null);
-  const [swapProducts, setSwapProducts] = useState<
-    { id: string; name: string }[]
-  >([]);
+  // In-stock pod options for the Add New picker (pods with WH-available variants).
+  const [podOptions, setPodOptions] = useState<{ id: string; name: string }[]>(
+    [],
+  );
+  const [podSearch, setPodSearch] = useState<string>("");
 
   const [committedByBatch, setCommittedByBatch] = useState<Map<string, number>>(
     new Map(),
@@ -1533,67 +1536,76 @@ export default function PackingDetailPage() {
 
   // PRD-047 1b: open the swap sheet — fetch the machine's Active-mapped products
   // for the "Add New" picker (add_dispatch_row requires an Active mapping).
-  async function openSwap() {
+  // PRD-047 v2: open the pod-level swap sheet for ONE shelf. Remove is auto-filled
+  // (the shelf's current pod(s), read-only); Add New is a pod picker scoped to
+  // in-stock pods (>=1 WH-available mapped variant).
+  async function openPodSwap(
+    shelfId: string,
+    shelfCode: string,
+    currentPodLabel: string,
+  ) {
     setSwapOpen(true);
     setSwapMsg(null);
-    setSwapShelfId("");
-    setSwapRemoveBoonz("");
-    setSwapAddBoonz("");
-    setSwapAddQty("");
+    setSwapShelfId(shelfId);
+    setSwapShelfCode(shelfCode);
+    setSwapCurrentPodLabel(currentPodLabel);
+    setSwapNewPodId("");
     setSwapReason("");
+    setPodSearch("");
+    setPodOptions([]);
     const supabase = createClient();
-    const { data } = await supabase
-      .from("product_mapping")
-      .select("boonz_product_id, boonz_products(boonz_product_name)")
-      .eq("machine_id", machineId)
-      .eq("status", "Active")
-      .limit(10000);
-    const seen = new Map<string, string>();
-    for (const r of (data ?? []) as Record<string, unknown>[]) {
+    const [{ data: maps }, { data: wh }] = await Promise.all([
+      supabase
+        .from("product_mapping")
+        .select("pod_product_id, boonz_product_id, pod_products(pod_product_name)")
+        .eq("status", "Active")
+        .or(`machine_id.eq.${machineId},machine_id.is.null`)
+        .limit(10000),
+      supabase
+        .from("v_wh_pickable")
+        .select("boonz_product_id, warehouse_stock")
+        .limit(10000),
+    ]);
+    const stock = new Map<string, number>();
+    for (const r of (wh ?? []) as Record<string, unknown>[]) {
       const id = r.boonz_product_id as string | null;
-      const bpRaw = r.boonz_products;
-      const bp = Array.isArray(bpRaw) ? bpRaw[0] : bpRaw;
-      const name =
-        (bp as { boonz_product_name?: string } | null)?.boonz_product_name ??
-        id ??
-        "";
-      if (id && !seen.has(id)) seen.set(id, name);
+      if (id)
+        stock.set(id, (stock.get(id) ?? 0) + Number(r.warehouse_stock ?? 0));
     }
-    setSwapProducts(
-      Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) =>
+    const pods = new Map<string, string>();
+    for (const r of (maps ?? []) as Record<string, unknown>[]) {
+      const bId = r.boonz_product_id as string | null;
+      // in-stock scope: only pods with at least one WH-available variant
+      if (!bId || (stock.get(bId) ?? 0) <= 0) continue;
+      const podId = r.pod_product_id as string | null;
+      const ppRaw = r.pod_products;
+      const pp = Array.isArray(ppRaw) ? ppRaw[0] : ppRaw;
+      const name =
+        (pp as { pod_product_name?: string } | null)?.pod_product_name ??
+        podId ??
+        "";
+      if (podId && !pods.has(podId)) pods.set(podId, name);
+    }
+    setPodOptions(
+      Array.from(pods, ([id, name]) => ({ id, name })).sort((a, b) =>
         a.name.localeCompare(b.name),
       ),
     );
   }
 
-  async function submitSwap() {
-    if (
-      !swapShelfId ||
-      !swapRemoveBoonz ||
-      !swapAddBoonz ||
-      swapReason.trim().length < 10 ||
-      Number(swapAddQty) <= 0
-    ) {
-      setSwapMsg(
-        "Pick a shelf, the product to remove and the one to add, an add qty > 0, and a reason (min 10 chars).",
-      );
+  async function submitPodSwap() {
+    if (!swapShelfId || !swapNewPodId || swapReason.trim().length < 10) {
+      setSwapMsg("Pick the new pod and a reason (min 10 chars).");
       return;
     }
     setSwapBusy(true);
     setSwapMsg(null);
-    const removeLine = lines.find(
-      (l) =>
-        l.shelf_id === swapShelfId && l.boonz_product_id === swapRemoveBoonz,
-    );
     const supabase = createClient();
-    const { error } = await supabase.rpc("swap_dispatch_shelf", {
+    const { error } = await supabase.rpc("swap_shelf_pod", {
       p_plan_date: getDubaiDate(),
       p_machine_id: machineId,
       p_shelf_id: swapShelfId,
-      p_remove_boonz_id: swapRemoveBoonz,
-      p_remove_qty: removeLine?.recommended_qty ?? 0,
-      p_add_boonz_id: swapAddBoonz,
-      p_add_qty: Math.trunc(Number(swapAddQty)),
+      p_new_pod_product_id: swapNewPodId,
       p_reason: swapReason.trim(),
     });
     setSwapBusy(false);
@@ -1955,11 +1967,11 @@ export default function PackingDetailPage() {
           {!isReadOnly && (
             <div className="flex shrink-0 items-center gap-2">
               <button
-                onClick={openSwap}
-                aria-label="Swap a product on a shelf"
+                onClick={() => openPodSwap("", "", "")}
+                aria-label="Swap the pod on a shelf"
                 className="inline-flex min-h-[44px] items-center rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
               >
-                ⇄ Swap
+                ⇄ Swap pod
               </button>
               <button
                 onClick={() => setAddingToShelf("")}
@@ -2311,11 +2323,17 @@ export default function PackingDetailPage() {
                       <div className="mt-1 flex justify-end">
                         <button
                           type="button"
-                          onClick={openSwap}
-                          aria-label={`Swap a product on shelf ${shelfCode}`}
+                          onClick={() =>
+                            openPodSwap(
+                              shelfLines[0]?.shelf_id ?? "",
+                              shelfCode,
+                              podName,
+                            )
+                          }
+                          aria-label={`Swap the pod on shelf ${shelfCode}`}
                           className="inline-flex min-h-[44px] items-center gap-1 rounded-lg px-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
                         >
-                          ⇄ Swap
+                          ⇄ Swap pod
                         </button>
                       </div>
                     )}
@@ -3888,14 +3906,15 @@ export default function PackingDetailPage() {
         >
           <div
             role="dialog"
-            aria-label="Swap a product on a shelf"
+            aria-label="Swap the pod on a shelf"
             className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-xl sm:rounded-2xl dark:bg-neutral-900"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-base font-semibold">Swap a product</h2>
+            <h2 className="text-base font-semibold">Swap the pod</h2>
             <p className="mt-0.5 text-xs text-neutral-500">
-              Removes the old product and adds the new one in one step
-              (warehouse sourced, FEFO at pack).
+              Clears this shelf and fills it with the chosen pod, spread across
+              its in-stock flavours at shelf capacity (warehouse sourced, FEFO at
+              pack).
             </p>
 
             {(() => {
@@ -3907,73 +3926,103 @@ export default function PackingDetailPage() {
                 ),
                 ([id, code]) => ({ id, code }),
               ).sort((a, b) => a.code.localeCompare(b.code));
-              const removeOpts = lines.filter(
-                (l) => l.shelf_id === swapShelfId && l.boonz_product_id,
+              const podLabelForShelf = (sid: string) =>
+                [
+                  ...new Set(
+                    lines
+                      .filter((l) => l.shelf_id === sid)
+                      .map((l) => l.pod_product_name),
+                  ),
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "(empty)";
+              const filteredPods = podOptions.filter((p) =>
+                p.name.toLowerCase().includes(podSearch.trim().toLowerCase()),
               );
               return (
                 <div className="mt-3 space-y-3">
-                  <label className="block text-xs font-medium">
-                    Shelf
-                    <select
-                      value={swapShelfId}
-                      onChange={(e) => {
-                        setSwapShelfId(e.target.value);
-                        setSwapRemoveBoonz("");
-                      }}
-                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-                    >
-                      <option value="">Select a shelf…</option>
-                      {shelves.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.code}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {/* Shelf: preset (read-only) from a card, or a picker from the header */}
+                  {swapShelfId ? (
+                    <div className="rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800/50">
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                        Remove (current pod on {swapShelfCode})
+                      </span>
+                      <p className="text-sm font-medium">
+                        {swapCurrentPodLabel || "(empty shelf)"}
+                      </p>
+                    </div>
+                  ) : (
+                    <label className="block text-xs font-medium">
+                      Shelf to swap
+                      <select
+                        value={swapShelfId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setSwapShelfId(id);
+                          setSwapShelfCode(
+                            shelves.find((s) => s.id === id)?.code ?? "",
+                          );
+                          setSwapCurrentPodLabel(id ? podLabelForShelf(id) : "");
+                        }}
+                        className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+                      >
+                        <option value="">Select a shelf…</option>
+                        {shelves.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.code} — {podLabelForShelf(s.id)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
 
-                  <label className="block text-xs font-medium">
-                    Remove (current product)
-                    <select
-                      value={swapRemoveBoonz}
-                      onChange={(e) => setSwapRemoveBoonz(e.target.value)}
-                      disabled={!swapShelfId}
-                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950"
-                    >
-                      <option value="">Select product to remove…</option>
-                      {removeOpts.map((l) => (
-                        <option key={l.dispatch_id} value={l.boonz_product_id}>
-                          {l.display_name ?? l.pod_product_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-xs font-medium">
-                    Add new product
-                    <select
-                      value={swapAddBoonz}
-                      onChange={(e) => setSwapAddBoonz(e.target.value)}
-                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
-                    >
-                      <option value="">Select product to add…</option>
-                      {swapProducts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-xs font-medium">
-                    Add qty
+                  {/* Add New: pod picker (searchable, in-stock pods) */}
+                  <div>
+                    <span className="block text-xs font-medium">
+                      Add new pod
+                    </span>
                     <input
-                      type="number"
-                      min={1}
-                      value={swapAddQty}
-                      onChange={(e) => setSwapAddQty(e.target.value)}
+                      type="text"
+                      value={podSearch}
+                      onChange={(e) => setPodSearch(e.target.value)}
+                      placeholder="Search pods in stock…"
+                      aria-label="Search pods to add"
                       className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
                     />
-                  </label>
+                    <div
+                      role="listbox"
+                      aria-label="In-stock pods"
+                      className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-800"
+                    >
+                      {filteredPods.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-neutral-500">
+                          {podOptions.length === 0
+                            ? "Loading in-stock pods…"
+                            : "No matching in-stock pod."}
+                        </p>
+                      ) : (
+                        filteredPods.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            role="option"
+                            aria-selected={swapNewPodId === p.id}
+                            onClick={() => setSwapNewPodId(p.id)}
+                            className={`flex min-h-[44px] w-full items-center justify-between gap-2 px-3 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 ${
+                              swapNewPodId === p.id
+                                ? "bg-indigo-50 font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200"
+                                : "hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                            }`}
+                          >
+                            <span className="truncate">{p.name}</span>
+                            {swapNewPodId === p.id && (
+                              <span aria-hidden="true">✓</span>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
 
                   <label className="block text-xs font-medium">
                     Reason (min 10 chars)
@@ -3981,7 +4030,7 @@ export default function PackingDetailPage() {
                       type="text"
                       value={swapReason}
                       onChange={(e) => setSwapReason(e.target.value)}
-                      placeholder="why this swap"
+                      placeholder="why this pod swap"
                       className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
                     />
                   </label>
@@ -4004,11 +4053,11 @@ export default function PackingDetailPage() {
                 Cancel
               </button>
               <button
-                onClick={submitSwap}
-                disabled={swapBusy}
+                onClick={submitPodSwap}
+                disabled={swapBusy || !swapShelfId || !swapNewPodId}
                 className="min-h-[44px] flex-1 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 disabled:opacity-50"
               >
-                {swapBusy ? "Swapping…" : "Confirm swap"}
+                {swapBusy ? "Swapping…" : "Confirm pod swap"}
               </button>
             </div>
           </div>
