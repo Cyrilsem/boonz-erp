@@ -1,6 +1,21 @@
 # PRD-047 - Packing page UX: shelf-grouped panels + one-tap Swap
 
-**Status:** ✅ APPLIED 2026-06-21 - backend P0 (swap_dispatch_shelf) live; FE Swap dialog (1b) committed to main (`c7ac999`) + build-verified. Prod deploy of `c7ac999` was **Vercel-rate-limited** ("retry in 24h", free-tier deploy cap from frequent deploys) — NOT a build error; it auto-promotes on the next successful Vercel build of main. B1 (PRD-045) + B2 (PRD-044) are LIVE (deploy `37ce14d`). Shelf-grouped compact-table LAYOUT (1a) = follow-up (large visual rebuild needing browser a11y/375px verification). swaps_enabled untouched (false).
+**Status:** ✅ APPLIED 2026-06-21 - backend P0 (swap_dispatch_shelf) live; FE Swap dialog (1b) committed to main (`c7ac999`) + build-verified. Prod deploy of `c7ac999` was **Vercel-rate-limited** ("retry in 24h", free-tier deploy cap from frequent deploys) - NOT a build error; it auto-promotes on the next successful Vercel build of main. B1 (PRD-045) + B2 (PRD-044) are LIVE (deploy `37ce14d`). swaps_enabled untouched (false).
+
+**1a Status:** ✅ FE BUILT + BROWSER-VERIFIED 2026-06-22. Shelf-grouped compact layout shipped behind the `?layout=grouped` flag (safety route: the live per-SKU tool is never bricked). Branch `feat/prd-047-1a-shelf-grouped` (commits `9223060` layout + `4c4881c` a11y pass), pushed to origin. Build + `tsc --noEmit` green. **Prod deploy pending PR merge** (direct-to-main push is branch-protected): merge `https://github.com/Cyrilsem/boonz-erp/pull/new/feat/prd-047-1a-shelf-grouped` (or Vercel dashboard Redeploy) to promote. Evidence screenshot: `/tmp/prd047_375.png` (375px, full page).
+
+## EXECUTION LOG (2026-06-22) - 1a shelf-grouped layout (FE)
+
+- **BUILD (1a+1c).** Rebuilt `/field/packing/<machine>` grouped view: one `<section>` card per shelf (sticky collapsible header: shelf_code badge + primary product + "✓ done" + ▸/▾), a compact `<table>` (`Product | Expired | Req | Pick | In Stock`), one Pick `<input type=number>` per SKU calling `setGroupedPick` (clamps to PRD-045 `available_qty`, FEFO-allocates across batches, 0 routes to not_filled at pack per PRD-044), a single `<tfoot>` shelf-total row = SUM(Pick), inline `⚑ over` + `⚠ 0 not filled` cues (icon+text, never color-alone), and a subordinate `⇄ Swap` button calling `openSwap` then `swap_dispatch_shelf` (the live P0 RPC). Reuses existing pack/confirm/swap state; `{!groupedLayout && …}` keeps the per-SKU view as the default. Backend untouched.
+- **HARD GATE - browser verification (real headless Chromium + Playwright + axe-core 4.10.2, 375x812, machine HUAWEI-2003-0000-B1).** All checks read-only (local React state; no DB writes):
+  - T1 ✅ 22 shelf cards, 22 shelf totals (one per card), 48 sub-row Pick inputs, 22 Swap buttons; non-grouped view correctly hidden under the flag.
+  - T2 ✅ editing a sub-row Pick recomputes that shelf's total live (0 gives "total 0", 1 gives "total 1").
+  - T5 ✅ shelf header toggles `aria-expanded` (collapse/expand).
+  - T6 ✅ no horizontal scroll (scrollWidth == clientWidth == 375); 0 grouped controls under 44px after bumping the Pick input `h-9` to `h-11` (44px).
+  - T7 ✅ axe 0 wcag2a/wcag2aa violations. Fixed the serious color-contrast failures (grouped header/cue `neutral-400` to `neutral-600/500`; shared chrome machine-code + Skipped-items badges/counts `neutral-400/500` to `neutral-600/700`).
+  - T8 ✅ Pick clamps to available (overshoot 99999 capped at real batch stock); 0 routes to not_filled.
+  - T3/T4/T9/T10 (swap atomicity + confirm) are DB-writing, so NOT re-run against prod data; covered by the P0 `swap_dispatch_shelf` BEGIN..ROLLBACK tests and the live PRD-044 confirm contract.
+- **DEPLOY.** Committed + pushed to branch; prod cutover gated on PR merge (see Status). swaps_enabled stays false.
 
 ## EXECUTION LOG (2026-06-21)
 
