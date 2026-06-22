@@ -13,6 +13,13 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-23 — PRD-047 v2 pod-level whole-shelf swap APPLIED (MCP; pending prod-sync git-commit)
+**Phase / Article:** Constitution Articles 1, 4, 8, 12, 16
+**Applied to:** prod (DB via MCP) + repo (migration file + FE on branch feat/prd-047-v2)
+**Migration name:** `prd047v2_swap_shelf_pod` (file `20260623080000_prd047v2_swap_shelf_pod.sql`)
+**Summary:** Adds two functions. `spread_pod_qty(machine,shelf,pod,target)` is a read-only `SECURITY INVOKER` helper that replicates the stitch v26 multi-variant distribution (normalized split_pct over WH-available mapped variants, FLOOR base + largest-remainder, on-shelf tie-break, conserves SUM==target). `swap_shelf_pod(plan_date,machine,shelf,new_pod,reason)` is a `SECURITY DEFINER` writer that, in one transaction, Removes every current Refill/Add line on the shelf at current qty, then Adds New the chosen pod spread across its WH-available variants at shelf capacity (`v_shelf_max_stock.max_stock_weimi`) — composing the canonical `add_dispatch_row` (Art 1; never a direct table write), inheriting its input/role validation, `app.via_rpc` provenance and edit-log audit (Art 4/8). Pre-validates a non-empty spread before any write so a failed swap leaves zero partial lines (verified T4 atomicity in BEGIN..ROLLBACK). Forward-only new functions (Art 12); reads canonical `v_wh_pickable` (Art 16). `stitch_pod_to_boonz` is unchanged (byte-equivalent) and keeps its own inline copy of the distribution — the two must be kept in sync. swaps_enabled untouched (false). Also FE PHASE 1: packing grouped layout now keys cards on `shelf_id` with a pod-name header (no DB change).
+**Rollback:** `DROP FUNCTION public.swap_shelf_pod(date,uuid,uuid,uuid,text); DROP FUNCTION public.spread_pod_qty(uuid,uuid,uuid,integer);` (no data change; additive).
+
 ## 2026-06-22 — PRD-048 ADD-brain base-stock sizing APPLIED behind flag (MCP; flag OFF; pending prod-sync git-commit)
 
 **Phase / Article:** PRD-048 / Articles 1, 2, 3, 4, 6, 8, 12, 13, 14, 16
