@@ -13,6 +13,37 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-22 — PRD-048 ADD-brain base-stock sizing APPLIED behind flag (MCP; flag OFF; pending prod-sync git-commit)
+
+**Phase / Article:** PRD-048 / Articles 1, 2, 3, 4, 6, 8, 12, 13, 14, 16
+**Applied to:** prod (MCP `apply_migration` only; NOT git-committed). `refill_sizing_mode='legacy'` (flag OFF) — `engine_add_pod` byte-identical to v18 (gate-clean md5 `26bfe216470a5b1ac0b19eaaef7031f4`, 78 rows, scratch plan_date). `swaps_enabled` untouched (false). `compute_refill_decision`, swap/picker/stitch/dispatch untouched. NO prod enable, NO FE/Vercel deploy.
+**Migrations applied (4):**
+
+- `prd048_a_base_stock_inputs` — NEW config tables `machine_service_policy` (per-machine route interval T + fallback z; 30 rows seeded by velocity tertile: busy 12 / standard 21 / backup 30) and singleton `refill_policy_params` (kill-switch flag + tunables: MIN_FILL_PCT 0.70, SELLER_WK_THRESHOLD 1.5, EWMA 0.7/0.3, z 1.28/1.65/2.05, margin cuts 0.371/0.514, spoilage 0.8, cold_start 14). RLS on both (read authenticated; write operator_admin/superadmin via user_profiles join). Not protected entities.
+- `prd048_b_compute_base_stock_decision` — NEW pure scalar `compute_base_stock_decision(14 args)` IMMUTABLE, zero table access, implements PRD §3 order-up-to S. Separate name (not a `compute_refill_decision` overload — CLAUDE.md foot-gun rule).
+- `prd048_b2_spoilage_dominates_floor` — helper fix: spoilage cap dominates the min_fill floor (PRD §4.5).
+- `prd048_c_engine_add_pod_v19_base_stock` — `engine_add_pod` v18→v19. Flag-gated `covered`/`flagged` CTEs: base_stock sizes via the pure helper; legacy branches are exact v18 literals (byte-identical). z (margin tier) + shelf-life (FEFO) computed set-based and passed in. Cold-start (RAMPING / new slot) seeded not dead-zeroed.
+
+**Article 16:** `engine_add_pod` is the canonical "refill quantity decision" object; the redefinition lives inside it (legal). New inline `shelf_life_days` read of `warehouse_inventory.expiration_date` permitted behind OFF flag with a convergence TODO (canonical per-product shelf-life object) before fleet enable. See `METRICS_REGISTRY.md`.
+**Validation:** 9/9 pure edge-case unit tests pass; gate-clean md5 identical; backtest harness `scripts/prd048_backtest.py` (5 pilots — all near-dead, 0 sellers: base_stock holds equal service at ~20-25% lower on-hand; trip-win not exercisable on this set). Full detail: `docs/prds/PRD-048-EXECUTION-LOG.md`.
+**Validation:** 9/9 pure edge-case unit tests pass; gate-clean md5 identical; backtest harness `scripts/prd048_backtest.py` (5 pilots — all near-dead, 0 sellers: base_stock holds equal service at ~20-25% lower on-hand; trip-win not exercisable on this set). Full detail: `docs/prds/PRD-048-EXECUTION-LOG.md`.
+**Rollback:** `UPDATE refill_policy_params SET refill_sizing_mode='legacy' WHERE id=1;` → engine reverts to byte-identical v18 on next run. Full teardown: `DROP FUNCTION compute_base_stock_decision(...); DROP VIEW v_product_shelf_life; DROP TABLE refill_policy_params, machine_service_policy;` and restore `engine_add_pod` v18 body (prior definition in Supabase migration history / git).
+
+### CONTINUATION same-day — Steps 2-4 shipped; base_stock ENABLED (flag now base_stock)
+
+**+3 migrations (MCP):**
+
+- `prd048_d_v_product_shelf_life` — NEW canonical view (Art-16): FEFO remaining shelf-life per (warehouse, boonz_product), consumes `v_wh_pickable`. security_invoker.
+- `prd048_e_engine_v19_shelf_life_canonical` — engine base_stock `shelf_life_days` now reads the canonical view (no inline `warehouse_inventory` derivation). **Closes the Art-16 TODO.**
+- `prd048_f_engine_v19_daily_velocity_units` — UNITS FIX: `slot_lifecycle.velocity_7d/30d` are DAILY rates; helper (PRD §3) expects window totals. Engine now passes `v7*7, v30*30`. Without this base_stock under-sized ~7-10× (caught by scratch proof: 1 refill vs 28). base_stock-branch only; legacy byte-identical.
+
+**Gate-clean method correction:** the n8n 4-hourly stock refresh moves live inputs, so a fixed-hash cross-time compare is invalid. Correct gate-clean = run a throwaway `engine_add_pod_v18_verify` (exact original v18) head-to-head with current `legacy` on the SAME snapshot; both byte-identical (re-proven after `_e` and `_f`; verify-fn dropped after).
+
+**Scratch proof (2099-12-01, seller-heavy AMZ):** base_stock 17 refills vs legacy 28; sellers → cap; 0 floor-on-tail / 0 over-cap / 0 negative / 0 over-headroom; cold-start seeded (§4.2); 0 advisor regressions.
+
+**ENABLED:** `UPDATE refill_policy_params SET refill_sizing_mode='base_stock' WHERE id=1;` — GLOBAL (per-class flag not wired; `machine_service_policy.T` differentiates within base_stock). SAFE: nightly `auto_generate_draft` draft stays human-committed via FE Gate 1+2 before dispatch. `swaps_enabled` stays FALSE. Engine on dispatched/live plan_dates NOT run by this pass.
+**Rollback (one line):** `UPDATE public.refill_policy_params SET refill_sizing_mode='legacy' WHERE id=1;`.
+
 ## 2026-06-21 — PRD-044/045/046/047 refill-day fixes APPLIED (MCP; pending prod-sync git-commit)
 
 **Phase / Article:** PRD-044..047 / Articles 1, 2, 4, 5, 8, 12, 14, 16
