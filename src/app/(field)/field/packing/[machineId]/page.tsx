@@ -2094,16 +2094,28 @@ export default function PackingDetailPage() {
       {/* PRD-047 1a: shelf-grouped compact layout (opt-in via ?layout=grouped). */}
       {groupedLayout &&
         Array.from(
+          // PRD-047 v2 PHASE 1: group by physical SHELF (shelf_id), not shelf_code
+          // or product. One card per shelf; all pods/SKUs on the shelf share it.
           lines.reduce((m, l) => {
-            const arr = m.get(l.shelf_code) ?? [];
+            const gk = l.shelf_id ?? l.shelf_code;
+            const arr = m.get(gk) ?? [];
             arr.push(l);
-            m.set(l.shelf_code, arr);
+            m.set(gk, arr);
             return m;
           }, new Map<string, PackLine[]>()),
         )
-          .sort((a, b) => a[0].localeCompare(b[0]))
-          .map(([shelfCode, shelfLines]) => {
-            const primary = shelfLines[0]?.display_name ?? "";
+          .sort((a, b) =>
+            (a[1][0]?.shelf_code ?? "").localeCompare(b[1][0]?.shelf_code ?? ""),
+          )
+          .map(([groupKey, shelfLines]) => {
+            const shelfCode = shelfLines[0]?.shelf_code ?? "-";
+            // Header label = the pod name(s) on this shelf (e.g. "Barebells"),
+            // not the first SKU/flavor. A shelf can hold >1 pod (e.g. A01 =
+            // Ice Tea + Plaay), so show the distinct pod names.
+            const podName =
+              [...new Set(shelfLines.map((l) => l.pod_product_name))]
+                .filter(Boolean)
+                .join(", ") || "-";
             const shelfTotal = shelfLines.reduce(
               (s, l) => s + variantTotal(l.dispatch_id),
               0,
@@ -2111,10 +2123,10 @@ export default function PackingDetailPage() {
             const allResolved =
               shelfLines.length > 0 &&
               shelfLines.every((l) => l.action !== null || l.packed);
-            const collapsed = collapsedShelves.has(shelfCode) && allResolved;
+            const collapsed = collapsedShelves.has(groupKey) && allResolved;
             return (
               <section
-                key={shelfCode}
+                key={groupKey}
                 className="mb-3 overflow-hidden rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
               >
                 <button
@@ -2122,8 +2134,8 @@ export default function PackingDetailPage() {
                   onClick={() =>
                     setCollapsedShelves((prev) => {
                       const n = new Set(prev);
-                      if (n.has(shelfCode)) n.delete(shelfCode);
-                      else n.add(shelfCode);
+                      if (n.has(groupKey)) n.delete(groupKey);
+                      else n.add(groupKey);
                       return n;
                     })
                   }
@@ -2135,7 +2147,7 @@ export default function PackingDetailPage() {
                       {shelfCode}
                     </span>
                     <span className="truncate text-sm font-medium">
-                      {primary}
+                      {podName}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2 text-xs text-neutral-500">
@@ -2167,9 +2179,35 @@ export default function PackingDetailPage() {
                           const avail =
                             pk?.available_qty ?? l.warehouse_stock ?? 0;
                           const oversub = pk?.oversubscribed ?? false;
-                          const expired =
-                            !!l.expiry_date &&
-                            new Date(l.expiry_date) < new Date();
+                          // PRD-047 v2: collapse the SKU's FEFO batches into ONE
+                          // row. Expired column shows the EARLIEST-expiry batch;
+                          // batch count is a secondary caption (never sibling rows).
+                          const batchExps = (l.singleBatches ?? [])
+                            .map((b) => b.expiry)
+                            .filter((e): e is string => !!e)
+                            .sort();
+                          const earliestExp =
+                            batchExps[0] ??
+                            l.fifo_expiry ??
+                            l.expiry_date ??
+                            null;
+                          const nBatches = (l.singleBatches ?? []).filter(
+                            (b) => b.stock > 0,
+                          ).length;
+                          const expDate = earliestExp
+                            ? new Date(earliestExp)
+                            : null;
+                          const expired = !!expDate && expDate < new Date();
+                          const expSoon =
+                            !!expDate &&
+                            !expired &&
+                            expDate.getTime() - Date.now() < 30 * 864e5;
+                          const expLabel = expDate
+                            ? expDate.toLocaleDateString("en-GB", {
+                                day: "2-digit",
+                                month: "short",
+                              })
+                            : null;
                           const cur = variantTotal(l.dispatch_id);
                           return (
                             <tr
@@ -2180,14 +2218,30 @@ export default function PackingDetailPage() {
                                 <span className="block truncate font-medium">
                                   {l.display_name}
                                 </span>
+                                {nBatches > 1 && (
+                                  <span className="block text-[9px] text-neutral-500 dark:text-neutral-400">
+                                    {nBatches} batches · FEFO
+                                  </span>
+                                )}
                               </td>
                               <td className="py-1.5 align-middle">
-                                {expired ? (
-                                  <span className="inline-flex items-center gap-0.5 rounded bg-rose-50 px-1 text-[10px] font-medium text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
-                                    ⚠ exp
+                                {expLabel ? (
+                                  <span
+                                    className={`inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-medium tabular-nums ${
+                                      expired
+                                        ? "bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
+                                        : expSoon
+                                          ? "bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                          : "text-neutral-600 dark:text-neutral-300"
+                                    }`}
+                                  >
+                                    {expired ? "⚠ " : expSoon ? "⏳ " : ""}
+                                    {expLabel}
                                   </span>
                                 ) : (
-                                  <span className="text-neutral-500 dark:text-neutral-400">—</span>
+                                  <span className="text-neutral-500 dark:text-neutral-400">
+                                    —
+                                  </span>
                                 )}
                               </td>
                               <td className="py-1.5 text-right align-middle tabular-nums text-neutral-500">
