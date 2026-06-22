@@ -1943,7 +1943,7 @@ export default function PackingDetailPage() {
             <div className="flex items-baseline gap-2">
               <h1 className="text-xl font-semibold">{machine.official_name}</h1>
               {machineShortId(machine.adyen_store_code) && (
-                <span className="font-mono text-sm tracking-wider text-neutral-400">
+                <span className="font-mono text-sm tracking-wider text-neutral-600 dark:text-neutral-300">
                   {machineShortId(machine.adyen_store_code)}
                 </span>
               )}
@@ -2151,7 +2151,7 @@ export default function PackingDetailPage() {
                   <div className="px-2 pb-2">
                     <table className="w-full table-fixed text-xs">
                       <thead>
-                        <tr className="text-left text-[10px] uppercase tracking-wide text-neutral-400">
+                        <tr className="text-left text-[10px] uppercase tracking-wide text-neutral-600 dark:text-neutral-300">
                           <th className="w-2/5 py-1 font-medium">Product</th>
                           <th className="py-1 font-medium">Expired</th>
                           <th className="py-1 text-right font-medium">Req</th>
@@ -2187,7 +2187,7 @@ export default function PackingDetailPage() {
                                     ⚠ exp
                                   </span>
                                 ) : (
-                                  <span className="text-neutral-400">—</span>
+                                  <span className="text-neutral-500 dark:text-neutral-400">—</span>
                                 )}
                               </td>
                               <td className="py-1.5 text-right align-middle tabular-nums text-neutral-500">
@@ -2208,7 +2208,7 @@ export default function PackingDetailPage() {
                                   onChange={(e) =>
                                     setGroupedPick(l, Number(e.target.value))
                                   }
-                                  className="h-9 w-14 rounded border border-neutral-300 px-1 text-right text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950"
+                                  className="h-11 w-16 rounded border border-neutral-300 px-1 text-right text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-950"
                                 />
                               </td>
                               <td className="py-1.5 text-right align-middle">
@@ -2217,7 +2217,7 @@ export default function PackingDetailPage() {
                                     className={
                                       avail > 0
                                         ? "tabular-nums text-emerald-700 dark:text-emerald-300"
-                                        : "tabular-nums text-neutral-400"
+                                        : "tabular-nums text-neutral-500 dark:text-neutral-400"
                                     }
                                   >
                                     {avail}
@@ -3657,7 +3657,7 @@ export default function PackingDetailPage() {
         <div className="mb-6">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
             <span className="text-base">⏭</span> Skipped items
-            <span className="ml-auto text-xs font-normal text-neutral-400">
+            <span className="ml-auto text-xs font-normal text-neutral-600 dark:text-neutral-300">
               {skippedLines.length} item
               {skippedLines.length !== 1 ? "s" : ""}
             </span>
@@ -3670,13 +3670,13 @@ export default function PackingDetailPage() {
               >
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="flex items-center gap-2 min-w-0">
-                    <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                    <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
                       {s.shelf_code}
                     </span>
                     <span className="truncate text-neutral-600 line-through decoration-neutral-400 dark:text-neutral-400">
                       {s.display_name}
                     </span>
-                    <span className="shrink-0 text-xs text-neutral-400">
+                    <span className="shrink-0 text-xs text-neutral-600 dark:text-neutral-300">
                       {s.quantity}u
                     </span>
                   </span>
