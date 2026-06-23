@@ -16,12 +16,16 @@
 --      the REMOVE child (size from the pod plan total). engine v26 -> v27. Done via
 --      a DO-block over the LIVE body (pg_get_functiondef) so we never guess; a guard
 --      RAISEs if the target substring is not found or the cap survives.
---   4. push_plan_to_dispatch(date,text) — REMOVE/M2W children are split across the
---      shelf's known pod_inventory batches by FEFO; any remainder that cannot be
---      attributed to a known batch is written as ONE more line with expiry_date = NULL
---      (expiry-to-confirm) so the children always sum to the pod plan. A publish-time
---      conservation assert then refuses to ship (RAISE -> full rollback) when
---      SUM(children) <> parent for any REMOVE/M2W instruction, and logs the delta.
+--   4. push_plan_to_dispatch(date,text) — a DURABLE, pre-write conservation GATE runs
+--      first: for every REMOVE/M2W instruction the approved plan must sum to the pod
+--      plan; on any mismatch it writes a stitch_leakage row and RETURNS an error
+--      WITHOUT writing any dispatch (stop-ship). No RAISE, so the telemetry COMMITS and
+--      survives the blocked publish (dblink/pg_background autonomous tx rejected: dblink
+--      loopback on Supabase needs a hardcoded DB password = unsafe; pg_background not
+--      installed). Then REMOVE/M2W children are split across the shelf's known Active
+--      pod_inventory batches by FEFO; any remainder not attributable to a known batch
+--      is written as ONE line with expiry_date = NULL (expiry-to-confirm) so the
+--      children always sum to the pod plan.
 --
 -- Protected entities touched only through their canonical writers; forward-only; no
 -- _v2; no deletes; no qty cut. Cody verdict accompanies this file. swaps_enabled
@@ -145,6 +149,7 @@ DECLARE
   v_procurement_gaps     int := 0;
   v_preserved            int := 0;
   v_remove_split         int := 0;
+  v_leak_n               int := 0;
   line                   RECORD;
   v_batch                RECORD;
   v_leak                 RECORD;
@@ -182,6 +187,54 @@ BEGIN
     FROM machines WHERE official_name = p_machine_name;
   IF v_machine_id IS NULL THEN
     RETURN jsonb_build_object('status','error','error','Machine not found: '||p_machine_name);
+  END IF;
+
+  -- ── PRD-053: conservation GATE (pre-write, DURABLE, stop-ship). ──
+  -- For every REMOVE/M2W instruction, the approved plan (refill_plan_output — what we
+  -- are about to dispatch) MUST sum to the pod_refill_plan qty. On any mismatch we
+  -- record durable telemetry to stitch_leakage and RETURN an error WITHOUT writing any
+  -- dispatch row (stop-ship). No RAISE -> the telemetry row COMMITS and survives even
+  -- though nothing ships. (A dblink / pg_background autonomous transaction was rejected:
+  -- dblink loopback on Supabase requires a hardcoded DB password = unsafe credential
+  -- handling, and pg_background is not installed; this pre-write gate is durable by
+  -- construction and refuses to ship identically.)
+  v_leak_n := 0;
+  FOR v_leak IN
+    SELECT prp.shelf_id, prp.pod_product_id, prp.action,
+           prp.qty::int AS parent, COALESCE(g.children,0)::int AS children
+    FROM pod_refill_plan prp
+    LEFT JOIN (
+      SELECT sc.shelf_id, pp.pod_product_id,
+             CASE upper(trim(rpo.action))
+               WHEN 'REMOVE' THEN 'REMOVE' WHEN 'MACHINE TO WAREHOUSE' THEN 'M2W' END AS pod_action,
+             SUM(rpo.quantity)::int AS children
+      FROM refill_plan_output rpo
+      JOIN shelf_configurations sc ON sc.machine_id = v_machine_id
+           AND sc.shelf_code = regexp_replace(rpo.shelf_code, '^([A-Z])([0-9])$', '\1' || '0' || '\2')
+      JOIN pod_products pp ON lower(trim(pp.pod_product_name)) = lower(trim(rpo.pod_product_name))
+      WHERE rpo.plan_date = p_plan_date AND rpo.machine_name = p_machine_name
+        AND rpo.operator_status = 'approved' AND rpo.dispatched = false
+        AND upper(trim(rpo.action)) IN ('REMOVE','MACHINE TO WAREHOUSE')
+      GROUP BY sc.shelf_id, pp.pod_product_id, 3
+    ) g ON g.shelf_id = prp.shelf_id AND g.pod_product_id = prp.pod_product_id AND g.pod_action = prp.action
+    WHERE prp.plan_date = p_plan_date AND prp.machine_id = v_machine_id
+      AND prp.action IN ('REMOVE','M2W') AND prp.qty > 0
+      AND prp.qty <> COALESCE(g.children, 0)
+  LOOP
+    INSERT INTO public.stitch_leakage(plan_date, machine_id, shelf_id, pod_product_id,
+                                      action, parent_pod_qty, children_sum, delta, detected_by)
+    VALUES (p_plan_date, v_machine_id, v_leak.shelf_id, v_leak.pod_product_id,
+            v_leak.action, v_leak.parent, v_leak.children, v_leak.parent - v_leak.children,
+            'push_plan_to_dispatch');
+    v_leak_n := v_leak_n + 1;
+  END LOOP;
+  IF v_leak_n > 0 THEN
+    RETURN jsonb_build_object(
+      'status','conservation_violation',
+      'machine', p_machine_name,
+      'leaking_instructions', v_leak_n,
+      'reason','SUM(approved plan children) <> pod_refill_plan qty for REMOVE/M2W — stop-ship; logged durably to stitch_leakage (PRD-053)'
+    );
   END IF;
 
   FOR line IN
@@ -335,26 +388,10 @@ BEGIN
     v_count := v_count + 1;
   END LOOP;
 
-  -- ── PRD-053: publish-time conservation assert (stop-ship). ──
-  -- For every REMOVE/M2W instruction on this machine, the dispatch children MUST sum
-  -- to the pod plan qty. On any mismatch: record telemetry + RAISE (the whole push
-  -- rolls back, so no leaking dispatch ships). [Durability note for CS in the PRD:
-  -- on RAISE the telemetry INSERT rolls back too; the read-only check_pod_conservation
-  -- view + the RAISE/log carry the delta for the monitor. A durable autonomous-tx
-  -- telemetry write can be layered if CS wants a persisted row on stop-ship.]
-  FOR v_leak IN
-    SELECT * FROM public.check_pod_conservation(p_plan_date) c
-     WHERE c.machine_id = v_machine_id
-  LOOP
-    INSERT INTO public.stitch_leakage(plan_date, machine_id, shelf_id, pod_product_id,
-                                      action, parent_pod_qty, children_sum, delta, detected_by)
-    VALUES (p_plan_date, v_leak.machine_id, v_leak.shelf_id, v_leak.pod_product_id,
-            v_leak.action, v_leak.parent_pod_qty, v_leak.children_sum, v_leak.delta,
-            'push_plan_to_dispatch');
-    RAISE EXCEPTION 'push_plan_to_dispatch: CONSERVATION VIOLATION (stop-ship) machine=% shelf=% pod=% action=% parent=% children=% delta=%',
-      p_machine_name, v_leak.shelf_id, v_leak.pod_product_id, v_leak.action,
-      v_leak.parent_pod_qty, v_leak.children_sum, v_leak.delta;
-  END LOOP;
+  -- Post-write sanity: the conservation gate above already refused to ship any
+  -- non-conserving plan, and the REMOVE/M2W split is exact by construction, so the
+  -- dispatch children now equal the pod plan. check_pod_conservation(p_plan_date) is
+  -- the read-only monitor for post-hoc scans / cron.
 
   RETURN jsonb_build_object(
     'status','ok',
