@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect } from "react";
 import {
   addDispatchRow,
+  driverAddFlaggedRow,
   searchBoonzProducts,
   listWarehouses,
   listActiveMachines,
@@ -23,6 +24,10 @@ interface Props {
   editRole: EditRole;
   revalidate?: string;
   onSuccess?: () => void;
+  /** PRD-053 Phase C: when true (driver packing context), a beyond-plan add is
+   * routed through driver_add_flagged_row so it is recorded AND flagged for
+   * Head Office review (/admin/driver-additions). Never blocks. */
+  flagAsDriverAddition?: boolean;
 }
 
 export function AddDispatchRowDialog({
@@ -35,6 +40,7 @@ export function AddDispatchRowDialog({
   editRole,
   revalidate,
   onSuccess,
+  flagAsDriverAddition = false,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +141,7 @@ export function AddDispatchRowDialog({
     }
 
     startTransition(async () => {
-      const res = await addDispatchRow({
+      const common = {
         machineId,
         shelfCode,
         boonzProductId: selectedProduct.product_id,
@@ -145,10 +151,14 @@ export function AddDispatchRowDialog({
         sourceKind,
         sourceWarehouseId: sourceKind === "wh" ? sourceWh : undefined,
         sourceMachineId: sourceKind === "m2m" ? sourceMachine : undefined,
-        editRole,
         reason: reason || undefined,
         revalidate,
-      });
+      };
+      // PRD-053 Phase C: driver beyond-plan adds go through the flagged path
+      // (recorded + needs_review); all other contexts use the plain canonical add.
+      const res = flagAsDriverAddition
+        ? await driverAddFlaggedRow(common)
+        : await addDispatchRow({ ...common, editRole });
       if (res.ok) {
         onSuccess?.();
         onClose();
