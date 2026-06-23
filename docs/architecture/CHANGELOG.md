@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-23 — PRD-052 convert plain Removes into an M2M transfer (NOVO -> MINDSHARE) APPLIED
+
+**Phase / Article:** PRD-052 / Articles 1, 4, 6, 8, 12, 14
+**Applied to:** prod (MCP `apply_migration`; NOT git-pushed to main — awaiting CS go-ahead)
+**Migration name:** `prd052_convert_removes_to_m2m_transfer` (file `20260623120000_prd052_convert_removes_to_m2m_transfer.sql`)
+**Summary:** New DEFINER writer `convert_removes_to_m2m_transfer(p_dispatch_ids uuid[], p_dest_machine_id uuid, p_dest_shelf_id uuid, p_reason text)` retroactively converts existing dispatched plain `Remove` rows into a paired M2M transfer (source flipped to is_m2m=true + dest `Add New` leg, shared `m2m_transfer_id`, bidirectional `m2m_partner_id`, `from_warehouse_id` NULL, qty = COALESCE(driver_confirmed_qty, quantity)). Touches ONLY `refill_dispatching`; no pod_inventory/warehouse_inventory writes (both machines reconcile from WEIMI; the physical move already happened). Sets source_machine_id + source_kind='m2m' to satisfy the `m2m_consistency` CHECK. Added to the `enforce_canonical_dispatch_write` allowlist. Validates: non-empty, all exist + action=Remove + one source machine + item_added/cancelled/returned false + is_m2m false (idempotency) + dest machine/shelf. Role: null-uid trusted remediation OR operator_admin/superadmin/manager. Executed on the 7 NOVO-1023 Vitamin Well removes -> MINDSHARE-1009 shelf A16, transfer_id `1538f35f-c386-405b-9cb1-dbc1fba94277`, total 11 units, qty corrected (Upgrade 0->1, Zero Peach 12->1), ZERO warehouse credit, 14 audit rows. T1-T8 rolled-back battery green before apply.
+**Rollback:** `UPDATE refill_dispatching SET is_m2m=false, m2m_transfer_id=NULL, m2m_partner_id=NULL, source_kind='unknown', source_machine_id=NULL WHERE dispatch_id = ANY(<the 7 source ids>)` then `DELETE FROM refill_dispatching WHERE m2m_transfer_id='1538f35f-c386-405b-9cb1-dbc1fba94277' AND action='Add New'` (restore stale quantity 12/0 from the BEFORE snapshot if desired); then `DROP FUNCTION convert_removes_to_m2m_transfer(uuid[],uuid,uuid,text)` + revert the allowlist. Sources never had WH credited (item_added=false), so no inventory unwind needed.
+
 ## 2026-06-22 — PRD-048 ADD-brain base-stock sizing APPLIED behind flag (MCP; flag OFF; pending prod-sync git-commit)
 
 **Phase / Article:** PRD-048 / Articles 1, 2, 3, 4, 6, 8, 12, 13, 14, 16
