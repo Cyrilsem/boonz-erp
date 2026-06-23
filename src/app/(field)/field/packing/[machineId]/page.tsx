@@ -16,7 +16,15 @@ import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
 // marked done with no WH debit (pack_dispatch_line with empty picks). "partial" =
 // picked < planned (engine keeps planned qty; remainder is a not_filled remainder line).
-type LineAction = "packed" | "skip" | "not_filled" | "partial" | null;
+// PRD-056: "transferred" is the resolved local state for an M2M transfer leg
+// confirmed via confirm_packed_transferred (backend pack_outcome 'packed_transferred').
+type LineAction =
+  | "packed"
+  | "skip"
+  | "not_filled"
+  | "partial"
+  | "transferred"
+  | null;
 
 interface BatchAllocation {
   wh_inventory_id: string;
@@ -57,8 +65,8 @@ interface PackLine {
   action: LineAction;
   /** DB packed boolean — true if this line was already packed+saved in a prior session */
   packed: boolean;
-  /** PRD-030 canonical pack outcome: 'packed' | 'partial' | 'not_filled' | null (pending) */
-  pack_outcome: "packed" | "partial" | "not_filled" | null;
+  /** PRD-030/056 canonical pack outcome: 'packed' | 'partial' | 'not_filled' | 'packed_transferred' | null (pending) */
+  pack_outcome: "packed" | "partial" | "not_filled" | "packed_transferred" | null;
   /** DB dispatched boolean — true once driver has dispatched. Hard lock on Override & re-pack. */
   dispatched: boolean;
   fifo_expiry: string | null;
@@ -748,6 +756,7 @@ export default function PackingDetailPage() {
           | "packed"
           | "partial"
           | "not_filled"
+          | "packed_transferred"
           | null) ?? null;
       const podId = line.pod_product_id ?? "";
       // A line is only mix if the pod has >1 variant AND this line has no
@@ -808,13 +817,16 @@ export default function PackingDetailPage() {
         packed_qty:
           (line.filled_quantity as number | null) ?? line.quantity ?? 0,
         filled_quantity: (line.filled_quantity as number | null) ?? null,
-        action: isPacked
-          ? packOutcome === "partial"
-            ? "partial"
-            : "packed"
-          : packOutcome === "not_filled"
-            ? "not_filled"
-            : null,
+        action:
+          packOutcome === "packed_transferred"
+            ? "transferred"
+            : isPacked
+              ? packOutcome === "partial"
+                ? "partial"
+                : "packed"
+              : packOutcome === "not_filled"
+                ? "not_filled"
+                : null,
         packed: isPacked,
         pack_outcome: packOutcome,
         dispatched: !!line.dispatched,
@@ -1766,6 +1778,33 @@ export default function PackingDetailPage() {
     // edited pick quantities on OTHER lines, flipping Finish back to "N to resolve".
     // The local action='not_filled' keeps this line resolved for the gate; the
     // confirm_machine_packed gate reads the persisted DB outcome at Finish.
+    setSaving(false);
+  }
+
+  // PRD-056: confirm an M2M transfer. The single canonical writer
+  // confirm_packed_transferred resolves the pair from either leg, lands the unit
+  // in the DEST machine's pod_inventory (WH-neutral), and stamps both legs
+  // pack_outcome='packed_transferred'. We reflect both legs as 'transferred'
+  // locally so the Finish gate counts them resolved without a full refetch.
+  async function handleConfirmTransferred(transferLines: PackLine[]) {
+    const legId =
+      transferLines.find((l) => l.dispatch_action === "Remove")?.dispatch_id ??
+      transferLines[0]?.dispatch_id;
+    if (!legId) return;
+    setSaving(true);
+    setWhWarnMsg("");
+    const supabase = createClient();
+    const { error } = await supabase.rpc("confirm_packed_transferred", {
+      p_dispatch_id: legId,
+      p_confirmed_by: null,
+    });
+    if (error) {
+      console.error("[PRD-056] confirm_packed_transferred failed", error);
+      setWhWarnMsg(`Transfer confirm failed: ${error.message}`);
+      setSaving(false);
+      return;
+    }
+    for (const tl of transferLines) updateAction(tl.dispatch_id, "transferred");
     setSaving(false);
   }
 
@@ -2943,6 +2982,19 @@ export default function PackingDetailPage() {
                     removeLine?.dispatch_comment ??
                     addLine?.dispatch_comment ??
                     "Machine-to-machine transfer";
+                  // PRD-056: source machine for the dest "Transfer from" tag, parsed
+                  // from the convert_removes_to_m2m_transfer comment ("... <src> -> <dest> ...").
+                  const transferArrow = routeLabel.match(
+                    /(?:retro\s+)?(.+?)\s*(?:->|→)\s*(.+?)(?::|$)/i,
+                  );
+                  const sourceName =
+                    transferArrow?.[1]?.trim() || "source machine";
+                  const transferDone = transferLines.some(
+                    (l) =>
+                      l.action === "transferred" ||
+                      l.pack_outcome === "packed_transferred",
+                  );
+                  const transferLocked = isReadOnly || isDispatchLocked;
                   return (
                     <li
                       key={tid}
@@ -2976,6 +3028,11 @@ export default function PackingDetailPage() {
                               >
                                 {tl.dispatch_action}
                               </span>
+                              {!isRemove && (
+                                <span className="shrink-0 rounded bg-purple-50 px-1.5 py-0.5 text-[10px] font-medium text-purple-600 dark:bg-purple-950/30 dark:text-purple-400">
+                                  Transfer from {sourceName}
+                                </span>
+                              )}
                               <span className="flex-1 truncate">
                                 {tl.display_name}
                               </span>
@@ -2994,9 +3051,48 @@ export default function PackingDetailPage() {
                           );
                         })}
                       </div>
-                      <p className="mt-2 text-xs text-teal-600 dark:text-teal-400">
-                        No packing required — driver handles at machine
-                      </p>
+                      {/* PRD-056: transfer-aware packing. The ONLY confirm option
+                          for a transfer is "Packed & Transferred" (no Skip / Not
+                          Filled). Confirm lands the unit in the dest machine's
+                          pod_inventory via confirm_packed_transferred. */}
+                      {transferDone ? (
+                        <p
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-green-600 dark:text-green-400"
+                          role="status"
+                        >
+                          <svg
+                            className="h-4 w-4 shrink-0"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fillRule="evenodd"
+                              d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          Packed &amp; Transferred — unit moved to destination
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmTransferred(transferLines)}
+                          disabled={saving || transferLocked}
+                          aria-label={`Confirm packed and transferred: ${routeLabel}`}
+                          className="mt-2 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <svg
+                            className="h-4 w-4 shrink-0"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            aria-hidden="true"
+                          >
+                            <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.926A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.085l-1.414 4.926a.75.75 0 00.826.95 28.897 28.897 0 0015.293-7.155.75.75 0 000-1.114A28.897 28.897 0 003.105 2.289z" />
+                          </svg>
+                          {saving ? "Confirming…" : "Packed & Transferred"}
+                        </button>
+                      )}
                     </li>
                   );
                 },
