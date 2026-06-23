@@ -26,3 +26,25 @@
 - `stitch_leakage` (new table): ✅ **Approve.** Art 2 (RLS on), Art 7 (append-only — no UPDATE/DELETE policy; DEFINER-only writes). Not a protected entity.
 
 **STOP — awaiting CS review before apply.** Nothing applied to prod; migration is a FILE only.
+
+## Phase B - field per-expiry split, TOTAL LOCKED (2026-06-23) — FILE authored + verified read-only
+
+**Migration FILE (not applied):** `supabase/migrations/20260624000100_prd053_b_set_dispatch_breakdown.sql`
+
+- **Live body fetched:** `receive_dispatch_line(p_dispatch_id uuid, p_filled_quantity numeric, p_received_by uuid, p_batch_breakdown jsonb)`. Its `p_batch_breakdown` shape = a jsonb array `[{ "qty": <number>, "expiry": "<date>"|null, "wh_inventory_id": <uuid>|null }, ...]` validated as `SUM(qty) = filled_quantity`. `refill_dispatching.driver_confirmed_breakdown` (jsonb) is the store.
+- **SQL / diff:** NEW `set_dispatch_line_breakdown(p_dispatch_id, p_batch_breakdown, p_edit_role, p_reason)` — DEFINER, app.via_rpc/rpc_name, role gate. Validates each entry (qty>=0; expiry optional = to-confirm) and enforces `SUM(qty) = refill_dispatching.quantity` (the total is immutable). On pass: `UPDATE refill_dispatching SET driver_confirmed_breakdown = p_batch_breakdown, expiry_date = earliest, edit_count+1`. Never changes quantity/action/status. Locked once item_added/dispatched.
+- **AC-B verification (read-only):** the example split `[{qty:6,expiry:2027-04-15},{qty:7,expiry:2027-08-01}]` sums to **13** = the line total (saved); a mismatch (e.g. 11) RAISEs. All written columns exist with correct types (`driver_confirmed_breakdown` jsonb, `last_edited_*`, `edit_count` int) → applies cleanly. A full driver→split→save round-trip is a rolled-back test once applied.
+- **Cody:** ✅ **Approve.** Art 1 (an edit writer on refill_dispatching, peer of skip_dispatch_line / edit_transfer_qty — no foreign write), Art 4 (gates + SUM==total validation), Art 5 (no status/action/qty flip — only the expiry distribution), Art 8 (generic write_audit_log trigger + edit_count), Art 12 (forward-only).
+- **FE (Stax) follow-up (specified):** add a per-expiry breakdown editor on the driver dispatching/packing line that calls `set_dispatch_line_breakdown` (distinct from the WH returns-approval panel). The total field is read-only (locked); only the per-expiry rows are editable; client also asserts SUM == total before submit.
+
+## Phase C - flagged driver additions to Head Office (2026-06-23) — FILE authored + verified read-only
+
+**Migration FILE (not applied):** `supabase/migrations/20260624000200_prd053_c_flagged_driver_additions.sql`
+
+- **Dara — column/flag design (additive, forward-only) on refill_dispatching:** `needs_review bool default false`, `review_reason text`, `review_status text default 'none'` (none|pending|accepted|rejected), `reviewed_by uuid`, `reviewed_at timestamptz`, + partial index `WHERE needs_review AND review_status='pending'`. RLS already enabled on refill_dispatching (confirmed) → new columns covered, no RLS change.
+- **SQL / diff:** (1) `driver_add_flagged_row(...)` — wrapper that COMPOSES the canonical `add_dispatch_row` (12-arg signature confirmed to match) then stamps `needs_review=true / review_reason='driver_addition' / review_status='pending'`; never blocks. A defaulted-param overload of add_dispatch_row was rejected (overload foot-gun, CLAUDE.md), hence a wrapper. (2) `review_driver_addition(dispatch_id, decision, reason)` — operator_admin/superadmin/manager records accepted|rejected (reviewed_by/at); does NOT delete or cut qty (rejection is actioned via the existing skip/cancel writer). (3) `v_driver_addition_review_queue` — the Head Office queue (pending flagged adds).
+- **AC-C verification (read-only):** `add_dispatch_row` 12-arg signature matches the wrapper call exactly; `needs_review` absent → clean ALTER; refill_dispatching RLS enabled. By construction: a driver addition is INSERTED by add_dispatch_row (recorded) then flagged (needs_review=true) and appears in `v_driver_addition_review_queue`; nothing blocked. Full "add 2 extra → 15 total → 2 flagged" round-trip is a rolled-back test once applied.
+- **Cody:** ✅ **Approve.** Additive columns under existing RLS (Art 2/12); `driver_add_flagged_row` composes the canonical writer (Art 1) + an audited flag stamp (Art 4/8), never blocks; `review_driver_addition` is role-gated (Art 4), records the decision only — no delete, no qty cut.
+- **FE (Stax) follow-up (specified):** route the packing-page "Add product" beyond-plan path through `driver_add_flagged_row`; add a Head Office review screen reading `v_driver_addition_review_queue` with Accept/Reject calling `review_driver_addition`.
+
+**STOP — all three phases delivered as FILES (nothing applied to prod). Awaiting CS to apply (per phase) + the Stax FE wiring for B/C.**
