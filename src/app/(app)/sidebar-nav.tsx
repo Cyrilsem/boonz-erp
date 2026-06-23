@@ -15,6 +15,7 @@ const allNavItems: NavItem[] = [
   { label: "Dashboard", href: "/app", icon: "▦" },
   { label: "Machines", href: "/app/machines", icon: "▣" },
   { label: "Refill & Dispatch", href: "/refill", icon: "↻" },
+  { label: "Driver Adds Review", href: "/admin/driver-additions", icon: "⚑" },
   { label: "Products", href: "/app/products", icon: "☐" },
   { label: "Inventory", href: "/app/inventory", icon: "▤" },
   { label: "Procurement", href: "/app/procurement", icon: "☐" },

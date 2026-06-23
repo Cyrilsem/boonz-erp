@@ -10,6 +10,7 @@ import { FieldHeader } from "../../../components/field-header";
 import type { DispatchAction, ExpiryWarning } from "@/lib/dispatch-types";
 import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
+import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -271,6 +272,8 @@ export default function PackingDetailPage() {
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
   // PRD-047 1b: one-tap shelf swap (Remove old + Add New via swap_dispatch_shelf).
   // PRD-047 v2 PHASE 2: pod-level whole-shelf swap state.
+  // PRD-053 Phase B: per-expiry split dialog target line (driver dispatching line).
+  const [breakdownLine, setBreakdownLine] = useState<PackLine | null>(null);
   const [swapOpen, setSwapOpen] = useState(false);
   const [swapShelfId, setSwapShelfId] = useState<string>("");
   const [swapShelfCode, setSwapShelfCode] = useState<string>("");
@@ -2275,6 +2278,16 @@ export default function PackingDetailPage() {
                                     {nBatches} batches · FEFO
                                   </span>
                                 )}
+                                {!isReadOnly && l.recommended_qty > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setBreakdownLine(l)}
+                                    aria-label={`Split ${l.display_name} across expiry dates`}
+                                    className="mt-0.5 inline-flex min-h-[44px] items-center text-[10px] font-medium text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:text-indigo-300"
+                                  >
+                                    ⊟ expiry split
+                                  </button>
+                                )}
                               </td>
                               <td className="py-1.5 align-middle">
                                 {expLabel ? (
@@ -4000,6 +4013,17 @@ export default function PackingDetailPage() {
             setAddingToShelf(null);
             void fetchData();
           }}
+        />
+      )}
+
+      {/* PRD-053 Phase B: per-expiry split on a dispatch line (total locked) */}
+      {breakdownLine && (
+        <ExpiryBreakdownDialog
+          dispatchId={breakdownLine.dispatch_id}
+          lineTotal={breakdownLine.recommended_qty}
+          productName={breakdownLine.display_name}
+          onClose={() => setBreakdownLine(null)}
+          onSaved={() => void fetchData()}
         />
       )}
 
