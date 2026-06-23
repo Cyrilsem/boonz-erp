@@ -157,6 +157,50 @@ export async function addDispatchRow(input: {
   return { ok: true, data };
 }
 
+// ─── 4b) driver_add_flagged_row (PRD-053 Phase C) ─────────────────────────────
+// A driver adding a product beyond the plan on the packing page. Composes the
+// canonical add_dispatch_row (via the DEFINER wrapper) then flags the row for
+// Head Office review (needs_review / review_reason='driver_addition'). Never
+// blocks; auto-populates /admin/driver-additions. edit_role is forced to 'driver'.
+export async function driverAddFlaggedRow(input: {
+  machineId: string;
+  shelfCode: string;
+  boonzProductId: string;
+  quantity: number;
+  action: "Refill" | "Add New" | "Remove";
+  dispatchDate: string;
+  sourceKind: SourceKind;
+  sourceWarehouseId?: string;
+  sourceMachineId?: string;
+  reason?: string;
+  revalidate?: string;
+}): Promise<ActionResult> {
+  if (input.quantity <= 0) return { ok: false, error: "Quantity must be > 0" };
+  if (input.sourceKind === "wh" && !input.sourceWarehouseId)
+    return { ok: false, error: "WH source requires a warehouse" };
+  if (input.sourceKind === "m2m" && !input.sourceMachineId)
+    return { ok: false, error: "M2M source requires a source machine" };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("driver_add_flagged_row", {
+    p_machine_id: input.machineId,
+    p_shelf_code: input.shelfCode.trim().toUpperCase(),
+    p_boonz_product_id: input.boonzProductId,
+    p_quantity: input.quantity,
+    p_action: input.action,
+    p_dispatch_date: input.dispatchDate,
+    p_source_kind: input.sourceKind,
+    p_source_warehouse_id: input.sourceWarehouseId ?? null,
+    p_source_machine_id: input.sourceMachineId ?? null,
+    p_edit_role: "driver",
+    p_reason: input.reason ?? null,
+    p_conductor_session: null,
+  });
+  if (error) return { ok: false, error: error.message };
+  if (input.revalidate) revalidatePath(input.revalidate);
+  return { ok: true, data };
+}
+
 // ─── 5) remove_dispatch_row ───────────────────────────────────────────────────
 
 export async function removeDispatchRow(input: {
