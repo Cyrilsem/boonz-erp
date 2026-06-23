@@ -1119,7 +1119,7 @@ export default function PackingDetailPage() {
       const totalNow = Object.values(current).reduce((s, v) => s + v, 0);
       let shortfall = line.recommended_qty - totalNow;
       if (shortfall <= 0) continue;
-      // FIFO-fill from the earliest expiry batches that still have headroom
+      // FEFO-fill from the earliest expiry batches that still have headroom
       for (const b of batches) {
         if (shortfall <= 0) break;
         const info = whBatchInfoMap.get(b.wh_inventory_id);
@@ -1135,6 +1135,23 @@ export default function PackingDetailPage() {
           initBatchPickQtys[dispatchId][b.wh_inventory_id] =
             alreadyPicked + add;
           shortfall -= add;
+        }
+      }
+      // PRD-050: NO silent shortfall. If available headroom couldn't cover the
+      // plan, place the rest on the earliest-expiry batch (it renders with the
+      // oversubscribed cue). Total picked then equals recommended_qty.
+      if (shortfall > 0) {
+        const earliest = [...batches].sort((a, b) => {
+          if (a.expiry === b.expiry) return 0;
+          if (!a.expiry) return 1;
+          if (!b.expiry) return -1;
+          return a.expiry < b.expiry ? -1 : 1;
+        })[0];
+        if (earliest) {
+          initBatchPickQtys[dispatchId][earliest.wh_inventory_id] =
+            (initBatchPickQtys[dispatchId][earliest.wh_inventory_id] ?? 0) +
+            shortfall;
+          shortfall = 0;
         }
       }
     }
@@ -1219,6 +1236,29 @@ export default function PackingDetailPage() {
       (s, n) => s + n,
       0,
     );
+  }
+
+  // PRD-050: per-batch Pick cap = the PLANNED target for the batch's group
+  // (recommended_qty for a single-variant line, v.packQty for a mix variant),
+  // minus what the OTHER batches in the group already hold. This caps the group
+  // TOTAL at the plan while letting any one batch absorb the shortfall above its
+  // own warehouse availability (the over-pick is flagged with an oversubscribed
+  // cue, never silently reduced). NOT bound to batch stock — that was the bug.
+  function batchPlanCap(
+    dispatchId: string,
+    groupBatches: { wh_inventory_id: string }[],
+    target: number,
+    thisWhId: string,
+  ): number {
+    const picks = batchPickQtys[dispatchId] ?? {};
+    const others = groupBatches.reduce(
+      (s, gb) =>
+        gb.wh_inventory_id === thisWhId
+          ? s
+          : s + (picks[gb.wh_inventory_id] ?? 0),
+      0,
+    );
+    return Math.max(0, target - others);
   }
 
   // PRD-047 1a: set a single-SKU pick from the grouped compact view. Clamps to the
@@ -2039,7 +2079,7 @@ export default function PackingDetailPage() {
                 );
                 window.location.reload();
               }}
-              className="shrink-0 rounded bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+              className="shrink-0 rounded bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
             >
               Override & re-pack
             </button>
@@ -2355,12 +2395,12 @@ export default function PackingDetailPage() {
                   : section.key === "m2m"
                     ? "text-teal-600 dark:text-teal-400"
                     : section.key === "returned"
-                      ? "text-neutral-400 dark:text-neutral-500"
+                      ? "text-neutral-600 dark:text-neutral-300"
                       : "text-neutral-700 dark:text-neutral-300"
             }`}
           >
             <span className="text-base">{section.icon}</span> {section.title}
-            <span className="ml-auto text-xs font-normal text-neutral-400">
+            <span className="ml-auto text-xs font-normal text-neutral-600 dark:text-neutral-300">
               {section.key === "swap"
                 ? `${swapPairs.length} pair${swapPairs.length !== 1 ? "s" : ""}`
                 : section.key === "m2m"
@@ -2495,13 +2535,13 @@ export default function PackingDetailPage() {
                           <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-400">
                             ❌ REMOVE
                           </span>
-                          <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-400 dark:bg-red-900/40 dark:text-red-500">
+                          <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-700 dark:bg-red-900/40 dark:text-red-300">
                             {removeLine.shelf_code}
                           </span>
                           <span className="font-medium">
                             {removeLine.display_name}
                           </span>
-                          <span className="text-xs text-red-500 dark:text-red-400">
+                          <span className="text-xs text-red-600 dark:text-red-300">
                             · {removeLine.recommended_qty || "—"} units
                           </span>
                         </p>
@@ -2509,7 +2549,7 @@ export default function PackingDetailPage() {
                     )}
 
                     {/* Arrow separator */}
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-600 dark:text-neutral-300">
                       <span>↓</span> replace with
                     </div>
 
@@ -2519,7 +2559,7 @@ export default function PackingDetailPage() {
                         <span className="rounded bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-400">
                           ✅ PACK
                         </span>
-                        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
                           {addLine.shelf_code}
                         </span>
                         <span className="font-medium">
@@ -2578,6 +2618,15 @@ export default function PackingDetailPage() {
                                             0,
                                             b.stock - batchCommitted,
                                           );
+                                          // PRD-050: cap at the variant PLAN (v.packQty), not stock.
+                                          const batchCap = batchPlanCap(
+                                            addLine.dispatch_id,
+                                            v.batches,
+                                            v.packQty,
+                                            b.wh_inventory_id,
+                                          );
+                                          const oversub =
+                                            pickQty > batchAvailable;
                                           const days = b.expiry
                                             ? Math.ceil(
                                                 (new Date(
@@ -2589,12 +2638,12 @@ export default function PackingDetailPage() {
                                             : null;
                                           const urgencyColor =
                                             days === null
-                                              ? "text-neutral-400 dark:text-neutral-500"
+                                              ? "text-neutral-600 dark:text-neutral-300"
                                               : days <= 30
                                                 ? "text-red-500 font-medium dark:text-red-400"
                                                 : days <= 60
                                                   ? "text-amber-500 dark:text-amber-400"
-                                                  : "text-neutral-400 dark:text-neutral-500";
+                                                  : "text-neutral-600 dark:text-neutral-300";
                                           return (
                                             <div
                                               key={b.wh_inventory_id}
@@ -2618,18 +2667,17 @@ export default function PackingDetailPage() {
                                               <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                                 {b.stock}u
                                               </span>
+                                              <div className="flex flex-col items-center gap-0.5">
                                               <input
                                                 type="number"
                                                 min={0}
-                                                max={batchAvailable}
+                                                max={batchCap}
                                                 value={pickQty}
-                                                disabled={
-                                                  isReadOnly ||
-                                                  batchAvailable === 0
-                                                }
+                                                aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
+                                                disabled={isReadOnly}
                                                 onChange={(e) => {
                                                   const val = Math.min(
-                                                    batchAvailable,
+                                                    batchCap,
                                                     Math.max(
                                                       0,
                                                       parseInt(
@@ -2647,13 +2695,21 @@ export default function PackingDetailPage() {
                                                     },
                                                   }));
                                                 }}
-                                                className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                                  pickQty >= batchAvailable &&
-                                                  batchAvailable > 0
+                                                className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                                  oversub
                                                     ? "border-amber-400"
                                                     : "border-neutral-300 dark:border-neutral-600"
                                                 }`}
                                               />
+                                              {oversub && (
+                                                <span
+                                                  className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                  title="Picking more than is in warehouse stock"
+                                                >
+                                                  ⚑ over
+                                                </span>
+                                              )}
+                                              </div>
                                               <span
                                                 className={`text-xs ${urgencyColor}`}
                                               >
@@ -2712,6 +2768,14 @@ export default function PackingDetailPage() {
                               0,
                               b.stock - batchCommitted,
                             );
+                            // PRD-050: cap at the PLAN (line total), not stock.
+                            const batchCap = batchPlanCap(
+                              addLine.dispatch_id,
+                              addLine.singleBatches ?? [],
+                              addLine.recommended_qty,
+                              b.wh_inventory_id,
+                            );
+                            const oversub = pickQty > batchAvailable;
                             const days = b.expiry
                               ? Math.ceil(
                                   (new Date(b.expiry + "T00:00:00").getTime() -
@@ -2721,12 +2785,12 @@ export default function PackingDetailPage() {
                               : null;
                             const urgencyColor =
                               days === null
-                                ? "text-neutral-400 dark:text-neutral-500"
+                                ? "text-neutral-600 dark:text-neutral-300"
                                 : days <= 30
                                   ? "text-red-500 font-medium dark:text-red-400"
                                   : days <= 60
                                     ? "text-amber-500 dark:text-amber-400"
-                                    : "text-neutral-400 dark:text-neutral-500";
+                                    : "text-neutral-600 dark:text-neutral-300";
                             return (
                               <div
                                 key={b.wh_inventory_id}
@@ -2756,35 +2820,45 @@ export default function PackingDetailPage() {
                                 <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                   {b.stock}u
                                 </span>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={batchAvailable}
-                                  value={pickQty}
-                                  disabled={isReadOnly || batchAvailable === 0}
-                                  onChange={(e) => {
-                                    const val = Math.min(
-                                      batchAvailable,
-                                      Math.max(
-                                        0,
-                                        parseInt(e.target.value) || 0,
-                                      ),
-                                    );
-                                    setBatchPickQtys((prev) => ({
-                                      ...prev,
-                                      [addLine.dispatch_id]: {
-                                        ...(prev[addLine.dispatch_id] ?? {}),
-                                        [b.wh_inventory_id]: val,
-                                      },
-                                    }));
-                                  }}
-                                  className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                    pickQty >= batchAvailable &&
-                                    batchAvailable > 0
-                                      ? "border-amber-400"
-                                      : "border-neutral-300 dark:border-neutral-600"
-                                  }`}
-                                />
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    max={batchCap}
+                                    value={pickQty}
+                                    aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
+                                    disabled={isReadOnly}
+                                    onChange={(e) => {
+                                      const val = Math.min(
+                                        batchCap,
+                                        Math.max(
+                                          0,
+                                          parseInt(e.target.value) || 0,
+                                        ),
+                                      );
+                                      setBatchPickQtys((prev) => ({
+                                        ...prev,
+                                        [addLine.dispatch_id]: {
+                                          ...(prev[addLine.dispatch_id] ?? {}),
+                                          [b.wh_inventory_id]: val,
+                                        },
+                                      }));
+                                    }}
+                                    className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                      oversub
+                                        ? "border-amber-400"
+                                        : "border-neutral-300 dark:border-neutral-600"
+                                    }`}
+                                  />
+                                  {oversub && (
+                                    <span
+                                      className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                      title="Picking more than is in warehouse stock"
+                                    >
+                                      ⚑ over
+                                    </span>
+                                  )}
+                                </div>
                                 <span className={`text-xs ${urgencyColor}`}>
                                   {days !== null ? `${days}d` : "—"}
                                 </span>
@@ -2829,7 +2903,7 @@ export default function PackingDetailPage() {
                         </button>
                       )}
                       {isReadOnly && bothPacked && (
-                        <p className="mt-2 text-xs font-medium text-green-600 dark:text-green-400">
+                        <p className="mt-2 text-xs font-medium text-green-700 dark:text-green-300">
                           ✓ Swap confirmed
                         </p>
                       )}
@@ -2927,7 +3001,7 @@ export default function PackingDetailPage() {
                       className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 opacity-60 dark:border-neutral-800 dark:bg-neutral-900/50"
                     >
                       <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium text-neutral-400 dark:text-neutral-500">
-                        <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                        <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
                           {line.shelf_code}
                         </span>
                         {line.from_warehouse_name && (
@@ -3000,7 +3074,7 @@ export default function PackingDetailPage() {
                       className={`rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30 ${borderClass}`}
                     >
                       <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
-                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-400 dark:bg-red-900/40 dark:text-red-500">
+                        <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-mono text-red-700 dark:bg-red-900/40 dark:text-red-300">
                           {line.shelf_code}
                         </span>
                         {line.display_name}
@@ -3054,7 +3128,7 @@ export default function PackingDetailPage() {
                   >
                     {/* Primary label */}
                     <p className="mb-0.5 flex flex-wrap items-center gap-1.5 text-sm font-medium">
-                      <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                      <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
                         {line.shelf_code}
                       </span>
                       {/* Warehouse source badge */}
@@ -3089,7 +3163,7 @@ export default function PackingDetailPage() {
                           const expiry = line.fifo_expiry;
                           if (expiry === null) {
                             return (
-                              <span className="rounded px-1 py-0.5 text-xs font-normal bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                              <span className="rounded px-1 py-0.5 text-xs font-normal bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
                                 No expiry date
                               </span>
                             );
@@ -3117,7 +3191,7 @@ export default function PackingDetailPage() {
                         })()
                       )}
                     </p>
-                    <p className="mb-1 text-xs text-neutral-400">
+                    <p className="mb-1 text-xs text-neutral-600 dark:text-neutral-400">
                       Recommended: {line.recommended_qty} units
                     </p>
                     {line.dispatch_comment && (
@@ -3177,6 +3251,14 @@ export default function PackingDetailPage() {
                                           0,
                                           b.stock - batchCommitted,
                                         );
+                                        // PRD-050: cap at the variant PLAN (v.packQty), not stock.
+                                        const batchCap = batchPlanCap(
+                                          line.dispatch_id,
+                                          v.batches,
+                                          v.packQty,
+                                          b.wh_inventory_id,
+                                        );
+                                        const oversub = pickQty > batchAvailable;
                                         const days = b.expiry
                                           ? Math.ceil(
                                               (new Date(
@@ -3188,12 +3270,12 @@ export default function PackingDetailPage() {
                                           : null;
                                         const urgencyColor =
                                           days === null
-                                            ? "text-neutral-400 dark:text-neutral-500"
+                                            ? "text-neutral-600 dark:text-neutral-300"
                                             : days <= 30
                                               ? "text-red-500 font-medium dark:text-red-400"
                                               : days <= 60
                                                 ? "text-amber-500 dark:text-amber-400"
-                                                : "text-neutral-400 dark:text-neutral-500";
+                                                : "text-neutral-600 dark:text-neutral-300";
                                         return (
                                           <div
                                             key={b.wh_inventory_id}
@@ -3217,18 +3299,17 @@ export default function PackingDetailPage() {
                                             <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                               {b.stock}u
                                             </span>
+                                            <div className="flex flex-col items-center gap-0.5">
                                             <input
                                               type="number"
                                               min={0}
-                                              max={batchAvailable}
+                                              max={batchCap}
                                               value={pickQty}
-                                              disabled={
-                                                isReadOnly ||
-                                                batchAvailable === 0
-                                              }
+                                              aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
+                                              disabled={isReadOnly}
                                               onChange={(e) => {
                                                 const val = Math.min(
-                                                  batchAvailable,
+                                                  batchCap,
                                                   Math.max(
                                                     0,
                                                     parseInt(e.target.value) ||
@@ -3254,13 +3335,21 @@ export default function PackingDetailPage() {
                                                   return next;
                                                 });
                                               }}
-                                              className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                                pickQty >= batchAvailable &&
-                                                batchAvailable > 0
+                                              className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                                oversub
                                                   ? "border-amber-400"
                                                   : "border-neutral-300 dark:border-neutral-600"
                                               }`}
                                             />
+                                            {oversub && (
+                                              <span
+                                                className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                                title="Picking more than is in warehouse stock"
+                                              >
+                                                ⚑ over
+                                              </span>
+                                            )}
+                                            </div>
                                             <span
                                               className={`text-xs ${urgencyColor}`}
                                             >
@@ -3470,6 +3559,14 @@ export default function PackingDetailPage() {
                                 0,
                                 b.stock - batchCommitted,
                               );
+                              // PRD-050: cap at the PLAN (line total), not stock.
+                              const batchCap = batchPlanCap(
+                                line.dispatch_id,
+                                line.singleBatches ?? [],
+                                line.recommended_qty,
+                                b.wh_inventory_id,
+                              );
+                              const oversub = pickQty > batchAvailable;
                               const days = b.expiry
                                 ? Math.ceil(
                                     (new Date(
@@ -3481,12 +3578,12 @@ export default function PackingDetailPage() {
                                 : null;
                               const urgencyColor =
                                 days === null
-                                  ? "text-neutral-400 dark:text-neutral-500"
+                                  ? "text-neutral-600 dark:text-neutral-300"
                                   : days <= 30
                                     ? "text-red-500 font-medium dark:text-red-400"
                                     : days <= 60
                                       ? "text-amber-500 dark:text-amber-400"
-                                      : "text-neutral-400 dark:text-neutral-500";
+                                      : "text-neutral-600 dark:text-neutral-300";
                               return (
                                 <div
                                   key={b.wh_inventory_id}
@@ -3516,17 +3613,17 @@ export default function PackingDetailPage() {
                                   <span className="text-xs text-neutral-600 dark:text-neutral-400">
                                     {b.stock}u
                                   </span>
+                                  <div className="flex flex-col items-center gap-0.5">
                                   <input
                                     type="number"
                                     min={0}
-                                    max={batchAvailable}
+                                    max={batchCap}
                                     value={pickQty}
-                                    disabled={
-                                      isReadOnly || batchAvailable === 0
-                                    }
+                                    aria-label={`Pick quantity, batch expiring ${b.expiry ?? "no date"}`}
+                                    disabled={isReadOnly}
                                     onChange={(e) => {
                                       const val = Math.min(
-                                        batchAvailable,
+                                        batchCap,
                                         Math.max(
                                           0,
                                           parseInt(e.target.value) || 0,
@@ -3547,13 +3644,21 @@ export default function PackingDetailPage() {
                                         return next;
                                       });
                                     }}
-                                    className={`w-14 rounded border px-1 py-0.5 text-center text-sm focus:outline-none focus:border-blue-400 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
-                                      pickQty >= batchAvailable &&
-                                      batchAvailable > 0
+                                    className={`min-h-[44px] w-16 rounded border px-2 text-center text-sm focus:outline-none focus:border-blue-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-200 ${
+                                      oversub
                                         ? "border-amber-400"
                                         : "border-neutral-300 dark:border-neutral-600"
                                     }`}
                                   />
+                                  {oversub && (
+                                    <span
+                                      className="inline-flex items-center gap-0.5 rounded bg-amber-50 px-1 text-[9px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                                      title="Picking more than is in warehouse stock"
+                                    >
+                                      ⚑ over
+                                    </span>
+                                  )}
+                                  </div>
                                   <span className={`text-xs ${urgencyColor}`}>
                                     {days !== null ? `${days}d` : "—"}
                                   </span>
