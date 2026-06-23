@@ -4,6 +4,12 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-054 returns-queue cleanup (APPLIED 2026-06-23)
+
+| Migration name                          | Article(s) | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------- | ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `prd054_a_returns_queue_exclude_m2m`    | 1, 12      | ✅ Applied to prod | View `v_pending_wh_remove_confirmations` recreated +1 predicate `AND COALESCE(rd.is_m2m,false)=false` (else byte-identical). WH returns-approval queue 21->15, m2m 6->0, all 7 PRD-052 legs excluded. Venue_team (VOX) receive guard found ALREADY LIVE in `receive_dispatch_line` (covers wh_approve_remove_receipt[_multivariant] via delegation) — no function change; verified T1-T6 rolled-back. |
+
 ## PRD-052 convert-removes-to-m2m (APPLIED 2026-06-23)
 
 | Migration name                           | Article(s)    | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |

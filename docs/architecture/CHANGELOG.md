@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-23 — PRD-054 returns-queue M2M exclusion + venue_team receive guard (verified)
+
+**Phase / Article:** PRD-054 / Articles 1, 12 (view); 4, 6, 8 (receive guard — already live, verified)
+**Applied to:** prod (MCP `apply_migration` of the view; receive guard required no change)
+**Migration name:** `prd054_a_returns_queue_exclude_m2m` (file `20260624010000_prd054_a_returns_queue_exclude_m2m.sql`)
+**Summary:** (1a) `v_pending_wh_remove_confirmations` recreated with one added predicate `AND COALESCE(rd.is_m2m,false)=false` (columns/order otherwise byte-identical to the live def). Removes M2M transfer legs from the WH "Returns awaiting approval" panel: queue 21 -> 15, m2m rows 6 -> 0, all 7 PRD-052 rows (transfer_id 1538f35f-...) excluded. (1b) The durable venue_team (VOX) receive guard was found ALREADY LIVE in `receive_dispatch_line`'s Remove branch (detects product_mapping.source_of_supply='venue_team' for the dispatch machine+boonz, skips ALL warehouse_inventory credit, logs `vox_return_log`, path `remove_venue_team_no_wh_credit`, marks item_added=true). `wh_approve_remove_receipt` and `wh_approve_remove_receipt_multivariant` both delegate credit to `receive_dispatch_line`, so the guard covers all three paths — no function change made. Tests T1-T6 green in BEGIN..ROLLBACK before apply (T3 venue: 0 WH credit; T5 boonz-on-VOX-machine: credits WH — guard keys on source_of_supply, not machine name; T6 audited). No warehouse_inventory.status writes (Art 6). No driver-confirmed returns auto-touched.
+**Rollback:** `CREATE OR REPLACE VIEW public.v_pending_wh_remove_confirmations` without the `is_m2m` predicate (restore the prior def). View-only; no data change.
+
 ## 2026-06-23 — PRD-052 convert plain Removes into an M2M transfer (NOVO -> MINDSHARE) APPLIED
 
 **Phase / Article:** PRD-052 / Articles 1, 4, 6, 8, 12, 14
