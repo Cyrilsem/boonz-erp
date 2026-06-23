@@ -129,8 +129,10 @@ export function TrackerTab() {
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    // PRD-055: read from the kept Issues view (action_tracker minus driver_feedback,
+    // which folded into Signals). Writes below still target action_tracker (the base table).
     let query = supabase
-      .from("action_tracker")
+      .from("v_action_tracker_issues")
       .select("*")
       // Cache-bust: append a no-op filter that changes every call.
       // PostgREST treats this as a different URL so the browser HTTP cache misses.

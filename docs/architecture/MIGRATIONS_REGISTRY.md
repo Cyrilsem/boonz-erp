@@ -4,6 +4,16 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## PRD-055 notes consolidation into Signals (APPLIED 2026-06-23)
+
+| Migration name                                   | Article(s) | Status             | Note                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------ | ---------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd055_p1_signal_source_and_issues_view`        | 1, 12      | ✅ Applied to prod | `refill_edit_signals.signal_type` CHECK extended +`'note'` (inert: engine_swap_pod reads only `swap_rejected`; md5 90f26896… unchanged). New read-only `v_action_tracker_issues` (security_invoker) = action_tracker minus driver_feedback. `source` free text (no DDL for 'field_note'/'action'). |
+| `prd055_p2_fold_notes_into_signals`              | 1, 12      | ✅ Applied to prod | Idempotent, origin-tagged, NO deletes. 6 machine_field_notes -> signals source='field_note'; 50 action_tracker driver_feedback -> signals source='action'; 42 bug/task/decommission kept in Issues view. All 98 accounted; source rows retained. engine byte-identical.                          |
+| `prd055_p4_deprecate_machine_field_notes_writes` | 13         | ✅ Applied to prod | No DB/FE writer of machine_field_notes exists -> retire write path via REVOKE INSERT/UPDATE/DELETE from authenticated (SELECT kept). Table NOT dropped; 90-day monitor to 2026-09-21. action_tracker writers NOT retired.                                                                          |
+
+(No P3 migration — P3 is FE-only: Field Capture + Tracker tabs removed from `/app/refill`, Tracker -> Issues reading `v_action_tracker_issues`, Signals the single notes channel.)
+
 ## PRD-054 returns-queue cleanup (APPLIED 2026-06-23)
 
 | Migration name                          | Article(s) | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                |

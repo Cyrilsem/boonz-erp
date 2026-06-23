@@ -272,6 +272,8 @@ Three small canonical writers added so the field PWA can stop writing `refill_di
 
 > **PRD-054 (2026-06-23) note (no signature change):** `receive_dispatch_line`'s Remove branch already carries the durable venue_team (VOX) guard — when `product_mapping.source_of_supply='venue_team'` for the dispatch (machine+boonz), it skips ALL `warehouse_inventory` credit, logs `vox_return_log`, path `remove_venue_team_no_wh_credit`, sets `item_added=true` (Art 4/6/8). `wh_approve_remove_receipt` + `wh_approve_remove_receipt_multivariant` delegate credit to it, so the guard covers all three receive paths. Verified T1-T6 rolled-back; no function change. Companion view `v_pending_wh_remove_confirmations` recreated to exclude `is_m2m=true` legs (migration `prd054_a_returns_queue_exclude_m2m`).
 
+> **PRD-055 (2026-06-23):** notes consolidated into Signals (`refill_edit_signals`). New read-only view `v_action_tracker_issues` (security_invoker) = `action_tracker` minus `driver_feedback` — the kept CS Issues/bug board (Tracker tab renamed to Issues, reads this). `refill_edit_signals.signal_type` CHECK extended with `'note'` (migrated field/operational notes are inert: `engine_swap_pod` reads only `signal_type='swap_rejected'`; md5 `90f26896…` unchanged). `machine_field_notes` write path retired via REVOKE (Art 13; SELECT kept, not dropped). action_tracker writers `driver_propose_adjustment`/`driver_report_dispatch_outcome` unchanged.
+
 ## Read-only helpers — 10 functions (no A.5 patching needed)
 
 These do not mutate; they exist as DEFINER for RLS-bypass on read paths (with the exception of the INVOKER ones noted below — newer additions prefer INVOKER per Cody Article 4 default).

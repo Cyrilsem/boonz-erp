@@ -9,7 +9,6 @@ import { DailyDispatchingTab } from "./DailyDispatchingTab";
 import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
 import { TrackerTab } from "./TrackerTab";
 import { SignalsTab } from "./SignalsTab";
-import { FieldCapturePanel } from "./FieldCapturePanel";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -297,9 +296,8 @@ export default function RefillPage() {
     | "snapshot"
     | "planning"
     | "dispatching"
-    | "tracker"
     | "signals"
-    | "field_capture"
+    | "issues"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
@@ -1281,9 +1279,8 @@ export default function RefillPage() {
             ["snapshot", "Stock Snapshot"],
             ["planning", "Refill Planning"],
             ["dispatching", "Refill Dispatch"],
-            ["tracker", "Tracker"],
             ["signals", "Signals"],
-            ["field_capture", "Field Capture"],
+            ["issues", "Issues"],
           ] as const
         ).map(([t, label]) => (
           <button
@@ -1330,14 +1327,12 @@ export default function RefillPage() {
         />
       )}
 
-      {/* ── Tracker tab — Layer A action items ─────────────────────────────── */}
-      {tab === "tracker" && <TrackerTab />}
-
-      {/* ── Signals tab — all decision-feeding data sources ───────────────── */}
+      {/* ── Signals tab — PRD-055: the single operator notes channel (engine-aware) ── */}
       {tab === "signals" && <SignalsTab />}
 
-      {/* ── Field Capture tab — PRD-036 Phase B field batch+expiry capture ──── */}
-      {tab === "field_capture" && <FieldCapturePanel />}
+      {/* ── Issues tab — PRD-055: CS-facing bug/action board (v_action_tracker_issues);
+           replaces the retired Tracker tab. Field Capture removed (folded into Signals). ── */}
+      {tab === "issues" && <TrackerTab />}
 
       {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
       <div style={{ display: tab === "snapshot" ? undefined : "none" }}>

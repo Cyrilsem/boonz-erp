@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-23 — PRD-055 consolidate field notes into one engine-aware channel (Signals) APPLIED
+
+**Phase / Article:** PRD-055 / Articles 1, 12, 13 (no engine logic change; engine_swap_pod byte-identical)
+**Applied to:** prod (MCP `apply_migration`) + FE (this branch)
+**Migration names:** `prd055_p1_signal_source_and_issues_view`, `prd055_p2_fold_notes_into_signals`, `prd055_p4_deprecate_machine_field_notes_writes`
+**Summary:** Makes `refill_edit_signals` (Signals) the single operator notes channel; retires Field Capture + Tracker tabs. P1: `signal_type` CHECK extended with neutral `'note'` (migrated notes inert — engine_swap_pod reads ONLY `signal_type='swap_rejected'`, md5 90f26896… unchanged); new read-only `v_action_tracker_issues` (security_invoker) = action_tracker minus driver_feedback. `source` is free text so 'field_note'/'action' need no DDL. P2 (idempotent, origin-tagged, NO deletes): 6 `machine_field_notes` -> signals source='field_note'; 50 `action_tracker` driver_feedback -> signals source='action'; 42 bug/task/decommission kept in the Issues view. All 98 rows accounted for; source rows retained. P3 (FE): removed Field Capture + Tracker tabs from `/app/refill`; Signals is the single notes tab; Tracker renamed to **Issues** (CS-facing, reads `v_action_tracker_issues`). P4 (Art 13): no DB/FE writer of `machine_field_notes` exists, so the write path is retired via REVOKE INSERT/UPDATE/DELETE from authenticated (SELECT kept, table NOT dropped, 90-day monitor to 2026-09-21). action_tracker writers (driver_propose_adjustment/driver_report_dispatch_outcome) NOT retired. Tests T1-T5 green (T1 engine byte-identical, T2 6 accounted, T3 92 accounted, T4 tabs gone + Issues reachable, T5 write path revoked not dropped); T6 a11y self-reviewed (tab removal only; live axe not run — no browser tool).
+**Rollback:** re-add tabs in `refill/page.tsx`; `GRANT INSERT,UPDATE,DELETE ON machine_field_notes TO authenticated`; `DROP VIEW v_action_tracker_issues`; restore signal_type CHECK to the 5-value set (only after removing the migrated 'note' rows, tagged `[mfn:…]`/`[at:…]`). Source rows were never deleted.
+
 ## 2026-06-23 — PRD-054 returns-queue M2M exclusion + venue_team receive guard (verified)
 
 **Phase / Article:** PRD-054 / Articles 1, 12 (view); 4, 6, 8 (receive guard — already live, verified)
