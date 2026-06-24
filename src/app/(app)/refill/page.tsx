@@ -56,6 +56,9 @@ type SlotWithExpiry = {
   fill_pct: number;
   expiry_days: number | null;
   expiry_qty: number | null;
+  // PRD-059 WS6(b): nearest-expiry batch for this product (any horizon) so Exp Qty is never blank.
+  nearest_expiry_days: number | null;
+  nearest_expiry_qty: number | null;
   // PRD-UNIFY: stance replaces the PROTECT/SUSTAIN strategy; final_score replaces base_score; decision = breakdown
   stance: string | null;
   action_code: string | null;
@@ -72,6 +75,16 @@ type SlotWithExpiry = {
       urgency_mult?: number;
     };
   } | null;
+};
+
+// PRD-059 WS6(a): NULL-shelf Active expiry batches not on any live slot (orphan/unassigned).
+type OrphanExpiry = {
+  boonz_product_id: string;
+  boonz_product: string | null;
+  units: number;
+  nearest_expiry_days: number | null;
+  expired_units: number;
+  batches: number;
 };
 
 type ProgressMsg = { step: string; detail: string; elapsed: string };
@@ -343,6 +356,7 @@ export default function RefillPage() {
 
   const [selectedMachine, setSelectedMachine] = useState<string | null>(null);
   const [machineSlots, setMachineSlots] = useState<SlotWithExpiry[]>([]);
+  const [machineOrphans, setMachineOrphans] = useState<OrphanExpiry[]>([]);
   const [loadingAisles, setLoadingAisles] = useState(false);
   const [includeInRefill, setIncludeInRefill] = useState(true);
   const [modalSort, setModalSort] = useState<
@@ -433,11 +447,19 @@ export default function RefillPage() {
     async (machineName: string) => {
       setLoadingAisles(true);
       setMachineSlots([]);
+      setMachineOrphans([]);
       const supabase = getSupabase();
-      const { data: slotsData } = await supabase
-        .rpc("get_machine_slots_with_expiry", { p_machine_name: machineName })
-        .limit(10000);
+      const [{ data: slotsData }, { data: orphanData }] = await Promise.all([
+        supabase
+          .rpc("get_machine_slots_with_expiry", { p_machine_name: machineName })
+          .limit(10000),
+        // PRD-059 WS6(a): orphan/unassigned expiry not on any live slot.
+        supabase
+          .rpc("get_machine_orphan_expiry", { p_machine_name: machineName })
+          .limit(10000),
+      ]);
       setMachineSlots((slotsData as SlotWithExpiry[]) || []);
+      setMachineOrphans((orphanData as OrphanExpiry[]) || []);
       setLoadingAisles(false);
     },
     [getSupabase],
@@ -450,6 +472,7 @@ export default function RefillPage() {
     setStockRefreshMsg(null);
     if (!selectedMachine) {
       setMachineSlots([]);
+      setMachineOrphans([]);
       return;
     }
     const health = machineHealth.find(
@@ -2597,11 +2620,15 @@ export default function RefillPage() {
                                     <span className="text-gray-300">—</span>
                                   )}
                                 </td>
-                                {/* Exp. Qty */}
+                                {/* Exp. Qty — PRD-059 WS6(b): fall back to nearest-expiry batch qty */}
                                 <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
                                   {s.expiry_qty != null ? (
                                     <span className="text-gray-600">
                                       {s.expiry_qty}
+                                    </span>
+                                  ) : s.nearest_expiry_qty != null ? (
+                                    <span className="text-gray-400">
+                                      {s.nearest_expiry_qty}
                                     </span>
                                   ) : (
                                     <span className="text-gray-300">—</span>
@@ -2613,6 +2640,67 @@ export default function RefillPage() {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* PRD-059 WS6(a): Unassigned / orphan expiry — NULL-shelf Active batches
+                        whose product is not on any live slot, so a header count is never invisible. */}
+                    {machineOrphans.length > 0 && (
+                      <section
+                        aria-label="Unassigned or orphan expiry"
+                        className="mt-5 border-t border-amber-100 pt-4"
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm font-medium text-amber-800">
+                            ⚠ Unassigned / orphan expiry
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {machineOrphans.reduce((s, o) => s + o.units, 0)}{" "}
+                            units not on a live slot
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
+                          Stock with an expiry record that maps to no current
+                          slot (e.g. an umbrella/mix product). Counted in the
+                          machine header but not shown in a slot above.
+                        </p>
+                        <ul className="divide-y divide-gray-50">
+                          {machineOrphans.map((o) => (
+                            <li
+                              key={o.boonz_product_id}
+                              className="flex items-center justify-between py-1.5 text-xs"
+                            >
+                              <span className="text-gray-700 truncate pr-2">
+                                {o.boonz_product ?? "Unknown product"}
+                                {o.batches > 1 && (
+                                  <span className="text-gray-400">
+                                    {" "}
+                                    ({o.batches} batches)
+                                  </span>
+                                )}
+                              </span>
+                              <span className="flex items-center gap-3 shrink-0 tabular-nums">
+                                {o.nearest_expiry_days != null && (
+                                  <span
+                                    className={expiryDayClass(
+                                      o.nearest_expiry_days,
+                                    )}
+                                  >
+                                    {expiryDaysToDate(o.nearest_expiry_days)}
+                                  </span>
+                                )}
+                                {o.expired_units > 0 && (
+                                  <span className="text-red-600 font-medium">
+                                    {o.expired_units} expired
+                                  </span>
+                                )}
+                                <span className="text-gray-600">
+                                  {o.units} units
+                                </span>
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
+                    )}
 
                     {/* Claude review results section */}
                     {reviewResults[selectedMachine ?? ""] && (
