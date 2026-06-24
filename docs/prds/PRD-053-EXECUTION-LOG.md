@@ -61,4 +61,16 @@ CS asked for durability via an autonomous transaction (pg_background / dblink). 
 - **Phase B** `prd053_b_set_dispatch_breakdown` APPLIED. **AC-B:** ✅ rolled-back fixture — split a qty-13 line into `[{6,2027-04-15},{7,2027-08-01}]` → status ok, breakdown_total 13 = line_total 13, stored in `driver_confirmed_breakdown`; a mismatch (11) RAISEd `breakdown total (11) must equal the line total (13)`.
 - **Phase C** `prd053_c_flagged_driver_additions` APPLIED. **AC-C:** ✅ rolled-back fixture — `driver_add_flagged_row` (edit_role `'driver'`) added 2 extra: not blocked, recorded (qty 2), `needs_review=true` / `review_reason='driver_addition'`, present in `v_driver_addition_review_queue` (1); `review_driver_addition(...,'accepted')` cleared the flag and removed it from the queue. (FE must pass `edit_role='driver'` — the `last_edited_role` CHECK allows driver/warehouse_manager/operator_admin/superadmin/manager/system, not field_staff.)
 
-**Backend COMPLETE + verified live. Next: Stax FE for B (per-expiry editor, total locked) + C (Head Office review queue), FE-only, existing RPCs, deploy to a Vercel preview, then STOP for CS.**
+**Backend COMPLETE + verified live.**
+
+## Stax FE — SHIPPED TO PROD (deploy `db21023`)
+- **(B)** `ExpiryBreakdownDialog` (per-expiry split, total locked) wired on the packing line; **(C)** `DriverAdditionsReviewPanel` + `/admin/driver-additions` + nav link. FE-only, all writes via RPC. Prod smoke green (review queue loads; 34 "⊟ expiry split" triggers + total-locked dialog).
+
+## Driver-add flagging wired (branch `feat/prd-053-driver-add-flag`, `7bd5882`)
+- Packing "Add product" beyond-plan path → `driverAddFlaggedRow` server action → `driver_add_flagged_row` (`p_edit_role='driver'`), so real driver adds auto-populate `/admin/driver-additions`. `tsc`+build green; Vercel preview was build-rate-limited (QA'd locally). Awaiting CS "QA passed" → merge to main.
+
+## Reject-excludes-line fix — APPLIED (`prd053_d_reject_excludes_line`, 2026-06-23)
+- `review_driver_addition` v2: a **rejected** decision now takes the line out of dispatch via the canonical writer — `set_dispatch_include(false)` for a pending addition, `cancel_dispatch_line(...)` if already dispatched (WH-unbound). **accepted** leaves it included. No delete, no qty cut. Cody ✅ (Art 1/4/5/8/12).
+- **Live fixture (rolled back) PASS:** reject → status `rejected`, taken out via `excluded`, `include=false` → does not ship; accept → status `accepted`, `include=true` → ships. `live_fix_present=true`.
+
+**PRD-053 COMPLETE on prod: backend A/B/C + reject-fix live; FE B/C live; driver-add flagging awaiting the FE merge (QA passed → main).**
