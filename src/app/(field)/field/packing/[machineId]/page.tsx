@@ -4104,6 +4104,7 @@ export default function PackingDetailPage() {
           initialShelfCode={addingToShelf}
           dispatchDate={getDubaiDate()}
           editRole="warehouse_manager"
+          flagAsDriverAddition
           revalidate={`/field/packing/${machineId}`}
           onSuccess={() => {
             setAddingToShelf(null);
