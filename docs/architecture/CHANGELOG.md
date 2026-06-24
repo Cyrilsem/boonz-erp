@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-06-24 — PRD-055 P5 redirect driver writers to Signals (consolidation complete) APPLIED
+
+**Phase / Article:** PRD-055 P5 / Articles 1, 4, 8, 12 (no engine logic change; engine_swap_pod byte-identical)
+**Applied to:** prod (MCP `apply_migration`) + repo
+**Migration name:** `prd055_p5_redirect_driver_writers_to_signals`
+**Summary:** Closes the going-forward gap left by P2/P3: after the fold, NEW driver feedback from `driver_propose_adjustment` and `driver_report_dispatch_outcome` still wrote `action_tracker` (excluded by the Issues view AND not in Signals). Both DEFINER RPCs are reworked from live bodies (only the `action_tracker` INSERT changed in each) so their driver-feedback / re-dispatch note now lands in `refill_edit_signals` (source='action', signal_type='note' — inert: `engine_swap_pod` reads only `signal_type='swap_rejected'`, md5 90f26896… unchanged). The re-dispatch idempotency guard moved from an `action_tracker` title match to the `[driver_outcome re-dispatch <id>]` note tag. All other behaviour preserved: `driver_recommendations` insert, `driver_feedback` insert (when product named), the `refill_dispatching` driver_outcome UPDATE, input/role validation, app.via_rpc/app.rpc_name, audit. Rolled-back BEGIN..ROLLBACK test (DO + RAISE): at_delta=0 (no new action_tracker), sig_delta=2, propose_sig=1 + report_sig=1 (both source='action'/signal_type='note'), engine md5 pinned. Post-apply verify: neither function has `INSERT INTO action_tracker`; both have `INSERT INTO refill_edit_signals`; engine md5 unchanged.
+**Rollback:** `CREATE OR REPLACE` both functions from the pre-P5 bodies (action_tracker INSERTs) — captured in git history / pg history. No data migrated; Signals rows written after this point carry `[driver_rec …]` / `[driver_outcome re-dispatch …]` tags if they need to be identified.
+
 ## 2026-06-23 — PRD-055 consolidate field notes into one engine-aware channel (Signals) APPLIED
 
 **Phase / Article:** PRD-055 / Articles 1, 12, 13 (no engine logic change; engine_swap_pod byte-identical)
