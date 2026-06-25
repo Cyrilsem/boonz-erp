@@ -1,6 +1,6 @@
 # PRD-058 — Tunable P1/P2 Priority Weights + Dead-Stock Dial
 
-Status: APPLIED to prod 2026-06-24 (migration `prd058_tunable_priority_weights`). T1 golden md5 `6bb5b9cbd44aa0f10f0519f7f6579dcb` byte-identical; seed=defaults; single-row guard live. Dara ✅ Cody ✅.
+Status: APPLIED to prod 2026-06-24 (migration `prd058_tunable_priority_weights`); MERGED to main via PR #5 (merge `f6195be`) 2026-06-25; PROD-DEPLOYED (recorded by `06737fb chore(deploy): record production f6195be`). T1 golden md5 `6bb5b9cbd44aa0f10f0519f7f6579dcb` byte-identical; seed=defaults; single-row guard live. Dara ✅ Cody ✅.
 Owner: CS · Author: Cowork conductor · Date: 2026-06-24
 Scope: backend (one canonical view) + one config table. No FE logic change required.
 
