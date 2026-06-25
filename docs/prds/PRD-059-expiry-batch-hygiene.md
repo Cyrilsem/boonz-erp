@@ -1,6 +1,6 @@
 # PRD-059 — Expiry Batch Hygiene (NULL-shelf resolution, Inactive removal, drawer truth)
 
-Status: APPLIED to prod 2026-06-24 (5 migrations, per-WS CS gate); MERGED to main via PR #5 (merge `f6195be`) 2026-06-25; prod deploy pending Vercel + record-prod-deploy.
+Status: APPLIED to prod 2026-06-24 (5 migrations, per-WS CS gate); MERGED to main via PR #5 (merge `f6195be`) 2026-06-25; PROD-DEPLOYED (recorded by `06737fb chore(deploy): record production f6195be`).
 
 - WS1 (classify on v_live_shelf_stock): RESOLVE 158 / HIGHLIGHT 110 / NO-MAPPING 23. ✅
 - WS2 `prd059_ws2_resolve_shelf_backfill`: 61 shelf_id backfills (74 collisions skipped → WS6 display; 23 ambiguous left NULL). ✅

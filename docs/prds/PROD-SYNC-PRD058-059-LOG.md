@@ -13,9 +13,16 @@ Date: 2026-06-25. Code sync only (both migration sets were ALREADY applied to pr
 - Prod parity (read-only): MIGRATIONS_REGISTRY lists all 6 migrations as ✅ Applied to prod. No `apply_migration`, no DB writes.
 - swaps_enabled stays false; `engine_add_pod` / `engine_swap_pod` unmodified.
 
+## Prod deploy — CONFIRMED
+
+- Vercel deployed `main`; `record-prod-deploy` logged **`06737fb chore(deploy): record production f6195be [skip ci]`** — merge `f6195be` (PRD-058+059) is live on prod (real sha). `origin/main` then advanced with further deploy records (HEAD `ef7e106`).
+
+## Stash cleanup — DONE
+
+- CS confirmed `feat/prd-052-convert-m2m` is the authoritative home for the drift. Dropped the 2 redundant duplicates (`cs-drift-ondisk`, `cs-drift-prodsync`); kept one backup (`cs-drift-closeout`). Autostash + named-preserve stashes untouched.
+
 ## Pending
 
-- **Prod-deploy record**: Vercel prod deploy of `main` + the `record-prod-deploy` workflow (`chore(deploy): record production <sha> [skip ci]`) had not landed at close time. Do NOT hand-fake a sha; the workflow records the real prod sha once Vercel finishes.
-- **375px / axe QA** on the now-live PRD-059 drawer (orphan/unassigned-expiry section + nearest Exp Qty).
-- **Stash cleanup**: two redundant `cs-drift-*` stashes remain as backups (the drift is also committed on `feat/prd-052-convert-m2m`); drop only after CS confirms that branch is the authoritative home.
+- **375px / axe QA** on the now-live PRD-059 drawer (orphan/unassigned-expiry section + nearest Exp Qty) — browser step on prod.
+- **This docs branch** (`docs/prod-sync-prd058-059-closeout`) needs its own PR to land the status updates on protected `main`.
 - **Branch**: `feat/prd-058-059-prod-sync` left in place pending CS confirmation.
