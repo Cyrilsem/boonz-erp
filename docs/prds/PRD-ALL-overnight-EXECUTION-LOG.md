@@ -1,0 +1,51 @@
+# PRD-ALL overnight run - execution log (2026-06-30)
+
+Repo boonz-erp, Supabase eizcexopcuoycuosittm. Guardrail honored: skip+log over force, never lose work, idempotent, Cody-gated, never re-apply prod history.
+
+## Phase 0 - inventory (DONE)
+
+- main migration files: 327. Working tree (feat/prd-065): 334.
+- Manifest "not on main" list (040/042/.../063) is STALE: those files are ALREADY on main (the PRD-063 push this morning landed 063).
+- Applied-to-prod-but-not-on-main: the 8 PRD-065 files (this session, uncommitted).
+- Fileless prod migrations:
+  - prd062_merge_delete_duplicate_hunter_hot_n_sweet (v20260626114643) -> FILE GENERATED from live prod statement.
+  - decline_dispatch_return_writer (v20260629012124) -> FILE GENERATED from live `decline_dispatch_return` body.
+  - procurement_proposals_outbox (v20260628141016), procurement_demand_net_machine_stock (v20260626084621), phaseF_service_priority_shadow (v20260625203113) -> ALSO fileless, OUTSIDE manifest scope. INCOMPLETE (see below).
+- Conservation baseline 2026-06-24..30: 6-24:2, 6-25:1, 6-26:1, 6-27:1, 6-28:1, 6-29:1, 6-30:5 violations.
+
+## Phase 1 - per-PRD
+
+| PRD | Status                    | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 067 | PARTIAL APPLIED (Cody ✅) | WH2-2001-3000-O1 phantom cleared (57 pod write-offs via canonical backfill_archive, no WH credit; 226 mappings deleted; status Warehouse->Inactive). JET-2001-3000-O1 76 orphan mappings deleted. WH total unchanged (conservation asserted). SKIPPED: Sour Cream rename+shell-delete (see INCOMPLETE). 2 stray JET-2001 pod rows flagged, left untouched (out of doc scope).                                                             |
+| 066 | NOT DONE - INCOMPLETE     | Returns-queue reconciliation (decline stale rows + re-add Vitamin Well to USH-1008 + complete/decline AMZ/MC transfers). Bounded + canonical (decline_dispatch_return exists) but needs per-row dispatch_id resolution + the VW re-add conservation + transfer judgment; not force-executed autonomously overnight.                                                                                                                       |
+| 034 | NOT DONE - INCOMPLETE     | venue_team WH-credit guard. Has authored SQL (vox_return_log table + guard snippet) but requires folding into the LIVE receive_dispatch_line body (a canonical-writer rewrite) - deferred to avoid an unverified rewrite of a core dispatch writer.                                                                                                                                                                                       |
+| 068 | NOT DONE - INCOMPLETE     | Conservation reconcile-to-driver-confirmed-truth (5 live violations + stitch_leakage), not_filled fix (8 rows), test-row purge (9 rows >=2099), re-assert hook on confirm/edit RPCs, daily monitor cron. The fix-1 reconciliation rewrites pod/WH ledger to "driver-confirmed truth" - high-risk judgment, not safely autonomable. Acceptance "check_pod_conservation == 0 for 06-24..30" therefore NOT met (baseline violations remain). |
+| 036 | NOT DONE - INCOMPLETE     | FEFO-bind from_wh_inventory_id on 647 unbound lines. Needs authoring bind_dispatch_fefo from scratch; the PRD doc itself says "apply nothing without CS sign-off". Deferred.                                                                                                                                                                                                                                                              |
+| 061 | CLOSED via log            | Known INCOMPLETE rows carried forward (see below). No new writes.                                                                                                                                                                                                                                                                                                                                                                         |
+
+## Phase 2 - consolidate
+
+- Committed the session's migration files + PRD docs/logs on branch feat/prd-065-field-reconciliation. EXCLUDED: the large "BOONZ DAILY SALES ENHANCED *.json" data files and CS's unrelated src/skills working-tree drift (not part of any PRD this run).
+- NOT DONE - INCOMPLETE: cross-branch merge into main + push. `grep` is broken in this shell (it falsely reported 0 PRD-065 files that demonstrably exist), so a multi-branch merge of feat/prd-065 + feat/prd-052 + feat/prd-053-driver-add-flag carries real "lose-work" risk; not force-resolved. No push.
+
+## Phase 3 - verify
+
+- Zero-drift assertion NOT achievable this run (Phase 1 incomplete + merge held). Remaining drift listed below.
+
+## INCOMPLETE list (the only items that should be here per the manifest, plus the gaps found)
+
+1. PRD-067 Sour Cream: shell boonz_products 285479a7 is NOT zero-ref (1 daily_reconciliation_log row). Doc premise false. SKIPPED delete + the dependent 4edc4fbb rename. NEEDS: CS decision to repoint that 1 recon row to 4edc4fbb or delete it, then run the held delete+rename block.
+2. PRD-066 - entire (returns reconciliation + VW re-add + AMZ/MC transfers). Deferred (per-row judgment + conservation).
+3. PRD-034 - venue_team guard (canonical receive_dispatch_line rewrite). Deferred.
+4. PRD-068 - all four fixes incl the conservation reconcile-to-driver-truth + RPC re-assert wiring + monitor cron. Deferred (high-risk ledger rewrite). check_pod_conservation still non-zero (baseline above).
+5. PRD-036 - FEFO bind 647 lines. Deferred (author-from-scratch + doc requires CS sign-off).
+6. PRD-061 leftovers (from its Phase-3 log): Amazon-0735 R21 unknown item list (AMZ-1038 "ADD not in list"); R7 Mindshare VW mix; R15 GRIT Evian (no qty/expiry); R16 Wavemaker A5; refill-confirms R17/R19/R20; S2 R17 Al Ain Water 0-stock (needs physical count); S2 R13/R14 WH stockroom moves (no writer); all Sheet-3 transfers; Item-4 Aquafina venue adds + Item-5 Evian 330ml (premise unresolved). All need Jojo input / physical counts / CS.
+7. Three fileless prod migrations outside manifest scope: procurement_proposals_outbox, procurement_demand_net_machine_stock, phaseF_service_priority_shadow. NEEDS: generate files from live prod (same method as 062/decline) for full zero-drift.
+8. Cross-branch merge to main + push - held (broken grep tooling -> lose-work risk).
+
+## Generated files (Phase 0)
+
+- supabase/migrations/20260626114643_prd062_merge_delete_duplicate_hunter_hot_n_sweet.sql
+- supabase/migrations/20260629012124_decline_dispatch_return_writer.sql
+- supabase/migrations/20260630100000_prd067_dataintegrity_dup_product_phantom_machines.sql (applied partial)
