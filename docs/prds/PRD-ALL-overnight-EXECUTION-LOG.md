@@ -49,3 +49,8 @@ Repo boonz-erp, Supabase eizcexopcuoycuosittm. Guardrail honored: skip+log over 
 - supabase/migrations/20260626114643_prd062_merge_delete_duplicate_hunter_hot_n_sweet.sql
 - supabase/migrations/20260629012124_decline_dispatch_return_writer.sql
 - supabase/migrations/20260630100000_prd067_dataintegrity_dup_product_phantom_machines.sql (applied partial)
+
+## UPDATE 2 (continued safe completions)
+- PRD-068 TEST-ROW PURGE: APPLIED (prd068_purge_test_rows_2099, Cody ✅). 9 rows dated >=2099 deleted; verified 0 remaining, MAX(dispatch_date)=2026-07-15, 0 orphaned 2099 pod rows. PRD-068 acceptance "zero rows >= 2099" MET. Other 068 parts remain skip+logged.
+- PRD-067 Sour Cream: re-confirmed UNSAFE -> stays SKIPPED. A full reference scan shows 285479a7 is NOT an empty shell: 17 refill_dispatching, 6 pod_inventory, 1 warehouse_inventory, 1 purchase_orders, 5 weekly_procurement_plan, 3 slot_profile_pool, 2 inventory_audit_log, 1 pod_inventory_edits, 1 daily_reconciliation_log + 8 backup rows reference it. A DELETE would FK-fail / orphan history; resolving it needs a PRD-062-style merge which the doc explicitly forbade. NEEDS CS to redefine the Sour Cream fix (merge vs keep-both vs rename-only).
+- PRD-068 not_filled (8 rows / 22 units): SKIPPED. The doc requires per-row judgment (truly not_filled -> zero vs actually-partial -> keep real filled_quantity + verify no pod/WH credit was taken). Blind-zeroing risks a conservation break; not force-run.
