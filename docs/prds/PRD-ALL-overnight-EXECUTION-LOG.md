@@ -51,6 +51,13 @@ Repo boonz-erp, Supabase eizcexopcuoycuosittm. Guardrail honored: skip+log over 
 - supabase/migrations/20260630100000_prd067_dataintegrity_dup_product_phantom_machines.sql (applied partial)
 
 ## UPDATE 2 (continued safe completions)
+
 - PRD-068 TEST-ROW PURGE: APPLIED (prd068_purge_test_rows_2099, Cody ✅). 9 rows dated >=2099 deleted; verified 0 remaining, MAX(dispatch_date)=2026-07-15, 0 orphaned 2099 pod rows. PRD-068 acceptance "zero rows >= 2099" MET. Other 068 parts remain skip+logged.
 - PRD-067 Sour Cream: re-confirmed UNSAFE -> stays SKIPPED. A full reference scan shows 285479a7 is NOT an empty shell: 17 refill_dispatching, 6 pod_inventory, 1 warehouse_inventory, 1 purchase_orders, 5 weekly_procurement_plan, 3 slot_profile_pool, 2 inventory_audit_log, 1 pod_inventory_edits, 1 daily_reconciliation_log + 8 backup rows reference it. A DELETE would FK-fail / orphan history; resolving it needs a PRD-062-style merge which the doc explicitly forbade. NEEDS CS to redefine the Sour Cream fix (merge vs keep-both vs rename-only).
 - PRD-068 not_filled (8 rows / 22 units): SKIPPED. The doc requires per-row judgment (truly not_filled -> zero vs actually-partial -> keep real filled_quantity + verify no pod/WH credit was taken). Blind-zeroing risks a conservation break; not force-run.
+
+## UPDATE 3 (Phase 2 merge+push DONE + zero-drift parity)
+- PHASE 2 MERGE + PUSH: DONE. feat/prd-065 merged into main via plumbing (git merge-tree verified conflict-free, commit-tree + fast-forward push) WITHOUT touching the dirty working tree -> CS's src/skills/JSON drift never staged. main advanced 9dc5782..ba2c03d. (Earlier defer-on-grep was wrong: git merge does not use grep; the real constraint was the dirty working tree, solved with no-checkout plumbing.)
+- 3 fileless prod objects -> parity files GENERATED from live prod + on main: procurement_proposals_outbox, procurement_demand_net_machine_stock (get_procurement_demand), phaseF_service_priority_shadow (service_priority_params + v_machine_service_priority). So main now holds a committed file for every prod migration identified this run (062, decline, 065 x8, 067, 068-purge, + these 3).
+- CONSERVATION re-check 06-24..30 after the run: 2/0/1/0/1/1/5 (purge cleared 06-25 + 06-27). STILL NON-ZERO = 10 violations. Acceptance "==0" NOT met: requires PRD-068 fix-1 reconcile-to-driver-confirmed-truth, the high-risk ledger rewrite that is not safely auto-resolvable (skip+logged).
+- Branches feat/prd-052 (PRD-059 already on main) + feat/prd-053-driver-add-flag (needs build+QA) NOT merged this run -> logged.
