@@ -13,6 +13,14 @@ Format:
 **Rollback:** SQL or steps to undo
 ```
 
+## 2026-07-01 — PRD-070 M2M approval routes to destination machine (D-2/D-3/FE completion) APPLIED + pushed to main
+
+**Phase / Article:** PRD-070 / Constitution Articles 1, 3, 4, 6, 8, 12, 14, 16
+**Applied to:** both (prod via MCP apply_migration, CS-signed "go"; pushed to main)
+**Migration name:** `20260701150259_prd070_m2m_approve_to_destination`, `20260701150432_prd070_m2m_guard_multivariant`, `20260701160000_prd070_d2_pair_internal_transfer_m2m`, `20260701160500_prd070_d3_pick_list_m2m_dest_visibility`
+**Summary:** M2M transfer approval moves stock machine -> machine (source pod out, dest pod in, same qty+expiry) with ZERO warehouse credit. Core: `approve_m2m_transfer` (atomic+idempotent, asserts WH before==after) + hard is_m2m rejects in `wh_approve_remove_receipt` / `_multivariant`. D-2: `pair_internal_transfer_m2m` flags+pairs internal_transfer dispatch legs (is_m2m + shared transfer_id) that push_plan_to_dispatch left unflagged — metadata only, unambiguous 1:1 conserving pairs, also the backfill. D-3: `v_dispatch_pick_list` relaxed so pending M2M dest legs surface despite dispatched=true. FE: PendingRemoveApprovalsPanel routes is_m2m approvals to approve_m2m_transfer. Engines md5 byte-identical throughout; swaps_enabled stays false; every dry-run WH delta=0; the completed Starbucks transfer and the live 1538f35f transfer were NOT disturbed. NEEDS CS: 2 stale MINDSHARE Remove legs (unpairable), convert dest-leg returned=true+past-date anomaly, push->pair auto-wiring.
+**Rollback:** `DROP FUNCTION pair_internal_transfer_m2m(date,uuid)`; restore prior `v_dispatch_pick_list` (dispatched=false-only WHERE); `DROP FUNCTION approve_m2m_transfer(uuid,uuid)`; revert the is_m2m guards in the two wh_approve_remove_receipt overloads; `ALTER TABLE refill_dispatching DROP COLUMN m2m_approved_at`; `DROP INDEX idx_rd_m2m_transfer`. See each migration's DOWN block.
+
 ## 2026-06-28 — PRD-063 picker urgency model (v_machine_priority rewritten shelf-aware) APPLIED + pushed to main
 
 **Phase / Article:** PRD-063 / Articles 16, 2, 12, 14 (+ Hard Rule 6)

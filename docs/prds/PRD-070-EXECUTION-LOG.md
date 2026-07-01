@@ -60,3 +60,26 @@ Applied: migration 20260701160000_prd070_d2_pair_internal_transfer_m2m. Dry-run 
 - Added shared helper approveAsM2MIfApplicable(dispatchId): fetches is_m2m + m2m_transfer_id from refill_dispatching at approve time; if is_m2m, routes to approve_m2m_transfer(p_transfer_id, p_caller_id) (zero WH credit) and refreshes; if is_m2m but no transfer_id, tells the user to pair first; otherwise returns "not_m2m" and the normal WH path proceeds. Guard invoked at the top of all three handlers.
 - Note: the queue view v_pending_wh_remove_confirmations hard-filters is_m2m=false, so is_m2m rows do not currently reach this panel. The wiring is defensive / forward-safe (correct behavior if an is_m2m leg ever reaches the approve action). No new direct table writes (Article 3 clean); only an added .rpc() call + a read.
 - Gates: npx tsc --noEmit 0 diagnostics; npm run build "Compiled successfully". APPLIED (committed on feat/prd-070-completion). Working-tree base drift on this file was 2 cosmetic Prettier re-wraps only.
+
+## Registries + close
+
+- MIGRATIONS_REGISTRY.md: new PRD-070 section (4 migrations: 259/432/D-2 160000/D-3 160500) marked Applied.
+- CHANGELOG.md: 2026-07-01 PRD-070 entry with rollback steps.
+- RPC_REGISTRY.md: rows for approve_m2m_transfer + pair_internal_transfer_m2m in the M2M section. Edited on origin/main's clean base (working-tree copy had unrelated drift, left untouched).
+- Git: green pieces committed on feat/prd-070-completion (D-2 a5eed1d, D-3 a4e4128, FE 3f47e90, registries). Merged to main via clean files-only 3-way (PRD-070 files only, no src/JSON/skills drift). Hygiene: ff-sync, prune merged branches with -d.
+
+## Hard-gate ledger
+
+- Engines md5 `6c3e853730f72115dfa5910da62ec0c0` byte-identical at baseline and after every apply.
+- swaps_enabled = false throughout.
+- Every M2M dry-run WH delta = 0 (D-2 metadata-only + 0 pairs; D-3 view-only 244->244).
+- Idempotent: approve_m2m_transfer, pair_internal_transfer_m2m both re-run safe.
+- Cody PASS on every writer.
+- Starbucks MC-2004 -> AMZ-1029 (completed) untouched; live 1538f35f approval NOT fired.
+
+## NEEDS CS (consolidated)
+
+1. 2 stale live MINDSHARE-1009 Remove legs (2026-05-20, qty 3+5, internal_transfer, is_m2m=false, no dest partner) - cancel or supply intended dest.
+2. Transfer 1538f35f 7 dest legs (returned=true + past-dated): approve via approve_m2m_transfer('1538f35f...') or re-date/clear returned to make pickable. Held per goal (do not disturb).
+3. convert_removes_to_m2m_transfer dest-leg returned=true + past-date anomaly (blocks pick-list visibility for future convert legs) - adjust convert vs handle at approve.
+4. push_plan_to_dispatch -> pair_internal_transfer_m2m auto-wiring (post-push call or cron) - deferred, editing the 11.8KB critical writer unsupervised is out of risk budget.
