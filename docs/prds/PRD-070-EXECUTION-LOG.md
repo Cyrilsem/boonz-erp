@@ -53,3 +53,10 @@ Applied: migration 20260701160000_prd070_d2_pair_internal_transfer_m2m. Dry-run 
 
 - The 7 pending dest Add New legs of transfer 1538f35f (NOVO-1023 -> MINDSHARE-1009, dispatch_date 2026-06-23) are returned=true AND past-dated, so the view fix intentionally does NOT surface them (goal forbids disturbing / approving 1538f35f). To make them pickable OR approve them, CS must run approve_m2m_transfer('1538f35f...') or re-date/clear returned. Not auto-done.
 - convert_removes_to_m2m_transfer stamps dest legs with returned=true (anomaly) + the source dispatch_date (often past). Future convert dest legs will therefore also be blocked by returned/date, not just dispatched. Adjusting convert to create pickable dest legs (returned=false, current date) touches the live-transfer creation path and the returned=true provenance is unclear -> CS decision. The D-3 view fix removes the dispatched blocker so correctly-stated M2M dest legs surface.
+
+## FE wiring (Stax) - PendingRemoveApprovalsPanel
+
+- The DB now rejects is_m2m rows in wh_approve_remove_receipt / _multivariant. The panel's three approve handlers (single-variant, expiry-split, multi-variant) all called those RPCs and would surface a raw DB error on an M2M leg.
+- Added shared helper approveAsM2MIfApplicable(dispatchId): fetches is_m2m + m2m_transfer_id from refill_dispatching at approve time; if is_m2m, routes to approve_m2m_transfer(p_transfer_id, p_caller_id) (zero WH credit) and refreshes; if is_m2m but no transfer_id, tells the user to pair first; otherwise returns "not_m2m" and the normal WH path proceeds. Guard invoked at the top of all three handlers.
+- Note: the queue view v_pending_wh_remove_confirmations hard-filters is_m2m=false, so is_m2m rows do not currently reach this panel. The wiring is defensive / forward-safe (correct behavior if an is_m2m leg ever reaches the approve action). No new direct table writes (Article 3 clean); only an added .rpc() call + a read.
+- Gates: npx tsc --noEmit 0 diagnostics; npm run build "Compiled successfully". APPLIED (committed on feat/prd-070-completion). Working-tree base drift on this file was 2 cosmetic Prettier re-wraps only.
