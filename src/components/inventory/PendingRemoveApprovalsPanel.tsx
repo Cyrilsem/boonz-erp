@@ -144,10 +144,7 @@ export default function PendingRemoveApprovalsPanel() {
         .eq("pod_product_id", row.pod_product_id)
         .eq("status", "Active");
       if (error || !data) {
-        console.error(
-          "[PendingRemoveApprovals] variant lookup failed:",
-          error,
-        );
+        console.error("[PendingRemoveApprovals] variant lookup failed:", error);
         return;
       }
       const opts: VariantOption[] = [];
@@ -259,8 +256,56 @@ export default function PendingRemoveApprovalsPanel() {
     }));
   }
 
+  // PRD-070: an M2M transfer leg must NEVER go through the warehouse-return RPCs
+  // (wh_approve_remove_receipt / _multivariant now REJECT is_m2m rows at the DB).
+  // Detect an M2M leg at approve time and route to approve_m2m_transfer instead,
+  // which moves stock machine -> machine with ZERO warehouse credit. Returns
+  // "handled" (done, refresh), "error" (surfaced to user), or "not_m2m" (proceed
+  // with the normal warehouse path).
+  async function approveAsM2MIfApplicable(
+    dispatchId: string,
+  ): Promise<"handled" | "not_m2m" | "error"> {
+    const supabase = createClient();
+    const { data: rd, error } = await supabase
+      .from("refill_dispatching")
+      .select("is_m2m, m2m_transfer_id")
+      .eq("dispatch_id", dispatchId)
+      .single();
+    if (error || !rd?.is_m2m) return "not_m2m";
+    if (!rd.m2m_transfer_id) {
+      alert(
+        "This is an M2M transfer leg with no transfer id yet. Pair it " +
+          "(pair_internal_transfer_m2m) before approving — it cannot go through " +
+          "the warehouse-return path.",
+      );
+      return "error";
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const { error: rpcErr } = await supabase.rpc("approve_m2m_transfer", {
+      p_transfer_id: rd.m2m_transfer_id,
+      p_caller_id: user?.id ?? null,
+    });
+    if (rpcErr) {
+      alert(`M2M approve failed: ${rpcErr.message}`);
+      console.error(
+        "[PendingRemoveApprovals] approve_m2m_transfer failed:",
+        rpcErr,
+      );
+      return "error";
+    }
+    return "handled";
+  }
+
   async function handleApproveSingleVariant(row: PendingRemoveRow) {
     setActing(row.dispatch_id);
+    const m2mOutcome = await approveAsM2MIfApplicable(row.dispatch_id);
+    if (m2mOutcome !== "not_m2m") {
+      if (m2mOutcome === "handled") await fetchRows();
+      setActing(null);
+      return;
+    }
     const supabase = createClient();
     const verifiedQty = overrides[row.dispatch_id] ?? row.driver_confirmed_qty;
 
@@ -330,6 +375,12 @@ export default function PendingRemoveApprovalsPanel() {
     }
 
     setActing(row.dispatch_id);
+    const m2mOutcome = await approveAsM2MIfApplicable(row.dispatch_id);
+    if (m2mOutcome !== "not_m2m") {
+      if (m2mOutcome === "handled") await fetchRows();
+      setActing(null);
+      return;
+    }
     const supabase = createClient();
     const {
       data: { user },
@@ -394,6 +445,12 @@ export default function PendingRemoveApprovalsPanel() {
     }
 
     setActing(row.dispatch_id);
+    const m2mOutcome = await approveAsM2MIfApplicable(row.dispatch_id);
+    if (m2mOutcome !== "not_m2m") {
+      if (m2mOutcome === "handled") await fetchRows();
+      setActing(null);
+      return;
+    }
     const supabase = createClient();
     const {
       data: { user },
@@ -570,8 +627,8 @@ export default function PendingRemoveApprovalsPanel() {
                   {isSplit && (
                     <div className="mt-2 rounded border border-amber-200 bg-amber-50/50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
                       <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-300">
-                        Enter the qty + batch expiry of each flavour the
-                        driver physically returned. Total must equal{" "}
+                        Enter the qty + batch expiry of each flavour the driver
+                        physically returned. Total must equal{" "}
                         <strong>{editedQty}</strong>.
                       </p>
                       {opts.length === 0 ? (
