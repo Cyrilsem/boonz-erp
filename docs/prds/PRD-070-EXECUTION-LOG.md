@@ -39,3 +39,17 @@ Durable mechanism built: `pair_internal_transfer_m2m(p_plan_date, p_caller_id)` 
 
 - The 2 stale live-pending MINDSHARE-1009 Remove legs (2026-05-20, qty 3 + 5) have no live dest partner and source_machine_id pointing at other machines. Unpairable by the conservation rule -> the pair function skip+logs them. They remain is_m2m=false. Not auto-mutated. CS to decide: cancel them, or supply the intended dest.
 - push_plan_to_dispatch inline auto-call of pair_internal_transfer_m2m: NOT wired in this pass. Editing the 11.8KB critical dispatch writer unsupervised overnight is out of risk budget. The pair function is the mechanism; wiring push (or a post-push cron) to call it is a CS decision.
+
+Applied: migration 20260701160000_prd070_d2_pair_internal_transfer_m2m. Dry-run 0 pairs (safe no-op). Engines md5 unchanged. Committed a5eed1d on feat/prd-070-completion.
+
+## D-3 dispatch visibility - decisions
+
+- v_dispatch_pick_list excluded M2M dest legs via its dispatched=false filter. push-created internal_transfer dest legs (dispatched=false) already surface; convert_removes_to_m2m_transfer creates dest Add New legs with dispatched=true, which the pick list dropped.
+- Fix: CREATE OR REPLACE VIEW v_dispatch_pick_list, byte-identical columns, WHERE relaxed to allow pending M2M dest legs (is_m2m AND NOT item_added) even when dispatched=true. All other guards preserved (date >= today, include, returned=false, picked_up=false, action <> Remove). Moves no stock, mutates no row.
+- Dry-run: old_rows=244, new_rows=244 (removes nothing), newly_surfaced=0, surfaces_1538f35f=0. Post-apply: pick list 244 rows, MINDSHARE rows 0. Engines md5 unchanged.
+- Cody PASS (Articles 12, 16). Applied: migration 20260701160500_prd070_d3_pick_list_m2m_dest_visibility.
+
+### NEEDS CS (D-3)
+
+- The 7 pending dest Add New legs of transfer 1538f35f (NOVO-1023 -> MINDSHARE-1009, dispatch_date 2026-06-23) are returned=true AND past-dated, so the view fix intentionally does NOT surface them (goal forbids disturbing / approving 1538f35f). To make them pickable OR approve them, CS must run approve_m2m_transfer('1538f35f...') or re-date/clear returned. Not auto-done.
+- convert_removes_to_m2m_transfer stamps dest legs with returned=true (anomaly) + the source dispatch_date (often past). Future convert dest legs will therefore also be blocked by returned/date, not just dispatched. Adjusting convert to create pickable dest legs (returned=false, current date) touches the live-transfer creation path and the returned=true provenance is unclear -> CS decision. The D-3 view fix removes the dispatched blocker so correctly-stated M2M dest legs surface.
