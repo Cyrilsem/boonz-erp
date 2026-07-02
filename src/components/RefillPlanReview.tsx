@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { pushResultToToast } from "@/lib/dispatch-types";
 import { createClient } from "@/lib/supabase/client";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -221,15 +222,16 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
       .eq("operator_status", "pending");
 
     if (status === "approved" && planDate) {
-      const { data: dispatched } = await supabase.rpc("push_plan_to_dispatch", {
-        p_plan_date: planDate,
-        p_machine_name: machineName,
-      });
-      const count = typeof dispatched === "number" ? dispatched : 0;
-      setPlanToast(
-        `✅ ${count} line${count !== 1 ? "s" : ""} pushed to dispatch`,
+      const { data: dispatched, error: pushError } = await supabase.rpc(
+        "push_plan_to_dispatch",
+        {
+          p_plan_date: planDate,
+          p_machine_name: machineName,
+        },
       );
-      setTimeout(() => setPlanToast(null), 3000);
+      // v7 returns jsonb ({ status, lines_pushed, ... }), not a number (PRD-072)
+      setPlanToast(pushResultToToast(dispatched, pushError?.message));
+      setTimeout(() => setPlanToast(null), 5000);
     }
 
     setPlanRows((prev) => prev.filter((r) => r.machine_name !== machineName));
