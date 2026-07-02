@@ -8,14 +8,15 @@ Owner: CS. Date: 2026-06-30. Surface: data cleanup on prod. Touches boonz_produc
 
 Two boonz_products exist:
 
-- `4edc4fbb-cf97-49eb-8c1d-cb5f24963f8e` "Hunter Ridge - Sour Cream" - REAL, in active use: 24 product_mapping rows, 27 active pod units.
-- `285479a7-ea9f-4bb1-bc15-62c7581d7211` "Hunter Ridge - Sour Cream & Onion" - EMPTY shell: 0 mappings, 0 units.
+- `4edc4fbb-cf97-49eb-8c1d-cb5f24963f8e` "Hunter Ridge - Sour Cream" - the LIVE product: 23 product_mapping rows, 41 pod rows (27 active units), 11 WH rows, 162 dispatch rows.
+- `285479a7-ea9f-4bb1-bc15-62c7581d7211` "Hunter Ridge - Sour Cream & Onion" - near-dead but NOT empty: 0 mappings, 6 pod rows (0 active units), 1 WH row, 17 dispatch rows.
 
-CS: the physical product is "Sour Cream & Onion"; the name "Sour Cream" is the wrong label. Because the REFERENCED row is the bare "Sour Cream", the fix is NOT the PRD-062 merge direction. Correct fix:
+CORRECTION (verified live 2026-06-30): the original doc premise ("285479a7 is an empty shell, delete it") was WRONG - it was based on a mappings+active-pod-only count. 285479a7 has 24 residual references, so it CANNOT be blind-deleted. The overnight run correctly skip-logged this.
 
-- RENAME `4edc4fbb` -> "Hunter Ridge - Sour Cream & Onion" (keeps all 24 mappings + 27 units intact).
-- DELETE the empty `285479a7` (zero references, so safe; verify zero everywhere first).
-- If CS prefers to keep "Sour Cream" as the name, just delete the empty shell and skip the rename. Confirm direction before the rename.
+PREREQUISITE DECISION (CS): are these ONE physical product mislabeled, or two genuine Hunter Ridge flavors (plain Sour Cream AND Sour Cream & Onion)? 285479a7 has zero active deployment, which points to a stray duplicate, but confirm before merging.
+
+- If SAME product (CS says the physical item is "Sour Cream & Onion"): this is a PRD-062-style MERGE, not a delete. Repoint 285479a7's 17 dispatch + 6 pod + 1 WH refs into the survivor `4edc4fbb` (conflict-handle unique keys, conserve stock), RENAME `4edc4fbb` -> "Hunter Ridge - Sour Cream & Onion", then DELETE `285479a7` after a zero-ref scan.
+- If TWO genuine flavors: leave both, no action; just note the near-dead footprint of 285479a7.
 
 ### 2. Phantom JET machine in Product Mapping
 
