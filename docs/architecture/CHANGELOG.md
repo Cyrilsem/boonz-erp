@@ -1,5 +1,13 @@
 # Architecture Changelog
 
+## 2026-07-02 — PRD-071 environment closeout
+
+- `prd071_wsb_push_v7_prepaired_m2m_drop_legacy_overload`: push_plan_to_dispatch v6 -> v7 (pre-paired atomic M2M writes for internal_transfer plan lines + pair_internal_transfer_m2m safety net); DROPPED the prod-only legacy (text,date) overload (42725 named-call ambiguity, FE push silently broken); push body PRD-057 drift closed (full body in git). Articles 1,3,4,6,8,12; Am.003/005.
+- `prd071_wsc3_approve_m2m_normalize_returned_on_approve`: approve_m2m_transfer v2 normalizes returned=true convert-created dest legs at the approve choke point (convert untouched); dispatch_date stays historical (packed-row immutability). Used to approve transfer 1538f35f (WH delta 0).
+- Data: 2 stale MINDSHARE-1009 2026-05-20 internal_transfer Remove legs cancelled via cancel_dispatch_line after metadata normalization (source_kind m2m->unknown; rows violated NOT VALID m2m_consistency).
+- Registry backfill also adds the missing `prd062_merge_delete_duplicate_hunter_hot_n_sweet` row (applied 2026-06-26).
+- WS-D board sweep: 36 PRD status lines rewritten to truth (Shipped/Applied/Draft/Closed); registry backfill for PRD-036/037/048/065/068 migrations; RPC_REGISTRY updated for push v7 + approve v2.
+
 A running log of every architecture-level edit. Newest first. Each entry: what changed, why, what was applied where, and how to roll back. The Supabase `migrations` table is the system of record for SQL; this file is the human-readable companion that maps migrations to Constitution articles and explains intent.
 
 Format:
