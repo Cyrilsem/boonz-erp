@@ -1,5 +1,7 @@
 # PRD-033: Operator flexibility - remove the roadblocks that blocked a live manual rotation
 
+Status: Shipped (A-E migrations + VOX perf on main/prod per PRD-071 proof; weimi API archived unwired on archive/weimi-api-2026-06, PRD-072 WS-C). Closed out 2026-07-03.
+
 Owner: CS
 Date: 2026-06-17
 Surface: Backend (RPCs, views, generated columns), refill pipeline, procurement skill. Cody review required (touches protected entities: warehouse_inventory, pod_refill_plan, refill_dispatching).

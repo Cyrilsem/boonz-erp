@@ -1,5 +1,7 @@
 # /goal — PRD-020 (paste into Claude Code, repo root)
 
+Status: Closed 2026-07-03 (PRD-072 sweep). Reason: historical June refills PRD; the branch's unique Performance-tab work SHIPPED via PRD-072 WS-B (merge 8653e88); packing-partial superseded by PRD-044/047/049. Reopen by deleting this line.
+
 ```
 /goal Execute docs/prds/PRD-020-jun08-09-refills-and-0506-closeout.md on Supabase eizcexopcuoycuosittm. Two parts: (A) close 05-06 Jun leftovers with Simran's corrected dates; (B) 08/06+09/06 round. Cody before any canonical-writer/view/trigger change; verbatim bodies. DO NOT redo 01-06 Jun green rows (PRD-017/018/019).
 

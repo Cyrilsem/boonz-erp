@@ -1,4 +1,6 @@
 ---
+
+Status: Closed 2026-07-03 (PRD-072 sweep). Reason: superseded by PRD-044 confirm/skip/partial + PRD-047/049 packing line. Reopen by deleting this line.
 id: PRD-020-refill-pipeline
 program: PROGRAM-2026-06-16
 title: Complete but Partial packing — let a packer skip an unfulfillable line and still finish the task

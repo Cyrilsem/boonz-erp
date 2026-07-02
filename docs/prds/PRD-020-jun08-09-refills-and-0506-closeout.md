@@ -1,5 +1,7 @@
 # PRD-020 — 08-09 Jun refills + 05-06 Jun close-out (Simran answers)
 
+Status: Closed 2026-07-03 (PRD-072 sweep). Reason: historical, executed June 2026; Performance-tab remnant shipped via PRD-072. Reopen by deleting this line.
+
 **Owner:** Claude Code · **Created:** 2026-06-10 · Supabase `eizcexopcuoycuosittm`
 **Format:** engineering build-spec (PRD-017/018/019 discipline). Two parts: (A) close the 05-06 Jun WIP items now that Simran answered; (B) the new 08/06 + 09/06 round. Carry all §constraints.
 Already logged — DO NOT redo: 01-02 Jun (PRD-017), 03-04 Jun (PRD-018), 05-06 Jun green/DONE rows (PRD-019). This PRD = the 05-06 **leftovers** + **08/06 + 09/06 only**.
