@@ -1723,10 +1723,6 @@ function PerformanceTab({
       acc.total_units += r.total_units;
       acc.revenue += r.revenue;
       acc.wh_available += r.wh_available;
-      acc.missing += Math.max(
-        0,
-        Math.max(0, r.expected - r.mtd) - r.wh_available,
-      );
       return acc;
     },
     {
@@ -1738,7 +1734,6 @@ function PerformanceTab({
       total_units: 0,
       revenue: 0,
       wh_available: 0,
-      missing: 0,
     },
   );
 
@@ -1792,7 +1787,7 @@ function PerformanceTab({
     transition: "background 0.15s, color 0.15s",
   });
 
-  const colCount = 10;
+  const colCount = 9;
 
   return (
     <>
@@ -1875,17 +1870,8 @@ function PerformanceTab({
                 >
                   Expected
                 </th>
-                <th
-                  style={{
-                    ...th,
-                    background: expHeadBg,
-                    color: expText,
-                  }}
-                >
-                  Rem. Exp
-                </th>
+                <th style={th}>Units</th>
                 <th style={th}>WH Avail</th>
-                <th style={th}>Missing WH</th>
               </tr>
             </thead>
             <tbody>
@@ -1963,15 +1949,8 @@ function PerformanceTab({
                       >
                         {fmtInt(r.expected)}
                       </td>
-                      <td
-                        style={{
-                          ...td,
-                          background: expBg,
-                          color: expText,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {fmtInt(Math.max(0, r.expected - r.mtd))}
+                      <td style={{ ...td, fontWeight: 600 }}>
+                        {fmtInt(r.total_units)}
                       </td>
                       <td
                         style={{
@@ -1981,23 +1960,6 @@ function PerformanceTab({
                       >
                         {fmtInt(r.wh_available)}
                       </td>
-                      {(() => {
-                        const missing = Math.max(
-                          0,
-                          Math.max(0, r.expected - r.mtd) - r.wh_available,
-                        );
-                        return (
-                          <td
-                            style={{
-                              ...td,
-                              color: missing > 0 ? "#fca5a5" : "#64748b",
-                              fontWeight: missing > 0 ? 700 : 400,
-                            }}
-                          >
-                            {missing > 0 ? fmtInt(missing) : "—"}
-                          </td>
-                        );
-                      })()}
                     </tr>
                   ))}
                   {/* Totals */}
@@ -2055,12 +2017,10 @@ function PerformanceTab({
                         ...td,
                         borderTop: `2px solid #334155`,
                         borderBottom: "none",
-                        background: expBg,
-                        color: expText,
                         fontWeight: 800,
                       }}
                     >
-                      {fmtInt(Math.max(0, totals.expected - totals.mtd))}
+                      {fmtInt(totals.total_units)}
                     </td>
                     <td
                       style={{
@@ -2071,17 +2031,6 @@ function PerformanceTab({
                       }}
                     >
                       {fmtInt(totals.wh_available)}
-                    </td>
-                    <td
-                      style={{
-                        ...td,
-                        borderTop: `2px solid #334155`,
-                        borderBottom: "none",
-                        color: totals.missing > 0 ? "#fca5a5" : "#64748b",
-                        fontWeight: 800,
-                      }}
-                    >
-                      {totals.missing > 0 ? fmtInt(totals.missing) : "—"}
                     </td>
                   </tr>
                 </>
@@ -2104,13 +2053,9 @@ function PerformanceTab({
         units. <span style={{ color: expText }}>Expected</span> projects
         month-end demand from the current daily run-rate, adjusted by active
         demand-context factors (events, weather).{" "}
-        <span style={{ color: expText }}>Rem. Exp</span> = Expected minus MTD
-        (units still expected this month).{" "}
         <span style={{ color: textColor }}>WH Avail</span> = pickable warehouse
         stock (Active, in-date, not quarantined) across the product&rsquo;s
-        mapped variants. <span style={{ color: "#fca5a5" }}>Missing WH</span> =
-        Rem. Exp minus WH Avail (shortfall to cover the rest of the month;
-        &ldquo;—&rdquo; when covered).
+        mapped variants.
       </p>
     </>
   );
