@@ -1,0 +1,3 @@
+# machine-appended by .github/workflows/record-prod-deploy.yml - rows are unpadded;
+# prettier re-padding it fights the workflow forever (PRD-072)
+docs/DEPLOYMENTS.md
