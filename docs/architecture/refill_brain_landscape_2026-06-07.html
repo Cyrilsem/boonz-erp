@@ -1,0 +1,1043 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Boonz refill brain — landscape, journey &amp; product flow</title>
+    <style>
+      :root {
+        --bg: #ffffff;
+        --surface: #faf9f5;
+        --surface2: #f1efe8;
+        --bd: #e3e1d8;
+        --bd2: #cfcdc3;
+        --tx: #23231f;
+        --tx2: #5f5e5a;
+        --tx3: #8a897f;
+        --teal-bd: #0f6e56;
+        --teal-fill: #e1f5ee;
+        --teal-tx: #085041;
+        --amber-bd: #854f0b;
+        --amber-fill: #faeeda;
+        --amber-tx: #633806;
+        --gray-bd: #888780;
+        --gray-fill: #f1efe8;
+        --gray-tx: #444441;
+        --purple-bd: #534ab7;
+        --purple-fill: #eeedfe;
+        --purple-tx: #26215c;
+        --up: #0f6e56;
+        --down: #993c1d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--tx);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+        line-height: 1.6;
+        font-size: 15px;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px 22px 64px;
+      }
+      h1 {
+        font-size: 25px;
+        font-weight: 600;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 19px;
+        font-weight: 600;
+        margin: 38px 0 6px;
+        padding-top: 14px;
+        border-top: 1px solid var(--bd);
+      }
+      h3 {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 18px 0 8px;
+        color: var(--tx2);
+      }
+      p {
+        margin: 8px 0;
+        color: var(--tx);
+      }
+      .sub {
+        color: var(--tx2);
+        font-size: 13px;
+        margin: 0 0 14px;
+      }
+      code,
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.9em;
+        color: var(--tx2);
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        font-size: 12px;
+        color: var(--tx2);
+        margin: 14px 0 6px;
+      }
+      .sw {
+        width: 12px;
+        height: 12px;
+        border-radius: 3px;
+        display: inline-block;
+        vertical-align: -1px;
+        margin-right: 5px;
+      }
+      .band {
+        background: var(--surface);
+        border: 1px solid var(--bd);
+        border-radius: 12px;
+        padding: 14px 16px;
+        margin: 12px 0;
+      }
+      .bandlabel {
+        font-size: 12px;
+        color: var(--tx3);
+        margin: 0 0 10px;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .node {
+        flex: 1;
+        min-width: 150px;
+        background: var(--bg);
+        border: 1.5px solid var(--teal-bd);
+        border-radius: 8px;
+        padding: 8px 11px;
+      }
+      .node .t {
+        font-size: 13.5px;
+        color: var(--tx);
+      }
+      .node .d {
+        font-size: 11.5px;
+        color: var(--tx2);
+      }
+      .node .e {
+        font-size: 11.5px;
+        color: var(--tx3);
+        margin-top: 2px;
+      }
+      .ext {
+        border-color: var(--gray-bd);
+      }
+      .ambernode {
+        border-color: var(--amber-bd);
+      }
+      .core {
+        background: var(--purple-fill);
+        border: 1.5px solid var(--purple-bd);
+        border-radius: 8px;
+        padding: 9px 12px;
+        margin: 8px 0;
+      }
+      .core .t {
+        font-size: 13.5px;
+        color: var(--purple-tx);
+      }
+      .core .d {
+        font-size: 11.5px;
+        color: #3c3489;
+      }
+      .chev {
+        text-align: center;
+        color: var(--tx3);
+        font-size: 15px;
+        line-height: 1;
+        margin: 2px 0;
+      }
+      .stage {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        margin-bottom: 8px;
+      }
+      .num {
+        flex-shrink: 0;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--teal-fill);
+        color: var(--teal-tx);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .num.gate {
+        background: var(--surface2);
+        color: var(--tx2);
+        font-weight: 400;
+      }
+      .num.amber {
+        background: var(--amber-fill);
+        color: var(--amber-tx);
+        border: 2px solid var(--amber-bd);
+      }
+      .grid {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .card {
+        flex: 1;
+        min-width: 225px;
+        background: var(--bg);
+        border: 1.5px solid var(--teal-bd);
+        border-radius: 8px;
+        padding: 9px 11px;
+      }
+      .card.pending {
+        border-color: var(--amber-bd);
+      }
+      .card.none {
+        border: 1.5px dashed var(--gray-bd);
+        background: transparent;
+      }
+      .card .h {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6px;
+      }
+      .card .ti {
+        font-size: 13.5px;
+        color: var(--tx);
+      }
+      .card .dd {
+        font-size: 11.5px;
+        color: var(--tx2);
+        margin-top: 2px;
+      }
+      .pill {
+        font-size: 11px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .pill.live {
+        background: var(--teal-fill);
+        color: var(--teal-tx);
+      }
+      .pill.pend {
+        background: var(--amber-fill);
+        color: var(--amber-tx);
+      }
+      .pill.no {
+        background: var(--gray-fill);
+        color: var(--gray-tx);
+      }
+      .chip {
+        font-size: 11.5px;
+        border-radius: 6px;
+        padding: 3px 8px;
+        display: inline-block;
+      }
+      .chip.live {
+        background: var(--teal-fill);
+        color: var(--teal-tx);
+        border: 1px solid var(--teal-bd);
+      }
+      .chip.no {
+        background: transparent;
+        color: var(--tx2);
+        border: 1.5px dashed var(--gray-bd);
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+      }
+      .spine {
+        max-width: 540px;
+        margin: 0 auto;
+      }
+      .tl {
+        display: flex;
+        gap: 11px;
+      }
+      .tlrail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .tlline {
+        width: 2px;
+        flex: 1;
+        background: var(--bd);
+        margin: 2px 0;
+      }
+      .tlbody {
+        flex: 1;
+        padding-bottom: 14px;
+      }
+      .conn {
+        text-align: center;
+        font-size: 12px;
+        color: var(--tx2);
+        padding: 5px 0;
+      }
+      .up {
+        color: var(--up);
+      }
+      .down {
+        color: var(--down);
+      }
+      .flow {
+        max-width: 520px;
+        margin: 0 auto;
+      }
+      .fnode {
+        background: var(--bg);
+        border: 1.5px solid var(--teal-bd);
+        border-radius: 8px;
+        padding: 9px 12px;
+      }
+      .fnode.ext {
+        border-color: var(--gray-bd);
+      }
+      .callout {
+        background: var(--amber-fill);
+        border: 1px solid var(--amber-bd);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin: 14px 0;
+      }
+      .callout .t {
+        font-size: 14px;
+        color: #412402;
+        margin-bottom: 4px;
+      }
+      .callout .d {
+        font-size: 12.5px;
+        color: var(--amber-tx);
+      }
+      .foot {
+        margin-top: 36px;
+        padding-top: 16px;
+        border-top: 1px solid var(--bd);
+        font-size: 12px;
+        color: var(--tx3);
+      }
+      @media print {
+        h2 {
+          break-after: avoid;
+        }
+        .band,
+        .callout,
+        .card,
+        .node {
+          break-inside: avoid;
+        }
+        body {
+          font-size: 12.5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Boonz refill brain — landscape, journey &amp; product flow</h1>
+      <p class="sub">
+        Generated 2026-06-07 · verified against the live database · for offline
+        review
+      </p>
+      <p>
+        Three views of the same system. First, the conceptual architecture of
+        the refill brain and who does what. Second, the human journey of a
+        refill, with every place you edit, add or modify, and how the system
+        copes when warehouse inventory is not fully reliable. Third, the actual
+        journey of a physical product and every flow that moves a stock number.
+      </p>
+
+      <div class="legend">
+        <span
+          ><span
+            class="sw"
+            style="
+              border: 2px solid var(--teal-bd);
+              background: var(--teal-fill);
+            "
+          ></span
+          >live in prod</span
+        >
+        <span
+          ><span
+            class="sw"
+            style="
+              border: 2px solid var(--amber-bd);
+              background: var(--amber-fill);
+            "
+          ></span
+          >backend live, UI pending</span
+        >
+        <span
+          ><span class="sw" style="border: 2px dashed var(--gray-bd)"></span>not
+          built</span
+        >
+        <span
+          ><span
+            class="sw"
+            style="
+              border: 2px solid var(--purple-bd);
+              background: var(--purple-fill);
+            "
+          ></span
+          >shared core</span
+        >
+      </div>
+
+      <!-- SECTION 1 -->
+      <h2>1 · Conceptual architecture — the refill brain</h2>
+      <p>
+        The pipeline is one straight line: a weekly session sets strategic
+        intent, then every night the five-stage brain turns "which machines, how
+        much, which SKU, from where" into a packing list the driver sees. The
+        change shipped this week sits in the middle in purple:
+        <code>compute_refill_decision</code> is now the single source of both
+        the refill quantity and the score, so the on-screen card and the engine
+        finally agree.
+      </p>
+
+      <div class="band">
+        <div class="bandlabel">
+          Layer A — weekly strategy (sets intent, runs once a week)
+        </div>
+        <div class="row">
+          <div class="node">
+            <div class="t">Product opt</div>
+            <div class="d">phase out a product</div>
+          </div>
+          <div class="node">
+            <div class="t">Expiry opt</div>
+            <div class="d">drain at-risk batch</div>
+          </div>
+          <div class="node">
+            <div class="t">Threat flagger</div>
+            <div class="d">surface intent risks</div>
+          </div>
+        </div>
+        <div
+          class="e"
+          style="font-size: 11.5px; color: var(--tx3); margin-top: 8px"
+        >
+          output → <code>strategic_machine_tags</code> the daily brain consumes
+        </div>
+      </div>
+
+      <div class="chev">&#x2193;</div>
+
+      <div class="band">
+        <div class="bandlabel">
+          The daily refill brain — runs nightly at 8pm Dubai via
+          <code>build_draft_for_confirmed</code>, all live. Two human gates.
+        </div>
+
+        <div class="stage">
+          <div class="num">1</div>
+          <div class="node" style="flex: 1">
+            <div class="t">Picker — who to visit</div>
+            <div class="d">
+              <code>pick_machines_for_refill</code> → machines_to_visit (health,
+              empties, stale, tags). Include/exclude + first-N priority is live.
+            </div>
+          </div>
+        </div>
+
+        <div class="stage">
+          <div class="num" style="font-size: 11px">2a/b</div>
+          <div style="flex: 1; display: flex; gap: 8px; flex-wrap: wrap">
+            <div class="node">
+              <div class="t">Engine add</div>
+              <div class="d">
+                <code>engine_add_pod</code> v14 — how much to refill
+              </div>
+            </div>
+            <div class="node">
+              <div class="t">Engine swap</div>
+              <div class="d">
+                <code>engine_swap_pod</code> v8 — rotate / decommission
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="core" style="margin-left: 40px">
+          <div class="t">
+            Shared core — the one brain &nbsp;<code
+              >compute_refill_decision</code
+            >
+          </div>
+          <div class="d">
+            lifecycle signal = stance (direction + ceiling) × recency velocity =
+            dosage → one <code>target_units</code> + one
+            <code>final_score</code>. Both the engine and the card read this.
+          </div>
+        </div>
+
+        <div class="stage">
+          <div class="num">2c</div>
+          <div class="node" style="flex: 1">
+            <div class="t">Finalize → pod plan</div>
+            <div class="d">
+              <code>engine_finalize_pod</code> → pod_refill_plan (conflict
+              rules, 60% cap, carries the decision). Gate 1: approve.
+            </div>
+          </div>
+        </div>
+
+        <div class="stage">
+          <div class="num">3</div>
+          <div class="node" style="flex: 1">
+            <div class="t">Stitch → SKU level</div>
+            <div class="d">
+              <code>stitch_pod_to_boonz</code> → refill_plan_output (pod product
+              → real SKU + warehouse, FEFO). Gate 2: commit.
+            </div>
+          </div>
+        </div>
+
+        <div class="stage" style="margin-bottom: 0">
+          <div class="num">4</div>
+          <div class="node" style="flex: 1">
+            <div class="t">Bridge → driver app</div>
+            <div class="d">
+              <code>push_plan_to_dispatch</code> → refill_dispatching (what the
+              driver packs and sees)
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chev">&#x2193;</div>
+
+      <div class="row">
+        <div class="band" style="flex: 1; min-width: 260px; margin: 6px 0">
+          <div class="bandlabel">Read surface — what you see on screen</div>
+          <div class="node ambernode">
+            <div class="t">Machine card</div>
+            <div class="d">
+              <code>get_machine_slots_with_expiry</code> now reads the shared
+              core: Global · Local · 7d · Stance · Final Score. DB live; FE
+              deploying.
+            </div>
+          </div>
+        </div>
+        <div class="band" style="flex: 1; min-width: 260px; margin: 6px 0">
+          <div class="bandlabel">Governance — who keeps it safe</div>
+          <div
+            class="d"
+            style="font-size: 11.5px; color: var(--tx2); line-height: 1.8"
+          >
+            <code>Dara</code> designs schema · <code>Cody</code> reviews vs the
+            15-article constitution · <code>Stax</code> wires FE/n8n/cron ·
+            <code>boonz-master-3</code> conducts. Every write goes through a
+            canonical RPC + <code>write_audit_log</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="band">
+        <div class="bandlabel">
+          Data foundation — what every stage reads from (all live)
+        </div>
+        <div class="chips">
+          <span
+            class="chip"
+            style="
+              background: var(--bg);
+              border: 1px solid var(--bd2);
+              color: var(--tx2);
+            "
+            ><code>v_live_shelf_stock</code> · WEIMI live stock</span
+          >
+          <span
+            class="chip"
+            style="
+              background: var(--bg);
+              border: 1px solid var(--bd2);
+              color: var(--tx2);
+            "
+            ><code>slot_lifecycle</code> · per-shelf signal</span
+          >
+          <span
+            class="chip"
+            style="
+              background: var(--bg);
+              border: 1px solid var(--bd2);
+              color: var(--tx2);
+            "
+            >global lifecycle + scores</span
+          >
+          <span
+            class="chip"
+            style="
+              background: var(--bg);
+              border: 1px solid var(--bd2);
+              color: var(--tx2);
+            "
+            ><code>warehouse_inventory</code> · multi-WH FEFO</span
+          >
+          <span
+            class="chip"
+            style="
+              background: var(--bg);
+              border: 1px solid var(--bd2);
+              color: var(--tx2);
+            "
+            ><code>sales_history</code> · velocity</span
+          >
+        </div>
+      </div>
+
+      <!-- SECTION 1b -->
+      <h3>Refill-day control surface — where the gaps are</h3>
+      <p class="sub">
+        The brain itself is complete. The remaining work is the layer that lets
+        humans act on the plan. Three capabilities have a live backend but no
+        screen yet; three more plus the learning loop are not built.
+      </p>
+      <div class="grid">
+        <div class="card pending">
+          <div class="h">
+            <span class="ti">RD-01 · add / create plan</span
+            ><span class="pill pend">UI pending</span>
+          </div>
+          <div class="dd">
+            add a machine, build a plan by hand. RPCs live; "+ add machine"
+            button not shipped.
+          </div>
+        </div>
+        <div class="card pending">
+          <div class="h">
+            <span class="ti">RD-03 · driver self-service</span
+            ><span class="pill pend">UI pending</span>
+          </div>
+          <div class="dd">
+            driver marks done/partial, flags issues. RPCs + table live; field
+            app screen not built.
+          </div>
+        </div>
+        <div class="card pending">
+          <div class="h">
+            <span class="ti">RD-05 · expiry-aware pick</span
+            ><span class="pill pend">UI pending</span>
+          </div>
+          <div class="dd">
+            choose which batch by expiry when editing. Read RPC + column live;
+            pin writer + dropdown pending.
+          </div>
+        </div>
+        <div class="card none">
+          <div class="h">
+            <span class="ti">RD-02 · PO inside refill</span
+            ><span class="pill no">not built</span>
+          </div>
+          <div class="dd">
+            raise a purchase order on the spot when the warehouse is short.
+          </div>
+        </div>
+        <div class="card none">
+          <div class="h">
+            <span class="ti">RD-04 · shelf-to-shelf move</span
+            ><span class="pill no">not built</span>
+          </div>
+          <div class="dd">move stock between shelves on the same machine.</div>
+        </div>
+        <div class="card none">
+          <div class="h">
+            <span class="ti">RD-06 · per-row source</span
+            ><span class="pill no">not built</span>
+          </div>
+          <div class="dd">
+            say per line where it comes from: which warehouse, another machine,
+            or VOX at venue.
+          </div>
+        </div>
+        <div class="card none">
+          <div class="h">
+            <span class="ti">Learning loop</span
+            ><span class="pill no">not built</span>
+          </div>
+          <div class="dd">
+            learn from operator edits to propose better dials over time
+            (propose-only, never auto-tune).
+          </div>
+        </div>
+      </div>
+
+      <!-- SECTION 2 -->
+      <h2>2 · The refill journey — where you edit, add, modify</h2>
+      <p>
+        The core idea to internalize: planning is decoupled from inventory. The
+        brain sizes every refill from shelf gaps (WEIMI live, what is physically
+        on the machine), never from warehouse counts. So a wrong warehouse
+        number can never stop a refill from being planned. Unreliable stock only
+        bites later, at stitch and at packing, where the system flags it instead
+        of silently under-filling.
+      </p>
+
+      <div class="callout">
+        <div class="t">Planning is decoupled from inventory.</div>
+        <div class="d">
+          Quantities are demand-true (from shelf gaps), so they hold even if the
+          warehouse number is off. The warehouse is consulted only at stitch,
+          and shortages are surfaced as deviations and alerts, not hidden.
+        </div>
+      </div>
+
+      <div class="spine">
+        <div class="tl">
+          <div class="tlrail">
+            <div class="num">1</div>
+            <div class="tlline"></div>
+          </div>
+          <div class="tlbody">
+            <div style="font-size: 14px">Morning — who gets visited</div>
+            <div class="sub" style="margin: 1px 0 6px">
+              The 8pm cron already picked tonight's machines from health and
+              shelf gaps.
+            </div>
+            <div class="chips">
+              <span class="chip live"
+                >add a machine · <code>add_machine_to_plan</code></span
+              ><span class="chip live">include / exclude</span
+              ><span class="chip live">pick first-N priority</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tlrail">
+            <div class="num">2</div>
+            <div class="tlline"></div>
+          </div>
+          <div class="tlbody">
+            <div style="font-size: 14px">
+              Review the draft — qty, swap, add, stop
+            </div>
+            <div class="sub" style="margin: 1px 0 6px">
+              The pod plan, row by row. Quantities are demand-true, so they hold
+              even if the warehouse count is off.
+            </div>
+            <div class="chips">
+              <span class="chip live"
+                >change qty · <code>edit_pod_refill_row</code></span
+              ><span class="chip live"
+                >stop a row · <code>stop_pod_refill_row</code></span
+              ><span class="chip live"
+                >swap · <code>find_substitutes</code> →
+                <code>swap_pod_refill_row</code></span
+              ><span class="chip live"
+                >add a product · <code>add_pod_refill_row</code></span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tlrail">
+            <div class="num gate">&#x2713;</div>
+            <div class="tlline"></div>
+          </div>
+          <div class="tlbody">
+            <div style="font-size: 14px">Gate 1 — approve the pod plan</div>
+            <div class="sub" style="margin: 1px 0 0">
+              Your explicit green light. Nothing touches warehouse logic until
+              you approve.
+            </div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tlrail">
+            <div class="num amber">3</div>
+            <div class="tlline"></div>
+          </div>
+          <div class="tlbody">
+            <div style="font-size: 14px">
+              Stitch dry-run — the inventory checkpoint
+            </div>
+            <div class="sub" style="margin: 1px 0 6px">
+              First time the warehouse is consulted. Maps each pod product to a
+              real SKU + warehouse (FEFO) and tells you the truth:
+              <code>deviations</code> (warehouse short) and
+              <code>procurement_alerts</code> (no stock). You decide per line:
+            </div>
+            <div class="chips">
+              <span class="chip live">accept the gap</span
+              ><span class="chip live"
+                >pull from another machine ·
+                <code>mark_internal_transfer</code></span
+              ><span class="chip live"
+                >pick batch by expiry ·
+                <code>get_shelf_fefo_options</code></span
+              ><span class="chip no">choose warehouse / source · RD-06</span
+              ><span class="chip no">raise a PO on the spot · RD-02</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tlrail">
+            <div class="num gate">&#x2713;</div>
+            <div class="tlline"></div>
+          </div>
+          <div class="tlbody">
+            <div style="font-size: 14px">Gate 2 — commit, push to drivers</div>
+            <div class="sub" style="margin: 1px 0 0">
+              Writes the SKU-level plan and the driver's packing list. Now rows
+              start to lock.
+            </div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tlrail">
+            <div class="num amber">4</div>
+            <div class="tlline"></div>
+          </div>
+          <div class="tlbody">
+            <div style="font-size: 14px">
+              Pack &amp; field — physical reality vs the system
+            </div>
+            <div class="sub" style="margin: 1px 0 6px">
+              The pack screen reads <code>v_dispatch_availability</code> and
+              flags <code>blocked_no_wh</code> / <code>partial</code> when the
+              real shelf doesn't match the count. This is where unreliable stock
+              actually shows up.
+            </div>
+            <div class="chips">
+              <span class="chip live"
+                >re-pack · <code>repack_machine</code></span
+              ><span class="chip no"
+                >driver reports done / partial / no-stock · RD-03 (backend live,
+                no app)</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div class="tl">
+          <div class="tlrail"><div class="num">5</div></div>
+          <div class="tlbody" style="padding-bottom: 0">
+            <div style="font-size: 14px">Edit mid-flight &amp; reconcile</div>
+            <div class="sub" style="margin: 1px 0 6px">
+              Change a row after commit, then re-stitch only the pending lines.
+              Packed/dispatched rows are locked and never touched. After the
+              run, planned vs received feeds back.
+            </div>
+            <div class="chips">
+              <span class="chip live"
+                >edit then re-stitch · <code>restitch_after_edits</code></span
+              ><span class="chip live"
+                >locked rows protected automatically</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p style="margin-top: 14px">
+        Your edit points cluster in three places: the draft review, the stitch
+        checkpoint, and the field. The two honest gaps are exactly the "the
+        stock is wrong, let me fix the source" moments: choosing the source per
+        line (RD-06) and raising a PO on the spot (RD-02). Today those are
+        handled by accepting the gap or doing an internal transfer.
+      </p>
+
+      <!-- SECTION 3 -->
+      <h2>3 · The product journey — every flow that moves a stock number</h2>
+      <p>
+        Read the spine top to bottom as one physical unit moving. It enters at
+        PO receipt (the only inflow), sits in a warehouse, rides the truck as
+        transit stock, lands on a shelf, and exits only at a sale. Every arrow
+        names the one canonical writer allowed to move that number, which keeps
+        the ledger auditable.
+      </p>
+
+      <div class="legend">
+        <span
+          ><span class="sw" style="border: 2px solid var(--teal-bd)"></span
+          >stock location (internal)</span
+        >
+        <span
+          ><span class="sw" style="border: 2px solid var(--gray-bd)"></span
+          >external party</span
+        >
+        <span><span class="up">+</span> stock up</span>
+        <span><span class="down">&#x2212;</span> stock down</span>
+      </div>
+
+      <div class="flow">
+        <div class="fnode ext">
+          <div class="node">
+            <div class="t" style="font-size: 13.5px">Supplier</div>
+          </div>
+          <div style="font-size: 13.5px; color: var(--tx)">Supplier</div>
+          <div style="font-size: 11.5px; color: var(--tx2)">
+            order placed · <code>purchase_orders</code>
+          </div>
+        </div>
+        <div class="conn">
+          &#x2193; &nbsp;receive PO &nbsp;<span class="up"
+            >+ warehouse_stock</span
+          >
+          &nbsp;·&nbsp; <code>receive purchase order</code>
+        </div>
+
+        <div class="fnode">
+          <div style="font-size: 13.5px; color: var(--tx)">Warehouse(s)</div>
+          <div style="font-size: 11.5px; color: var(--tx2)">
+            <code>warehouse_inventory</code> · WH_CENTRAL / WH_MM / WH_MCC ·
+            batches + expiry, FEFO
+          </div>
+          <div style="font-size: 11.5px; color: var(--tx3)">
+            truth = <code>warehouse_stock</code>
+          </div>
+        </div>
+        <div class="conn">
+          &#x2193; &nbsp;pack &nbsp;<span class="down"
+            >&#x2212; warehouse_stock</span
+          >
+          <span class="up">+ in-transit</span> &nbsp;·&nbsp;
+          <code>pack_dispatch_line</code>
+        </div>
+
+        <div class="fnode">
+          <div style="font-size: 13.5px; color: var(--tx)">
+            In transit — on the truck
+          </div>
+          <div style="font-size: 11.5px; color: var(--tx2)">
+            <code>consumer_stock</code> · holds the batch pin
+            (<code>from_wh_inventory_id</code>)
+          </div>
+          <div style="font-size: 11.5px; color: var(--tx3)">
+            transit only — never a source for WH queries
+          </div>
+        </div>
+        <div class="conn">
+          &#x2193; &nbsp;receive at machine &nbsp;<span class="down"
+            >&#x2212; in-transit</span
+          >
+          <span class="up">+ shelf</span> &nbsp;·&nbsp;
+          <code>receive_dispatch_line</code>
+        </div>
+
+        <div class="fnode">
+          <div style="font-size: 13.5px; color: var(--tx)">Machine shelf</div>
+          <div style="font-size: 11.5px; color: var(--tx2)">
+            <code>v_live_shelf_stock</code> (WEIMI live)
+          </div>
+          <div style="font-size: 11.5px; color: var(--tx3)">
+            truth for the shelf — not pod_inventory
+          </div>
+        </div>
+        <div class="conn">
+          &#x2193; &nbsp;sale &nbsp;<span class="down">&#x2212; shelf</span>
+          &nbsp;·&nbsp; <code>WEIMI ingest → sales_history</code>
+        </div>
+
+        <div class="fnode ext">
+          <div style="font-size: 13.5px; color: var(--tx)">Customer</div>
+          <div style="font-size: 11.5px; color: var(--tx2)">
+            consumption — the only true exit
+          </div>
+        </div>
+      </div>
+
+      <h3>
+        Reverse &amp; loss flows — products that go back, sideways, or out
+      </h3>
+      <div class="grid">
+        <div
+          class="card"
+          style="border-color: var(--bd2); background: var(--surface)"
+        >
+          <div class="ti">Return to warehouse</div>
+          <div class="dd">
+            shelf → WH · REMOVE / M2W · <span class="down">&#x2212; shelf</span>
+            <span class="up">+ warehouse_stock</span><br /><code
+              >return_dispatch_line</code
+            >
+          </div>
+        </div>
+        <div
+          class="card"
+          style="border-color: var(--bd2); background: var(--surface)"
+        >
+          <div class="ti">Machine to machine</div>
+          <div class="dd">
+            shelf → shelf · paired REMOVE + ADD, no WH round-trip<br /><code
+              >mark_internal_transfer</code
+            >
+          </div>
+        </div>
+        <div
+          class="card"
+          style="border-color: var(--bd2); background: var(--surface)"
+        >
+          <div class="ti">Expiry write-off</div>
+          <div class="dd">
+            drained early by EXPIRY OPT before it expires ·
+            <span class="down">&#x2212; stock</span><br />archive, never hard
+            delete
+          </div>
+        </div>
+      </div>
+
+      <div class="callout">
+        <div class="t">Where the numbers drift — guard these</div>
+        <div class="d">
+          <code>receive</code> without a matching reservation does not debit the
+          warehouse → phantom inflation. Always go through the canonical
+          writers, never a manual count. · A WEIMI re-snapshot can shift a
+          batch's expiry between pack and receive (handled by a trigger that
+          follows the pinned batch). · <code>consumer_stock</code> is
+          transit-only; warehouse questions use <code>warehouse_stock</code>. ·
+          Shelf counts come from <code>v_live_shelf_stock</code>, not
+          <code>pod_inventory</code>. · Warehouse status changes are
+          manager-only (propose-then-confirm).
+        </div>
+      </div>
+
+      <h3>How this ties back to unreliable inventory</h3>
+      <p>
+        The shelf node trusts WEIMI live, not the stored
+        <code>pod_inventory</code>, which is why planning stays reliable even
+        when warehouse counts are not. The warehouse node is the one with the
+        weakest data, which is why the missing RD-02 (raise PO when short) and
+        RD-06 (pick the source per line) matter most: they are the tools for
+        acting when the warehouse number turns out to be wrong at stitch or pack
+        time.
+      </p>
+
+      <div class="foot">
+        Where we stand: PRD-UNIFY is live (the engine and the card share one
+        decision). Next in sequence: deploy the card FE, then RD-day phase 1
+        (RD-01 / RD-05 / RD-03 screens), then RD-02 / RD-04 / RD-06, then the
+        learning loop. · Boonz ERP · refill pipeline · 2026-06-07.
+      </div>
+    </div>
+  </body>
+</html>
