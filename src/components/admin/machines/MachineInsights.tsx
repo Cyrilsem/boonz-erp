@@ -15,10 +15,7 @@ interface ActionItem {
 }
 
 type IssueTag =
-  | "HW issue"
-  | "Permit expiring"
-  | "No SIM"
-  | "Inconsistent status";
+  "HW issue" | "Permit expiring" | "No SIM" | "Inconsistent status";
 
 const TAG_STYLES: Record<IssueTag, string> = {
   "HW issue": "bg-red-900/60 text-red-300 border border-red-700/50",

@@ -447,9 +447,8 @@ export default function MachinesPage() {
   } | null>(null);
 
   // Venue groups (from the venue_groups lookup table)
-  const [venueGroups, setVenueGroups] = useState<string[]>(
-    VENUE_GROUP_FALLBACK,
-  );
+  const [venueGroups, setVenueGroups] =
+    useState<string[]>(VENUE_GROUP_FALLBACK);
 
   // "Add new venue group" modal state
   const [addGroupOpen, setAddGroupOpen] = useState(false);
@@ -577,8 +576,7 @@ export default function MachinesPage() {
         const dev = deviceNumber(m);
         const devHit = dev !== null && dev.toLowerCase().includes(q);
         const storeHit =
-          !!m.adyen_store_code &&
-          m.adyen_store_code.toLowerCase().includes(q);
+          !!m.adyen_store_code && m.adyen_store_code.toLowerCase().includes(q);
         if (!nameHit && !devHit && !storeHit) return false;
       }
       if (statusFilter !== "All") {
@@ -1488,9 +1486,7 @@ export default function MachinesPage() {
               <FieldLabel>Code</FieldLabel>
               <input
                 value={newGroupCode}
-                onChange={(e) =>
-                  setNewGroupCode(e.target.value.toUpperCase())
-                }
+                onChange={(e) => setNewGroupCode(e.target.value.toUpperCase())}
                 placeholder="e.g. NOVO"
                 autoFocus
                 style={inputStyle}
@@ -1518,8 +1514,7 @@ export default function MachinesPage() {
                 disabled={addingGroup || !newGroupCode.trim()}
                 style={{
                   ...saveBtnStyle,
-                  opacity:
-                    addingGroup || !newGroupCode.trim() ? 0.6 : 1,
+                  opacity: addingGroup || !newGroupCode.trim() ? 0.6 : 1,
                   cursor:
                     addingGroup || !newGroupCode.trim()
                       ? "not-allowed"

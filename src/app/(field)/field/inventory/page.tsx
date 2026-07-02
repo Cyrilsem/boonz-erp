@@ -918,7 +918,6 @@ export default function InventoryPage() {
     return;
   }
 
-
   async function handleReject(editId: string) {
     // PRD-013 P1.D: route through canonical reject RPC; requires decision note
     // >= 10 chars. Prompt the operator for the note (no toast lib; same

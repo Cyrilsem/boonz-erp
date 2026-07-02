@@ -13,11 +13,7 @@ import LanguagePicker from "../components/onboarding/language-picker";
 import Tour from "../components/onboarding/tour";
 
 type Role =
-  | "warehouse"
-  | "field_staff"
-  | "operator_admin"
-  | "superadmin"
-  | "manager";
+  "warehouse" | "field_staff" | "operator_admin" | "superadmin" | "manager";
 
 const ADMIN_ROLES: Role[] = ["operator_admin", "superadmin", "manager"];
 

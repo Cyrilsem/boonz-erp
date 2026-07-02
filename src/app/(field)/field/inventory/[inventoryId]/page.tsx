@@ -23,11 +23,7 @@ const EDIT_ROLES = new Set([
 ]);
 
 type InventoryStatus =
-  | "Active"
-  | "Inactive"
-  | "Expired"
-  | "Removed"
-  | "Reserved";
+  "Active" | "Inactive" | "Expired" | "Removed" | "Reserved";
 
 interface InventoryDetail {
   wh_inventory_id: string;

@@ -8,10 +8,7 @@ import MachineTable from "@/components/admin/machines/MachineTable";
 import MachineEditPanel from "@/components/admin/machines/MachineEditPanel";
 
 type BulkAction =
-  | "set_active"
-  | "set_inactive"
-  | "toggle_refill"
-  | "export_csv";
+  "set_active" | "set_inactive" | "toggle_refill" | "export_csv";
 
 interface ToastState {
   message: string;
@@ -407,9 +404,7 @@ export default function MachinesPage() {
       setEditMachineId(null);
       await fetchData();
     } catch (err: unknown) {
-      setRepurposeError(
-        err instanceof Error ? err.message : "Network error",
-      );
+      setRepurposeError(err instanceof Error ? err.message : "Network error");
     }
     setRepurposing(false);
   }, [repurposeMachineId, repurposeValues, fetchData]);
@@ -592,9 +587,9 @@ export default function MachinesPage() {
                   </p>
                   <p>
                     The current machine will be archived (include_in_refill set
-                    to false, status set to Inactive) and all its slot
-                    lifecycle scores will be archived. A fresh machine row
-                    will be created as{" "}
+                    to false, status set to Inactive) and all its slot lifecycle
+                    scores will be archived. A fresh machine row will be created
+                    as{" "}
                     <strong className="text-amber-100">
                       {repurposeValues.official_name}
                     </strong>
@@ -632,9 +627,8 @@ export default function MachinesPage() {
                   New identity for{" "}
                   <strong className="text-neutral-300">
                     {
-                      machines.find(
-                        (m) => m.machine_id === repurposeMachineId,
-                      )?.official_name
+                      machines.find((m) => m.machine_id === repurposeMachineId)
+                        ?.official_name
                     }
                   </strong>
                 </p>

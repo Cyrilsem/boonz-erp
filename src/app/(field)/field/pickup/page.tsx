@@ -126,10 +126,7 @@ export default function PickupPage() {
         packed: !!(line.packed as boolean | null),
         pack_outcome:
           ((line as Record<string, unknown>).pack_outcome as
-            | "packed"
-            | "partial"
-            | "not_filled"
-            | null) ?? null,
+            "packed" | "partial" | "not_filled" | null) ?? null,
         is_m2m: !!((line as Record<string, unknown>).is_m2m as boolean | null),
         comment:
           ((line as Record<string, unknown>).comment as string | null) ?? null,

@@ -137,9 +137,7 @@ export default function ShelfViewPage() {
       reviewed_at: string | null;
       notes: string | null;
       shelf_configurations:
-        | { shelf_code: string }
-        | { shelf_code: string }[]
-        | null;
+        { shelf_code: string } | { shelf_code: string }[] | null;
       boonz_products:
         | { boonz_product_name: string }
         | { boonz_product_name: string }[]

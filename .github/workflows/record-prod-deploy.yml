@@ -9,8 +9,8 @@ on:
 
 # Least privilege: only what the two record steps need.
 permissions:
-  contents: write   # append + commit docs/DEPLOYMENTS.md
-  statuses: write   # set the live/production commit status
+  contents: write # append + commit docs/DEPLOYMENTS.md
+  statuses: write # set the live/production commit status
 
 # Serialize so two near-simultaneous prod deploys cannot race the file append.
 concurrency:

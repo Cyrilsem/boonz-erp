@@ -2568,8 +2568,7 @@ SELECT MAX(snapshot_at) FROM weimi_device_status;
 -- Should be within last 60 seconds
 
 -- Or check the Edge Function logs directly:
--- (via Supabase MCP get_logs tool, service='edge-function')</pre
-            >
+-- (via Supabase MCP get_logs tool, service='edge-function')</pre>
             Do NOT use <code>wait_for_request()</code> for refresh-stage1 —
             pg_net's request timeout truncates the response tracking even though
             the function completes. Poll
@@ -2592,8 +2591,7 @@ SELECT vault.update_secret(
 SELECT * FROM public.check_edge_function_service_key();
 -- Should still say 'present'
 -- 4. Smoke test:
-SELECT public.refresh_fleet_data(90);</pre
-            >
+SELECT public.refresh_fleet_data(90);</pre>
             No code changes needed. The wrapper functions read from the vault on
             every call.
           </div>
@@ -2610,8 +2608,7 @@ SELECT public.refresh_fleet_data(90);</pre
 INSERT INTO public.product_name_conventions (original_name, official_name, mapped_at)
 VALUES ('&lt;Weimi name&gt;', '&lt;pod_products.pod_product_name&gt;', CURRENT_DATE);
 
--- Verify the alias resolves on next query of v_live_shelf_stock</pre
-            >
+-- Verify the alias resolves on next query of v_live_shelf_stock</pre>
             Through Claude Code as a committed migration, not ad-hoc, to keep
             repo and DB in sync.
           </div>
@@ -2625,8 +2622,7 @@ VALUES ('&lt;Weimi name&gt;', '&lt;pod_products.pod_product_name&gt;', CURRENT_D
             <pre>
 UPDATE public.machines
 SET venue_group = 'VOX'  -- or ADDMIND, VML, WPP, OHMYDESK, INDEPENDENT
-WHERE machine_id = '&lt;uuid&gt;';</pre
-            >
+WHERE machine_id = '&lt;uuid&gt;';</pre>
             If the new machine matches the prefix pattern in CC-02b (e.g.,
             starts with VOXMCC, MPMCC, IFLYMCC), the backfill logic is already
             correct — but new naming conventions need to be added to the
@@ -2653,8 +2649,7 @@ SELECT * FROM public.repurpose_machine(
   p_new_source_of_supply := 'BOONZ',  -- or VOX, LLFP
   p_new_venue_group := 'INDEPENDENT'  -- or ADDMIND, VOX, etc.
 );
--- Returns: old_machine_id, new_machine_id, slots_archived, result</pre
-            >
+-- Returns: old_machine_id, new_machine_id, slots_archived, result</pre>
             This atomically marks the old row as repurposed (<code
               >repurposed_at</code
             >

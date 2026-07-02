@@ -49,8 +49,8 @@ writes the plan to Supabase, and opens the /refill page.
 
 3. Run the refill engine:
    python -m engines.refill.engine_d_decider --live \
-    --date <date> \
-    --filter <filter>
+   --date <date> \
+   --filter <filter>
 
 4. On success, open this URL in the browser:
    https://boonz-erp.vercel.app/refill

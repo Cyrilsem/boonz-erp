@@ -202,8 +202,7 @@ export default function SuppliersPage() {
     setAdding(true);
     setAddError("");
     const supabase = createClient();
-    const code =
-      newDraft.supplier_code?.trim() || generateCode(suppliers);
+    const code = newDraft.supplier_code?.trim() || generateCode(suppliers);
     const payload = {
       ...newDraft,
       supplier_code: code,
@@ -548,8 +547,7 @@ export default function SuppliersPage() {
           const isOpen = expandedId === s.supplier_id;
           const draft = drafts[s.supplier_id];
           const statusKey = s.status ?? "Active";
-          const statusColor =
-            STATUS_COLORS[statusKey] ?? STATUS_COLORS.Active;
+          const statusColor = STATUS_COLORS[statusKey] ?? STATUS_COLORS.Active;
 
           return (
             <div

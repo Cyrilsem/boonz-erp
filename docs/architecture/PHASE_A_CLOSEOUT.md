@@ -39,6 +39,7 @@ The flow problems on the operations side (refill engine plan correctness, dispat
 ## Phase B — what's actually open
 
 Phase B is "fix remaining direct-write call sites." The known queue:
+
 - B.x.1: refill-engine skill currently writes `refill_plan_output` directly (allow-listed until 2026-05-15).
 - B.x.2 onwards: a handful of FE/n8n/edge-fn paths that still write protected tables directly. Estimate 6–8 sites.
 - AMD-002, AMD-003, AMD-004: design canonical writer RPCs for `shelf_configurations`, `sim_cards`, `settlements` (settlements only when/if the table is created — currently absent). These would be Dara design jobs, not blocking anything operational.

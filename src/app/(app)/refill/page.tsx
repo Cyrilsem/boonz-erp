@@ -306,11 +306,7 @@ function expiryCardColors(daysToExpiry: number | null): CardStyle {
 
 export default function RefillPage() {
   const [tab, setTab] = useState<
-    | "snapshot"
-    | "planning"
-    | "dispatching"
-    | "signals"
-    | "issues"
+    "snapshot" | "planning" | "dispatching" | "signals" | "issues"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 

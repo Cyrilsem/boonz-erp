@@ -28,7 +28,7 @@ Every goal that touches code, the database, or the FE ends by ticking all three 
       matched for every version (no Local-only, no Remote-only rows).
 - [ ] **Ledger version == repo filename version.** When a migration is applied through the
       Supabase MCP `apply_migration` (no local CLI), the ledger row is stamped with the
-      *apply time*, not the repo filename timestamp. That row must be realigned to the
+      _apply time_, not the repo filename timestamp. That row must be realigned to the
       filename version, otherwise `migration list` reports false drift forever.
 - [ ] Ledger repair MARKS applied only. It never re-runs DDL and never touches business data.
       Do not `supabase db push` to "fix" a recorded-but-misversioned migration — it will try

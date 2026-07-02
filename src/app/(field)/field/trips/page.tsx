@@ -6,11 +6,7 @@ import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
 
 type StopStatus =
-  | "done"
-  | "in_progress"
-  | "ready_to_dispatch"
-  | "ready_for_pickup"
-  | "packing";
+  "done" | "in_progress" | "ready_to_dispatch" | "ready_for_pickup" | "packing";
 
 interface TripStop {
   machine_id: string;

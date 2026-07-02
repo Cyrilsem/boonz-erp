@@ -20,14 +20,14 @@ This is a Phase B problem, not a Phase A regression. A.5b is correct as shipped 
 
 ## 2. Timeline
 
-| When (UTC) | Event |
-|---|---|
-| 2026-04-26 ~05:00 | A.5b parts 1–4 applied to prod. All 24 patched writers verified `prosecdef=true`, `proconfig` includes `search_path=public`, body contains `PERFORM set_config('app.via_rpc',…)`. |
-| 2026-04-26 ~06:05 | A.5b smoke tests scheduled to run. |
-| 2026-04-26 06:06:03 | Anomalous `machines` UPDATE writes audit row with `via_rpc=false, rpc_name=null`. Actor: `82bba4ee-cceb-4aa0-a4fd-22e3e3fd9e7d` (operator_admin, CS himself). |
-| 2026-04-26 06:07:44 | A.5b smoke test 1 runs (`toggle_machine_refill`). Two audit rows land with `via_rpc=true, rpc_name='toggle_machine_refill'`. Confirms patch works. |
-| 2026-04-26 ~10:00 | Investigation begins. 24h sweep across protected tables. |
-| 2026-04-26 ~10:30 | Scope established: 4 violation paths, 186 non-canonical writes total in last 24h. |
+| When (UTC)          | Event                                                                                                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-26 ~05:00   | A.5b parts 1–4 applied to prod. All 24 patched writers verified `prosecdef=true`, `proconfig` includes `search_path=public`, body contains `PERFORM set_config('app.via_rpc',…)`. |
+| 2026-04-26 ~06:05   | A.5b smoke tests scheduled to run.                                                                                                                                                |
+| 2026-04-26 06:06:03 | Anomalous `machines` UPDATE writes audit row with `via_rpc=false, rpc_name=null`. Actor: `82bba4ee-cceb-4aa0-a4fd-22e3e3fd9e7d` (operator_admin, CS himself).                     |
+| 2026-04-26 06:07:44 | A.5b smoke test 1 runs (`toggle_machine_refill`). Two audit rows land with `via_rpc=true, rpc_name='toggle_machine_refill'`. Confirms patch works.                                |
+| 2026-04-26 ~10:00   | Investigation begins. 24h sweep across protected tables.                                                                                                                          |
+| 2026-04-26 ~10:30   | Scope established: 4 violation paths, 186 non-canonical writes total in last 24h.                                                                                                 |
 
 ---
 
@@ -38,6 +38,7 @@ This is a Phase B problem, not a Phase A regression. A.5b is correct as shipped 
 **Audit row:** `audit_id=21c0d929-eda3-4eff-a082-f736a6fc6638`
 **Row affected:** `machine_id=f48e222a-c66f-45b8-9aa7-b9ab0016ee5e`, `pod_number=BOONZ_82160818`
 **Diff (old → new):**
+
 - `official_name`: `LLFP_2006_0000_C0` → `WH2_2006_0000_C0`
 - `adyen_store_description`: `LLFP_2006_0000_C0` → `WH2_2006_0000_C0`
 - `status`: `Active` → `Inactive`
@@ -54,18 +55,19 @@ This is a Phase B problem, not a Phase A regression. A.5b is correct as shipped 
 **Window:** rolling 24h ending 2026-04-26 ~10:30 UTC.
 **Counts by (role, op):**
 
-| role | op | count | confirmed caller |
-|---|---|---:|---|
-| service_role | INSERT | 69 | refill-engine skill (§8.2/8.3 in `refill-engine/SKILL.md`) |
-| service_role | DELETE | 66 | refill-engine skill (per-run cleanup before insert) |
-| operator_admin | UPDATE | 40 | FE plan editor (operator override) |
-| service_role | UPDATE | 5 | refill-engine skill (re-run / repair sweeps) |
-| **total** | | **180** | |
-| **via `write_refill_plan` RPC** | | **0** | — |
+| role                            | op     |   count | confirmed caller                                           |
+| ------------------------------- | ------ | ------: | ---------------------------------------------------------- |
+| service_role                    | INSERT |      69 | refill-engine skill (§8.2/8.3 in `refill-engine/SKILL.md`) |
+| service_role                    | DELETE |      66 | refill-engine skill (per-run cleanup before insert)        |
+| operator_admin                  | UPDATE |      40 | FE plan editor (operator override)                         |
+| service_role                    | UPDATE |       5 | refill-engine skill (re-run / repair sweeps)               |
+| **total**                       |        | **180** |                                                            |
+| **via `write_refill_plan` RPC** |        |   **0** | —                                                          |
 
 **Attribution corrected (Cody review):** The original draft attributed the service_role writes to "n8n daily plan generator." That was wrong. The n8n cron only does **stock refresh every 4h** (per `refill-engine/SKILL.md` §Overview); it does NOT write `refill_plan_output`. A `pg_cron` audit (`SELECT * FROM cron.job`) confirms zero scheduled jobs write to the table. The service_role writes are 100% from the `refill-engine` skill itself, which uses Supabase MCP `execute_sql` to run direct INSERTs (skill §8.2 REFILL rows, §8.3 SWAP pairs, §8.4 dispatch mirror). This makes the skill — not n8n — the canonical-writer-bypass on the service_role side.
 
 **Sample row** (`audit_id=bb7ea371-960f-4e42-a67e-43e423e916d8`):
+
 ```
 table=refill_plan_output op=INSERT actor=null actor_role=null via_rpc=false
 payload.new.comment = "Operator sourcing from Union Coop"
@@ -73,6 +75,7 @@ payload.new.machine_name = "OMDCW-1021-0100-W0"
 payload.new.shelf_code  = "A07"
 payload.new.boonz_product_name = "Krambals - Tomato & Mozzarella"
 ```
+
 The `comment` field strongly indicates an operator override — confirming the FE plan editor is one of the writers, not just n8n.
 
 **Diagnosis:** Two real-world writers (refill-engine skill, FE plan editor) both bypass `write_refill_plan`. RLS on `refill_plan_output` is permissive (`refill_plan_insert WITH CHECK true`, `refill_plan_update USING true WITH CHECK true`), so authenticated users can INSERT/UPDATE freely; service_role bypasses RLS entirely.
@@ -109,6 +112,7 @@ The `comment` field strongly indicates an operator override — confirming the F
 ## 4. Why A.5b smoke tests still passed
 
 The patched 24 functions ARE constitutional. The smoke tests confirmed that:
+
 - Calling `toggle_machine_refill(...)` writes `via_rpc=true, rpc_name='toggle_machine_refill'`. ✅
 - Calling `refresh_product_scores()` writes the explicit audit row + the matview refresh. ✅
 
@@ -118,14 +122,14 @@ The problem is not that the canonical writers are broken. The problem is that **
 
 ## 5. Article-by-article impact
 
-| Article | Status pre-incident | Status post-incident |
-|---|---|---|
-| 1 — Canonical write paths | "All canonical writers constitutional after A.5b" | True for the 24 functions; **false** for `refill_plan_output` and the `machines` repurpose form, where the canonical writers exist but aren't on the call path. |
-| 2 — RLS | A.5b closed the only known gap (`refill_dispatch_plan`) | Still true. RLS on `refill_plan_output` is intentionally permissive but is the ENABLER of §3.2; it must tighten in B.x.4 (after callers migrate). |
-| 4 — DEFINER validation / via_rpc | True for the 25 patched writers | True for the 25 patched writers. Direct table writes obviously skip Article 4 entirely; that's the violation. |
-| 8 — Universal audit | True (every protected-table mutation writes a `write_audit_log` row) | True — but rows landing with `via_rpc=false` for canonical-shape operations are visible exhaust from §3 violations, not gaps in audit infra. |
-| 12 — Forward-only | Holds (data-correction migrations log to CHANGELOG, see §3.3) | Holds. |
-| 15 — Governance | Phase A.6 not yet applied | This incident is precisely the kind of drift Article 15's CI lint is supposed to catch in warn mode → block mode. Pulls forward A.6 priority. |
+| Article                          | Status pre-incident                                                  | Status post-incident                                                                                                                                            |
+| -------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — Canonical write paths        | "All canonical writers constitutional after A.5b"                    | True for the 24 functions; **false** for `refill_plan_output` and the `machines` repurpose form, where the canonical writers exist but aren't on the call path. |
+| 2 — RLS                          | A.5b closed the only known gap (`refill_dispatch_plan`)              | Still true. RLS on `refill_plan_output` is intentionally permissive but is the ENABLER of §3.2; it must tighten in B.x.4 (after callers migrate).               |
+| 4 — DEFINER validation / via_rpc | True for the 25 patched writers                                      | True for the 25 patched writers. Direct table writes obviously skip Article 4 entirely; that's the violation.                                                   |
+| 8 — Universal audit              | True (every protected-table mutation writes a `write_audit_log` row) | True — but rows landing with `via_rpc=false` for canonical-shape operations are visible exhaust from §3 violations, not gaps in audit infra.                    |
+| 12 — Forward-only                | Holds (data-correction migrations log to CHANGELOG, see §3.3)        | Holds.                                                                                                                                                          |
+| 15 — Governance                  | Phase A.6 not yet applied                                            | This incident is precisely the kind of drift Article 15's CI lint is supposed to catch in warn mode → block mode. Pulls forward A.6 priority.                   |
 
 ---
 
@@ -134,23 +138,24 @@ The problem is not that the canonical writers are broken. The problem is that **
 The natural instinct is to tighten RLS on `refill_plan_output` immediately. **That would break the refill-engine skill + the FE plan editor** because they're the actual writers and have nothing else to call. Sequencing matters.
 
 **Pre-flight audit results (Cody-required):**
+
 - **Article 11 (cron writers):** ✅ Clean. Audited `cron.job` — 4 jobs total (`evaluate-lifecycle-nightly`, `nightly-fleet-refresh`, `daily-machine-duplicate-audit`, `refresh-sales-aggregated-10min`). **Zero** write to `refill_plan_output`. The fleet-refresh job calls `refresh_fleet_data(90)` which HTTP-POSTs to the `refresh-stage1` edge function — a separate Article 9 audit (filed as step 11 below), not in B.x scope.
 - **Article 10 (skill / n8n writers):** Confirmed via `refill-engine/SKILL.md` §8.2/8.3/8.4 that the **refill-engine skill is the service_role writer**, not n8n. The n8n every-4h cron does stock refresh only. Renamed B.x.1 accordingly.
 
-| # | Step | Owner | Blocks | Notes |
-|---:|---|---|---|---|
-| 1 | A.6.0 — file this incident report | assistant → CS | nothing | (this document) |
-| 2 | Cody review of the sequencing in this §6 | Cody | 3..8 | ✅ Done 2026-04-26 — verdict ⚠️ Approve with revisions; revisions applied in this version. |
-| 3 | B.x.3 — refactor FE machines repurpose form to call `repurpose_machine` RPC | Stax | nothing | Smallest scope; proves the canonical-RPC pattern end-to-end. **Cody pre-cleared** — no further review needed before deploy (FE-only call-site rewiring, no DDL, no new RPC). |
-| 4 | B.x.1 — refactor refill-engine skill to call `write_refill_plan` RPC | Stax + assistant | 5 | The RPC body in A.5b Part 3 already does DELETE-pending-then-INSERT. Skill-side change: replace direct INSERT/DELETE/UPDATE in §8.2 / §8.3 / §8.4 of `refill-engine/SKILL.md` with a single `SELECT public.write_refill_plan(...)` call per plan. **Cody review required before deploy** (n8n/skill flow change touching protected entity). |
-| 5 | B.x.2a — design `update_refill_plan_row(p_id uuid, p_qty int, p_comment text, p_operator_status text)` RPC for the operator-override path | Dara → Cody | 6 | New canonical writer. Article 4 review on input validation + role check + via_rpc tagging. Or — alternative — extend `write_refill_plan` with a partial-update mode rather than a new RPC; Dara to weigh. |
-| 6 | B.x.2b — apply 5; refactor FE plan editor to call it | Stax | 7 | Replaces the 40 operator_admin direct UPDATEs. Cody review on FE diff. |
-| 7 | **(NEW)** B.x.4-pre — Studio / Postman / direct-PostgREST prod lockdown | Stax + CS | 8 | **Cody-required gate.** Without this, after B.x.4 ships, any `operator_admin` (CS himself in §3.1) can repeat the violation through Studio and the 7-day clean window can't honestly close. Concrete shape: revoke `INSERT/UPDATE/DELETE` on protected tables from `operator_admin` and `authenticated` at the GRANT level, leave only `service_role` and `postgres` writeable. Studio still readable. |
-| 8 | B.x.4 — tighten `refill_plan_output` RLS | Stax + Cody | 9 | Drop `refill_plan_insert` and `refill_plan_update` policies; keep `refill_plan_select`; service_role bypasses RLS for the skill until B.x.1 lands. **Tightened gate (Cody-required):** all of (a) zero `via_rpc=false` rows on `refill_plan_output` for 7 consecutive days, **excluding** migration-marker rows from step 10; (b) B.x.1, B.x.2 both deployed and green; (c) A.6 governance lint live at warn-mode (so any new direct writer surfaces at PR time). |
-| 9 | A.6 — governance YAML in warn mode (Article 15 CI lint) | assistant + Cody | nothing | Priority pulled forward by this incident. **Lint scope (Cody-required):** flag any new code that issues `INSERT/UPDATE/DELETE` against protected tables outside the 25 canonical writers, AND surface §3.4-class drift (service_role direct UPDATEs to protected tables) on every CI run until removed. Warn-mode first, then promote to block. |
-| 10 | Process improvement — data-correction migrations write a `MIGRATION` marker row to `write_audit_log` before the data DML | assistant | nothing | Addresses §3.3 attribution gap. Marker shape: `operation='MIGRATION', table_name='<target>', payload={migration_name: <name>, scope: <row_count_or_filter>}`. |
-| 11 | Audit — `refresh-stage1` edge function (called by `refresh_fleet_data`) for protected-entity writes (Article 9) | Stax | nothing | Surfaced during the cron audit. Edge fns must be thin RPC wrappers; if `refresh-stage1` writes to `machines` / `sales_history` / etc. directly, that's a separate canonical-writer-bypass. Out of B.x scope. |
-| 12 | Investigation — find the service_role process doing pointless `updated_at` heartbeats on `machines` (§3.4); remove or refactor. **Cross-listed in A.6 governance lint scope (step 9).** | Stax | nothing | Low priority but cheap. Lint will keep surfacing it until fixed. |
+|   # | Step                                                                                                                                                                                    | Owner            | Blocks  | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --: | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|   1 | A.6.0 — file this incident report                                                                                                                                                       | assistant → CS   | nothing | (this document)                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+|   2 | Cody review of the sequencing in this §6                                                                                                                                                | Cody             | 3..8    | ✅ Done 2026-04-26 — verdict ⚠️ Approve with revisions; revisions applied in this version.                                                                                                                                                                                                                                                                                                                                                                        |
+|   3 | B.x.3 — refactor FE machines repurpose form to call `repurpose_machine` RPC                                                                                                             | Stax             | nothing | Smallest scope; proves the canonical-RPC pattern end-to-end. **Cody pre-cleared** — no further review needed before deploy (FE-only call-site rewiring, no DDL, no new RPC).                                                                                                                                                                                                                                                                                      |
+|   4 | B.x.1 — refactor refill-engine skill to call `write_refill_plan` RPC                                                                                                                    | Stax + assistant | 5       | The RPC body in A.5b Part 3 already does DELETE-pending-then-INSERT. Skill-side change: replace direct INSERT/DELETE/UPDATE in §8.2 / §8.3 / §8.4 of `refill-engine/SKILL.md` with a single `SELECT public.write_refill_plan(...)` call per plan. **Cody review required before deploy** (n8n/skill flow change touching protected entity).                                                                                                                       |
+|   5 | B.x.2a — design `update_refill_plan_row(p_id uuid, p_qty int, p_comment text, p_operator_status text)` RPC for the operator-override path                                               | Dara → Cody      | 6       | New canonical writer. Article 4 review on input validation + role check + via_rpc tagging. Or — alternative — extend `write_refill_plan` with a partial-update mode rather than a new RPC; Dara to weigh.                                                                                                                                                                                                                                                         |
+|   6 | B.x.2b — apply 5; refactor FE plan editor to call it                                                                                                                                    | Stax             | 7       | Replaces the 40 operator_admin direct UPDATEs. Cody review on FE diff.                                                                                                                                                                                                                                                                                                                                                                                            |
+|   7 | **(NEW)** B.x.4-pre — Studio / Postman / direct-PostgREST prod lockdown                                                                                                                 | Stax + CS        | 8       | **Cody-required gate.** Without this, after B.x.4 ships, any `operator_admin` (CS himself in §3.1) can repeat the violation through Studio and the 7-day clean window can't honestly close. Concrete shape: revoke `INSERT/UPDATE/DELETE` on protected tables from `operator_admin` and `authenticated` at the GRANT level, leave only `service_role` and `postgres` writeable. Studio still readable.                                                            |
+|   8 | B.x.4 — tighten `refill_plan_output` RLS                                                                                                                                                | Stax + Cody      | 9       | Drop `refill_plan_insert` and `refill_plan_update` policies; keep `refill_plan_select`; service_role bypasses RLS for the skill until B.x.1 lands. **Tightened gate (Cody-required):** all of (a) zero `via_rpc=false` rows on `refill_plan_output` for 7 consecutive days, **excluding** migration-marker rows from step 10; (b) B.x.1, B.x.2 both deployed and green; (c) A.6 governance lint live at warn-mode (so any new direct writer surfaces at PR time). |
+|   9 | A.6 — governance YAML in warn mode (Article 15 CI lint)                                                                                                                                 | assistant + Cody | nothing | Priority pulled forward by this incident. **Lint scope (Cody-required):** flag any new code that issues `INSERT/UPDATE/DELETE` against protected tables outside the 25 canonical writers, AND surface §3.4-class drift (service_role direct UPDATEs to protected tables) on every CI run until removed. Warn-mode first, then promote to block.                                                                                                                   |
+|  10 | Process improvement — data-correction migrations write a `MIGRATION` marker row to `write_audit_log` before the data DML                                                                | assistant        | nothing | Addresses §3.3 attribution gap. Marker shape: `operation='MIGRATION', table_name='<target>', payload={migration_name: <name>, scope: <row_count_or_filter>}`.                                                                                                                                                                                                                                                                                                     |
+|  11 | Audit — `refresh-stage1` edge function (called by `refresh_fleet_data`) for protected-entity writes (Article 9)                                                                         | Stax             | nothing | Surfaced during the cron audit. Edge fns must be thin RPC wrappers; if `refresh-stage1` writes to `machines` / `sales_history` / etc. directly, that's a separate canonical-writer-bypass. Out of B.x scope.                                                                                                                                                                                                                                                      |
+|  12 | Investigation — find the service_role process doing pointless `updated_at` heartbeats on `machines` (§3.4); remove or refactor. **Cross-listed in A.6 governance lint scope (step 9).** | Stax             | nothing | Low priority but cheap. Lint will keep surfacing it until fixed.                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 A.5c (function-level `SET app.via_rpc`) and A.4.b (audit triggers on Amendment-001 tables) are unchanged and still tracked separately in MIGRATIONS_REGISTRY.
 
@@ -210,6 +215,7 @@ GROUP BY 1,2 ORDER BY 1, 2 DESC;
 > **Articles checked:** 1, 3, 10, 11, 12, 13, 15
 >
 > **Findings:**
+>
 > - Article 1 ✅ — overall ordering is sound. B.x.3 first is the right pick.
 > - Article 10 ⚠️ — B.x.1 had incomplete scope (n8n flow named, but the actual writer is the refill-engine skill). Add B.x.1.b OR rename B.x.1 to cover the skill. **Resolved:** §6 step 4 now names the skill explicitly as the writer, since skill-read confirmed direct INSERTs. No separate B.x.1.b needed.
 > - Article 11 ⚠️ — enumerate cron writers. **Resolved:** zero pg_cron jobs write `refill_plan_output`; pre-flight audit recorded in §6 preamble.

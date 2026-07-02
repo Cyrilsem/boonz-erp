@@ -918,9 +918,7 @@ export function RefillPlanningTab({
       } | null;
       const gateFlagged = gate?.flagged ?? [];
       setRemoveGate(
-        gate?.status
-          ? { status: gate.status, flagged: gateFlagged }
-          : null,
+        gate?.status ? { status: gate.status, flagged: gateFlagged } : null,
       );
       if (gate?.status === "block" && !removeGateOverride) {
         throw new Error(
@@ -2430,8 +2428,8 @@ export function RefillPlanningTab({
               Convert shelf {convertRow.shelf_code} @ {convertRow.machine_name}
             </div>
             <div className="mt-1 text-xs text-gray-500">
-              Removes <strong>{convertRow.old_pod_product_name}</strong> and adds
-              the new product in one step. Re-stitch happens on commit.
+              Removes <strong>{convertRow.old_pod_product_name}</strong> and
+              adds the new product in one step. Re-stitch happens on commit.
             </div>
 
             <label className="mt-3 block text-xs font-medium text-gray-700">

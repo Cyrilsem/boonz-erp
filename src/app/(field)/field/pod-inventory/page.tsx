@@ -33,12 +33,7 @@ interface DisplayGroup {
 }
 
 type PodFilter =
-  | "expired"
-  | "3days"
-  | "7days"
-  | "30days"
-  | "to_validate"
-  | "all";
+  "expired" | "3days" | "7days" | "30days" | "to_validate" | "all";
 type GroupBy = "machine" | "product" | "category" | "none";
 type EditType =
   | "in_stock"

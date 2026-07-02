@@ -50,11 +50,7 @@ type StaleVisit = {
 };
 
 type SignalCategory =
-  | "swaps"
-  | "decom_wh"
-  | "ghost_pods"
-  | "stale_dispatch"
-  | "stale_visits";
+  "swaps" | "decom_wh" | "ghost_pods" | "stale_dispatch" | "stale_visits";
 
 const SIGNAL_META: Record<
   SignalCategory,

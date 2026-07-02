@@ -179,11 +179,7 @@ export default function ConsumerDashboardClient({
 
   // ── Cash recovery modal (opens from "+ cash" button on discrepancy rows) ──
   type CashTender =
-    | "cash"
-    | "card_retry"
-    | "bank_transfer"
-    | "voucher"
-    | "other";
+    "cash" | "card_retry" | "bank_transfer" | "voucher" | "other";
   const [crOpen, setCrOpen] = useState(false);
   const [crTxn, setCrTxn] = useState<{
     psp: string; // full psp_reference (note: row shows short prefix; we look up the full)

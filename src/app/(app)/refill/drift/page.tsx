@@ -17,10 +17,7 @@ interface DriftRow {
 }
 
 type CandidateStatus =
-  | "pending_review"
-  | "confirmed_drift"
-  | "ignored"
-  | "repaired";
+  "pending_review" | "confirmed_drift" | "ignored" | "repaired";
 
 interface CandidateRow {
   candidate_id: string;

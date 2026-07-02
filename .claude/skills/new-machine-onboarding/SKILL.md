@@ -13,13 +13,13 @@ End-to-end **planning** workflow for new machine deployments. Picks up after a l
 
 ## What this skill does and does NOT do
 
-| Does | Does NOT |
-|---|---|
+| Does                                                                                                                                             | Does NOT                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Read from `sales_leads`, `sim_cards`, `suppliers`, `pod_products`, `boonz_products`, `product_mapping`, `v_sales_history_attributed`, `machines` | Insert into `machines`, `slots`, `slot_lifecycle`, `planogram`, `pod_inventory`, `sim_cards.machine_id`, `purchase_orders`, `dispatch_plan`, `dispatch_lines` |
-| Write to `lead_deployment_plan` (planning state) and `sales_lead_activities` (journal) | Call `add_new_machine`, `create_purchase_order`, `write_dispatch_plan` (those are boonz-master's job at execution time) |
-| Produce held draft Excels (procurement, dispatch) and PNG visuals | Send the draft PO to a supplier or trigger a dispatch task |
-| Recommend product mix from comparable machines (location_type + area + venue_group) | Override `product_mapping` for live machines |
-| Lock the plan with `ready_to_execute=true` after gates pass | Mark a deployment "Installed" — that's set by boonz-master after RPCs succeed |
+| Write to `lead_deployment_plan` (planning state) and `sales_lead_activities` (journal)                                                           | Call `add_new_machine`, `create_purchase_order`, `write_dispatch_plan` (those are boonz-master's job at execution time)                                       |
+| Produce held draft Excels (procurement, dispatch) and PNG visuals                                                                                | Send the draft PO to a supplier or trigger a dispatch task                                                                                                    |
+| Recommend product mix from comparable machines (location_type + area + venue_group)                                                              | Override `product_mapping` for live machines                                                                                                                  |
+| Lock the plan with `ready_to_execute=true` after gates pass                                                                                      | Mark a deployment "Installed" — that's set by boonz-master after RPCs succeed                                                                                 |
 
 ---
 
@@ -33,6 +33,7 @@ End-to-end **planning** workflow for new machine deployments. Picks up after a l
 - Or CS opens the conversation by referencing a lead at `funnel_stage IN ('Negotiation','Awarded')`
 
 Do NOT trigger for:
+
 - Refill plans for live machines → `refill-engine` / `boonz-master`
 - Tweaking a single SKU on an existing planogram → SQL on `product_mapping`
 - Sales/forecasting analysis → other skills
@@ -211,6 +212,7 @@ LIMIT 60;
 ```
 
 **Apply guardrails before producing the shortlist:**
+
 - If `location_type IN ('office','coworking')` → drop Evian-1L (memory: `feedback_evian_1l_guardrail`).
 - If `venue_group='VOX'` and `source_of_supply='partner'` → drop the VOX-sourced list (memory: `reference_vox_sourced_products`).
 - If `comparable_machines < 3` for a SKU → flag as "weak signal" but keep in the candidate set.
@@ -233,6 +235,7 @@ If any fail, drop them or escalate — never invent brand-flavor SKUs ("Barebell
 ### Phase 6 — Interactive planogram editor
 
 Pre-populate `assets/interactive_editor_template.html` with:
+
 - The velocity-ranked shortlist
 - Pricing — default to `pod_products.recommended_selling_price`, override per partner constraint (e.g., AMZ price endings)
 - Default capacities from `assets/shelf_capacity_registry.csv` based on shelf and product type
@@ -240,6 +243,7 @@ Pre-populate `assets/interactive_editor_template.html` with:
 Save the per-machine editor to `BOONZ BRAIN/leads/<slug>/machines/<n>/planogram_editor.html`. Hand the link to CS. They edit in place, the editor autosaves to localStorage and exports a CSV when locked.
 
 When CS exports the locked CSV (`planogram.csv`), validate every row:
+
 - `pod_product_name` exists in `pod_products`
 - Slot ID matches the Pod-26 schema (`A01..A04`, `B01..B04`, `C01..C03`, `D01..D03`, `E01..E02` for single-door; double-door doubles with `F..J` or however your scheme runs — confirm).
 - No duplicate SKU within a single door unless velocity justifies it.
@@ -249,6 +253,7 @@ When CS exports the locked CSV (`planogram.csv`), validate every row:
 Set `lead_deployment_plan.planogram_locked=true` on success.
 
 **Pod-26 geometry — hardware-fixed, do not violate:**
+
 - Bottle SKUs (1L, 500ml) → Shelf 5 only
 - Cans (330ml) → Shelf 4 only
 - Bars/biscuits/yogurt cups → Shelves 1–3
@@ -279,6 +284,7 @@ ORDER BY pp.pod_product_name, bp.boonz_product_name;
 ```
 
 For each pod_product, ask CS:
+
 - Use global default split, or override per machine (writes a per-machine `product_mapping` row at execution time, not now)?
 - Are any mappings missing entirely? Flag — procurement total will be a lower bound.
 - Are any `avg_cost` NULL? Flag — same effect.
@@ -317,6 +323,7 @@ CS reviews. On approval, set `lead_deployment_plan.procurement_drafted=true`. Th
 Per machine, build a pack list mapped to warehouse routing. The dispatching skill (separate, future) will handle the live writes — this skill produces the draft Excel only.
 
 Output `dispatch_draft.xlsx` with:
+
 - One sheet per machine: shelf, slot, pod_product, boonz_product (per mapping split), quantity, source warehouse (WH_CENTRAL / WH_MM / WH_MCC default per geography or CS override).
 - Summary sheet: per-warehouse pull totals.
 - Flags sheet: products without warehouse stock at the install_target_date — these block dispatch.
@@ -329,17 +336,17 @@ Set `lead_deployment_plan.dispatch_drafted=true` when CS signs off.
 
 Final pass before the plan is `ready_to_execute`:
 
-| Check | Pass condition |
-|---|---|
-| Every `pod_product_name` on every planogram resolves in `pod_products` | All rows return |
-| Every `boonz_product` on the BOM has `avg_cost IS NOT NULL` | If any NULL, list them; CS confirms whether to proceed |
-| Every machine has `pod_address`, `contact_person`, `contact_email`, `source_of_supply` | All filled |
-| Every machine has a `sim_id` linked in `lead_deployment_plan` | All filled |
-| `adyen_terminal_id` on each machine is unique against `machines.adyen_unique_terminal_id` | No collisions |
-| If `venue_group='VOX'` → VOX-sourced SKUs absent from procurement BOM | Excluded |
-| If any machine has `location_type IN ('office','coworking')` → Evian-1L absent from candidate set | Excluded |
-| Comparable demand baseline ≥ 3 machines × 30 days | OR CS explicitly accepted prior-only mode |
-| `planogram_locked = true` AND `procurement_drafted = true` AND `dispatch_drafted = true` for every row | All true |
+| Check                                                                                                  | Pass condition                                         |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| Every `pod_product_name` on every planogram resolves in `pod_products`                                 | All rows return                                        |
+| Every `boonz_product` on the BOM has `avg_cost IS NOT NULL`                                            | If any NULL, list them; CS confirms whether to proceed |
+| Every machine has `pod_address`, `contact_person`, `contact_email`, `source_of_supply`                 | All filled                                             |
+| Every machine has a `sim_id` linked in `lead_deployment_plan`                                          | All filled                                             |
+| `adyen_terminal_id` on each machine is unique against `machines.adyen_unique_terminal_id`              | No collisions                                          |
+| If `venue_group='VOX'` → VOX-sourced SKUs absent from procurement BOM                                  | Excluded                                               |
+| If any machine has `location_type IN ('office','coworking')` → Evian-1L absent from candidate set      | Excluded                                               |
+| Comparable demand baseline ≥ 3 machines × 30 days                                                      | OR CS explicitly accepted prior-only mode              |
+| `planogram_locked = true` AND `procurement_drafted = true` AND `dispatch_drafted = true` for every row | All true                                               |
 
 If all pass, set `ready_to_execute=true` for every machine row in this lead. Notify CS:
 
@@ -364,10 +371,12 @@ Boonz-master's `EXECUTE_DEPLOYMENT_PLAN` intent picks up from there.
 For each run, deliver:
 
 **Database:**
+
 - One row per machine in `lead_deployment_plan`, with all status gates
 - Multiple rows in `sales_lead_activities` documenting decisions
 
 **Filesystem (`BOONZ BRAIN/leads/<slug>/`):**
+
 ```
 dossier.docx                              ← partner-shareable readable plan
 machines/<n>/
@@ -418,6 +427,7 @@ When `ready_to_execute=true` on every machine row for a lead, the planning skill
 > "Master, execute the deployment plan for [company_name]"
 
 Boonz-master's `EXECUTE_DEPLOYMENT_PLAN` intent (see `boonz-master_execute_deployment_plan_intent.md` patch):
+
 1. Reads `lead_deployment_plan WHERE lead_id = ? AND ready_to_execute = true`
 2. For each machine: calls `add_new_machine` RPC → captures returned `machine_id`
 3. UPDATE `sim_cards SET machine_id = ?` for the pre-assigned SIM
@@ -461,6 +471,7 @@ Requires `lead_deployment_plan` table — see `dara_lead_deployment_plan.sql` fo
 ## Memory updates
 
 At end of run, propose memory writes for any partner-specific conventions established:
+
 - Pricing rules ("[Partner] uses .45/.95 price endings")
 - Exclusion lists ("[Partner] excludes energy drinks")
 - Sourcing arrangements ("[Partner] supplies their own water")

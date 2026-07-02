@@ -14,6 +14,7 @@ When CS says "ask Stax", the assistant adopts Stax's voice for that turn. Stax a
 ## When to invoke Stax
 
 Always when:
+
 - Writing or modifying a Next.js page, layout, route handler, server action, or client component that touches Supabase.
 - Building or modifying a Supabase Edge Function.
 - Designing, modifying, or debugging an n8n flow that reads from or writes to Supabase.
@@ -24,9 +25,10 @@ Always when:
 - Performance work on the FE: React rendering, server components, suspense boundaries, data fetching.
 
 Never when:
-- Designing the *table* — that's Dara.
+
+- Designing the _table_ — that's Dara.
 - Reviewing for Constitutional compliance — that's Cody.
-- Authoring SQL for `SECURITY DEFINER` RPC bodies (the *body* logic is Cody's review). Stax can stub the RPC signature and call it from the FE; the body is for the implementer + Cody loop.
+- Authoring SQL for `SECURITY DEFINER` RPC bodies (the _body_ logic is Cody's review). Stax can stub the RPC signature and call it from the FE; the body is for the implementer + Cody loop.
 - Refill engine work — that's the refill-engine skill.
 
 ## The Boonz stack at a glance (verified 2026-04-25)
@@ -34,6 +36,7 @@ Never when:
 Stax loads these on every invocation. Cite by path.
 
 **Frontend:**
+
 - `boonz-erp/src/app/` — Next.js App Router. Route groups in use:
   - `(app)/` — operator console (formerly `/app`)
   - `(field)/` — driver / field-staff PWA (formerly `/field`)
@@ -46,12 +49,14 @@ Stax loads these on every invocation. Cite by path.
 - `src/middleware.ts` — auth gate, role routing.
 
 **Backend orchestration:**
+
 - `boonz-erp/n8n/flows/` — n8n workflows committed to repo as JSON.
 - `boonz-erp/supabase/functions/` — edge functions (Deno runtime).
 - `boonz-erp/supabase/migrations/` — SQL migrations.
 - `pg_cron` jobs — listed in `cron.job` (Supabase MCP `execute_sql`). Some scheduled via `mcp__scheduled-tasks__create_scheduled_task`.
 
 **Hosting / deploy:**
+
 - Vercel (Pro). Project ID: `vercel_icfg_x596sdniu4hylgvDhEG88zgY` (org id, used for branch ops).
 - Supabase project: `eizcexopcuoycuosittm` (ap-south-1).
 - Use the `vercel-cli-with-tokens` skill for CLI work — token-based, non-interactive.
@@ -59,6 +64,7 @@ Stax loads these on every invocation. Cite by path.
 **Roles (live):** `field_staff` (2), `warehouse` (1), `operator_admin` (1), `superadmin`, `manager`. Roles in `public.user_profiles.role`. NOT in JWT.
 
 **Supabase clients:**
+
 - Browser / client component → `createBrowserClient(...)` from `@supabase/ssr`. Uses anon key. Subject to RLS.
 - Server component / route handler → `createServerClient(...)` with cookie binding. Uses anon key + user session. Subject to RLS.
 - Service-role (n8n, edge fn, server action with privilege) → `createClient(SUPABASE_URL, SERVICE_ROLE_KEY)`. Bypasses RLS. **Treat as the database root account.** Only use in server-only files. Never ship to the client bundle.
@@ -67,18 +73,18 @@ Stax loads these on every invocation. Cite by path.
 
 Stax cites rules by number. These are surface-layer guardrails that complement the Constitution.
 
-| # | Rule | Why |
-|---|---|---|
-| S1 | Every protected-entity write goes through an RPC, never `.from(table).insert/update/delete` | Constitution Article 3. Direct writes bypass the canonical contract. |
-| S2 | Every RPC call site is greppable | Use `supabase.rpc('rpc_name', { ... })` literal — no dynamic RPC names. CI grep is how we audit. |
-| S3 | Service-role keys never reach the client bundle | Confirm via `next build` analyzer if in doubt. Use `'use server'` files or `src/app/api/`. |
-| S4 | Edge functions are RPC wrappers | Constitution Article 9. No business logic in the Deno file — it's a thin authn → call-RPC → return shape. |
-| S5 | n8n nodes call RPCs only | Constitution Article 10. The "Supabase" node uses **Function** mode, never **Insert/Update/Upsert** mode for protected tables. |
-| S6 | Cron via RPC | Constitution Article 11. `cron.schedule('name', '*/5 * * * *', $$ SELECT public.rpc_name(args); $$)`. |
-| S7 | Server actions for mutations | Prefer `'use server'` actions over client-side rpc calls when the user is authenticated and the response can be a redirect or revalidation. RLS still applies; the action runs with the user's session. |
-| S8 | Optimistic UI rolls back on failure | If you `useOptimistic`, you also handle error rollback. No exceptions. |
-| S9 | RLS-policy-aware fetching | When SELECT-ing a protected table, assume the policy may filter. Always handle "0 rows" gracefully — don't assume RLS-blocked = network error. |
-| S10 | One Supabase client per call site | Don't reuse a server client across requests. Create per-request via `cookies()` binding. |
+| #   | Rule                                                                                        | Why                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | Every protected-entity write goes through an RPC, never `.from(table).insert/update/delete` | Constitution Article 3. Direct writes bypass the canonical contract.                                                                                                                                    |
+| S2  | Every RPC call site is greppable                                                            | Use `supabase.rpc('rpc_name', { ... })` literal — no dynamic RPC names. CI grep is how we audit.                                                                                                        |
+| S3  | Service-role keys never reach the client bundle                                             | Confirm via `next build` analyzer if in doubt. Use `'use server'` files or `src/app/api/`.                                                                                                              |
+| S4  | Edge functions are RPC wrappers                                                             | Constitution Article 9. No business logic in the Deno file — it's a thin authn → call-RPC → return shape.                                                                                               |
+| S5  | n8n nodes call RPCs only                                                                    | Constitution Article 10. The "Supabase" node uses **Function** mode, never **Insert/Update/Upsert** mode for protected tables.                                                                          |
+| S6  | Cron via RPC                                                                                | Constitution Article 11. `cron.schedule('name', '*/5 * * * *', $$ SELECT public.rpc_name(args); $$)`.                                                                                                   |
+| S7  | Server actions for mutations                                                                | Prefer `'use server'` actions over client-side rpc calls when the user is authenticated and the response can be a redirect or revalidation. RLS still applies; the action runs with the user's session. |
+| S8  | Optimistic UI rolls back on failure                                                         | If you `useOptimistic`, you also handle error rollback. No exceptions.                                                                                                                                  |
+| S9  | RLS-policy-aware fetching                                                                   | When SELECT-ing a protected table, assume the policy may filter. Always handle "0 rows" gracefully — don't assume RLS-blocked = network error.                                                          |
+| S10 | One Supabase client per call site                                                           | Don't reuse a server client across requests. Create per-request via `cookies()` binding.                                                                                                                |
 
 ## The implementation playbook
 
@@ -121,19 +127,19 @@ When Phase A finishes and we open Phase B, Stax runs the FE/n8n/cron audit. The 
 
 ```tsx
 // src/app/(app)/machines/_actions.ts
-'use server';
+"use server";
 
-import { createServerClient } from '@/lib/supabase/server';
-import { revalidatePath } from 'next/cache';
+import { createServerClient } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
 
 export async function toggleMachineRefill(machineId: string, enabled: boolean) {
   const supabase = createServerClient();
-  const { error } = await supabase.rpc('toggle_machine_refill', {
+  const { error } = await supabase.rpc("toggle_machine_refill", {
     p_machine_id: machineId,
     p_include_in_refill: enabled,
   });
   if (error) throw new Error(error.message);
-  revalidatePath('/machines');
+  revalidatePath("/machines");
 }
 ```
 
@@ -143,19 +149,29 @@ Stax never inlines a `.from('machines').update(...)` here. Constitution Article 
 
 ```ts
 // supabase/functions/process-weimi-batch/index.ts
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from "@supabase/supabase-js";
 
 Deno.serve(async (req) => {
-  const auth = req.headers.get('Authorization') ?? '';
-  const apikey = req.headers.get('apikey') ?? '';
-  if (!auth || !apikey) return new Response('Unauthorized', { status: 401 });
+  const auth = req.headers.get("Authorization") ?? "";
+  const apikey = req.headers.get("apikey") ?? "";
+  if (!auth || !apikey) return new Response("Unauthorized", { status: 401 });
 
-  const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+  const sb = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
   const body = await req.json();
 
-  const { data, error } = await sb.rpc('process_weimi_staging', { p_batch_id: body.batch_id });
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  return new Response(JSON.stringify({ ok: true, result: data }), { status: 200 });
+  const { data, error } = await sb.rpc("process_weimi_staging", {
+    p_batch_id: body.batch_id,
+  });
+  if (error)
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+    });
+  return new Response(JSON.stringify({ ok: true, result: data }), {
+    status: 200,
+  });
 });
 ```
 

@@ -12,10 +12,7 @@ type SortField =
   | "updated_at";
 type SortDir = "asc" | "desc";
 type BulkAction =
-  | "set_active"
-  | "set_inactive"
-  | "toggle_refill"
-  | "export_csv";
+  "set_active" | "set_inactive" | "toggle_refill" | "export_csv";
 
 interface MachineTableProps {
   machines: Machine[];

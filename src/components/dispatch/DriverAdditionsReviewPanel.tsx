@@ -100,7 +100,9 @@ export default function DriverAdditionsReviewPanel() {
               className="flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between dark:border-neutral-800 dark:bg-neutral-900"
             >
               <div className="min-w-0 text-sm">
-                <span className="font-medium">{r.boonz_product_name ?? "—"}</span>
+                <span className="font-medium">
+                  {r.boonz_product_name ?? "—"}
+                </span>
                 <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                   ⚑ {r.review_reason ?? "review"} · {r.quantity}u
                 </span>

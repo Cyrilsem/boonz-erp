@@ -17,13 +17,13 @@ This rule was authored to prevent the pre-Phase-A reality where FE / n8n / cron 
 
 The literal reading ("exactly one") has been operationally violated for three protected entities since before Phase A:
 
-| Entity | Canonical writers (count) |
-|---|---|
-| `refill_dispatching` | 9 pre-Phase-F (`pack_dispatch_line`, `receive_dispatch_line`, `return_dispatch_line`, `swap_between_machines`, `mark_picked_up`, `acknowledge_m2m_transfer`, `defer_dispatch_lines`, `conserve_split_dispatch_quantity` trigger, `write_refill_plan`); +6 new Phase-F edit RPCs = 15 total |
-| `pod_inventory` | `adjust_pod_inventory`, `auto_decrement_pod_inventory`, `receive_dispatch_line`, `return_dispatch_line`, `swap_between_machines`, others = 6+ |
-| `warehouse_inventory` | `pack_dispatch_line`, `return_dispatch_line`, `swap_between_machines`, `transfer_warehouse_stock`, `adjust_warehouse_stock`, `confirm_warehouse_status_proposal`, `process_weimi_staging`, others = 8+ |
+| Entity                | Canonical writers (count)                                                                                                                                                                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `refill_dispatching`  | 9 pre-Phase-F (`pack_dispatch_line`, `receive_dispatch_line`, `return_dispatch_line`, `swap_between_machines`, `mark_picked_up`, `acknowledge_m2m_transfer`, `defer_dispatch_lines`, `conserve_split_dispatch_quantity` trigger, `write_refill_plan`); +6 new Phase-F edit RPCs = 15 total |
+| `pod_inventory`       | `adjust_pod_inventory`, `auto_decrement_pod_inventory`, `receive_dispatch_line`, `return_dispatch_line`, `swap_between_machines`, others = 6+                                                                                                                                              |
+| `warehouse_inventory` | `pack_dispatch_line`, `return_dispatch_line`, `swap_between_machines`, `transfer_warehouse_stock`, `adjust_warehouse_stock`, `confirm_warehouse_status_proposal`, `process_weimi_staging`, others = 8+                                                                                     |
 
-The literal violation has always been present. The *spirit* of Article 1 — that every mutation goes through a DEFINER + role-gated + audited path — has been preserved across all writers on these entities. The gap between the literal rule and the operational reality has been widening, and Cody has been signing off "approve under precedent" without that precedent being formalized.
+The literal violation has always been present. The _spirit_ of Article 1 — that every mutation goes through a DEFINER + role-gated + audited path — has been preserved across all writers on these entities. The gap between the literal rule and the operational reality has been widening, and Cody has been signing off "approve under precedent" without that precedent being formalized.
 
 Amendment 005 closes the gap by codifying the precedent.
 
@@ -53,6 +53,7 @@ Amendment 005 closes the gap by codifying the precedent.
 **No new tables.** No new RPCs. The codified pattern matches the precedent already in production.
 
 **Two updates to derivative docs:**
+
 1. `RPC_REGISTRY.md` gains an "Entity → canonical-writer-set" cross-index, replacing the old implicit single-writer assumption.
 2. `Cody`'s skill (`SKILL.md`) gets a new verdict pattern: when reviewing a new writer on a high-traffic entity, Cody confirms the narrow-concern criterion (one field or one FSM transition) rather than blocking on the literal single-writer reading.
 

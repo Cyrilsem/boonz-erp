@@ -45,7 +45,9 @@ export default function ExpiryBreakdownDialog({
     setRows((prev) => [...prev, { qty: "0", expiry: "" }]);
   }
   function removeRow(i: number) {
-    setRows((prev) => (prev.length > 1 ? prev.filter((_, j) => j !== i) : prev));
+    setRows((prev) =>
+      prev.length > 1 ? prev.filter((_, j) => j !== i) : prev,
+    );
   }
 
   async function save() {
@@ -92,8 +94,9 @@ export default function ExpiryBreakdownDialog({
       >
         <h2 className="text-base font-semibold">Split across expiry dates</h2>
         <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
-          {productName} — total locked to <strong>{lineTotal}</strong>. Distribute
-          across real expiry dates; leave a date blank for "to confirm".
+          {productName} — total locked to <strong>{lineTotal}</strong>.
+          Distribute across real expiry dates; leave a date blank for "to
+          confirm".
         </p>
 
         <div className="mt-3 space-y-2">
@@ -146,7 +149,9 @@ export default function ExpiryBreakdownDialog({
           <span>Split total</span>
           <span className="font-semibold tabular-nums">
             {total} / {lineTotal}{" "}
-            {matches ? "✓" : `(${total > lineTotal ? "−" : "+"}${Math.abs(lineTotal - total)})`}
+            {matches
+              ? "✓"
+              : `(${total > lineTotal ? "−" : "+"}${Math.abs(lineTotal - total)})`}
           </span>
         </div>
 

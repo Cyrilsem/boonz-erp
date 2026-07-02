@@ -146,7 +146,9 @@ export default function VoxReturnsPanel() {
       </div>
 
       {/* Footer totals surfaced as cards up top for quick read. */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+      <div
+        style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}
+      >
         {[
           { l: "Returned units", v: totals.units.toLocaleString() },
           { l: "Distinct SKUs", v: totals.skus.toLocaleString() },
@@ -187,8 +189,9 @@ export default function VoxReturnsPanel() {
           lineHeight: 1.5,
         }}
       >
-        VOX returns are logged at receive time and do <strong>not</strong> credit
-        warehouse stock (PRD-034 no-WH-credit invariant). This ledger is read-only.
+        VOX returns are logged at receive time and do <strong>not</strong>{" "}
+        credit warehouse stock (PRD-034 no-WH-credit invariant). This ledger is
+        read-only.
       </div>
 
       {err && (
@@ -224,13 +227,19 @@ export default function VoxReturnsPanel() {
           <tbody>
             {loading && rows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ textAlign: "center", color: "var(--grey)" }}>
+                <td
+                  colSpan={8}
+                  style={{ textAlign: "center", color: "var(--grey)" }}
+                >
                   Loading…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ textAlign: "center", color: "var(--grey)" }}>
+                <td
+                  colSpan={8}
+                  style={{ textAlign: "center", color: "var(--grey)" }}
+                >
                   No VOX returns in this window.
                 </td>
               </tr>

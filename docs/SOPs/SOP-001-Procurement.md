@@ -1,4 +1,5 @@
 # SOP-001 — Procurement Flow
+
 **Boonz ERP · Last updated: 2026-04-28 · Status: Live**
 
 ---
@@ -14,12 +15,12 @@ Procurement is the process of getting stock from suppliers into the warehouse. T
 
 ## Who Does What
 
-| Role | Responsibilities |
-|---|---|
-| **Operator / Manager** | Creates the PO, monitors order status |
-| **Driver** | Acknowledges task, buys at store, reports outcomes per product |
-| **Warehouse** | Receives goods, enters quantities + expiry dates, confirms stock |
-| **System** | Routes notifications, updates status, logs every event automatically |
+| Role                   | Responsibilities                                                     |
+| ---------------------- | -------------------------------------------------------------------- |
+| **Operator / Manager** | Creates the PO, monitors order status                                |
+| **Driver**             | Acknowledges task, buys at store, reports outcomes per product       |
+| **Warehouse**          | Receives goods, enters quantities + expiry dates, confirms stock     |
+| **System**             | Routes notifications, updates status, logs every event automatically |
 
 ---
 
@@ -43,14 +44,14 @@ Procurement is the process of getting stock from suppliers into the warehouse. T
 
 ---
 
-### Phase 2 — Driver Collection *(Walk-in suppliers only)*
+### Phase 2 — Driver Collection _(Walk-in suppliers only)_
 
 **Who:** Driver
 **Where:** `/field/tasks`
 
 1. Open the field app → **Tasks**
 2. Find the new task (supplier name + PO number shown)
-3. Tap **Acknowledge** before leaving — status changes to *On my way*
+3. Tap **Acknowledge** before leaving — status changes to _On my way_
 4. Go to the store and purchase the items
 5. Tap the task to expand it — for each product, select the outcome:
    - ✅ **Full** — bought everything
@@ -103,41 +104,41 @@ Procurement is the process of getting stock from suppliers into the warehouse. T
 
 Every action creates an audit trail entry:
 
-| Event | When |
-|---|---|
-| `po_created` | PO is submitted |
-| `task_assigned` | Driver task is created |
-| `task_acknowledged` | Driver taps Acknowledge |
-| `task_collected` | Driver marks as collected |
-| `goods_received` | WH confirms receipt |
+| Event                | When                             |
+| -------------------- | -------------------------------- |
+| `po_created`         | PO is submitted                  |
+| `task_assigned`      | Driver task is created           |
+| `task_acknowledged`  | Driver taps Acknowledge          |
+| `task_collected`     | Driver marks as collected        |
+| `goods_received`     | WH confirms receipt              |
 | `line_not_purchased` | WH marks a line as not purchased |
 
 ---
 
 ## Data Outcomes
 
-| Field | Value | Meaning |
-|---|---|---|
-| `purchase_outcome` | `received` | Stock added to warehouse |
+| Field              | Value           | Meaning                     |
+| ------------------ | --------------- | --------------------------- |
+| `purchase_outcome` | `received`      | Stock added to warehouse    |
 | `purchase_outcome` | `not_purchased` | Line closed, no stock added |
-| `purchase_outcome` | `null` | Still pending |
-| `received_qty` | > 0 | Units added to WH batch |
-| `received_qty` | 0 | Not purchased |
+| `purchase_outcome` | `null`          | Still pending               |
+| `received_qty`     | > 0             | Units added to WH batch     |
+| `received_qty`     | 0               | Not purchased               |
 
 ---
 
 ## Supplier Reference
 
-| Supplier | Code | Type | Driver Task? |
-|---|---|---|---|
-| Union Coop | SUP_005 | walk_in | ✅ Always |
-| Carrefour | SUP_011 | walk_in | ✅ Always |
-| Arab Sweet | SUP_007 | walk_in | ✅ Always |
-| Merich Global | SUP_001 | walk_in | ✅ Always |
-| Champions Food | SUP_003 | supplier_delivered | ❌ Unless emergency |
-| EATCO | SUP_002 | supplier_delivered | ❌ Unless emergency |
+| Supplier               | Code    | Type               | Driver Task?        |
+| ---------------------- | ------- | ------------------ | ------------------- |
+| Union Coop             | SUP_005 | walk_in            | ✅ Always           |
+| Carrefour              | SUP_011 | walk_in            | ✅ Always           |
+| Arab Sweet             | SUP_007 | walk_in            | ✅ Always           |
+| Merich Global          | SUP_001 | walk_in            | ✅ Always           |
+| Champions Food         | SUP_003 | supplier_delivered | ❌ Unless emergency |
+| EATCO                  | SUP_002 | supplier_delivered | ❌ Unless emergency |
 | General Food Chocolate | SUP_004 | supplier_delivered | ❌ Unless emergency |
 
 ---
 
-*SOP-001 · Boonz ERP · Procurement · 2026-04-28*
+_SOP-001 · Boonz ERP · Procurement · 2026-04-28_

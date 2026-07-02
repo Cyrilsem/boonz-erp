@@ -983,9 +983,7 @@ function Row({
               <input
                 type="date"
                 value={item.due_date ?? ""}
-                onChange={(e) =>
-                  onUpdate({ due_date: e.target.value || null })
-                }
+                onChange={(e) => onUpdate({ due_date: e.target.value || null })}
                 style={{
                   border: "1px solid #e6e1d7",
                   borderRadius: 999,
@@ -998,7 +996,9 @@ function Row({
               />
             ) : (
               item.due_date && (
-                <span style={{ fontSize: 12, color: "#5a5346", fontWeight: 600 }}>
+                <span
+                  style={{ fontSize: 12, color: "#5a5346", fontWeight: 600 }}
+                >
                   due {item.due_date}
                 </span>
               )

@@ -29,10 +29,7 @@ interface POLineDetail {
 }
 
 type Outcome =
-  | "purchased_full"
-  | "purchased_partial"
-  | "not_available"
-  | "other";
+  "purchased_full" | "purchased_partial" | "not_available" | "other";
 
 const OUTCOME_OPTIONS: { value: Outcome; label: string; icon: string }[] = [
   { value: "purchased_full", label: "Full", icon: "✅" },
@@ -125,17 +122,24 @@ export default function TasksPage() {
     const mapped: DriverTask[] = data
       .filter((row) => {
         // Only show tasks for walk_in suppliers OR emergency-forced tasks
-        const s = row.suppliers as unknown as { supplier_name: string; procurement_type: string };
+        const s = row.suppliers as unknown as {
+          supplier_name: string;
+          procurement_type: string;
+        };
         return s.procurement_type === "walk_in" || row.is_forced === true;
       })
       .map((row) => {
-        const s = row.suppliers as unknown as { supplier_name: string; procurement_type: string };
+        const s = row.suppliers as unknown as {
+          supplier_name: string;
+          procurement_type: string;
+        };
         return {
           task_id: row.task_id,
           po_id: row.po_id,
           po_number: row.po_number,
           supplier_name: s.supplier_name,
-          procurement_type: s.procurement_type as DriverTask["procurement_type"],
+          procurement_type:
+            s.procurement_type as DriverTask["procurement_type"],
           is_forced: row.is_forced ?? false,
           status: row.status as DriverTask["status"],
           notes: row.notes,

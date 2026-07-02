@@ -14,10 +14,7 @@
       },
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
-      "position": [
-        -4560,
-        2256
-      ],
+      "position": [-4560, 2256],
       "id": "38dd2439-6c9c-4f6e-9def-a608ae204f53",
       "name": "Schedule 23:"
     },
@@ -37,10 +34,7 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [
-        -4352,
-        2256
-      ],
+      "position": [-4352, 2256],
       "id": "5c17217f-0ad4-4751-bcb1-e3c8f0ce09b6",
       "name": "Config1"
     },
@@ -50,10 +44,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -4128,
-        2064
-      ],
+      "position": [-4128, 2064],
       "id": "1d9ef790-3078-4b06-988a-7e702ebe85b6",
       "name": "Sign Prices1"
     },
@@ -65,10 +56,7 @@
       },
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 1,
-      "position": [
-        -3904,
-        2064
-      ],
+      "position": [-3904, 2064],
       "id": "5e03c88e-8bbd-412b-9194-5e90a0ce7adc",
       "name": "Hash Prices1"
     },
@@ -117,10 +105,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        -3680,
-        2064
-      ],
+      "position": [-3680, 2064],
       "id": "66df8b8c-95fe-4429-b3b0-758083dc7002",
       "name": "Get All Prices1",
       "alwaysOutputData": true
@@ -131,10 +116,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -4128,
-        2256
-      ],
+      "position": [-4128, 2256],
       "id": "564ecc70-d989-4d15-9f05-f9ec91585748",
       "name": "Sign Devices1"
     },
@@ -146,10 +128,7 @@
       },
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 1,
-      "position": [
-        -3904,
-        2256
-      ],
+      "position": [-3904, 2256],
       "id": "177c4a81-49b1-4aea-bb49-3e7e18357f61",
       "name": "Hash Devices1"
     },
@@ -193,10 +172,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        -3680,
-        2256
-      ],
+      "position": [-3680, 2256],
       "id": "f44d1398-9772-453b-b694-3a9021f0abd5",
       "name": "Get All Devices1"
     },
@@ -207,10 +183,7 @@
       },
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [
-        -3504,
-        2256
-      ],
+      "position": [-3504, 2256],
       "id": "bba65fc1-3b65-464c-91a2-e2965c6c8e31",
       "name": "Split Devices1"
     },
@@ -250,10 +223,7 @@
       },
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2.3,
-      "position": [
-        -3344,
-        2256
-      ],
+      "position": [-3344, 2256],
       "id": "3c684204-8d38-4697-90b2-4c5f6a389405",
       "name": "Filter Devices1",
       "alwaysOutputData": true,
@@ -265,10 +235,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -4128,
-        2464
-      ],
+      "position": [-4128, 2464],
       "id": "952a2366-a2b0-4f11-8c4a-e0a96a31bd86",
       "name": "Sign Orders1"
     },
@@ -280,10 +247,7 @@
       },
       "type": "n8n-nodes-base.crypto",
       "typeVersion": 1,
-      "position": [
-        -3904,
-        2464
-      ],
+      "position": [-3904, 2464],
       "id": "75bcb732-0d54-4526-8d8d-5a0fffd61b32",
       "name": "Hash Orders1"
     },
@@ -327,10 +291,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        -3680,
-        2464
-      ],
+      "position": [-3680, 2464],
       "id": "71863931-5a54-4b38-8a36-dc30c8eaadf5",
       "name": "Get Daily Transactions1",
       "alwaysOutputData": true
@@ -342,10 +303,7 @@
       },
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [
-        -3504,
-        2464
-      ],
+      "position": [-3504, 2464],
       "id": "2f22f666-edfc-49de-8d4f-d2c967c89402",
       "name": "Split Orders1"
     },
@@ -355,10 +313,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -3344,
-        2464
-      ],
+      "position": [-3344, 2464],
       "id": "be10dc1f-5e20-4a91-bd91-b19211bc9817",
       "name": "ETL: Transform to Item Detail1"
     },
@@ -368,10 +323,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -3008,
-        2320
-      ],
+      "position": [-3008, 2320],
       "id": "f0036eef-3013-4392-b861-3fdfc11e84fa",
       "name": "Build All Reports1"
     },
@@ -385,10 +337,7 @@
       },
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        -2736,
-        2128
-      ],
+      "position": [-2736, 2128],
       "id": "b2b2d4d8-f892-477d-8eb9-e1d9126006e2",
       "name": "Send Telegram1",
       "webhookId": "f012e7c6-e61f-412a-8e71-c4f65998ef17",
@@ -408,10 +357,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        -2736,
-        2912
-      ],
+      "position": [-2736, 2912],
       "id": "b9d1177f-2cac-4088-86c9-6c57f5bec041",
       "name": "Email: OMD1",
       "alwaysOutputData": true,
@@ -434,10 +380,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        -2736,
-        3120
-      ],
+      "position": [-2736, 3120],
       "id": "af25bbc4-e622-45f4-b9cb-a5ba5e212ca5",
       "name": "Email: IRIS1",
       "alwaysOutputData": true,
@@ -459,10 +402,7 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -4160,
-        1968
-      ],
+      "position": [-4160, 1968],
       "id": "d1a728a8-1cce-49a0-abda-ae7b7e625c12",
       "name": "Note: Fetch1"
     },
@@ -474,10 +414,7 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -4112,
-        2304
-      ],
+      "position": [-4112, 2304],
       "id": "37fa91bb-192a-4fe4-b01d-6e97d758abc2",
       "name": "Note: Reports1"
     },
@@ -489,10 +426,7 @@
       },
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
-      "position": [
-        -2768,
-        2000
-      ],
+      "position": [-2768, 2000],
       "id": "4bb1cac5-a0b1-4be6-bc16-a84c11bcce0f",
       "name": "Note: Send1"
     },
@@ -502,10 +436,7 @@
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        -3120,
-        2912
-      ],
+      "position": [-3120, 2912],
       "id": "5fc35f2c-0035-42aa-8319-1ecdc2855fbf",
       "name": "Code in JavaScript1"
     },
@@ -531,10 +462,7 @@
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
-      "position": [
-        -2960,
-        2912
-      ],
+      "position": [-2960, 2912],
       "id": "07a87757-01f7-4a6b-85a8-893c295636cc",
       "name": "Supabase Upsert1",
       "credentials": {
@@ -553,10 +481,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        -2736,
-        2720
-      ],
+      "position": [-2736, 2720],
       "id": "f649c0cd-aa65-4467-971e-8af468711350",
       "name": "Email: VOXMM1",
       "alwaysOutputData": true,
@@ -579,10 +504,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        -2736,
-        2528
-      ],
+      "position": [-2736, 2528],
       "id": "d477d58e-2aec-42b1-ab3b-83e23aaa8902",
       "name": "Email: VOXMCC1",
       "alwaysOutputData": true,
@@ -605,10 +527,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        -2736,
-        3328
-      ],
+      "position": [-2736, 3328],
       "id": "c3e7f0a1-9b2d-4e8c-8f11-aa1e7c6d0b42",
       "name": "Email: ALLMCC1",
       "alwaysOutputData": true,
@@ -631,10 +550,7 @@
       },
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.2,
-      "position": [
-        -2736,
-        2320
-      ],
+      "position": [-2736, 2320],
       "id": "e0cfdec2-4031-4ce1-9d3b-c9f78f118294",
       "name": "Email: All Machines1",
       "alwaysOutputData": true,

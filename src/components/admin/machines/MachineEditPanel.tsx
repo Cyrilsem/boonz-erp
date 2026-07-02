@@ -476,10 +476,7 @@ export default function MachineEditPanel({
             value={str(machine.official_name)}
           />
           <ReadOnlyField label="Status" value={str(machine.status)} />
-          <ReadOnlyField
-            label="Venue Group"
-            value={str(machine.venue_group)}
-          />
+          <ReadOnlyField label="Venue Group" value={str(machine.venue_group)} />
           <ReadOnlyField label="Pod Number" value={str(machine.pod_number)} />
           <ReadOnlyField
             label="Pod Location"

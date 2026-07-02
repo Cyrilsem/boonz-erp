@@ -34,8 +34,9 @@
 
 version: 1
 mode: warn
-cutover_date: null  # set on Phase C kickoff; until then, mode=warn is enforced
-                     # regardless of this field's value (sanity guard in lint)
+cutover_date:
+  null # set on Phase C kickoff; until then, mode=warn is enforced
+  # regardless of this field's value (sanity guard in lint)
 baseline_file: docs/architecture/A.6_baseline.json
 
 # -----------------------------------------------------------------------------
@@ -71,7 +72,6 @@ severity_levels:
 # -----------------------------------------------------------------------------
 
 protected_entities:
-
   # ── Machine lifecycle ──────────────────────────────────────────────────────
 
   - name: machines
@@ -82,7 +82,7 @@ protected_entities:
         - repurpose_machine
         - toggle_machine_refill
       edge_functions:
-        - repurpose-machine  # thin wrapper around repurpose_machine RPC
+        - repurpose-machine # thin wrapper around repurpose_machine RPC
     severity_per_surface:
       fe: ERROR
       n8n: ERROR
@@ -113,8 +113,8 @@ protected_entities:
     appendix_a_alias: null
     canonical_writers:
       rpcs:
-        - add_new_machine       # creates initial planogram on machine creation
-        - repurpose_machine     # archives old + creates new planogram
+        - add_new_machine # creates initial planogram on machine creation
+        - repurpose_machine # archives old + creates new planogram
       edge_functions: []
     severity_per_surface:
       fe: ERROR
@@ -161,8 +161,8 @@ protected_entities:
     appendix_a_alias: null
     canonical_writers:
       rpcs:
-        - add_new_machine        # creates initial lifecycle rows
-        - repurpose_machine      # archives lifecycle on repurpose
+        - add_new_machine # creates initial lifecycle rows
+        - repurpose_machine # archives lifecycle on repurpose
         - refresh_product_scores # writes lifecycle scores on cron
       edge_functions: []
     severity_per_surface:
@@ -199,7 +199,7 @@ protected_entities:
     appendix_a_alias: null
     canonical_writers:
       rpcs:
-        - auto_decrement_pod_inventory  # only legal source per Article 7
+        - auto_decrement_pod_inventory # only legal source per Article 7
       edge_functions: []
     severity_per_surface:
       fe: ERROR
@@ -239,7 +239,7 @@ protected_entities:
     appendix_a_alias: null
     canonical_writers:
       rpcs:
-        - log_wh_mutation              # legacy, deprecation Article 13 monitor
+        - log_wh_mutation # legacy, deprecation Article 13 monitor
       edge_functions: []
     severity_per_surface:
       fe: ERROR
@@ -254,7 +254,7 @@ protected_entities:
   # ── Sales / telemetry ──────────────────────────────────────────────────────
 
   - name: sales_history
-    appendix_a_alias: daily_sales,sales_lines  # reconciled by Amendment 001
+    appendix_a_alias: daily_sales,sales_lines # reconciled by Amendment 001
     canonical_writers:
       rpcs:
         - upsert_daily_sales
@@ -275,10 +275,10 @@ protected_entities:
       may still reference old names; that itself is a violation).
 
   - name: sales_history_aggregated
-    appendix_a_alias: sales_aggregated  # reconciled by Amendment 001
+    appendix_a_alias: sales_aggregated # reconciled by Amendment 001
     canonical_writers:
       rpcs:
-        - refresh_sales_aggregated  # runs on */10 * * * * cron
+        - refresh_sales_aggregated # runs on */10 * * * * cron
       edge_functions: []
     severity_per_surface:
       fe: ERROR
@@ -324,7 +324,7 @@ protected_entities:
           Refill-engine skill is the service_role caller. B.x.1 will refactor
           it to call write_refill_plan instead of direct INSERT. Until then,
           this is the only legal direct writer.
-        expiry: 2026-05-15  # B.x.1 land-by date; auto-promotes to ERROR after
+        expiry: 2026-05-15 # B.x.1 land-by date; auto-promotes to ERROR after
         owner: stax
     notes: >
       §3.2 incident scope. 180 direct writes from refill-engine skill. RLS
@@ -371,7 +371,7 @@ protected_entities:
     appendix_a_alias: null
     canonical_writers:
       rpcs:
-        - audit_log_write  # generic AFTER trigger function (Article 8)
+        - audit_log_write # generic AFTER trigger function (Article 8)
       edge_functions: []
     severity_per_surface:
       fe: ERROR
@@ -389,13 +389,12 @@ protected_entities:
 # -----------------------------------------------------------------------------
 
 write_detection:
-
   fe:
     paths:
       - boonz-erp/src/**/*.ts
       - boonz-erp/src/**/*.tsx
     excluded_paths:
-      - boonz-erp/src/types/**       # type defs are not writes
+      - boonz-erp/src/types/** # type defs are not writes
       - boonz-erp/src/**/*.test.ts
       - boonz-erp/src/**/*.test.tsx
     write_patterns:
@@ -463,9 +462,10 @@ ci_modes:
     blocks_pr: false
     posts_comment: true
     silences_baseline: true
-    daily_cron_scan: true   # additionally scans n8n + pg_cron daily for drift
-    daily_cron_output: docs/architecture/A.6_drift_$(date).md  # markdown report
-                                                                # committed to repo
+    daily_cron_scan: true # additionally scans n8n + pg_cron daily for drift
+    daily_cron_output:
+      docs/architecture/A.6_drift_$(date).md # markdown report
+      # committed to repo
 
   fail:
     description: >

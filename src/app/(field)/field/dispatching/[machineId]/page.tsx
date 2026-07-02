@@ -217,15 +217,13 @@ export default function DispatchingDetailPage() {
         if (driverConfirmed && !isReturned) action = "added"; // REMOVE: driver confirmed removal
         const whId =
           ((line as Record<string, unknown>).from_warehouse_id as
-            | string
-            | null) ?? null;
+            string | null) ?? null;
         // BUG-010 fix #2: auto-populate filled_qty with planned quantity on load
         // so driver only has to edit if reality differs.
         const planned = line.quantity ?? 0;
         const driverQty =
           ((line as Record<string, unknown>).driver_confirmed_qty as
-            | number
-            | null) ?? null;
+            number | null) ?? null;
         const filledQtyDefault =
           driverQty ??
           (line.filled_quantity != null && line.filled_quantity > 0
@@ -238,8 +236,7 @@ export default function DispatchingDetailPage() {
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
           pod_product_id:
             ((line as Record<string, unknown>).pod_product_id as
-              | string
-              | null) ?? null,
+              string | null) ?? null,
           shelf_id: (line.shelf_id as string | null) ?? null,
           shelf_code: shelf?.shelf_code ?? null,
           pod_product_name: product?.pod_product_name ?? null,

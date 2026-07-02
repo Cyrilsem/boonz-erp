@@ -295,7 +295,9 @@ export default function NewOrderPage() {
     ]);
     // Auto-reset force flag when supplier changes
     const newSupplier = suppliers.find((s) => s.supplier_id === id);
-    setForceDriverTask(newSupplier?.procurement_type === "walk_in" ? false : false);
+    setForceDriverTask(
+      newSupplier?.procurement_type === "walk_in" ? false : false,
+    );
   }
 
   // -- Excel import --
@@ -473,7 +475,12 @@ export default function NewOrderPage() {
       return;
     }
 
-    const result = rpcResult as { po_id: string; po_number: number; driver_task_created: boolean; duplicate?: boolean };
+    const result = rpcResult as {
+      po_id: string;
+      po_number: number;
+      driver_task_created: boolean;
+      duplicate?: boolean;
+    };
     console.log("[NewOrder] PO created:", result);
 
     // Walk-in OR forced → driver task was created
@@ -541,7 +548,8 @@ export default function NewOrderPage() {
   // Derived: selected supplier for confirm dialog
   const selectedSupplier = suppliers.find((s) => s.supplier_id === supplierId);
   // Walk-in: either the supplier is a walk_in type, or force override is on
-  const isWalkIn = selectedSupplier?.procurement_type === "walk_in" || forceDriverTask;
+  const isWalkIn =
+    selectedSupplier?.procurement_type === "walk_in" || forceDriverTask;
 
   if (loading) {
     return (
@@ -638,9 +646,7 @@ export default function NewOrderPage() {
             <p className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
               {poIdDisplay}
             </p>
-            <p className="mt-0.5 text-xs text-neutral-400">
-              Assigned on save
-            </p>
+            <p className="mt-0.5 text-xs text-neutral-400">Assigned on save</p>
           </div>
         </div>
       </div>

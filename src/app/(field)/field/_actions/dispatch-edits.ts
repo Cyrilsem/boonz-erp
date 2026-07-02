@@ -6,11 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type EditRole =
-  | "driver"
-  | "warehouse_manager"
-  | "operator_admin"
-  | "superadmin"
-  | "manager";
+  "driver" | "warehouse_manager" | "operator_admin" | "superadmin" | "manager";
 // SourceKind: only "wh" (Warehouse) and "m2m" (From another machine) are user-pickable.
 // "truck_transfer" and "unknown" remain DB-valid for legacy rows but are no longer exposed in the FE.
 export type SourceKind = "wh" | "m2m";

@@ -107,13 +107,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Field({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
+function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <div
@@ -1091,7 +1085,9 @@ export default function SuppliersPage() {
                 <EditFields
                   draft={editDraft}
                   onChange={(patch) =>
-                    setEditDraft((prev) => (prev ? { ...prev, ...patch } : prev))
+                    setEditDraft((prev) =>
+                      prev ? { ...prev, ...patch } : prev,
+                    )
                   }
                 />
               ) : (
@@ -1150,10 +1146,7 @@ export default function SuppliersPage() {
                       label="Payment Terms"
                       value={selected.payment_terms}
                     />
-                    <Field
-                      label="Payment Type"
-                      value={selected.payment_type}
-                    />
+                    <Field label="Payment Type" value={selected.payment_type} />
                     <Field label="Currency" value={selected.currency} />
                     <Field label="Rating" value={selected.rating} />
                     <Field
