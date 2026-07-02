@@ -1,6 +1,6 @@
 # PRD-046 - Stitch multi-variant SKU distribution
 
-**Status:** ✅ APPLIED 2026-06-21 (stitch v26 live in prod). swaps_enabled / engines untouched (engine_add_pod md5 244de950… unchanged; engine_swap_pod still v15).
+**Status:** ✅ Shipped 2026-06-21 (stitch v26 live in prod). swaps_enabled / engines untouched (engine_add_pod md5 244de950… unchanged; engine_swap_pod still v15).
 
 ## EXECUTION LOG (2026-06-21)
 

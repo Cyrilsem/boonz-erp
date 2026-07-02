@@ -1,6 +1,6 @@
 # PRD-039 — Refill v4 Swap: Value-Model Candidate Sourcing, Capacity Fit, and Slot Assignment
 
-**Status:** Draft, ready to build. Migration files only. Nothing to prod without explicit CS sign-off.
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: Phase 0+1 shipped 2026-06-20 (engine_swap_pod v13 + capacity matrix + affinity helper); P2 parked indefinitely, swaps_enabled false. Reopen by deleting this line.
 **Owner:** CS (cyrilsem@gmail.com)
 **Created:** 2026-06-20
 **Depends on:** PRD-037 (engine_swap_pod v12, coexistence_rules, boonz_products.brand_owner, WS-1 helpers \_coexistence_blocks / \_travel_scope_blocks). engine_add_pod v18 stays FROZEN.

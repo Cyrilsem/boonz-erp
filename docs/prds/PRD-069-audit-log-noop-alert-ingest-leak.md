@@ -1,5 +1,7 @@
 # PRD-069: write_audit_log no-op leak from ingest_alerts_into_ledger + reclaim
 
+Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: draft investigation of audit-log noop-alert ingest leak; doc restored to main by PRD-071 WS-A salvage; build not started.
+
 Owner: CS. Date: 2026-07-01. Surface: backend cron RPC + one-time reclaim + standing monitor. Touches ingest_alerts_into_ledger, findings_ledger, write_audit_log (Articles 1, 12, 16 - protected append-only log). Cody review mandatory. Idempotent, no em dashes.
 
 ## Why (verified live 2026-07-01)

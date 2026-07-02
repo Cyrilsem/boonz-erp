@@ -1,5 +1,7 @@
 # PRD-034: VOX-sourced returns must not credit Boonz warehouse
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: superseded by PRD-054 returns-queue VOX guard (shipped 2026-06-23). Reopen by deleting this line.
+
 Owner: CS
 Date: 2026-06-17
 Surface: Backend (new table + one canonical-writer guard). Touches protected entity `warehouse_inventory` and `pod_inventory` via `receive_dispatch_line`. Cody review required.

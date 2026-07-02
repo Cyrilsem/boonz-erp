@@ -1,6 +1,6 @@
 # PRD-035 — Refill v3: relative scoring engine, flavor-aware stitch, session context, smart picker
 
-**Author:** CS + Claude · **Date:** 2026-06-18 · **Status:** Draft for review
+**Author:** CS + Claude · **Date:** 2026-06-18 · **Status:** Shipped (engine_add_pod v18 + stitch v24 + picker v10 baseline live per PRD-037 dependency note; 5 prd035 migrations on main; PRD-071 sweep 2026-07-02)
 **Origin:** retrospective of the 2026-06-17 "monster" 3-hour refill (`BOONZ BRAIN/refill_retrospective_2026-06-17.md`).
 **Principle:** the system must resolve **pod → in-stock flavor → real pickable stock** as a first-class step, score every shelf **relative to its machine**, and expose its own state up front. Stance is display-only, never a driver.
 

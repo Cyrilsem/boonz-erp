@@ -1,6 +1,6 @@
 # PRD-037 — Refill v4: Swap Engine (Logic 2), done properly
 
-**Status:** Draft, ready to build. Migration files only. Nothing to prod without explicit CS sign-off.
+**Status:** Shipped (engine_swap_pod v12/v14 line now superseded by v15_slot_profile - verified live in prod 2026-07-02; planned_swaps live; swaps_enabled=false keeps output advisory-only). PRD-071 sweep.
 **Owner:** CS (cyrilsem@gmail.com)
 **Created:** 2026-06-19
 **Depends on:** PRD-035 (engine_add_pod v18, stitch v24, picker v10 — all live). PRD-028 (v_wh_pickable).

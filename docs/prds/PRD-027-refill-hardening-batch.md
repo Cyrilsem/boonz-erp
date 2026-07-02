@@ -1,7 +1,7 @@
 # PRD-027: Refill Hardening Batch (Swap Guards, WH Source Visibility, Data Backfills)
 
 **Date:** 2026-06-12
-**Status:** Draft, awaiting CS approval
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: overtaken by the PRD-030/031 batch and the PRD-053 conservation line. Reopen by deleting this line.
 **Severity:** Medium. None of these corrupt data today, but each erodes trust or hides information the operator needs.
 **Owners:** mixed per workstream (Cody / Stax / Dara / CS), see each section.
 

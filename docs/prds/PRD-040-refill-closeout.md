@@ -1,6 +1,6 @@
 # PRD-040 — Refill v3/v4 Closeout: unapplied debt, hygiene, FE wiring, activation
 
-**Status:** Draft. Catalogs and closes everything started-but-not-done in the PRD-034..039 refill thread.
+**Status:** Shipped (B-track applied 2026-06-20: 6 prd040 migrations on main incl. B2 family taxonomy + B4 wh-pickable unify; C-track FE remains specs-only). Catalogs the PRD-034..039 refill thread. PRD-071 sweep 2026-07-02.
 **Owner:** CS (cyrilsem@gmail.com)
 **Created:** 2026-06-20
 **Depends on:** PRD-034/035/036/037/039 (all live in prod, on main @120f987). `refill_settings.swaps_enabled` is `false`.

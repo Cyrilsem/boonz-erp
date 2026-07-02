@@ -1,5 +1,7 @@
 # PRD-062: Merge + delete duplicate boonz_product "Hunter - Hot N Sweet"
 
+Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: Hunter Hot N Sweet merge+delete completed 2026-06-26; reusable merge pattern documented; PRD-067 Hunter Ridge case pending CS decision reuses it.
+
 Owner: CS
 Date: 2026-06-25
 Surface: Data merge on prod. Repoints references then deletes one boonz_products row. Touches protected entities (warehouse_inventory, pod_inventory, refill_dispatching) + product_mapping. Cody review mandatory; migration FILE first, apply on CS sign-off.

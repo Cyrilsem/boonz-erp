@@ -1,6 +1,6 @@
 # PRD-045 - Warehouse availability & commitment correctness
 
-**Status:** ✅ APPLIED 2026-06-21 (backend P0 + P2 FE availability/oversubscribed SHIPPED to prod, deploy `37ce14d`). Read-model only; no stock mutation. swaps_enabled untouched (false).
+**Status:** ✅ Shipped 2026-06-21 (backend P0 + P2 FE availability/oversubscribed SHIPPED to prod, deploy `37ce14d`). Read-model only; no stock mutation. swaps_enabled untouched (false).
 
 ## EXECUTION LOG (2026-06-21)
 

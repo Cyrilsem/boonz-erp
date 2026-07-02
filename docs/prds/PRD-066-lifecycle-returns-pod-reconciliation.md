@@ -1,5 +1,7 @@
 # PRD-066: Lifecycle reconciliation - stale returns queue + pod state
 
+Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: partially executed - see PRD-066-068-DATA-RECONCILIATION-LOG.md; remaining lifecycle/returns sweeps pending.
+
 Owner: CS. Date: 2026-06-30. Surface: data reconciliation on prod via canonical RPCs only. Touches refill_dispatching, pod_inventory, warehouse_inventory (Articles 1,3,12). Cody review mandatory. Idempotent, skip+log gaps, no em dashes.
 
 ## Problem (from the 28/06 + 30/06 "Pod Inventory Need to Adjust" list)

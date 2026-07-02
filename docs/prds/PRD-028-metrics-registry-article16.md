@@ -1,6 +1,6 @@
 # PRD-028 — Metrics Registry execution + Article 16 ratification
 
-**Status:** Ready · **Owner:** CS · **Created:** 2026-06-11 · **Driver doc:** `docs/architecture/METRICS_REGISTRY.md`
+**Status:** Applied (in prod; git sync pending - 6 commits sit on unmerged branch feat/prd-028-metrics-registry, tip 9b0a6c2; docs salvaged by PRD-071 WS-E). Article 16 ratified; canonical objects verified live in prod 2026-07-02 (v_wh_pickable, v_dispatch_availability) · **Owner:** CS · **Created:** 2026-06-11 · **Driver doc:** `docs/architecture/METRICS_REGISTRY.md`
 
 ## Problem
 

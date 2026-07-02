@@ -1,5 +1,7 @@
 # PRD-065: Field reconciliation completeness + phantom-expired sweep
 
+Status: Shipped 2026-07-01 (8 prd065 migrations on main + prod; overnight chore 318afd4; working branch merged and deleted clean in PRD-071 WS-A).
+
 Owner: CS
 Date: 2026-06-29
 Surface: New canonical RPCs, one view, one pg_cron sweep, plus FE/driver-app capture fixes. Touches protected entities (pod_inventory, warehouse_inventory, pod_inventory_edits, refill_dispatching) so every writer is Dara-designed and Cody-reviewed before apply.

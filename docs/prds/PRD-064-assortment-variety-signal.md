@@ -1,6 +1,6 @@
 # PRD-064 — Assortment / Variety Refill Signal (multi-SKU shelves)
 
-Status: PARKED 2026-06-28 (CS). Re-scope WS-B to the robust signal below before building.
+Status: Open (PRD-071 sweep 2026-07-02). Verdict: parked 2026-06-28 by CS pending WS-B re-scope to the robust signal; Re-scope WS-B to the robust signal below before building.
 Owner: CS · Author: Cowork conductor · Date: 2026-06-28
 Governance: Dara (design) → Cody (Article 16; touches v_machine_priority) → apply.
 Depends on: PRD-063 (extends the picker urgency view).

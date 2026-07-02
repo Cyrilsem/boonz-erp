@@ -1,5 +1,7 @@
 # PRD-068: Refill-log integrity - post-confirm conservation + not-filled reconcile + test-row purge
 
+Status: Shipped 2026-07-01 (e1b9368 on main; durable conservation guards VERIFIED LIVE in prod 2026-07-02: trg_conserve_split_qty, trg_reassert_conservation, trg_credit_dispatch_remainder). PRD-071 sweep.
+
 Owner: CS. Date: 2026-06-30. Surface: backend reconciliation + a re-assert hook. Touches refill_dispatching, pod_inventory, warehouse_inventory, stitch_leakage (Articles 1,3,12,16). Cody review mandatory. Idempotent, no em dashes.
 
 ## Why (verified live 2026-06-30)

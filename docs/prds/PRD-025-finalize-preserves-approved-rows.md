@@ -1,7 +1,7 @@
 # PRD-025: engine_finalize_pod Must Preserve Approved Rows ("Stitch failed: no approved rows")
 
 **Date:** 2026-06-12
-**Status:** Draft, awaiting CS approval
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: overtaken by Refill System v2 finalize subset-aware (applied 2026-06-01). Reopen by deleting this line.
 **Severity:** High. Breaks the FE Commit flow intermittently; operators see "✗ Stitch failed: no approved rows" and retry blind.
 **Owner:** assistant (RPC patch) → Cody (canonical-writer review). Optional FE ordering fix: Stax.
 

@@ -1,6 +1,6 @@
 # PRD-044 - Packing confirm must accept skip / not-filled / partial
 
-**Status:** ✅ APPLIED 2026-06-21 (backend P0+P1 + P2 FE two-button confirm SHIPPED to prod, deploy `37ce14d`). swaps_enabled untouched (false).
+**Status:** ✅ Shipped 2026-06-21 (backend P0+P1 + P2 FE two-button confirm SHIPPED to prod, deploy `37ce14d`). swaps_enabled untouched (false).
 **Owner:** CS (cyrilsem@gmail.com)
 
 ## EXECUTION LOG (2026-06-21)

@@ -1,7 +1,7 @@
 # PRD-031: Refill Execution Accuracy — pod intent must survive to the shelf
 
 **Date:** 2026-06-14
-**Status:** Draft, awaiting CS green light to execute
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: overtaken by PRD-044/PRD-049/PRD-053 execution-accuracy work. Reopen by deleting this line.
 **Severity:** Critical. The 2026-06-14 chat-built plan dispatched roughly 42 percent of shelf capacity. Drivers are re-doing the engine's job by hand on every machine.
 **Owner:** Dara (data + mapping integrity), Cody (review), Stax (FE deviation surfacing), assistant orchestrates.
 **Related:** PRD-024 (stitch split normalization, approved, awaiting execution) and goal_mixweight_canonical_and_vml_recon (canonical mix_weight). This PRD depends on both and adds the integrity, leakage, and validation legs they do not cover.

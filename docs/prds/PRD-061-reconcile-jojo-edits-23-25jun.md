@@ -1,5 +1,7 @@
 # PRD-061: Reconcile Jojo's 23-25 Jun machine edits into the live dataset (idempotent auto-run)
 
+Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: reconciliation applied 2026-06-26 via canonical RPCs (write-off + add + 2 pod removals + 8 WH return-credits); residual field-edit monitoring remains.
+
 Owner: CS
 Date: 2026-06-25
 Surface: Data reconciliation on prod via EXISTING canonical RPCs (pod_inventory, warehouse_inventory, refill logs). No schema or new-writer changes. If an action has no canonical RPC, that is a GAP: skip it and log it, do not raw-write and do not invent a writer.

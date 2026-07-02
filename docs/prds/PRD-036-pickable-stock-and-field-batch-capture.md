@@ -1,5 +1,7 @@
 # PRD-036: Pickable-stock truth at packing + field-time batch capture
 
+Status: Shipped 2026-07-01 (FEFO dispatch bind, commit e1b9368 on main + prod; 3 prd036 migrations). PRD-071 sweep.
+
 Owner: CS
 Date: 2026-06-18
 Relationship to PRD-035: PRD-035 WS-C fixes the ENGINE/STITCH side (silent 0-fill when the on-shelf flavor is OOS, WH-aware sibling fallback). This PRD is the DISPATCH/PACKING side (a correctly-planned line still shows pickup 0 because its WH batch is not bound) plus field-time batch capture. Complementary, not overlapping. Do PRD-035 WS-C first if both are in flight.

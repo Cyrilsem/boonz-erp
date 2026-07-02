@@ -1,7 +1,7 @@
 # PRD-030: Partial Pack — eliminate the dark-stage block on out-of-stock lines
 
 **Date:** 2026-06-14
-**Status:** Draft, awaiting CS green light to execute
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: superseded by PRD-044 packing confirm/skip/partial (shipped 2026-06-21) and the PRD-049 packing phases. Reopen by deleting this line.
 **Severity:** Critical (operational). A single unfillable line freezes a whole machine: it never reaches packed, so the driver cannot pick up or dispatch, and the bag sits idle.
 **Owner:** Dara (state model) to Cody (constitutional review of every SECURITY DEFINER fn + DDL) to Stax (packing FE + driver app), assistant orchestrates.
 **Related:** Builds on EOD auto-release (`release_stale_unpacked_dispatches`) and the packing-confirm gate in stitch v17.

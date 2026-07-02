@@ -1,7 +1,7 @@
 # PRD-024: Stitch SKU-Split Normalization + 2026-06-13 Plan Reset
 
 **Date:** 2026-06-12
-**Status:** Approved direction, awaiting CS green light to execute
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: superseded by the stitch conservation line v21..v28 (PRD-046, PRD-053). Reopen by deleting this line.
 **Severity:** ⛔ Critical. Corrupts dispatched quantities on every multi-flavor shelf, every run. Tomorrow's committed plan is affected AND partly duplicates today's executed refill.
 **Owner:** assistant (RPC patch + reset) → Cody (constitutional sign-off)
 **Supersedes:** PRD-stitch-split-normalization.md (uploads, 2026-06-12). Counts refreshed and runbook retargeted from the 06-12 plan to the 06-13 plan.

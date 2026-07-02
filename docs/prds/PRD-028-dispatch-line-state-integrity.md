@@ -1,7 +1,7 @@
 # PRD-028: Dispatch Line State Integrity (Skipped Lines Must Be Inert)
 
 **Date:** 2026-06-12
-**Status:** EXECUTED 2026-06-12 (steps 1-3 applied + deployed; battery 1-6 green; one-week monitor open). Execution notes: 2b corrected in flight - eod_auto_release_unpicked pass 1 DOES route through return_dispatch_line (packed=true picked_up=false only), so the return refusal is conditional on nothing-physical (packed=false AND picked_up=false); flagged-but-packed lines stay returnable (Incident-A recovery + sweep contract). New canonical writer `unskip_dispatch_line` added (set_dispatch_include cannot clear skipped). Migrations `phaseF_dispatch_state_guards` (20260612135850) + `phaseF_unskip_dispatch_line` (20260612141205). Commits 290eba1 / 572c361 / 66db25c on main.
+**Status:** Shipped 2026-06-12 (prod + main; EXECUTED (steps 1-3 applied + deployed; battery 1-6 green; one-week monitor open). Execution notes: 2b corrected in flight - eod_auto_release_unpicked pass 1 DOES route through return_dispatch_line (packed=true picked_up=false only), so the return refusal is conditional on nothing-physical (packed=false AND picked_up=false); flagged-but-packed lines stay returnable (Incident-A recovery + sweep contract). New canonical writer `unskip_dispatch_line` added (set_dispatch_include cannot clear skipped). Migrations `phaseF_dispatch_state_guards` (20260612135850) + `phaseF_unskip_dispatch_line` (20260612141205). Commits 290eba1 / 572c361 / 66db25c on main.
 **Severity:** ⛔ High. Twice in one day, lines that CS explicitly cancelled were physically actioned or financially booked because nothing downstream respects the skip. Corrupts WH stock silently.
 **Owners:** assistant (RPC guards, Cody review) + Stax (driver app + packing FE)
 

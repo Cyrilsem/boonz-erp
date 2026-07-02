@@ -1,6 +1,6 @@
 # PRD-063 — Fix main-track P1 shortlisting (rewrite v_machine_priority to shelf-aware urgency)
 
-Status: APPLIED 2026-06-28 (prod + pushed to main). New main-P1 reproduces the locked list; T1-T7 pass; Cody ✅. Knobs in pick_urgency_params; rollback file held.
+Status: Shipped 2026-06-28 (prod + main 31b9031). New main-P1 reproduces the locked list; T1-T7 pass; Cody ✅. Knobs in pick_urgency_params; rollback file held.
 Owner: CS · Author: Cowork conductor · Date: 2026-06-28
 Governance: Dara (design) → Cody (Article 16 canonical writer) → apply. No shadow.
 

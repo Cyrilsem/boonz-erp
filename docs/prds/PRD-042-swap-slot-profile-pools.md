@@ -1,6 +1,6 @@
 # PRD-042 — Refill v5 Swap: slot-profile assortment pools (machine-level)
 
-**Status:** Draft. engine_swap_pod v14 -> v15_slot_profile. swaps_enabled stays `false` throughout. engine_add_pod FROZEN.
+**Status:** Shipped (engine_swap_pod v15_slot_profile VERIFIED LIVE in prod 2026-07-02; see PROD-SYNC-PRD042-043-LOG.md). swaps_enabled stays `false`. engine_add_pod FROZEN. PRD-071 sweep.
 **Owner:** CS (cyrilsem@gmail.com)
 **Created:** 2026-06-20
 **Replaces:** the abandoned PRD-041 (physical-compat gate) — removed 2026-06-20, never applied; its `physical_type_lane_family` idea is absorbed into P0 here.

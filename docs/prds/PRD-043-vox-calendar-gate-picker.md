@@ -1,6 +1,6 @@
 # PRD-043 - Picker v10 -> v11: enforce the VOX Wed/Fri calendar gate
 
-**Status:** Draft. `pick_machines_for_refill` v10 -> v11. Read-only diagnosis done; no live pick touched.
+**Status:** Shipped (`pick_machines_for_refill` v11 calendar gate applied; 2 MIGRATIONS_REGISTRY entries + PROD-SYNC-PRD042-043-LOG.md). PRD-071 sweep 2026-07-02.
 **Owner:** CS (cyrilsem@gmail.com)
 **Created:** 2026-06-20
 **Depends on:** picker v10 (live), `v_machine_priority` (Article 16 health view), PRD-035 WS-E (Saturday delivery-day guard, unchanged).

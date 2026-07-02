@@ -1,6 +1,6 @@
 # PRD-047 - Packing page UX: shelf-grouped panels + one-tap Swap
 
-**v2 Status (2026-06-23):** ✅ BUILT + VERIFIED on branch `feat/prd-047-v2`. **1a grouping FIXED** + **1b rebuilt as a pod-level whole-shelf swap.** Backend migration `20260623080000_prd047v2_swap_shelf_pod` APPLIED (additive; `swap_shelf_pod` + `spread_pod_qty`; swaps_enabled untouched). FE PHASE 1 (`e0f33ee`) + PHASE 2 (`b6e7c3d`). `tsc` + `npm run build` green. Browser gate at 375px all green (T1/T2/T5/T6/T7 axe-0/T8) + backend T3/T3b/T4 (BEGIN..ROLLBACK). **Prod deploy pending the one main push.** See "EXECUTION LOG (2026-06-23) - v2".
+**v2 Status (2026-06-23):** ✅ Shipped to prod (fc03e37, smoke-test green; built on branch `feat/prd-047-v2`). PRD-071 sweep 2026-07-02. **1a grouping FIXED** + **1b rebuilt as a pod-level whole-shelf swap.** Backend migration `20260623080000_prd047v2_swap_shelf_pod` APPLIED (additive; `swap_shelf_pod` + `spread_pod_qty`; swaps_enabled untouched). FE PHASE 1 (`e0f33ee`) + PHASE 2 (`b6e7c3d`). `tsc` + `npm run build` green. Browser gate at 375px all green (T1/T2/T5/T6/T7 axe-0/T8) + backend T3/T3b/T4 (BEGIN..ROLLBACK). **Prod deploy pending the one main push.** See "EXECUTION LOG (2026-06-23) - v2".
 
 **Note (out of scope, flagged):** the live packing page can render 0 lines in the late-night window when DB `current_date` (UTC) is still the prior day but `getDubaiDate()` (UTC+4) has rolled forward, because `dispatch_date` is written under the UTC date. Not a grouping/swap bug; ticket separately.
 

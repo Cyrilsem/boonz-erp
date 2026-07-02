@@ -1,11 +1,12 @@
 # PRD-053 - Stitch conservation, field per-expiry split, flagged additions
 
 Three rules:
+
 1. **NO LEAKAGE** - after stitch, the boonz lines for a pod instruction must sum to the original pod qty, always. A publish-time check refuses any non-conserving stitch.
 2. The driver can **split a line across real expiry dates** with the TOTAL LOCKED to plan.
 3. The driver can **ADD beyond plan** but every addition is FLAGGED for Head Office (CS) review, never silently changing the books.
 
-**Status:** Phase A migration FILE authored + verified read-only (nothing applied to prod) on branch `feat/prd-053-stitch-conservation`. **STOPPED for CS review** before apply. Phases B + C pending.
+**Status:** Shipped - COMPLETE (Phase A applied 2026-06-24: stitch v28 + push conservation verified live in prod 2026-07-02; FE B/C shipped to prod db21023, on main; driver_add_flagged_row live and wired in main FE). PRD-071 sweep 2026-07-02; salvage branch deleted after coverage proof. **STOPPED for CS review** before apply. Phases B + C pending.
 
 ## Root cause (verified 2026-06-23, VML-1004-0500-O1 shelf A03 Ice Tea)
 

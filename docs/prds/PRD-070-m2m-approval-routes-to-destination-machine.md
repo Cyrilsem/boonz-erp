@@ -1,5 +1,7 @@
 # PRD-070: M2M transfer approval must move stock to the destination machine, not the warehouse
 
+Status: Shipped 2026-07-01 (merge 11a1153 on main; pair_internal_transfer_m2m + approve_m2m_transfer + block_orphan_internal_transfer verified live in prod 2026-07-02; approve is v2 and push auto-pairs as of PRD-071 WS-B/C3).
+
 Owner: CS. Date: 2026-07-01. Surface: backend RPC + FE approve action + dispatch-list visibility. Touches refill_dispatching, pod_inventory, warehouse_inventory, refill_plan_output (Articles 1,3,12). Dara design -> Cody review mandatory; migration FILE first; STOP for CS before apply. Idempotent, no em dashes.
 
 ## The report (CS, 2026-07-01)

@@ -1,5 +1,7 @@
 # PRD-056 transfer-aware packing — verification & close-out kit
 
+Status: Shipped 2026-06-24 (transfer-aware packing + confirm_packed_transferred + stitch v28, main/prod 3e22a35; confirm_packed_transferred verified live in prod 2026-07-02). PRD-071 sweep.
+
 FE is committed (`af9af0d`, branch `feat/prd-056-transfer-aware-packing-fe`): `tsc --noEmit`
 clean, `next build` clean. This kit covers the steps that require a browser harness or a
 backend apply, which cannot run in the headless agent environment (no Playwright/Chrome; the
@@ -31,14 +33,20 @@ import AxeBuilder from "@axe-core/playwright";
 
 test.use({ viewport: { width: 375, height: 812 } });
 
-test("PRD-056 transfer row: only Packed & Transferred, no h-scroll, axe clean", async ({ page }) => {
+test("PRD-056 transfer row: only Packed & Transferred, no h-scroll, axe clean", async ({
+  page,
+}) => {
   await page.goto("/field/packing/<machineId-with-an-m2m-transfer>");
   const card = page.locator("li", { hasText: "M2M Transfer" }).first();
   await expect(card).toBeVisible();
 
   // Only confirm option is Packed & Transferred; no Skip / Not Filled on transfer rows.
-  await expect(card.getByRole("button", { name: /Packed & Transferred/i })).toBeVisible();
-  await expect(card.getByRole("button", { name: /Skip|Not Filled/i })).toHaveCount(0);
+  await expect(
+    card.getByRole("button", { name: /Packed & Transferred/i }),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: /Skip|Not Filled/i }),
+  ).toHaveCount(0);
 
   // Dest leg shows the Transfer-from tag.
   await expect(card.getByText(/Transfer from /i)).toBeVisible();
@@ -50,7 +58,9 @@ test("PRD-056 transfer row: only Packed & Transferred, no h-scroll, axe clean", 
 
   // No horizontal scroll at 375px.
   const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
 
@@ -60,11 +70,16 @@ test("PRD-056 transfer row: only Packed & Transferred, no h-scroll, axe clean", 
     .analyze();
   expect(results.violations).toEqual([]);
 
-  await page.screenshot({ path: "screenshots/prd056-transfer-375.png", fullPage: true });
+  await page.screenshot({
+    path: "screenshots/prd056-transfer-375.png",
+    fullPage: true,
+  });
 
   // Confirm -> done state.
   await btn.click();
-  await expect(card.getByText(/Packed & Transferred — unit moved to destination/i)).toBeVisible();
+  await expect(
+    card.getByText(/Packed & Transferred — unit moved to destination/i),
+  ).toBeVisible();
 });
 ```
 

@@ -1,7 +1,7 @@
 # PRD-026: Lifecycle Scoring Integrity (10k Sales Cap, Velocity Floor, Trend Rule)
 
 **Date:** 2026-06-12
-**Status:** Draft, awaiting CS approval (thresholds in §4 need CS sign-off)
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: overtaken by picker v14 deploy and the PRD-035/PRD-063 scoring rewrites. Reopen by deleting this line.
 **Severity:** High. Stances are visibly wrong (selling slots labeled DEAD / ROTATE OUT / WIND DOWN), and the same corrupted velocities feed ENGINE ADD dead-tagging, i.e. the swap engine can swap out selling shelves.
 **Owner:** Stax (edge function) → Cody (slot_lifecycle feeds the engines)
 **Component:** edge function `evaluate-lifecycle` v13.1

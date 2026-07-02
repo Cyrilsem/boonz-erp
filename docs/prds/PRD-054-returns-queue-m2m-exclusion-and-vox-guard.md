@@ -1,6 +1,6 @@
 # PRD-054 - Returns-approval queue: exclude M2M transfers + durable VOX (venue_team) receive guard
 
-**Status:** APPLIED 2026-06-23. Migration `prd054_a_returns_queue_exclude_m2m` (`20260624010000_…sql`). Backend (view + receive-path guard, forward migrations). Cody Articles 1/4/6/8/12.
+**Status:** Shipped 2026-06-23 (v_returns_queue M2M exclusion + receive-path VOX guard; PRD-071 sweep verified registry 2026-07-02). Migration `prd054_a_returns_queue_exclude_m2m` (`20260624010000_…sql`). Backend (view + receive-path guard, forward migrations). Cody Articles 1/4/6/8/12.
 
 > **Applied result:** (1a) view recreated with `AND COALESCE(rd.is_m2m,false)=false`; queue 21 -> 15, m2m 6 -> 0, all 7 PRD-052 legs excluded (verified live). (1b) venue_team receive guard found ALREADY LIVE in `receive_dispatch_line` (skips WH credit, logs vox_return_log, path `remove_venue_team_no_wh_credit`, item_added=true; covers `wh_approve_remove_receipt`[`_multivariant`] via delegation) — NO function change made. Tests T1-T6 green in BEGIN..ROLLBACK before apply: T3 venue=0 WH credit; T5 boonz-on-VOX-machine credits WH; T6 audited. Not pushed to main (awaiting CS go).
 
