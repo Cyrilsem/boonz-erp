@@ -84,3 +84,7 @@ WHERE source LIKE 'm2m_push%' AND created_at >= :plan_date::timestamptz;
 Final gate readout (post-run, prod): engine_add_pod ca074e575511da124605783b726c8584 / engine_swap_pod 90f26896ba7e0a7099fa689e73eaab91 (byte-identical to baseline), swaps_enabled=false, ZERO migrations created or applied this run, no force-push, the single sanctioned -D used only on feat/prd-053-stitch-conservation after re-proof. Tree never re-dirtied after WS-A (Cursor closed; STOP condition never triggered).
 
 Local branches: main + archive/weimi-api-2026-06. Monitor regenerated GREEN; open PRD set unchanged: 061, 062, 064, 066, 067, 069. All docs committed and pushed; main == origin/main.
+
+## Addendum: the LAST drift source found and fixed
+
+After the close commits, docs/DEPLOYMENTS.md re-dirtied once. Root cause is NOT Cursor: the record-prod-deploy workflow appends UNPADDED table rows, while the WS-A prettier pass padded the table - every subsequent local prettier invocation re-pads the whole file, re-dirtying the tree after each deploy. Fix: .prettierignore for docs/DEPLOYMENTS.md (c900115). Verified: prettier now skips it, tree stable at 0 dirty.
