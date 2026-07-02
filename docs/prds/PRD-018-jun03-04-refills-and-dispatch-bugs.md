@@ -1,5 +1,7 @@
 # PRD-018 — 03-04 Jun refill logs + dispatch-side bug fixes
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: historical (June era), executed/overtaken; doc restored by WS-E salvage as record. Reopen by deleting this line.
+
 **Owner:** Claude Code · **Created:** 2026-06-04 · Supabase `eizcexopcuoycuosittm`
 **Format:** engineering build-spec (same discipline as PRD-016/017). Carry ALL §6 constraints.
 Two parts: **Part 1** = log the placements (data, RPC-only). **Part 2** = fix 3 new dispatch-side bugs with edge cases.

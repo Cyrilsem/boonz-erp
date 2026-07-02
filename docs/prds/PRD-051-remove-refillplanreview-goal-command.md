@@ -1,5 +1,7 @@
 /goal Remove the stale "Refill Plan / Approve All Machines" panel from the field app. FE-only, no backend. MODE AUTO, no questions.
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: not pursued; RefillPlanReview still live on main and now works again after PRD-071 WS-B unbroke its push call. Reopen by deleting this line.
+
 WHAT + WHY (already verified): the panel is the `<RefillPlanReview />` component, rendered on the field landing page at src/app/(field)/field/page.tsx (import line 14, render ~line 726). It queries `refill_plan_output WHERE operator_status='pending'` with NO date filter and labels itself with the first row's plan_date, so it surfaces STALE un-approved rows (124 pending from 2026-06-13 + 55 from 2026-06-21 that were never approved/dispatched) and shows "Refill Plan — 13 June 2026" during today's refill. CS wants it gone from the flow. It is already removed from the snapshot tab; field/page.tsx is the only remaining render.
 
 PRE: git pull --rebase main; branch feat/prd-051-remove-refillplanreview.

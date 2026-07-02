@@ -1,6 +1,6 @@
 # PRD-017 — DB Latency Optimization (RPC Hot Path)
 
-**Status:** Draft / Proposed
+**Status:** Closed 2026-07-02 (PRD-071 sweep). Reason: historical (June era), executed/overtaken. Reopen by deleting this line.
 **Created:** 2026-06-01
 **Author:** Monthly DB health check (cyrilsem@gmail.com)
 **Owners:** Dara (design) → Cody (constitutional review) → Stax / assistant (apply)

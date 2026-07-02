@@ -1,5 +1,7 @@
 # BUG-D — Dara design: quantified warehouse reservations
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: historical design record (PRD-018 shipped v6_resilient_bridge era). Reopen by deleting this line.
+
 **For:** Cody review → implementer. Companion to PRD-018 §BUG-D. Created 2026-06-04.
 
 ## Design problem

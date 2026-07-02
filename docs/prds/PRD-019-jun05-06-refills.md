@@ -1,5 +1,7 @@
 # PRD-019 — 05-06 Jun refills (+ Nissan supersede, WH note)
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: historical (June era), executed/overtaken; doc restored by WS-E salvage as record. Reopen by deleting this line.
+
 **Owner:** Claude Code · **Created:** 2026-06-07 · Supabase `eizcexopcuoycuosittm`
 **Format:** engineering build-spec (PRD-016/017/018 discipline). Data-logging round + 2 side-notes. Carry all §constraints.
 Already logged — DO NOT redo: 01-02 Jun (PRD-017 §0), 03-04 Jun (PRD-018). This PRD = **05/06 + 06/06 only**.

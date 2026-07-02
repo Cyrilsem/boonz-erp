@@ -1,5 +1,7 @@
 # PRD-057: Build-environment hygiene + drift monitor (git source-of-truth, branch/worktree cleanup, live orchestrator)
 
+Status: Shipped 2026-06-25 (repo de-drift + git-source-of-truth rule live; monitor script in BOONZ BRAIN). Doc restored by WS-E salvage. PRD-071 sweep 2026-07-02.
+
 Owner: CS
 Date: 2026-06-24
 Surface: Repo / devops only (git branches, worktrees, working tree, migration tracking) plus a local monitoring tool (BOONZ Build Orchestrator). No application code, no Supabase RPC, no engine change. `swaps_enabled` untouched. Forward-only. No em dashes.

@@ -1,5 +1,7 @@
 # PRD-048 — ADD Brain: Service-Level Base-Stock Refill Sizing
 
+Status: Shipped (2111dda on main; 7 prd048 migrations; base_stock ENABLED behind flag). Doc restored by WS-E salvage. PRD-071 sweep 2026-07-02.
+
 Status: DRAFT (2026-06-22, authored from a live backtest on 5 machines)
 Owner: CS · Builders: Dara (schema) → Cody (review) → Stax/assistant (impl)
 Scope: **ENGINE ADD sizing only** (`compute_refill_decision` qty + `engine_add_pod` `covered`/`flagged` CTEs). Swap engine, picker, stitch, dispatch are OUT of scope and MUST NOT change behavior.

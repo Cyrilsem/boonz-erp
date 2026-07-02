@@ -1,6 +1,6 @@
 # PRD-050 - Packing Pick Qty binds to the PLAN, not warehouse availability
 
-**Status (2026-06-23):** ✅ Shipped to prod (5282f75, smoke green; built on branch `feat/prd-050-pickqty-plan-cap` `4ea8afa`). PRD-071 sweep 2026-07-02. FE-only; no backend/RPC/view/migration. `tsc` + `npm run build` green. Browser gate at 375px all green (T1-T8; axe 0; 0 controls <44px; no h-scroll). **Prod deploy pending the one main push.** See EXECUTION LOG.
+**Status:** ✅ Shipped to prod 2026-06-23 (5282f75, smoke green; built on branch `feat/prd-050-pickqty-plan-cap` `4ea8afa`). PRD-071 sweep 2026-07-02. FE-only; no backend/RPC/view/migration. `tsc` + `npm run build` green. Browser gate at 375px all green (T1-T8; axe 0; 0 controls <44px; no h-scroll). **Prod deploy pending the one main push.** See EXECUTION LOG.
 
 ## 0. Problem
 

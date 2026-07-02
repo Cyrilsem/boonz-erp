@@ -1,5 +1,7 @@
 # PRD-017 — Refill availability bugs + 01-02 Jun cleanup
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: historical (June era), executed/overtaken; doc restored by WS-E salvage as record. Reopen by deleting this line.
+
 **Owner:** Claude Code (fresh session) · **Created:** 2026-06-02 · Supabase `eizcexopcuoycuosittm`
 **Format:** engineering build-spec (same discipline as PRD-016/016B). PLAID's planner targets new-product
 vision intake, so this backend fix uses the proven engineering-PRD format.

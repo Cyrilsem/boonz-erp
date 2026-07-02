@@ -129,4 +129,15 @@ boonz_git_cleanup.sh --apply output (final pass):
 
 ENVIRONMENT GREMLIN (highlight): an external formatter (Cursor is open on this repo with format-on-save / the PostToolUse prettier hook environment) re-prettifies tracked files after git rewrites them - this is the ORIGIN of the original "83 dirty files" scare (pure reflow noise, zero novel content, proven twice this run). If the noise reappears, `git restore .` is safe; consider closing Cursor during git-heavy runs or committing a repo-wide prettier pass deliberately.
 
-## WS-F: Close and verify
+## WS-F: Close and verify - DONE
+
+Commits to main: dbad81f (WS-B/C migrations + registries + CHANGELOG), bbcde88 (WS-D 39 status lines + this log), 45e13d3/155cb49 (salvage merges), + the final monitor-truth commit. Pushed to origin/main.
+
+Monitor: python3 boonz_build_refresh.py -> banner OK (GREEN). The monitor script (BOONZ BRAIN/boonz_build_refresh.py, outside the repo) needed a small upgrade to represent the sweep: 'Status: Closed' and 'Status: Open/kept open' lifecycle recognition (new Closed chip; Closed outranks stale Applied keywords, Shipped still wins). Salvaged historical docs (PRD-011..022 era) initially inflated the Draft count - closed with dated reasons per the WS-D rule (all 14+ days untouched).
+
+Final board state (54 PRDs):
+
+- Open: 061, 062, 064, 066, 067, 069 (target set) + 020, 033 (the two KEPT-branch highlights) - exactly open-target + highlights. Draft: 0. Applied-not-pushed: 0. Blocked: 0.
+- Closed: 017 018 019 021 024 025 026 027 030 031 032 034 039 051 060. Shipped/Merged: everything else incl 048 (doc restored + statused).
+
+Final gates re-verified after all writes: engine_add_pod ca074e575511da124605783b726c8584 / engine_swap_pod 90f26896ba7e0a7099fa689e73eaab91 (byte-identical all run), swaps_enabled=false, all migrations forward-only, every write BEGIN..ROLLBACK-proven first, writers idempotent (proofs above), no -D, no force-push, no unproven code deleted (2 branches kept instead).

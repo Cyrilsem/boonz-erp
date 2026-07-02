@@ -1,6 +1,8 @@
 # PRD-060 - Transfer creation path: force machine-to-machine moves through the M2M writer
 
-**Status:** Draft. Backend (engine/dispatch guards + receive guard) + FE (a real "Create transfer" action). Cody Articles 1/4/6/8/12.
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: superseded by PRD-070 M2M approval-to-destination + PRD-071 WS-B pre-paired push path. Reopen by deleting this line.
+
+**Status:** Closed 2026-07-02 (PRD-071 sweep). Reason: superseded by PRD-070 M2M approval-to-destination + PRD-071 WS-B pre-paired push path. Was: backend guards + FE Create-transfer action. Reopen by deleting this line.
 **Owner:** CS (cyrilsem@gmail.com)
 **Created:** 2026-06-24
 **Severity:** HIGH (recurring data integrity). Every field transfer is being hand-built as plain Remove + Refill and breaks the warehouse accounting. Recurred NOVO->MINDSHARE (23 Jun, PRD-052) and MC->AMZ (24 Jun).

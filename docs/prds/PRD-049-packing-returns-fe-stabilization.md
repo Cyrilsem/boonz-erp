@@ -1,5 +1,7 @@
 # PRD-049: Packing + Returns FE stabilization
 
+Status: Shipped 2026-06-22 (packing/returns FE A/B/D + edit_transfer_qty RPC, main d25c84b; all 6 issues closed). Doc restored by WS-E salvage.
+
 Owner: CS
 Date: 2026-06-22
 Surface: FE only (the field packing screen + the inventory returns-approval panel). No new backend: every RPC needed already exists and behaves correctly (verified live 2026-06-22). Cody review ONLY if any RPC body is touched.

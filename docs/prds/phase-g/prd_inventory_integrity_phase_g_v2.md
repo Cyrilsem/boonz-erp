@@ -125,7 +125,7 @@ Top of inventory page has a "Start Inventory Control" button. Once started:
 
 ### B.7 PO physical-confirmation surface
 
-Rows with `needs_physical_confirmation = true` (from D3) show a yellow chip "Pending physical receipt". Click to open a small confirm dialog: "Physically counted: **_ units. Notes: _**". Confirms via `confirm_physical_receipt` and clears the chip.
+Rows with `needs_physical_confirmation = true` (from D3) show a yellow chip "Pending physical receipt". Click to open a small confirm dialog: "Physically counted: **\_ units. Notes: _**". Confirms via `confirm_physical_receipt` and clears the chip.
 
 ### B.8 Always-visible canary
 

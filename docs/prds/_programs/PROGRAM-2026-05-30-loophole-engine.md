@@ -35,6 +35,7 @@ The audit verdict was: detection is excellent, governance and closure are absent
 **Decision A2:** Build a BEFORE INSERT/UPDATE trigger `enforce_canonical_dispatch_write` on refill_dispatching. Phase 1 (immediate): RAISE WARNING + insert into bypass_violation_log. Phase 2 (after 2026-06-06, 7 days later): flip to RAISE EXCEPTION.
 
 **Decision A3:** Allow-list (verified against pg_proc 2026-05-30):
+
 ```
 'write_refill_plan',
 'pack_dispatch_line',
@@ -49,7 +50,7 @@ The audit verdict was: detection is excellent, governance and closure are absent
 'sync_dispatch_expiry_from_pinned_wh' -- trigger writer, NULL rpc_name allowed
 ```
 
-**Decision A4:** Triggered writes (system-only) are allow-listed by rpc_name='__trigger__' or NULL. The trigger checks for both `via_rpc=true OR (rpc_name IS NULL AND current_setting('app.via_trigger', true) = 'true')`. Defer the GUC plumbing to Stax (one line in each trigger that legitimately writes).
+**Decision A4:** Triggered writes (system-only) are allow-listed by rpc_name='**trigger**' or NULL. The trigger checks for both `via_rpc=true OR (rpc_name IS NULL AND current_setting('app.via_trigger', true) = 'true')`. Defer the GUC plumbing to Stax (one line in each trigger that legitimately writes).
 
 **Decision A5:** Automation refactor list. Grep `n8n/flows/*.json` + `supabase/functions/**/*.ts` + cron.job for direct INSERT/UPDATE/DELETE on refill_dispatching. Each call site refactored to the canonical RPC. Stax owns this in parallel with the warning-window deploy.
 
@@ -74,6 +75,7 @@ The audit verdict was: detection is excellent, governance and closure are absent
 ### F5 — Stale-state escalator
 
 **Decision D1:** New view `v_stuck_dispatch_states` joins refill_dispatching with state transition timestamps. Surfaces:
+
 - rows where `packed=true` AND `picked_up=false` AND `packed_at < now() - 24h`
 - rows where `action='Remove'` AND `returned=false` AND created_at < now() - 24h
 
@@ -82,6 +84,7 @@ The audit verdict was: detection is excellent, governance and closure are absent
 ### F6 — Findings ledger with closure lifecycle
 
 **Decision E1:** New table `findings_ledger`:
+
 ```
 finding_id          uuid PK default gen_random_uuid()
 source              text NOT NULL  -- 'monitoring_alerts' | 'bypass_violation_log' | 'stale_dispatch_state' | 'manual'
@@ -102,6 +105,7 @@ auto_healed_at      timestamptz   -- set when signal hasn't been seen in N days
 ```
 
 **Decision E2:** Canonical writers:
+
 - `ack_finding(p_finding_id uuid, p_note text)` — flips open → ack
 - `assign_finding(p_finding_id uuid, p_owner_id uuid)` — sets assigned_to + status='assigned'
 - `resolve_finding(p_finding_id uuid, p_resolution_note text)` — flips to resolved
@@ -115,25 +119,25 @@ auto_healed_at      timestamptz   -- set when signal hasn't been seen in N days
 
 **Decision F1:** Per-table matrix. For each of the 17 tables, this PRD specifies the policy directly. No CS judgment calls required.
 
-| Table | Read | Write |
-|---|---|---|
-| `cash_recovery_log` | authenticated | operator_admin, superadmin, manager |
-| `commercial_agreements` | operator_admin, superadmin, manager | operator_admin, superadmin |
-| `sales_leads` | authenticated | operator_admin, superadmin, manager |
-| `sales_lead_activities` | authenticated | authenticated |
-| `adyen_staging` | authenticated | service_role only |
-| `weimi_staging` | authenticated | service_role only |
-| `weimi_aisle_snapshots` | authenticated | service_role only |
-| `weimi_device_status` | authenticated | service_role only |
-| `monitoring_alerts` | authenticated | authenticated (insert only via DEFINER) |
-| `bypass_violation_log` (new) | authenticated | service_role only |
-| `findings_ledger` (new) | authenticated | authenticated via canonical RPCs only |
-| `product_name_conventions` | authenticated | operator_admin, superadmin |
-| `procurement_events` (already append-only RLS — re-verify) | authenticated | (no-op) |
-| `inventory_control_attempt` | authenticated | service_role only |
-| `refill_dispatching_edit_log` | authenticated | service_role only |
-| `variant_action_log` (already RLS — re-verify) | authenticated | (no-op) |
-| `write_audit_log` (already RLS — re-verify) | authenticated | (no-op) |
+| Table                                                      | Read                                | Write                                   |
+| ---------------------------------------------------------- | ----------------------------------- | --------------------------------------- |
+| `cash_recovery_log`                                        | authenticated                       | operator_admin, superadmin, manager     |
+| `commercial_agreements`                                    | operator_admin, superadmin, manager | operator_admin, superadmin              |
+| `sales_leads`                                              | authenticated                       | operator_admin, superadmin, manager     |
+| `sales_lead_activities`                                    | authenticated                       | authenticated                           |
+| `adyen_staging`                                            | authenticated                       | service_role only                       |
+| `weimi_staging`                                            | authenticated                       | service_role only                       |
+| `weimi_aisle_snapshots`                                    | authenticated                       | service_role only                       |
+| `weimi_device_status`                                      | authenticated                       | service_role only                       |
+| `monitoring_alerts`                                        | authenticated                       | authenticated (insert only via DEFINER) |
+| `bypass_violation_log` (new)                               | authenticated                       | service_role only                       |
+| `findings_ledger` (new)                                    | authenticated                       | authenticated via canonical RPCs only   |
+| `product_name_conventions`                                 | authenticated                       | operator_admin, superadmin              |
+| `procurement_events` (already append-only RLS — re-verify) | authenticated                       | (no-op)                                 |
+| `inventory_control_attempt`                                | authenticated                       | service_role only                       |
+| `refill_dispatching_edit_log`                              | authenticated                       | service_role only                       |
+| `variant_action_log` (already RLS — re-verify)             | authenticated                       | (no-op)                                 |
+| `write_audit_log` (already RLS — re-verify)                | authenticated                       | (no-op)                                 |
 
 If the actual 17 differ from this list at apply time, halt and ask CS. Otherwise apply per the matrix.
 
@@ -142,6 +146,7 @@ If the actual 17 differ from this list at apply time, halt and ask CS. Otherwise
 **Decision G1:** Skill location: `.claude/skills/boonz-health/SKILL.md`. Operational on-demand.
 
 **Decision G2:** Skill capabilities:
+
 1. `boonz-health audit` — runs the audit playbook (the same queries the 28-May audit used), prints headline numbers, surfaces deltas vs last run.
 2. `boonz-health triage` — opens the findings_ledger worklist, sorts by severity + age, suggests assignments.
 3. `boonz-health reconcile` — runs the conservation-law check on dispatch (quantity ≥ filled_quantity ≥ driver_confirmed_qty), flags violations into ledger.
@@ -205,7 +210,7 @@ Cody reviews each migration. Apply once approved.
 
 ## /goal command (paste into Claude Code)
 
-````
+```
 /goal docs/prds/_programs/PROGRAM-2026-05-30-loophole-engine.md
 
 Execute Phases A through E in order. Phase F is a calendar-driven 7-day window
@@ -236,7 +241,7 @@ Hard rules (restated):
 End state: all 7 outcomes (O1-O7) satisfied OR marked Blocked-with-reason.
 boonz-health skill published. All migrations applied or queued with
 explicit Cody verdicts.
-````
+```
 
 ## Linked PRDs
 

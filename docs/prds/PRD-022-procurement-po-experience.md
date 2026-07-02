@@ -1,5 +1,7 @@
 # PRD-022 — Procurement PO Experience v2 (supplier-centric drawer, ordered-state, PO editing)
 
+Status: Shipped 2026-06-11 (branch feat/prd-022-po-experience eda0061, 5 migrations applied; per project memory). Doc restored by WS-E salvage.
+
 Date: 2026-06-10. Owner: CS. Builds on Procurement Brain v3 (PRD-1..5, commit 168766e).
 Scope: /app/procurement Demand tab UX + PO lifecycle. NO schema changes expected; all
 writes through existing canonical RPCs.

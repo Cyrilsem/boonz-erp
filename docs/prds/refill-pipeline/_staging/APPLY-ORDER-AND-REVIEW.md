@@ -3,6 +3,7 @@
 ## ⭐ LIVE STATUS 2026-06-08 (applied to prod via MCP, CS green light)
 
 Applied & validated end-to-end (scenario on ACTIVATE-2005, plan_date 2026-06-20, then cleaned up):
+
 - **find_substitutes_for_shelf → global-performer-first** (NEW reco). Was anchored on the dead
   product's co-purchase → returned NOTHING for 2 of 3 dead shelves. Now: global performers not in
   the machine, in real WH stock (consumer_stock excluded), ranked by correlation to the machine's
@@ -21,6 +22,7 @@ resolved to distinct swap-ins (B04 Starbucks Ice Coffee→Pepsi Black, B08 Almar
 Biscuits), procurement gaps emitted only where WH genuinely short.
 
 **NOT applied via MCP — apply from the migration file on branch push:**
+
 - **Item 6 stitch v19** (792 lines, writes refill_plan_output). No behavioral change today (driver
   overlay no-op until driver data exists; shelf guard defensive). Current live stitch v18 handles
   commit fine. Apply via `supabase db push` / CC, not a hand-paste.
@@ -29,7 +31,6 @@ NOTE: MCP applies used names without the file's timestamp prefix; the edited bra
 same fixes and are all CREATE OR REPLACE / DROP IF EXISTS → re-running them on push is idempotent.
 
 ---
-
 
 Status: ALL STAGED. Nothing applied to prod. Each engine writer needs CS green light.
 Branch: `feat/refill-v2-staged-engines`. Dry-run anchor: plan_date 2026-06-09.

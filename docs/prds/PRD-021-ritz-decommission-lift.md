@@ -1,5 +1,7 @@
 # PRD-021 — Lift Ritz Cracker decommission (close intent ba1ef467)
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: historical, executed/overtaken; doc restored by WS-E salvage as record. Reopen by deleting this line.
+
 **Owner:** Claude Code · **Created:** 2026-06-10 · Supabase `eizcexopcuoycuosittm`
 **Format:** small canonical-writer-bypass + one RPC call. Cody required (touches `abandon_intent`).
 

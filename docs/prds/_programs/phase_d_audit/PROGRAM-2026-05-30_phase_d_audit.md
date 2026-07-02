@@ -33,10 +33,10 @@ Every FE direct write is now covered by the A.2 enforcement trigger and will emi
 
 ### `src/app/(field)/field/trips/[machineId]/page.tsx`
 
-| Line | Pattern                          | Likely target RPC   |
+| Line | Pattern | Likely target RPC |
 | ---- | -------------------------------- | ------------------- | -------- | ---------------------------------------------------------------- |
-| 228  | `.update({ comment: value.trim() |                     | null })` | Comment edit; same canonical `update_dispatch_comment` as above. |
-| 257  | `.update({...})`                 | Depends on payload. |
+| 228 | `.update({ comment: value.trim() |                     | null })` | Comment edit; same canonical `update_dispatch_comment` as above. |
+| 257 | `.update({...})` | Depends on payload. |
 
 ### `src/app/(field)/field/packing/[machineId]/page.tsx`
 

@@ -4,12 +4,12 @@ Date: 2026-06-22. FE-only (+ one backend RPC for Phase C). Existing RPCs, no new
 
 ## Status by phase — ALL SHIPPED to main 2026-06-22 (CS-authorized promote)
 
-| Phase | Issue(s) | Status                                                                              | Branch / artifact                                                   |
-| ----- | -------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| A     | 1,2,3    | SHIPPED to main (grafted onto current origin/main; Vercel prod)                     | merged via `prd-049-ship`                                           |
-| B     | 4        | SHIPPED to main (contains A)                                                        | merged via `prd-049-ship`                                           |
-| C     | 5        | APPLIED to prod (`edit_transfer_qty`, Cody ✅) + FE wired (DispatchEditDialog)      | `supabase/migrations/20260622070000_prd049_c_edit_transfer_qty.sql` |
-| D     | 6        | SHIPPED to main (Vercel prod)                                                       | merged via `prd-049-ship`                                           |
+| Phase | Issue(s) | Status                                                                         | Branch / artifact                                                   |
+| ----- | -------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| A     | 1,2,3    | SHIPPED to main (grafted onto current origin/main; Vercel prod)                | merged via `prd-049-ship`                                           |
+| B     | 4        | SHIPPED to main (contains A)                                                   | merged via `prd-049-ship`                                           |
+| C     | 5        | APPLIED to prod (`edit_transfer_qty`, Cody ✅) + FE wired (DispatchEditDialog) | `supabase/migrations/20260622070000_prd049_c_edit_transfer_qty.sql` |
+| D     | 6        | SHIPPED to main (Vercel prod)                                                  | merged via `prd-049-ship`                                           |
 
 Note: A/B were re-grafted onto current origin/main (their original `feat/*` branches were based on the older `2111dda` and would have reverted 43 files of newer main work; origin/main's packing page was byte-identical to that base, so the graft was conflict-free). Phase C FE wiring (`editTransferQty` action + `DispatchEditDialog` qty-tab routing for `sourceKind='m2m'`) shipped in the same commit. CS working-tree drift never committed.
 

@@ -1,5 +1,7 @@
 # PRD-032: Tracker sidebar nav entry
 
+Status: Closed 2026-07-02 (PRD-071 sweep). Reason: tracker landed on main (src/app/tracker + in-app route); remaining ideas overtaken. Reopen by deleting this line.
+
 Owner: CS
 Date: 2026-06-15
 Surface: Front end only (Next.js app shell). No DB, no RPC, no migration.

@@ -1,6 +1,6 @@
 # PRD-067: Data integrity - duplicate product name + phantom machines
 
-Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: phantom-machine cleanup executed in the overnight run (318afd4); Hunter Ridge merge blocked on the CS one-product-or-two decision below (live-verified correction 2026-06-30, restored by PRD-071 WS-A salvage).
+Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: phantom-machine cleanup executed in the overnight run (318afd4); Hunter Ridge merge waiting on the CS one-product-or-two decision below (live-verified correction 2026-06-30, restored by PRD-071 WS-A salvage).
 
 Owner: CS. Date: 2026-06-30. Surface: data cleanup on prod. Touches boonz_products, product_mapping, pod_inventory, machines (Articles 1,3,12). Cody review mandatory; migration FILE first; STOP for CS before any DELETE / status flip. Idempotent, no em dashes.
 

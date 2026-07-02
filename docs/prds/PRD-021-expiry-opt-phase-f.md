@@ -1,6 +1,6 @@
 # PRD-021 — Wire dissolve_batch under Phase F (expiry-opt consumption path)
 
-**Status:** DRAFT — awaiting CS approval. **Cody review REQUIRED at build time** (modifies engine_add_pod, a canonical writer to pod_refill_plan, and the Phase-F branch of reconcile_intent_progress → Article 15 amendment, per Cody's cleanup verdict).
+**Status:** Closed 2026-07-02 (PRD-071 sweep). Reason: historical (Phase F era), executed/overtaken. Reopen by deleting this line.
 **Supabase:** eizcexopcuoycuosittm. **Repo placement:** docs/prds/ in boonz-erp (next in PRD series — verify 021 is free).
 **Origin:** Boonz Brain cleanup run 2026-06-10, Part 1 verification.
 
