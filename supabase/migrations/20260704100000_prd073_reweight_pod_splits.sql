@@ -74,8 +74,8 @@ BEGIN
   END IF;
   PERFORM set_config('app.mutation_reason', p_reason, true);
 
-  SELECT machine_id INTO v_machine_id FROM public.machines WHERE official_name = p_machine AND status = 'Active';
-  IF v_machine_id IS NULL THEN RAISE EXCEPTION 'reweight_pod_splits: Active machine % not found', p_machine; END IF;
+  SELECT machine_id INTO v_machine_id FROM public.machines WHERE official_name = p_machine AND status IN ('Active','Warehouse');
+  IF v_machine_id IS NULL THEN RAISE EXCEPTION 'reweight_pod_splits: Active/Warehouse machine % not found', p_machine; END IF;
   SELECT pod_product_id INTO v_pod_id FROM public.pod_products WHERE pod_product_name = p_pod;
   IF v_pod_id IS NULL THEN RAISE EXCEPTION 'reweight_pod_splits: pod product % not found', p_pod; END IF;
 
