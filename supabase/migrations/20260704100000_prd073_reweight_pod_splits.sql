@@ -181,8 +181,8 @@ BEGIN
   WHERE pm.pod_product_id = v_pod_id AND pm.machine_id = v_machine_id
     AND pm.boonz_product_id = p.bpid AND pm.status='Active';
 
-  INSERT INTO public.product_mapping (pod_product_id, boonz_product_id, machine_id, split_pct, mix_weight, is_global_default, status)
-  SELECT v_pod_id, p.bpid, v_machine_id, p.new_pct, round(p.new_pct / 100.0, 3), false, 'Active'
+  INSERT INTO public.product_mapping (pod_product_id, boonz_product_id, machine_id, split_pct, mix_weight, status)
+  SELECT v_pod_id, p.bpid, v_machine_id, p.new_pct, round(p.new_pct / 100.0, 3), 'Active'
   FROM _proposed p
   WHERE NOT EXISTS (SELECT 1 FROM public.product_mapping pm
                     WHERE pm.pod_product_id = v_pod_id AND pm.machine_id = v_machine_id
