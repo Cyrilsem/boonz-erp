@@ -70,6 +70,7 @@ export function FieldCapturePanel() {
         supabase
           .from("machines")
           .select("machine_id, official_name")
+          .eq("status", "Active")
           .order("official_name")
           .limit(10000),
         supabase.from("warehouses").select("warehouse_id, name").limit(10000),

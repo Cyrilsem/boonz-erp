@@ -32,6 +32,7 @@ export default function SimCardsPage() {
     const { data: machinesData } = await supabase
       .from("machines")
       .select("machine_id, official_name")
+      .eq("status", "Active")
       .order("official_name")
       .limit(10000);
 
