@@ -1430,16 +1430,22 @@ export default function PackingDetailPage() {
         }
 
         // Zero picks: user intentionally packed 0 qty (e.g. shelf cleared,
-        // product swapped out). Mark the dispatch line as packed with qty=0
-        // so the shelf counts as done — no WH stock is deducted.
+        // product swapped out). Route through the canonical writer: picks
+        // summing to 0 stamp pack_outcome='not_filled' with the reason, so
+        // the line is resolved (non-physical) and no WH stock is deducted.
         if (picks.length === 0) {
           console.log(
-            `[B3.1] ${line.pod_product_name}: packed with qty=0 — marking done`,
+            `[B3.1] ${line.pod_product_name}: packed with qty=0 — marking not_filled`,
           );
-          const { error: zeroErr } = await supabase
-            .from("refill_dispatching")
-            .update({ packed: true, filled_quantity: 0 })
-            .eq("dispatch_id", line.dispatch_id);
+          const { error: zeroErr } = await supabase.rpc("pack_dispatch_line", {
+            p_dispatch_id: line.dispatch_id,
+            p_picks: [
+              {
+                qty: 0,
+                reason: "packed zero qty (shelf cleared or swapped out)",
+              },
+            ],
+          });
           if (zeroErr) {
             console.error(
               `[B3.1] Zero-pack update failed for ${line.pod_product_name}:`,
