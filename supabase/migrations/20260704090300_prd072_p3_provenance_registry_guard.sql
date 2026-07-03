@@ -19,7 +19,7 @@ AS $$
   WITH allowed AS (
     SELECT array_agg(m[1]) AS reasons
     FROM pg_constraint c,
-         regexp_matches(pg_get_constraintdef(c.oid), '''([a-z_]+)''::text', 'g') m
+         regexp_matches(pg_get_constraintdef(c.oid), '''([a-z0-9_]+)''::text', 'g') m
     WHERE c.conname = 'wh_provenance_reason_enum'
   ),
   writers AS (
