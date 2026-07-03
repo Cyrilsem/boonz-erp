@@ -165,12 +165,12 @@ export default function ProductMappingPage() {
         return;
       }
 
-      // FIX 1: fetch ALL machines (no status filter) so dropdown always populates
       const [{ data: mData }, { data: bData }, { data: ppData }] =
         await Promise.all([
           supabase
             .from("machines")
             .select("machine_id, official_name")
+            .eq("status", "Active")
             .order("official_name"),
           supabase
             .from("boonz_products")
