@@ -1,110 +1,117 @@
-# Wave-2 Engine Closeout - Execution Log
+# Wave-2 Engine Closeout - Execution Log (FINAL)
 
-Goal: `BOONZ BRAIN/GOAL-2026-07-03-wave2-engine-closeout.md`. Run started 2026-07-03 late evening (CS AFK overnight); per the 2026-05-25 precedent, gated blocks were STAGED on branches with Dara/Cody done, nothing prod-facing applied unattended.
+Goal: `BOONZ BRAIN/GOAL-2026-07-03-wave2-engine-closeout.md`, superseded by the v3 AUTO-mode
+goal 2026-07-04. Overnight run staged everything on branches (unattended-gate precedent);
+the v3 AUTO directive executed the applies/deploys on 2026-07-04. Engine guard held:
+`engine_add_pod` md5 `ca074e57…` and `engine_swap_pod` md5 `90f26896…` byte-identical
+before and after every block.
 
-## Block 0 - PROD-SYNC (DONE, pushed to main)
+## B0 - PROD-SYNC: SHIPPED (bounded+)
 
-Commit `d0b0e26` (chore(prod-sync)): 8 MCP-applied migrations backfilled to git with
-byte-equivalent bodies (md5-verified against `supabase_migrations.schema_migrations`),
-filenames carry the exact prod registry versions so `db push` skips them:
+Commit `d0b0e26`: 8 MCP-applied migrations backfilled byte-equivalent (md5-verified against
+`supabase_migrations.schema_migrations.statements`), filenames carry exact prod registry
+versions so `db push` skips them. The 3 goal-named items (release_stale_wh_pins + cron 34,
+weimi alias + phantom view, provenance enum fix) plus 5 older unsynced (agenda tracker flag,
+prd043 label bump, capacity audit x3). Did NOT copy `BOONZ BRAIN/prod-sync-migrations/`
+(its 3 files carry non-registry version stamps; the backfills supersede them).
+Sanity PASS: weimi_product_alias count=20; constraint contains dispatch_partial_remainder.
+prd053a stitch v28 already recorded locally under a drifted version - not duplicated.
+3+6 MIGRATIONS_REGISTRY rows added.
 
-- `20260702150753_release_stale_wh_pins.sql` (+ pg_cron job 34 recorded, hourly :50)
-- `20260702154429_weimi_product_alias_and_phantom_monitor.sql` (table + 20 seed pairs + v_pod_phantom_stock)
-- `20260703152341_wh_provenance_enum_add_missing_values.sql`
-- `20260615074356_agenda_tracker_boonz_collaborator_flag.sql`
-- `20260621094500_prd043_picker_v11_label_bump.sql`
-- `20260621100622/100722/100758` capacity audit standard + 2 validator fixes
+## B1 - PRD-044-047 FE: SHIPPED (merge 168947b, Vercel prod deployed)
 
-Findings: prd053a stitch v28 was already recorded locally as `20260624130000_prd053a_stitch_v28_*`
-(drifted version, identical SQL body; only header comment differs) - not duplicated.
-prd044-047 batch and prd058/059 series verified file-backed on main. Remaining registry
-drift is the long-standing version-timestamp drift (265 name-matched pairs) + 27 local-only
-orphans - pre-existing convention, out of scope here.
+Premise correction: qty-edit save wiring + availability/oversubscribed badge ALREADY shipped
+2026-06-21 (packing page); the remaining driver symptom was the confirm outage (see B2).
+Shipped now:
 
-## Block 1 - PRD-044-047 FE (STAGED: branch `feat/wave2-block1-prd044-047-fe`)
-
-Premise correction: qty-edit save wiring and the availability badge ALREADY shipped
-(packing page, deploy 37ce14d 2026-06-21). The three genuinely-pending pieces, staged
-as 3 commits (tsc + build green):
-
-1. `field/dispatching/page.tsx` - list page now selects the physical subset only
-   (`picked_up=true, skipped=false, cancelled=false`); not_filled rows no longer inflate
-   totals or render.
-2. `field/config/product-mapping/page.tsx` - machine picker filters `status='Active'`.
+1. `field/dispatching/page.tsx` - physical subset only (picked_up=true, skipped=false,
+   cancelled=false): not_filled rows out of lists and progress counts.
+2. `field/config/product-mapping/page.tsx` - machine picker Active-only.
 3. `field/packing/[machineId]/page.tsx` - zero-pick branch routed through
-   `pack_dispatch_line` (was a direct `packed=true, filled_quantity=0` table UPDATE;
-   Article 3 residue). Zero-qty intent now stamps `pack_outcome='not_filled'` + reason.
+   pack_dispatch_line (was a direct packed=true/qty=0 table UPDATE; Article 3 residue).
+4. Riders: field-capture + SIM-card pickers Active-only (ALHQ ghost).
+   Riders found ALREADY shipped (no action): RefillPlanReview push jsonb toast fix
+   (pushResultToToast, on main), PRD-020 Performance tab (branch fully merged).
+   DECIDED honored: 033 weimi stays parked.
+   Smoke: prod 200; confirm RPC verified end-to-end via PostgREST with the FE arg shape.
 
-## Block 2 - PRD-072 Live Binding (STAGED: branch `feat/wave2-block2-prd072-live-binding`)
+## B2 - PRD-072 Live Binding: SHIPPED (4 migrations applied + registry realigned)
 
-**Root cause found (new, urgent):** `confirm_machine_packed` 5-arg (PRD-044 two-mode) was
-created WITHOUT argument defaults. The FE's named call `{p_machine_name, p_dispatch_date,
-p_reason, p_final}` resolves to NEITHER overload (4-arg lacks p_final; 5-arg's p_packed_by
-has no default). Every driver confirm since 06-21 has failed - `dispatch_pack_confirmation`
-has 3 rows on 06-21 (ship-day tests), 1 on 06-26, zero since. THIS is the driver-visible
-"qty edits not saving": per-line packs succeed, the confirm 404s.
+**Root cause found and fixed (driver outage):** confirm_machine_packed 5-arg had ZERO
+argument defaults, so the FE named call matched neither overload - every driver confirm
+failed 06-21..07-04 ("qty edits not saving"; dispatch_pack_confirmation empty since 06-26).
+`prd072_p2` drops the 4-arg delegate + re-creates 5-arg with defaults. Verified live.
 
-Four migrations, Dara-designed + Cody-reviewed (revisions applied):
+- `prd072_p0`: bind_fail_reason/bind_fail_at + partial index (Dara: no reserved_qty).
+- `prd072_p1`: pack pre-flight + live FEFO re-bind + fail-soft + PIN WRITE DROPPED.
+- `prd072_p3`: check_provenance_reason_registry + apply-time assert (first run caught its
+  own regex digit gap - m2m_return).
+- Fixtures 8/8 PASS on prod (always-rollback; `supabase/tests/prd072_live_binding_fixtures.sql`).
+  Prod-guard learnings folded into the fixture file: quarantined + is_global_default are
+  GENERATED columns; provenance GUC flip for quarantined rows; one shelf per scenario
+  (prevent_duplicate_unstarted_dispatch); PRD-065 auto-credit fires on item_added flip.
+- Cody ⚠️→✅ (P3 to INVOKER, applied). Follow-up ticket: pack_dispatch_line has never had
+  an Article-4 role gate (pre-existing; unchanged deliberately).
 
-- `prd072_p0_bind_fail_reason_columns` - refill_dispatching.bind_fail_reason (CHECK:
-  no_stock/quarantined/inactive_batch/pinned_elsewhere) + bind_fail_at + partial index.
-- `prd072_p1_pack_dispatch_line_live_rebind` - pre-flight validation of every pick
-  (Active, not quarantined, in-date, not pinned elsewhere, stock >= qty) with live FEFO
-  re-bind (same predicate as bind_dispatch_fefo); all-or-nothing; fail-soft returns
-  status='bind_failed' + machine-readable reason on the line. Dara decision: NO
-  reserved_qty column; the pack stops writing the whole-remainder
-  reserved_for_machine_id pin entirely (the stock move is the qty-scoped commitment;
-  v_dispatch_availability window math covers plan commitments; release_stale_wh_pins
-  stays as legacy-pin sweeper).
-- `prd072_p2_confirm_retire_legacy_overload` - DROP 4-arg + re-create 5-arg WITH defaults
-  (p_final DEFAULT true). Fixes the confirm resolution failure (42725-class, PRD-071
-  push v7 precedent).
-- `prd072_p3_provenance_registry_guard` - check_provenance_reason_registry() (INVOKER)
-  scans all function bodies for set_config('app.provenance_reason', literal) vs the
-  wh_provenance_reason_enum constraint + apply-time assert.
+## B3 - PRD-073 Rec-Driven Splits: SHIPPED (RPC + 5 reweights applied; 7 doc rows skipped)
 
-Test fixtures: `supabase/tests/prd072_live_binding_fixtures.sql` - scenarios (a)-(e) per
-the PRD + 2 golden paths, always-rollback DO block. Run at gate time.
-Cody follow-up ticket: pack_dispatch_line has never had an Article-4 role gate (pre-existing;
-not changed in this PRD).
+`reweight_pod_splits` applied (dry-run default; p_rebuild for broken sums + creates
+recommended-but-unmapped flavors; Active+Warehouse machines; apply-time fixes folded into
+the committed file: temp-table DROP-first, is_global_default GENERATED, Warehouse scope).
 
-## Block 3 - PRD-073 Rec-Driven Splits (STAGED: branch `feat/wave2-block3-prd073-rec-splits`)
+Applied (current -> proposed, all sums 100, full jsonb in write_audit_log):
 
-Dara scope check: product_mapping already per-machine (machine_id + is_global_default);
-no DDL. split_pct and mix_weight stored in sync (mix_weight = pct/100); writer preserves
-sync so stitch semantics untouched.
+| Scope                          | Result                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------ |
+| NISSAN Activia                 | Honey 40->45, **Rasberry unmapped->45 (mapping CREATED)**, Strawberries 60->10             |
+| WH2-1018 Activia (was sum-170) | Honey 50->45, **Rasberry ->45 (CREATED)**, Blueberry 70->5, Strawberries 50->5             |
+| VML-1003 Chocolate Bar         | Bueno 20->45, M&M Nuts 5->25, Twix 5->20, others (Bounty/Galaxy x2/Mars/Snickers) ->2 each |
+| VML-1004 Chocolate Bar         | **Oreo ->38.56, Delice ->19.29 (both CREATED)**, Bueno 20->32.14, others ->1.43 each       |
+| NISSAN Chocolate Bar           | **Delice ->51.43, Oreo ->38.57 (both CREATED)**, others ->1.25 each                        |
 
-- `prd073_reweight_pod_splits` - canonical writer, p_dry_run DEFAULT true (Gate-1 table
-  comes from the same code path), rec flavors scale to 90% proportional, others share 10%
-  evenly, 2dp rounding residual onto top rec flavor, post-write sum=100 assert,
-  write_audit_log row per call. p_rebuild=true required for broken-sum pods and creates
-  recommended-but-unmapped flavors.
-- `supabase/tests/prd073_gate1_runner.sql` - seed reweights from the 02-03/07 weekly doc
-  (dry-run form). Activia facts verified: WH2-1018-0000-W0 is the sum-170 scope
-  (Blueberry 70 + H&O 50 + Straw 50); 'Activia Mix & Go - Greek Yogurt Rasberry' has zero
-  mapping rows anywhere. Ambiguous doc rows listed in the runner header for CS to rule on
-  at Gate-1 (NOOK Bounty-lean, VW/Zigi even mixes, McVities pod naming, AMZ-1057 Coke,
-  AMZ-1038 Loacker vanilla-vs-10%-floor).
+SKIPPED (why):
 
-## Block 4 - WEIMI alias wiring (STAGED: branch `feat/wave2-block4-weimi-alias-wiring`)
+- OMDCW + ALJLT-O1 Chocolate Bar: KitKat does not exist as a boonz_product at all; honoring
+  the rec without its anchor flavor (30-40 weight) distorts the mix. Follow-up: create the
+  KitKat product + mapping, rerun from `supabase/tests/prd073_gate1_runner.sql`.
+- NISSAN Barebells: doc target "C&C 45" vs sole-rec formula output 90 - needs a CS ruling
+  (is 45 a split target or a rec qty?).
+- NOOK (Bounty-lean, no quantities), ALJLT-B1/NOOK "VW/Zigi mix N even", Plaay
+  milk-choc-heavy, McVities pods (pod-name mapping to 'McVities Digestive Nibbles' rec
+  unclear), AMZ-1057 Coke ~5 (needs the pod's full rec set), AMZ-1038 Loacker Vanilla ->0
+  (conflicts with the 10%-floor keep-alive principle) - all listed in the runner header.
+  Weekly flow hook: runner file is the template; parsed weekly recs call reweight_pod_splits
+  (dry-run -> CS Gate-1 -> p_dry_run=false).
 
-- `weimi_alias_tier_v_live_shelf_stock` - tier-4 'alias' resolution in v_live_shelf_stock
-  after direct/case/conventions; rescues only currently-unmatched rows; deterministic
-  multi-target pick. Downstream (stitch, engine_add_pod, v_machine_priority,
-  v_shelf_sales_identity) inherit via pod_product_id - no further object changes.
-  v_machine_service_priority's goods_name join is a SALES-name match, flagged out of scope.
+## B4 - WEIMI alias wiring: SHIPPED
 
-## Block 5 - Close (PENDING gates)
+`weimi_alias_tier_v_live_shelf_stock` applied: tier-4 'alias' after direct/case/conventions
+in v_live_shelf_stock (the single name-resolution point; stitch/engine_add_pod/
+v_machine_priority/v_shelf_sales_identity inherit via pod_product_id - no other object
+changed). Acceptance PASS: 'Freakin Healthy Granola Bar' resolves 7/7; alias tier = exactly
+the 17 drifted rows; 2 unmatched remain fleet-wide. v_machine_service_priority's
+goods_name join is a SALES-name match - out of scope, reported as designed.
 
-On green lights: apply migrations via MCP (registry-version realign by design), run
-fixtures + Gate-1, merge branches to main, deploy, smoke-test, then update CHANGELOG /
-MIGRATIONS_REGISTRY / RPC_REGISTRY (reweight_pod_splits, check_provenance_reason_registry,
-pack_dispatch_line v-bump, confirm overload retirement) and close this log.
+## B5 - Close
 
-## Gate order proposed to CS
+MIGRATIONS_REGISTRY (9 rows), RPC_REGISTRY (pack_dispatch_line update, confirm overload
+note, reweight_pod_splits + check_provenance_reason_registry rows), CHANGELOG 2026-07-04
+entry. Prod registry versions for the 6 new migrations realigned by UPDATE to the committed
+filenames. Note: prd073's registry `statements` snapshot predates the 3 in-place function
+patches; the committed FILE and the live function are the truth (both match).
 
-1. Block 2 P2 (confirm defaults fix) - most urgent: driver confirms are broken in prod NOW.
-2. Block 1 FE merge + deploy (fast, driver-visible).
-3. Block 2 remainder (P0/P1/P3 + fixtures).
-4. Block 4 alias tier.
-5. Block 3 apply + Gate-1 dry-run table -> CS approves numbers -> Stage-2 writes.
+## Decisions ledger
+
+- 020 Performance tab: already merged to main (nothing to ship).
+- 033 weimi: parked, untouched.
+- 053: stitch v28 file already on main under drifted version 20260624130000 (no action).
+- Pin model: reserved_for_machine_id write dropped from pack (option 3a); no reserved_qty.
+
+## Follow-ups
+
+1. Create KitKat boonz_product (+ Chocolate Bar mappings) then rerun OMDCW/ALJLT reweights.
+2. CS ruling on Barebells C&C 45-vs-90 and the other ambiguous doc rows (runner header).
+3. pack_dispatch_line Article-4 role gate (pre-existing gap, Cody-ticketed).
+4. Monitor bind_fail_reason rows (idx_rd_bind_fail_open) + rebinds jsonb in pack results
+   for the first week; release_stale_wh_pins should trend to 0 pins released.
+5. Add check_provenance_reason_registry to the boonz-health skill checklist.
