@@ -45,7 +45,13 @@ export default function DispatchingPage() {
         "dispatch_id, machine_id, picked_up, dispatched, returned, quantity, filled_quantity, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, adyen_store_code), shelf_configurations(shelf_code), pod_products(pod_product_name)",
       )
       .eq("dispatch_date", today)
-      .eq("include", true);
+      .eq("include", true)
+      // PRD-044: physical subset only — not_filled lines never get picked_up,
+      // and skipped/cancelled lines are inert (PRD-028); none of them belong
+      // in the dispatch list or its progress counts.
+      .eq("skipped", false)
+      .eq("cancelled", false)
+      .eq("picked_up", true);
 
     if (!lines || lines.length === 0) {
       setMachines([]);
