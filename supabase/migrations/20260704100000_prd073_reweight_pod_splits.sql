@@ -90,6 +90,7 @@ BEGIN
   END LOOP;
 
   -- mapped flavor universe for this machine+pod: per-machine rows if any, else global
+  DROP TABLE IF EXISTS _flavors;
   CREATE TEMP TABLE _flavors ON COMMIT DROP AS
   SELECT DISTINCT ON (bpid) bpid, has_machine_row FROM (
     SELECT pm.boonz_product_id AS bpid, (pm.machine_id IS NOT NULL) AS has_machine_row
@@ -122,6 +123,7 @@ BEGIN
   v_rec_share   := CASE WHEN v_n_others = 0 THEN 100 ELSE 90 END;
   v_other_share := CASE WHEN v_n_others = 0 THEN 0 ELSE round(10.0 / v_n_others, 2) END;
 
+  DROP TABLE IF EXISTS _proposed;
   CREATE TEMP TABLE _proposed ON COMMIT DROP AS
   SELECT f.bpid,
          bp.boonz_product_name,
