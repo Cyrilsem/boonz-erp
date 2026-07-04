@@ -1,6 +1,6 @@
 # PRD-066: Lifecycle reconciliation - stale returns queue + pod state
 
-Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: partially executed - see PRD-066-068-DATA-RECONCILIATION-LOG.md; remaining lifecycle/returns sweeps pending.
+Status: Closed 2026-07-04 (CS per-row answers, executed via Cowork MCP). Final sweep: VW Hydrate USH d31b6cd5 received (qty 4, remove_fefo_fallback, NO WH credit - pod already empty, see note); M&M AMZ-1038 8a139416 received (venue_team guard skipped WH credit, correct per PRD-054); MC-2004 Starbucks 04d925bc + G&H b119b392 DECLINED as internal transfer MC->AMZ-1038 (stock verified already Active at AMZ-1038 pod: Starbucks 6u, G&H 11u; no WH credit, conservation holds); HUAWEI qty-0 x3 (3fb53eb6, 1492f5de, a34bfb9e) declined as junk. Queue now holds only 3 recent (<72h) legitimate rows for normal FE approval. OPEN NOTE: the 4 VW Hydrate units confirmed off USH were NOT credited anywhere - if physically in the office, WH is understated by 4 (needs adjust_warehouse_stock). Earlier partial execution in PRD-066-068-DATA-RECONCILIATION-LOG.md. Reopen by deleting this line.
 
 Owner: CS. Date: 2026-06-30. Surface: data reconciliation on prod via canonical RPCs only. Touches refill_dispatching, pod_inventory, warehouse_inventory (Articles 1,3,12). Cody review mandatory. Idempotent, skip+log gaps, no em dashes.
 

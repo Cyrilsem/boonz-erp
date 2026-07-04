@@ -1,6 +1,6 @@
 # PRD-061: Reconcile Jojo's 23-25 Jun machine edits into the live dataset (idempotent auto-run)
 
-Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: reconciliation applied 2026-06-26 via canonical RPCs (write-off + add + 2 pod removals + 8 WH return-credits); residual field-edit monitoring remains.
+Status: Closed 2026-07-04 (CS). Reason: reconciliation applied 2026-06-26 via canonical RPCs (write-off + add + 2 pod removals + 8 WH return-credits); residual field-edit monitoring accepted as done. Reopen by deleting this line.
 
 Owner: CS
 Date: 2026-06-25

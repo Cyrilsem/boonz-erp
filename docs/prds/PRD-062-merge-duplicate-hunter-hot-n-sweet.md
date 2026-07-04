@@ -1,6 +1,6 @@
 # PRD-062: Merge + delete duplicate boonz_product "Hunter - Hot N Sweet"
 
-Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: Hunter Hot N Sweet merge+delete completed 2026-06-26; reusable merge pattern documented; PRD-067 Hunter Ridge case pending CS decision reuses it.
+Status: Closed 2026-07-04 (CS). Reason: Hunter Hot N Sweet merge+delete completed 2026-06-26; reusable merge pattern documented and referenced by PRD-067 (CS decided 2026-07-04: keep "Hunter Ridge - Sour Cream" as survivor). Reopen by deleting this line.
 
 Owner: CS
 Date: 2026-06-25

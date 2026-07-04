@@ -1,6 +1,6 @@
 # PRD-069: write_audit_log no-op leak from ingest_alerts_into_ledger + reclaim
 
-Status: Open (kept open, PRD-071 sweep 2026-07-02). Verdict: draft investigation of audit-log noop-alert ingest leak; doc restored to main by PRD-071 WS-A salvage; build not started.
+Status: Closed 2026-07-04 (CS green light, executed via Cowork MCP). Fixes 1+2 applied: ingest_alerts_into_ledger v2_prd069_change_guard (migration prd069_ingest_alerts_change_guard) - last_seen refresh now change-guarded (max_created > last_seen_signal_at) and scoped to status='open'; verified live: full ingest run writes 0 audit rows (was ~3,400/run). Fix 3 (audit routing) not needed. Fix 4 reclaim DONE: 1,400,734 no-op UPDATE rows deleted (snapshot: checksum 1827832212716335355980, window 2026-05-30 08:08 UTC to 2026-07-04 05:00 UTC), write_audit_log 2,732,271 -> 1,331,931 rows, VACUUM FULL run: table 3671 MB -> 1592 MB (~2.1 GB returned). PENDING: git-commit the MCP migration via prod-sync in Claude Code (will show as untracked_migrations in the drift check until then). Reopen by deleting this line.
 
 Owner: CS. Date: 2026-07-01. Surface: backend cron RPC + one-time reclaim + standing monitor. Touches ingest_alerts_into_ledger, findings_ledger, write_audit_log (Articles 1, 12, 16 - protected append-only log). Cody review mandatory. Idempotent, no em dashes.
 
