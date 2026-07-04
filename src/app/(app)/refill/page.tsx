@@ -140,6 +140,13 @@ type MachineHealth = {
   service_track: "main" | "vox";
   priority_tier: "P1_RESTOCK" | "P2_MAINTAIN" | "skip";
   priority_score: number;
+  // PRD-074 v3: canonical clocks + server-built urgency breakdown.
+  // days_since_visit above is now the CANONICAL visit clock (executed dispatch
+  // evidence); last_plan_* is the old approved-plan notion, informational only.
+  last_plan_date: string | null;
+  last_plan_days: number | null;
+  urgency_breakdown: { label: string; pts: number }[] | null;
+  reasons_arr: string[] | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -682,21 +689,6 @@ export default function RefillPage() {
   );
 
   const sortedMachines = useMemo(() => {
-    // ── Status rank (Zombie worst → Stable best) ─────────────────────────
-    const labelOrder: Record<string, number> = {
-      Zombie: 0,
-      "At Risk": 1,
-      "Ramp-Up": 2,
-      Star: 3,
-      Stable: 4,
-    };
-    const labelRank = (label: string): number => {
-      for (const key of Object.keys(labelOrder)) {
-        if (label.includes(key)) return labelOrder[key];
-      }
-      return 99;
-    };
-
     const sorted = [...machineHealth];
     switch (sortBy) {
       case "priority":
@@ -713,10 +705,9 @@ export default function RefillPage() {
         );
         break;
       case "status":
+        // PRD-074 F2: backend health_sort replaces the hardcoded labelOrder rank.
         sorted.sort(
-          (a, b) =>
-            labelRank(a.machine_health_label) -
-              labelRank(b.machine_health_label) || a.fill_pct - b.fill_pct,
+          (a, b) => a.health_sort - b.health_sort || a.fill_pct - b.fill_pct,
         );
         break;
       case "stock":
@@ -1788,15 +1779,22 @@ export default function RefillPage() {
                               {m.days_until_empty}d runway
                             </span>
                           )}
-                        {m.days_since_visit != null && (
-                          <span
-                            className={
-                              m.days_since_visit >= 7
-                                ? "text-amber-600 font-medium"
-                                : ""
-                            }
-                          >
-                            {m.days_since_visit}d ago
+                        {/* PRD-074: split clocks - canonical visit (dispatch evidence) vs plan */}
+                        {m.days_since_visit != null &&
+                          m.days_since_visit >= 0 && (
+                            <span
+                              className={
+                                m.days_since_visit >= 7
+                                  ? "text-amber-600 font-medium"
+                                  : ""
+                              }
+                            >
+                              last visit {m.days_since_visit}d
+                            </span>
+                          )}
+                        {m.last_plan_days != null && (
+                          <span className="text-neutral-400">
+                            last plan {m.last_plan_days}d
                           </span>
                         )}
                         {m.daily_velocity > 0 && (
@@ -2203,90 +2201,32 @@ export default function RefillPage() {
                       (() => {
                         const h = selectedHealth;
                         const urgScore = refillUrgency(h);
-                        // Build score breakdown for display
+                        // PRD-074: chips render the SERVER-built urgency_breakdown
+                        // verbatim (pts sum exactly to v_machine_priority.urgency).
+                        // Zero client-side priority math (Article 16); the old 8
+                        // hardcoded formulas are gone. Info tags (reasons_arr,
+                        // dead stock, heroes) carry pts 0.
+                        const chipColor = (label: string) =>
+                          label.startsWith("empty")
+                            ? "text-red-600"
+                            : label.startsWith("low-fill")
+                              ? "text-amber-600"
+                              : "text-blue-600";
                         const reasons: {
                           label: string;
                           pts: number;
                           color: string;
-                        }[] = [];
-                        if (h.slots_at_zero > 0)
+                        }[] = (h.urgency_breakdown ?? []).map((c) => ({
+                          label: c.label,
+                          pts: c.pts,
+                          color: chipColor(c.label),
+                        }));
+                        for (const tag of h.reasons_arr ?? [])
                           reasons.push({
-                            label: `${h.slots_at_zero} empty shelves`,
-                            pts: h.slots_at_zero * 15,
-                            color: "text-red-600",
-                          });
-                        const nearEmpty = Math.max(
-                          0,
-                          h.slots_below_25pct - h.slots_at_zero,
-                        );
-                        if (nearEmpty > 0)
-                          reasons.push({
-                            label: `${nearEmpty} shelves <25%`,
-                            pts: nearEmpty * 8,
-                            color: "text-amber-600",
-                          });
-                        const runway = h.days_until_empty ?? 999;
-                        if (runway <= 14) {
-                          const rPts =
-                            runway <= 1
-                              ? 50
-                              : runway <= 3
-                                ? 35
-                                : runway <= 7
-                                  ? 20
-                                  : 8;
-                          reasons.push({
-                            label: `${Math.round(runway)}d runway`,
-                            pts: rPts,
-                            color:
-                              runway <= 3 ? "text-red-600" : "text-amber-600",
-                          });
-                        }
-                        if (h.daily_velocity > 0)
-                          reasons.push({
-                            label: `↗ ${h.daily_velocity.toFixed(1)}/day velocity`,
-                            pts: Math.round(Math.min(h.daily_velocity * 2, 30)),
-                            color: "text-blue-600",
-                          });
-                        const daysSince = h.days_since_visit ?? 0;
-                        if (daysSince >= 4) {
-                          const vPts =
-                            daysSince >= 14 ? 25 : daysSince >= 7 ? 15 : 5;
-                          reasons.push({
-                            label: `${daysSince}d since visit`,
-                            pts: vPts,
-                            color:
-                              daysSince >= 7
-                                ? "text-amber-600"
-                                : "text-gray-600",
-                          });
-                        }
-                        if (h.expired_units > 0)
-                          reasons.push({
-                            label: `${h.expired_units} expired units`,
-                            pts: 20 + h.expired_units * 2,
-                            color: "text-red-600",
-                          });
-                        if (h.pending_swap_count > 0)
-                          reasons.push({
-                            label: `${h.pending_swap_count} pending swaps`,
-                            pts: h.pending_swap_count * 5,
+                            label: tag.replaceAll("_", " "),
+                            pts: 0,
                             color: "text-purple-600",
                           });
-                        if (h.is_picked_tomorrow)
-                          reasons.push({
-                            label: "Picked for tomorrow",
-                            pts: 40,
-                            color: "text-blue-700",
-                          });
-                        if (h.fill_pct < 50) {
-                          const fPts = h.fill_pct < 30 ? 15 : 8;
-                          reasons.push({
-                            label: `${h.fill_pct.toFixed(0)}% fill`,
-                            pts: fPts,
-                            color: "text-amber-600",
-                          });
-                        }
                         if (h.dead_stock_count > 0)
                           reasons.push({
                             label: `${h.dead_stock_count}/${h.total_slots} dead stock`,
@@ -2299,9 +2239,6 @@ export default function RefillPage() {
                             pts: 0,
                             color: "text-green-600",
                           });
-
-                        // Sort by points descending
-                        reasons.sort((a, b) => b.pts - a.pts);
 
                         return (
                           <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">

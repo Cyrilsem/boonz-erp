@@ -1,5 +1,12 @@
 # Architecture Changelog
 
+## 2026-07-04 — PRD-074: priority single source of truth (kill the metric duplicates)
+
+- **Canonical clocks:** days_since_visit = executed dispatch evidence (`v_machine_health_signals`), THE visit clock everywhere. The old MAX(approved plan_date) notion is renamed `last_plan_date`/`last_plan_days` (informational, never a visit) - the definition split behind the "cards said 3d, picker said 22d" VOX-outage contradiction. `get_machine_health` v3 passes the canonical clock through and APPENDS last_plan_date/last_plan_days/`urgency_breakdown`/`reasons_arr` (all 32 prior keys kept; sole consumer refill/page.tsx grep-proofed). `urgency_breakdown` pts sum EXACTLY to `v_machine_priority.urgency` (empty/low-fill terms exact; runout+capacity+expiry+stale ship as one lumped core chip because the view does not expose those four s_* columns and PRD-073's gate forbade touching it - future one-liner PRD to split).
+- `get_stale_visit_signals` v2: thin SELECT over the signals view; threshold = `pick_urgency_params.stale_override_days`. FE SignalsTab labels updated; no client threshold.
+- FE: the 8 hardcoded chip formulas in refill/page.tsx DELETED (chips render the server breakdown verbatim); labelOrder rank replaced by backend `health_sort`; cards show split clocks ("last visit Nd" / "last plan Nd"). lifecycle z-scale + family-score annotated DISPLAY-ONLY (accepted approximation, chart layout only).
+- `auto_generate_refill_plan` deprecated (Article 13: INVOKER + revoke; zero callers; drop eligible 2026-10-04). NEW `check_priority_surface_consistency()` divergence guard: 0 diffs fleet-wide at apply. Engines + picker + v_machine_priority md5 byte-identical (a49cd7d3 unchanged).
+
 ## 2026-07-04 — PRD-073: eligibility hardening + grade-weighted empty/low-fill urgency
 
 - Root cause of the blind-fleet incident: the machines-page FE rendered TEXT column `adyen_inventory_in_store` as a boolean toggle (direct `.update()`), writing literal `'true'`; 12 Active machines failed `is_eligible_machine` ('Live' required) and were invisible to shelf grading (urgency floored, P3 forever). Data fixed from chat 2026-07-03 (12 rows -> 'Live'); this PRD makes it durable: FE select over the constrained value set, CHECK constraint (NOT VALID -> VALIDATE, 'true' rejected), and `v_machine_eligibility_drift` monitor. Monitor immediately surfaced a SECOND blindness cause: ACTIVATE-2005/IFLYMCC-1024/MPMCC-1054 are repurposed-but-Active (`repurposed_at` set) - sensitive column, left for CS decision.

@@ -207,6 +207,11 @@ function signalFromScore(score: number, trend: number): string {
   return "DEAD — SWAP NOW";
 }
 
+// PRD-074 F3 (accepted approximation, DISPLAY-ONLY): family score = velocity-
+// weighted mean of member x-scores, computed client-side for chart layout.
+// This is NOT a registered metric and feeds no decision surface; the canonical
+// per-product velocity lives in v_shelf_sales_identity. Logged in
+// PRD-074-EXECUTION-LOG.md; revisit only if a family score ever drives actions.
 function computeFamilyScore(
   members: Array<{
     x: number;
@@ -263,6 +268,8 @@ function aggregateSlots(
         shelf_codes: [first.shelf_code],
       };
     }
+    // PRD-074 F3: same display-only velocity-weighted aggregation as
+    // computeFamilyScore (see note there); chart layout math, not a metric.
     let wScore = 0,
       wV = 0,
       trendSum = 0,
@@ -680,6 +687,7 @@ export default function LifecyclePage() {
             0,
             Math.min(10, ry + jitter(g.pod_product_id, 0.2, "y")),
           ),
+          // PRD-074 F3: display-only bubble-size clamp (chart z-axis), not a metric.
           z: Math.max(1, Math.min(12, Number(g.total_velocity_30d))),
           velocity_real: Number(g.total_velocity_30d),
           signal: g.signal ?? "KEEP",
@@ -735,6 +743,7 @@ export default function LifecyclePage() {
           y: ry,
           xj: Math.max(0, Math.min(10, rx + jitter(jid, 0.2, "x"))),
           yj: Math.max(0, Math.min(10, ry + jitter(jid, 0.2, "y"))),
+          // PRD-074 F3: display-only bubble-size clamp (chart z-axis), not a metric.
           z: Math.max(1, Math.min(10, Number(s.velocity_30d) * 10)),
           velocity_real: Number(s.velocity_30d),
           machine_id: s.machine_id ?? "",
@@ -1555,6 +1564,7 @@ function ScatterTab({
         y: ry,
         xj: Math.max(0, Math.min(10, rx + jitter(fid, 0.2, "x"))),
         yj: Math.max(0, Math.min(10, ry + jitter(fid, 0.2, "y"))),
+        // PRD-074 F3: display-only bubble-size clamp (chart z-axis), not a metric.
         z: Math.max(1, Math.min(12, computed.total_velocity)),
         velocity_real: computed.total_velocity,
         signal,

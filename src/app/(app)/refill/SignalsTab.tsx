@@ -100,10 +100,13 @@ const SIGNAL_META: Record<
     headerColor: "#6b21a8",
   },
   stale_visits: {
-    label: "Stale Visits (>10d)",
+    // PRD-074: canonical visit clock (executed dispatch evidence); threshold =
+    // pick_urgency_params.stale_override_days, applied server-side in
+    // get_stale_visit_signals v2. No client threshold.
+    label: "Stale Visits",
     icon: "⏰",
     description:
-      "Machines with no approved refill in >10 days — may need attention or are genuinely low-velocity",
+      "Machines with no executed visit beyond the stale threshold (pick_urgency_params.stale_override_days) — may need attention or are genuinely low-velocity",
     color: "#fefce8",
     borderColor: "#fef08a",
     headerColor: "#854d0e",
