@@ -15,7 +15,7 @@ interface Machine {
   pod_location: string | null;
   pod_address: string | null;
   adyen_status: string | null;
-  adyen_inventory_in_store: boolean | null;
+  adyen_inventory_in_store: string | null;
   adyen_unique_terminal_id: string | null;
   adyen_permanent_terminal_id: string | null;
   adyen_store_code: string | null;
@@ -243,7 +243,7 @@ export default function PodsPage() {
             <SectionLabel>Adyen Configuration</SectionLabel>
             <div style={grid2}>
               <Field label="Adyen Status" value={m.adyen_status} />
-              <BoolField
+              <Field
                 label="Inventory In-Store"
                 value={m.adyen_inventory_in_store}
               />
@@ -563,7 +563,7 @@ export default function PodsPage() {
                       {m.adyen_status ?? "—"}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {m.adyen_inventory_in_store ? (
+                      {m.adyen_inventory_in_store?.startsWith("Live") ? (
                         <span style={{ color: "#24544a", fontWeight: 700 }}>
                           ✓
                         </span>

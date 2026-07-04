@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-04 — PRD-073: eligibility hardening + grade-weighted empty/low-fill urgency
+
+- Root cause of the blind-fleet incident: the machines-page FE rendered TEXT column `adyen_inventory_in_store` as a boolean toggle (direct `.update()`), writing literal `'true'`; 12 Active machines failed `is_eligible_machine` ('Live' required) and were invisible to shelf grading (urgency floored, P3 forever). Data fixed from chat 2026-07-03 (12 rows -> 'Live'); this PRD makes it durable: FE select over the constrained value set, CHECK constraint (NOT VALID -> VALIDATE, 'true' rejected), and `v_machine_eligibility_drift` monitor. Monitor immediately surfaced a SECOND blindness cause: ACTIVATE-2005/IFLYMCC-1024/MPMCC-1054 are repurposed-but-Active (`repurposed_at` set) - sensitive column, left for CS decision.
+- `v_machine_priority` v2: empty shelves and sub-25% shelves now add grade-weighted urgency (A>B>C>D, empty D still counts); an empty A/B-graded shelf forces P1 (`hero_shelf_empty`). All knobs in `pick_urgency_params` (8 new columns, defaults live). T1-T5 recorded in PRD-073-EXECUTION-LOG.md; P1 went 9->10 (NOOK-1019 escalated, no flood, no tuning needed); engines + `pick_machines_for_refill` md5 byte-identical.
+
 ## 2026-07-04 — Wave-2 engine closeout (B0 prod-sync, PRD-072 live binding, PRD-073 rec splits, WEIMI alias tier)
 
 - **ROOT CAUSE / driver outage fixed:** `confirm_machine_packed` 5-arg (PRD-044 two-mode) shipped 2026-06-21 WITHOUT argument defaults; the FE named call `{p_machine_name, p_dispatch_date, p_reason, p_final}` resolved to NEITHER overload, so every driver packing confirm failed for 13 days (`dispatch_pack_confirmation` empty since 06-26 = the "qty edits not saving" symptom). `prd072_p2_confirm_retire_legacy_overload` drops the 4-arg delegate and re-creates the 5-arg with defaults (p_final DEFAULT true). Verified live via PostgREST with the FE arg shape. Lesson: check `pronargdefaults`, not just signatures, whenever an RPC overload set changes.

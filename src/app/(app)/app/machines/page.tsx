@@ -14,7 +14,7 @@ interface Machine {
   pod_location: string | null;
   pod_address: string | null;
   adyen_status: string | null;
-  adyen_inventory_in_store: boolean | null;
+  adyen_inventory_in_store: string | null;
   adyen_unique_terminal_id: string | null;
   adyen_permanent_terminal_id: string | null;
   adyen_store_code: string | null;
@@ -101,6 +101,17 @@ const ADYEN_STATUS_OPTIONS = [
   "Online today",
   "Switched off",
   "Switched on Non-Functional",
+];
+// PRD-073 WS-A: adyen_inventory_in_store is TEXT with a constrained value set.
+// A boolean toggle here wrote literal 'true' and made 12 machines invisible to
+// v_shelf_sales_identity grading (eligibility requires 'Live').
+const ADYEN_INVENTORY_OPTIONS = [
+  "Live",
+  "Pending Setup",
+  "false",
+  "Warehouse Ready",
+  "Offline - WH Missing Shelves",
+  "Live - WH Storage",
 ];
 
 const MACHINE_COLS =
@@ -734,7 +745,7 @@ export default function MachinesPage() {
             <SectionLabel>Adyen Configuration</SectionLabel>
             <div style={grid2}>
               <Field label="Adyen Status" value={m.adyen_status} />
-              <BoolField
+              <Field
                 label="Inventory In-Store"
                 value={m.adyen_inventory_in_store}
               />
@@ -968,10 +979,11 @@ export default function MachinesPage() {
                 options={ADYEN_STATUS_OPTIONS}
                 onChange={updateField}
               />
-              <EditableBoolField
+              <EditableSelect
                 label="Inventory In-Store"
                 field="adyen_inventory_in_store"
-                value={boolVal("adyen_inventory_in_store")}
+                value={strVal("adyen_inventory_in_store")}
+                options={ADYEN_INVENTORY_OPTIONS}
                 onChange={updateField}
               />
               <EditableField
@@ -1400,7 +1412,7 @@ export default function MachinesPage() {
                       {m.adyen_status ?? "\u2014"}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {m.adyen_inventory_in_store ? (
+                      {m.adyen_inventory_in_store?.startsWith("Live") ? (
                         <span style={{ color: "#24544a", fontWeight: 700 }}>
                           &#10003;
                         </span>
