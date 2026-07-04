@@ -1,6 +1,6 @@
 # PRD-073: Eligibility hardening + grade-weighted empty/low-fill urgency
 
-Status: SHIPPED 2026-07-04 (WS-A + WS-B applied to prod, T1-T5 green; see PRD-073-EXECUTION-LOG.md). Open: repurposed-but-Active x3 CS decision.
+Status: SHIPPED 2026-07-04 (WS-A + WS-B applied to prod, T1-T5 green; see PRD-073-EXECUTION-LOG.md). Carry-forward CLOSED by PRD-075 (repurpose grace window; the 3 machines grade on merit).
 Owner: CS. Mode: AUTO with hard gates. Touches v_machine_priority (picker input) and pick_urgency_params.
 
 ## Context / what already happened

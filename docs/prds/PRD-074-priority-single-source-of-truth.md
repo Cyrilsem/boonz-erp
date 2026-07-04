@@ -1,6 +1,6 @@
 # PRD-074: Priority single source of truth (kill the metric duplicates)
 
-Status: SHIPPED 2026-07-04 (both migrations applied, FE refactored, T1-T5 green, guard live; see PRD-074-EXECUTION-LOG.md). Open: split the lumped core chip once v_machine_priority exposes s_runout/s_capacity/s_expiry/s_stale.
+Status: SHIPPED 2026-07-04 (both migrations applied, FE refactored, T1-T5 green, guard live; see PRD-074-EXECUTION-LOG.md). Carry-forward CLOSED by PRD-075 (s_* columns exposed; breakdown split into six real terms).
 Owner: CS. Mode: AUTO with hard gates. Article 16 (Metrics Registry) enforcement for the P1/P2 surface.
 
 ## Why

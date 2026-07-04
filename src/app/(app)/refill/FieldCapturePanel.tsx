@@ -54,6 +54,14 @@ export function FieldCapturePanel() {
   const [machines, setMachines] = useState<Opt[]>([]);
   const [warehouses, setWarehouses] = useState<Opt[]>([]);
   const [products, setProducts] = useState<Opt[]>([]);
+  // PRD-075 WS-B hardening: machine-scoped product ids + fill-to-cap defaults,
+  // derived from the machine's live shelves (v_live_shelf_stock -> product_mapping).
+  const [scopedProductIds, setScopedProductIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [freeByProduct, setFreeByProduct] = useState<Record<string, number>>(
+    {},
+  );
   const [machineName, setMachineName] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [rows, setRows] = useState<CaptureRow[]>([blankRow()]);
@@ -123,6 +131,73 @@ export function FieldCapturePanel() {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }, []);
 
+  // PRD-075 WS-B: when a machine is picked, scope the product list to what is
+  // actually mapped on ITS shelves and remember free capacity per product
+  // (fill-to-cap qty default). Falls back to the full list if lookup fails.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const machineId = machines.find((m) => m.name === machineName)?.id;
+      if (!machineId) {
+        setScopedProductIds(new Set());
+        setFreeByProduct({});
+        return;
+      }
+      const supabase = createClient();
+      const { data: slots } = await supabase
+        .from("v_live_shelf_stock")
+        .select("pod_product_id, current_stock, max_stock")
+        .eq("machine_id", machineId)
+        .limit(10000);
+      const podIds = [
+        ...new Set(
+          (slots ?? [])
+            .map((s) => s.pod_product_id as string | null)
+            .filter((x): x is string => !!x),
+        ),
+      ];
+      if (podIds.length === 0) {
+        if (!cancelled) {
+          setScopedProductIds(new Set());
+          setFreeByProduct({});
+        }
+        return;
+      }
+      const { data: maps } = await supabase
+        .from("product_mapping")
+        .select("boonz_product_id, pod_product_id")
+        .in("pod_product_id", podIds)
+        .eq("status", "Active")
+        .limit(10000);
+      if (cancelled) return;
+      const freeByPod: Record<string, number> = {};
+      for (const s of slots ?? []) {
+        if (!s.pod_product_id) continue;
+        freeByPod[s.pod_product_id as string] =
+          (freeByPod[s.pod_product_id as string] ?? 0) +
+          Math.max(
+            0,
+            ((s.max_stock as number) ?? 0) - ((s.current_stock as number) ?? 0),
+          );
+      }
+      const ids = new Set<string>();
+      const free: Record<string, number> = {};
+      for (const m of maps ?? []) {
+        const b = m.boonz_product_id as string;
+        ids.add(b);
+        free[b] = Math.max(
+          free[b] ?? 0,
+          freeByPod[m.pod_product_id as string] ?? 0,
+        );
+      }
+      setScopedProductIds(ids);
+      setFreeByProduct(free);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [machineName, machines]);
+
   async function submit() {
     setError(null);
     setResult(null);
@@ -144,15 +219,33 @@ export function FieldCapturePanel() {
         "A new-purchase line needs an expiry date (it creates the WH batch)",
       );
 
+    // PRD-075 WS-B: offline-tolerant submit - never lose typed lines. Rows are
+    // only cleared on confirmed success; network failures keep state + prompt retry.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return setError(
+        "You look offline — your lines are kept. Reconnect and press Submit again.",
+      );
+    }
     setSubmitting(true);
     const supabase = createClient();
-    const { data, error: rpcErr } = await supabase.rpc("log_manual_refill", {
-      p_machine_name: machineName,
-      p_source_warehouse_id: warehouseId,
-      p_refill_date: planDate,
-      p_lines: lines,
-      p_reason: "field_capture",
-    });
+    let data: unknown = null;
+    let rpcErr: { message: string } | null = null;
+    try {
+      const res = await supabase.rpc("log_manual_refill", {
+        p_machine_name: machineName,
+        p_source_warehouse_id: warehouseId,
+        p_refill_date: planDate,
+        p_lines: lines,
+        p_reason: "field_capture",
+      });
+      data = res.data;
+      rpcErr = res.error;
+    } catch {
+      rpcErr = {
+        message:
+          "Network error — your lines are kept. Reconnect and press Submit again.",
+      };
+    }
     setSubmitting(false);
     if (rpcErr) {
       setError(rpcErr.message);
@@ -257,15 +350,27 @@ export function FieldCapturePanel() {
           >
             <select
               value={r.boonz_product_id}
-              onChange={(e) =>
-                updateRow(r.key, { boonz_product_id: e.target.value })
-              }
+              onChange={(e) => {
+                const id = e.target.value;
+                // fill-to-cap default when qty untouched (PRD-075 WS-B)
+                const free = freeByProduct[id];
+                updateRow(r.key, {
+                  boonz_product_id: id,
+                  ...(r.qty === "" && free && free > 0
+                    ? { qty: String(free) }
+                    : {}),
+                });
+              }}
               className={`${inputCls} min-w-[200px]`}
             >
               <option value="">— product —</option>
-              {products.map((p) => (
+              {(scopedProductIds.size > 0
+                ? products.filter((p) => scopedProductIds.has(p.id))
+                : products
+              ).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {freeByProduct[p.id] ? ` (fits ${freeByProduct[p.id]})` : ""}
                 </option>
               ))}
             </select>

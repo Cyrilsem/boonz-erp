@@ -2206,12 +2206,17 @@ export default function RefillPage() {
                         // Zero client-side priority math (Article 16); the old 8
                         // hardcoded formulas are gone. Info tags (reasons_arr,
                         // dead stock, heroes) carry pts 0.
+                        // PRD-075: breakdown arrives split (runout/capacity/
+                        // expiry/stale + empty/low-fill) - colors only, no math.
                         const chipColor = (label: string) =>
-                          label.startsWith("empty")
+                          label.startsWith("empty") || label === "expiry"
                             ? "text-red-600"
-                            : label.startsWith("low-fill")
+                            : label.startsWith("low-fill") ||
+                                label === "capacity"
                               ? "text-amber-600"
-                              : "text-blue-600";
+                              : label === "stale"
+                                ? "text-gray-600"
+                                : "text-blue-600";
                         const reasons: {
                           label: string;
                           pts: number;
