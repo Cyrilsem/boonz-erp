@@ -88,3 +88,41 @@ Local branches: main + archive/weimi-api-2026-06. Monitor regenerated GREEN; ope
 ## Addendum: the LAST drift source found and fixed
 
 After the close commits, docs/DEPLOYMENTS.md re-dirtied once. Root cause is NOT Cursor: the record-prod-deploy workflow appends UNPADDED table rows, while the WS-A prettier pass padded the table - every subsequent local prettier invocation re-pads the whole file, re-dirtying the tree after each deploy. Fix: .prettierignore for docs/DEPLOYMENTS.md (c900115). Verified: prettier now skips it, tree stable at 0 dirty.
+
+## 2026-07-05 re-run (goal re-issued with WS-H)
+
+WS-A/B/C/D/E: VERIFIED still done from the 2026-07-02 run, not redone. Evidence:
+prettier --check src/ = zero changes (formatter drift still dead); remote residue
+branches (feat/prd-020-packing-partial, feat/prd-033-operator-flexibility,
+feat/prd-053-stitch-conservation, chore/prd-071-wip-salvage, docs/prd-071-salvage)
+all absent; archive/weimi-api-2026-06 present unmerged; toast v7-jsonb fix live
+(pushResultToToast). Also pruned this run: 4 merged feat/wave2-block* branches
+(local -d + remote), leaving local = main + archive only.
+
+WS-F: NO FE push since 2026-07-03 (write_audit_log push_plan_to_dispatch: none;
+internal_transfer legs since 07-03: none). Verification SQL for CS after the next push:
+
+```sql
+-- expect: every internal_transfer leg is_m2m=true with a shared m2m_transfer_id per
+-- transfer (2 legs each), and WH stock delta attributable to the push = 0
+SELECT rd.dispatch_date, rd.m2m_transfer_id, count(*) AS legs,
+       bool_and(COALESCE(rd.is_m2m,false)) AS all_m2m,
+       count(*) FILTER (WHERE rd.m2m_transfer_id IS NULL) AS missing_tid
+FROM refill_dispatching rd
+WHERE rd.source_origin='internal_transfer' AND rd.dispatch_date >= '<PUSH_DATE>'
+GROUP BY 1,2 ORDER BY 1,2;
+-- WH delta: sum of inventory_audit_log deltas for the push window should be 0 for
+-- rows whose reason references the transfer ids above.
+```
+
+WS-H: prd075b/c/d git-backfilled (md5-verified, exact prod versions
+20260704160955/161446/162039); registries + CHANGELOG + METRICS days_since_visit row
+updated; PRD-075 log addendum written (data fixes + audit 27752256 + NISSAN
+sync-writer watch).
+
+WS-G: prettier idempotent; local branches = main + archive; migration parity
+(recent era, >= 2026-06-15): 1 known false positive only (prd053a recorded as
+20260624130000_prd053a_stitch_v28_* with identical body). HIGHLIGHT: full parity of all
+1,082 schema_migrations rows is not attainable - ~950 pre-2026-06 rows predate the
+file-backed era and have no files (long-documented baseline gap, see wave-2 B0).
+Open PRD set unchanged: 061 062 064 066 067 069.

@@ -1,5 +1,11 @@
 # Architecture Changelog
 
+## 2026-07-05 — PRD-072 residue re-sweep + PRD-075 hot-fix prod-sync
+
+- Git backfill of three chat-applied migrations (byte-equivalent, md5-verified): `prd075b_adjust_refills_count_as_visits` ('adjust-%' audit refs reset the visit clock), `prd075c_dispatched_or_packed_counts_as_visit` (dispatch evidence = picked_up OR returned OR dispatched OR packed; FINAL v_machine_health_signals body), `prd075d_eligibility_drift_sales_truth` (drift monitor = Active + selling + zero grading rows; labels no longer trusted).
+- Data fixes recorded (chat, 2026-07-05): MPMCC-1058 adyen_inventory_in_store 'Pending Setup' -> 'Live'; NISSAN-0804 adyen_status 'Switched off' -> 'Online today'. Both machines were trading while label-blinded. WATCH: if the adyen sync re-stamps NISSAN's status, the sync WRITER needs the fix.
+- Residue verification: WS-A/B/C/D/E of the original 2026-07-02 sweep confirmed still done (prettier idempotent, 020 keepers on main, weimi archived unmerged, residue branches gone, toast v7-jsonb fix live). Merged wave2 working branches pruned local+remote; local = main + archive only.
+
 ## 2026-07-04 — PRD-075: priority chapter close (repurpose grace, manual-refill visits, chip split)
 
 - **WS-A:** eligibility no longer permanently brands relocated machines: `v_live_shelf_stock.is_eligible_machine` adds a repurpose grace window (`pick_urgency_params.repurpose_grace_days`, default 30; rollback = dial to 0). Full-fleet rolled-back diff: only ACTIVATE-2005/IFLYMCC-1024/MPMCC-1054 flip; both immediately earned P1 ON MERIT (12/11 graded identities). `repurposed_at` untouched (permanent relocation history per CS ruling; ACTIVATE-2005 was MPMCC-2005). Drift monitor refined to should-be-eligible ('Live%') machines; zero rows live, MPMCC-1058 stays legitimately excluded (Pending Setup).
