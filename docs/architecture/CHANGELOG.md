@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-07 — PRD-084: pre-pack drift guard (advisory tier, Wave 0c.2)
+
+- Shipped the read-only advisory tier: `refill_qa.check_prepack_drift(plan_date, machine_ids?)` (planned pod vs live WEIMI per dispatch line; ok/sku_mismatch/weimi_unresolved/allowed_multi_sku; Add New = intended) + `refill_qa.multi_sku_shelf` allowlist (seeded AMZ-1029 A12). Non-protected, additive, engines byte-identical (c22b57e6). Real 2026-07-06: 93 ok / 2 sku_mismatch (caught live A10/A12 drift). Block tier (include=false on refill_dispatching) parked — protected, needs advisory→block promotion + Cody.
+
 ## 2026-07-07 — PRD-078: golden regression baseline (Wave 0a.3)
 
 - `refill_qa.input_fixture` (immutable once frozen; BEFORE UPDATE trigger) + `diff_vs_golden`. golden_v1 frozen from the REAL committed pod_refill_plan for 5 representative machines (AMZ-1038/NOOK/VOXMCC-1005/WPP-1002/HUAWEI-2003): run 9eb2d050, 21 rows, engine c22b57e6, conservation verdict stored. T3/T4 green; T1/T2 (engine re-run) parked on the data-less-branch limit.

@@ -1,6 +1,6 @@
 # PRD-084: Pre-pack drift guard (monitor → block)
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data — see EXECUTION-LOG).
+Status: SHIPPED (advisory tier) 2026-07-07 — read-only check_prepack_drift + multi_sku_shelf live (catches real drift); block tier parked (protected write to refill_dispatching). See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara + Stax, Cody reviews.
 
 ## Why
