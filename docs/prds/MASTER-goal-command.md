@@ -16,7 +16,7 @@ OBJECTIVE NOW: CLOSE WAVE 0 (foundation). Run these PRD goal-commands in STRICT 
 FOR each PRD in order:
 A. Load its goal-command; run AUTO with that PRD's HARD GATES.
 B. PRECONDITION for 079-085: referee GREEN = PRD-076 diff_vs_golden + PRD-077 conservation on golden_v1 (PRD-078). If not green -> PARK, skip.
-C. EXECUTE on a Supabase preview BRANCH first (never prod), behind the PRD's flag (ship dark).
+C. CANDIDATE-CAPTURE = run the real engine inside BEGIN..ROLLBACK on prod (persists nothing; engines verified transaction-pure) or a branch when data-independent; never PERSIST experimental writes to prod. Ship all changes behind the PRD's flag (dark).
 D. VALIDATE: run the PRD T-tests; diff_vs_golden identical for referee/verify PRDs or ONLY the intended delta; conservation_check NO new violations vs known-debt baseline; Family A engines (engine_add_pod, engine_swap_pod, engine_finalize_pod, pick_machines_for_refill) md5 byte-identical unless the PRD explicitly changes them.
 E. If protected (*) -> STOP for Cody verdict + CS sign-off before ANY prod apply. Do NOT self-approve.
 F. Green + sign-offs -> apply to prod, enable flag, set PRD Status=SHIPPED, write PRD-0NN-EXECUTION-LOG.md, update RPC_REGISTRY + CHANGELOG, commit + push (main==origin/main), go to next.
