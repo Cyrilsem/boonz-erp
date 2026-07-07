@@ -76,9 +76,9 @@ from v_machine_priority.urgency (dry and live). Sample AMZ-1038: runout 39.25 + 
   (picked_up OR returned OR dispatched OR packed) OR audit refs 'manual-refill-%' OR
   'adjust-%'. Approved-only plans never count. Drift monitor = sales-truth (prd075d).
 - Data fixes (both machines trading while label-blinded):
-  * MPMCC-1058-0000-R0: adyen_inventory_in_store 'Pending Setup' -> 'Live' (had 4 empty
+  - MPMCC-1058-0000-R0: adyen_inventory_in_store 'Pending Setup' -> 'Live' (had 4 empty
     shelves and real P1-level urgency ~68 once graded).
-  * NISSAN-0804-0000-L0: adyen_status 'Switched off' -> 'Online today' (selling ~44/wk).
+  - NISSAN-0804-0000-L0: adyen_status 'Switched off' -> 'Online today' (selling ~44/wk).
     WATCH: the adyen sync may re-stamp this; if the daily drift check flags NISSAN again,
     fix the sync WRITER, not the row.
 - Visit-marker audit row: MPMCC-1058 zero-delta pod_inventory_audit_log row

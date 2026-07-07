@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-07 — PRD-076: refill shadow-diff harness (the referee, Wave 0a.1)
+
+- NET-NEW additive QA infra in an isolated `refill_qa` schema (non-protected): `plan_run` + `plan_run_row` + branch-guarded `capture_run(plan_date,label)` + pure-SELECT `diff_runs`/`diff_run_rows`. Output-level referee: run the engine in isolation, capture `pod_refill_plan`, diff row-by-row vs a baseline (classes unchanged/added/removed/qty_changed/action_changed/status_changed/reason_changed; fleet + per-machine + net_units + identical + inputs_differ). Engines untouched (fingerprint c22b57e6 identical). Diff logic proven (T1/T2/T5 + self-identical); capture guard refuses on prod.
+- KNOWN LIMIT (MASTER-PARKING-LOT): Supabase preview branches are schema-only, so the engine-level capture tests (T3 twice / T4 full-fleet / T6 Saturday) need a data-bearing branch — deferred to PRD-078 golden baseline, which seeds golden_v1. 079-085's "referee GREEN" precondition = 076+077+078 together (per the goal).
+
 ## 2026-07-05 — PRD-072 residue re-sweep + PRD-075 hot-fix prod-sync
 
 - Git backfill of three chat-applied migrations (byte-equivalent, md5-verified): `prd075b_adjust_refills_count_as_visits` ('adjust-%' audit refs reset the visit clock), `prd075c_dispatched_or_packed_counts_as_visit` (dispatch evidence = picked_up OR returned OR dispatched OR packed; FINAL v_machine_health_signals body), `prd075d_eligibility_drift_sales_truth` (drift monitor = Active + selling + zero grading rows; labels no longer trusted).
