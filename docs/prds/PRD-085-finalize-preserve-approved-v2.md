@@ -1,6 +1,6 @@
 # PRD-085: Finalize preserve-approved — verify under referee (v2)
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data — see EXECUTION-LOG).
+Status: SHIPPED 2026-07-07 (VERIFIED — live path guarded via delegation to _assert_refill_plan_writable; functional test PASS; regression monitor registered; no engine change). See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara verifies, Cody reviews.
 
 ## Why

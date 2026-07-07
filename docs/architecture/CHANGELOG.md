@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-07 (overnight) — PRD-085: finalize preserve-approved VERIFIED (Wave 0c.3)
+
+- Verified the PRD-025 fix holds: engine_finalize_pod(date) delegates to the machine-scoped overload guarded by _assert_refill_plan_writable; functional rollback test PASS (approved row survives finalize); 0 approved->draft resets in recent dates. No engine change (Family A md5 8587be9a unchanged). Registered read-only regression monitor refill_qa.check_approved_preserved(plan_date). CS pre-auth envelope met (additive, reversible, no protected migration).
+
 ## 2026-07-07 — PRD-084: pre-pack drift guard (advisory tier, Wave 0c.2)
 
 - Shipped the read-only advisory tier: `refill_qa.check_prepack_drift(plan_date, machine_ids?)` (planned pod vs live WEIMI per dispatch line; ok/sku_mismatch/weimi_unresolved/allowed_multi_sku; Add New = intended) + `refill_qa.multi_sku_shelf` allowlist (seeded AMZ-1029 A12). Non-protected, additive, engines byte-identical (c22b57e6). Real 2026-07-06: 93 ok / 2 sku_mismatch (caught live A10/A12 drift). Block tier (include=false on refill_dispatching) parked — protected, needs advisory→block promotion + Cody.

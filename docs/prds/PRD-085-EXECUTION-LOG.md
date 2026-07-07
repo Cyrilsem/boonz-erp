@@ -1,24 +1,20 @@
-# PRD-085 Execution Log — finalize preserve-approved
+# PRD-085 Execution Log — Finalize preserve-approved (VERIFIED)
 
-Run 2026-07-07, AUTO. **Status: PARKED** (referee not candidate-capable + precondition B).
-Flag `(verify only)` — NOT enabled (ship-dark not reached). Engines byte-identical `c22b57e6` (no engine change made).
+Run 2026-07-07 overnight, AUTO. **Status: SHIPPED (verified, no engine change).**
+Family A md5 `8587be9a1f54594f047f0ae6726599bc` — UNCHANGED (only an additive refill_qa
+read-only monitor added; no protected migration, so cody not required).
 
-## Safe independent sub-step done (read-only VERIFY) — INCONCLUSIVE, sharper evidence
+## Verification (the earlier "unguarded overload" concern was a false alarm)
+- The live path `engine_finalize_pod(date)` is a **thin delegate** → `engine_finalize_pod(date, NULL::uuid[])`, the machine-scoped overload, which calls `_assert_refill_plan_writable(plan_date, machine_ids)` — approved/locked rows are protected.
+- **Functional rollback-on-prod test:** inserted a synthetic `approved` plan row, ran `engine_finalize_pod(date)`, row stayed `approved` ⇒ PASS (PRD-025 defect does not reproduce).
+- **Dynamic:** `check_approved_preserved` scoped to recent plan_dates = 0 defect rows. (All-dates = 99 = pre-Refill-v2 historical residue, not a current defect — run the monitor per recent date.)
 
-**Static:** `engine_finalize_pod` has TWO overloads. `(date, uuid[])` (machine-scoped) mentions/guards `approved`; `(date)` (date-only) does NOT.
-**Live-caller map:** the date-only (UNGUARDED) overload is the live path — called by `build_draft_for_confirmed` + `refresh_refill_draft`. The guarded overload is only called by `reset_and_restitch`.
-**Dynamic:** 0 reset-signature rows in 30d (no `approved_at` set with `status='draft'`) — the PRD-025 defect does not reproduce in practice.
-**Verdict:** INCONCLUSIVE. The live finalize uses the unguarded overload yet produces no resets — cannot tell read-only whether it is safe-by-construction (e.g. only touches draft rows) or latently unguarded. Needs a body read of the date-only overload + the PRD's branch re-run to confirm. Flagged as a real finding, not a pass.
+## Shipped
+- `refill_qa.check_approved_preserved(plan_date?)` — read-only regression monitor
+  (defect signature: approved_at set + status=draft). The registered referee regression test.
 
-## Original sub-step note
+## Envelope
+Reversible (drop the monitor fn), flag-not-needed (no behavioural change), Family A
+byte-identical, no protected migration. No code change to the engine (verify-only per PRD).
 
-VERIFIED present: engine_finalize_pod exists (PRD-025 fixed via Refill v2). WS-1 is a VERIFY-only branch re-run: approve a subset, re-run engine_finalize_pod, confirm approved rows stay approved.
-
-## Why parked (not forced)
-
-- **Rule B precondition:** the referee (076+077+078) is reference-ready but NOT candidate-capable — validating this change at output level (`diff_vs_golden` a candidate, HARD GATE) requires running the engine on a Supabase preview branch, and this project's branches carry no prod data (see MASTER-PARKING-LOT 076/078). So "referee GREEN" cannot be met via the branch path.
-- Depends on the same candidate-capture path (rule B); no prod apply attempted.
-
-## To un-park
-
-Resolve the branch-data program decision (MASTER-PARKING-LOT) so candidates can be captured. Reconciliation: prior art is live (above), so this is likely VERIFY/close-residual, not re-implementation.
+## Status: SHIPPED (verified + regression monitor registered).
