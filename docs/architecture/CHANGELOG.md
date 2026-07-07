@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-07 (overnight) — PRD-082: planned/filled quantity split (DARK, Wave 0b.2)
+
+- pack_dispatch_line flag-gated (qty_split_v1, seeded off): preserves planned quantity when 'on' (filled_quantity already carries packed); dark = byte-identical to current. Full resolved body in migration (Cody: auditable). Family A md5 8587be9a unchanged; pack is downstream of the plan pipeline so diff_vs_golden unaffected; conservation delta 0. Cody PASS. PARKED: enable (FE repoint quantity->filled_quantity + settlement byte-diff), backfill quantity=original_quantity, edit_dispatch_qty item_added block removal.
+
 ## 2026-07-07 (overnight) — PRD-079: availability + held-state (Part A, Wave 0b.1)
 
 - Shipped canonical WH pickability predicate public.wh_is_pickable (Article 16; 0-mismatch parity vs v_wh_pickable) + v_wh_stock_state held-state view (pickable_units + held_class: quarantined/inactive/expired/pinned_other_machine/consumer_moved). Additive read-only; Family A md5 8587be9a unchanged. Part B (engine_add_pod.wh_avail + v_wh_pickable unification behind wh_gate_v2) PARKED: engine carries a divergent inline wh_avail; Dara+CS to investigate historical divergence before refactor (pre-seeded T6 park).

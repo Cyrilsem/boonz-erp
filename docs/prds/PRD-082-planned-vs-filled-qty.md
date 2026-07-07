@@ -1,6 +1,6 @@
 # PRD-082: Separate planned vs filled quantity
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
+Status: SHIPPED DARK 2026-07-07 (qty_split_v1=off; pack_dispatch_line flag-gated quantity/filled split; Cody PASS; Family A unchanged). Enable/backfill/FE parked. See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Stax + Dara, Cody reviews.
 
 ## Why
