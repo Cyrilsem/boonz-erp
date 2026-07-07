@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-07 — PRD-077: conservation merge gate (Wave 0a.2)
+
+- NEW read-only referee `refill_qa.conservation_check(plan_date, run_id?, mode)` — wraps the shipped canonical `check_pod_conservation` (assertion a, plan-balance) + `v_wh_pickable` batch checks (b/c) evaluated at the dispatch layer (the plan carries no batch ref: preferred_wh_inventory_id 0/678). Classes orphan_removal/phantom_batch/oversubscribed_batch/rounding_leak; absolute + delta modes vs `refill_qa.conservation_baseline`. Engines untouched. T1/T2 synthetic + T3/T4 real examples green; orphan_removal=0 on 07-05/06 (plan-balance clean).
+- Known-debt baseline recorded as proposed (07-06: 21, 07-05: 20; all phantom/oversub, retrospective-stock artifact) — CS agreement parked before delta-blocking activates.
+
 ## 2026-07-07 — PRD-076: refill shadow-diff harness (the referee, Wave 0a.1)
 
 - NET-NEW additive QA infra in an isolated `refill_qa` schema (non-protected): `plan_run` + `plan_run_row` + branch-guarded `capture_run(plan_date,label)` + pure-SELECT `diff_runs`/`diff_run_rows`. Output-level referee: run the engine in isolation, capture `pod_refill_plan`, diff row-by-row vs a baseline (classes unchanged/added/removed/qty_changed/action_changed/status_changed/reason_changed; fleet + per-machine + net_units + identical + inputs_differ). Engines untouched (fingerprint c22b57e6 identical). Diff logic proven (T1/T2/T5 + self-identical); capture guard refuses on prod.

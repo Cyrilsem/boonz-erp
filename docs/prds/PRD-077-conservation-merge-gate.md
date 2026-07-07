@@ -1,6 +1,6 @@
 # PRD-077: Conservation merge gate (reusable referee)
 
-Status: DRAFT 2026-07-07. PARTIAL PRIOR ART — conservation _guards_ shipped (PRD-053 stitch conservation 2026-06-24; PRD-068 post-confirm conservation 2026-07-01). This PRD does NOT re-implement those; it wraps them into a single reusable **pre-merge pass/fail gate** callable by the WAVE0 loop and future waves. Wave 0 / 0a.2.
+Status: SHIPPED 2026-07-07 (gate live, read-only; T1-T5/T7 green; delta-blocking pending CS baseline agreement — see EXECUTION-LOG). PARTIAL PRIOR ART — conservation _guards_ shipped (PRD-053 stitch conservation 2026-06-24; PRD-068 post-confirm conservation 2026-07-01). This PRD does NOT re-implement those; it wraps them into a single reusable **pre-merge pass/fail gate** callable by the WAVE0 loop and future waves. Wave 0 / 0a.2.
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews, Stax wires CI.
 
 ## Why
