@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-07 (overnight) — PRD-083: retire duplicate engine (deprecate-only, Wave 0c.1)
+
+- Article 13 flag-gated deprecation of the Family-B orphan island (orchestrate_refill_plan + propose_add_plan + propose_swap_plan + engine_publish_to_refill_plan + reconcile_intent_progress): RAISE-redirect to Family A when refill_qa.flag('engine_single_path')='deprecate'. DROP parked (90-day monitor). KEPT approve_refill_plan/write_refill_plan/refill_plan_output. NEW refill_qa.feature_flag (RLS) + refill_qa.flag() helper. Orphan-island verified (0 callers; reconcile not in approve/Family-A/cron path). Family A md5 8587be9a unchanged; rollback-on-prod capture diff_vs_golden IDENTICAL (21 unchanged); conservation delta 0. Cody PASS.
+- Referee fix: capture_run input_fingerprint column slot_id→slot_lifecycle_id (surfaced on first rollback-on-prod capture) — referee now candidate-capable.
+
 ## 2026-07-07 (overnight) — PRD-085: finalize preserve-approved VERIFIED (Wave 0c.3)
 
 - Verified the PRD-025 fix holds: engine_finalize_pod(date) delegates to the machine-scoped overload guarded by _assert_refill_plan_writable; functional rollback test PASS (approved row survives finalize); 0 approved->draft resets in recent dates. No engine change (Family A md5 8587be9a unchanged). Registered read-only regression monitor refill_qa.check_approved_preserved(plan_date). CS pre-auth envelope met (additive, reversible, no protected migration).

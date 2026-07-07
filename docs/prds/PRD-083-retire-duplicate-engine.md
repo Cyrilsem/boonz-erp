@@ -1,6 +1,6 @@
 # PRD-083: Retire the duplicate engine generation (one canonical path)
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
+Status: SHIPPED 2026-07-07 (deprecate-only, Article 13, flag engine_single_path; DROP parked 90d; Family A untouched; referee diff identical; Cody PASS). See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Cody call-site audit, Dara classification, Stax docs/skills/n8n.
 
 ## Why
