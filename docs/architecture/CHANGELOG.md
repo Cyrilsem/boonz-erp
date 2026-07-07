@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-07 (overnight) — PRD-081: pack-rpc-only guard (WARN, Wave 0b.3)
+
+- trg_enforce_pack_via_rpc BEFORE UPDATE on refill_dispatching (packed->true): WARN logs pack-state flips not via a sanctioned pack RPC (pack_dispatch_line/confirm_packed_transferred) to refill_pack_bypass_log (append-only, Article 7); ENFORCE would raise. Seeded pack_guard='warn'. Article 1/3 write-path guarantee. Family A md5 8587be9a unchanged; conservation delta 0. Cody PASS. ENFORCE flip parked (full live cycle + zero unexpected bypass + allowlist review).
+
 ## 2026-07-07 (overnight) — PRD-082: planned/filled quantity split (DARK, Wave 0b.2)
 
 - pack_dispatch_line flag-gated (qty_split_v1, seeded off): preserves planned quantity when 'on' (filled_quantity already carries packed); dark = byte-identical to current. Full resolved body in migration (Cody: auditable). Family A md5 8587be9a unchanged; pack is downstream of the plan pipeline so diff_vs_golden unaffected; conservation delta 0. Cody PASS. PARKED: enable (FE repoint quantity->filled_quantity + settlement byte-diff), backfill quantity=original_quantity, edit_dispatch_qty item_added block removal.

@@ -1,17 +1,28 @@
-# PRD-081 Execution Log — enforce pack rpc-only *
+# PRD-081 Execution Log — Pack-rpc-only guard (WARN)
 
-Run 2026-07-07, AUTO. **Status: PARKED** (referee not candidate-capable + protected sign-off).
-Flag `pack_guard` — NOT enabled (ship-dark not reached). Engines byte-identical `c22b57e6` (no engine change made).
+Run 2026-07-07 overnight, AUTO. **Status: SHIPPED WARN (pack_guard=warn).** Cody PASS
+(⚠️→revisions applied). Family A md5 `8587be9a` UNCHANGED.
 
-## Safe independent sub-step done (read-only VERIFY)
+## Shipped (behind pack_guard, seeded warn)
+- `refill_pack_bypass_log` — append-only audit (RLS: select true, no_update, no_delete; Article 7).
+- `trg_enforce_pack_via_rpc` BEFORE UPDATE ON refill_dispatching WHEN (packed→true): if the flip
+  is NOT via a sanctioned pack RPC (via_rpc<>'true' OR rpc_name NOT IN
+  pack_dispatch_line/confirm_packed_transferred) → WARN logs (non-blocking) / ENFORCE raises.
 
-VERIFIED live: BUG-006 from_wh guard in pack_dispatch_line (PRD-028/068). NET-NEW to add: enforce_pack_via_rpc() BEFORE UPDATE trigger on refill_dispatching (warn|enforce), refill_pack_bypass_log.
+## T-tests (rolled-back trial)
+| Test | Result |
+|---|---|
+| WARN: direct pack-flip ⇒ bypass_log +1, write succeeds | PASS |
+| sanctioned rpc pack-flip ⇒ bypass_log +0 | PASS |
+| ENFORCE: direct pack-flip ⇒ blocked | PASS |
+| Family A md5 byte-identical | PASS (8587be9a) |
+| conservation delta | 0 (WARN non-blocking; no write-outcome change) |
+| cody | PASS (Article 7 no_update/no_delete added) |
 
-## Why parked (not forced)
+## Parked (ENFORCE flip — Cody's load-bearing gate)
+Flipping pack_guard='enforce' needs a FULL live packing+dispatch+return cycle observed with
+ZERO unexpected bypass_log entries, then review the observed rpc_name set and extend the
+allowlist (EOD sweep / recovery returns / M2M receive may legitimately flip packed). Do NOT
+flip on a partial window. {owner: CS/Ops}
 
-- **Rule B precondition:** the referee (076+077+078) is reference-ready but NOT candidate-capable — validating this change at output level (`diff_vs_golden` a candidate, HARD GATE) requires running the engine on a Supabase preview branch, and this project's branches carry no prod data (see MASTER-PARKING-LOT 076/078). So "referee GREEN" cannot be met via the branch path.
-- **Rule E protected:** touches a protected entity / SECURITY DEFINER — requires Cody verdict + CS sign-off before ANY prod apply. NOT self-approved.
-
-## To un-park
-
-Resolve the branch-data program decision (MASTER-PARKING-LOT) so candidates can be captured + Cody+CS sign-off. Reconciliation: prior art is live (above), so this is likely VERIFY/close-residual, not re-implementation.
+## Status: SHIPPED WARN. ENFORCE flip parked (live-cycle observation).

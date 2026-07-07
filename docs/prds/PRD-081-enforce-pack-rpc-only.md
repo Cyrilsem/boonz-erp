@@ -1,6 +1,6 @@
 # PRD-081: Enforce pack_dispatch_line as sole warehouse mutation path
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
+Status: SHIPPED WARN 2026-07-07 (pack_guard=warn; enforce_pack_via_rpc trigger + refill_pack_bypass_log; Cody PASS; Family A unchanged). ENFORCE flip parked. See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara trigger, Cody reviews, Stax migrates FE call sites.
 
 ## Why
