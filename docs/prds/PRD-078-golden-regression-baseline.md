@@ -1,6 +1,6 @@
 # PRD-078: Golden regression baseline
 
-Status: DRAFT 2026-07-07. NET-NEW (no prior art). Wave 0 / 0a.3. Depends PRD-076 (store+diff) + PRD-077 (conservation).
+Status: SHIPPED 2026-07-07 (referee reference infra + golden_v1 frozen; candidate-capture path parked on branch-data decision — see EXECUTION-LOG). Wave 0 / 0a.3. Depends PRD-076 (store+diff) + PRD-077 (conservation).
 Owner: CS. Mode: AUTO with hard gates. Dara designs the fixture store, Cody reviews, Stax wires.
 
 ## Why

@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-07 — PRD-078: golden regression baseline (Wave 0a.3)
+
+- `refill_qa.input_fixture` (immutable once frozen; BEFORE UPDATE trigger) + `diff_vs_golden`. golden_v1 frozen from the REAL committed pod_refill_plan for 5 representative machines (AMZ-1038/NOOK/VOXMCC-1005/WPP-1002/HUAWEI-2003): run 9eb2d050, 21 rows, engine c22b57e6, conservation verdict stored. T3/T4 green; T1/T2 (engine re-run) parked on the data-less-branch limit.
+- Wave 0a referee is reference-ready (076 diff + 077 conservation + 078 golden) but NOT candidate-capable: capturing an engine change needs a branch, and branches carry no prod data. NOT declaring Wave 0a "unlocks 079-085" — the candidate path + a program-level branch-data decision are parked (MASTER-PARKING-LOT). 079-085 also require Cody+CS sign-off (protected).
+
 ## 2026-07-07 — PRD-077: conservation merge gate (Wave 0a.2)
 
 - NEW read-only referee `refill_qa.conservation_check(plan_date, run_id?, mode)` — wraps the shipped canonical `check_pod_conservation` (assertion a, plan-balance) + `v_wh_pickable` batch checks (b/c) evaluated at the dispatch layer (the plan carries no batch ref: preferred_wh_inventory_id 0/678). Classes orphan_removal/phantom_batch/oversubscribed_batch/rounding_leak; absolute + delta modes vs `refill_qa.conservation_baseline`. Engines untouched. T1/T2 synthetic + T3/T4 real examples green; orphan_removal=0 on 07-05/06 (plan-balance clean).
