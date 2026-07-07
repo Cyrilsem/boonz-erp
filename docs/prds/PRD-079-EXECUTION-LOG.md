@@ -1,17 +1,26 @@
-# PRD-079 Execution Log — availability + held-state *
+# PRD-079 Execution Log — Availability + held-state
 
-Run 2026-07-07, AUTO. **Status: PARKED** (referee not candidate-capable + protected sign-off).
-Flag `wh_gate_v2` — NOT enabled (ship-dark not reached). Engines byte-identical `c22b57e6` (no engine change made).
+Run 2026-07-07 overnight, AUTO. **Status: SHIPPED (Part A held-state layer); Part B engine
+unification PARKED.** Family A md5 `8587be9a` UNCHANGED. Additive read-only → cody fast-path.
 
-## Safe independent sub-step done (read-only VERIFY)
+## Shipped (Part A — additive, safe)
+- `wh_is_pickable(wh_inventory_id, machine_id?, today?)` — canonical WH pickability predicate
+  (Active + not-quarantined + in-date + stock>0 + reservation NULL-or-mine). **0-mismatch
+  parity** with `v_wh_pickable` membership across the fleet.
+- `v_wh_stock_state` — per-batch `pickable_units` + `held_class`
+  (quarantined/inactive/expired/pinned_other_machine/consumer_moved). Current fleet:
+  quarantined 844 / inactive 454 / consumer_moved 3 / available 203.
 
-VERIFIED live: v_wh_pickable canonical predicate exists (PRD-045); engine_add_pod carries a divergent inline wh_avail copy (confirmed — the pre-seeded T6 unification risk). NET-NEW to add: wh_is_pickable(wi,machine,today) fn + v_wh_stock_state held-state view + unify engine_add_pod.wh_avail/PRD-077 onto the shared fn.
+## Parked (Part B — engine unification, wh_gate_v2)
+Refactoring `v_wh_pickable` + `engine_add_pod.wh_avail` onto `wh_is_pickable` is NOT shipped.
+`engine_add_pod` computes `wh_avail` via its own inline CTE (a divergent copy). The pre-seeded
+Dara+CS guidance is explicit: engine_add_pod.wh_avail may shift when the predicate is unified
+(T6) → do NOT ship; investigate the historical divergence first. The goal's own rule: "ANY
+shift → PARK the unification (keep held-view shipped)." Blind Family-A surgery against
+investigate-first guidance would be forcing. PARKED for Dara.
 
-## Why parked (not forced)
+## Envelope (Part A)
+Additive, reversible (drop fn/view), Family A byte-identical, `v_wh_pickable` untouched,
+read-only (no protected write). Article 16 canonicalization.
 
-- **Rule B precondition:** the referee (076+077+078) is reference-ready but NOT candidate-capable — validating this change at output level (`diff_vs_golden` a candidate, HARD GATE) requires running the engine on a Supabase preview branch, and this project's branches carry no prod data (see MASTER-PARKING-LOT 076/078). So "referee GREEN" cannot be met via the branch path.
-- **Rule E protected:** touches a protected entity / SECURITY DEFINER — requires Cody verdict + CS sign-off before ANY prod apply. NOT self-approved.
-
-## To un-park
-
-Resolve the branch-data program decision (MASTER-PARKING-LOT) so candidates can be captured + Cody+CS sign-off. Reconciliation: prior art is live (above), so this is likely VERIFY/close-residual, not re-implementation.
+## Status: SHIPPED (Part A). Part B (engine_add_pod/v_wh_pickable unification) parked → Dara.

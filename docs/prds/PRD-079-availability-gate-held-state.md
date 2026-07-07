@@ -1,6 +1,6 @@
 # PRD-079: Availability gate truth + held-state surfacing
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
+Status: SHIPPED 2026-07-07 (Part A: wh_is_pickable canonical predicate + v_wh_stock_state held-state, additive/0-mismatch; Part B engine_add_pod unification PARKED per Dara+CS investigate-first). See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews, Stax wires FE.
 
 ## Why

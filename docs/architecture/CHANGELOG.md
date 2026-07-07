@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-07 (overnight) — PRD-079: availability + held-state (Part A, Wave 0b.1)
+
+- Shipped canonical WH pickability predicate public.wh_is_pickable (Article 16; 0-mismatch parity vs v_wh_pickable) + v_wh_stock_state held-state view (pickable_units + held_class: quarantined/inactive/expired/pinned_other_machine/consumer_moved). Additive read-only; Family A md5 8587be9a unchanged. Part B (engine_add_pod.wh_avail + v_wh_pickable unification behind wh_gate_v2) PARKED: engine carries a divergent inline wh_avail; Dara+CS to investigate historical divergence before refactor (pre-seeded T6 park).
+
 ## 2026-07-07 (overnight) — PRD-083: retire duplicate engine (deprecate-only, Wave 0c.1)
 
 - Article 13 flag-gated deprecation of the Family-B orphan island (orchestrate_refill_plan + propose_add_plan + propose_swap_plan + engine_publish_to_refill_plan + reconcile_intent_progress): RAISE-redirect to Family A when refill_qa.flag('engine_single_path')='deprecate'. DROP parked (90-day monitor). KEPT approve_refill_plan/write_refill_plan/refill_plan_output. NEW refill_qa.feature_flag (RLS) + refill_qa.flag() helper. Orphan-island verified (0 callers; reconcile not in approve/Family-A/cron path). Family A md5 8587be9a unchanged; rollback-on-prod capture diff_vs_golden IDENTICAL (21 unchanged); conservation delta 0. Cody PASS.
