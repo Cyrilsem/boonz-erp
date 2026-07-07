@@ -1,6 +1,6 @@
 # PRD-081: Enforce pack_dispatch_line as sole warehouse mutation path
 
-Status: DRAFT 2026-07-07. PRIOR ART SHIPPED — PRD-028 (dispatch-line-state-integrity, 2026-06-12), PRD-068 (post-confirm conservation guards, 2026-07-01; BUG-006 `from_wh` guard live). This PRD = VERIFY the bypass is actually closed and add a **DB-level block** on direct `packed=true` transitions if any path still bypasses. Wave 0 / 0b.3.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Dara trigger, Cody reviews, Stax migrates FE call sites.
 
 ## Why

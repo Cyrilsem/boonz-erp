@@ -1,6 +1,6 @@
 # PRD-079: Availability gate truth + held-state surfacing
 
-Status: DRAFT 2026-07-07. PRIOR ART SHIPPED — PRD-045 (wh-availability-commitment, 2026-06-21), PRD-036 (pickable-stock + FEFO bind, 2026-07-01), PRD-017 (closed). This PRD does NOT re-implement availability; scope = (a) VERIFY the shipped behaviour under the PRD-076/077 referee, (b) add a **held-state breakdown** so packing shows "held: verify returns" instead of a false zero, (c) unify the pickable predicate into one canonical function reused by engine + packing + PRD-077. Wave 0 / 0b.1.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews, Stax wires FE.
 
 ## Why

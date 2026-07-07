@@ -1,6 +1,6 @@
 # PRD-080: FEFO + reservation at approve (residual closure)
 
-Status: DRAFT 2026-07-07. PRIOR ART SHIPPED — PRD-036 (FEFO dispatch bind, 2026-07-01), PRD-050 (pickqty binds to plan not availability, 2026-06-23), PRD-018 (reservation design). PRD-072 (residue sweep) is DRAFT. This PRD = VERIFY the shipped FEFO/bind under the referee + close the reservation residual so two lines can't claim the same last batch. Wave 0 / 0b.2.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews, Stax wires.
 
 ## Why

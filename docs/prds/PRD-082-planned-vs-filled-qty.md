@@ -1,6 +1,6 @@
 # PRD-082: Separate planned vs filled quantity
 
-Status: DRAFT 2026-07-07. PRIOR ART SHIPPED — PRD-044 (packing confirm/skip/partial, 2026-06-21), PRD-030 (partial-pack, closed → 044). This PRD = VERIFY the qty model under the referee and close the residual where `pack_dispatch_line` still overwrites planned `quantity` and `edit_dispatch_qty` blocks `item_added`. Wave 0 / 0b.4.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Stax + Dara, Cody reviews.
 
 ## Why

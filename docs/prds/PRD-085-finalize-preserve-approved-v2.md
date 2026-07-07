@@ -1,6 +1,6 @@
 # PRD-085: Finalize preserve-approved — verify under referee (v2)
 
-Status: DRAFT 2026-07-07. PRIOR ART SHIPPED/CLOSED — PRD-025 (engine_finalize_pod must preserve approved rows) Closed 2026-07-02, "overtaken by Refill System v2 finalize subset-aware (applied 2026-06-01)." This PRD does NOT re-fix; scope = **VERIFY the shipped behaviour under the PRD-076/077 referee and add permanent regression coverage** so the approved→draft downgrade can never silently return. Wave 0 / 0c.3.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Dara verifies, Cody reviews.
 
 ## Why

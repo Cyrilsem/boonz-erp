@@ -1,6 +1,6 @@
 # PRD-084: Pre-pack drift guard (monitor → block)
 
-Status: DRAFT 2026-07-07. PARTIAL PRIOR ART — PRD-057 (build-hygiene + drift _monitor_, 2026-06-25), PRD-067 (phantom machines). Those monitor/alert; this PRD adds a **pre-pack blocking guard** so a dispatch line whose planned SKU ≠ live WEIMI resolution is caught before packing, not just alerted after. Wave 0 / 0c.2.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Dara + Stax, Cody reviews.
 
 ## Why

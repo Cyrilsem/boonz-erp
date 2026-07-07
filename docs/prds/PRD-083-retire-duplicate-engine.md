@@ -1,6 +1,6 @@
 # PRD-083: Retire the duplicate engine generation (one canonical path)
 
-Status: DRAFT 2026-07-07. PARTIAL PRIOR ART — PRD-074 (priority SSOT, 2026-07-04) deprecated `auto_generate_refill_plan`. This PRD extends that to the **orphan Family-B refill generation** (`orchestrate_refill_plan` → `propose_add_plan`/`propose_swap_plan`/`engine_finalize` → `daily_plan_drafts` → `engine_publish_to_refill_plan` → `refill_plan_output`), which is present but unscheduled while cron runs Family A (`build_draft_for_confirmed` → `engine_*_pod`). Wave 0 / 0c.1.
+Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
 Owner: CS. Mode: AUTO with hard gates. Cody call-site audit, Dara classification, Stax docs/skills/n8n.
 
 ## Why
