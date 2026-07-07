@@ -17,6 +17,9 @@ interface DispatchLine {
   packed: boolean;
   picked_up: boolean;
   dispatched: boolean;
+  pack_outcome: string | null;
+  returned: boolean;
+  skipped: boolean;
   expiry_date: string | null;
   shelf_code: string | null;
   machines: {
@@ -37,6 +40,9 @@ interface MachineSummary {
   venue_group: string | null;
   adyen_store_code: string | null;
   total: number;
+  /** Lines that can actually be worked (excludes not_filled / returned / skipped) */
+  fillable_total: number;
+  not_filled_count: number;
   planned_qty: number;
   filled_qty: number;
   packed_count: number;
@@ -144,9 +150,14 @@ function buildSortedGroups(lines: DispatchLine[]): LineGroup[] {
 }
 
 function getMachineStage(m: MachineSummary): MachineStage {
-  if (m.packed_count < m.total) return "pack";
-  if (m.picked_up_count < m.total) return "pickup";
-  if (m.dispatched_count < m.total) return "dispatch";
+  // PRD-086: completion is measured against FILLABLE lines only. not_filled /
+  // returned / skipped lines are terminal by design and can never be
+  // packed/dispatched, so counting them made "complete" unreachable.
+  // A machine whose every line is non-fillable has nothing left to do.
+  if (m.fillable_total === 0) return "complete";
+  if (m.packed_count < m.fillable_total) return "pack";
+  if (m.picked_up_count < m.fillable_total) return "pickup";
+  if (m.dispatched_count < m.fillable_total) return "dispatch";
   return "complete";
 }
 
@@ -173,7 +184,7 @@ export function DailyDispatchingTab({
     const { data } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group, adyen_store_code), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
+        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, pack_outcome, returned, skipped, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group, adyen_store_code), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
       )
       .eq("dispatch_date", queryDate)
       .eq("include", true)
@@ -209,8 +220,14 @@ export function DailyDispatchingTab({
       const existing = map.get(l.machine_id);
       const qty = l.quantity ?? 0;
       const filled = l.filled_quantity ?? 0;
+      // PRD-086: terminal-non-fillable lines will never be dispatched by design.
+      const nonFillable =
+        l.pack_outcome === "not_filled" || !!l.returned || !!l.skipped;
+      const notFilled = l.pack_outcome === "not_filled";
       if (existing) {
         existing.total += 1;
+        if (!nonFillable) existing.fillable_total += 1;
+        if (notFilled) existing.not_filled_count += 1;
         existing.planned_qty += qty;
         existing.filled_qty += filled;
         if (l.packed) existing.packed_count += 1;
@@ -225,6 +242,8 @@ export function DailyDispatchingTab({
           venue_group: l.machines.venue_group,
           adyen_store_code: l.machines.adyen_store_code,
           total: 1,
+          fillable_total: nonFillable ? 0 : 1,
+          not_filled_count: notFilled ? 1 : 0,
           planned_qty: qty,
           filled_qty: filled,
           packed_count: l.packed ? 1 : 0,
@@ -243,14 +262,17 @@ export function DailyDispatchingTab({
 
   const totals = useMemo(() => {
     const totalMachines = machines.length;
+    // PRD-086: measure against fillable lines. >= (not ===) because bulk
+    // "Mark All ..." flags every include line, so counts can exceed the
+    // fillable denominator; fillable_total 0 is trivially complete.
     const packedMachines = machines.filter(
-      (m) => m.packed_count === m.total,
+      (m) => m.packed_count >= m.fillable_total,
     ).length;
     const pickedUpMachines = machines.filter(
-      (m) => m.picked_up_count === m.total,
+      (m) => m.picked_up_count >= m.fillable_total,
     ).length;
     const dispatchedMachines = machines.filter(
-      (m) => m.dispatched_count === m.total,
+      (m) => m.dispatched_count >= m.fillable_total,
     ).length;
     return {
       totalLines: lines.length,
@@ -565,18 +587,24 @@ export function DailyDispatchingTab({
               machines.map((m) => {
                 const isExpanded = expandedMachines.has(m.machine_id);
                 // 3-stage progress: pack + pickup + dispatch each contribute 1/3
-                // of the bar. e.g. all packed + all picked up + none dispatched = ~66%.
+                // of the bar. PRD-086: denominator is the FILLABLE lines only
+                // (not_filled / returned / skipped are terminal by design);
+                // clamped at 100 because bulk-marks can flag non-fillable lines
+                // too. fillable_total 0 = nothing to do = complete.
                 const dispatchPct =
-                  m.total > 0
-                    ? Math.round(
-                        ((m.packed_count +
-                          m.picked_up_count +
-                          m.dispatched_count) /
-                          (m.total * 3)) *
-                          100,
+                  m.fillable_total > 0
+                    ? Math.min(
+                        100,
+                        Math.round(
+                          ((m.packed_count +
+                            m.picked_up_count +
+                            m.dispatched_count) /
+                            (m.fillable_total * 3)) *
+                            100,
+                        ),
                       )
-                    : 0;
-                const allDone = m.dispatched_count === m.total;
+                    : 100;
+                const allDone = m.dispatched_count >= m.fillable_total;
 
                 return (
                   <MachineRow
@@ -724,14 +752,19 @@ function MachineRow({
             }}
           >
             <span>
-              P {m.packed_count}/{m.total}
+              P {m.packed_count}/{m.fillable_total}
             </span>
             <span>
-              U {m.picked_up_count}/{m.total}
+              U {m.picked_up_count}/{m.fillable_total}
             </span>
             <span>
-              D {m.dispatched_count}/{m.total}
+              D {m.dispatched_count}/{m.fillable_total}
             </span>
+            {m.not_filled_count > 0 && (
+              <span style={{ color: "#9b9890" }}>
+                &middot; {m.not_filled_count} not filled
+              </span>
+            )}
           </div>
         </td>
         <td className="px-4 py-3">{actionButton}</td>
