@@ -1,6 +1,6 @@
 # PRD-080: FEFO + reservation at approve (residual closure)
 
-Status: PARKED 2026-07-07 (prior art verified live; blocked on referee candidate-capture / branch-data + Cody+CS sign-off — see EXECUTION-LOG).
+Status: SHIPPED DARK 2026-07-07 (fefo_reserve_v1=off; wh_reservation + bind/release; Cody PASS; Family A unchanged; no warehouse_inventory write). Enable parked. See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews, Stax wires.
 
 ## Why

@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-07 (overnight) — PRD-080: FEFO reservation infra (DARK, Wave 0b.4)
+
+- wh_reservation table + bind_fefo_reserved/release_fefo_reservation (DEFINER, set app.via_rpc). bind no-ops when fefo_reserve_v1<>'on' (dark). Soft holds only - does NOT touch warehouse_inventory (Cody Article 6 clean). Family A md5 8587be9a unchanged. Cody PASS. PARKED enable: Ops TTL + reservation-shape (qty vs whole-batch) + Article-14 dual-mechanism resolution vs reserved_for_machine_id + release-hook wiring.
+
 ## 2026-07-07 (overnight) — PRD-081: pack-rpc-only guard (WARN, Wave 0b.3)
 
 - trg_enforce_pack_via_rpc BEFORE UPDATE on refill_dispatching (packed->true): WARN logs pack-state flips not via a sanctioned pack RPC (pack_dispatch_line/confirm_packed_transferred) to refill_pack_bypass_log (append-only, Article 7); ENFORCE would raise. Seeded pack_guard='warn'. Article 1/3 write-path guarantee. Family A md5 8587be9a unchanged; conservation delta 0. Cody PASS. ENFORCE flip parked (full live cycle + zero unexpected bypass + allowlist review).
