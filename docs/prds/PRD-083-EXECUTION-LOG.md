@@ -4,6 +4,7 @@ Run 2026-07-07 overnight, AUTO. **Status: SHIPPED (deprecate; drop parked).** Fa
 `8587be9a1f54594f047f0ae6726599bc` — UNCHANGED. Cody PASS (⚠️→ revisions applied).
 
 ## What shipped (Article 13, flag-gated, reversible)
+
 - `refill_qa.feature_flag` (RLS read-only) + `refill_qa.flag(text)` helper. Seeded
   `engine_single_path='deprecate'`.
 - Flag-gated RAISE-redirect guard on the 5 Family-B orphan functions:
@@ -16,23 +17,26 @@ Run 2026-07-07 overnight, AUTO. **Status: SHIPPED (deprecate; drop parked).** Fa
   rollback-on-prod capture; corrected. Makes the referee candidate-capable.
 
 ## Orphan-island evidence (Cody residual-risk cleared)
+
 `orchestrate_refill_plan`: 0 callers (pg_proc + cron). The 4 leaves: called only by
 `orchestrate_refill_plan`. `reconcile_intent_progress`: NOT called by `approve_refill_plan`,
 any Family-A engine, or any cron. FE/n8n CS-confirmed clear. refill-engine skill already
 Family-A oriented (no Family-B refs).
 
 ## Envelope / referee (rollback-on-prod capture)
-| Check | Result |
-|---|---|
-| Family A md5 byte-identical | PASS (8587be9a) |
-| deprecated fns redirect under flag | PASS |
-| candidate capture succeeds (build_draft independent of Family-B) | PASS (run, 54 rows) |
-| **diff_vs_golden identical** | PASS — 21 unchanged, 0 added/removed/changed, net_units 0 |
-| conservation delta (new violations) | 0 |
-| reversible (flag toggle, no drop) | PASS |
-| cody | PASS (RLS on feature_flag + reconcile audit) |
+
+| Check                                                            | Result                                                    |
+| ---------------------------------------------------------------- | --------------------------------------------------------- |
+| Family A md5 byte-identical                                      | PASS (8587be9a)                                           |
+| deprecated fns redirect under flag                               | PASS                                                      |
+| candidate capture succeeds (build_draft independent of Family-B) | PASS (run, 54 rows)                                       |
+| **diff_vs_golden identical**                                     | PASS — 21 unchanged, 0 added/removed/changed, net_units 0 |
+| conservation delta (new violations)                              | 0                                                         |
+| reversible (flag toggle, no drop)                                | PASS                                                      |
+| cody                                                             | PASS (RLS on feature_flag + reconcile audit)              |
 
 ## Parked
+
 - The DROP of the Family-B island (Article 13: after 90-day monitor). {owner: Cody+CS; needs: 90-day clean window under deprecate}.
 
 ## Status: SHIPPED (deprecate live behind engine_single_path).
