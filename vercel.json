@@ -1,0 +1,3 @@
+{
+  "ignoreCommand": "sh -c 'git log -1 --pretty=%s | grep -Eq \"^chore\\(deploy\\): record production|\\[skip ci\\]\" && exit 0 || exit 1'"
+}
