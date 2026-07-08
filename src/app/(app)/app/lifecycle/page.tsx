@@ -32,18 +32,18 @@ const SIGNAL_COLORS: Record<string, string> = {
   "ROTATE OUT": "#f87171",
   "DEAD — SWAP NOW": "#dc2626",
   // Phase B.1.1: provisional signal — machine in 30-day post-launch ramp window
-  RAMPING: "#3b82f6",
+  RAMPING: "#b5804a",
 };
 
 const SEVERITY_PILL: Record<string, string> = {
   critical: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
   warning:
     "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  info: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+  info: "bg-[var(--info-bg)] text-[var(--info)] dark:bg-blue-900 dark:text-blue-200",
 };
 
 /** Up to 5 distinct colors for multi-member clusters; singletons get gray. */
-const CLUSTER_COLORS = ["#3b82f6", "#8b5cf6", "#f59e0b", "#10b981", "#ef4444"];
+const CLUSTER_COLORS = ["#24544a", "#e1b460", "#7ba69b", "#b5804a", "#3d7068"];
 const SINGLETON_COLOR = "#9ca3af";
 
 const FAMILY_OVERRIDES_KEY = "boonz_lifecycle_family_overrides_v1";
@@ -2491,7 +2491,7 @@ function ScatterTab({
           {selectedIds.size > 0 && (
             <button
               onClick={() => setSelectedIds(new Set())}
-              className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+              className="text-xs text-[#24544a] hover:underline dark:text-[#7ba69b]"
             >
               Clear selection ({selectedIds.size})
             </button>
@@ -2596,7 +2596,7 @@ function ScatterTab({
                       !productId
                         ? "cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-900"
                         : ""
-                    } ${devBg} ${isRowSelected ? "ring-1 ring-inset ring-blue-300 dark:ring-blue-700" : ""} ${
+                    } ${devBg} ${isRowSelected ? "ring-1 ring-inset ring-[#7ba69b] dark:ring-[#3d7068]" : ""} ${
                       isRotatedOut
                         ? "bg-neutral-50/60 italic opacity-60 dark:bg-neutral-900/40"
                         : ""

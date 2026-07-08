@@ -62,14 +62,14 @@ const PRIORITY_LABELS: Record<number, string> = {
 };
 const OWNER_COLORS: Record<string, string> = {
   CS: "#10b981",
-  RK: "#3b82f6",
+  RK: "#24544a",
   CE: "#f59e0b",
-  HR: "#8b5cf6",
+  HR: "#b5804a",
   "CS/RK": "#ec4899",
 };
 const STAGE_COLORS: Record<string, { bg: string; text: string }> = {
   Lead: { bg: "#f1f0ee", text: "#6b6860" },
-  Initiated: { bg: "#dbeafe", text: "#1d4ed8" },
+  Initiated: { bg: "#eaf1ef", text: "#24544a" },
   Qualification: { bg: "#fef9c3", text: "#a16207" },
   Negotiation: { bg: "#fce7f3", text: "#be185d" },
   Awarded: { bg: "#fef3c7", text: "#92400e" },
@@ -78,7 +78,7 @@ const STAGE_COLORS: Record<string, { bg: string; text: string }> = {
 const ENGAGEMENT_COLORS: Record<string, { bg: string; text: string }> = {
   Active: { bg: "#d1fae5", text: "#065f46" },
   Inactive: { bg: "#f1f0ee", text: "#6b6860" },
-  "Closed-Won": { bg: "#dbeafe", text: "#1d4ed8" },
+  "Closed-Won": { bg: "#faf3e3", text: "#b5804a" },
   "Closed-Lost": { bg: "#fee2e2", text: "#b91c1c" },
 };
 const ACTIVITY_ICONS: Record<string, string> = {
@@ -1735,7 +1735,7 @@ export default function SalesPipelinePage() {
           label="Closed-Won"
           value={wonCount}
           sub={`${wonMachines} machines installed`}
-          color="#1d4ed8"
+          color="#b5804a"
         />
         <StatCard
           label="Overdue Follow-Ups"

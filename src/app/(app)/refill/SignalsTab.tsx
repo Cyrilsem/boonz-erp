@@ -68,9 +68,9 @@ const SIGNAL_META: Record<
     icon: "🔄",
     description:
       "planned_swaps with status='pending' — these feed into the advisory and engine SWAP pass",
-    color: "#eff6ff",
-    borderColor: "#bfdbfe",
-    headerColor: "#1e40af",
+    color: "#eaf1ef",
+    borderColor: "#cfe0db",
+    headerColor: "#1d4439",
   },
   decom_wh: {
     label: "Decom WH Stock",

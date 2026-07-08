@@ -1155,13 +1155,13 @@ export default function ProcurementPage() {
               <span
                 style={{
                   marginLeft: 8,
-                  background: "#eff6ff",
-                  border: "1px solid #bfdbfe",
+                  background: "#eaf1ef",
+                  border: "1px solid #cfe0db",
                   borderRadius: 6,
                   padding: "1px 7px",
                   fontSize: 10,
                   fontWeight: 700,
-                  color: "#1e40af",
+                  color: "#1d4439",
                   verticalAlign: "middle",
                 }}
               >
@@ -1200,7 +1200,7 @@ export default function ProcurementPage() {
         <td
           className="px-3 py-3"
           style={{
-            color: r.on_order > 0 ? "#2563eb" : "#9ca3af",
+            color: r.on_order > 0 ? "#24544a" : "#9ca3af",
             fontSize: 13,
           }}
         >
@@ -1723,15 +1723,15 @@ export default function ProcurementPage() {
 
           <div
             style={{
-              background: demandSource === "boonz" ? "#f0fdf4" : "#eff6ff",
+              background: demandSource === "boonz" ? "#f0fdf4" : "#faf3e3",
               border:
                 demandSource === "boonz"
                   ? "1px solid #bbf7d0"
-                  : "1px solid #bfdbfe",
+                  : "1px solid #ecd9b0",
               borderRadius: 8,
               padding: "10px 14px",
               fontSize: 13,
-              color: demandSource === "boonz" ? "#065f46" : "#1e40af",
+              color: demandSource === "boonz" ? "#065f46" : "#b5804a",
               marginBottom: 14,
             }}
           >
@@ -2143,7 +2143,7 @@ export default function ProcurementPage() {
                                     marginLeft: 8,
                                     fontSize: 10,
                                     fontWeight: 600,
-                                    color: "#2563eb",
+                                    color: "#24544a",
                                   }}
                                 >
                                   {

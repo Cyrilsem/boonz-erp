@@ -105,7 +105,7 @@ type AccuracySummary = {
 
 function actionBadge(action: string) {
   const styles: Record<string, string> = {
-    REFILL: "bg-blue-100 text-blue-700 ",
+    REFILL: "bg-[#eaf1ef] text-[#24544a] ",
     REMOVE: "bg-red-100 text-red-700 ",
     ADD_NEW: "bg-green-100 text-green-700 ",
     M2W: "bg-purple-100 text-purple-700 ",
@@ -127,8 +127,8 @@ function signalBadge(signal: string | undefined) {
   const styles: Record<string, string> = {
     STAR: "bg-yellow-100 text-yellow-800",
     DOUBLE_DOWN: "bg-green-100 text-green-800",
-    KEEP: "bg-blue-100 text-blue-700",
-    KEEP_GROWING: "bg-cyan-100 text-cyan-700",
+    KEEP: "bg-[#eaf1ef] text-[#24544a]",
+    KEEP_GROWING: "bg-[#d9e8e3] text-[#3d7068]",
     RAMPING: "bg-purple-100 text-purple-700",
     WIND_DOWN: "bg-orange-100 text-orange-700",
     DEAD: "bg-red-100 text-red-700",
@@ -148,7 +148,7 @@ function signalBadge(signal: string | undefined) {
 function tierDot(tier: string) {
   const colors: Record<string, string> = {
     double_down: "bg-green-500",
-    keep: "bg-blue-500",
+    keep: "bg-[#24544a]",
     monitor: "bg-amber-500",
     discontinue: "bg-red-500",
   };
@@ -1548,7 +1548,7 @@ export function RefillPlanningTab({
           <div
             className={`mt-3 rounded-lg px-3 py-2 text-sm font-medium ${
               loadResult.ok
-                ? "bg-blue-50 text-blue-700"
+                ? "bg-[#eaf1ef] text-[#24544a]"
                 : "bg-amber-50 text-amber-700"
             }`}
           >
@@ -1564,7 +1564,7 @@ export function RefillPlanningTab({
               className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
                 isDraft
                   ? "bg-purple-100 text-purple-700"
-                  : "bg-blue-100 text-blue-700"
+                  : "bg-[#eaf1ef] text-[#24544a]"
               }`}
             >
               {isDraft ? "DRAFT (pod level)" : "PENDING (boonz level)"}
@@ -2192,7 +2192,7 @@ export function RefillPlanningTab({
                               row.pod_product_id && (
                                 <button
                                   onClick={() => openConvert(row)}
-                                  className="ml-1 text-[10px] font-medium text-indigo-600 hover:text-indigo-800 px-1 py-0.5 rounded"
+                                  className="ml-1 text-[10px] font-medium text-[#3d7068] hover:text-[#24544a] px-1 py-0.5 rounded"
                                   title="Convert this slot to a different product (convert_shelf)"
                                 >
                                   Convert
@@ -2513,7 +2513,7 @@ export function RefillPlanningTab({
               <button
                 onClick={submitConvert}
                 disabled={convertBusy || !convertNewProd || convertQty === ""}
-                className="flex-1 rounded-xl bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+                className="flex-1 rounded-xl bg-[#24544a] py-2 text-sm font-medium text-white hover:bg-[#1d4439] disabled:opacity-40"
               >
                 {convertBusy ? "Converting…" : "Convert"}
               </button>

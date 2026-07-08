@@ -59,7 +59,7 @@ const CATEGORY_COLORS: Record<
   { bg: string; border: string; header: string }
 > = {
   tech: { bg: "#fef2f2", border: "#fecaca", header: "#991b1b" },
-  refill: { bg: "#eff6ff", border: "#bfdbfe", header: "#1e40af" },
+  refill: { bg: "#eaf1ef", border: "#cfe0db", header: "#1d4439" },
   products: { bg: "#fff7ed", border: "#fed7aa", header: "#9a3412" },
   others: { bg: "#f9fafb", border: "#e5e7eb", header: "#6b7280" },
 };
@@ -82,7 +82,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   open: { bg: "#fef3c7", text: "#92400e" },
-  in_progress: { bg: "#dbeafe", text: "#1e40af" },
+  in_progress: { bg: "#eaf1ef", text: "#1d4439" },
   done: { bg: "#d1fae5", text: "#065f46" },
   dismissed: { bg: "#f3f4f6", text: "#6b7280" },
 };
@@ -96,8 +96,8 @@ const PRIORITY_COLORS: Record<string, { bg: string; text: string }> = {
 
 const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
   bug: { bg: "#fee2e2", text: "#991b1b" },
-  driver_feedback: { bg: "#dbeafe", text: "#1e40af" },
-  intent: { bg: "#ede9fe", text: "#5b21b6" },
+  driver_feedback: { bg: "#eaf1ef", text: "#1d4439" },
+  intent: { bg: "#faf3e3", text: "#b5804a" },
   decommission: { bg: "#ffedd5", text: "#9a3412" },
   task: { bg: "#d1fae5", text: "#065f46" },
   other: { bg: "#f3f4f6", text: "#6b7280" },
@@ -325,7 +325,7 @@ export function TrackerTab() {
         <div
           style={{
             flex: 1,
-            background: "#dbeafe",
+            background: "#eaf1ef",
             borderRadius: 8,
             padding: "14px 18px",
           }}
@@ -333,7 +333,7 @@ export function TrackerTab() {
           <div
             style={{
               fontSize: 11,
-              color: "#1e40af",
+              color: "#1d4439",
               fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.05em",
@@ -341,7 +341,7 @@ export function TrackerTab() {
           >
             In progress
           </div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: "#1e40af" }}>
+          <div style={{ fontSize: 28, fontWeight: 700, color: "#1d4439" }}>
             {inProgressCount}
           </div>
         </div>
@@ -790,8 +790,8 @@ export function TrackerTab() {
                               style={{
                                 fontSize: 11,
                                 padding: "3px 8px",
-                                background: "#dbeafe",
-                                color: "#1e40af",
+                                background: "#eaf1ef",
+                                color: "#1d4439",
                                 border: "none",
                                 borderRadius: 4,
                                 cursor: "pointer",

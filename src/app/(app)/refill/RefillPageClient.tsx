@@ -74,7 +74,7 @@ export default function RefillPageClient({
               onClick={() => setShowTomorrow(false)}
               className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                 !showTomorrow
-                  ? "bg-blue-600 text-white"
+                  ? "bg-[#24544a] text-white"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
@@ -84,7 +84,7 @@ export default function RefillPageClient({
               onClick={() => setShowTomorrow(true)}
               className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                 showTomorrow
-                  ? "bg-blue-600 text-white"
+                  ? "bg-[#24544a] text-white"
                   : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >

@@ -186,7 +186,7 @@ function healthLabelBadgeClass(label: string): string {
   if (label.includes("At Risk"))
     return "bg-orange-100 text-orange-800 border border-orange-300";
   if (label.includes("Ramp-Up"))
-    return "bg-blue-100 text-blue-800 border border-blue-300";
+    return "bg-[#eaf1ef] text-[#3d7068] border border-[#7ba69b]";
   if (label.includes("Zombie"))
     return "bg-red-100 text-red-800 border border-red-300";
   return "bg-gray-100 text-gray-700 border border-gray-200";
@@ -198,8 +198,8 @@ function stanceBadgeClass(stance: string | null): string {
   if (stance === "STAR" || stance === "DOUBLE DOWN")
     return "bg-green-100 text-green-700";
   if (stance === "KEEP GROWING") return "bg-emerald-100 text-emerald-700";
-  if (stance === "KEEP") return "bg-blue-100 text-blue-700";
-  if (stance === "RAMPING") return "bg-indigo-100 text-indigo-700";
+  if (stance === "KEEP") return "bg-[#eaf1ef] text-[#24544a]";
+  if (stance === "RAMPING") return "bg-[#faf3e3] text-[#b5804a]";
   if (stance === "WATCH") return "bg-amber-100 text-amber-700";
   if (stance === "WIND DOWN") return "bg-orange-100 text-orange-700";
   if (stance === "ROTATE OUT" || stance === "DEAD")
@@ -211,7 +211,7 @@ function stanceBadgeClass(stance: string | null): string {
 function strategyBadgeClass(strategy: string | null): string {
   if (!strategy) return "bg-gray-100 text-gray-500";
   if (strategy === "PROTECT") return "bg-green-100 text-green-700";
-  if (strategy === "SUSTAIN") return "bg-blue-100 text-blue-700";
+  if (strategy === "SUSTAIN") return "bg-[#eaf1ef] text-[#24544a]";
   if (strategy === "MAINTAIN") return "bg-gray-100 text-gray-600";
   if (strategy === "FIX MERCH") return "bg-orange-100 text-orange-700";
   if (strategy === "REMOVE") return "bg-red-100 text-red-700";
@@ -248,7 +248,7 @@ function statusCardColors(label: string): CardStyle {
   if (label.includes("At Risk"))
     return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
   if (label.includes("Ramp-Up"))
-    return { card: "bg-blue-50 border-blue-300", bar: "bg-blue-400" };
+    return { card: "bg-[#eaf1ef] border-[#7ba69b]", bar: "bg-[#7ba69b]" };
   if (label.includes("Star"))
     return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
   if (label.includes("Stable"))
@@ -767,8 +767,8 @@ export default function SnapshotTab({
           {
             label: "ramp-up",
             count: c["Ramp-Up"] ?? 0,
-            bg: "bg-blue-100",
-            text: "text-blue-700",
+            bg: "bg-[#eaf1ef]",
+            text: "text-[#3d7068]",
           },
           {
             label: "stable",
@@ -1336,20 +1336,20 @@ export default function SnapshotTab({
 
           {/* Live SSE progress — visible while refreshing */}
           {refreshing && progressMessages.length > 0 && (
-            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-1">
-              <p className="text-blue-700 font-medium text-sm flex items-center gap-2">
-                <span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            <div className="mt-4 bg-[#eaf1ef] border border-[#d5e3df] rounded-lg p-4 space-y-1">
+              <p className="text-[#24544a] font-medium text-sm flex items-center gap-2">
+                <span className="inline-block w-4 h-4 border-2 border-[#7ba69b] border-t-transparent rounded-full animate-spin" />
                 Refreshing...
               </p>
               <div className="space-y-0.5 mt-2">
                 {progressMessages.slice(-5).map((msg, i, arr) => (
                   <p
                     key={i}
-                    className={`text-xs font-mono ${i === arr.length - 1 ? "text-blue-700" : "text-blue-400"}`}
+                    className={`text-xs font-mono ${i === arr.length - 1 ? "text-[#24544a]" : "text-[#7ba69b]"}`}
                   >
                     → {msg.detail}
                     {msg.elapsed && (
-                      <span className="text-blue-300"> ({msg.elapsed}s)</span>
+                      <span className="text-[#a9c6bf]"> ({msg.elapsed}s)</span>
                     )}
                   </p>
                 ))}
@@ -1529,7 +1529,7 @@ export default function SnapshotTab({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search machines…"
-                className="px-2.5 py-1 text-xs border border-gray-200 rounded-md w-48 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className="px-2.5 py-1 text-xs border border-gray-200 rounded-md w-48 focus:outline-none focus:ring-2 focus:ring-[#7ba69b]"
               />
               <button
                 type="button"
@@ -1596,7 +1596,7 @@ export default function SnapshotTab({
                     <button
                       type="button"
                       onClick={() => setSelectedMachine(m.machine_name)}
-                      className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-400 ${tc.card}`}
+                      className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-[#7ba69b] focus:outline-none focus:ring-2 focus:ring-[#24544a] ${tc.card}`}
                     >
                       {/* Health label badge + picked-tomorrow indicator */}
                       <div className="flex items-center gap-1 mb-1">
@@ -1882,7 +1882,7 @@ export default function SnapshotTab({
                       className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
                         stockRefreshing
                           ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                          : "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                          : "bg-[#eaf1ef] text-[#24544a] hover:bg-[#dbe8e4]"
                       }`}
                     >
                       {stockRefreshing ? "Refreshing…" : "Refresh stock"}
@@ -1991,7 +1991,7 @@ export default function SnapshotTab({
                               ? "text-amber-600"
                               : label === "stale"
                                 ? "text-gray-600"
-                                : "text-blue-600";
+                                : "text-[#24544a]";
                         const reasons: {
                           label: string;
                           pts: number;

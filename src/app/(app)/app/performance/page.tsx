@@ -219,7 +219,7 @@ function buildWaterfallBars(steps: WaterfallStep[]): WaterfallBar[] {
 }
 
 const GROUP_COLORS: Record<string, string> = {
-  ADDMIND: "#2563eb",
+  ADDMIND: "#7ba69b",
   INDEPENDENT: "#16a34a",
   OHMYDESK: "#9333ea",
   VML: "#dc2626",
@@ -2171,8 +2171,8 @@ export default function PerformancePage() {
                 label="Total Revenue"
                 value={fmtAed(totalWeimi)}
                 subtitle={`${fmtN(totalUnits)} units sold`}
-                accent="#8B5CF6"
-                valueColor="#8B5CF6"
+                accent="#b5804a"
+                valueColor="#b5804a"
               />
               <StatCard
                 label="Active Machines"
@@ -2369,7 +2369,7 @@ export default function PerformancePage() {
                     />
                     <Bar
                       dataKey="amount"
-                      fill="#2563eb"
+                      fill="#24544a"
                       radius={[3, 3, 0, 0]}
                     />
                   </BarChart>
@@ -3904,7 +3904,7 @@ export default function PerformancePage() {
             ];
             const SEG_COLORS: Record<string, string> = {
               "Power User": "#24544a",
-              Returning: "#6366F1",
+              Returning: "#3d7068",
               "One-off": "#0E3F4D",
               Failed: "#9a948e",
               Defaulter: "#f97316",
@@ -4263,15 +4263,15 @@ export default function PerformancePage() {
                     label="Captured Amount"
                     value={fmtAed(totalCustSpend)}
                     subtitle="Adyen settled to Boonz"
-                    accent="#6366F1"
-                    valueColor="#6366F1"
+                    accent="#3d7068"
+                    valueColor="#3d7068"
                   />
                   <StatCard
                     label="Avg Spend / Visit"
                     value={fmtAed(avgSpendPerTxn)}
                     subtitle="captured ÷ settled txns"
-                    accent="#8B5CF6"
-                    valueColor="#8B5CF6"
+                    accent="#b5804a"
+                    valueColor="#b5804a"
                   />
                   <StatCard
                     label="Capture Gap"
@@ -4787,7 +4787,7 @@ export default function PerformancePage() {
                                   i === 0
                                     ? "#9a948e"
                                     : i === 1
-                                      ? "#6366F1"
+                                      ? "#3d7068"
                                       : i === 2
                                         ? "#24544a"
                                         : "#e1b460"
@@ -5388,8 +5388,8 @@ export default function PerformancePage() {
                               ? "Weimi retail before discount"
                               : "Adyen adjusted (no Weimi match)"
                           }
-                          accent="#6366F1"
-                          valueColor="#6366F1"
+                          accent="#3d7068"
+                          valueColor="#3d7068"
                         />
                         <StatCard
                           label="Capture Gap"
@@ -5413,8 +5413,8 @@ export default function PerformancePage() {
                         <StatCard
                           label="Avg per Visit"
                           value={fmtAed(selectedCust.avgSpend)}
-                          accent="#8B5CF6"
-                          valueColor="#8B5CF6"
+                          accent="#b5804a"
+                          valueColor="#b5804a"
                         />
                         <StatCard
                           label="Refused / Cancelled"
@@ -6137,9 +6137,9 @@ export default function PerformancePage() {
                 let border: string;
                 if (activeAgreement.type === "VOX") {
                   label = `VOX Agreement · ${boonzPct}% Boonz / ${partnerPct}% VOX`;
-                  bg = "rgba(37,99,235,0.12)";
-                  color = "#1d4ed8";
-                  border = "#1d4ed8";
+                  bg = "rgba(181,128,74,0.12)";
+                  color = "#b5804a";
+                  border = "#b5804a";
                 } else if (activeAgreement.type === "REVENUE_SHARE") {
                   label = `${partnerName} Agreement · ${partnerPct}% / ${boonzPct}%`;
                   bg = "rgba(22,163,74,0.12)";
@@ -6674,7 +6674,7 @@ export default function PerformancePage() {
                               style={{
                                 padding: "7px 10px",
                                 textAlign: "right",
-                                color: "#6366F1",
+                                color: "#3d7068",
                               }}
                             >
                               {fees > 0 ? fmtAed(fees) : "—"}

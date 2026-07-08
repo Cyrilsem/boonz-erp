@@ -3,9 +3,21 @@
 // Phase G P4 B.5: read-only viewer for inventory_control_session +
 // inventory_control_attempt rows. RLS restricts visibility to
 // manager/operator_admin/superadmin per PRD section 8.1.
+//
+// PRD-087 R5: session list regrouped BY DAY → BY WAREHOUSE/MACHINE within
+// the day (newest day first). Purely presentational — same queries/RPCs.
+// PRD-087 R7: standard chrome (p-8 max-w-7xl + PageHeader) and design
+// tokens from globals.css via ui/primitives.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  PageHeader,
+  Card,
+  Badge,
+  SectionHeading,
+  type BadgeTone,
+} from "@/components/ui/primitives";
 
 interface SessionRow {
   session_id: string;
@@ -48,20 +60,32 @@ const RESULT_FILTERS = [
   "other",
 ];
 
-function resultColor(result: string): { bg: string; fg: string } {
+// Attempt result → badge tone (design tokens, no raw hexes).
+function resultTone(result: string): BadgeTone {
   switch (result) {
     case "success":
-      return { bg: "#dcfce7", fg: "#166534" };
+      return "success";
     case "blocked_rls":
     case "blocked_trigger":
-      return { bg: "#fee2e2", fg: "#991b1b" };
+      return "danger";
     case "rpc_error":
     case "validation_error":
-      return { bg: "#fef3c7", fg: "#854d0e" };
+      return "warn";
     case "network_error":
-      return { bg: "#e0e7ff", fg: "#3730a3" };
+      return "brand";
     default:
-      return { bg: "#f3f4f6", fg: "#374151" };
+      return "muted";
+  }
+}
+
+function statusTone(status: string): BadgeTone {
+  switch (status) {
+    case "open":
+      return "brand";
+    case "closed":
+      return "success";
+    default:
+      return "danger"; // aborted / unknown
   }
 }
 
@@ -72,6 +96,60 @@ function fmtTime(iso: string | null): string {
     dateStyle: "short",
     timeStyle: "medium",
   });
+}
+
+// Time-of-day only (used for the per-session start–end range).
+function fmtClock(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Dubai",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// Stable YYYY-MM-DD key in Dubai time for day grouping.
+function dayKey(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Dubai",
+  });
+}
+
+// Human day label, e.g. "Tue 7 Jul 2026".
+function dayLabel(iso: string): string {
+  return new Date(iso)
+    .toLocaleDateString("en-GB", {
+      timeZone: "Asia/Dubai",
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+    .replace(",", "");
+}
+
+// Safe numeric read from the session summary jsonb
+// (close_inventory_session writes attempt_total / success_count / …).
+function summaryNum(
+  summary: Record<string, unknown> | null,
+  key: string,
+): number {
+  const v = summary?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+interface ScopeGroup {
+  scope: string; // warehouse / machine label
+  sessions: SessionRow[];
+}
+
+interface DayGroup {
+  key: string;
+  label: string;
+  sessionCount: number;
+  attemptTotal: number;
+  correctionTotal: number;
+  scopes: ScopeGroup[];
 }
 
 export default function InventorySessionsPage() {
@@ -163,57 +241,74 @@ export default function InventorySessionsPage() {
     });
   }, [attempts, resultFilter, search]);
 
+  // PRD-087 R5 — group sessions by Dubai day, then by warehouse/machine
+  // scope within the day. `sessions` is already ordered newest-first, so
+  // Map insertion order gives newest day first with zero extra sorting.
+  const dayGroups = useMemo<DayGroup[]>(() => {
+    const map = new Map<string, DayGroup>();
+    for (const s of sessions) {
+      const key = dayKey(s.started_at);
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          key,
+          label: dayLabel(s.started_at),
+          sessionCount: 0,
+          attemptTotal: 0,
+          correctionTotal: 0,
+          scopes: [],
+        };
+        map.set(key, group);
+      }
+      group.sessionCount += 1;
+      group.attemptTotal += summaryNum(s.summary, "attempt_total");
+      group.correctionTotal += summaryNum(s.summary, "success_count");
+      const scopeLabel = s.scope_warehouse_id ?? "All warehouses";
+      let scope = group.scopes.find((g) => g.scope === scopeLabel);
+      if (!scope) {
+        scope = { scope: scopeLabel, sessions: [] };
+        group.scopes.push(scope);
+      }
+      scope.sessions.push(s);
+    }
+    return Array.from(map.values());
+  }, [sessions]);
+
   const selectedSession = sessions.find(
     (s) => s.session_id === selectedSessionId,
   );
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
-      <header style={{ marginBottom: 16 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>
-          Inventory control sessions
-        </h1>
-        <p
-          style={{
-            margin: "4px 0 0 0",
-            fontSize: 13,
-            color: "#6b7280",
-          }}
-        >
-          Read-only audit of inventory edit sessions and per-row attempts.
-          Visible to manager / operator_admin / superadmin only.
-        </p>
-      </header>
+    <div className="p-8 max-w-7xl">
+      <PageHeader
+        title="Inventory Sessions"
+        subtitle="Read-only audit of inventory edit sessions and per-row attempts, grouped by day and warehouse. Visible to manager / operator_admin / superadmin only."
+      />
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "320px 1fr",
+          gridTemplateColumns: "380px 1fr",
           gap: 16,
           alignItems: "start",
         }}
       >
-        <section
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 8,
-            background: "white",
-            maxHeight: "75vh",
-            overflow: "auto",
-          }}
-        >
+        <Card style={{ padding: 0, maxHeight: "75vh", overflow: "auto" }}>
           <div
             style={{
-              padding: "8px 12px",
-              borderBottom: "1px solid #e5e7eb",
+              padding: "8px 14px",
+              borderBottom: "1px solid var(--line)",
               fontSize: 11,
               fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.08em",
-              color: "#6b7280",
-              background: "#f9fafb",
+              color: "var(--muted)",
+              background: "var(--surface-2)",
               display: "flex",
               justifyContent: "space-between",
+              position: "sticky",
+              top: 0,
+              zIndex: 1,
             }}
           >
             <span>Sessions ({sessions.length})</span>
@@ -223,7 +318,8 @@ export default function InventorySessionsPage() {
                 fontSize: 11,
                 background: "none",
                 border: "none",
-                color: "#3b82f6",
+                color: "var(--brand)",
+                fontWeight: 700,
                 cursor: "pointer",
               }}
             >
@@ -231,101 +327,151 @@ export default function InventorySessionsPage() {
             </button>
           </div>
           {loadingSessions && (
-            <div style={{ padding: 12, fontSize: 13, color: "#6b7280" }}>
+            <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>
               Loading…
             </div>
           )}
           {sessionsError && (
-            <div style={{ padding: 12, fontSize: 13, color: "#b91c1c" }}>
+            <div style={{ padding: 14, fontSize: 13, color: "var(--danger)" }}>
               {sessionsError}
             </div>
           )}
           {!loadingSessions && sessions.length === 0 && (
-            <div style={{ padding: 12, fontSize: 13, color: "#6b7280" }}>
+            <div style={{ padding: 14, fontSize: 13, color: "var(--muted)" }}>
               No sessions yet.
             </div>
           )}
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {sessions.map((s) => {
-              const sel = s.session_id === selectedSessionId;
-              return (
-                <li key={s.session_id}>
-                  <button
-                    onClick={() => setSelectedSessionId(s.session_id)}
+          <div style={{ padding: "0 14px 14px" }}>
+            {dayGroups.map((day) => (
+              <div key={day.key}>
+                {/* Day group header: date + session count + day totals */}
+                <SectionHeading>
+                  {day.label}
+                  <span
                     style={{
-                      display: "block",
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "10px 12px",
-                      border: "none",
-                      borderBottom: "1px solid #f3f4f6",
-                      background: sel ? "#eff6ff" : "white",
-                      cursor: "pointer",
+                      fontWeight: 500,
+                      textTransform: "none",
+                      letterSpacing: 0,
+                      color: "var(--muted-2)",
                     }}
                   >
+                    {day.sessionCount} session
+                    {day.sessionCount === 1 ? "" : "s"} · {day.attemptTotal}{" "}
+                    attempts · {day.correctionTotal} corrections
+                  </span>
+                </SectionHeading>
+                {day.scopes.map((scope) => (
+                  <div key={scope.scope} style={{ marginBottom: 10 }}>
+                    {/* Warehouse / machine subgroup within the day */}
                     <div
                       style={{
-                        fontFamily: "monospace",
                         fontSize: 11,
-                        color: "#374151",
+                        fontWeight: 700,
+                        color: "var(--ink)",
+                        fontFamily: "'Plus Jakarta Sans', sans-serif",
+                        margin: "0 0 4px 2px",
                       }}
                     >
-                      {s.session_id.slice(0, 18)}…
+                      {scope.scope}
                     </div>
-                    <div style={{ fontSize: 12, marginTop: 2 }}>
-                      <span
-                        style={{
-                          padding: "1px 6px",
-                          borderRadius: 4,
-                          fontWeight: 600,
-                          fontSize: 10,
-                          background:
-                            s.status === "open"
-                              ? "#dbeafe"
-                              : s.status === "closed"
-                                ? "#dcfce7"
-                                : "#fee2e2",
-                          color:
-                            s.status === "open"
-                              ? "#1e40af"
-                              : s.status === "closed"
-                                ? "#166534"
-                                : "#991b1b",
-                        }}
-                      >
-                        {s.status}
-                      </span>
-                      <span
-                        style={{
-                          marginLeft: 8,
-                          color: "#6b7280",
-                          fontSize: 11,
-                        }}
-                      >
-                        {fmtTime(s.started_at)}
-                      </span>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+                    {scope.sessions.map((s) => {
+                      const sel = s.session_id === selectedSessionId;
+                      const attemptTotal = summaryNum(
+                        s.summary,
+                        "attempt_total",
+                      );
+                      const successCount = summaryNum(
+                        s.summary,
+                        "success_count",
+                      );
+                      return (
+                        <button
+                          key={s.session_id}
+                          onClick={() => setSelectedSessionId(s.session_id)}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 10px",
+                            marginBottom: 4,
+                            border: sel
+                              ? "1px solid var(--brand)"
+                              : "1px solid var(--line)",
+                            borderRadius: 8,
+                            background: sel
+                              ? "var(--brand-tint)"
+                              : "var(--surface)",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <Badge tone={statusTone(s.status)}>
+                              {s.status}
+                            </Badge>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: "var(--muted)",
+                              }}
+                            >
+                              {fmtClock(s.started_at)} –{" "}
+                              {s.closed_at ? fmtClock(s.closed_at) : "open"}
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--muted)",
+                              marginTop: 3,
+                            }}
+                          >
+                            by{" "}
+                            <span style={{ fontFamily: "monospace" }}>
+                              {s.started_by
+                                ? s.started_by.slice(0, 8) + "…"
+                                : "—"}
+                            </span>
+                            {s.summary ? (
+                              <>
+                                {" "}
+                                · {attemptTotal} attempts · {successCount} ok
+                              </>
+                            ) : null}
+                          </div>
+                          <div
+                            style={{
+                              fontFamily: "monospace",
+                              fontSize: 10,
+                              color: "var(--muted-2)",
+                              marginTop: 2,
+                            }}
+                          >
+                            {s.session_id.slice(0, 18)}…
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </Card>
 
-        <section
-          style={{
-            border: "1px solid #e5e7eb",
-            borderRadius: 8,
-            background: "white",
-            minHeight: "75vh",
-          }}
-        >
+        <Card style={{ padding: 0, minHeight: "75vh", overflow: "hidden" }}>
           {!selectedSessionId ? (
             <div
               style={{
                 padding: 24,
                 fontSize: 13,
-                color: "#6b7280",
+                color: "var(--muted)",
                 textAlign: "center",
               }}
             >
@@ -336,8 +482,8 @@ export default function InventorySessionsPage() {
               <div
                 style={{
                   padding: 12,
-                  borderBottom: "1px solid #e5e7eb",
-                  background: "#f9fafb",
+                  borderBottom: "1px solid var(--line)",
+                  background: "var(--surface-2)",
                   display: "flex",
                   gap: 12,
                   flexWrap: "wrap",
@@ -351,7 +497,7 @@ export default function InventorySessionsPage() {
                       fontWeight: 700,
                       letterSpacing: "0.08em",
                       textTransform: "uppercase",
-                      color: "#6b7280",
+                      color: "var(--muted)",
                     }}
                   >
                     Session
@@ -360,12 +506,18 @@ export default function InventorySessionsPage() {
                     style={{
                       fontFamily: "monospace",
                       fontSize: 12,
-                      color: "#111827",
+                      color: "var(--ink)",
                     }}
                   >
                     {selectedSession?.session_id}
                   </div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--muted)",
+                      marginTop: 2,
+                    }}
+                  >
                     Started {fmtTime(selectedSession?.started_at ?? null)} ·
                     closed{" "}
                     {selectedSession?.closed_at
@@ -378,9 +530,11 @@ export default function InventorySessionsPage() {
                   onChange={(e) => setResultFilter(e.target.value)}
                   style={{
                     padding: "4px 8px",
-                    border: "1px solid #d1d5db",
+                    border: "1px solid var(--line)",
                     borderRadius: 6,
                     fontSize: 12,
+                    background: "var(--surface)",
+                    color: "var(--ink)",
                   }}
                 >
                   {RESULT_FILTERS.map((r) => (
@@ -397,19 +551,25 @@ export default function InventorySessionsPage() {
                   style={{
                     flex: "1 1 200px",
                     padding: "4px 8px",
-                    border: "1px solid #d1d5db",
+                    border: "1px solid var(--line)",
                     borderRadius: 6,
                     fontSize: 12,
+                    background: "var(--surface)",
+                    color: "var(--ink)",
                   }}
                 />
               </div>
               {loadingAttempts && (
-                <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>
+                <div
+                  style={{ padding: 16, fontSize: 13, color: "var(--muted)" }}
+                >
                   Loading attempts…
                 </div>
               )}
               {attemptsError && (
-                <div style={{ padding: 16, fontSize: 13, color: "#b91c1c" }}>
+                <div
+                  style={{ padding: 16, fontSize: 13, color: "var(--danger)" }}
+                >
                   {attemptsError}
                 </div>
               )}
@@ -425,8 +585,8 @@ export default function InventorySessionsPage() {
                     <thead>
                       <tr
                         style={{
-                          background: "#f9fafb",
-                          borderBottom: "1px solid #e5e7eb",
+                          background: "var(--surface-2)",
+                          borderBottom: "1px solid var(--line)",
                           textAlign: "left",
                         }}
                       >
@@ -441,95 +601,83 @@ export default function InventorySessionsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredAttempts.map((a) => {
-                        const col = resultColor(a.result);
-                        return (
-                          <tr
-                            key={a.attempt_id}
+                      {filteredAttempts.map((a) => (
+                        <tr
+                          key={a.attempt_id}
+                          style={{
+                            borderBottom: "1px solid var(--line)",
+                            verticalAlign: "top",
+                          }}
+                        >
+                          <td
                             style={{
-                              borderBottom: "1px solid #f3f4f6",
-                              verticalAlign: "top",
+                              padding: "8px 10px",
+                              whiteSpace: "nowrap",
+                              color: "var(--muted)",
                             }}
                           >
-                            <td
-                              style={{
-                                padding: "8px 10px",
-                                whiteSpace: "nowrap",
-                                color: "#6b7280",
-                              }}
-                            >
-                              {fmtTime(a.attempted_at)}
-                            </td>
-                            <td style={{ padding: "8px 10px" }}>
-                              <span
-                                style={{
-                                  padding: "2px 6px",
-                                  borderRadius: 4,
-                                  fontWeight: 600,
-                                  fontSize: 11,
-                                  background: col.bg,
-                                  color: col.fg,
-                                }}
-                              >
-                                {a.result}
-                              </span>
-                            </td>
-                            <td style={{ padding: "8px 10px" }}>
-                              {a.field_changed}
-                            </td>
-                            <td
-                              style={{
-                                padding: "8px 10px",
-                                fontFamily: "monospace",
-                                fontSize: 11,
-                              }}
-                            >
-                              {a.rpc_called ?? "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "8px 10px",
-                                fontFamily: "monospace",
-                                fontSize: 11,
-                              }}
-                            >
-                              {a.wh_inventory_id
-                                ? a.wh_inventory_id.slice(0, 8) + "…"
-                                : "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "8px 10px",
-                                fontFamily: "monospace",
-                                fontSize: 11,
-                                maxWidth: 220,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {JSON.stringify(a.old_value)} →{" "}
-                              {JSON.stringify(a.new_value)}
-                            </td>
-                            <td
-                              style={{
-                                padding: "8px 10px",
-                                maxWidth: 200,
-                              }}
-                            >
-                              {a.reason ?? "—"}
-                            </td>
-                            <td
-                              style={{
-                                padding: "8px 10px",
-                                color: "#b91c1c",
-                                maxWidth: 220,
-                              }}
-                            >
-                              {a.error_message ?? ""}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                            {fmtTime(a.attempted_at)}
+                          </td>
+                          <td style={{ padding: "8px 10px" }}>
+                            <Badge tone={resultTone(a.result)}>
+                              {a.result}
+                            </Badge>
+                          </td>
+                          <td style={{ padding: "8px 10px" }}>
+                            {a.field_changed}
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              fontFamily: "monospace",
+                              fontSize: 11,
+                            }}
+                          >
+                            {a.rpc_called ?? "—"}
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              fontFamily: "monospace",
+                              fontSize: 11,
+                            }}
+                          >
+                            {a.wh_inventory_id
+                              ? a.wh_inventory_id.slice(0, 8) + "…"
+                              : "—"}
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              fontFamily: "monospace",
+                              fontSize: 11,
+                              maxWidth: 220,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {JSON.stringify(a.old_value)} →{" "}
+                            {JSON.stringify(a.new_value)}
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              maxWidth: 200,
+                            }}
+                          >
+                            {a.reason ?? "—"}
+                          </td>
+                          <td
+                            style={{
+                              padding: "8px 10px",
+                              color: "var(--danger)",
+                              maxWidth: 220,
+                            }}
+                          >
+                            {a.error_message ?? ""}
+                          </td>
+                        </tr>
+                      ))}
                       {filteredAttempts.length === 0 && (
                         <tr>
                           <td
@@ -537,7 +685,7 @@ export default function InventorySessionsPage() {
                             style={{
                               padding: 24,
                               textAlign: "center",
-                              color: "#6b7280",
+                              color: "var(--muted)",
                             }}
                           >
                             No attempts match the current filter.
@@ -550,7 +698,7 @@ export default function InventorySessionsPage() {
               )}
             </>
           )}
-        </section>
+        </Card>
       </div>
     </div>
   );
