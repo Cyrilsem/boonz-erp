@@ -8,6 +8,7 @@ import { RefillPlanningTab, type PlanRow } from "./RefillPlanningTab";
 import { TrackerTab } from "./TrackerTab";
 import { SignalsTab } from "./SignalsTab";
 import SnapshotTab, { type RefillInitialData } from "./SnapshotTab";
+import RefillLogTab from "./RefillLogTab";
 
 // PRD-087 P3: the Stock Snapshot feature (types, helpers, state, handlers and
 // JSX) lives in SnapshotTab.tsx. The snapshot types are re-exported here so
@@ -26,7 +27,7 @@ export default function RefillPageClient({
   initialData?: RefillInitialData;
 }) {
   const [tab, setTab] = useState<
-    "snapshot" | "planning" | "dispatching" | "signals" | "issues"
+    "snapshot" | "planning" | "dispatching" | "signals" | "issues" | "log"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
@@ -108,6 +109,7 @@ export default function RefillPageClient({
             ["snapshot", "Stock Snapshot"],
             ["planning", "Refill Planning"],
             ["dispatching", "Refill Dispatch"],
+            ["log", "Log"],
             ["signals", "Signals"],
             ["issues", "Issues"],
           ] as const
@@ -155,6 +157,9 @@ export default function RefillPageClient({
           setGenerated={setGenerated}
         />
       )}
+
+      {/* ── Log tab — PRD-087: historical refill trace (refill_dispatching) ── */}
+      {tab === "log" && <RefillLogTab />}
 
       {/* ── Signals tab — PRD-055: the single operator notes channel (engine-aware) ── */}
       {tab === "signals" && <SignalsTab />}
