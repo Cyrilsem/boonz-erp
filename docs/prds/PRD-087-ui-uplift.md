@@ -1,6 +1,6 @@
 # PRD-087 — ERP UI/UX Uplift
 
-**Date:** 2026-07-08 · **Status:** PROPOSAL (awaiting CS approval) · **Scope:** FE only, no backend/RPC changes
+**Date:** 2026-07-08 · **Status:** BUILT (P1–P5 committed on `feat/prd-087-ui-uplift`, awaiting CS push → Vercel preview → merge) · **Scope:** FE + one read-only RPC
 **Constraint:** Performance & Consumers stay functionally intact — visuals/palette only (esp. Payments).
 **Delivery:** feature branch `feat/prd-087-ui-uplift` → Vercel preview URL → CS click-through → merge.
 
@@ -90,3 +90,32 @@ Each phase = separate commits on the branch; preview redeployed per phase; Perfo
 ## 7. Out of scope
 
 Backend engines, RPCs with writes, field/driver app (`/field/*`), portal, chat, tracker internals, any protected-entity change.
+
+---
+
+## 8. EXECUTION LOG — 2026-07-08
+
+All five phases built and committed on `feat/prd-087-ui-uplift` (branched from main @52e53d2):
+
+| Commit | Phase | Content |
+|---|---|---|
+| 97a5533 | P1+P2 | Sales summary removed from Stock Snapshot; refill page server-prefetch (`page.tsx` server component + `RefillPageClient` seeded with `initialData`, heatmap renders with the page); `/refill/route` stub deleted; design tokens in `globals.css` (`--brand/--gold/--ink/--line/--chart-1..6`, exposed via `@theme inline`); grouped sidebar (Dashboard + Operations/Supply/Commercial/Admin), orphans surfaced (Pods, Drift Monitor, Feedback Inbox, Inventory Sessions, WH Quarantine), ghost "Pods" role entry fixed, gold wordmark |
+| 0a4a803 | P3 | Refill monolith split: `SnapshotTab.tsx` (2513 lines, stays mounted via display:none), shell 2640→176 lines; planning tab machine names via `onMachineNamesChange`; zero behavior change |
+| ea65a2a + 093cc0a | P4 | `get_product_velocity_ledger(p_weeks,p_scope)` RPC (STABLE, SECURITY DEFINER, pinned search_path, read-only; active-week basis, refund-excluded, last N complete Dubai weeks, current partial week separate; scopes non_vox/vox/all/venue_group) + Product Performance tab in Performance page (hero StatCards, ranked ledger, weekly columns, sparklines, nW badges, pre-launch dots, editorial section breaks, search, filters, CSV export) |
+| e2bff3b | P5 | Payments tab retint to brand chart palette; Consumers VOX waterfall/legend/KPI/banner retint (visual-only, lint-identical); `src/components/ui/primitives.tsx` (Card, StatCard, Badge, SectionHeading); migration backfill for git parity |
+
+**Key data findings (P4):**
+- "Non-VOX" in the Product Desk catalogue = machines NOT named `VOX*`. ACTIVATE/MPMCC/IFLYMCC are `venue_group='VOX'` but ARE in the non-VOX report scope — scope filter is name-based, not venue_group-based.
+- Live RPC reproduces the Jun-2026 PDF week-for-week (Aquafina 189/191/226/197…; total 8,282 vs PDF 8,239 — delta = the manual Plaay-Truffle sensor adjustment).
+- v2 fix: window = last N complete weeks; in-progress week shown as "THIS WK" column, excluded from avg.
+
+**Migrations (applied to prod via MCP + backfilled to git, versions match remote):**
+- `20260708071911_prd087_product_velocity_ledger.sql`
+- `20260708072000_prd087_velocity_ledger_v2_complete_weeks.sql`
+
+**Verification:** `tsc --noEmit` clean after every phase; ESLint clean on all new/modified files (pre-existing errors in performance/page.tsx (11× no-explicit-any, lines 4600+) and consumers/client.tsx (26, identical before/after retint) untouched); RPC output validated against the PDF.
+
+**Remaining for CS:**
+1. `git push -u origin feat/prd-087-ui-uplift` (sandbox cannot reach GitHub) → Vercel preview → click-through → merge to main.
+2. Pre-existing dirty docs files (RPC_REGISTRY.md + 3 EXECUTION-LOGs) left uncommitted, as found.
+3. Optional follow-ups: RPC_REGISTRY entry for get_product_velocity_ledger; apply primitives to more pages opportunistically.
