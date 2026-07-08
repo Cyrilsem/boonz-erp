@@ -13,6 +13,7 @@ import PendingProposalsPanel from "@/components/inventory/PendingProposalsPanel"
 import PendingPodAdditionsPanel from "@/components/inventory/PendingPodAdditionsPanel";
 import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
 import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
+import StockOverviewTab from "@/components/inventory/StockOverviewTab";
 import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
 import { MovementTrail } from "@/components/inventory/MovementTrail";
 
@@ -189,6 +190,8 @@ export default function InventoryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("Active");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [warehouseTab, setWarehouseTab] = useState<WarehouseTab>("all");
+  // PRD-087 R4: top-level view — warehouse batch ledger vs stock overview
+  const [view, setView] = useState<"batches" | "overview">("batches");
   const [fetchKey, setFetchKey] = useState(0);
 
   // Drawer state
@@ -668,6 +671,50 @@ export default function InventoryPage() {
         </button>
       </div>
 
+      {/* PRD-087 R4: view switcher — warehouse batches vs stock overview */}
+      <div
+        style={{
+          display: "flex",
+          gap: 2,
+          borderBottom: "1px solid #e8e4de",
+          marginBottom: 20,
+        }}
+      >
+        {(
+          [
+            ["batches", "Warehouse Batches"],
+            ["overview", "Stock Overview"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            style={{
+              padding: "12px 16px",
+              fontSize: 12,
+              fontWeight: view === key ? 700 : 500,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: view === key ? "#0a0a0a" : "#6b6860",
+              borderBottom:
+                view === key ? "3px solid #0a0a0a" : "3px solid transparent",
+              background: "none",
+              border: "none",
+              borderBottomWidth: 3,
+              borderBottomStyle: "solid",
+              borderBottomColor: view === key ? "#0a0a0a" : "transparent",
+              cursor: "pointer",
+              fontFamily: font,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "overview" && <StockOverviewTab />}
+
+      <div style={{ display: view === "batches" ? undefined : "none" }}>
       {/* Phase G P1 B.6 / B.8: inventory-control session bar + canary heartbeat.
           Bar is gated on a specific warehouse tab; canary only ticks while a
           session is open. PRD-001 Change 2: sticky so the affordance stays
@@ -1771,6 +1818,7 @@ export default function InventoryPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
