@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-08 (overnight) — PRD-089: ADD absolute velocity floor + min-facing (SHIP DARK, Wave 1)
+
+- engine_add_pod flag-gated (add_abs_floor_v1, seeded OFF): abs-velocity-floor forces full cover for absolute performers; min-facing floor via need_raw GREATEST. refill_policy_params += abs_velocity_floor/min_facing_floor. Flag OFF => diff_vs_golden IDENTICAL (proven); other-3 Family A md5 11b0b03f unchanged. NOT enabled (CS-only). Dormant under live base_stock mode; targets legacy relative-band starvation.
+
 ## 2026-07-07 (overnight) — PRD-080: FEFO reservation infra (DARK, Wave 0b.4)
 
 - wh_reservation table + bind_fefo_reserved/release_fefo_reservation (DEFINER, set app.via_rpc). bind no-ops when fefo_reserve_v1<>'on' (dark). Soft holds only - does NOT touch warehouse_inventory (Cody Article 6 clean). Family A md5 8587be9a unchanged. Cody PASS. PARKED enable: Ops TTL + reservation-shape (qty vs whole-batch) + Article-14 dual-mechanism resolution vs reserved_for_machine_id + release-hook wiring.
