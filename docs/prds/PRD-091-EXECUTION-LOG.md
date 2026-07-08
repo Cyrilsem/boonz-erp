@@ -3,6 +3,7 @@
 Run 2026-07-08 overnight (WAVE1-OVERNIGHT), AUTO. **Status: PARKED (rule F). NOT shipped.**
 
 ## Why parked (two rule-F blockers)
+
 1. **Unmade representation decision.** The spec emits an `expiry_pull` remediation "into
    pod_swaps/pod_refills" — the `/` is an open Dara/CS design choice. `pod_refills` has no
    REMOVE/action column (its `signal` is lifecycle: STAR/ROTATE OUT/WIND DOWN…); `pod_swaps`
@@ -19,11 +20,13 @@ on) and would author inventory-affecting REMOVE emission with an undecided shape
 conservation — exactly what rule F says to PARK, never force.
 
 ## What IS confirmed (for the un-park)
+
 - `v_pod_inventory_latest` exists (machine_id, shelf_id, boonz_product_id, expiration_date,
   current_stock, batch_id, snapshot_at) → `days_to_expiry_min` per shelf is computable.
 - `refill_policy_params += expiry_risk_days` (not applied — deferred with the park).
 
 ## Needed to un-park
+
 1. Dara/CS: decide the expiry_pull representation (pod_swaps out=in same SKU vs a pod_refills
    tag vs a new remediation shape) + the conservation reconciliation contract.
 2. An **engine-ADD fixture** (a date/machine set where engine_add_pod actually sizes via
@@ -31,3 +34,10 @@ conservation — exactly what rule F says to PARK, never force.
 3. Then: build behind expiry_input_v1, prove flag-off identical + ON conservation green, Cody PASS.
 
 ## Status: PARKED (rule F: unmade decision + unvalidatable conservation). Owner: Dara + CS.
+
+## ON-delta (rollback ON-capture, 2026-07-08)
+Rollback ON-capture with the flag forced ON in-transaction (BEGIN..ROLLBACK, discarded):
+**plan-delta = 0** on golden_v1 (2026-07-06), conservation green (orphan_removal/phantom/oversub = 0).
+This is the fixture limitation, not an inertness claim: golden_v1 is 100% manual_add with no
+engine-ADD-sized rows, so no Wave-1 change can bite here. A non-zero delta requires an
+engine-ADD fixture (see MASTER-PARKING-LOT program blocker).
