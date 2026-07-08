@@ -3081,8 +3081,8 @@ export default function PerformancePage() {
                 label="Avg Transaction"
                 value={fmtAed(paymentStats.avgTxn)}
                 subtitle="per settled transaction"
-                accent="#8B5CF6"
-                valueColor="#8B5CF6"
+                accent="#3d7068"
+                valueColor="#3d7068"
               />
             </div>
 
@@ -3098,13 +3098,14 @@ export default function PerformancePage() {
               {(
                 [
                   {
+                    // PRD-087 P5: brand chart palette (see globals.css --chart-*)
                     title: "Funding Source",
                     data: paymentStats.funding,
                     palette: [
                       "#24544a",
-                      "#0F4D3A",
-                      "#6366F1",
-                      "#8B5CF6",
+                      "#3d7068",
+                      "#7ba69b",
+                      "#b5804a",
                       "#6b6860",
                     ],
                   },
@@ -3113,9 +3114,9 @@ export default function PerformancePage() {
                     data: paymentStats.methods,
                     palette: [
                       "#e1b460",
-                      "#d97706",
-                      "#2A3547",
-                      "#F59E0B",
+                      "#b5804a",
+                      "#24544a",
+                      "#d9c9a3",
                       "#9a948e",
                     ],
                   },

@@ -69,9 +69,9 @@ const CSS = `@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+
 .vr h2{font-family:var(--font-head);font-weight:700;font-size:22px;letter-spacing:-0.5px;margin-bottom:4px}.vr h3{font-family:var(--font-head);font-weight:600;font-size:15px;margin-bottom:12px}
 .gr{display:grid;gap:14px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
 .cd{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:18px 20px}
-.kp{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px 18px;position:relative;overflow:hidden}.kp::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.kp.km::before{background:var(--merc)}.kp.ki::before{background:var(--mird)}.kp.ka::before{background:var(--amber)}.kp.kr::before{background:var(--red)}.kp.kc::before{background:#8B5CF6}
+.kp{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:16px 18px;position:relative;overflow:hidden}.kp::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.kp.km::before{background:var(--merc)}.kp.ki::before{background:var(--mird)}.kp.ka::before{background:var(--amber)}.kp.kr::before{background:var(--red)}.kp.kc::before{background:#3d7068}
 .kl{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:var(--grey);margin-bottom:8px}.kv{font-family:var(--font-head);font-size:26px;font-weight:800;letter-spacing:-1px;line-height:1}.ks{font-size:10px;color:var(--grey);margin-top:6px}
-.kv.vm{color:var(--merc)}.kv.vi{color:var(--mird)}.kv.va{color:var(--amber)}.kv.vr2{color:var(--red)}.kv.vc{color:#8B5CF6}
+.kv.vm{color:var(--merc)}.kv.vi{color:var(--mird)}.kv.va{color:var(--amber)}.kv.vr2{color:var(--red)}.kv.vc{color:#3d7068}
 .cw{position:relative}.cw canvas{width:100%!important}
 .sr{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px}@media(max-width:1000px){.sr{grid-template-columns:repeat(3,1fr)}}
 .ss{display:grid;grid-template-columns:1fr 1fr;border-radius:6px;overflow:hidden;margin-bottom:14px}
@@ -1074,70 +1074,70 @@ export default function ConsumerDashboardClient({
               label: ["Total", "Amount"],
               base: 0,
               top: total,
-              color: "#2A3547",
+              color: "#0a0a0a",
               displayVal: total,
             },
             {
               label: ["Default"],
               base: captured,
               top: total,
-              color: "#EF4444",
+              color: "#dc2626",
               displayVal: num(w.default_amount),
             },
             {
               label: ["Captured"],
               base: 0,
               top: captured,
-              color: "#0F4D3A",
+              color: "#24544a",
               displayVal: captured,
             },
             {
               label: ["Refund"],
               base: captured - refund,
               top: captured,
-              color: "#EC4899",
+              color: "#d97706",
               displayVal: refund,
             },
             {
               label: ["Adyen", "Fees"],
               base: captured - refund - adyenFees,
               top: captured - refund,
-              color: "#F97316",
+              color: "#9a948e",
               displayVal: adyenFees,
             },
             {
               label: ["Net", "Revenue"],
               base: 0,
               top: netRev,
-              color: "#0E3F4D",
+              color: "#3d7068",
               displayVal: netRev,
             },
             {
               label: ["Boonz", "20%"],
               base: 0,
               top: boonzShare,
-              color: "#F59E0B",
+              color: "#e1b460",
               displayVal: boonzShare,
             },
             {
               label: ["VOX", "80%"],
               base: 0,
               top: voxShare,
-              color: "#3D2F63",
+              color: "#1d4439",
               displayVal: voxShare,
             },
             {
               label: ["Boonz", "COGS"],
               base: voxShare - boonzCogs,
               top: voxShare,
-              color: "#EF4444",
+              color: "#b5804a",
               displayVal: boonzCogs,
             },
             {
               label: ["VOX", "Net Dues"],
               base: 0,
               top: voxNetDues,
-              color: "#8B5CF6",
+              color: "#7ba69b",
               displayVal: voxNetDues,
             },
           ];
@@ -1212,7 +1212,7 @@ export default function ConsumerDashboardClient({
                   Number(C.waterfall.boonz_share || 0),
                   Number(C.waterfall.boonz_cogs || 0),
                 ],
-                backgroundColor: ["#F59E0B", "#EF4444"],
+                backgroundColor: ["#e1b460", "#dc2626"],
                 borderColor: "#ffffff",
                 borderWidth: 3,
               },
@@ -1340,8 +1340,8 @@ export default function ConsumerDashboardClient({
               style={
                 vm === m
                   ? {
-                      borderColor: "#F59E0B",
-                      color: "#F59E0B",
+                      borderColor: "#d97706",
+                      color: "#d97706",
                       background: "rgba(245,158,11,0.12)",
                     }
                   : {}
@@ -1365,7 +1365,7 @@ export default function ConsumerDashboardClient({
           )}
           {loading && (
             <span
-              style={{ fontSize: 10, color: "#F59E0B", marginLeft: "auto" }}
+              style={{ fontSize: 10, color: "#d97706", marginLeft: "auto" }}
             >
               Loading&hellip;
             </span>
@@ -1379,7 +1379,7 @@ export default function ConsumerDashboardClient({
               borderBottom: "1px solid rgba(245,158,11,0.2)",
               padding: "8px 24px",
               fontSize: 11,
-              color: "#F59E0B",
+              color: "#d97706",
             }}
           >
             <strong>{"\u26A0"} Adyen not loaded</strong>{" "}
@@ -1441,7 +1441,7 @@ export default function ConsumerDashboardClient({
         )}
 
         {err && (
-          <div style={{ padding: 24, textAlign: "center", color: "#EF4444" }}>
+          <div style={{ padding: 24, textAlign: "center", color: "#dc2626" }}>
             Failed: {err}
             <br />
             <button
@@ -1450,8 +1450,8 @@ export default function ConsumerDashboardClient({
                 marginTop: 8,
                 padding: "6px 16px",
                 background: "#e8e4de",
-                border: "1px solid #EF4444",
-                color: "#EF4444",
+                border: "1px solid #dc2626",
+                color: "#dc2626",
                 borderRadius: 4,
                 cursor: "pointer",
               }}
@@ -1631,7 +1631,7 @@ export default function ConsumerDashboardClient({
                               className="pf"
                               style={{
                                 width: `${S!.adyen_match_pct}%`,
-                                background: ha ? MERC : "#EF4444",
+                                background: ha ? MERC : "#dc2626",
                               }}
                             />
                           </div>
@@ -1928,7 +1928,7 @@ export default function ConsumerDashboardClient({
                   <div className="sl">Payment Intelligence</div>
                   <h2>Payment Method Breakdown</h2>
                   {!ha && (
-                    <p style={{ color: "#F59E0B", fontSize: 11, marginTop: 8 }}>
+                    <p style={{ color: "#d97706", fontSize: 11, marginTop: 8 }}>
                       {"\u26A0"} Pending Adyen import
                     </p>
                   )}
@@ -2228,7 +2228,7 @@ export default function ConsumerDashboardClient({
                               style={
                                 t2.disc
                                   ? {
-                                      color: "#EF4444",
+                                      color: "#dc2626",
                                       fontWeight: 700,
                                       fontSize: 12,
                                     }
@@ -2251,7 +2251,7 @@ export default function ConsumerDashboardClient({
                             <span
                               style={
                                 t2.disc
-                                  ? { color: "#F59E0B", fontWeight: 600 }
+                                  ? { color: "#d97706", fontWeight: 600 }
                                   : t2.cash_recovered > 0
                                     ? { color: "#065F46", fontWeight: 600 }
                                     : ha && t2.captured > 0
@@ -2293,7 +2293,7 @@ export default function ConsumerDashboardClient({
                                   padding: "1px 6px",
                                   fontSize: 10,
                                   fontWeight: 600,
-                                  border: "1px solid #F59E0B",
+                                  border: "1px solid #d97706",
                                   borderRadius: 4,
                                   background: "white",
                                   color: "#92400E",
@@ -2463,16 +2463,16 @@ export default function ConsumerDashboardClient({
                     const boonzReceipts =
                       Number(w.boonz_share || 0) + Number(w.boonz_cogs || 0);
                     const legendItems = [
-                      { c: "#2A3547", l: "Total Amount", v: w.total_amount },
-                      { c: "#EF4444", l: "Default", v: w.default_amount },
-                      { c: "#0F4D3A", l: "Captured", v: w.captured_amount },
-                      { c: "#EC4899", l: "Refund", v: w.refund_amount },
-                      { c: "#F97316", l: "Adyen Fees", v: w.adyen_fees },
-                      { c: "#0E3F4D", l: "Net Revenue", v: w.net_revenue },
-                      { c: "#F59E0B", l: "Boonz 20%", v: w.boonz_share },
-                      { c: "#3D2F63", l: "VOX 80%", v: w.vox_share },
-                      { c: "#EF4444", l: "Boonz COGS", v: w.boonz_cogs },
-                      { c: "#8B5CF6", l: "VOX Net Dues", v: w.vox_net_dues },
+                      { c: "#0a0a0a", l: "Total Amount", v: w.total_amount },
+                      { c: "#dc2626", l: "Default", v: w.default_amount },
+                      { c: "#24544a", l: "Captured", v: w.captured_amount },
+                      { c: "#d97706", l: "Refund", v: w.refund_amount },
+                      { c: "#9a948e", l: "Adyen Fees", v: w.adyen_fees },
+                      { c: "#3d7068", l: "Net Revenue", v: w.net_revenue },
+                      { c: "#e1b460", l: "Boonz 20%", v: w.boonz_share },
+                      { c: "#1d4439", l: "VOX 80%", v: w.vox_share },
+                      { c: "#b5804a", l: "Boonz COGS", v: w.boonz_cogs },
+                      { c: "#7ba69b", l: "VOX Net Dues", v: w.vox_net_dues },
                     ];
                     return (
                       <>
@@ -2480,26 +2480,26 @@ export default function ConsumerDashboardClient({
                           className="cd"
                           style={{
                             marginBottom: 16,
-                            background: "rgba(6,182,212,0.06)",
-                            borderColor: "rgba(6,182,212,0.3)",
+                            background: "rgba(36,84,74,0.06)",
+                            borderColor: "rgba(36,84,74,0.3)",
                             padding: "12px 16px",
                             fontSize: 12,
-                            color: "#67E8F9",
+                            color: "#24544a",
                           }}
                         >
-                          <strong style={{ color: "#A5F3FC" }}>
+                          <strong style={{ color: "#1d4439" }}>
                             {w.matched_txns}
                           </strong>{" "}
                           matched {"\u00B7"}{" "}
-                          <strong style={{ color: "#A5F3FC" }}>
+                          <strong style={{ color: "#1d4439" }}>
                             {w.unmatched_txns}
                           </strong>{" "}
                           unmatched {"\u00B7"}{" "}
-                          <strong style={{ color: "#A5F3FC" }}>
+                          <strong style={{ color: "#1d4439" }}>
                             {w.disc_count}
                           </strong>{" "}
                           discrepancies totaling{" "}
-                          <strong style={{ color: "#A5F3FC" }}>
+                          <strong style={{ color: "#1d4439" }}>
                             {aed(discTotal)}
                           </strong>
                         </div>
@@ -2711,7 +2711,7 @@ export default function ConsumerDashboardClient({
                                       </div>
                                       <div
                                         style={{
-                                          color: "#F59E0B",
+                                          color: "#d97706",
                                           textAlign: "right",
                                         }}
                                       >
@@ -2722,7 +2722,7 @@ export default function ConsumerDashboardClient({
                                       </div>
                                       <div
                                         style={{
-                                          color: "#EF4444",
+                                          color: "#dc2626",
                                           textAlign: "right",
                                         }}
                                       >
@@ -2733,7 +2733,7 @@ export default function ConsumerDashboardClient({
                                       </div>
                                       <div
                                         style={{
-                                          color: "#8B5CF6",
+                                          color: "#3d7068",
                                           textAlign: "right",
                                           fontWeight: 600,
                                         }}
@@ -2781,13 +2781,13 @@ export default function ConsumerDashboardClient({
                                 Boonz 20% Share
                               </div>
                               <div
-                                style={{ color: "#F59E0B", fontWeight: 600 }}
+                                style={{ color: "#d97706", fontWeight: 600 }}
                               >
                                 {aed(w.boonz_share)}
                               </div>
                               <div style={{ color: "#6b6860" }}>Boonz COGS</div>
                               <div
-                                style={{ color: "#EF4444", fontWeight: 600 }}
+                                style={{ color: "#dc2626", fontWeight: 600 }}
                               >
                                 {aed(w.boonz_cogs)}
                               </div>
@@ -3165,7 +3165,7 @@ export default function ConsumerDashboardClient({
                                             ? "NO ADYEN"
                                             : "OK";
                                         const statusColor = isDisc
-                                          ? "#EF4444"
+                                          ? "#dc2626"
                                           : isUnmatched
                                             ? "#9a948e"
                                             : "#10B981";
@@ -3245,7 +3245,7 @@ export default function ConsumerDashboardClient({
                                               className="r"
                                               style={{
                                                 color: isDisc
-                                                  ? "#EF4444"
+                                                  ? "#dc2626"
                                                   : "#9a948e",
                                                 fontSize: 11,
                                                 fontWeight: isDisc ? 700 : 400,
@@ -3302,7 +3302,7 @@ export default function ConsumerDashboardClient({
                                                       fontSize: 9,
                                                       fontWeight: 600,
                                                       border:
-                                                        "1px solid #F59E0B",
+                                                        "1px solid #d97706",
                                                       borderRadius: 4,
                                                       background: "white",
                                                       color: "#92400E",
@@ -3319,7 +3319,7 @@ export default function ConsumerDashboardClient({
                                               style={{
                                                 color:
                                                   Number(t.refunded_amount) > 0
-                                                    ? "#EC4899"
+                                                    ? "#d97706"
                                                     : "#9a948e",
                                                 fontSize: 11,
                                               }}
@@ -3331,7 +3331,7 @@ export default function ConsumerDashboardClient({
                                             <td
                                               className="r"
                                               style={{
-                                                color: "#F97316",
+                                                color: "#b5804a",
                                                 fontSize: 11,
                                               }}
                                             >
@@ -3349,7 +3349,7 @@ export default function ConsumerDashboardClient({
                                             <td
                                               className="r"
                                               style={{
-                                                color: "#F59E0B",
+                                                color: "#d97706",
                                                 fontSize: 11,
                                               }}
                                             >
@@ -3367,7 +3367,7 @@ export default function ConsumerDashboardClient({
                                             <td
                                               className="r"
                                               style={{
-                                                color: "#EF4444",
+                                                color: "#dc2626",
                                                 fontSize: 11,
                                               }}
                                             >

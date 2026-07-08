@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { StatCard, Badge } from "@/components/ui/primitives";
 
 const font = "'Plus Jakarta Sans', sans-serif";
 
@@ -309,62 +310,29 @@ export default function ProductPerformanceTab() {
           marginBottom: 20,
         }}
       >
-        {[
-          {
-            k: "TOTAL UNITS",
-            v: hero.total.toLocaleString(),
-            s: `${weeks} complete weeks · ${label}`,
-          },
-          {
-            k: "FLEET PACE",
-            v: Math.round(hero.pace).toLocaleString(),
-            s: "units / week",
-          },
-          {
-            k: "ACTIVE SKUS",
-            v: String(hero.skus),
-            s: "sold ≥ 1 unit",
-          },
-          {
-            k: "TOP SKU",
-            v: `${Math.round(hero.topAvg)}/wk`,
-            s: `${hero.topName} · ${hero.topShare.toFixed(1)}% of units`,
-          },
-        ].map((c) => (
-          <div
-            key={c.k}
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--line)",
-              borderTop: "3px solid var(--brand)",
-              borderRadius: 10,
-              padding: "14px 16px",
-            }}
-          >
-            <div
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                color: "var(--muted)",
-              }}
-            >
-              {c.k}
-            </div>
-            <div
-              style={{
-                fontSize: 26,
-                fontWeight: 800,
-                color: "var(--ink)",
-                letterSpacing: "-0.02em",
-                margin: "2px 0",
-              }}
-            >
-              {c.v}
-            </div>
-            <div style={{ fontSize: 11, color: "var(--muted-2)" }}>{c.s}</div>
-          </div>
-        ))}
+        <StatCard
+          label="Total Units"
+          value={hero.total.toLocaleString()}
+          sub={`${weeks} complete weeks · ${label}`}
+        />
+        <StatCard
+          label="Fleet Pace"
+          value={Math.round(hero.pace).toLocaleString()}
+          sub="units / week"
+          accent="var(--gold)"
+        />
+        <StatCard
+          label="Active SKUs"
+          value={String(hero.skus)}
+          sub="sold ≥ 1 unit"
+          accent="var(--chart-5)"
+        />
+        <StatCard
+          label="Top SKU"
+          value={`${Math.round(hero.topAvg)}/wk`}
+          sub={`${hero.topName} · ${hero.topShare.toFixed(1)}% of units`}
+          accent="var(--chart-3)"
+        />
       </div>
 
       {err && (
@@ -463,20 +431,8 @@ export default function ProductPerformanceTab() {
 
       <p style={{ fontSize: 11, color: "var(--muted-2)", margin: "10px 4px" }}>
         Units / active week · refunds &amp; failed deliveries excluded · products
-        launched mid-window carry a{" "}
-        <span
-          style={{
-            background: "var(--gold-tint)",
-            color: "var(--warn)",
-            fontWeight: 700,
-            borderRadius: 4,
-            padding: "1px 5px",
-            fontSize: 10,
-          }}
-        >
-          nW
-        </span>{" "}
-        badge and are averaged over their active weeks only; pre-launch weeks
+        launched mid-window carry a <Badge tone="gold">nW</Badge> badge and are
+        averaged over their active weeks only; pre-launch weeks
         show as dots. Live from sales data — always current.
       </p>
     </div>
@@ -534,19 +490,8 @@ function RowBlock({
           <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)" }}>
             {r.product_name}
             {r.is_new && (
-              <span
-                style={{
-                  marginLeft: 6,
-                  background: "var(--gold-tint)",
-                  color: "var(--warn)",
-                  fontWeight: 700,
-                  borderRadius: 4,
-                  padding: "1px 5px",
-                  fontSize: 10,
-                  verticalAlign: "middle",
-                }}
-              >
-                {r.active_weeks}W
+              <span style={{ marginLeft: 6, verticalAlign: "middle" }}>
+                <Badge tone="gold">{r.active_weeks}W</Badge>
               </span>
             )}
           </div>
