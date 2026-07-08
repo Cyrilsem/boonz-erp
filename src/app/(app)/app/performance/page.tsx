@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import ProductPerformanceTab from "@/components/performance/ProductPerformanceTab";
 import {
   BarChart,
   Bar,
@@ -28,6 +29,7 @@ const TABS = [
   "Overview",
   "Sites & Machines",
   "Products",
+  "Product Performance",
   "Payments",
   "Transactions",
   "Customers",
@@ -3030,6 +3032,9 @@ export default function PerformancePage() {
             </div>
           </div>
         )}
+
+        {/* ── PRODUCT PERFORMANCE (PRD-087 P4 — live velocity catalogue) ── */}
+        {activeTab === "Product Performance" && <ProductPerformanceTab />}
 
         {/* ── PAYMENTS ── */}
         {activeTab === "Payments" && (
