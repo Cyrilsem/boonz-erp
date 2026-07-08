@@ -414,7 +414,7 @@ export default function DashboardClient({
                 }}
                 style={toggleBtn(includeVox)}
               >
-                Incl. VOX
+                Incl. VOX venue
               </button>
               <button
                 onClick={() => {
@@ -423,7 +423,7 @@ export default function DashboardClient({
                 }}
                 style={toggleBtn(!includeVox)}
               >
-                Excl. VOX
+                Excl. VOX venue
               </button>
             </div>
           </div>
@@ -464,7 +464,7 @@ export default function DashboardClient({
         <StatCard
           label="Default Rate"
           value={`${k.default_rate}%`}
-          sub="unpaid share of sales value"
+          sub="Adyen gap / matched sales (net of refunds & cash recovery)"
           accent="var(--chart-4)"
           valueColor={k.default_rate > 2 ? "var(--danger)" : "var(--ink)"}
         />
@@ -957,9 +957,10 @@ export default function DashboardClient({
       >
         Sales {new Date(sales.generated_at).toLocaleTimeString()} · ops snapshot
         cached up to 60s — refresh the page for live numbers. Sales are
-        refund-excluded; default rate = unpaid share of POS-recorded sales
-        value; expiry & inventory are fleet-wide (not affected by the VOX
-        toggle).
+        refund-excluded. VOX toggle scopes by venue group (VOX cinemas +
+        sister pods ACTIVATE / IFLY / MPMCC). Default rate = canonical
+        PRD-023h: Adyen-matched gap ÷ matched sales, refunds and cash
+        recovery credited. Expiry & inventory are fleet-wide.
       </p>
     </div>
   );
