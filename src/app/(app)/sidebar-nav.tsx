@@ -31,8 +31,7 @@ const sections: NavSection[] = [
     title: "Operations",
     items: [
       { label: "Refill & Dispatch", href: "/refill", icon: "↻" },
-      { label: "Driver Adds", href: "/admin/driver-additions", icon: "⚑" },
-      { label: "Machines", href: "/app/machines", icon: "▣" },
+      { label: "Driver Requests", href: "/admin/driver-requests", icon: "⚑" },
       { label: "Pods", href: "/app/pods", icon: "⬢" },
       { label: "Inventory", href: "/app/inventory", icon: "▤" },
     ],
@@ -59,7 +58,6 @@ const sections: NavSection[] = [
     title: "Admin",
     items: [
       { label: "SIM Cards", href: "/app/sims", icon: "◈" },
-      { label: "Feedback Inbox", href: "/admin/feedback-inbox", icon: "✉" },
       {
         label: "Inventory Sessions",
         href: "/admin/inventory-sessions",
@@ -79,11 +77,10 @@ const hiddenByRole: Record<string, string[]> = {
   finance: [
     "Pods",
     "Refill & Dispatch",
-    "Driver Adds",
+    "Driver Requests",
     "Consumers",
     "Lifecycle",
     "Sales Pipeline",
-    "Feedback Inbox",
     "Inventory Sessions",
     "WH Quarantine",
     "Drift Monitor",
@@ -99,7 +96,6 @@ const hiddenByRole: Record<string, string[]> = {
     "SIM Cards",
     "Sales Pipeline",
     "Settings",
-    "Feedback Inbox",
     "Inventory Sessions",
     "Drift Monitor",
   ],

@@ -123,6 +123,101 @@ export function Badge({
   );
 }
 
+/**
+ * PRD-087 R7 — canonical page chrome. Every module page should render:
+ *   <div className="p-8 max-w-7xl">
+ *     <PageHeader title="…" subtitle="…" actions={…} />
+ *     …content…
+ *   </div>
+ * matching the Dashboard/Pods/Products pattern (Plus Jakarta 800/28px).
+ */
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
+      <div>
+        <h1
+          style={{
+            fontFamily: font,
+            fontWeight: 800,
+            fontSize: 28,
+            letterSpacing: "-0.02em",
+            color: "var(--ink)",
+            margin: 0,
+          }}
+        >
+          {title}
+        </h1>
+        {subtitle && (
+          <p style={{ color: "var(--muted)", fontSize: 14, marginTop: 4 }}>
+            {subtitle}
+          </p>
+        )}
+      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+export function TabBar<T extends string>({
+  tabs,
+  active,
+  onChange,
+}: {
+  tabs: readonly T[];
+  active: T;
+  onChange: (t: T) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 2,
+        borderBottom: "1px solid var(--line)",
+        marginBottom: 20,
+        overflowX: "auto",
+      }}
+    >
+      {tabs.map((t) => (
+        <button
+          key={t}
+          onClick={() => onChange(t)}
+          style={{
+            padding: "12px 16px",
+            fontSize: 12,
+            fontWeight: active === t ? 700 : 500,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            color: active === t ? "var(--ink)" : "var(--muted)",
+            borderBottom:
+              active === t
+                ? "3px solid var(--ink)"
+                : "3px solid transparent",
+            background: "none",
+            border: "none",
+            borderBottomWidth: 3,
+            borderBottomStyle: "solid",
+            borderBottomColor: active === t ? "var(--ink)" : "transparent",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            fontFamily: font,
+            transition: "all 0.2s",
+          }}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function SectionHeading({ children }: { children: ReactNode }) {
   return (
     <div
