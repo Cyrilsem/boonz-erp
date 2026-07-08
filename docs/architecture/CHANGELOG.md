@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-08 (overnight) — PRD-093 Part A: consignment columns (SHIP DARK, Wave 1)
+
+- boonz_products += is_consignment (bool, default false) + consignment_venue_id (uuid). Additive/inert; diff_vs_golden IDENTICAL; engine_add_pod untouched. consignment_v1 flag seeded OFF. Lets CS tag venue-sourced SKUs. Part B (engine wh_avail-skip gating) PARKED (unvalidatable on the manual-add fixture + pod_product->boonz mapping).
+
 ## 2026-07-08 (overnight) — PRD-090: niche merchandising fill (SHIP DARK, Wave 1)
 
 - engine_add_pod flag-gated (add_niche_fill_v1, OFF): footprint<=max (via slot_lifecycle) at best location floors facing to CEIL(target*cap); downstream wh_avail clamp unchanged (no phantom fill). refill_policy_params += niche_footprint_max/niche_facing_target. Flag OFF => diff_vs_golden IDENTICAL; other-3 Family A 11b0b03f unchanged. Forward-fix corrected footprint source pod_inventory->slot_lifecycle (wrong-column bug the manual-add fixture could not catch). 19 niche pods impact set. NOT enabled.
