@@ -10,6 +10,36 @@
   color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
+
+  /* ── PRD-087 design tokens ──────────────────────────────────────────────
+     Single source of truth for the Boonz palette. New/updated components
+     should reference these instead of hardcoding hex values. */
+  --brand: #24544a; /* Boonz green (sidebar, primary actions) */
+  --brand-deep: #1d4439; /* darker green (borders on brand surfaces) */
+  --brand-tint: #eaf1ef; /* pale green wash (selected rows, chips) */
+  --ink: #0a0a0a; /* near-black (headings, active states) */
+  --gold: #e1b460; /* Boonz gold (accents, highlights, badges) */
+  --gold-tint: #faf3e3; /* pale gold wash */
+  --muted: #6b6860; /* warm gray text */
+  --muted-2: #a3a09a; /* lighter warm gray */
+  --surface: #ffffff;
+  --surface-2: #f7f6f3; /* warm off-white page background */
+  --line: #e7e5e0; /* hairline borders */
+  --success: #15803d;
+  --success-bg: #f0fdf4;
+  --warn: #b45309;
+  --warn-bg: #fffbeb;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --info: #1d4ed8;
+  --info-bg: #eff6ff;
+  /* Categorical chart palette (payments, product mix, etc.) */
+  --chart-1: #24544a;
+  --chart-2: #e1b460;
+  --chart-3: #7ba69b;
+  --chart-4: #b5804a;
+  --chart-5: #3d7068;
+  --chart-6: #d9c9a3;
 }
 
 @theme inline {
@@ -17,6 +47,18 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Expose tokens as Tailwind utilities: bg-brand, text-ink, border-line… */
+  --color-brand: var(--brand);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-tint: var(--brand-tint);
+  --color-ink: var(--ink);
+  --color-gold: var(--gold);
+  --color-gold-tint: var(--gold-tint);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
 }
 
 body {
