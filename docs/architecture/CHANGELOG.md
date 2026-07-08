@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-08 (overnight) — PRD-090: niche merchandising fill (SHIP DARK, Wave 1)
+
+- engine_add_pod flag-gated (add_niche_fill_v1, OFF): footprint<=max (via slot_lifecycle) at best location floors facing to CEIL(target*cap); downstream wh_avail clamp unchanged (no phantom fill). refill_policy_params += niche_footprint_max/niche_facing_target. Flag OFF => diff_vs_golden IDENTICAL; other-3 Family A 11b0b03f unchanged. Forward-fix corrected footprint source pod_inventory->slot_lifecycle (wrong-column bug the manual-add fixture could not catch). 19 niche pods impact set. NOT enabled.
+
 ## 2026-07-08 (overnight) — PRD-089: ADD absolute velocity floor + min-facing (SHIP DARK, Wave 1)
 
 - engine_add_pod flag-gated (add_abs_floor_v1, seeded OFF): abs-velocity-floor forces full cover for absolute performers; min-facing floor via need_raw GREATEST. refill_policy_params += abs_velocity_floor/min_facing_floor. Flag OFF => diff_vs_golden IDENTICAL (proven); other-3 Family A md5 11b0b03f unchanged. NOT enabled (CS-only). Dormant under live base_stock mode; targets legacy relative-band starvation.
