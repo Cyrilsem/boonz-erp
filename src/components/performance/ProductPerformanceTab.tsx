@@ -89,41 +89,56 @@ function Sparkline({ values, isNew }: { values: number[]; isNew: boolean }) {
 }
 
 export default function ProductPerformanceTab() {
-  const [rows, setRows] = useState<LedgerRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  // rows === null → loading (reset in the filter change handlers, not in the
+  // effect, so the effect never calls setState synchronously).
+  const [rowsOrNull, setRows] = useState<LedgerRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [scope, setScope] = useState("non_vox");
   const [weeks, setWeeks] = useState(6);
   const [search, setSearch] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
-    const supabase = createClient();
-    const { data, error } = await supabase.rpc("get_product_velocity_ledger", {
-      p_weeks: weeks,
-      p_scope: scope,
-    });
-    if (error) setErr(error.message);
-    else
-      setRows(
-        ((data as LedgerRow[]) || []).map((r) => ({
-          ...r,
-          total_units: Number(r.total_units),
-          avg_per_week: Number(r.avg_per_week),
-          machine_count: Number(r.machine_count),
-          current_week_units: Number(r.current_week_units),
-          weekly_units: (r.weekly_units || []).map(Number),
-        })),
-      );
-    setLoading(false);
-  }, [scope, weeks]);
+  const loading = rowsOrNull === null;
+  const rows = useMemo(() => rowsOrNull ?? [], [rowsOrNull]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    let alive = true;
+    const supabase = createClient();
+    supabase
+      .rpc("get_product_velocity_ledger", { p_weeks: weeks, p_scope: scope })
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (error) {
+          setErr(error.message);
+          setRows([]);
+        } else {
+          setErr(null);
+          setRows(
+            ((data as LedgerRow[]) || []).map((r) => ({
+              ...r,
+              total_units: Number(r.total_units),
+              avg_per_week: Number(r.avg_per_week),
+              machine_count: Number(r.machine_count),
+              current_week_units: Number(r.current_week_units),
+              weekly_units: (r.weekly_units || []).map(Number),
+            })),
+          );
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [scope, weeks]);
 
-  const weekDates = rows[0]?.week_start_dates ?? [];
+  const changeScope = (v: string) => {
+    setScope(v);
+    setRows(null);
+  };
+  const changeWeeks = (v: number) => {
+    setWeeks(v);
+    setRows(null);
+  };
+
+  const weekDates = useMemo(() => rows[0]?.week_start_dates ?? [], [rows]);
 
   const hero = useMemo(() => {
     const total = rows.reduce((a, r) => a + r.total_units, 0);
@@ -218,7 +233,7 @@ export default function ProductPerformanceTab() {
       >
         <select
           value={scope}
-          onChange={(e) => setScope(e.target.value)}
+          onChange={(e) => changeScope(e.target.value)}
           style={{
             padding: "7px 10px",
             fontSize: 13,
@@ -236,7 +251,7 @@ export default function ProductPerformanceTab() {
         </select>
         <select
           value={weeks}
-          onChange={(e) => setWeeks(Number(e.target.value))}
+          onChange={(e) => changeWeeks(Number(e.target.value))}
           style={{
             padding: "7px 10px",
             fontSize: 13,
