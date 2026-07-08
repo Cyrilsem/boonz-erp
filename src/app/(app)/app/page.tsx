@@ -1,30 +1,37 @@
-// PRD-087 — command-center dashboard. Server-prefetched aggregate
-// (get_dashboard_summary v3) so the page renders with data; the two
-// universal toggles (period, VOX scope) live in the client component.
+// PRD-087 — command-center dashboard, PERF split:
+//  · get_dashboard_sales (fast, ~100ms, VOX-scoped) fetched live;
+//  · get_dashboard_ops (heavy, 2-5s) via 60s server cache → instant TTFB
+//    for every visit after the first each minute.
 import { createClient } from "@/lib/supabase/server";
+import { getCachedDashboardOps } from "@/lib/dashboard/cached-ops";
 import DashboardClient, {
-  type DashboardSummary,
+  type DashboardSales,
+  type DashboardOps,
 } from "@/components/dashboard/DashboardClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("get_dashboard_summary", {
-    p_include_vox: true,
-  });
 
-  const summary = (data ?? null) as DashboardSummary | null;
+  const [salesRes, opsRaw] = await Promise.all([
+    supabase.rpc("get_dashboard_sales", { p_include_vox: true }),
+    getCachedDashboardOps().catch(() => null),
+  ]);
 
-  if (!summary) {
+  const sales = (salesRes.data ?? null) as DashboardSales | null;
+  const ops = (opsRaw ?? null) as DashboardOps | null;
+
+  if (!sales || !ops) {
     return (
       <div className="p-8">
         <p style={{ color: "#6b6860", fontSize: 14 }}>
-          Dashboard data unavailable{error ? `: ${error.message}` : "."}
+          Dashboard data unavailable
+          {salesRes.error ? `: ${salesRes.error.message}` : "."}
         </p>
       </div>
     );
   }
 
-  return <DashboardClient initialSummary={summary} />;
+  return <DashboardClient initialSales={sales} ops={ops} />;
 }

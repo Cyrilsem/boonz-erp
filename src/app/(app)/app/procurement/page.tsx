@@ -1037,6 +1037,35 @@ export default function ProcurementPage() {
     setTimeout(() => setDemandToast(null), 4000);
   };
 
+  // PRD-087: cancel an ENTIRE unreceived PO. Delegates to the canonical
+  // cancel_po RPC, which loops cancel_po_line per open line (role gate,
+  // audit trail, procurement_events and driver-note regeneration all fire).
+  const cancelWholePo = async (poNumber: string | number) => {
+    const reason = window.prompt(
+      `Cancel ALL open lines of PO-${poNumber}? This cannot be undone from the UI.\nReason (min 10 chars):`,
+    );
+    if (reason === null) return;
+    if (reason.trim().length < 10) {
+      alert("Cancel needs a reason of at least 10 characters.");
+      return;
+    }
+    const supabase = createClient();
+    const { data, error } = await supabase.rpc("cancel_po", {
+      p_po_number: String(poNumber),
+      p_reason: reason,
+    });
+    if (error) {
+      alert(`Cancel failed: ${error.message}`);
+      return;
+    }
+    const n = (data as { cancelled_lines?: number } | null)?.cancelled_lines;
+    setSelectedPO(null);
+    fetchOrders();
+    loadOpenPoLines();
+    setDemandToast(`✓ PO-${poNumber} cancelled (${n ?? "all"} lines)`);
+    setTimeout(() => setDemandToast(null), 4000);
+  };
+
   // D3b: owner-only append a line to an existing open PO via add_purchase_order_lines.
   const appendLineToPo = async (
     po_id: string,
@@ -3320,22 +3349,50 @@ export default function ProcurementPage() {
                   · {formatDate(selectedPO.purchase_date)}
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  setSelectedPO(null);
-                }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  fontSize: 22,
-                  color: "#6b6860",
-                  cursor: "pointer",
-                  padding: 4,
-                  lineHeight: 1,
-                }}
-              >
-                ✕
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* PRD-087: cancel whole PO — only while nothing received */}
+                {!poLoading &&
+                  poLines.length > 0 &&
+                  poLines[0]?.po_number != null &&
+                  poLines.every(
+                    (l) =>
+                      (l.received_qty ?? 0) === 0 &&
+                      l.purchase_outcome !== "received",
+                  ) &&
+                  poLines.some((l) => l.purchase_outcome == null) && (
+                    <button
+                      onClick={() => cancelWholePo(poLines[0].po_number!)}
+                      style={{
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        border: "1px solid var(--danger)",
+                        borderRadius: 8,
+                        background: "var(--danger-bg)",
+                        color: "var(--danger)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✕ Cancel PO
+                    </button>
+                  )}
+                <button
+                  onClick={() => {
+                    setSelectedPO(null);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    fontSize: 22,
+                    color: "#6b6860",
+                    cursor: "pointer",
+                    padding: 4,
+                    lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Content */}

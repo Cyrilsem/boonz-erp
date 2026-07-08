@@ -1,0 +1,13 @@
+-- PRD-087 — PO edit + cancel RPCs, FIRST ATTEMPT (SUPERSEDED same-session).
+-- ⚠ This migration mistakenly CREATE OR REPLACE'd the CANONICAL
+-- cancel_po_line(uuid, text) (PRD-022 DF2: role gate, reason >=10, via_rpc
+-- GUCs, driver-note regeneration, procurement_events + write_audit_log)
+-- with a simplified body, and added a redundant update_po_line (the
+-- canonical editor is edit_purchase_order_line).
+-- FULLY CORRECTED two minutes later by
+-- 20260708165623_prd087_po_cancel_fix_restore_canonical.sql, which restored
+-- the canonical cancel_po_line VERBATIM, dropped update_po_line, and
+-- re-implemented cancel_po as a loop over the canonical line RPC.
+-- This file intentionally records the incident without re-introducing the
+-- broken bodies; running it is a no-op.
+SELECT 1;

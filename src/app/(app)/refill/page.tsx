@@ -2,6 +2,7 @@
 // Fetches the Stock Snapshot datasets on the server so the heatmap renders
 // with the page instead of after a client-side loading flash.
 import { createClient } from "@/lib/supabase/server";
+import { getCachedMachineHealth } from "@/lib/dashboard/cached-ops";
 import RefillPageClient, {
   type DeviceRow,
   type MachineHealth,
@@ -13,7 +14,10 @@ export const dynamic = "force-dynamic";
 export default async function RefillPage() {
   const supabase = await createClient();
 
-  const [deviceRes, countRes, healthRes] = await Promise.all([
+  // PERF (PRD-087): get_machine_health costs 2-5s (canonical
+  // v_machine_priority underneath) — served from a 60s server cache so the
+  // page's TTFB stays fast; devices + count are cheap and fetched live.
+  const [deviceRes, countRes, healthRaw] = await Promise.all([
     supabase
       .from("weimi_device_status")
       .select(
@@ -23,8 +27,9 @@ export default async function RefillPage() {
       .order("snapshot_date", { ascending: false })
       .limit(10000),
     supabase.from("sales_history").select("*", { count: "exact", head: true }),
-    supabase.rpc("get_machine_health").limit(10000),
+    getCachedMachineHealth().catch(() => null),
   ]);
+  const healthRes = { data: (healthRaw ?? []) as MachineHealth[] };
 
   // Latest device snapshot only (same logic as the client refresher)
   let devices: DeviceRow[] = [];
