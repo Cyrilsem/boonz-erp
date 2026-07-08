@@ -96,6 +96,7 @@ export default function ProductPerformanceTab() {
   const [err, setErr] = useState<string | null>(null);
   const [scope, setScope] = useState("non_vox");
   const [weeks, setWeeks] = useState(6);
+  const [level, setLevel] = useState<"pod" | "boonz">("pod");
   const [search, setSearch] = useState("");
 
   const loading = rowsOrNull === null;
@@ -105,7 +106,11 @@ export default function ProductPerformanceTab() {
     let alive = true;
     const supabase = createClient();
     supabase
-      .rpc("get_product_velocity_ledger", { p_weeks: weeks, p_scope: scope })
+      .rpc("get_product_velocity_ledger", {
+        p_weeks: weeks,
+        p_scope: scope,
+        p_level: level,
+      })
       .then(({ data, error }) => {
         if (!alive) return;
         if (error) {
@@ -128,7 +133,7 @@ export default function ProductPerformanceTab() {
     return () => {
       alive = false;
     };
-  }, [scope, weeks]);
+  }, [scope, weeks, level]);
 
   const changeScope = (v: string) => {
     setScope(v);
@@ -138,21 +143,12 @@ export default function ProductPerformanceTab() {
     setWeeks(v);
     setRows(null);
   };
+  const changeLevel = (v: "pod" | "boonz") => {
+    setLevel(v);
+    setRows(null);
+  };
 
   const weekDates = useMemo(() => rows[0]?.week_start_dates ?? [], [rows]);
-
-  const hero = useMemo(() => {
-    const total = rows.reduce((a, r) => a + r.total_units, 0);
-    const top = rows[0];
-    return {
-      total,
-      pace: weeks > 0 ? total / weeks : 0,
-      skus: rows.length,
-      topName: top?.product_name ?? "—",
-      topAvg: top?.avg_per_week ?? 0,
-      topShare: total > 0 && top ? (top.total_units / total) * 100 : 0,
-    };
-  }, [rows, weeks]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -165,6 +161,22 @@ export default function ProductPerformanceTab() {
         ),
     );
   }, [rows, search]);
+
+  // Hero KPIs follow the ACTIVE FILTER (CS: filtering by product should
+  // update the totals), so a search for "coca" shows coca-only volume.
+  const hero = useMemo(() => {
+    const total = filtered.reduce((a, r) => a + r.total_units, 0);
+    const top = filtered[0];
+    return {
+      total,
+      pace: weeks > 0 ? total / weeks : 0,
+      skus: filtered.length,
+      topName: top?.product_name ?? "—",
+      topAvg: top?.avg_per_week ?? 0,
+      topShare: total > 0 && top ? (top.total_units / total) * 100 : 0,
+      isFiltered: filtered.length !== rows.length,
+    };
+  }, [filtered, rows.length, weeks]);
 
   // Section boundary indexes on the UNFILTERED ranking (quartiles)
   const sectionAt = useCallback(
@@ -213,10 +225,10 @@ export default function ProductPerformanceTab() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `product_velocity_${scope}_${weeks}w.csv`;
+    a.download = `product_velocity_${level}_${scope}_${weeks}w.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [rows, weekDates, scope, weeks]);
+  }, [rows, weekDates, scope, weeks, level]);
 
   const label = SCOPES.find((s) => s.value === scope)?.label ?? scope;
 
@@ -232,6 +244,39 @@ export default function ProductPerformanceTab() {
           marginBottom: 18,
         }}
       >
+        {/* Level toggle — as-sold shelf names vs boonz products (mapping split) */}
+        <div
+          style={{
+            display: "flex",
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            overflow: "hidden",
+          }}
+        >
+          {(
+            [
+              ["pod", "As sold"],
+              ["boonz", "Boonz products"],
+            ] as const
+          ).map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => changeLevel(k)}
+              style={{
+                padding: "7px 12px",
+                fontSize: 12,
+                fontWeight: level === k ? 700 : 500,
+                background: level === k ? "var(--brand)" : "var(--surface)",
+                color: level === k ? "white" : "var(--muted)",
+                border: "none",
+                cursor: "pointer",
+                fontFamily: font,
+              }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
         <select
           value={scope}
           onChange={(e) => changeScope(e.target.value)}
@@ -311,20 +356,20 @@ export default function ProductPerformanceTab() {
         }}
       >
         <StatCard
-          label="Total Units"
+          label={hero.isFiltered ? "Units (filtered)" : "Total Units"}
           value={hero.total.toLocaleString()}
-          sub={`${weeks} complete weeks · ${label}`}
+          sub={`${weeks} complete weeks · ${label}${hero.isFiltered ? ` · "${search.trim()}"` : ""}`}
         />
         <StatCard
-          label="Fleet Pace"
+          label={hero.isFiltered ? "Pace (filtered)" : "Fleet Pace"}
           value={Math.round(hero.pace).toLocaleString()}
           sub="units / week"
           accent="var(--gold)"
         />
         <StatCard
-          label="Active SKUs"
+          label={hero.isFiltered ? "Matching SKUs" : "Active SKUs"}
           value={String(hero.skus)}
-          sub="sold ≥ 1 unit"
+          sub={hero.isFiltered ? `of ${rows.length} active` : "sold ≥ 1 unit"}
           accent="var(--chart-5)"
         />
         <StatCard
@@ -434,6 +479,16 @@ export default function ProductPerformanceTab() {
         launched mid-window carry a <Badge tone="gold">nW</Badge> badge and are
         averaged over their active weeks only; pre-launch weeks
         show as dots. Live from sales data — always current.
+        {level === "boonz" && (
+          <>
+            {" "}
+            <strong>Boonz-product view:</strong> mixed shelves (Chocolate Bar,
+            Coca Cola Mix, Soft Drinks Mix, Krambals &amp; Zigi…) are split
+            into their Boonz products using each machine&apos;s product-mapping
+            ratios — modeled, since sales don&apos;t record the exact flavor
+            picked.
+          </>
+        )}
       </p>
     </div>
   );
