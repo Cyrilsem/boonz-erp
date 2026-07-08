@@ -1,29 +1,40 @@
 "use client";
 
-// PRD-087 — the command-center dashboard. One aggregate RPC
-// (get_dashboard_summary, server-prefetched) + a client-side top-machines
-// block with a 1/7/30-day lookback (get_sales_by_machine).
+// PRD-087 — the command-center dashboard (v2, CS round).
+// One aggregate RPC: get_dashboard_summary(p_include_vox). TWO universal
+// controls drive everything — the Today/7d/30d period toggle and the
+// incl./excl. VOX venue toggle. No filters inside panels. Panels are
+// clubbed by theme: Sales & Performance · Operations Today · Supply ·
+// Commercial.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { PageHeader, StatCard, Badge, SectionHeading } from "@/components/ui/primitives";
+import { PageHeader, StatCard, Badge } from "@/components/ui/primitives";
 
 const font = "'Plus Jakarta Sans', sans-serif";
 
 /* ── types ─────────────────────────────────────────────────────────────── */
 
-type KpiBlock = { revenue: number; units: number; txns: number; margin: number };
+type KpiBlock = {
+  revenue: number;
+  units: number;
+  txns: number;
+  default_rate: number;
+};
+type TopMachine = { machine: string; revenue: number; units: number };
+type TopProduct = { product: string; revenue: number; units: number };
+type PerPeriod<T> = { today: T; d7: T; d30: T };
 
 export type DashboardSummary = {
   generated_at: string;
   today: string;
-  kpis: {
-    today: KpiBlock;
-    d7: KpiBlock;
-    d30: KpiBlock;
+  include_vox: boolean;
+  kpis: PerPeriod<KpiBlock> & {
     daily: { d: string; revenue: number; units: number }[];
   };
+  top_machines: PerPeriod<TopMachine[]>;
+  top_products: PerPeriod<TopProduct[]>;
   refill_today: {
     machines: number;
     lines: number;
@@ -31,6 +42,14 @@ export type DashboardSummary = {
     dispatched: number;
     not_filled: number;
     skipped: number;
+    machine_statuses: {
+      machine: string;
+      lines: number;
+      dispatched: number;
+      packed: number;
+      not_filled: number;
+      done: boolean;
+    }[];
   };
   health: {
     p1_count: number;
@@ -44,7 +63,11 @@ export type DashboardSummary = {
     thin_count: number;
     thin_top: { product: string; machine_units: number; wh_units: number }[];
   };
-  expiring: { product: string; units: number; days: number }[];
+  expiry: {
+    units_14d: number;
+    skus_14d: number;
+    items: { product: string; units: number; days: number }[];
+  };
   procurement: {
     open_pos: number;
     open_lines: number;
@@ -59,17 +82,11 @@ export type DashboardSummary = {
     follow_up: string | null;
   }[];
   driver_requests: { pending: number };
-  fleet: { active_machines: number; trading_machines: number; products: number };
-};
-
-type TopMachineRow = {
-  machine_name: string;
-  machine_id: string;
-  txn_count: number;
-  total_revenue: number;
-  total_units: number;
-  total_cost: number;
-  last_sale: string | null;
+  fleet: {
+    active_machines: number;
+    trading_machines: number;
+    products: number;
+  };
 };
 
 type Period = "today" | "d7" | "d30";
@@ -85,18 +102,38 @@ const short = (name: string) => {
   return p.length >= 2 ? `${p[0]}-${p[1]}` : name;
 };
 
-/* ── panels chrome ─────────────────────────────────────────────────────── */
+/* ── chrome ────────────────────────────────────────────────────────────── */
+
+function ThemeHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        margin: "26px 0 12px",
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: "var(--brand)",
+        fontFamily: font,
+      }}
+    >
+      {children}
+      <span style={{ flex: 1, height: 2, background: "var(--brand-tint)" }} />
+    </div>
+  );
+}
 
 function Panel({
   title,
   link,
-  linkLabel,
   children,
   badge,
 }: {
   title: string;
   link?: string;
-  linkLabel?: string;
   badge?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -131,7 +168,7 @@ function Panel({
             href={link}
             style={{ fontSize: 11, fontWeight: 700, color: "var(--brand)" }}
           >
-            {linkLabel ?? "Open →"}
+            Open →
           </Link>
         )}
       </div>
@@ -139,8 +176,6 @@ function Panel({
     </div>
   );
 }
-
-/* ── revenue spark (30d bars) ──────────────────────────────────────────── */
 
 function RevenueBars({ daily }: { daily: DashboardSummary["kpis"]["daily"] }) {
   const w = 900;
@@ -157,106 +192,169 @@ function RevenueBars({ daily }: { daily: DashboardSummary["kpis"]["daily"] }) {
         const bh = (x.revenue / max) * h;
         const isToday = i === daily.length - 1;
         return (
-          <g key={x.d}>
-            <rect
-              x={i * bw + 1.5}
-              y={h - bh}
-              width={bw - 3}
-              height={Math.max(bh, 1)}
-              rx={2}
-              fill={isToday ? "var(--gold)" : "var(--brand)"}
-              opacity={isToday ? 1 : 0.55 + 0.45 * (x.revenue / max)}
-            >
-              <title>{`${x.d} · ${x.revenue.toLocaleString()} AED · ${x.units} units`}</title>
-            </rect>
-          </g>
+          <rect
+            key={x.d}
+            x={i * bw + 1.5}
+            y={h - bh}
+            width={bw - 3}
+            height={Math.max(bh, 1)}
+            rx={2}
+            fill={isToday ? "var(--gold)" : "var(--brand)"}
+            opacity={isToday ? 1 : 0.55 + 0.45 * (x.revenue / max)}
+          >
+            <title>{`${x.d} · ${x.revenue.toLocaleString()} AED · ${x.units} units`}</title>
+          </rect>
         );
       })}
     </svg>
   );
 }
 
+function RankBarList<T>({
+  rows,
+  label,
+  value,
+  units,
+}: {
+  rows: T[];
+  label: (r: T) => string;
+  value: (r: T) => number;
+  units: (r: T) => number;
+}) {
+  const max = Math.max(...rows.map(value), 1);
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r, i) => (
+        <div key={label(r)} className="flex items-center gap-2" style={{ fontSize: 12.5 }}>
+          <span style={{ width: 18, fontWeight: 800, color: "var(--muted-2)", fontVariantNumeric: "tabular-nums" }}>
+            {i + 1}
+          </span>
+          <span
+            style={{ fontWeight: 600, color: "var(--ink)", width: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            title={label(r)}
+          >
+            {label(r)}
+          </span>
+          <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--line)", overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${(value(r) / max) * 100}%`,
+                height: "100%",
+                background: i === 0 ? "var(--gold)" : "var(--brand)",
+              }}
+            />
+          </div>
+          <span style={{ width: 76, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, color: "var(--ink)" }}>
+            {Math.round(value(r)).toLocaleString()}
+          </span>
+          <span style={{ width: 46, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--muted-2)", fontSize: 11 }}>
+            {units(r)}u
+          </span>
+        </div>
+      ))}
+      {rows.length === 0 && (
+        <p style={{ fontSize: 12, color: "var(--muted-2)" }}>No sales in this window.</p>
+      )}
+    </div>
+  );
+}
+
 /* ── component ─────────────────────────────────────────────────────────── */
 
 export default function DashboardClient({
-  summary,
-  initialTopMachines,
+  initialSummary,
 }: {
-  summary: DashboardSummary;
-  initialTopMachines: TopMachineRow[];
+  initialSummary: DashboardSummary;
 }) {
   const [period, setPeriod] = useState<Period>("today");
-  const [lookback, setLookback] = useState(7);
-  const [topRows, setTopRows] = useState<TopMachineRow[]>(initialTopMachines);
-  const [topLoading, setTopLoading] = useState(false);
+  const [includeVox, setIncludeVox] = useState(initialSummary.include_vox);
+  const [summary, setSummary] = useState<DashboardSummary>(initialSummary);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // top machines lookback toggle (1 / 7 / 30 days)
+  // Universal VOX toggle → one refetch of the whole aggregate.
   useEffect(() => {
-    if (lookback === 7 && topRows === initialTopMachines) return; // initial data
+    if (includeVox === initialSummary.include_vox && summary === initialSummary)
+      return;
     let alive = true;
     const supabase = createClient();
     supabase
-      .rpc("get_sales_by_machine", { lookback_days: lookback })
-      .limit(10000)
+      .rpc("get_dashboard_summary", { p_include_vox: includeVox })
       .then(({ data }) => {
         if (!alive) return;
-        setTopRows(((data as TopMachineRow[]) ?? []).slice(0, 10));
-        setTopLoading(false);
+        if (data) setSummary(data as DashboardSummary);
+        setRefreshing(false);
       });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lookback]);
+  }, [includeVox]);
 
   const k = summary.kpis[period];
   const rt = summary.refill_today;
   const fillable = Math.max(rt.lines - rt.not_filled - rt.skipped, 0);
   const donePct =
     fillable > 0 ? Math.min((rt.dispatched / fillable) * 100, 100) : 0;
-
   const inv = summary.inventory;
   const invTotal = inv.machine_units + inv.wh_units;
-  const top10 = useMemo(() => topRows.slice(0, 10), [topRows]);
-  const maxRev = Math.max(...top10.map((r) => Number(r.total_revenue)), 1);
+  const topM = useMemo(() => summary.top_machines[period] ?? [], [summary, period]);
+  const topP = useMemo(() => summary.top_products[period] ?? [], [summary, period]);
+  const periodLabel = PERIODS.find((p) => p.key === period)?.label;
+
+  const toggleBtn = (active: boolean): React.CSSProperties => ({
+    padding: "8px 14px",
+    fontSize: 12,
+    fontWeight: active ? 700 : 500,
+    background: active ? "var(--brand)" : "var(--surface)",
+    color: active ? "white" : "var(--muted)",
+    border: "none",
+    cursor: "pointer",
+    fontFamily: font,
+  });
 
   return (
-    <div className="p-8 max-w-7xl" style={{ fontFamily: font }}>
+    <div className="p-8 max-w-7xl" style={{ fontFamily: font, opacity: refreshing ? 0.6 : 1, transition: "opacity 0.2s" }}>
       <PageHeader
         title="Dashboard"
         subtitle={`${new Date(summary.today + "T00:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} · ${summary.fleet.trading_machines} machines trading · ${summary.fleet.products} products`}
         actions={
-          <div
-            style={{
-              display: "flex",
-              border: "1px solid var(--line)",
-              borderRadius: 8,
-              overflow: "hidden",
-            }}
-          >
-            {PERIODS.map((p) => (
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* universal period toggle */}
+            <div style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
+              {PERIODS.map((p) => (
+                <button key={p.key} onClick={() => setPeriod(p.key)} style={toggleBtn(period === p.key)}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {/* universal VOX scope toggle */}
+            <div style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 8, overflow: "hidden" }}>
               <button
-                key={p.key}
-                onClick={() => setPeriod(p.key)}
-                style={{
-                  padding: "8px 14px",
-                  fontSize: 12,
-                  fontWeight: period === p.key ? 700 : 500,
-                  background: period === p.key ? "var(--brand)" : "var(--surface)",
-                  color: period === p.key ? "white" : "var(--muted)",
-                  border: "none",
-                  cursor: "pointer",
-                  fontFamily: font,
+                onClick={() => {
+                  setIncludeVox(true);
+                  setRefreshing(true);
                 }}
+                style={toggleBtn(includeVox)}
               >
-                {p.label}
+                Incl. VOX
               </button>
-            ))}
+              <button
+                onClick={() => {
+                  setIncludeVox(false);
+                  setRefreshing(true);
+                }}
+                style={toggleBtn(!includeVox)}
+              >
+                Excl. VOX
+              </button>
+            </div>
           </div>
         }
       />
 
-      {/* ── KPI band ── */}
+      {/* ════ SALES & PERFORMANCE ════ */}
+      <ThemeHeading>Sales & Performance — {periodLabel} · {includeVox ? "incl." : "excl."} VOX</ThemeHeading>
+
       <div
         style={{
           display: "grid",
@@ -265,25 +363,18 @@ export default function DashboardClient({
           marginBottom: 14,
         }}
       >
-        <StatCard label="Revenue" value={fmtAed(k.revenue)} sub={PERIODS.find((p) => p.key === period)?.label} />
-        <StatCard label="Units Sold" value={k.units.toLocaleString()} sub={`${k.txns.toLocaleString()} transactions`} accent="var(--gold)" />
-        <StatCard label="Gross Margin" value={fmtAed(k.margin)} sub={k.revenue > 0 ? `${((k.margin / k.revenue) * 100).toFixed(0)}% of revenue` : "—"} accent="var(--chart-5)" />
+        <StatCard label="Revenue" value={fmtAed(k.revenue)} sub={periodLabel} />
+        <StatCard label="Units Sold" value={k.units.toLocaleString()} sub={periodLabel} accent="var(--gold)" />
+        <StatCard label="Transactions" value={k.txns.toLocaleString()} sub={k.txns > 0 ? `${(k.revenue / k.txns).toFixed(1)} AED avg basket` : "—"} accent="var(--chart-5)" />
         <StatCard
-          label="Refill Today"
-          value={`${rt.dispatched}/${fillable}`}
-          sub={`${rt.machines} machines on route`}
-          accent="var(--chart-3)"
-        />
-        <StatCard
-          label="Needs Attention"
-          value={String(summary.health.p1_count)}
-          sub="P1 machines right now"
-          accent="var(--danger)"
-          valueColor={summary.health.p1_count > 0 ? "var(--danger)" : "var(--ink)"}
+          label="Default Rate"
+          value={`${k.default_rate}%`}
+          sub="unpaid share of sales value"
+          accent="var(--chart-4)"
+          valueColor={k.default_rate > 2 ? "var(--danger)" : "var(--ink)"}
         />
       </div>
 
-      {/* ── 30d revenue rhythm ── */}
       <div
         style={{
           background: "var(--surface)",
@@ -304,15 +395,29 @@ export default function DashboardClient({
         <RevenueBars daily={summary.kpis.daily} />
       </div>
 
-      {/* ── panel grid ── */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: 14,
-        }}
-      >
-        {/* Refill today */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14 }}>
+        <Panel title={`Top Machines — ${periodLabel}`} link="/app/performance">
+          <RankBarList
+            rows={topM}
+            label={(r) => short(r.machine)}
+            value={(r) => r.revenue}
+            units={(r) => r.units}
+          />
+        </Panel>
+        <Panel title={`Top Products — ${periodLabel}`} link="/app/products">
+          <RankBarList
+            rows={topP}
+            label={(r) => r.product}
+            value={(r) => r.units}
+            units={(r) => r.units}
+          />
+        </Panel>
+      </div>
+
+      {/* ════ OPERATIONS TODAY ════ */}
+      <ThemeHeading>Operations Today</ThemeHeading>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14 }}>
         <Panel
           title="Refill Today"
           link="/refill"
@@ -321,42 +426,67 @@ export default function DashboardClient({
           }
         >
           {rt.lines === 0 ? (
-            <p style={{ fontSize: 13, color: "var(--muted-2)" }}>
-              No dispatch lines for today.
-            </p>
+            <p style={{ fontSize: 13, color: "var(--muted-2)" }}>No dispatch lines for today.</p>
           ) : (
             <>
-              <div style={{ height: 10, borderRadius: 5, background: "var(--line)", overflow: "hidden", marginBottom: 10 }}>
+              <div style={{ height: 10, borderRadius: 5, background: "var(--line)", overflow: "hidden", marginBottom: 8 }}>
                 <div style={{ width: `${donePct}%`, height: "100%", background: "var(--brand)" }} />
               </div>
-              <div className="flex flex-wrap gap-2" style={{ fontSize: 12, color: "var(--muted)" }}>
-                <Badge tone="brand">{rt.machines} machines</Badge>
+              <div className="flex flex-wrap gap-2 mb-3" style={{ fontSize: 12 }}>
                 <Badge tone="muted">{rt.lines} lines</Badge>
                 <Badge tone="gold">{rt.packed} packed</Badge>
                 <Badge tone="success">{rt.dispatched} dispatched</Badge>
                 {rt.not_filled > 0 && <Badge tone="warn">{rt.not_filled} not filled</Badge>}
                 {rt.skipped > 0 && <Badge tone="muted">{rt.skipped} skipped</Badge>}
               </div>
+              {/* per-machine status board */}
+              <div className="space-y-1">
+                {rt.machine_statuses.map((m) => {
+                  const mFillable = Math.max(m.lines - m.not_filled, 0);
+                  return (
+                    <div key={m.machine} className="flex items-center gap-2" style={{ fontSize: 12.5 }}>
+                      <Badge tone={m.done ? "success" : m.dispatched > 0 || m.packed > 0 ? "gold" : "muted"}>
+                        {m.done ? "✓ done" : m.dispatched > 0 || m.packed > 0 ? "on it" : "waiting"}
+                      </Badge>
+                      <span style={{ fontWeight: 600, color: "var(--ink)" }}>{short(m.machine)}</span>
+                      <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", color: "var(--muted)", fontSize: 11.5 }}>
+                        {m.dispatched}/{mFillable} lines
+                        {m.not_filled > 0 && (
+                          <span style={{ color: "var(--warn)" }}> · {m.not_filled} n/f</span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </>
           )}
         </Panel>
 
-        {/* Machine alerts */}
         <Panel
           title="Machine Alerts"
           link="/refill"
           badge={
-            summary.health.p1_count > 0 ? <Badge tone="danger">{summary.health.p1_count} P1</Badge> : <Badge tone="success">healthy</Badge>
+            <>
+              {summary.health.p1_count > 0 && <Badge tone="danger">{summary.health.p1_count} P1</Badge>}
+              {summary.health.p2_count > 0 && <Badge tone="warn">{summary.health.p2_count} P2</Badge>}
+              {summary.health.p1_count === 0 && summary.health.p2_count === 0 && <Badge tone="success">healthy</Badge>}
+              {summary.driver_requests.pending > 0 && (
+                <Link href="/admin/driver-requests">
+                  <Badge tone="brand">{summary.driver_requests.pending} driver req.</Badge>
+                </Link>
+              )}
+            </>
           }
         >
           {summary.health.top_urgent.length === 0 ? (
-            <p style={{ fontSize: 13, color: "var(--muted-2)" }}>All quiet.</p>
+            <p style={{ fontSize: 13, color: "var(--muted-2)" }}>No P1/P2 machines. All quiet.</p>
           ) : (
             <div className="space-y-1.5">
               {summary.health.top_urgent.map((m) => (
                 <div key={m.machine} className="flex items-center gap-2" style={{ fontSize: 13 }}>
-                  <Badge tone={m.tier === "P1_RESTOCK" ? "danger" : m.tier === "P2_MAINTAIN" ? "warn" : "muted"}>
-                    {m.tier === "P1_RESTOCK" ? "P1" : m.tier === "P2_MAINTAIN" ? "P2" : "–"}
+                  <Badge tone={m.tier === "P1_RESTOCK" ? "danger" : "warn"}>
+                    {m.tier === "P1_RESTOCK" ? "P1" : "P2"}
                   </Badge>
                   <span style={{ fontWeight: 600, color: "var(--ink)" }}>{short(m.machine)}</span>
                   <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
@@ -367,72 +497,12 @@ export default function DashboardClient({
             </div>
           )}
         </Panel>
+      </div>
 
-        {/* Top machines */}
-        <Panel
-          title="Top Machines"
-          link="/app/performance"
-          badge={
-            <span style={{ display: "flex", gap: 2 }}>
-              {[1, 7, 30].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => {
-                    setLookback(d);
-                    setTopLoading(true);
-                  }}
-                  style={{
-                    padding: "2px 8px",
-                    fontSize: 10,
-                    fontWeight: lookback === d ? 800 : 500,
-                    borderRadius: 5,
-                    border: "1px solid var(--line)",
-                    background: lookback === d ? "var(--brand)" : "var(--surface)",
-                    color: lookback === d ? "white" : "var(--muted)",
-                    cursor: "pointer",
-                    fontFamily: font,
-                  }}
-                >
-                  {d}d
-                </button>
-              ))}
-            </span>
-          }
-        >
-          {topLoading ? (
-            <p style={{ fontSize: 12, color: "var(--muted-2)" }}>Loading…</p>
-          ) : (
-            <div className="space-y-1.5">
-              {top10.map((r, i) => (
-                <div key={r.machine_id} className="flex items-center gap-2" style={{ fontSize: 12.5 }}>
-                  <span style={{ width: 18, fontWeight: 800, color: "var(--muted-2)", fontVariantNumeric: "tabular-nums" }}>
-                    {i + 1}
-                  </span>
-                  <span style={{ fontWeight: 600, color: "var(--ink)", width: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {short(r.machine_name)}
-                  </span>
-                  <div style={{ flex: 1, height: 7, borderRadius: 4, background: "var(--line)", overflow: "hidden" }}>
-                    <div
-                      style={{
-                        width: `${(Number(r.total_revenue) / maxRev) * 100}%`,
-                        height: "100%",
-                        background: i === 0 ? "var(--gold)" : "var(--brand)",
-                      }}
-                    />
-                  </div>
-                  <span style={{ width: 86, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, color: "var(--ink)" }}>
-                    {Math.round(Number(r.total_revenue)).toLocaleString()}
-                  </span>
-                  <span style={{ width: 46, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--muted-2)", fontSize: 11 }}>
-                    {Number(r.total_units)}u
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
+      {/* ════ SUPPLY ════ */}
+      <ThemeHeading>Supply</ThemeHeading>
 
-        {/* Inventory posture */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 }}>
         <Panel
           title="Inventory"
           link="/app/inventory"
@@ -444,55 +514,73 @@ export default function DashboardClient({
           </div>
           <p style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>
             <strong style={{ color: "var(--brand)" }}>{inv.machine_units.toLocaleString()}</strong> in machines ·{" "}
-            <strong style={{ color: "var(--warn)" }}>{inv.wh_units.toLocaleString()}</strong> in warehouse · {inv.products} products
+            <strong style={{ color: "var(--warn)" }}>{inv.wh_units.toLocaleString()}</strong> in warehouse
           </p>
           {inv.thin_top.map((t) => (
             <div key={t.product} className="flex items-center gap-2" style={{ fontSize: 12 }}>
               <span style={{ color: "var(--ink)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.product}</span>
-              <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+              <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", color: "var(--muted)", whiteSpace: "nowrap" }}>
                 {t.machine_units}u out · <span style={{ color: t.wh_units === 0 ? "var(--danger)" : "var(--warn)", fontWeight: 700 }}>{t.wh_units} WH</span>
               </span>
             </div>
           ))}
         </Panel>
 
-        {/* Procurement + expiring */}
+        <Panel
+          title="Expiry Risk"
+          link="/app/inventory"
+          badge={
+            summary.expiry.units_14d > 0 ? <Badge tone="warn">{summary.expiry.units_14d}u ≤ 14d</Badge> : <Badge tone="success">clear</Badge>
+          }
+        >
+          {summary.expiry.items.length === 0 ? (
+            <p style={{ fontSize: 13, color: "var(--muted-2)" }}>No warehouse stock expiring in the next 14 days.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {summary.expiry.items.map((e) => (
+                <div key={e.product} className="flex items-center gap-2" style={{ fontSize: 12.5 }}>
+                  <Badge tone={e.days <= 7 ? "danger" : "warn"}>{e.days}d</Badge>
+                  <span style={{ color: "var(--ink)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.product}</span>
+                  <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>{e.units}u</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
         <Panel
           title="Procurement"
           link="/app/procurement"
           badge={summary.procurement.open_pos > 0 ? <Badge tone="gold">{summary.procurement.open_pos} open POs</Badge> : <Badge tone="muted">none open</Badge>}
         >
-          <p style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 10 }}>
-            <strong style={{ color: "var(--ink)" }}>{summary.procurement.open_units.toLocaleString()}</strong> units on order ·{" "}
-            <strong style={{ color: "var(--ink)" }}>{fmtAed(summary.procurement.open_value)}</strong> · {summary.procurement.open_lines} lines
-          </p>
-          <SectionHeading>WH expiry ≤ 14 days</SectionHeading>
-          {summary.expiring.length === 0 ? (
-            <p style={{ fontSize: 12, color: "var(--muted-2)" }}>Nothing at risk.</p>
-          ) : (
-            summary.expiring.map((e) => (
-              <div key={e.product} className="flex items-center gap-2" style={{ fontSize: 12 }}>
-                <span style={{ color: "var(--ink)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.product}</span>
-                <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-                  <Badge tone={e.days <= 7 ? "danger" : "warn"}>{e.units}u · {e.days}d</Badge>
-                </span>
-              </div>
-            ))
-          )}
+          <div className="space-y-2" style={{ fontSize: 13, color: "var(--muted)" }}>
+            <div className="flex items-center justify-between">
+              <span>Units on order</span>
+              <strong style={{ color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>
+                {summary.procurement.open_units.toLocaleString()}
+              </strong>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Value on order</span>
+              <strong style={{ color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>
+                {fmtAed(summary.procurement.open_value)}
+              </strong>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Open lines</span>
+              <strong style={{ color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}>
+                {summary.procurement.open_lines}
+              </strong>
+            </div>
+          </div>
         </Panel>
+      </div>
 
-        {/* Hot leads + driver requests */}
-        <Panel
-          title="Hot Leads"
-          link="/app/sales-pipeline"
-          badge={
-            summary.driver_requests.pending > 0 ? (
-              <Link href="/admin/driver-requests">
-                <Badge tone="warn">{summary.driver_requests.pending} driver requests</Badge>
-              </Link>
-            ) : undefined
-          }
-        >
+      {/* ════ COMMERCIAL ════ */}
+      <ThemeHeading>Commercial</ThemeHeading>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14 }}>
+        <Panel title="Hot Leads" link="/app/sales-pipeline">
           {summary.hot_leads.length === 0 ? (
             <p style={{ fontSize: 13, color: "var(--muted-2)" }}>Pipeline quiet.</p>
           ) : (
@@ -517,10 +605,11 @@ export default function DashboardClient({
         </Panel>
       </div>
 
-      <p style={{ fontSize: 11, color: "var(--muted-2)", margin: "14px 4px 0" }}>
-        Snapshot generated {new Date(summary.generated_at).toLocaleTimeString()} — refresh the page for live numbers. Sales figures are
-        refund-excluded, WH pseudo-machines excluded; inventory split uses live
-        shelf stock × mapping ratios.
+      <p style={{ fontSize: 11, color: "var(--muted-2)", margin: "16px 4px 0" }}>
+        Snapshot {new Date(summary.generated_at).toLocaleTimeString()} — refresh
+        the page for live numbers. Sales are refund-excluded; default rate =
+        unpaid share of POS-recorded sales value; expiry & inventory are
+        fleet-wide (not affected by the VOX toggle).
       </p>
     </div>
   );
