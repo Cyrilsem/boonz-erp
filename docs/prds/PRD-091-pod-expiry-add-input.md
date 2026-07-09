@@ -1,6 +1,6 @@
 # PRD-091: On-machine expiry as an ADD/rotation input
 
-Status: PARKED 2026-07-08 (rule F: expiry_pull representation is an unmade Dara/CS decision + pull/refill conservation not validatable on the manual-add fixture). NOT shipped. See EXECUTION-LOG.
+Status: SHIPPED 2026-07-09 (signal-only, Option 3: v_shelf_expiry_risk + expiry_risk_days; additive/inert; no engine edit; consumed by PRD-095). See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews.
 
 ## Why

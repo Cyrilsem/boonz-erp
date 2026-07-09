@@ -1,5 +1,11 @@
 # Architecture Changelog
 
+## 2026-07-09 — PRD-091/092 UNBLOCK (additive, freeze-independent; NO engine edit)
+
+- PRD-091 signal-only (Option 3): refill_policy_params.expiry_risk_days + view v_shelf_expiry_risk (per-shelf on-machine expiry risk from v_pod_inventory_latest + slot_lifecycle). Consumed later by PRD-095. 80 shelves at risk. Cody PASS.
+- PRD-092 side-table (Option 1): refill_action_proposals table (RLS, DEFINER-only writer) + standalone compute_nowh_proposals(plan_date) turning blocked_no_wh shelves into substitute/m2m/procurement proposals. 12/12 validated (07-06). Standalone; prod table inert/empty. Cody PASS.
+- ZERO Family-A engine edits (add=b91c530b/swap=90f26896/pick=48cc1844/finalize=55141509 unchanged). 094-097 + 091/092 engine-wiring HELD for the engine-freeze window.
+
 ## 2026-07-08 (overnight) — PRD-093 Part A: consignment columns (SHIP DARK, Wave 1)
 
 - boonz_products += is_consignment (bool, default false) + consignment_venue_id (uuid). Additive/inert; diff_vs_golden IDENTICAL; engine_add_pod untouched. consignment_v1 flag seeded OFF. Lets CS tag venue-sourced SKUs. Part B (engine wh_avail-skip gating) PARKED (unvalidatable on the manual-add fixture + pod_product->boonz mapping).

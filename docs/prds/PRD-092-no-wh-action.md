@@ -1,6 +1,6 @@
 # PRD-092: No-warehouse shelf gets an ACTION, not a silent empty
 
-Status: PARKED 2026-07-08 (rule F: blocked_no_wh proposals unvalidatable on the manual-add fixture + engine edit-point risk). NOT shipped. See EXECUTION-LOG.
+Status: SHIPPED 2026-07-09 (side-table + standalone fn, Option 1: refill_action_proposals + compute_nowh_proposals; additive; 12/12 validated; no engine edit). See EXECUTION-LOG.
 Owner: CS. Mode: AUTO with hard gates. Dara designs, Cody reviews.
 
 ## Why

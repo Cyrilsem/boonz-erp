@@ -29,8 +29,20 @@ mapped edit point for the gaps enrichment. Then flag-off identical + ON proposal
 ## Status: PARKED (rule F: unvalidatable ON + engine edit-point risk). Owner: Dara + CS.
 
 ## ON-delta (rollback ON-capture, 2026-07-08)
+
 Rollback ON-capture with the flag forced ON in-transaction (BEGIN..ROLLBACK, discarded):
 **plan-delta = 0** on golden_v1 (2026-07-06), conservation green (orphan_removal/phantom/oversub = 0).
 This is the fixture limitation, not an inertness claim: golden_v1 is 100% manual_add with no
 engine-ADD-sized rows, so no Wave-1 change can bite here. A non-zero delta requires an
 engine-ADD fixture (see MASTER-PARKING-LOT program blocker).
+
+## 2026-07-09 — SHIPPED (side-table + standalone fn, Option 1)
+Design ruling adopted: **092 = Option 1 (side-table)**, making it ADDITIVE (no engine edit, no freeze).
+- Table `public.refill_action_proposals` (RLS, SELECT-only; DEFINER-fn is the sole writer) +
+  standalone `public.compute_nowh_proposals(plan_date)`: turns `pod_refills.clamp_reason='blocked_no_wh'`
+  shelves into substitute (find_substitutes_for_shelf w/ pickable WH) / m2m (v_live_shelf_stock surplus)
+  / procurement proposals. Cody PASS.
+- **Validated by row count (07-06): 12/12 blocked shelves -> 12 proposals** (all substitute; no silent empty).
+- STANDALONE: NOT called by any engine; prod table left EMPTY (inert) - call `compute_nowh_proposals(date)`
+  on demand. NO `engine_add_pod` edit; Family-A md5 UNCHANGED.
+## Status: SHIPPED (side-table + standalone fn). Engine-wiring parked for freeze window.
