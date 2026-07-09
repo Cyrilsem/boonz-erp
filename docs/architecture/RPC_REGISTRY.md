@@ -456,3 +456,13 @@ Five objects, all verified live in `pg_proc`; FE wired in Track C C2 (Article 3 
 3. If helper: keep `SECURITY DEFINER` only if RLS-bypass on read is genuinely needed. Otherwise prefer `SECURITY INVOKER`.
 4. Add an entry to CHANGELOG.md citing the Constitution article(s) it satisfies.
 5. CI lint (Phase A.6) will check that any new function in `pg_proc` is registered here.
+
+## drift-kill additions (2026-07-09, PROD-SYNC pending)
+
+| RPC / object | writes | notes |
+| --- | --- | --- |
+| `v_shelf_slot_identity` | read-only view | THE canonical slot<->product identity resolver (WEIMI truth, latest snapshot, alias-aware, 'A01'<->'A1' mapping folded in). All identity reads route here. |
+| `assert_weimi_slot_match(date, text, text)` | refill_plan_output (block mode: operator_status->rejected + comment), monitoring_alerts | drift-kill guard; dial refill_policy_params.weimi_slot_guard off/warn/block (default warn) + 'check' override (no writes). Wired into approve_refill_plan v2, push_plan_to_dispatch v8, stitch tail. Restores app.rpc_name. |
+| `reconcile_shelf_identity_weimi(uuid, boolean)` | pod_inventory (shelf move / status Inactive), planogram (is_active=false), monitoring_alerts | THE canonical drift repair writer. Idempotent, per-machine, dry-run default, NO deletes. |
+| `monitor_weimi_slot_drift()` | monitoring_alerts | hourly via pg_cron 'drift_kill_slot_monitor'; reads v_weimi_slot_drift_report. |
+| `engine_swap_pod` | (unchanged writes) | v15 -> identity fallback now resolves via v_shelf_slot_identity (md5 a69c2df8...); planogram reads remaining are geometry/price only. |

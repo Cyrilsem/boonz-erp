@@ -2744,3 +2744,9 @@ ALTER TABLE public.pod_inventory_audit_log DISABLE ROW LEVEL SECURITY;
 - `refillv2_swap_qty_from_live_shelf_stock`: engine_swap_pod v9_4 -> v9_5. Removal/M2W `qty_out` now reads `v_live_shelf_stock` (pod-scoped, slot_name->shelf_code map) instead of the `v_pod_inventory_latest x product_mapping` SUM that fanned out (78 mapping rows -> 234u phantom M2W on NOVO A08). Verified qty_out == live stock. Cody+Dara cleared. Articles 1,4,12,14.
 - `refillv2_slots_view_add_ids`: `get_machine_slots_with_expiry` now also returns shelf_id, pod_product_id, suggested_pod_product_id (read-only, DROP+CREATE, backward-compatible). Unblocks manual-refill FE row writers. Cody cleared (class c).
 - Open follow-ups: product_mapping 78-rows-per-pod bloat; M2W->Remove+destination redesign (Dara); manual-refill FE wiring (Stax spec in BOONZ BRAIN/spec_manual_refill_fe_stax.md).
+
+## 2026-07-09 - drift-kill (slot<->product identity, PROD-SYNC pending)
+
+- Principle ratified in code: WEIMI (v_live_shelf_stock -> v_shelf_slot_identity) is the only slot<->product identity source; pod_inventory is quantity/batch only.
+- 5 drift_kill_* migrations (see DRIFT-KILL-EXECUTION-LOG.md): resolver view, weimi_slot_guard dial (WARN), assert_weimi_slot_match guard wired into approve/push/stitch, row-level drift report + reconcile RPC + hourly monitor, engine_swap_pod identity read re-sourced.
+- Data repaired via RPC on WAVEMAKER-1006 + AMZ-1038 (15 stray pod rows archived incl the A10 Be-kind stray, 9 stale planogram rows deactivated); AMZ-1057/1068 verified clean; 4/4 incident machines now 0 drift. Fleet remainder (331 rows) staged per-machine.
