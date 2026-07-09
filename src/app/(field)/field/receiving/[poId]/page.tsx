@@ -97,9 +97,16 @@ export default function ReceivingDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // Per-line price overrides keyed by po_line_id
-  const [editedPrices, setEditedPrices] = useState<
+  // PRD-087 R: receive by TOTAL paid — the system computes the unit price
+  // (total ÷ received qty). Takes precedence over a manual unit price.
+  const [editedTotals, setEditedTotals] = useState<
     Record<string, number | null>
+  >({});
+
+  // 90-day weighted average unit price per boonz product (received POs),
+  // for the on-par / below / above purchase-price indicator.
+  const [avg90, setAvg90] = useState<
+    Record<string, { avg: number; n: number }>
   >({});
 
   // Per-addition wh_location (additions can also have a location)
@@ -279,6 +286,42 @@ export default function ReceivingDetailPage() {
 
     // Pre-fill WH locations from most recent active batch per product
     const productIds = mapped.map((l) => l.boonz_product_id);
+
+    // PRD-087 R: 90-day weighted average purchase price per product
+    // (received PO lines only) → drives the on-par/below/above indicator.
+    if (productIds.length > 0) {
+      const since = new Date();
+      since.setDate(since.getDate() - 90);
+      const { data: priceHist } = await supabase
+        .from("purchase_orders")
+        .select("boonz_product_id, price_per_unit_aed, received_qty")
+        .in("boonz_product_id", productIds)
+        .eq("purchase_outcome", "received")
+        .gte("received_date", since.toISOString().slice(0, 10))
+        .not("price_per_unit_aed", "is", null)
+        .limit(10000);
+      if (priceHist) {
+        const acc = new Map<string, { v: number; q: number; n: number }>();
+        for (const r of priceHist as {
+          boonz_product_id: string;
+          price_per_unit_aed: number;
+          received_qty: number | null;
+        }[]) {
+          const q = Number(r.received_qty) || 1;
+          const cur = acc.get(r.boonz_product_id) ?? { v: 0, q: 0, n: 0 };
+          cur.v += Number(r.price_per_unit_aed) * q;
+          cur.q += q;
+          cur.n += 1;
+          acc.set(r.boonz_product_id, cur);
+        }
+        const out: Record<string, { avg: number; n: number }> = {};
+        acc.forEach((c, id) => {
+          if (c.q > 0) out[id] = { avg: c.v / c.q, n: c.n };
+        });
+        setAvg90(out);
+      }
+    }
+
     if (productIds.length > 0) {
       const { data: locationData } = await supabase
         .from("warehouse_inventory")
@@ -440,9 +483,16 @@ export default function ReceivingDetailPage() {
           };
         }
 
+        // PRD-087 R: total-paid entry wins → unit = total / received qty;
+        // else the PO's ordered unit price stands.
+        const lineQty = (l.batches ?? []).reduce(
+          (s, b) => s + (Number(b.received_qty) || 0),
+          0,
+        );
+        const totalPaid = editedTotals[l.po_line_id];
         const effectivePrice =
-          l.po_line_id in editedPrices
-            ? editedPrices[l.po_line_id]
+          totalPaid != null && lineQty > 0
+            ? Math.round((totalPaid / lineQty) * 10000) / 10000
             : l.price_per_unit_aed;
 
         return {
@@ -987,11 +1037,13 @@ export default function ReceivingDetailPage() {
                     />
                   </div>
 
-                  {/* Price per unit — editable at receipt */}
+                  {/* PRD-087 R: enter TOTAL paid — unit price is computed
+                      from total ÷ received qty, and benchmarked against the
+                      product's 90-day weighted average purchase price. */}
                   <div className="mt-3">
                     <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                      Price per unit (AED)
-                      {line.po_line_id in editedPrices && (
+                      Total paid for {batchTotal || 0} units (AED)
+                      {editedTotals[line.po_line_id] != null && (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
                           edited
                         </span>
@@ -1002,16 +1054,19 @@ export default function ReceivingDetailPage() {
                       min={0}
                       step="0.01"
                       value={
-                        line.po_line_id in editedPrices
-                          ? (editedPrices[line.po_line_id] ?? "")
-                          : (line.price_per_unit_aed ?? "")
+                        editedTotals[line.po_line_id] ??
+                        (line.price_per_unit_aed != null && batchTotal > 0
+                          ? Math.round(
+                              line.price_per_unit_aed * batchTotal * 100,
+                            ) / 100
+                          : "")
                       }
                       onChange={(e) => {
                         const val =
                           e.target.value === ""
                             ? null
                             : parseFloat(e.target.value);
-                        setEditedPrices((prev) => ({
+                        setEditedTotals((prev) => ({
                           ...prev,
                           [line.po_line_id]: val,
                         }));
@@ -1019,6 +1074,44 @@ export default function ReceivingDetailPage() {
                       placeholder="0.00"
                       className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                     />
+                    {(() => {
+                      const totalPaid = editedTotals[line.po_line_id];
+                      const unit =
+                        totalPaid != null && batchTotal > 0
+                          ? totalPaid / batchTotal
+                          : (line.price_per_unit_aed ?? null);
+                      const hist = avg90[line.boonz_product_id];
+                      if (unit == null)
+                        return (
+                          <p className="mt-1 text-xs text-neutral-400">
+                            Enter total paid to compute the unit price.
+                          </p>
+                        );
+                      const diffPct = hist
+                        ? ((unit - hist.avg) / hist.avg) * 100
+                        : null;
+                      const tone =
+                        diffPct == null
+                          ? "text-neutral-500"
+                          : Math.abs(diffPct) <= 5
+                            ? "text-neutral-600"
+                            : diffPct < 0
+                              ? "text-emerald-700"
+                              : "text-red-600";
+                      const badge =
+                        diffPct == null
+                          ? "· no 90d history"
+                          : Math.abs(diffPct) <= 5
+                            ? `≈ on par with 90d avg (${hist!.avg.toFixed(2)})`
+                            : diffPct < 0
+                              ? `▼ ${Math.abs(diffPct).toFixed(0)}% below 90d avg (${hist!.avg.toFixed(2)})`
+                              : `▲ ${diffPct.toFixed(0)}% above 90d avg (${hist!.avg.toFixed(2)})`;
+                      return (
+                        <p className={`mt-1 text-xs font-medium ${tone}`}>
+                          = {unit.toFixed(2)} AED/unit {badge}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </> /* end isNotPurchased ? ... : <> </> */
               )}
