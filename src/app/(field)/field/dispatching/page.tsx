@@ -193,6 +193,11 @@ export default function DispatchingPage() {
 
   const toDispatch = machines.filter((m) => !m.all_dispatched);
   const completed = machines.filter((m) => m.all_dispatched);
+  // PRD-087: don't echo the machine name as its own location
+  const locationOf = (m: DispatchMachine) =>
+    m.pod_location && m.pod_location.trim() !== m.official_name
+      ? m.pod_location
+      : null;
 
   return (
     <div className="px-4 py-4">
@@ -208,38 +213,54 @@ export default function DispatchingPage() {
         }
       />
 
+      {/* Day progress strip */}
+      <div className="mt-3 mb-4 flex items-center gap-3">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+          <div
+            className="h-full rounded-full bg-[#24544a] transition-all"
+            style={{
+              width: `${machines.length > 0 ? (completed.length / machines.length) * 100 : 0}%`,
+            }}
+          />
+        </div>
+        <span className="shrink-0 text-xs font-semibold text-neutral-500 tabular-nums">
+          {completed.length}/{machines.length} machines done
+        </span>
+      </div>
+
       {toDispatch.length > 0 && (
         <div className="mb-6">
-          <h2 className="mb-2 text-sm font-semibold text-neutral-500 uppercase tracking-wide">
-            To dispatch
+          <h2 className="mb-2 text-xs font-bold text-[#24544a] uppercase tracking-widest">
+            To dispatch · {toDispatch.length}
           </h2>
-          <ul className="space-y-2">
+          <ul className="space-y-1.5">
             {toDispatch.map((machine) => (
               <li key={machine.machine_id}>
                 <Link
                   href={`/field/dispatching/${machine.machine_id}`}
-                  className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                  className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white px-4 py-2.5 transition-colors hover:border-[#24544a]/40 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <p className="text-base font-semibold truncate">
+                      <p className="text-sm font-semibold truncate">
                         {machine.official_name}
                       </p>
                       {machineShortId(machine.adyen_store_code) && (
-                        <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                        <span className="shrink-0 font-mono text-[11px] tracking-wider text-neutral-400">
                           {machineShortId(machine.adyen_store_code)}
                         </span>
                       )}
+                      {locationOf(machine) && (
+                        <span className="hidden sm:inline shrink-0 text-xs text-neutral-400 truncate">
+                          · {locationOf(machine)}
+                        </span>
+                      )}
                     </div>
-                    {machine.pod_location && (
-                      <p className="text-sm text-neutral-500 truncate">
-                        {machine.pod_location}
-                      </p>
-                    )}
                   </div>
-                  <span className="shrink-0 rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium dark:bg-neutral-800">
-                    {machine.dispatched_count}/{machine.total} dispatched
+                  <span className="shrink-0 rounded-full bg-[#faf3e3] px-2.5 py-0.5 text-xs font-semibold text-[#b45309]">
+                    {machine.dispatched_count}/{machine.total}
                   </span>
+                  <span className="shrink-0 text-neutral-300">→</span>
                 </Link>
               </li>
             ))}
@@ -249,10 +270,10 @@ export default function DispatchingPage() {
 
       {completed.length > 0 && (
         <div>
-          <h2 className="mb-2 text-sm font-semibold text-neutral-500 uppercase tracking-wide">
-            Completed
+          <h2 className="mb-2 text-xs font-bold text-neutral-400 uppercase tracking-widest">
+            Completed · {completed.length}
           </h2>
-          <ul className="space-y-2">
+          <ul className="space-y-1.5">
             {completed.map((machine) => {
               const isExpanded = expandedMachine === machine.machine_id;
               return (
@@ -263,27 +284,28 @@ export default function DispatchingPage() {
                         prev === machine.machine_id ? null : machine.machine_id,
                       )
                     }
-                    className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 text-left opacity-70 transition-opacity hover:opacity-100 dark:border-neutral-800 dark:bg-neutral-950"
+                    className="flex w-full items-center gap-3 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-left opacity-70 transition-opacity hover:opacity-100 dark:border-neutral-800 dark:bg-neutral-950"
                   >
+                    <span className="shrink-0 text-emerald-600">✓</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-2">
-                        <p className="text-base font-semibold truncate">
+                        <p className="text-sm font-semibold truncate">
                           {machine.official_name}
                         </p>
                         {machineShortId(machine.adyen_store_code) && (
-                          <span className="shrink-0 font-mono text-xs tracking-wider text-neutral-400">
+                          <span className="shrink-0 font-mono text-[11px] tracking-wider text-neutral-400">
                             {machineShortId(machine.adyen_store_code)}
                           </span>
                         )}
+                        {locationOf(machine) && (
+                          <span className="hidden sm:inline shrink-0 text-xs text-neutral-400 truncate">
+                            · {locationOf(machine)}
+                          </span>
+                        )}
                       </div>
-                      {machine.pod_location && (
-                        <p className="text-sm text-neutral-500 truncate">
-                          {machine.pod_location}
-                        </p>
-                      )}
                     </div>
-                    <span className="shrink-0 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900 dark:text-green-200">
-                      Completed ✓
+                    <span className="shrink-0 text-xs text-neutral-400 tabular-nums">
+                      {machine.total} lines
                     </span>
                     <span className="shrink-0 text-xs text-neutral-400">
                       {isExpanded ? "▲" : "▼"}

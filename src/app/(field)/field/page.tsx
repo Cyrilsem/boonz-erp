@@ -67,10 +67,70 @@ interface PodExpiryKpis {
 // Per-machine stats used by both warehouse and driver branches
 interface MachineStats {
   total: number;
+  fillable: number;
   packed: number;
   pickedUp: number;
   dispatched: number;
 }
+
+// PRD-087 / PRD-086 semantics for the Daily Refills counters:
+// · fillable = lines that can physically move (excludes not_filled, skipped,
+//   cancelled) — they never reach packed/dispatched, so they must not hold
+//   a machine below 100% (the 0/7-forever bug).
+// · stage monotonicity — a machine whose fillable lines are all DISPATCHED
+//   counts as packed and picked-up too, even if packing was only partially
+//   ticked (CS rule: dispatched wins).
+type DispatchKpiRow = {
+  machine_id: string;
+  packed: boolean;
+  picked_up: boolean;
+  dispatched: boolean;
+  skipped: boolean | null;
+  cancelled: boolean | null;
+  pack_outcome: string | null;
+  not_filled_reason: string | null;
+};
+
+function machineStageCounts(rows: DispatchKpiRow[]) {
+  const machineMap = new Map<string, MachineStats>();
+  for (const row of rows) {
+    if (row.cancelled) continue;
+    const m = machineMap.get(row.machine_id) ?? {
+      total: 0,
+      fillable: 0,
+      packed: 0,
+      pickedUp: 0,
+      dispatched: 0,
+    };
+    m.total++;
+    const inert =
+      !!row.skipped ||
+      row.pack_outcome === "not_filled" ||
+      row.not_filled_reason != null;
+    if (!inert) m.fillable++;
+    if (row.packed) m.packed++;
+    if (row.picked_up) m.pickedUp++;
+    if (row.dispatched) m.dispatched++;
+    machineMap.set(row.machine_id, m);
+  }
+  const machines = Array.from(machineMap.values());
+  const isDispatched = (m: MachineStats) =>
+    m.total > 0 && m.dispatched >= m.fillable;
+  return {
+    totalMachines: machines.length,
+    dispatchedMachines: machines.filter(isDispatched).length,
+    // dispatched dominates: fully-dispatched machines count as packed/picked
+    packedMachines: machines.filter(
+      (m) => (m.total > 0 && m.packed >= m.fillable) || isDispatched(m),
+    ).length,
+    pickedUpMachines: machines.filter(
+      (m) => (m.total > 0 && m.pickedUp >= m.fillable) || isDispatched(m),
+    ).length,
+  };
+}
+
+const DISPATCH_KPI_SELECT =
+  "machine_id, packed, picked_up, dispatched, skipped, cancelled, pack_outcome, not_filled_reason";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1047,7 +1107,7 @@ export default function FieldPage() {
         ] = await Promise.all([
           supabase
             .from("refill_dispatching")
-            .select("machine_id, packed, picked_up, dispatched")
+            .select(DISPATCH_KPI_SELECT)
             .eq("dispatch_date", today)
             .eq("include", true),
           supabase
@@ -1115,32 +1175,13 @@ export default function FieldPage() {
             .eq("status", "pending_receive"),
         ]);
 
-        // Group by machine, count completed status per-machine
-        const machineMap = new Map<string, MachineStats>();
-        for (const row of dispatchData ?? []) {
-          const m = machineMap.get(row.machine_id) ?? {
-            total: 0,
-            packed: 0,
-            pickedUp: 0,
-            dispatched: 0,
-          };
-          m.total++;
-          if (row.packed) m.packed++;
-          if (row.picked_up) m.pickedUp++;
-          if (row.dispatched) m.dispatched++;
-          machineMap.set(row.machine_id, m);
-        }
-        const machines = Array.from(machineMap.values());
-        const totalMachines = machines.length;
-        const packedMachines = machines.filter(
-          (m) => m.total > 0 && m.packed === m.total,
-        ).length;
-        const pickedUpMachines = machines.filter(
-          (m) => m.total > 0 && m.pickedUp === m.total,
-        ).length;
-        const dispatchedMachines = machines.filter(
-          (m) => m.total > 0 && m.dispatched === m.total,
-        ).length;
+        // Group by machine — PRD-086 fillable basis + dispatch dominance
+        const {
+          totalMachines,
+          packedMachines,
+          pickedUpMachines,
+          dispatchedMachines,
+        } = machineStageCounts((dispatchData ?? []) as DispatchKpiRow[]);
 
         let lastControlDays: number | null = null;
         if (
@@ -1263,7 +1304,7 @@ export default function FieldPage() {
           await Promise.all([
             supabase
               .from("refill_dispatching")
-              .select("machine_id, packed, picked_up, dispatched")
+              .select(DISPATCH_KPI_SELECT)
               .eq("dispatch_date", today)
               .eq("include", true),
             supabase
@@ -1272,32 +1313,13 @@ export default function FieldPage() {
               .in("status", ["pending", "acknowledged"]),
           ]);
 
-        // Same machine-level counting as warehouse
-        const machineMap = new Map<string, MachineStats>();
-        for (const row of dispatchData ?? []) {
-          const m = machineMap.get(row.machine_id) ?? {
-            total: 0,
-            packed: 0,
-            pickedUp: 0,
-            dispatched: 0,
-          };
-          m.total++;
-          if (row.packed) m.packed++;
-          if (row.picked_up) m.pickedUp++;
-          if (row.dispatched) m.dispatched++;
-          machineMap.set(row.machine_id, m);
-        }
-        const machines = Array.from(machineMap.values());
-
-        const pickedUpMachines = machines.filter(
-          (m) => m.total > 0 && m.pickedUp === m.total,
-        ).length;
-        const dispatchedMachines = machines.filter(
-          (m) => m.total > 0 && m.dispatched === m.total,
-        ).length;
+        // Same machine-level counting as warehouse (PRD-086 fillable basis
+        // + dispatch dominance)
+        const { totalMachines, pickedUpMachines, dispatchedMachines } =
+          machineStageCounts((dispatchData ?? []) as DispatchKpiRow[]);
 
         setDriverKpis({
-          stopsToday: machineMap.size,
+          stopsToday: totalMachines,
           pickedUpMachines,
           dispatchedMachines,
           openTasks: openTasksData?.length ?? 0,

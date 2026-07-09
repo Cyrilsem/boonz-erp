@@ -2036,23 +2036,26 @@ export default function PackingDetailPage() {
                 </span>
               )}
             </div>
-            {machine.pod_location && (
-              <p className="text-sm text-neutral-500">{machine.pod_location}</p>
-            )}
+            {machine.pod_location &&
+              machine.pod_location.trim() !== machine.official_name && (
+                <p className="text-sm text-neutral-500">
+                  {machine.pod_location}
+                </p>
+              )}
           </div>
           {!isReadOnly && (
             <div className="flex shrink-0 items-center gap-2">
               <button
                 onClick={() => openPodSwap("", "", "")}
                 aria-label="Swap the pod on a shelf"
-                className="inline-flex min-h-[44px] items-center rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-[#24544a]/30 bg-[#eaf1ef] px-3 py-1.5 text-xs font-semibold text-[#24544a] transition-colors hover:bg-[#dce9e4] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#24544a]"
               >
                 ⇄ Swap pod
               </button>
               <button
                 onClick={() => setAddingToShelf("")}
                 aria-label="Add a product to a shelf"
-                className="inline-flex min-h-[44px] items-center rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400 dark:hover:bg-blue-950/60"
+                className="inline-flex min-h-[44px] items-center rounded-lg border border-[#e1b460]/50 bg-[#faf3e3] px-3 py-1.5 text-xs font-semibold text-[#8a6a2a] transition-colors hover:bg-[#f3e7c9] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e1b460]"
               >
                 + Add product
               </button>

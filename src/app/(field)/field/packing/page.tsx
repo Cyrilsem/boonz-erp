@@ -34,7 +34,7 @@ export default function PackingPage() {
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, packed, machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code)",
+        "dispatch_id, machine_id, packed, dispatched, skipped, cancelled, pack_outcome, not_filled_reason, machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code)",
       )
       .eq("dispatch_date", today)
       .eq("include", true);
@@ -76,6 +76,33 @@ export default function PackingPage() {
       ]),
     );
 
+    // PRD-087 (CS rule): dispatch dominates packing — a machine whose
+    // fillable lines are all dispatched shows Complete here even if the pack
+    // was only partially ticked. Compute per-machine dispatch completeness.
+    const dispatchDone = new Map<string, { fillable: number; disp: number }>();
+    for (const line of lines as unknown as {
+      machine_id: string;
+      dispatched: boolean;
+      skipped: boolean | null;
+      cancelled: boolean | null;
+      pack_outcome: string | null;
+      not_filled_reason: string | null;
+    }[]) {
+      if (line.cancelled) continue;
+      const d = dispatchDone.get(line.machine_id) ?? { fillable: 0, disp: 0 };
+      const inert =
+        !!line.skipped ||
+        line.pack_outcome === "not_filled" ||
+        line.not_filled_reason != null;
+      if (!inert) d.fillable += 1;
+      if (line.dispatched) d.disp += 1;
+      dispatchDone.set(line.machine_id, d);
+    }
+    const isDispatchComplete = (machineId: string) => {
+      const d = dispatchDone.get(machineId);
+      return !!d && d.disp >= d.fillable && d.fillable + d.disp > 0;
+    };
+
     const grouped = new Map<string, PackingMachine>();
 
     for (const line of lines) {
@@ -89,14 +116,18 @@ export default function PackingPage() {
         if (line.packed) existing.packed_count += 1;
       } else {
         const status = statusByMachine.get(line.machine_id);
+        const dispatchedComplete = isDispatchComplete(line.machine_id);
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
           official_name: m.official_name,
           adyen_store_code: m.adyen_store_code,
           sku_count: 1,
           packed_count: line.packed ? 1 : 0,
-          is_pack_complete: status?.is_pack_complete ?? false,
-          pack_confirmed: status?.pack_confirmed ?? false,
+          // dispatch dominance: fully-dispatched ⇒ pack shows complete
+          is_pack_complete:
+            (status?.is_pack_complete ?? false) || dispatchedComplete,
+          pack_confirmed:
+            (status?.pack_confirmed ?? false) || dispatchedComplete,
           is_partial: status?.is_partial ?? false,
         });
       }
