@@ -20,7 +20,13 @@ export default async function DashboardPage() {
   ]);
 
   const sales = (salesRes.data ?? null) as DashboardSales | null;
-  const ops = (opsRaw ?? null) as DashboardOps | null;
+  let ops = (opsRaw ?? null) as DashboardOps | null;
+  if (!ops) {
+    // snapshot missing (fresh env / cron gap) — fall back to the live call
+    // with the authenticated role (8s budget vs anon's 3s)
+    const live = await supabase.rpc("get_dashboard_ops");
+    ops = (live.data ?? null) as DashboardOps | null;
+  }
 
   if (!sales || !ops) {
     return (
