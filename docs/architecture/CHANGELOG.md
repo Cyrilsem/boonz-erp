@@ -1,5 +1,9 @@
 # Architecture Changelog
 
+## 2026-07-10 — PRD-098: Return Approval Workflow (backend; freeze-independent)
+
+- Kills the quarantine backlog: v_pending_return_approvals + v_pending_legacy_quarantine (manager worklists) + approve_return (provenance_reason=dispatch_return => generated quarantined flips pickable; optional expiry/qty correction) + reject_return (drain + canonical inactivate_warehouse_row) + return_approval_log (append-only) + cron_pending_return_alert (daily). Role-gated (warehouse/operator_admin/superadmin/manager). Article-6 clean (no direct status write; reject uses the canonical writer). Cody PASS. Family-A engines UNCHANGED. Baseline: 24 unverified + 42 legacy (19 recoverable/23 expired). No auto-release (policy).
+
 ## 2026-07-09 — PRD-091/092 UNBLOCK (additive, freeze-independent; NO engine edit)
 
 - PRD-091 signal-only (Option 3): refill_policy_params.expiry_risk_days + view v_shelf_expiry_risk (per-shelf on-machine expiry risk from v_pod_inventory_latest + slot_lifecycle). Consumed later by PRD-095. 80 shelves at risk. Cody PASS.
