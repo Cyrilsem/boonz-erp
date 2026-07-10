@@ -317,7 +317,9 @@ export default function SnapshotTab({
   const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<RefreshResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [lookbackDays, setLookbackDays] = useState(90);
+  // PRD-087: default to the 24h quick pull — the daily habit is "refresh
+  // what changed since yesterday"; longer windows remain for backfills.
+  const [lookbackDays, setLookbackDays] = useState(1);
 
   const [devices, setDevices] = useState<DeviceRow[]>(
     initialData?.devices ?? [],
@@ -1311,6 +1313,7 @@ export default function SnapshotTab({
               className="border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white"
               disabled={refreshing}
             >
+              <option value={1}>24 hours (quick)</option>
               <option value={7}>7 days</option>
               <option value={30}>30 days</option>
               <option value={90}>90 days</option>
