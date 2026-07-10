@@ -314,7 +314,6 @@ export default function SnapshotTab({
   // tab's machine health data.
   onMachineNamesChange?: (names: string[]) => void;
 }) {
-
   const [refreshing, setRefreshing] = useState(false);
   const [result, setResult] = useState<RefreshResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1221,284 +1220,283 @@ export default function SnapshotTab({
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <>
-        {/* Controls card */}
-        <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-          <div className="flex items-center gap-4 flex-wrap">
-            <button
-              onClick={handleRefresh}
+      {/* Controls card */}
+      <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <div className="flex items-center gap-4 flex-wrap">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className={`px-5 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+              refreshing
+                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                : "bg-gray-900 text-white hover:bg-gray-800 active:bg-gray-700"
+            }`}
+          >
+            {refreshing ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="animate-spin h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Refreshing...
+              </span>
+            ) : (
+              "Refresh data"
+            )}
+          </button>
+
+          <button
+            onClick={handleReviewAll}
+            disabled={reviewingAll || refreshing}
+            className={`px-4 py-2.5 rounded-lg font-medium text-sm transition-colors ${
+              reviewingAll
+                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                : "bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800"
+            }`}
+          >
+            {reviewingAll ? (
+              <span className="flex items-center gap-2">
+                <svg
+                  className="animate-spin h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Reviewing…
+              </span>
+            ) : (
+              "🤖 Review All"
+            )}
+          </button>
+
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <label htmlFor="lookback">Lookback:</label>
+            <select
+              id="lookback"
+              value={lookbackDays}
+              onChange={(e) => setLookbackDays(Number(e.target.value))}
+              className="border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white"
               disabled={refreshing}
-              className={`px-5 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-                refreshing
-                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                  : "bg-gray-900 text-white hover:bg-gray-800 active:bg-gray-700"
-              }`}
             >
-              {refreshing ? (
-                <span className="flex items-center gap-2">
-                  <svg
-                    className="animate-spin h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Refreshing...
-                </span>
-              ) : (
-                "Refresh data"
-              )}
-            </button>
-
-            <button
-              onClick={handleReviewAll}
-              disabled={reviewingAll || refreshing}
-              className={`px-4 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-                reviewingAll
-                  ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                  : "bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800"
-              }`}
-            >
-              {reviewingAll ? (
-                <span className="flex items-center gap-2">
-                  <svg
-                    className="animate-spin h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
-                  </svg>
-                  Reviewing…
-                </span>
-              ) : (
-                "🤖 Review All"
-              )}
-            </button>
-
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <label htmlFor="lookback">Lookback:</label>
-              <select
-                id="lookback"
-                value={lookbackDays}
-                onChange={(e) => setLookbackDays(Number(e.target.value))}
-                className="border border-gray-300 rounded-md px-2 py-1.5 text-sm bg-white"
-                disabled={refreshing}
-              >
-                <option value={7}>7 days</option>
-                <option value={30}>30 days</option>
-                <option value={90}>90 days</option>
-                <option value={180}>180 days</option>
-                <option value={365}>365 days (backfill)</option>
-              </select>
-            </div>
-
-            <div className="ml-auto flex items-center gap-4 text-xs text-gray-400">
-              {salesCount !== null && (
-                <span>{salesCount.toLocaleString()} sales rows in DB</span>
-              )}
-              {lastRefresh && (
-                <span>
-                  Last refresh:{" "}
-                  {new Date(lastRefresh).toLocaleString("en-AE", {
-                    timeZone: "Asia/Dubai",
-                    day: "numeric",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-              )}
-            </div>
+              <option value={7}>7 days</option>
+              <option value={30}>30 days</option>
+              <option value={90}>90 days</option>
+              <option value={180}>180 days</option>
+              <option value={365}>365 days (backfill)</option>
+            </select>
           </div>
 
-          {/* Live SSE progress — visible while refreshing */}
-          {refreshing && progressMessages.length > 0 && (
-            <div className="mt-4 bg-[#eaf1ef] border border-[#d5e3df] rounded-lg p-4 space-y-1">
-              <p className="text-[#24544a] font-medium text-sm flex items-center gap-2">
-                <span className="inline-block w-4 h-4 border-2 border-[#7ba69b] border-t-transparent rounded-full animate-spin" />
-                Refreshing...
-              </p>
-              <div className="space-y-0.5 mt-2">
-                {progressMessages.slice(-5).map((msg, i, arr) => (
-                  <p
-                    key={i}
-                    className={`text-xs font-mono ${i === arr.length - 1 ? "text-[#24544a]" : "text-[#7ba69b]"}`}
-                  >
-                    → {msg.detail}
-                    {msg.elapsed && (
-                      <span className="text-[#a9c6bf]"> ({msg.elapsed}s)</span>
-                    )}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Review All progress — visible while reviewing all machines */}
-          {reviewingAll && reviewAllProgress.length > 0 && (
-            <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-1">
-              <p className="text-purple-700 font-medium text-sm flex items-center gap-2">
-                <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                Reviewing all machines with Claude…
-              </p>
-              <div className="space-y-0.5 mt-2">
-                {reviewAllProgress.slice(-5).map((msg, i, arr) => (
-                  <p
-                    key={i}
-                    className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
-                  >
-                    → {msg.detail}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Review All done badge */}
-          {!reviewingAll && Object.keys(reviewResults).length > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-purple-700">
-              <span className="w-2 h-2 rounded-full bg-purple-500" />
-              {Object.keys(reviewResults).length} machine
-              {Object.keys(reviewResults).length !== 1 ? "s" : ""} reviewed by
-              Claude
-            </div>
-          )}
-
-          {/* Success banner */}
-          {!refreshing && result && result.status !== "error" && (
-            <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="text-green-700 font-medium text-sm">
-                  Refresh complete
-                </span>
-                {result.duration_seconds && (
-                  <span className="text-xs text-green-500">
-                    {result.duration_seconds}s
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                <div className="bg-white rounded px-3 py-2 border border-green-100">
-                  <div className="text-gray-500 text-xs">Sales lines</div>
-                  <div className="font-semibold text-gray-900">
-                    {result.sales.upserted.toLocaleString()} upserted
-                  </div>
-                  {result.sales.skipped > 0 && (
-                    <div className="text-xs text-amber-600">
-                      {result.sales.skipped} skipped (unknown machine)
-                    </div>
-                  )}
-                </div>
-                <div className="bg-white rounded px-3 py-2 border border-green-100">
-                  <div className="text-gray-500 text-xs">Machines</div>
-                  <div className="font-semibold text-gray-900">
-                    {result.machines_online}/{result.machines_total} synced
-                  </div>
-                </div>
-                <div className="bg-white rounded px-3 py-2 border border-green-100">
-                  <div className="text-gray-500 text-xs">Aisle snapshot</div>
-                  <div className="font-semibold text-gray-900">
-                    {result.aisle?.status === "ok"
-                      ? `${result.aisle.upserted} slots`
-                      : result.aisle?.reason === "skip_aisle_param"
-                        ? "Skipped (manual)"
-                        : result.aisle?.reason === "endpoint_not_confirmed"
-                          ? "Endpoint TBD"
-                          : "N/A"}
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-3">
-                Pulled {result.lookback_days} days of sales →{" "}
-                {result.sales?.upserted?.toLocaleString()} transactions synced.
-                Device status updated for {result.machines_total} machines.
-                {result.sales?.skipped > 0 &&
-                  ` ${result.sales.skipped} skipped (unknown machine).`}
-              </p>
-            </div>
-          )}
-
-          {error && (
-            <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <span className="w-2 h-2 rounded-full bg-red-500 mt-1.5 shrink-0" />
-                <div>
-                  <span className="text-red-700 text-sm font-medium">
-                    Refresh failed
-                  </span>
-                  <p className="text-red-600 text-sm mt-0.5">{error}</p>
-                </div>
-              </div>
-            </div>
-          )}
+          <div className="ml-auto flex items-center gap-4 text-xs text-gray-400">
+            {salesCount !== null && (
+              <span>{salesCount.toLocaleString()} sales rows in DB</span>
+            )}
+            {lastRefresh && (
+              <span>
+                Last refresh:{" "}
+                {new Date(lastRefresh).toLocaleString("en-AE", {
+                  timeZone: "Asia/Dubai",
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Machine health cards */}
-        {machineHealth.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
-            {/* Header: tier counts + sort controls */}
-            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-medium text-gray-900">
-                  Machine health
-                </h2>
-                <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                  {legendPills.map((p) => {
-                    const selected = selectedPills.has(p.label);
-                    return (
-                      <button
-                        key={p.label}
-                        type="button"
-                        title="Click to filter by this group"
-                        onClick={() =>
-                          setSelectedPills((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(p.label)) next.delete(p.label);
-                            else next.add(p.label);
-                            return next;
-                          })
-                        }
-                        className={`px-2 py-0.5 rounded-full font-medium transition ${p.bg} ${p.text} ${
-                          selected
-                            ? "ring-2 ring-gray-500 ring-offset-1"
-                            : "hover:opacity-80"
-                        }`}
-                      >
-                        {p.count} {p.label}
-                      </button>
-                    );
-                  })}
+        {/* Live SSE progress — visible while refreshing */}
+        {refreshing && progressMessages.length > 0 && (
+          <div className="mt-4 bg-[#eaf1ef] border border-[#d5e3df] rounded-lg p-4 space-y-1">
+            <p className="text-[#24544a] font-medium text-sm flex items-center gap-2">
+              <span className="inline-block w-4 h-4 border-2 border-[#7ba69b] border-t-transparent rounded-full animate-spin" />
+              Refreshing...
+            </p>
+            <div className="space-y-0.5 mt-2">
+              {progressMessages.slice(-5).map((msg, i, arr) => (
+                <p
+                  key={i}
+                  className={`text-xs font-mono ${i === arr.length - 1 ? "text-[#24544a]" : "text-[#7ba69b]"}`}
+                >
+                  → {msg.detail}
+                  {msg.elapsed && (
+                    <span className="text-[#a9c6bf]"> ({msg.elapsed}s)</span>
+                  )}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Review All progress — visible while reviewing all machines */}
+        {reviewingAll && reviewAllProgress.length > 0 && (
+          <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-1">
+            <p className="text-purple-700 font-medium text-sm flex items-center gap-2">
+              <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+              Reviewing all machines with Claude…
+            </p>
+            <div className="space-y-0.5 mt-2">
+              {reviewAllProgress.slice(-5).map((msg, i, arr) => (
+                <p
+                  key={i}
+                  className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
+                >
+                  → {msg.detail}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Review All done badge */}
+        {!reviewingAll && Object.keys(reviewResults).length > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-purple-700">
+            <span className="w-2 h-2 rounded-full bg-purple-500" />
+            {Object.keys(reviewResults).length} machine
+            {Object.keys(reviewResults).length !== 1 ? "s" : ""} reviewed by
+            Claude
+          </div>
+        )}
+
+        {/* Success banner */}
+        {!refreshing && result && result.status !== "error" && (
+          <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="w-2 h-2 rounded-full bg-green-500" />
+              <span className="text-green-700 font-medium text-sm">
+                Refresh complete
+              </span>
+              {result.duration_seconds && (
+                <span className="text-xs text-green-500">
+                  {result.duration_seconds}s
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+              <div className="bg-white rounded px-3 py-2 border border-green-100">
+                <div className="text-gray-500 text-xs">Sales lines</div>
+                <div className="font-semibold text-gray-900">
+                  {result.sales.upserted.toLocaleString()} upserted
+                </div>
+                {result.sales.skipped > 0 && (
+                  <div className="text-xs text-amber-600">
+                    {result.sales.skipped} skipped (unknown machine)
+                  </div>
+                )}
+              </div>
+              <div className="bg-white rounded px-3 py-2 border border-green-100">
+                <div className="text-gray-500 text-xs">Machines</div>
+                <div className="font-semibold text-gray-900">
+                  {result.machines_online}/{result.machines_total} synced
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-xs text-gray-500">
-                <span>Sort:</span>
-                {(
-                  ["priority", "status", "stock", "fill", "expiry"] as const
-                ).map((opt) => (
+              <div className="bg-white rounded px-3 py-2 border border-green-100">
+                <div className="text-gray-500 text-xs">Aisle snapshot</div>
+                <div className="font-semibold text-gray-900">
+                  {result.aisle?.status === "ok"
+                    ? `${result.aisle.upserted} slots`
+                    : result.aisle?.reason === "skip_aisle_param"
+                      ? "Skipped (manual)"
+                      : result.aisle?.reason === "endpoint_not_confirmed"
+                        ? "Endpoint TBD"
+                        : "N/A"}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">
+              Pulled {result.lookback_days} days of sales →{" "}
+              {result.sales?.upserted?.toLocaleString()} transactions synced.
+              Device status updated for {result.machines_total} machines.
+              {result.sales?.skipped > 0 &&
+                ` ${result.sales.skipped} skipped (unknown machine).`}
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-start gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-500 mt-1.5 shrink-0" />
+              <div>
+                <span className="text-red-700 text-sm font-medium">
+                  Refresh failed
+                </span>
+                <p className="text-red-600 text-sm mt-0.5">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Machine health cards */}
+      {machineHealth.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+          {/* Header: tier counts + sort controls */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-medium text-gray-900">
+                Machine health
+              </h2>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                {legendPills.map((p) => {
+                  const selected = selectedPills.has(p.label);
+                  return (
+                    <button
+                      key={p.label}
+                      type="button"
+                      title="Click to filter by this group"
+                      onClick={() =>
+                        setSelectedPills((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(p.label)) next.delete(p.label);
+                          else next.add(p.label);
+                          return next;
+                        })
+                      }
+                      className={`px-2 py-0.5 rounded-full font-medium transition ${p.bg} ${p.text} ${
+                        selected
+                          ? "ring-2 ring-gray-500 ring-offset-1"
+                          : "hover:opacity-80"
+                      }`}
+                    >
+                      {p.count} {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <span>Sort:</span>
+              {(["priority", "status", "stock", "fill", "expiry"] as const).map(
+                (opt) => (
                   <button
                     key={opt}
                     type="button"
@@ -1519,995 +1517,977 @@ export default function SnapshotTab({
                             ? "Fill %"
                             : "Expiry"}
                   </button>
-                ))}
-              </div>
-            </div>
-            {/* Search + attribute filters */}
-            <div className="flex flex-wrap items-center gap-2 mb-3">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search machines…"
-                className="px-2.5 py-1 text-xs border border-gray-200 rounded-md w-48 focus:outline-none focus:ring-2 focus:ring-[#7ba69b]"
-              />
-              <button
-                type="button"
-                onClick={() => setAttrSwaps((s) => !s)}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                  attrSwaps
-                    ? "bg-purple-600 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                📌 Has swaps
-              </button>
-              <button
-                type="button"
-                onClick={() => setAttrDead((s) => !s)}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                  attrDead
-                    ? "bg-red-600 text-white"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                Has dead slots
-              </button>
-              {(search || attrSwaps || attrDead || selectedPills.size > 0) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch("");
-                    setAttrSwaps(false);
-                    setAttrDead(false);
-                    setSelectedPills(new Set());
-                  }}
-                  className="px-2.5 py-1 text-xs rounded-md bg-gray-100 text-gray-500 hover:bg-gray-200"
-                >
-                  Clear filters
-                </button>
+                ),
               )}
-              <span className="text-xs text-gray-400 ml-auto">
-                {displayedMachines.length} of {sortedMachines.length} shown
-              </span>
             </div>
-            <p className="text-xs text-gray-400 mb-3">
-              Click a machine to see slot inventory
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-              {displayedMachines.map((m, i) => {
-                const tc = getCardColors(m, sortBy);
-                const prev = displayedMachines[i - 1];
-                // v7: dashed separator at the main→vox boundary (priority sort only)
-                const showVoxDivider =
-                  sortBy === "priority" &&
-                  m.service_track === "vox" &&
-                  prev?.service_track !== "vox";
+          </div>
+          {/* Search + attribute filters */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search machines…"
+              className="px-2.5 py-1 text-xs border border-gray-200 rounded-md w-48 focus:outline-none focus:ring-2 focus:ring-[#7ba69b]"
+            />
+            <button
+              type="button"
+              onClick={() => setAttrSwaps((s) => !s)}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                attrSwaps
+                  ? "bg-purple-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              📌 Has swaps
+            </button>
+            <button
+              type="button"
+              onClick={() => setAttrDead((s) => !s)}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                attrDead
+                  ? "bg-red-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              Has dead slots
+            </button>
+            {(search || attrSwaps || attrDead || selectedPills.size > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setAttrSwaps(false);
+                  setAttrDead(false);
+                  setSelectedPills(new Set());
+                }}
+                className="px-2.5 py-1 text-xs rounded-md bg-gray-100 text-gray-500 hover:bg-gray-200"
+              >
+                Clear filters
+              </button>
+            )}
+            <span className="text-xs text-gray-400 ml-auto">
+              {displayedMachines.length} of {sortedMachines.length} shown
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mb-3">
+            Click a machine to see slot inventory
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+            {displayedMachines.map((m, i) => {
+              const tc = getCardColors(m, sortBy);
+              const prev = displayedMachines[i - 1];
+              // v7: dashed separator at the main→vox boundary (priority sort only)
+              const showVoxDivider =
+                sortBy === "priority" &&
+                m.service_track === "vox" &&
+                prev?.service_track !== "vox";
 
-                return (
-                  <Fragment key={m.machine_id}>
-                    {showVoxDivider && (
-                      <div className="col-span-full mt-2 mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                        <span className="flex-1 border-t border-dashed border-slate-300" />
-                        VOX · refilled daily on the spot
-                        <span className="flex-1 border-t border-dashed border-slate-300" />
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMachine(m.machine_name)}
-                      className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-[#7ba69b] focus:outline-none focus:ring-2 focus:ring-[#24544a] ${tc.card}`}
-                    >
-                      {/* Health label badge + picked-tomorrow indicator */}
-                      <div className="flex items-center gap-1 mb-1">
-                        {m.machine_health_label && (
-                          <div
-                            className={`text-[9px] font-semibold px-1.5 py-0.5 rounded inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
-                          >
-                            {m.machine_health_label}
-                          </div>
-                        )}
-                        {m.is_picked_tomorrow && (
-                          <span
-                            title="Picked for tomorrow"
-                            className="text-[11px] leading-none"
-                          >
-                            🎯
-                          </span>
-                        )}
-                      </div>
-                      <div className="mb-0.5">
-                        <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
-                          {m.machine_name}
-                        </span>
-                        {m.machine_strategy && (
-                          <span className="text-[10px] text-gray-400 leading-tight block truncate">
-                            {m.machine_strategy}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm font-semibold text-gray-900 mt-1">
-                        {m.total_stock.toLocaleString()}
-                        <span className="text-[11px] text-gray-400 font-normal">
-                          {" "}
-                          / {m.max_capacity.toLocaleString()}
-                        </span>
-                      </div>
-                      {/* Fill bar */}
-                      <div className="mt-1.5 h-1 rounded-full bg-gray-200 overflow-hidden">
+              return (
+                <Fragment key={m.machine_id}>
+                  {showVoxDivider && (
+                    <div className="col-span-full mt-2 mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      <span className="flex-1 border-t border-dashed border-slate-300" />
+                      VOX · refilled daily on the spot
+                      <span className="flex-1 border-t border-dashed border-slate-300" />
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMachine(m.machine_name)}
+                    className={`text-left border rounded-lg px-3 py-2.5 transition-all hover:ring-2 hover:ring-[#7ba69b] focus:outline-none focus:ring-2 focus:ring-[#24544a] ${tc.card}`}
+                  >
+                    {/* Health label badge + picked-tomorrow indicator */}
+                    <div className="flex items-center gap-1 mb-1">
+                      {m.machine_health_label && (
                         <div
-                          className={`h-full rounded-full ${tc.bar}`}
-                          style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
-                        />
-                      </div>
-                      {/* Quick stats: runway + visit + velocity + dead/hero + swaps */}
-                      <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
-                        {m.days_until_empty != null &&
-                          m.days_until_empty < 999 && (
-                            <span
-                              className={
-                                m.days_until_empty <= 3
-                                  ? "text-red-600 font-medium"
-                                  : ""
-                              }
-                            >
-                              {m.days_until_empty}d runway
-                            </span>
-                          )}
-                        {/* PRD-074: split clocks - canonical visit (dispatch evidence) vs plan */}
-                        {m.days_since_visit != null &&
-                          m.days_since_visit >= 0 && (
-                            <span
-                              className={
-                                m.days_since_visit >= 7
-                                  ? "text-amber-600 font-medium"
-                                  : ""
-                              }
-                            >
-                              last visit {m.days_since_visit}d
-                            </span>
-                          )}
-                        {m.last_plan_days != null && (
-                          <span className="text-neutral-400">
-                            last plan {m.last_plan_days}d
-                          </span>
-                        )}
-                        {m.daily_velocity > 0 && (
-                          <span>↗ {m.daily_velocity.toFixed(1)}/day</span>
-                        )}
-                        {m.dead_stock_count > 0 && (
-                          <span className="text-red-500 font-medium">
-                            {m.dead_stock_count}/{m.total_slots} dead
-                          </span>
-                        )}
-                        {m.local_hero_count > 0 && (
-                          <span className="text-green-600 font-medium">
-                            {m.local_hero_count} hero
-                          </span>
-                        )}
-                        {m.slots_at_zero > 0 && (
+                          className={`text-[9px] font-semibold px-1.5 py-0.5 rounded inline-block leading-tight ${healthLabelBadgeClass(m.machine_health_label)}`}
+                        >
+                          {m.machine_health_label}
+                        </div>
+                      )}
+                      {m.is_picked_tomorrow && (
+                        <span
+                          title="Picked for tomorrow"
+                          className="text-[11px] leading-none"
+                        >
+                          🎯
+                        </span>
+                      )}
+                    </div>
+                    <div className="mb-0.5">
+                      <span className="text-xs font-medium text-gray-700 truncate leading-tight block">
+                        {m.machine_name}
+                      </span>
+                      {m.machine_strategy && (
+                        <span className="text-[10px] text-gray-400 leading-tight block truncate">
+                          {m.machine_strategy}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm font-semibold text-gray-900 mt-1">
+                      {m.total_stock.toLocaleString()}
+                      <span className="text-[11px] text-gray-400 font-normal">
+                        {" "}
+                        / {m.max_capacity.toLocaleString()}
+                      </span>
+                    </div>
+                    {/* Fill bar */}
+                    <div className="mt-1.5 h-1 rounded-full bg-gray-200 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${tc.bar}`}
+                        style={{ width: `${Math.min(m.fill_pct, 100)}%` }}
+                      />
+                    </div>
+                    {/* Quick stats: runway + visit + velocity + dead/hero + swaps */}
+                    <div className="mt-1.5 text-[10px] text-gray-500 leading-tight flex flex-wrap gap-x-1.5">
+                      {m.days_until_empty != null &&
+                        m.days_until_empty < 999 && (
                           <span
                             className={
-                              m.machine_health_label?.includes("Zombie")
+                              m.days_until_empty <= 3
                                 ? "text-red-600 font-medium"
                                 : ""
                             }
                           >
-                            {m.slots_at_zero} empty
+                            {m.days_until_empty}d runway
                           </span>
                         )}
-                        {m.pending_swap_count > 0 && (
-                          <span className="text-purple-600 font-medium">
-                            📌 {m.pending_swap_count} swaps
-                          </span>
-                        )}
-                      </div>
-                      {/* Expiry badge */}
-                      {m.expired_units > 0 ? (
-                        <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-red-100 text-red-600 inline-block">
-                          ⚠ {m.expired_units} expired
-                        </div>
-                      ) : m.expiring_7d_units > 0 ? (
-                        <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-700 inline-block">
-                          ⏰ {m.expiring_7d_units} exp. 7d
-                        </div>
-                      ) : m.expiring_30d_units > 0 ? (
-                        <div className="mt-1 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 inline-block">
-                          📅 {m.expiring_30d_units} exp. 30d
-                        </div>
-                      ) : null}
-                      {/* Claude reviewed badge */}
-                      {reviewResults[m.machine_name] && (
-                        <div className="mt-1 text-[10px] text-purple-600 font-medium">
-                          ✓ Reviewed
-                        </div>
-                      )}
-                      {m.health_tier === "excluded" && (
-                        <div className="mt-1 text-[10px] text-gray-400 italic">
-                          excluded
-                        </div>
-                      )}
-                      {m.has_sensor_errors && (
-                        <div className="mt-1 text-[10px] text-amber-600 font-medium">
-                          ⚠ sensor
-                        </div>
-                      )}
-                    </button>
-                  </Fragment>
-                );
-              })}
-            </div>
-            {displayedMachines.length === 0 && (
-              <p className="text-center text-xs text-gray-400 py-8">
-                No machines match these filters.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Sales summary table removed (PRD-087 P1) — per-machine sales live in Performance */}
-
-        {/* Empty state */}
-        {devices.length === 0 && machineHealth.length === 0 && !refreshing && (
-          <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
-            <div className="text-gray-400 text-sm mb-2">No data yet</div>
-            <p className="text-gray-500 text-sm">
-              Click &quot;Refresh data&quot; to pull the latest from Weimi API
-            </p>
-          </div>
-        )}
-
-        {/* Machine Detail Modal */}
-        {selectedMachine && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setSelectedMachine(null);
-            }}
-          >
-            {/* Backdrop */}
-            <div
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              onClick={() => setSelectedMachine(null)}
-            />
-
-            {/* Panel */}
-            <div className="relative z-10 w-full max-w-6xl max-h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
-              {/* Modal header */}
-              <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-semibold text-gray-900">
-                    {selectedMachine}
-                  </h3>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    {!loadingAisles && (
-                      <span className="text-sm text-gray-500">
-                        {modalTotalCurrent} / {modalTotalCapacity} units
-                      </span>
-                    )}
-                    {selectedHealth?.machine_status === "Warehouse" && (
-                      <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
-                        Warehouse
-                      </span>
-                    )}
-                    {(selectedHealth?.expired_units ?? 0) > 0 && (
-                      <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded">
-                        ⚠ {selectedHealth!.expired_units} expired
-                      </span>
-                    )}
-                    {(selectedHealth?.expiring_7d_units ?? 0) > 0 && (
-                      <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded">
-                        ⏰ {selectedHealth!.expiring_7d_units} expiring 7d
-                      </span>
-                    )}
-                  </div>
-                  {/* Include in refill toggle + Review button row */}
-                  <div className="flex items-center gap-3 mt-3 flex-wrap">
-                    {selectedHealth !== undefined && (
-                      <label className="flex items-center gap-2 cursor-pointer select-none">
-                        <span className="text-xs text-gray-600">
-                          Include in refill
-                        </span>
-                        <div className="relative inline-flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={includeInRefill}
-                            onChange={(e) =>
-                              handleToggleRefill(
-                                selectedMachine!,
-                                e.target.checked,
-                              )
+                      {/* PRD-074: split clocks - canonical visit (dispatch evidence) vs plan */}
+                      {m.days_since_visit != null &&
+                        m.days_since_visit >= 0 && (
+                          <span
+                            className={
+                              m.days_since_visit >= 7
+                                ? "text-amber-600 font-medium"
+                                : ""
                             }
-                            className="sr-only peer"
-                          />
-                          <div className="w-10 h-5 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-colors cursor-pointer" />
-                          <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5 pointer-events-none" />
-                        </div>
-                      </label>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        selectedMachine && handleReviewMachine(selectedMachine)
-                      }
-                      disabled={reviewing}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                        reviewing
-                          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                          : reviewResults[selectedMachine ?? ""]
-                            ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
-                            : "bg-amber-100 text-amber-800 hover:bg-amber-200"
-                      }`}
-                    >
-                      {reviewing ? (
-                        <span className="flex items-center gap-1.5">
-                          <svg
-                            className="animate-spin h-3 w-3"
-                            viewBox="0 0 24 24"
-                            fill="none"
                           >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                            />
-                          </svg>
-                          Reviewing…
-                        </span>
-                      ) : reviewResults[selectedMachine ?? ""] ? (
-                        "🤖 Re-review with Claude"
-                      ) : (
-                        "🤖 Review with Claude"
+                            last visit {m.days_since_visit}d
+                          </span>
+                        )}
+                      {m.daily_velocity > 0 && (
+                        <span>↗ {m.daily_velocity.toFixed(1)}/day</span>
                       )}
-                    </button>
+                      {m.dead_stock_count > 0 && (
+                        <span className="text-red-500 font-medium">
+                          {m.dead_stock_count}/{m.total_slots} dead
+                        </span>
+                      )}
+                      {m.local_hero_count > 0 && (
+                        <span className="text-green-600 font-medium">
+                          {m.local_hero_count} hero
+                        </span>
+                      )}
+                      {m.slots_at_zero > 0 && (
+                        <span
+                          className={
+                            m.machine_health_label?.includes("Zombie")
+                              ? "text-red-600 font-medium"
+                              : ""
+                          }
+                        >
+                          {m.slots_at_zero} empty
+                        </span>
+                      )}
+                      {m.pending_swap_count > 0 && (
+                        <span className="text-purple-600 font-medium">
+                          📌 {m.pending_swap_count} swaps
+                        </span>
+                      )}
+                    </div>
+                    {/* Expiry badge */}
+                    {m.expired_units > 0 ? (
+                      <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-red-100 text-red-600 inline-block">
+                        ⚠ {m.expired_units} expired
+                      </div>
+                    ) : m.expiring_7d_units > 0 ? (
+                      <div className="mt-1 text-[10px] font-medium px-1 py-0.5 rounded bg-amber-100 text-amber-700 inline-block">
+                        ⏰ {m.expiring_7d_units} exp. 7d
+                      </div>
+                    ) : m.expiring_30d_units > 0 ? (
+                      <div className="mt-1 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 inline-block">
+                        📅 {m.expiring_30d_units} exp. 30d
+                      </div>
+                    ) : null}
+                    {/* Claude reviewed badge */}
+                    {reviewResults[m.machine_name] && (
+                      <div className="mt-1 text-[10px] text-purple-600 font-medium">
+                        ✓ Reviewed
+                      </div>
+                    )}
+                    {m.health_tier === "excluded" && (
+                      <div className="mt-1 text-[10px] text-gray-400 italic">
+                        excluded
+                      </div>
+                    )}
+                    {m.has_sensor_errors && (
+                      <div className="mt-1 text-[10px] text-amber-600 font-medium">
+                        ⚠ sensor
+                      </div>
+                    )}
+                  </button>
+                </Fragment>
+              );
+            })}
+          </div>
+          {displayedMachines.length === 0 && (
+            <p className="text-center text-xs text-gray-400 py-8">
+              No machines match these filters.
+            </p>
+          )}
+        </div>
+      )}
 
-                    {/* Refresh stock button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const machId = machineHealth.find(
-                          (m) => m.machine_name === selectedMachine,
-                        )?.machine_id;
-                        if (machId) handleStockRefresh(machId);
-                      }}
-                      disabled={stockRefreshing}
-                      className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                        stockRefreshing
-                          ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                          : "bg-[#eaf1ef] text-[#24544a] hover:bg-[#dbe8e4]"
+      {/* Sales summary table removed (PRD-087 P1) — per-machine sales live in Performance */}
+
+      {/* Empty state */}
+      {devices.length === 0 && machineHealth.length === 0 && !refreshing && (
+        <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+          <div className="text-gray-400 text-sm mb-2">No data yet</div>
+          <p className="text-gray-500 text-sm">
+            Click &quot;Refresh data&quot; to pull the latest from Weimi API
+          </p>
+        </div>
+      )}
+
+      {/* Machine Detail Modal */}
+      {selectedMachine && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedMachine(null);
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSelectedMachine(null)}
+          />
+
+          {/* Panel */}
+          <div className="relative z-10 w-full max-w-6xl max-h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-start justify-between gap-4 px-5 py-4 border-b border-gray-200">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-semibold text-gray-900">
+                  {selectedMachine}
+                </h3>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  {!loadingAisles && (
+                    <span className="text-sm text-gray-500">
+                      {modalTotalCurrent} / {modalTotalCapacity} units
+                    </span>
+                  )}
+                  {selectedHealth?.machine_status === "Warehouse" && (
+                    <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded">
+                      Warehouse
+                    </span>
+                  )}
+                  {(selectedHealth?.expired_units ?? 0) > 0 && (
+                    <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded">
+                      ⚠ {selectedHealth!.expired_units} expired
+                    </span>
+                  )}
+                  {(selectedHealth?.expiring_7d_units ?? 0) > 0 && (
+                    <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded">
+                      ⏰ {selectedHealth!.expiring_7d_units} expiring 7d
+                    </span>
+                  )}
+                </div>
+                {/* Include in refill toggle + Review button row */}
+                <div className="flex items-center gap-3 mt-3 flex-wrap">
+                  {selectedHealth !== undefined && (
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <span className="text-xs text-gray-600">
+                        Include in refill
+                      </span>
+                      <div className="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={includeInRefill}
+                          onChange={(e) =>
+                            handleToggleRefill(
+                              selectedMachine!,
+                              e.target.checked,
+                            )
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-10 h-5 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-colors cursor-pointer" />
+                        <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5 pointer-events-none" />
+                      </div>
+                    </label>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      selectedMachine && handleReviewMachine(selectedMachine)
+                    }
+                    disabled={reviewing}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      reviewing
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : reviewResults[selectedMachine ?? ""]
+                          ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                          : "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                    }`}
+                  >
+                    {reviewing ? (
+                      <span className="flex items-center gap-1.5">
+                        <svg
+                          className="animate-spin h-3 w-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Reviewing…
+                      </span>
+                    ) : reviewResults[selectedMachine ?? ""] ? (
+                      "🤖 Re-review with Claude"
+                    ) : (
+                      "🤖 Review with Claude"
+                    )}
+                  </button>
+
+                  {/* Refresh stock button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const machId = machineHealth.find(
+                        (m) => m.machine_name === selectedMachine,
+                      )?.machine_id;
+                      if (machId) handleStockRefresh(machId);
+                    }}
+                    disabled={stockRefreshing}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                      stockRefreshing
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : "bg-[#eaf1ef] text-[#24544a] hover:bg-[#dbe8e4]"
+                    }`}
+                  >
+                    {stockRefreshing ? "Refreshing…" : "Refresh stock"}
+                  </button>
+
+                  {/* Stock refresh result */}
+                  {stockRefreshMsg && (
+                    <span
+                      className={`text-xs ${
+                        stockRefreshMsg.ok ? "text-green-600" : "text-red-600"
                       }`}
                     >
-                      {stockRefreshing ? "Refreshing…" : "Refresh stock"}
-                    </button>
-
-                    {/* Stock refresh result */}
-                    {stockRefreshMsg && (
-                      <span
-                        className={`text-xs ${
-                          stockRefreshMsg.ok ? "text-green-600" : "text-red-600"
-                        }`}
-                      >
-                        {stockRefreshMsg.ok
-                          ? `${stockRefreshMsg.slots} slots updated · ${timeAgo(stockRefreshMsg.ts)}`
-                          : stockRefreshMsg.error}
-                      </span>
-                    )}
-                  </div>
+                      {stockRefreshMsg.ok
+                        ? `${stockRefreshMsg.slots} slots updated · ${timeAgo(stockRefreshMsg.ts)}`
+                        : stockRefreshMsg.error}
+                    </span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedMachine(null)}
-                  className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-                  aria-label="Close"
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedMachine(null)}
+                className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                aria-label="Close"
+              >
+                <svg
+                  className="w-5 h-5"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
                 >
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal body */}
+            <div className="overflow-y-auto flex-1 px-5 py-4">
+              {loadingAisles ? (
+                <div className="flex items-center justify-center py-12 text-gray-400 text-sm gap-2">
                   <svg
-                    className="w-5 h-5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
+                    className="animate-spin h-4 w-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
                   >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
                     <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                     />
                   </svg>
-                </button>
-              </div>
-
-              {/* Modal body */}
-              <div className="overflow-y-auto flex-1 px-5 py-4">
-                {loadingAisles ? (
-                  <div className="flex items-center justify-center py-12 text-gray-400 text-sm gap-2">
-                    <svg
-                      className="animate-spin h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                    Loading slots...
-                  </div>
-                ) : machineSlots.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400 text-sm">
-                    No slot data available for this machine
-                  </div>
-                ) : (
-                  <>
-                    {/* Review progress — visible while Claude is reviewing */}
-                    {reviewing && reviewProgress.length > 0 && (
-                      <div className="mb-3 bg-purple-50 border border-purple-200 rounded-lg p-3">
-                        <p className="text-purple-700 font-medium text-xs flex items-center gap-1.5 mb-1">
-                          <span className="inline-block w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                          Claude is reviewing…
+                  Loading slots...
+                </div>
+              ) : machineSlots.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 text-sm">
+                  No slot data available for this machine
+                </div>
+              ) : (
+                <>
+                  {/* Review progress — visible while Claude is reviewing */}
+                  {reviewing && reviewProgress.length > 0 && (
+                    <div className="mb-3 bg-purple-50 border border-purple-200 rounded-lg p-3">
+                      <p className="text-purple-700 font-medium text-xs flex items-center gap-1.5 mb-1">
+                        <span className="inline-block w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                        Claude is reviewing…
+                      </p>
+                      {reviewProgress.slice(-3).map((msg, i, arr) => (
+                        <p
+                          key={i}
+                          className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
+                        >
+                          → {msg.detail}
                         </p>
-                        {reviewProgress.slice(-3).map((msg, i, arr) => (
-                          <p
-                            key={i}
-                            className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
-                          >
-                            → {msg.detail}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Intelligence summary bar + urgency breakdown */}
-                    {selectedHealth &&
-                      (() => {
-                        const h = selectedHealth;
-                        const urgScore = refillUrgency(h);
-                        // PRD-074: chips render the SERVER-built urgency_breakdown
-                        // verbatim (pts sum exactly to v_machine_priority.urgency).
-                        // Zero client-side priority math (Article 16); the old 8
-                        // hardcoded formulas are gone. Info tags (reasons_arr,
-                        // dead stock, heroes) carry pts 0.
-                        // PRD-075: breakdown arrives split (runout/capacity/
-                        // expiry/stale + empty/low-fill) - colors only, no math.
-                        const chipColor = (label: string) =>
-                          label.startsWith("empty") || label === "expiry"
-                            ? "text-red-600"
-                            : label.startsWith("low-fill") ||
-                                label === "capacity"
-                              ? "text-amber-600"
-                              : label === "stale"
-                                ? "text-gray-600"
-                                : "text-[#24544a]";
-                        const reasons: {
-                          label: string;
-                          pts: number;
-                          color: string;
-                        }[] = (h.urgency_breakdown ?? []).map((c) => ({
-                          label: c.label,
-                          pts: c.pts,
-                          color: chipColor(c.label),
-                        }));
-                        for (const tag of h.reasons_arr ?? [])
-                          reasons.push({
-                            label: tag.replaceAll("_", " "),
-                            pts: 0,
-                            color: "text-purple-600",
-                          });
-                        if (h.dead_stock_count > 0)
-                          reasons.push({
-                            label: `${h.dead_stock_count}/${h.total_slots} dead stock`,
-                            pts: 0,
-                            color: "text-red-600",
-                          });
-                        if (h.local_hero_count > 0)
-                          reasons.push({
-                            label: `${h.local_hero_count} hero${h.local_hero_count !== 1 ? "s" : ""}`,
-                            pts: 0,
-                            color: "text-green-600",
-                          });
-
-                        return (
-                          <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
-                            {/* Row 1: label + strategy + urgency score */}
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5">
-                              {h.machine_health_label && (
-                                <span
-                                  className={`font-semibold px-1.5 py-0.5 rounded ${healthLabelBadgeClass(h.machine_health_label)}`}
-                                >
-                                  {h.machine_health_label}
-                                </span>
-                              )}
-                              {h.machine_strategy && (
-                                <span className="text-gray-500">
-                                  {h.machine_strategy}
-                                </span>
-                              )}
-                              <span className="ml-auto text-[10px] font-mono text-gray-400">
-                                urgency: {urgScore} pts
-                              </span>
-                            </div>
-                            {/* Row 2: score breakdown — WHY this machine matters */}
-                            {reasons.length > 0 && (
-                              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-relaxed">
-                                {reasons.map((r, i) => (
-                                  <span
-                                    key={i}
-                                    className={`${r.color} ${r.pts > 0 ? "font-medium" : ""}`}
-                                  >
-                                    {r.label}
-                                    {r.pts > 0 ? ` (+${r.pts})` : ""}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                    {/* Sort controls */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-xs text-gray-500">Sort by:</span>
-                      {(["slot", "stock", "fill", "expiry"] as const).map(
-                        (opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => setModalSort(opt)}
-                            className={`text-xs px-2 py-1 rounded transition-colors ${
-                              modalSort === opt
-                                ? "bg-gray-800 text-white"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            }`}
-                          >
-                            {opt === "slot"
-                              ? "Slot"
-                              : opt === "stock"
-                                ? "Stock ↑"
-                                : opt === "fill"
-                                  ? "Fill % ↑"
-                                  : "Expiry ↑"}
-                          </button>
-                        ),
-                      )}
+                      ))}
                     </div>
+                  )}
 
-                    {/* Slot intelligence table */}
-                    <div className="overflow-x-auto -mx-5 px-5">
-                      <table className="w-full text-sm min-w-[600px]">
-                        <thead>
-                          <tr className="border-b border-gray-200 text-gray-500 text-xs">
-                            <th className="text-left py-2 pr-2 font-medium">
-                              Slot
-                            </th>
-                            <th className="text-left py-2 px-2 font-medium">
-                              Product
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium">
-                              Stock
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium">
-                              Fill
-                            </th>
-                            <th
-                              className="text-center py-2 px-2 font-medium cursor-help"
-                              title="Lifecycle stance — sets refill direction (DOUBLE DOWN / KEEP / WIND DOWN …)"
-                            >
-                              Stance
-                            </th>
-                            <th
-                              className="text-center py-2 px-2 font-medium cursor-help"
-                              title="Global product status across all machines"
-                            >
-                              Global
-                            </th>
-                            <th
-                              className="text-center py-2 px-2 font-medium cursor-help"
-                              title="Local performance role in this machine"
-                            >
-                              Local
-                            </th>
-                            <th className="text-right py-2 px-2 font-medium">
-                              7d Sales
-                            </th>
-                            <th
-                              className="text-right py-2 px-2 font-medium cursor-help"
-                              title="Final Score = demand_base × stance × placement × urgency (the one number the engine ranks by)"
-                            >
-                              Final Score
-                            </th>
-                            <th className="text-left py-2 px-2 font-medium">
-                              Suggestion
-                            </th>
-                            <th className="text-right py-2 pl-2 font-medium">
-                              Exp. Date
-                            </th>
-                            <th className="text-right py-2 pl-2 font-medium">
-                              Exp. Qty
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sortedSlots.map((s, idx) => {
-                            const claudeSlot = reviewResults[
-                              selectedMachine ?? ""
-                            ]?.slot_reviews.find((r) => r.slot === s.slot);
-                            const isReplace = claudeSlot?.action === "REPLACE";
-                            const isRemove =
-                              s.stance === "ROTATE OUT" ||
-                              s.stance === "DEAD" ||
-                              s.stance === "WIND DOWN";
+                  {/* Intelligence summary bar + urgency breakdown */}
+                  {selectedHealth &&
+                    (() => {
+                      const h = selectedHealth;
+                      const urgScore = refillUrgency(h);
+                      // PRD-074: chips render the SERVER-built urgency_breakdown
+                      // verbatim (pts sum exactly to v_machine_priority.urgency).
+                      // Zero client-side priority math (Article 16); the old 8
+                      // hardcoded formulas are gone. Info tags (reasons_arr,
+                      // dead stock, heroes) carry pts 0.
+                      // PRD-075: breakdown arrives split (runout/capacity/
+                      // expiry/stale + empty/low-fill) - colors only, no math.
+                      const chipColor = (label: string) =>
+                        label.startsWith("empty") || label === "expiry"
+                          ? "text-red-600"
+                          : label.startsWith("low-fill") || label === "capacity"
+                            ? "text-amber-600"
+                            : label === "stale"
+                              ? "text-gray-600"
+                              : "text-[#24544a]";
+                      const reasons: {
+                        label: string;
+                        pts: number;
+                        color: string;
+                      }[] = (h.urgency_breakdown ?? []).map((c) => ({
+                        label: c.label,
+                        pts: c.pts,
+                        color: chipColor(c.label),
+                      }));
+                      for (const tag of h.reasons_arr ?? [])
+                        reasons.push({
+                          label: tag.replaceAll("_", " "),
+                          pts: 0,
+                          color: "text-purple-600",
+                        });
+                      if (h.dead_stock_count > 0)
+                        reasons.push({
+                          label: `${h.dead_stock_count}/${h.total_slots} dead stock`,
+                          pts: 0,
+                          color: "text-red-600",
+                        });
+                      if (h.local_hero_count > 0)
+                        reasons.push({
+                          label: `${h.local_hero_count} hero${h.local_hero_count !== 1 ? "s" : ""}`,
+                          pts: 0,
+                          color: "text-green-600",
+                        });
 
-                            return (
-                              <tr
-                                key={`${s.slot}-${idx}`}
-                                className={`border-b border-gray-50 ${
-                                  isReplace
-                                    ? "bg-amber-50"
-                                    : isRemove
-                                      ? "bg-red-50/40"
-                                      : ""
-                                }`}
+                      return (
+                        <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600">
+                          {/* Row 1: label + strategy + urgency score */}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1.5">
+                            {h.machine_health_label && (
+                              <span
+                                className={`font-semibold px-1.5 py-0.5 rounded ${healthLabelBadgeClass(h.machine_health_label)}`}
                               >
-                                <td className="py-1.5 pr-2 font-mono text-xs text-gray-600">
-                                  {normalizeSlot(s.slot)}
-                                </td>
-                                {/* Product */}
-                                <td className="py-1.5 px-2 text-xs max-w-[160px]">
-                                  <div className="text-gray-800 truncate">
-                                    {s.product || "—"}
-                                  </div>
-                                  {claudeSlot?.suggested_product && (
-                                    <div className="text-[10px] text-purple-700 font-medium truncate">
-                                      🤖 {claudeSlot.suggested_product}
-                                    </div>
-                                  )}
-                                </td>
-                                {/* Stock */}
-                                <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600 whitespace-nowrap">
-                                  {s.current_stock}/{s.max_stock}
-                                </td>
-                                {/* Fill */}
-                                <td className="py-1.5 px-2 text-right">
-                                  <span
-                                    className={`inline-block min-w-[2.5rem] text-center px-1 py-0.5 rounded text-[10px] font-medium ${fillBg(s.fill_pct)}`}
-                                  >
-                                    {s.fill_pct}%
-                                  </span>
-                                </td>
-                                {/* Stance (PRD-UNIFY) */}
-                                <td className="py-1.5 px-2 text-center">
-                                  {s.stance ? (
-                                    <span
-                                      title="Lifecycle stance — sets refill direction + ceiling"
-                                      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${stanceBadgeClass(s.stance)}`}
-                                    >
-                                      {s.stance}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300 text-xs">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                                {/* Global */}
-                                <td className="py-1.5 px-2 text-center text-sm">
-                                  {s.global_product_status?.includes("💎") ? (
-                                    <span
-                                      title="Global Hero — top 20% product across all machines"
-                                      className="cursor-help"
-                                    >
-                                      💎
-                                    </span>
-                                  ) : s.global_product_status?.includes(
-                                      "📦",
-                                    ) ? (
-                                    <span
-                                      title="Core Range — standard performer globally"
-                                      className="cursor-help"
-                                    >
-                                      📦
-                                    </span>
-                                  ) : s.global_product_status?.includes(
-                                      "🔻",
-                                    ) ? (
-                                    <span
-                                      title="Global Drag — bottom 20% product across all machines"
-                                      className="cursor-help"
-                                    >
-                                      🔻
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300 text-xs">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                                {/* Local */}
-                                <td className="py-1.5 px-2 text-center text-sm">
-                                  {s.local_performance_role?.includes("👑") ? (
-                                    <span
-                                      title="Local Hero — top performer in this machine"
-                                      className="cursor-help"
-                                    >
-                                      👑
-                                    </span>
-                                  ) : s.local_performance_role?.includes(
-                                      "💀",
-                                    ) ? (
-                                    <span
-                                      title="Dead Stock — zero or near-zero sales in this machine"
-                                      className="cursor-help"
-                                    >
-                                      💀
-                                    </span>
-                                  ) : s.local_performance_role?.includes(
-                                      "✅",
-                                    ) ? (
-                                    <span
-                                      title="Standard — normal performer in this machine"
-                                      className="cursor-help"
-                                    >
-                                      ✅
-                                    </span>
-                                  ) : s.local_performance_role?.includes(
-                                      "📊",
-                                    ) ? (
-                                    <span
-                                      title="Standard — normal performer in this machine"
-                                      className="cursor-help"
-                                    >
-                                      📊
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300 text-xs">
-                                      —
-                                    </span>
-                                  )}
-                                </td>
-                                {/* 7d Sales */}
-                                <td className="py-1.5 px-2 text-right tabular-nums text-xs">
-                                  {s.units_sold_7d != null ? (
-                                    <span
-                                      className={
-                                        s.units_sold_7d > 0
-                                          ? "text-gray-900 font-semibold"
-                                          : "text-gray-400"
-                                      }
-                                    >
-                                      {s.units_sold_7d.toFixed(0)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300">—</span>
-                                  )}
-                                </td>
-                                {/* Final Score (PRD-UNIFY) — one blended number; hover = breakdown */}
-                                <td className="py-1.5 px-2 text-right tabular-nums text-xs font-semibold text-gray-900">
-                                  {s.final_score != null ? (
-                                    <span
-                                      className="cursor-help"
-                                      title={
-                                        s.decision?.reasoning
-                                          ? `demand ${s.decision.reasoning.demand_base ?? "?"} × stance ${s.decision.reasoning.stance_mult ?? "?"} × placement ${s.decision.reasoning.placement_mult ?? "?"} × urgency ${s.decision.reasoning.urgency_mult ?? "?"}`
-                                          : "Final Score"
-                                      }
-                                    >
-                                      {s.final_score.toFixed(1)}
-                                    </span>
-                                  ) : (
-                                    "—"
-                                  )}
-                                </td>
-                                {/* Suggestion */}
-                                <td className="py-1.5 px-2 text-xs max-w-[140px]">
-                                  {s.suggested_product ? (
-                                    <span className="text-amber-700 truncate block">
-                                      {s.suggested_product}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300">—</span>
-                                  )}
-                                </td>
-                                {/* Exp. Date */}
-                                <td className="py-1.5 pl-2 text-right tabular-nums text-xs whitespace-nowrap">
-                                  {s.expiry_days != null ? (
-                                    <span
-                                      className={expiryDayClass(s.expiry_days)}
-                                    >
-                                      {expiryDaysToDate(s.expiry_days)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300">—</span>
-                                  )}
-                                </td>
-                                {/* Exp. Qty — PRD-059 WS6(b): fall back to nearest-expiry batch qty */}
-                                <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
-                                  {s.expiry_qty != null ? (
-                                    <span className="text-gray-600">
-                                      {s.expiry_qty}
-                                    </span>
-                                  ) : s.nearest_expiry_qty != null ? (
-                                    <span className="text-gray-400">
-                                      {s.nearest_expiry_qty}
-                                    </span>
-                                  ) : (
-                                    <span className="text-gray-300">—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* PRD-059 WS6(a): Unassigned / orphan expiry — NULL-shelf Active batches
-                        whose product is not on any live slot, so a header count is never invisible. */}
-                    {machineOrphans.length > 0 && (
-                      <section
-                        aria-label="Unassigned or orphan expiry"
-                        className="mt-5 border-t border-amber-100 pt-4"
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-sm font-medium text-amber-800">
-                            ⚠ Unassigned / orphan expiry
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {machineOrphans.reduce((s, o) => s + o.units, 0)}{" "}
-                            units not on a live slot
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
-                          Stock with an expiry record that maps to no current
-                          slot (e.g. an umbrella/mix product). Counted in the
-                          machine header but not shown in a slot above.
-                        </p>
-                        <ul className="divide-y divide-gray-50">
-                          {machineOrphans.map((o) => (
-                            <li
-                              key={o.boonz_product_id}
-                              className="flex items-center justify-between py-1.5 text-xs"
-                            >
-                              <span className="text-gray-700 truncate pr-2">
-                                {o.boonz_product ?? "Unknown product"}
-                                {o.batches > 1 && (
-                                  <span className="text-gray-400">
-                                    {" "}
-                                    ({o.batches} batches)
-                                  </span>
-                                )}
+                                {h.machine_health_label}
                               </span>
-                              <span className="flex items-center gap-3 shrink-0 tabular-nums">
-                                {o.nearest_expiry_days != null && (
-                                  <span
-                                    className={expiryDayClass(
-                                      o.nearest_expiry_days,
-                                    )}
-                                  >
-                                    {expiryDaysToDate(o.nearest_expiry_days)}
-                                  </span>
-                                )}
-                                {o.expired_units > 0 && (
-                                  <span className="text-red-600 font-medium">
-                                    {o.expired_units} expired
-                                  </span>
-                                )}
-                                <span className="text-gray-600">
-                                  {o.units} units
-                                </span>
+                            )}
+                            {h.machine_strategy && (
+                              <span className="text-gray-500">
+                                {h.machine_strategy}
                               </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </section>
-                    )}
-
-                    {/* Claude review results section */}
-                    {reviewResults[selectedMachine ?? ""] && (
-                      <div className="mt-5 border-t border-gray-100 pt-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-sm font-medium text-purple-800">
-                            🤖 Claude Review
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {
-                              reviewResults[
-                                selectedMachine ?? ""
-                              ].slot_reviews.filter(
-                                (r) => r.action === "REPLACE",
-                              ).length
-                            }{" "}
-                            replacements recommended
-                          </span>
-                        </div>
-
-                        {/* Overall assessment */}
-                        <div className="bg-purple-50 border border-purple-100 rounded-lg px-3 py-2.5 mb-3 text-xs text-purple-900 leading-relaxed">
-                          {
-                            reviewResults[selectedMachine ?? ""]
-                              .overall_assessment
-                          }
-                        </div>
-
-                        {/* Anomalies */}
-                        {reviewResults[selectedMachine ?? ""].anomalies.length >
-                          0 && (
-                          <div className="flex flex-wrap gap-1.5 mb-3">
-                            {reviewResults[selectedMachine ?? ""].anomalies.map(
-                              (a, i) => (
+                            )}
+                            <span className="ml-auto text-[10px] font-mono text-gray-400">
+                              urgency: {urgScore} pts
+                            </span>
+                          </div>
+                          {/* Row 2: score breakdown — WHY this machine matters */}
+                          {reasons.length > 0 && (
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] leading-relaxed">
+                              {reasons.map((r, i) => (
                                 <span
                                   key={i}
-                                  className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium"
+                                  className={`${r.color} ${r.pts > 0 ? "font-medium" : ""}`}
                                 >
-                                  ⚠ {a}
+                                  {r.label}
+                                  {r.pts > 0 ? ` (+${r.pts})` : ""}
                                 </span>
-                              ),
-                            )}
-                          </div>
-                        )}
-
-                        {/* Replacement recommendations */}
-                        {reviewResults[selectedMachine ?? ""].slot_reviews
-                          .filter((r) => r.action === "REPLACE")
-                          .sort((a, b) => a.priority - b.priority)
-                          .map((r) => (
-                            <div
-                              key={r.slot}
-                              className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0"
-                            >
-                              <span className="font-mono text-xs text-gray-500 w-8 shrink-0 pt-0.5">
-                                {r.slot}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs text-gray-700 font-medium">
-                                    {r.product}
-                                  </span>
-                                  <span className="text-gray-400 text-xs">
-                                    →
-                                  </span>
-                                  <span className="text-xs text-amber-800 font-semibold">
-                                    {r.suggested_product ?? "TBD"}
-                                  </span>
-                                  <span
-                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                      r.confidence === "HIGH"
-                                        ? "bg-green-100 text-green-700"
-                                        : r.confidence === "MEDIUM"
-                                          ? "bg-yellow-100 text-yellow-700"
-                                          : "bg-gray-100 text-gray-500"
-                                    }`}
-                                  >
-                                    {r.confidence}
-                                  </span>
-                                </div>
-                                <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
-                                  {r.substitution_reason}
-                                </p>
-                              </div>
+                              ))}
                             </div>
-                          ))}
-                      </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                  {/* Sort controls */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-gray-500">Sort by:</span>
+                    {(["slot", "stock", "fill", "expiry"] as const).map(
+                      (opt) => (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => setModalSort(opt)}
+                          className={`text-xs px-2 py-1 rounded transition-colors ${
+                            modalSort === opt
+                              ? "bg-gray-800 text-white"
+                              : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                          }`}
+                        >
+                          {opt === "slot"
+                            ? "Slot"
+                            : opt === "stock"
+                              ? "Stock ↑"
+                              : opt === "fill"
+                                ? "Fill % ↑"
+                                : "Expiry ↑"}
+                        </button>
+                      ),
                     )}
-                  </>
-                )}
-              </div>
+                  </div>
+
+                  {/* Slot intelligence table */}
+                  <div className="overflow-x-auto -mx-5 px-5">
+                    <table className="w-full text-sm min-w-[600px]">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                          <th className="text-left py-2 pr-2 font-medium">
+                            Slot
+                          </th>
+                          <th className="text-left py-2 px-2 font-medium">
+                            Product
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            Stock
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            Fill
+                          </th>
+                          <th
+                            className="text-center py-2 px-2 font-medium cursor-help"
+                            title="Lifecycle stance — sets refill direction (DOUBLE DOWN / KEEP / WIND DOWN …)"
+                          >
+                            Stance
+                          </th>
+                          <th
+                            className="text-center py-2 px-2 font-medium cursor-help"
+                            title="Global product status across all machines"
+                          >
+                            Global
+                          </th>
+                          <th
+                            className="text-center py-2 px-2 font-medium cursor-help"
+                            title="Local performance role in this machine"
+                          >
+                            Local
+                          </th>
+                          <th className="text-right py-2 px-2 font-medium">
+                            7d Sales
+                          </th>
+                          <th
+                            className="text-right py-2 px-2 font-medium cursor-help"
+                            title="Final Score = demand_base × stance × placement × urgency (the one number the engine ranks by)"
+                          >
+                            Final Score
+                          </th>
+                          <th className="text-left py-2 px-2 font-medium">
+                            Suggestion
+                          </th>
+                          <th className="text-right py-2 pl-2 font-medium">
+                            Exp. Date
+                          </th>
+                          <th className="text-right py-2 pl-2 font-medium">
+                            Exp. Qty
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSlots.map((s, idx) => {
+                          const claudeSlot = reviewResults[
+                            selectedMachine ?? ""
+                          ]?.slot_reviews.find((r) => r.slot === s.slot);
+                          const isReplace = claudeSlot?.action === "REPLACE";
+                          const isRemove =
+                            s.stance === "ROTATE OUT" ||
+                            s.stance === "DEAD" ||
+                            s.stance === "WIND DOWN";
+
+                          return (
+                            <tr
+                              key={`${s.slot}-${idx}`}
+                              className={`border-b border-gray-50 ${
+                                isReplace
+                                  ? "bg-amber-50"
+                                  : isRemove
+                                    ? "bg-red-50/40"
+                                    : ""
+                              }`}
+                            >
+                              <td className="py-1.5 pr-2 font-mono text-xs text-gray-600">
+                                {normalizeSlot(s.slot)}
+                              </td>
+                              {/* Product */}
+                              <td className="py-1.5 px-2 text-xs max-w-[160px]">
+                                <div className="text-gray-800 truncate">
+                                  {s.product || "—"}
+                                </div>
+                                {claudeSlot?.suggested_product && (
+                                  <div className="text-[10px] text-purple-700 font-medium truncate">
+                                    🤖 {claudeSlot.suggested_product}
+                                  </div>
+                                )}
+                              </td>
+                              {/* Stock */}
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs text-gray-600 whitespace-nowrap">
+                                {s.current_stock}/{s.max_stock}
+                              </td>
+                              {/* Fill */}
+                              <td className="py-1.5 px-2 text-right">
+                                <span
+                                  className={`inline-block min-w-[2.5rem] text-center px-1 py-0.5 rounded text-[10px] font-medium ${fillBg(s.fill_pct)}`}
+                                >
+                                  {s.fill_pct}%
+                                </span>
+                              </td>
+                              {/* Stance (PRD-UNIFY) */}
+                              <td className="py-1.5 px-2 text-center">
+                                {s.stance ? (
+                                  <span
+                                    title="Lifecycle stance — sets refill direction + ceiling"
+                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${stanceBadgeClass(s.stance)}`}
+                                  >
+                                    {s.stance}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 text-xs">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              {/* Global */}
+                              <td className="py-1.5 px-2 text-center text-sm">
+                                {s.global_product_status?.includes("💎") ? (
+                                  <span
+                                    title="Global Hero — top 20% product across all machines"
+                                    className="cursor-help"
+                                  >
+                                    💎
+                                  </span>
+                                ) : s.global_product_status?.includes("📦") ? (
+                                  <span
+                                    title="Core Range — standard performer globally"
+                                    className="cursor-help"
+                                  >
+                                    📦
+                                  </span>
+                                ) : s.global_product_status?.includes("🔻") ? (
+                                  <span
+                                    title="Global Drag — bottom 20% product across all machines"
+                                    className="cursor-help"
+                                  >
+                                    🔻
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 text-xs">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              {/* Local */}
+                              <td className="py-1.5 px-2 text-center text-sm">
+                                {s.local_performance_role?.includes("👑") ? (
+                                  <span
+                                    title="Local Hero — top performer in this machine"
+                                    className="cursor-help"
+                                  >
+                                    👑
+                                  </span>
+                                ) : s.local_performance_role?.includes("💀") ? (
+                                  <span
+                                    title="Dead Stock — zero or near-zero sales in this machine"
+                                    className="cursor-help"
+                                  >
+                                    💀
+                                  </span>
+                                ) : s.local_performance_role?.includes("✅") ? (
+                                  <span
+                                    title="Standard — normal performer in this machine"
+                                    className="cursor-help"
+                                  >
+                                    ✅
+                                  </span>
+                                ) : s.local_performance_role?.includes("📊") ? (
+                                  <span
+                                    title="Standard — normal performer in this machine"
+                                    className="cursor-help"
+                                  >
+                                    📊
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 text-xs">
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                              {/* 7d Sales */}
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs">
+                                {s.units_sold_7d != null ? (
+                                  <span
+                                    className={
+                                      s.units_sold_7d > 0
+                                        ? "text-gray-900 font-semibold"
+                                        : "text-gray-400"
+                                    }
+                                  >
+                                    {s.units_sold_7d.toFixed(0)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
+                              </td>
+                              {/* Final Score (PRD-UNIFY) — one blended number; hover = breakdown */}
+                              <td className="py-1.5 px-2 text-right tabular-nums text-xs font-semibold text-gray-900">
+                                {s.final_score != null ? (
+                                  <span
+                                    className="cursor-help"
+                                    title={
+                                      s.decision?.reasoning
+                                        ? `demand ${s.decision.reasoning.demand_base ?? "?"} × stance ${s.decision.reasoning.stance_mult ?? "?"} × placement ${s.decision.reasoning.placement_mult ?? "?"} × urgency ${s.decision.reasoning.urgency_mult ?? "?"}`
+                                        : "Final Score"
+                                    }
+                                  >
+                                    {s.final_score.toFixed(1)}
+                                  </span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              {/* Suggestion */}
+                              <td className="py-1.5 px-2 text-xs max-w-[140px]">
+                                {s.suggested_product ? (
+                                  <span className="text-amber-700 truncate block">
+                                    {s.suggested_product}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
+                              </td>
+                              {/* Exp. Date */}
+                              <td className="py-1.5 pl-2 text-right tabular-nums text-xs whitespace-nowrap">
+                                {s.expiry_days != null ? (
+                                  <span
+                                    className={expiryDayClass(s.expiry_days)}
+                                  >
+                                    {expiryDaysToDate(s.expiry_days)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
+                              </td>
+                              {/* Exp. Qty — PRD-059 WS6(b): fall back to nearest-expiry batch qty */}
+                              <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
+                                {s.expiry_qty != null ? (
+                                  <span className="text-gray-600">
+                                    {s.expiry_qty}
+                                  </span>
+                                ) : s.nearest_expiry_qty != null ? (
+                                  <span className="text-gray-400">
+                                    {s.nearest_expiry_qty}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* PRD-059 WS6(a): Unassigned / orphan expiry — NULL-shelf Active batches
+                        whose product is not on any live slot, so a header count is never invisible. */}
+                  {machineOrphans.length > 0 && (
+                    <section
+                      aria-label="Unassigned or orphan expiry"
+                      className="mt-5 border-t border-amber-100 pt-4"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-sm font-medium text-amber-800">
+                          ⚠ Unassigned / orphan expiry
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {machineOrphans.reduce((s, o) => s + o.units, 0)}{" "}
+                          units not on a live slot
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
+                        Stock with an expiry record that maps to no current slot
+                        (e.g. an umbrella/mix product). Counted in the machine
+                        header but not shown in a slot above.
+                      </p>
+                      <ul className="divide-y divide-gray-50">
+                        {machineOrphans.map((o) => (
+                          <li
+                            key={o.boonz_product_id}
+                            className="flex items-center justify-between py-1.5 text-xs"
+                          >
+                            <span className="text-gray-700 truncate pr-2">
+                              {o.boonz_product ?? "Unknown product"}
+                              {o.batches > 1 && (
+                                <span className="text-gray-400">
+                                  {" "}
+                                  ({o.batches} batches)
+                                </span>
+                              )}
+                            </span>
+                            <span className="flex items-center gap-3 shrink-0 tabular-nums">
+                              {o.nearest_expiry_days != null && (
+                                <span
+                                  className={expiryDayClass(
+                                    o.nearest_expiry_days,
+                                  )}
+                                >
+                                  {expiryDaysToDate(o.nearest_expiry_days)}
+                                </span>
+                              )}
+                              {o.expired_units > 0 && (
+                                <span className="text-red-600 font-medium">
+                                  {o.expired_units} expired
+                                </span>
+                              )}
+                              <span className="text-gray-600">
+                                {o.units} units
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  )}
+
+                  {/* Claude review results section */}
+                  {reviewResults[selectedMachine ?? ""] && (
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sm font-medium text-purple-800">
+                          🤖 Claude Review
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {
+                            reviewResults[
+                              selectedMachine ?? ""
+                            ].slot_reviews.filter((r) => r.action === "REPLACE")
+                              .length
+                          }{" "}
+                          replacements recommended
+                        </span>
+                      </div>
+
+                      {/* Overall assessment */}
+                      <div className="bg-purple-50 border border-purple-100 rounded-lg px-3 py-2.5 mb-3 text-xs text-purple-900 leading-relaxed">
+                        {
+                          reviewResults[selectedMachine ?? ""]
+                            .overall_assessment
+                        }
+                      </div>
+
+                      {/* Anomalies */}
+                      {reviewResults[selectedMachine ?? ""].anomalies.length >
+                        0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {reviewResults[selectedMachine ?? ""].anomalies.map(
+                            (a, i) => (
+                              <span
+                                key={i}
+                                className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium"
+                              >
+                                ⚠ {a}
+                              </span>
+                            ),
+                          )}
+                        </div>
+                      )}
+
+                      {/* Replacement recommendations */}
+                      {reviewResults[selectedMachine ?? ""].slot_reviews
+                        .filter((r) => r.action === "REPLACE")
+                        .sort((a, b) => a.priority - b.priority)
+                        .map((r) => (
+                          <div
+                            key={r.slot}
+                            className="flex items-start gap-3 py-2 border-b border-gray-50 last:border-0"
+                          >
+                            <span className="font-mono text-xs text-gray-500 w-8 shrink-0 pt-0.5">
+                              {r.slot}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs text-gray-700 font-medium">
+                                  {r.product}
+                                </span>
+                                <span className="text-gray-400 text-xs">→</span>
+                                <span className="text-xs text-amber-800 font-semibold">
+                                  {r.suggested_product ?? "TBD"}
+                                </span>
+                                <span
+                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                    r.confidence === "HIGH"
+                                      ? "bg-green-100 text-green-700"
+                                      : r.confidence === "MEDIUM"
+                                        ? "bg-yellow-100 text-yellow-700"
+                                        : "bg-gray-100 text-gray-500"
+                                  }`}
+                                >
+                                  {r.confidence}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
+                                {r.substitution_reason}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
-        )}
+        </div>
+      )}
     </>
   );
 }
