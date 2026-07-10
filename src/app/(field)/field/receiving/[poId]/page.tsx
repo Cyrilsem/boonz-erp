@@ -1054,12 +1054,16 @@ export default function ReceivingDetailPage() {
                       min={0}
                       step="0.01"
                       value={
-                        editedTotals[line.po_line_id] ??
-                        (line.price_per_unit_aed != null && batchTotal > 0
-                          ? Math.round(
-                              line.price_per_unit_aed * batchTotal * 100,
-                            ) / 100
-                          : "")
+                        // "key present" = the user has touched the field —
+                        // show exactly what they typed (empty stays empty,
+                        // it must NOT snap back to the prefilled total).
+                        line.po_line_id in editedTotals
+                          ? (editedTotals[line.po_line_id] ?? "")
+                          : line.price_per_unit_aed != null && batchTotal > 0
+                            ? Math.round(
+                                line.price_per_unit_aed * batchTotal * 100,
+                              ) / 100
+                            : ""
                       }
                       onChange={(e) => {
                         const val =
