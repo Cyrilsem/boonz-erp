@@ -1,5 +1,7 @@
 # PRD-087 — "Last plan" clock must mean _executed_, so planned = visited
 
+Status: CLOSED 2026-07-10 - SUPERSEDED by PRD-088. The dispatched=true narrowing shipped 2026-07-08 (migration 20260708163722) but is no longer in the live function: the PRD-088 clock-unification replaced the plan_data CTE entirely. Historical record only.
+
 **Date:** 2026-07-08
 **Status:** DRAFT → ready (backend: one function; routes through Cody per Article on canonical readers)
 **Scope:** `get_machine_health()` — the `plan_data` CTE only. Optional 1-line FE relabel in SnapshotTab.

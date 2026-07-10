@@ -26,3 +26,7 @@ The now-redundant `last plan {n}d` chip in SnapshotTab.tsx: left to the feat/prd
 ## Rollback
 
 CREATE OR REPLACE restoring the plan_data CTE + pld columns - the PRD-087 body is verbatim in supabase/migrations/20260708163722_prd087_plan_clock_requires_dispatched.sql.
+
+## CLOSED 2026-07-10
+
+Re-verified live: count(*) filter (where days_since_visit >= 0 and last_plan_days <> days_since_visit) = 0 (37 rows / 30 with visit). Live fn md5 1cf209efedea59e6eec6d228db1c7740 equals this PRD's applied migration body; no plan_data CTE, no dispatched filter. No further migration required. FE chip removal handed to feat/prd-087-ui-uplift.

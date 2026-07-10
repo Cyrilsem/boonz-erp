@@ -39,3 +39,7 @@ event id (naming `app.rpc_name`) — turns the next mis-wired writer's opaque co
 named one. Not part of this fix.
 
 ## Status: SHIPPED (prod). Reconcile = CS decision. FE unaffected.
+
+## CLOSED 2026-07-10
+
+Merged to main (branch fix/prd-099-approve-return-provenance, commit e693ffe). Blocking reconcile resolved by CS 2026-07-10: quarantine shells 6cb1b7b2 + 8f24dda3 reject_return'd, units retained in WH_CENTRAL batch 785bd939, no double-count. Rollback if ever needed: CREATE OR REPLACE approve_return reverting the two added lines (no data undo).
