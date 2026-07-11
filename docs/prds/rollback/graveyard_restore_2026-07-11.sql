@@ -23,3 +23,9 @@ ALTER FUNCTION graveyard.reject_rotation_proposal(uuid, text) SET SCHEMA public;
 ALTER FUNCTION graveyard.compute_nowh_proposals(date) SET SCHEMA public;
 ALTER FUNCTION graveyard.load_pod_staging_chunk(jsonb) SET SCHEMA public;
 ALTER FUNCTION graveyard.backfill_sales_history_qty_v47_window(boolean, timestamptz, timestamptz, integer) SET SCHEMA public;
+
+-- PRD-CLEAN-07 additions:
+ALTER TABLE graveyard.refill_priority_params SET SCHEMA public;
+ALTER TABLE graveyard.service_priority_params SET SCHEMA public;
+ALTER VIEW graveyard.v_machine_service_priority SET SCHEMA public;
+-- DROP VIEW public.v_refill_config;

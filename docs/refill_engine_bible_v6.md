@@ -115,3 +115,26 @@ On live engine output: 0 rows qty < 0; 0 rows with qty > 0 while current >= targ
 binding on real dates (e.g. Activia Mix & Go s_raw 20.2 → cap 4.9 at ADDMIND-1007;
 Chocolate Bar s_raw 60.3 → cap 32.5 at AMZ-1038). Finalize R7 (60% machine cap)
 reported 0 overruled refills on the same cycle.
+
+## 9. Capacity model (documented per PRD-CLEAN-07; no physical change)
+
+Two live tables answer "how many units fit in a slot":
+
+- `capacity_standard` (~110 rows) — per product-TYPE default capacity by slot format.
+  The fallback when no product-specific override exists.
+- `product_slot_capacity` (~33 rows) — per-PRODUCT override; wins over the standard
+  when present (engine_swap_pod capacity matrix, PRD-039).
+
+`slot_capacity_max` was the third, dead variant (0 rows) — graveyarded would have been
+PRD-CLEAN-03's call, but it is KEPT in public because live `engine_swap_pod` still
+references it (see DECISIONS.md PRD-CLEAN-03).
+
+## 10. Config single pane
+
+`SELECT * FROM v_refill_config ORDER BY source_table, param;` — long-format
+(source_table, param, value) union over pick_urgency_params (36 params),
+refill_policy_params (21), refill_settings (2 flags). Dead config tables
+refill_priority_params and service_priority_params moved to graveyard 2026-07-11.
+Deferred debt: folding refill_policy_params / refill_settings into one table would
+require patching engine_add_pod / engine_swap_pod / assert_weimi_slot_match — parked
+deliberately (live-engine criticality).

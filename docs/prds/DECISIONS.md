@@ -283,7 +283,9 @@ cancel the rewrite, keep the engine untouched. Consequences:
 ## PRD-CLEAN-06 (2026-07-11)
 
 ### Combination census (grounding the precedence)
+
 Full GROUP BY over refill_dispatching (35,143 rows, 23 distinct combos). Notables:
+
 - driver_outcome is NULL on EVERY row (column exists, never yet written) - kept in
   the precedence for forward compatibility only.
 - dispatched=true with packed/picked_up=false is the LEGACY-era completed shape
@@ -293,12 +295,14 @@ Full GROUP BY over refill_dispatching (35,143 rows, 23 distinct combos). Notable
   cancelled AND full journey (6+1), skipped AND full journey (5).
 
 ### Judgement call: returned outranks cancelled/skipped
+
 PRD order was cancelled > skipped > returned. Deviation: 'returned' first - recovery
 returns of packed lines are legal physical events (PRD-028 doctrine); the return
 credit is the operational truth for the 7 cancelled/skipped-AND-returned rows.
 Logged here per "encode the precedence that matches operational truth".
 
 ### What changed
+
 - CREATE VIEW public.v_dispatch_state (read-only; no writers touched): status
   (returned > cancelled > skipped > completed > in_field > packed > review > pending),
   effective_qty = COALESCE(driver_outcome_qty, driver_confirmed_qty, filled_quantity,
@@ -312,6 +316,7 @@ Logged here per "encode the precedence that matches operational truth".
   is a follow-up per the PRD itself.
 
 ### Verification battery (all PASS)
+
 1. today+yesterday: 48 rows, 0 NULL statuses (0 NULL over all 35,143 rows too).
 2. Reconciliation query (kept here as the canonical check): raw boolean partition
    with the same precedence vs view status counts - exact match:
@@ -320,4 +325,41 @@ Logged here per "encode the precedence that matches operational truth".
 3. No write behaviour changed: migration contains a single CREATE VIEW + COMMENT.
 
 ### Rollback
+
 DROP VIEW public.v_dispatch_state;
+
+## PRD-CLEAN-07 (2026-07-11)
+
+### Reference audit (grounding the fold-or-defer rule)
+- refill_policy_params: 2 fns (engine_add_pod, assert_weimi_slot_match) +
+  v_shelf_expiry_risk. Qualifies for folding by the mechanical <=3 rule but the
+  readers ARE the live engine + the drift-kill guard - folding would repeat the
+  Wave-1/2 failure mode PRD-04 explicitly avoided. DEFERRED (debt recorded).
+- refill_settings: 3 fns (engine_swap_pod, set_swaps_enabled,
+  sweep_expired_inventory). Same reasoning. DEFERRED. Note: key-value table
+  (swaps_enabled=false, sweep_enabled=false), 2 rows not 1.
+- refill_priority_params: 0 fns, 0 views, 0 FE, 0 cron -> DEAD. Deviation from the
+  PRD: dead tables are GRAVEYARDED, not folded (folding 34 dead columns into the
+  live tuner would pollute it). Moved to graveyard.
+- service_priority_params: 0 fns; its only reader v_machine_service_priority itself
+  has 0 consumers (fns/views/FE/cron). Both moved to graveyard.
+- pick_urgency_params stays the live-tuned home (3 fns + 2 views + SignalsTab FE).
+
+### What changed
+1. v_refill_config: long-format (source_table, param, value) over
+   pick_urgency_params (36) + refill_policy_params (21) + refill_settings (2) = 59.
+2. Graveyard: refill_priority_params, service_priority_params,
+   v_machine_service_priority (restore commands appended to
+   docs/prds/rollback/graveyard_restore_2026-07-11.sql).
+3. Capacity split documented in docs/refill_engine_bible_v6.md section 9
+   (capacity_standard = per-type default, product_slot_capacity = per-product
+   override; slot_capacity_max kept in public - live engine_swap_pod reference).
+
+### Verification battery
+1. v_refill_config: 59 params, 59 distinct (source_table, param) - PASS.
+2. Full pipeline dry cycle on non-live date (+2) AFTER all PRD-07 moves, in a
+   rolled-back DO block: 74 rpo rows, 0 null IDs, 74 dispatch rows - PASS.
+3. No tables folded, so no readers patched; build check under final acceptance.
+
+### Rollback
+graveyard restore file + DROP VIEW public.v_refill_config;
