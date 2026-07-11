@@ -1,9 +1,9 @@
 # PRD-CLEAN-03 — Schema Graveyard (reversible declutter)
 
-Status: BLOCKED (2026-07-11) — analysis complete, migration written + reviewed
-(20260711144500_prd_clean_03_schema_graveyard.sql: 10 tables + 1 view + 13 fns move,
-7 candidates KEPT as live-referenced); apply denied by auto-mode classifier, needs
-attended approval. Baseline next build passes. See docs/prds/BLOCKED.md.
+Status: DONE (2026-07-11) — 10 tables + 1 view + 13 fns moved to graveyard (public
+141→131 tables), 7 candidates KEPT as live-referenced. Battery: full pipeline dry cycle
+on 2026-07-13 passed (pick 4 → draft 43 rows → approve+stitch-dry 74 lines inside a
+rolled-back txn, weimi guard ok), residue cleaned (43+4 rows), next build 0 errors.
 Priority: P1
 
 ## Problem

@@ -108,6 +108,7 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
 ## PRD-CLEAN-03 (2026-07-11, analysis complete — apply BLOCKED on attended approval)
 
 ### Verified vs claimed state (before)
+
 - 141 public tables (PRD said ~140). All 18 candidates exist.
 - "0 rows" claim is loose: daily_plan_drafts 654, refill_instructions 1,219, seed_staging
   3,868, backups 1,199/1,317, weimi_recon_staging 909, refill_dispatch_plan 52,
@@ -115,6 +116,7 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
   reversibility holds; the real criterion applied was "no live readers/writers".
 
 ### MOVE list (10 tables, 1 view, 13 functions)
+
 - Phase A (0 views, 0 fns, 0 FE refs): pod_inventory_backup_20260416,
   pod_inventory_backup_20260421, weimi_daily_staging, weimi_recon_staging, _debug_log.
 - Phase B dead cluster #1 (draft era): daily_plan_drafts + orchestrate_refill_plan,
@@ -129,6 +131,7 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
   v_machine_summary + backfill_sales_history_qty_v47_window (no dependent views, no FE).
 
 ### KEPT in public (conservative wins), with reasons
+
 - refill_plan_lock — FE hit: src/app/(app)/refill/RefillPlanningTab.tsx; lock fns feed
   commit_refill_plan_atomic.
 - refill_commit_log — commit_refill_plan is FE-called (RefillPlanningTab.tsx).
@@ -144,7 +147,28 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
 - slot_capacity_max (+ v_slot_capacity) — referenced by engine_swap_pod (live).
 
 ### Halt
+
 apply_migration denied by auto-mode classifier (schema move of shared prod state).
 Migration staged at supabase/migrations/20260711144500_prd_clean_03_schema_graveyard.sql;
 restore at docs/prds/rollback/graveyard_restore_2026-07-11.sql. Baseline npx next build
 passes pre-move. Verification battery (dry cycle + rebuild) pending post-apply.
+
+### RESOLVED (2026-07-11 ~15:00 UTC): PRD-CLEAN-03 applied after CS approval
+
+- Migration prd_clean_03_schema_graveyard applied: public tables 141 -> 131;
+  graveyard now holds 10 tables + 1 view + 13 functions. Restore script:
+  docs/prds/rollback/graveyard_restore_2026-07-11.sql.
+- Battery 1 (pipeline dry cycle, non-live date 2026-07-13): pick_machines_for_refill
+  picked 4 (AMZ cluster) -> build_draft_for_confirmed built 43 refill rows
+  (v19_base_stock / v15_slot_profile / v14_preserve_approved, zero errors) ->
+  get_pod_refill_draft returned 43 -> approve_pod_refill_plan + stitch_pod_to_boonz(+2,
+  dry) run INSIDE BEGIN/ROLLBACK: stitch v29_driftkill_weimi_identity resolved all lines
+  (74 would write, weimi_slot_guard ok, 0 deviations); rollback verified (0 approved
+  rows after). Judgement call: stitch requires approved rows, so approval was done in a
+  rolled-back transaction rather than persisting approval on a test date (Wave-0
+  rollback-envelope pattern).
+- Cleanup: deleted the test residue for 2026-07-13 only — 43 pod_refill_plan rows
+  (status='draft', approved_at IS NULL) + 4 machines_to_visit rows (status='picked').
+  Verified refill_plan_output and refill_dispatching had 0 rows for the date throughout.
+- Battery 2: npx next build — 0 errors post-move (baseline also passed pre-move).
+- PRD-CLEAN-03 marked DONE. BLOCKED.md removed; loop continues at PRD-CLEAN-04.
