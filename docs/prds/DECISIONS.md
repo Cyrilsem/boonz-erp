@@ -230,6 +230,7 @@ cancel the rewrite, keep the engine untouched. Consequences:
 ## PRD-CLEAN-05 (2026-07-11)
 
 ### Verified vs claimed state (before)
+
 - refill_plan_output confirmed name-keyed (machine_name/shelf_code/pod_product_name/
   boonz_product_name TEXT), no ID columns; 6,650 rows total, 5,315 in the 60d window.
 - STALE PRD detail: live push is v8_driftkill_slot_guard (not "v4"); the canonical
@@ -240,6 +241,7 @@ cancel the rewrite, keep the engine untouched. Consequences:
   Left untouched.
 
 ### What changed
+
 1. M1a: 4 nullable uuid columns (machine_id, shelf_id, pod_product_id,
    boonz_product_id) + idx_rpo_plan_machine (plan_date, machine_id). Additive only.
 2. write_refill_plan g7 -> g8_id_keyed: INSERT populates the IDs from the already-
@@ -255,6 +257,7 @@ cancel the rewrite, keep the engine untouched. Consequences:
    AFTER UPDATE OF operator_status (cannot fire on this UPDATE).
 
 ### Verification battery (all PASS)
+
 1. E2E on non-live date (+2) inside a rolled-back DO block (DO+RAISE pattern):
    pick -> build_draft -> pod-approve -> stitch COMMIT -> rpo rows 74/74 with all four
    IDs NOT NULL -> approve_refill_plan (trigger auto-push v9) -> 74 dispatch rows.
@@ -271,7 +274,50 @@ cancel the rewrite, keep the engine untouched. Consequences:
    dispatch all 0).
 
 ### Rollback
+
 - docs/prds/rollback/write_refill_plan_2026-07-11.sql (g7)
 - docs/prds/rollback/push_plan_to_dispatch_2026-07-11.sql (v8)
 - Columns are nullable/additive; drop statements included in the write_refill_plan
   rollback file. Backfill rollback: SET the four columns NULL for the 60d window.
+
+## PRD-CLEAN-06 (2026-07-11)
+
+### Combination census (grounding the precedence)
+Full GROUP BY over refill_dispatching (35,143 rows, 23 distinct combos). Notables:
+- driver_outcome is NULL on EVERY row (column exists, never yet written) - kept in
+  the precedence for forward compatibility only.
+- dispatched=true with packed/picked_up=false is the LEGACY-era completed shape
+  (20,814 rows); current-flow rows finish with dispatched+packed+picked_up all true.
+  The PRD mapping dispatched -> 'completed' holds for both eras.
+- Contradictory combos: cancelled AND returned (3), skipped AND returned (4),
+  cancelled AND full journey (6+1), skipped AND full journey (5).
+
+### Judgement call: returned outranks cancelled/skipped
+PRD order was cancelled > skipped > returned. Deviation: 'returned' first - recovery
+returns of packed lines are legal physical events (PRD-028 doctrine); the return
+credit is the operational truth for the 7 cancelled/skipped-AND-returned rows.
+Logged here per "encode the precedence that matches operational truth".
+
+### What changed
+- CREATE VIEW public.v_dispatch_state (read-only; no writers touched): status
+  (returned > cancelled > skipped > completed > in_field > packed > review > pending),
+  effective_qty = COALESCE(driver_outcome_qty, driver_confirmed_qty, filled_quantity,
+  quantity), planned_qty, original_qty, source ('machine_transfer' when is_m2m OR
+  source_origin=internal_transfer OR from_machine_id set, else 'warehouse'), plus
+  ID/date/action/expiry pass-throughs.
+- Consumer repoint: SKIPPED with rationale - the PRD's named "post-Gate-2 dispatch
+  coverage check" does not exist (only _assert_gate_zero does; stale claim), and no
+  monitoring fn re-derives state in a way that is provably behavior-identical to the
+  view (the returned-precedence fix makes them non-identical by design). FE migration
+  is a follow-up per the PRD itself.
+
+### Verification battery (all PASS)
+1. today+yesterday: 48 rows, 0 NULL statuses (0 NULL over all 35,143 rows too).
+2. Reconciliation query (kept here as the canonical check): raw boolean partition
+   with the same precedence vs view status counts - exact match:
+   returned 588, cancelled 7,299, skipped 734, completed 26,092, in_field 156,
+   packed 8, review 5, pending 261 = 35,143.
+3. No write behaviour changed: migration contains a single CREATE VIEW + COMMENT.
+
+### Rollback
+DROP VIEW public.v_dispatch_state;
