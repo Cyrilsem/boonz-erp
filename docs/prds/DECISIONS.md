@@ -74,6 +74,7 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
 ## PRD-CLEAN-02 (2026-07-11)
 
 ### Verified vs claimed state (before)
+
 - STALE PRD claim: correlation tables were NOT zero-row — 1,119 per-machine +
   1,953 per-loc rows, all computed_at 2026-05-11 (one manual run two months ago,
   never scheduled). The real problem was staleness + no cron.
@@ -81,6 +82,7 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
   p_shelf_id uuid, p_anchor_pod_product_id uuid, p_top_n int, p_aggressiveness_pct int).
 
 ### What changed
+
 1. refresh_correlation_pod: day-bucketing fixed from UTC (transaction_date::date,
    now()::date spine) to Asia/Dubai per the non-negotiable timezone rule. Exactly 4
    lines changed (diff-verified); thresholds/pairing/writes untouched. Canonical-writer
@@ -91,12 +93,58 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
    statement_timeout 1200000. Verified active in cron.job.
 
 ### Verification battery
+
 1. Row counts > 0: PASS (2,751 / 2,866).
 2. Smoke test: PASS 3/3 (AMZ-1029, AMZ-1038, VOXMCC-1005 — all rows
    source='global_basket_fit', pearson 0.36-0.73).
 3. cron.job row exists + active: PASS.
 
 ### Rollback
+
 - Function: docs/prds/rollback/refresh_correlation_pod_2026-07-11.sql
 - Cron: SELECT cron.unschedule('refresh_correlation_weekly');
 - Data: derived cache; re-run refresh_correlation_pod() regenerates.
+
+## PRD-CLEAN-03 (2026-07-11, analysis complete — apply BLOCKED on attended approval)
+
+### Verified vs claimed state (before)
+- 141 public tables (PRD said ~140). All 18 candidates exist.
+- "0 rows" claim is loose: daily_plan_drafts 654, refill_instructions 1,219, seed_staging
+  3,868, backups 1,199/1,317, weimi_recon_staging 909, refill_dispatch_plan 52,
+  refill_plan_deviations 49, rotation_proposals 21 rows. SET SCHEMA carries data, so
+  reversibility holds; the real criterion applied was "no live readers/writers".
+
+### MOVE list (10 tables, 1 view, 13 functions)
+- Phase A (0 views, 0 fns, 0 FE refs): pod_inventory_backup_20260416,
+  pod_inventory_backup_20260421, weimi_daily_staging, weimi_recon_staging, _debug_log.
+- Phase B dead cluster #1 (draft era): daily_plan_drafts + orchestrate_refill_plan,
+  engine_finalize, engine_publish_to_refill_plan, propose_add_plan, propose_swap_plan,
+  reconcile_intent_progress. Key finding: "engine_finalize called by live fns" was a
+  SUBSTRING ARTIFACT of engine_finalize_pod (regex-strip proved it); the only true caller
+  is orchestrate_refill_plan, which has zero callers, zero cron, zero FE.
+- Phase B dead cluster #2 (rotation era): rotation_proposals + apply_rotation_proposal,
+  mark_proposals_expired, propose_rotation_plan, reject_rotation_proposal.
+- Phase B singles: refill_action_proposals + compute_nowh_proposals;
+  pod_inventory_seed_staging + load_pod_staging_chunk; machine_summary +
+  v_machine_summary + backfill_sales_history_qty_v47_window (no dependent views, no FE).
+
+### KEPT in public (conservative wins), with reasons
+- refill_plan_lock — FE hit: src/app/(app)/refill/RefillPlanningTab.tsx; lock fns feed
+  commit_refill_plan_atomic.
+- refill_commit_log — commit_refill_plan is FE-called (RefillPlanningTab.tsx).
+- refill_dispatch_plan + daily_pipeline_runs — written by write_dispatch_plan, the
+  chat-side EXECUTE_DEPLOYMENT_PLAN writer (0 DB refs expected, like
+  weekly_procurement_plan).
+- engine_recommendation_snapshot — tg_capture_refill_edit_signal is an ACTIVE trigger
+  (learning loop).
+- refill_plan_deviations — referenced by stitch_pod_to_boonz (live pipeline).
+- refill_instructions (+ v_machine_shelf_plan) — get_machine_slots_with_expiry FE-called
+  (SnapshotTab.tsx), upsert_refill_stock_snapshot called from
+  src/app/api/refill/stock-refresh/route.ts.
+- slot_capacity_max (+ v_slot_capacity) — referenced by engine_swap_pod (live).
+
+### Halt
+apply_migration denied by auto-mode classifier (schema move of shared prod state).
+Migration staged at supabase/migrations/20260711144500_prd_clean_03_schema_graveyard.sql;
+restore at docs/prds/rollback/graveyard_restore_2026-07-11.sql. Baseline npx next build
+passes pre-move. Verification battery (dry cycle + rebuild) pending post-apply.
