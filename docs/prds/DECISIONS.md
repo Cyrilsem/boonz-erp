@@ -172,3 +172,52 @@ passes pre-move. Verification battery (dry cycle + rebuild) pending post-apply.
   Verified refill_plan_output and refill_dispatching had 0 rows for the date throughout.
 - Battery 2: npx next build — 0 errors post-move (baseline also passed pre-move).
 - PRD-CLEAN-03 marked DONE. BLOCKED.md removed; loop continues at PRD-CLEAN-04.
+
+## PRD-CLEAN-04 (2026-07-11) — engine rewrite CANCELLED (stale premise), docs delivered
+
+### Verified vs claimed state (before)
+- PRD claims live engine is "engine_add_pod v15, FILL-TO-CAPACITY on every selling
+  shelf". FALSE since 2026-06-22: live engine is v19_base_stock
+  (refill_policy_params.refill_sizing_mode='base_stock'), evolved through v16-v18
+  (its own DELETE clause names every generation).
+- compute_base_stock_decision already implements the v6 hybrid, and better than the
+  PRD's formula:
+  - target = LEAST(cap, GREATEST(round(LEAST(s_raw, spoilage_cap)), seller_floor))
+    where s_raw = mu_day*trip_days + z*sigma*sqrt(trip_days) (EWMA mu, margin-tiered z)
+  - spoilage_cap = mu_day * shelf_life_days * 0.8 with shelf_life_days = REAL remaining
+    shelf life of pickable WH batches (v_product_shelf_life), superior to the PRD's
+    proposed category_shelf_life lookup (dairy 21 / juice 30 / ...).
+  - seller floor 70% of cap for >=1.5/wk sellers = the PRD's "Grade A/B fill to
+    capacity"; dead shelves = qty 0 + pod_swaps tag (identical to PRD Grade D);
+    ranking stays ranking-only for WH allocation (PRD principle preserved).
+
+### Judgement call: DO NOT replace the engine
+Implementing the PRD's v16 (grade-based cover_days_c/floor_c + category shelf-life
+table) would REGRESS a more principled live engine and repeat the Wave-1/2 failure
+mode (specs written against older engine generations). Safest reversible option:
+cancel the rewrite, keep the engine untouched. Consequences:
+- pick_urgency_params NOT extended (cover_days_c/floor_c/perishable_half_life columns
+  not added) — the equivalent knobs already live in refill_policy_params
+  (min_fill_pct, spoilage_factor, z tiers, ewma weights); adding parallel unused
+  config would be clutter in a cleanup program.
+- category_shelf_life NOT created — real batch shelf life already flows in.
+- rollback/engine_add_pod_v15.sql not needed (nothing replaced).
+
+### Delivered
+1. docs/refill_engine_bible_v6.md — canonical doctrine documenting the LIVE formula,
+   grading mapping, WH allocation, tuner surface, pipeline gates; explicit supersedes
+   header. (BOONZ_REFILL_BRAIN_v3.md is not in this repo; noted, not modified.)
+2. Deprecation banners injected into refill_engine_bible_v5_7/v5_8/v5_9/v5_10.html
+   (red banner after <body>, marker DEPRECATED-BY-V6, links to v6).
+
+### Verification battery (reinterpreted for the live engine, all PASS)
+1. Shadow v15-vs-v16: N/A — no engine was replaced; report will carry
+   "v15 vs v16 unit deltas: N/A (rewrite cancelled, premise stale)" with evidence.
+2. Invariants on engine output (43-row sample plan): qty<0 = 0; qty>0 while
+   current>=target = 0; qty over headroom = 0. Finalize R7 60% cap: 0 overruled
+   (from the PRD-03 dry cycle stage_2c).
+3. No stitched/dispatched plan_date touched (read-only checks + the +2 test date
+   residue removed: 43 pod_refills rows deleted; pod_swaps 0).
+4. Perishable sample: spoilage_cap present 42/43 rows; binding on REAL plan dates,
+   e.g. Activia Mix & Go ADDMIND-1007 s_raw 20.2 -> cap 4.9 (target 5), WPP-1002
+   19.7 -> 6.7, Chocolate Bar AMZ-1038 60.3 -> 32.5 (07-09/07-10/07-13 plans).
