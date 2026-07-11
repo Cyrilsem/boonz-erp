@@ -70,3 +70,33 @@ changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel
   snapshot), ALJ-1014_OLD (no snapshot), and 22 ledger-stocked shelves absent from
   fresh snapshots (AMZ-1029/1038/1057/1068, WH1-2002).
 - PRD-CLEAN-01 marked DONE; BLOCKED.md cleared; loop resumes at PRD-CLEAN-02.
+
+## PRD-CLEAN-02 (2026-07-11)
+
+### Verified vs claimed state (before)
+- STALE PRD claim: correlation tables were NOT zero-row — 1,119 per-machine +
+  1,953 per-loc rows, all computed_at 2026-05-11 (one manual run two months ago,
+  never scheduled). The real problem was staleness + no cron.
+- find_substitutes_for_shelf signature: (p_plan_date date, p_machine_id uuid,
+  p_shelf_id uuid, p_anchor_pod_product_id uuid, p_top_n int, p_aggressiveness_pct int).
+
+### What changed
+1. refresh_correlation_pod: day-bucketing fixed from UTC (transaction_date::date,
+   now()::date spine) to Asia/Dubai per the non-negotiable timezone rule. Exactly 4
+   lines changed (diff-verified); thresholds/pairing/writes untouched. Canonical-writer
+   change: original saved to docs/prds/rollback/refresh_correlation_pod_2026-07-11.sql.
+2. Ran refresh: 2,751 per-machine + 2,866 per-loc rows in 9.9s (window 60d,
+   min_n_days 14, min_sales_per_side 5). No threshold changes needed.
+3. cron.schedule('refresh_correlation_weekly', '0 1 * * 0', ...) = Sunday 05:00 Dubai,
+   statement_timeout 1200000. Verified active in cron.job.
+
+### Verification battery
+1. Row counts > 0: PASS (2,751 / 2,866).
+2. Smoke test: PASS 3/3 (AMZ-1029, AMZ-1038, VOXMCC-1005 — all rows
+   source='global_basket_fit', pearson 0.36-0.73).
+3. cron.job row exists + active: PASS.
+
+### Rollback
+- Function: docs/prds/rollback/refresh_correlation_pod_2026-07-11.sql
+- Cron: SELECT cron.unschedule('refresh_correlation_weekly');
+- Data: derived cache; re-run refresh_correlation_pod() regenerates.
