@@ -176,6 +176,7 @@ passes pre-move. Verification battery (dry cycle + rebuild) pending post-apply.
 ## PRD-CLEAN-04 (2026-07-11) — engine rewrite CANCELLED (stale premise), docs delivered
 
 ### Verified vs claimed state (before)
+
 - PRD claims live engine is "engine_add_pod v15, FILL-TO-CAPACITY on every selling
   shelf". FALSE since 2026-06-22: live engine is v19_base_stock
   (refill_policy_params.refill_sizing_mode='base_stock'), evolved through v16-v18
@@ -192,10 +193,12 @@ passes pre-move. Verification battery (dry cycle + rebuild) pending post-apply.
     ranking stays ranking-only for WH allocation (PRD principle preserved).
 
 ### Judgement call: DO NOT replace the engine
+
 Implementing the PRD's v16 (grade-based cover_days_c/floor_c + category shelf-life
 table) would REGRESS a more principled live engine and repeat the Wave-1/2 failure
 mode (specs written against older engine generations). Safest reversible option:
 cancel the rewrite, keep the engine untouched. Consequences:
+
 - pick_urgency_params NOT extended (cover_days_c/floor_c/perishable_half_life columns
   not added) — the equivalent knobs already live in refill_policy_params
   (min_fill_pct, spoilage_factor, z tiers, ewma weights); adding parallel unused
@@ -204,6 +207,7 @@ cancel the rewrite, keep the engine untouched. Consequences:
 - rollback/engine_add_pod_v15.sql not needed (nothing replaced).
 
 ### Delivered
+
 1. docs/refill_engine_bible_v6.md — canonical doctrine documenting the LIVE formula,
    grading mapping, WH allocation, tuner surface, pipeline gates; explicit supersedes
    header. (BOONZ_REFILL_BRAIN_v3.md is not in this repo; noted, not modified.)
@@ -211,6 +215,7 @@ cancel the rewrite, keep the engine untouched. Consequences:
    (red banner after <body>, marker DEPRECATED-BY-V6, links to v6).
 
 ### Verification battery (reinterpreted for the live engine, all PASS)
+
 1. Shadow v15-vs-v16: N/A — no engine was replaced; report will carry
    "v15 vs v16 unit deltas: N/A (rewrite cancelled, premise stale)" with evidence.
 2. Invariants on engine output (43-row sample plan): qty<0 = 0; qty>0 while
@@ -221,3 +226,52 @@ cancel the rewrite, keep the engine untouched. Consequences:
 4. Perishable sample: spoilage_cap present 42/43 rows; binding on REAL plan dates,
    e.g. Activia Mix & Go ADDMIND-1007 s_raw 20.2 -> cap 4.9 (target 5), WPP-1002
    19.7 -> 6.7, Chocolate Bar AMZ-1038 60.3 -> 32.5 (07-09/07-10/07-13 plans).
+
+## PRD-CLEAN-05 (2026-07-11)
+
+### Verified vs claimed state (before)
+- refill_plan_output confirmed name-keyed (machine_name/shelf_code/pod_product_name/
+  boonz_product_name TEXT), no ID columns; 6,650 rows total, 5,315 in the 60d window.
+- STALE PRD detail: live push is v8_driftkill_slot_guard (not "v4"); the canonical
+  INSERT writer is write_refill_plan (7 other writers insert too - inject_swap,
+  auto_generate_refill_plan (deprecated), approve/commit variants - left name-only on
+  purpose; push v9's name fallback covers them).
+- Oddity logged: one refill_plan_output row with plan_date 2099-12-09 (sentinel/test).
+  Left untouched.
+
+### What changed
+1. M1a: 4 nullable uuid columns (machine_id, shelf_id, pod_product_id,
+   boonz_product_id) + idx_rpo_plan_machine (plan_date, machine_id). Additive only.
+2. write_refill_plan g7 -> g8_id_keyed: INSERT populates the IDs from the already-
+   validated names (machines / shelf_configurations with zero-pad normalization /
+   pod_products / boonz_products.product_id - NB the boonz PK is product_id).
+3. push_plan_to_dispatch v8 -> v9_id_keyed_rpo: resolution prefers line IDs, falls
+   back to name matching when NULL (historical rows); same for the M2M source-shelf
+   lookup. Generated from the v8 rollback text with 3 targeted replacements
+   (diff-verified via generation asserts).
+4. M2 backfill (60d window, 5,315 rows): sets ONLY the four new columns.
+   Rule tension logged: "never touch non-pending rpo rows" vs PRD-mandated backfill -
+   resolved by PRD explicitness + verifying the approve->dispatch trigger is
+   AFTER UPDATE OF operator_status (cannot fire on this UPDATE).
+
+### Verification battery (all PASS)
+1. E2E on non-live date (+2) inside a rolled-back DO block (DO+RAISE pattern):
+   pick -> build_draft -> pod-approve -> stitch COMMIT -> rpo rows 74/74 with all four
+   IDs NOT NULL -> approve_refill_plan (trigger auto-push v9) -> 74 dispatch rows.
+2. ID-path vs name-path resolution identity on those dispatch rows: 0 mismatches.
+3. Backfill coverage: 100% machine_id + shelf_id; 5,282/5,315 pod (99.4%);
+   5,233/5,315 boonz (98.5%); 5,200 fully resolved (97.8%). Residual naming debt:
+   boonz: Smart Gourmet Classic/Beetroot Humus (38/10), Hunter Ridge Sour Cream (26),
+   Hunter Hot N Sweet (5), Vitamin Well (2), Freakin Protein Balls 4P (1);
+   pod: Keen Health Chocolate Mix (9), Freakin Healthy Thins (4), McVities
+   Digestive/Mini (4/4), Perrier (3), Evian 1L (2), Rice & Corn (3), Granola Bar (2),
+   Kinder Bueno (1), Plaay Tablet (1).
+4. npx tsc --noEmit: 0 errors (no generated DB types in use for this table).
+5. Zero residue on the test date after rollback (picks/pod_plan/pod_refills/rpo/
+   dispatch all 0).
+
+### Rollback
+- docs/prds/rollback/write_refill_plan_2026-07-11.sql (g7)
+- docs/prds/rollback/push_plan_to_dispatch_2026-07-11.sql (v8)
+- Columns are nullable/additive; drop statements included in the write_refill_plan
+  rollback file. Backfill rollback: SET the four columns NULL for the 60d window.
