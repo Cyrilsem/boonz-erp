@@ -1,8 +1,8 @@
 # PRD-CLEAN-01 — pod_inventory Weimi-Authoritative Resync
 
-Status: BLOCKED (2026-07-11) — M1 DDL applied to prod (RPC + audit CHECK); M2 fleet data run
-denied by auto-mode permission classifier (destructive prod write needs attended approval).
-Dry run validated: 37 machines, ~1,468 units off / ~2,756 added. See docs/prds/BLOCKED.md.
+Status: DONE (2026-07-11) — M2 executed + verified attended: 37 machines, 1,468 units
+written off, 2,793 added unattributed (694 audit rows, 1 run ref), drift = 0 on all
+touchable machines at run time, idempotency confirmed (2nd run touched 0 shelves).
 Priority: P0 (root cause — everything else reads this data)
 Approved by CS: yes, no review gate. Weimi physical count wins fleet-wide.
 

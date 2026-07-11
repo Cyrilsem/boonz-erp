@@ -52,3 +52,21 @@ Working tree had ~30 pre-existing modified files from other sessions (branch
 fix/prd-099-approve-return-provenance). Deviation from the goal's `git add -A` + push to
 main: committed only loop-created files, no push — sweeping unrelated uncommitted src/
 changes into a cleanup commit would deploy unreviewed UI work to prod via Vercel.
+
+### RESOLVED (2026-07-11 ~14:00 UTC): M2 executed + verified attended by CS
+
+- Fleet run at 13:58:22 UTC (single run ref): 37 machines, 1,468 units written off,
+  2,793 units added unattributed — 694 audit rows with source='drift_resync'; audit
+  delta sums match the ledger delta exactly (battery check 3 PASS).
+- Drift = 0 on all touchable machines at run time (battery check 1 PASS); idempotency
+  confirmed — second run touched 0 shelves (battery check 4 PASS).
+- Expired >30d in machines: already 0 before the run (claim was stale); recorded as
+  before=0 / after=0 (battery check 2 PASS trivially).
+- Post-run re-check at 14:0x UTC showed 46 shelves drifted against the 14:00:40 snapshot
+  (2 min AFTER the resync) — post-resync sales movement, not resync failure. This is the
+  expected ongoing decrement gap; per PRD follow-up, watch convergence ~7 days and open
+  PRD-CLEAN-08 if fleet drift exceeds 2%.
+- Untouchable remainder (by design, never zero on missing data): ALHQ-1016 (stale Apr
+  snapshot), ALJ-1014_OLD (no snapshot), and 22 ledger-stocked shelves absent from
+  fresh snapshots (AMZ-1029/1038/1057/1068, WH1-2002).
+- PRD-CLEAN-01 marked DONE; BLOCKED.md cleared; loop resumes at PRD-CLEAN-02.
