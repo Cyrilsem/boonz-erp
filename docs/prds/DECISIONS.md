@@ -331,6 +331,7 @@ DROP VIEW public.v_dispatch_state;
 ## PRD-CLEAN-07 (2026-07-11)
 
 ### Reference audit (grounding the fold-or-defer rule)
+
 - refill_policy_params: 2 fns (engine_add_pod, assert_weimi_slot_match) +
   v_shelf_expiry_risk. Qualifies for folding by the mechanical <=3 rule but the
   readers ARE the live engine + the drift-kill guard - folding would repeat the
@@ -346,6 +347,7 @@ DROP VIEW public.v_dispatch_state;
 - pick_urgency_params stays the live-tuned home (3 fns + 2 views + SignalsTab FE).
 
 ### What changed
+
 1. v_refill_config: long-format (source_table, param, value) over
    pick_urgency_params (36) + refill_policy_params (21) + refill_settings (2) = 59.
 2. Graveyard: refill_priority_params, service_priority_params,
@@ -356,10 +358,62 @@ DROP VIEW public.v_dispatch_state;
    override; slot_capacity_max kept in public - live engine_swap_pod reference).
 
 ### Verification battery
+
 1. v_refill_config: 59 params, 59 distinct (source_table, param) - PASS.
 2. Full pipeline dry cycle on non-live date (+2) AFTER all PRD-07 moves, in a
    rolled-back DO block: 74 rpo rows, 0 null IDs, 74 dispatch rows - PASS.
 3. No tables folded, so no readers patched; build check under final acceptance.
 
 ### Rollback
+
 graveyard restore file + DROP VIEW public.v_refill_config;
+
+## PRD-CLEAN-09 (2026-07-12) — engine-side binding-drift fix
+
+### Verified state before acting
+- v_slot_binding_drift ALREADY EXISTED with exactly the specified join axis
+  (regexp_replace slot_name -> shelf_code; no aisle_code) - reused, not recreated.
+- Live drift at build time: 0 rows across 525 current bindings, so the global halt
+  assertion is safe to install (tonight's plan unaffected).
+
+### Judgement calls
+1. Hard-skip chosen over derive-from-v_live_shelf_stock: rebinding the candidates CTE
+   to Weimi identity would change engine behaviour broadly; the skip leaves agreeing
+   shelves byte-identical. With the assertion halting on ANY drift, the skip is
+   deliberate defense-in-depth (protects if the assertion is later relaxed to warn).
+2. Assertion placed in BOTH engines (spec says "the pipeline"): engine_add_pod is the
+   plan entry point, but engine_swap_pod can be invoked standalone. RAISE aborts the
+   engine transaction, so the engine's own DELETE-and-rebuild rolls back on halt (no
+   half-empty plan left behind).
+3. Assertion is GLOBAL (per spec) - drift on ANY machine halts ALL plan builds. The
+   05:30 Dubai alert (severity critical) fires 10.5h before the 20:00 Dubai build,
+   giving CS the reconcile window. Escape hatch documented: reconcile via
+   reconcile_shelf_identity_weimi / fix slot_lifecycle, or rollback files.
+4. engine version strings and tagged_by values left untouched (downstream matching
+   unchanged). New engine output field: binding_drift_skipped.
+5. Patches generated from the saved rollback texts with assert-exactly-once
+   replacements (PRD-05 technique) - the diff is provably minimal.
+
+### Observed pre-existing bug (NOT touched, out of scope)
+engine_swap_pod's dead-tag resolution loop filters reasoning->>'tagged_by' IN
+('engine_add_pod_v15','engine_add_pod_v16') but the live add-engine writes
+'engine_add_pod_v19_base_stock' -> dead tags from the current engine are never
+resolved by the swap engine. Moot while swaps_enabled=false; flag for the Wave-2
+unpark work.
+
+### Verification (all in rolled-back transactions, zero residue confirmed)
+1. Positive: manufactured 1 drift row (slot_lifecycle flip) -> engine_add_pod halted
+   ("1 slot binding drift row(s) ... plan halted (PRD-CLEAN-09)"), engine_swap_pod
+   halted, cron_slot_binding_drift_alert reported drift_rows=1 and wrote 1 critical
+   monitoring_alerts row.
+2. Negative: with 0 drift both the assertion and the alert are silent
+   (engine proceeds to the expected "no picked machines" for the bare test date;
+   alert drift_rows=0, no rows written).
+3. Full pipeline dry cycle on non-live +2: pick -> build_draft (draft_ready,
+   v19_base_stock, 41 refills, binding_drift_skipped=0) -> approve -> stitch dry OK.
+4. Residue: drift 0, persisted alerts 0, cron active ('30 1 * * *'), both engines
+   carry the guard (prosrc check).
+
+### Rollback
+engine_add_pod_2026-07-12.sql + engine_swap_pod_2026-07-12.sql in docs/prds/rollback/;
+cron.unschedule('slot_binding_drift_nightly') + DROP cron_slot_binding_drift_alert().
