@@ -67,17 +67,51 @@ const DRAWER_TABS: { key: DrawerTab; label: string }[] = [
 // location_type -> machines_location_type_check (lowercase!)
 // venue_group   -> machines_venue_group_check (uppercase!)
 // adyen_status has no check constraint; values below mirror what's in use.
+// Fleet reclassification 2026-07-12: statuses collapsed to Active|Inactive
+// ('Warehouse' retired — whereabouts now live in pod_location: Office/DIP/
+// China/Legacy). Remaining values kept for edge cases only.
 const STATUS_OPTIONS = [
   "Active",
   "Inactive",
   "Maintenance",
   "Pending",
-  "Valid",
-  "Online today",
-  "Switched off",
-  "Scheduled",
-  "Warehouse",
 ];
+
+// ── Inventory buckets ─────────────────────────────────────────────────────────
+// The physical split CS uses to read the fleet. Legacy = bookkeeping ghosts,
+// excluded from machine counts and shown with status "—".
+type Bucket = "Active" | "Office" | "DIP" | "China" | "Legacy" | "Other";
+
+const BUCKET_ORDER: Bucket[] = [
+  "Active",
+  "Office",
+  "DIP",
+  "China",
+  "Legacy",
+  "Other",
+];
+
+const BUCKET_META: Record<Bucket, { label: string; hint: string }> = {
+  Active: { label: "Active — In Market", hint: "installed & selling" },
+  Office: { label: "Office / Central", hint: "stored at the office" },
+  DIP: { label: "DIP Warehouse", hint: "stored in DIP" },
+  China: { label: "China", hint: "not yet shipped" },
+  Legacy: { label: "Legacy", hint: "records only — not counted" },
+  Other: { label: "Other Inactive", hint: "unclassified" },
+};
+
+function bucketOf(m: {
+  status: string | null;
+  pod_location: string | null;
+}): Bucket {
+  if (m.pod_location === "Legacy") return "Legacy";
+  if (m.status?.toLowerCase() === "active") return "Active";
+  if (m.pod_location === "Office" || m.pod_location === "Central")
+    return "Office";
+  if (m.pod_location === "DIP") return "DIP";
+  if (m.pod_location === "China") return "China";
+  return "Other";
+}
 const LOCATION_TYPE_OPTIONS = [
   "office",
   "coworking",
@@ -441,9 +475,7 @@ export default function MachinesPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<
-    "All" | "Active" | "Inactive"
-  >("All");
+  const [bucketFilter, setBucketFilter] = useState<"All" | Bucket>("All");
   const [groupFilter, setGroupFilter] = useState("All");
   const [selected, setSelected] = useState<Machine | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
@@ -590,15 +622,37 @@ export default function MachinesPage() {
           !!m.adyen_store_code && m.adyen_store_code.toLowerCase().includes(q);
         if (!nameHit && !devHit && !storeHit) return false;
       }
-      if (statusFilter !== "All") {
-        const isActive = m.status?.toLowerCase() === "active";
-        if (statusFilter === "Active" && !isActive) return false;
-        if (statusFilter === "Inactive" && isActive) return false;
-      }
+      if (bucketFilter !== "All" && bucketOf(m) !== bucketFilter) return false;
       if (groupFilter !== "All" && m.venue_group !== groupFilter) return false;
       return true;
     });
-  }, [machines, search, statusFilter, groupFilter, deviceNumber]);
+  }, [machines, search, bucketFilter, groupFilter, deviceNumber]);
+
+  // Bucketed view: rows grouped in fixed order with separators between groups.
+  const grouped = useMemo(() => {
+    const map = new Map<Bucket, Machine[]>();
+    for (const m of filtered) {
+      const b = bucketOf(m);
+      if (!map.has(b)) map.set(b, []);
+      map.get(b)!.push(m);
+    }
+    return BUCKET_ORDER.filter((b) => map.has(b)).map(
+      (b) => [b, map.get(b)!] as const,
+    );
+  }, [filtered]);
+
+  const fleetCounts = useMemo(() => {
+    let active = 0,
+      stored = 0,
+      legacy = 0;
+    for (const m of machines) {
+      const b = bucketOf(m);
+      if (b === "Active") active++;
+      else if (b === "Legacy") legacy++;
+      else stored++;
+    }
+    return { active, stored, legacy, counted: active + stored };
+  }, [machines]);
 
   // ── Edit helpers ────────────────────────────────────────────────────────────
 
@@ -1217,7 +1271,12 @@ export default function MachinesPage() {
             Pods
           </h1>
           <p style={{ color: "#6b6860", fontSize: 14, marginTop: 4 }}>
-            {loading ? "Loading\u2026" : `${machines.length} pods (machines)`}
+            {loading
+              ? "Loading\u2026"
+              : `${fleetCounts.counted} machines \u00b7 ${fleetCounts.active} active in market \u00b7 ${fleetCounts.stored} in storage` +
+                (fleetCounts.legacy > 0
+                  ? ` \u00b7 ${fleetCounts.legacy} legacy (not counted)`
+                  : "")}
           </p>
         </div>
       </div>
@@ -1243,24 +1302,26 @@ export default function MachinesPage() {
             background: "white",
           }}
         />
-        {(["All", "Active", "Inactive"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            style={{
-              border: "1px solid #e8e4de",
-              borderRadius: 8,
-              padding: "7px 14px",
-              fontSize: 13,
-              fontWeight: statusFilter === s ? 600 : 400,
-              background: statusFilter === s ? "#0a0a0a" : "white",
-              color: statusFilter === s ? "white" : "#6b6860",
-              cursor: "pointer",
-            }}
-          >
-            {s}
-          </button>
-        ))}
+        {(["All", ...BUCKET_ORDER] as const)
+          .filter((b) => b === "All" || b === "Active" || machines.some((m) => bucketOf(m) === b))
+          .map((s) => (
+            <button
+              key={s}
+              onClick={() => setBucketFilter(s)}
+              style={{
+                border: "1px solid #e8e4de",
+                borderRadius: 8,
+                padding: "7px 14px",
+                fontSize: 13,
+                fontWeight: bucketFilter === s ? 600 : 400,
+                background: bucketFilter === s ? "#0a0a0a" : "white",
+                color: bucketFilter === s ? "white" : "#6b6860",
+                cursor: "pointer",
+              }}
+            >
+              {s}
+            </button>
+          ))}
         <select
           value={groupFilter}
           onChange={(e) => setGroupFilter(e.target.value)}
@@ -1350,8 +1411,40 @@ export default function MachinesPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((m) => {
+              grouped.flatMap(([bucket, rows]) => [
+                // ── Section separator ──
+                <tr key={`sep-${bucket}`}>
+                  <td
+                    colSpan={8}
+                    style={{
+                      background: "#f5f2ee",
+                      borderTop: "2px solid #e8e4de",
+                      borderBottom: "1px solid #e8e4de",
+                      padding: "8px 16px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: bucket === "Active" ? "#24544a" : "#6b6860",
+                    }}
+                  >
+                    {BUCKET_META[bucket].label}
+                    <span
+                      style={{
+                        fontWeight: 500,
+                        textTransform: "none",
+                        letterSpacing: 0,
+                        marginLeft: 8,
+                        color: "#9ca3af",
+                      }}
+                    >
+                      {rows.length} · {BUCKET_META[bucket].hint}
+                    </span>
+                  </td>
+                </tr>,
+                ...rows.map((m) => {
                 const isActive = m.status?.toLowerCase() === "active";
+                const isLegacy = bucket === "Legacy";
                 const isSelected = selected?.machine_id === m.machine_id;
                 return (
                   <tr
@@ -1438,15 +1531,20 @@ export default function MachinesPage() {
                           fontSize: 11,
                           fontWeight: 600,
                           background: isActive ? "#f0fdf4" : "#f5f2ee",
-                          color: isActive ? "#065f46" : "#6b6860",
+                          color: isActive
+                            ? "#065f46"
+                            : isLegacy
+                              ? "#9ca3af"
+                              : "#6b6860",
                         }}
                       >
-                        {m.status ?? "\u2014"}
+                        {isLegacy ? "\u2014" : (m.status ?? "\u2014")}
                       </span>
                     </td>
                   </tr>
                 );
-              })
+                }),
+              ])
             )}
           </tbody>
         </table>

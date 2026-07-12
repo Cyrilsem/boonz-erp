@@ -11,16 +11,50 @@ import { MachineSetupConfigTab } from "@/components/config/MachineSetupConfigTab
 
 const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
 
-const DEFAULT_STATUS_OPTIONS = [
+const DEFAULT_STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Pending"];
+
+// ── Inventory buckets (fleet reclassification 2026-07-12) ────────────────────
+// Same split as /app/pods: whereabouts live in pod_location, status is just
+// Active|Inactive. The warehouse manager scans by section, not by a flat list.
+type Bucket = "Active" | "Office" | "DIP" | "China" | "Legacy" | "Other";
+
+const BUCKET_ORDER: Bucket[] = [
   "Active",
-  "Inactive",
-  "Maintenance",
-  "Pending",
-  "Valid",
-  "Online today",
-  "Switched off",
-  "Scheduled",
+  "Office",
+  "DIP",
+  "China",
+  "Legacy",
+  "Other",
 ];
+
+const BUCKET_LABELS: Record<Bucket, string> = {
+  Active: "In Market",
+  Office: "Office / Central",
+  DIP: "DIP Warehouse",
+  China: "China",
+  Legacy: "Legacy (records only)",
+  Other: "Other Inactive",
+};
+
+function bucketOf(m: {
+  status: string | null;
+  pod_location: string | null;
+}): Bucket {
+  if (m.pod_location === "Legacy") return "Legacy";
+  if (m.status?.toLowerCase() === "active") return "Active";
+  if (m.pod_location === "Office" || m.pod_location === "Central")
+    return "Office";
+  if (m.pod_location === "DIP") return "DIP";
+  if (m.pod_location === "China") return "China";
+  return "Other";
+}
+
+// Device number = pod_number minus the BOONZ_ prefix — how the warehouse
+// team identifies a physical unit.
+function deviceNo(pod_number: string | null): string | null {
+  if (!pod_number) return null;
+  return pod_number.replace(/^BOONZ_/i, "");
+}
 
 const VENUE_GROUP_OPTIONS = [
   "ADDMIND",
@@ -299,7 +333,11 @@ export default function MachinesPage() {
   // Machines tab
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineSearch, setMachineSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [bucketFilter, setBucketFilter] = useState<"all" | Bucket>("all");
+  // China + Legacy are big and rarely touched — collapsed by default.
+  const [collapsedSections, setCollapsedSections] = useState<
+    Record<string, boolean>
+  >({ China: true, Legacy: true });
   const [machineExpanded, setMachineExpanded] = useState<string | null>(null);
   const [machineDrafts, setMachineDrafts] = useState<
     Record<string, MachineDraft>
@@ -492,17 +530,37 @@ export default function MachinesPage() {
     return combined;
   }, [machines]);
 
-  // Filtered machines
+  // Filtered machines — search matches name OR device number
   const filteredMachines = useMemo(() => {
     let result = machines;
-    if (statusFilter !== "all")
-      result = result.filter((m) => m.status === statusFilter);
-    if (machineSearch)
-      result = result.filter((m) =>
-        m.official_name.toLowerCase().includes(machineSearch.toLowerCase()),
+    if (bucketFilter !== "all")
+      result = result.filter((m) => bucketOf(m) === bucketFilter);
+    if (machineSearch) {
+      const q = machineSearch.toLowerCase();
+      result = result.filter(
+        (m) =>
+          m.official_name.toLowerCase().includes(q) ||
+          (deviceNo(m.pod_number) ?? "").toLowerCase().includes(q) ||
+          (m.pod_number ?? "").toLowerCase().includes(q),
       );
+    }
     return result;
-  }, [machines, machineSearch, statusFilter]);
+  }, [machines, machineSearch, bucketFilter]);
+
+  // Sectioned by bucket in fixed order; searching force-expands everything.
+  const machineSections = useMemo(() => {
+    const map = new Map<Bucket, Machine[]>();
+    for (const m of filteredMachines) {
+      const b = bucketOf(m);
+      if (!map.has(b)) map.set(b, []);
+      map.get(b)!.push(m);
+    }
+    return BUCKET_ORDER.filter((b) => map.has(b)).map(
+      (b) => [b, map.get(b)!] as const,
+    );
+  }, [filteredMachines]);
+
+  const searchActive = machineSearch.trim().length > 0;
 
   // Grouped aliases
   const aliasGroups = useMemo(() => {
@@ -805,7 +863,7 @@ export default function MachinesPage() {
                   setAddMachineError(null);
                   setShowAddMachine(true);
                 }}
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                className="rounded-lg bg-[#24544a] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1d453d]"
               >
                 + Add
               </button>
@@ -825,7 +883,7 @@ export default function MachinesPage() {
             }}
             className={`flex-1 py-3 text-xs font-medium transition-colors ${
               activeTab === tab
-                ? "border-b-2 border-blue-600 text-blue-600"
+                ? "border-b-2 border-[#24544a] text-[#24544a]"
                 : "text-neutral-500 hover:text-neutral-700"
             }`}
           >
@@ -839,14 +897,16 @@ export default function MachinesPage() {
         <div className="px-4 py-4">
           <div className="mb-3 flex gap-2">
             <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              value={bucketFilter}
+              onChange={(e) =>
+                setBucketFilter(e.target.value as "all" | Bucket)
+              }
               className="rounded-lg border border-neutral-300 px-2 py-2 text-xs dark:border-neutral-600 dark:bg-neutral-900"
             >
-              <option value="all">All statuses</option>
-              {statusOptions.map((s) => (
-                <option key={s} value={s}>
-                  {s}
+              <option value="all">All sections</option>
+              {BUCKET_ORDER.map((b) => (
+                <option key={b} value={b}>
+                  {BUCKET_LABELS[b]}
                 </option>
               ))}
             </select>
@@ -854,7 +914,7 @@ export default function MachinesPage() {
               type="text"
               value={machineSearch}
               onChange={(e) => setMachineSearch(e.target.value)}
-              placeholder="Search machines…"
+              placeholder="Search name or device #…"
               className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
             />
           </div>
@@ -862,14 +922,52 @@ export default function MachinesPage() {
             {filteredMachines.length} machines
           </p>
 
+          {machineSections.map(([bucket, rows]) => {
+            const isCollapsed =
+              !searchActive &&
+              bucketFilter === "all" &&
+              !!collapsedSections[bucket];
+            return (
+              <div key={bucket} className="mb-3">
+                <button
+                  onClick={() =>
+                    setCollapsedSections((p) => ({
+                      ...p,
+                      [bucket]: !p[bucket],
+                    }))
+                  }
+                  className="mb-2 flex w-full items-center justify-between rounded-lg px-3 py-2"
+                  style={{
+                    background: bucket === "Active" ? "#eaf3f0" : "#f5f2ee",
+                  }}
+                >
+                  <span
+                    className="text-xs font-bold uppercase tracking-wider"
+                    style={{
+                      color: bucket === "Active" ? "#24544a" : "#6b6860",
+                    }}
+                  >
+                    {BUCKET_LABELS[bucket]}
+                    <span className="ml-2 font-medium normal-case tracking-normal text-neutral-400">
+                      {rows.length}
+                    </span>
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {isCollapsed ? "▼" : "▲"}
+                  </span>
+                </button>
+                {!isCollapsed && (
           <ul className="space-y-2">
-            {filteredMachines.map((row) => {
+            {rows.map((row) => {
               const isExpanded = machineExpanded === row.machine_id;
               const draft = machineDrafts[row.machine_id];
+              const dev = deviceNo(row.pod_number);
+              const isLegacy = bucket === "Legacy";
               return (
                 <li
                   key={row.machine_id}
                   className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950"
+                  style={isLegacy ? { opacity: 0.6 } : undefined}
                 >
                   <div
                     className="cursor-pointer p-3"
@@ -880,32 +978,43 @@ export default function MachinesPage() {
                         <p className="text-sm font-semibold truncate">
                           {row.official_name}
                         </p>
-                        {row.pod_number && (
-                          <p className="text-xs text-neutral-500">
-                            #{row.pod_number}
-                          </p>
-                        )}
-                        {row.pod_location && (
-                          <p className="text-xs text-neutral-500">
-                            {row.pod_location}
-                          </p>
-                        )}
-                        {row.contact_person && (
-                          <p className="text-xs text-neutral-400">
-                            {row.contact_person}
-                          </p>
-                        )}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          {dev && (
+                            <span
+                              className="rounded px-1.5 py-0.5 font-mono text-xs font-semibold"
+                              style={{
+                                background: "#eaf3f0",
+                                color: "#24544a",
+                              }}
+                            >
+                              #{dev}
+                            </span>
+                          )}
+                          {row.pod_location &&
+                            !["Office", "DIP", "China", "Legacy", "Central"].includes(
+                              row.pod_location,
+                            ) &&
+                            row.pod_location !== row.official_name && (
+                              <span className="text-xs text-neutral-500">
+                                {row.pod_location}
+                              </span>
+                            )}
+                          {row.contact_person && (
+                            <span className="text-xs text-neutral-400">
+                              {row.contact_person}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="shrink-0 text-right">
                         <span
                           className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                            (row.status ?? "").toLowerCase() === "active" ||
-                            row.status === "Online today"
+                            (row.status ?? "").toLowerCase() === "active"
                               ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
                               : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800"
                           }`}
                         >
-                          {row.status ?? "unknown"}
+                          {isLegacy ? "—" : (row.status ?? "unknown")}
                         </span>
                         <p className="mt-1 text-xs text-neutral-400">
                           {isExpanded ? "▲" : "▼"}
@@ -978,6 +1087,10 @@ export default function MachinesPage() {
               );
             })}
           </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -1070,7 +1183,7 @@ export default function MachinesPage() {
                           <button
                             onClick={() => addInlineAlias(officialName)}
                             disabled={addingAlias}
-                            className="rounded bg-blue-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+                            className="rounded bg-[#24544a] px-2 py-1 text-xs text-white disabled:opacity-50"
                           >
                             Add
                           </button>
@@ -1090,7 +1203,7 @@ export default function MachinesPage() {
                             setAddAliasForGroup(officialName);
                             setInlineAlias("");
                           }}
-                          className="mt-2 text-xs text-blue-600 hover:underline"
+                          className="mt-2 text-xs text-[#24544a] hover:underline"
                         >
                           + Add alias
                         </button>
@@ -1187,7 +1300,7 @@ export default function MachinesPage() {
             <button
               onClick={handleAddMachine}
               disabled={addingMachine}
-              className="mt-4 w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="mt-4 w-full rounded-2xl bg-[#24544a] py-3 text-sm font-semibold text-white hover:bg-[#1d453d] disabled:opacity-50"
             >
               {addingMachine ? "Creating…" : "Create Machine"}
             </button>
@@ -1220,7 +1333,7 @@ export default function MachinesPage() {
               </div>
             )}
 
-            <label className="mb-3 flex cursor-pointer flex-col items-center rounded-lg border-2 border-dashed border-neutral-300 py-4 text-sm text-neutral-500 hover:border-blue-400 dark:border-neutral-700">
+            <label className="mb-3 flex cursor-pointer flex-col items-center rounded-lg border-2 border-dashed border-neutral-300 py-4 text-sm text-neutral-500 hover:border-[#24544a] dark:border-neutral-700">
               <span>Choose CSV file</span>
               <input
                 type="file"
@@ -1265,7 +1378,7 @@ export default function MachinesPage() {
                 <button
                   onClick={handleCsvImport}
                   disabled={importingCsv}
-                  className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="w-full rounded-2xl bg-[#24544a] py-3 text-sm font-semibold text-white hover:bg-[#1d453d] disabled:opacity-50"
                 >
                   {importingCsv
                     ? "Importing…"
