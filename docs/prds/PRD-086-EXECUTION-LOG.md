@@ -20,3 +20,7 @@ Run: 2026-07-07, Claude Fable 5. Scope: src/app/(app)/refill/DailyDispatchingTab
 ## Ship
 
 Branch fix/prd-086-dispatch-completion-counter -> merged to main -> pushed (Vercel auto-deploys main; deploy recorded in docs/DEPLOYMENTS.md by the record-prod-deploy workflow). Rollback: revert the merge commit and push.
+
+## CLOSED 2026-07-10
+
+Shipped to prod in 1b0bb8c (deploy recorded 619911e). Board reads terminal-state completion; no follow-ups.

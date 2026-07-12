@@ -1,5 +1,7 @@
 # PRD-088 — A manual refill IS an executed plan: unify the plan clock with the visit clock
 
+Status: CLOSED 2026-07-10 - satisfied by the LIVE get_machine_health (md5 1cf209efedea59e6eec6d228db1c7740 == this PRD's parity migration 20260708171949; no plan_data CTE, no rpo.dispatched). Verified 2026-07-10: 0 mismatches (37 rows, 30 with a visit), days_since_visit untouched. No new migration written. Optional FE: redundant 'last plan {n}d' chip removed on feat/prd-087-ui-uplift (rides that train).
+
 **Date:** 2026-07-08
 **Status:** DRAFT → ready (backend: `get_machine_health()` only; Cody review — canonical reader)
 **Supersedes:** the `dispatched = true` narrowing shipped in PRD-087 (that split manual refills back out).

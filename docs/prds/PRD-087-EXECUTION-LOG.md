@@ -27,3 +27,7 @@ SnapshotTab.tsx relabel deliberately not done this run: the active parallel sess
 ## Rollback
 
 CREATE OR REPLACE get_machine_health() without the `AND rpo.dispatched = true` line (base body md5 96ef4dd57267b1c47de5818faa72f9ce in git history / this migration's header).
+
+## CLOSED 2026-07-10 - SUPERSEDED by PRD-088
+
+The live get_machine_health no longer contains the plan_data CTE or the rpo.dispatched filter; last_plan_* mirrors days_since_visit (PRD-088 body, md5 1cf209efedea59e6eec6d228db1c7740, verified live 2026-07-10).
