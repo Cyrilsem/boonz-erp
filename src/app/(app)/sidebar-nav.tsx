@@ -183,7 +183,11 @@ export default function SidebarNav({
           <div key={section.title ?? `s${si}`} className="mb-1">
             {section.title && (
               <div
-                className={collapsed ? "mx-3 my-2 max-md:block" : "px-4 pt-3 pb-1 max-md:hidden"}
+                className={
+                  collapsed
+                    ? "mx-3 my-2 max-md:block"
+                    : "px-4 pt-3 pb-1 max-md:hidden"
+                }
                 style={
                   collapsed
                     ? { borderTop: "1px solid rgba(255,255,255,0.12)" }

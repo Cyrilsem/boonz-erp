@@ -1610,4 +1610,3 @@ export default function ProductsPage() {
 /* ====================================================================== */
 /* Performance tab — read-only CFO-grade briefing (dark surface)          */
 /* ====================================================================== */
-

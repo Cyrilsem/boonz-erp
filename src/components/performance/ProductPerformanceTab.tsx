@@ -73,7 +73,10 @@ function Sparkline({ values, isNew }: { values: number[]; isNew: boolean }) {
   const max = Math.max(...values, 1);
   const step = values.length > 1 ? w / (values.length - 1) : w;
   const pts = values
-    .map((v, i) => `${(i * step).toFixed(1)},${(h - 3 - (v / max) * (h - 6)).toFixed(1)}`)
+    .map(
+      (v, i) =>
+        `${(i * step).toFixed(1)},${(h - 3 - (v / max) * (h - 6)).toFixed(1)}`,
+    )
     .join(" ");
   return (
     <svg width={w} height={h} style={{ display: "block" }}>
@@ -156,9 +159,7 @@ export default function ProductPerformanceTab() {
     return rows.filter(
       (r) =>
         r.product_name.toLowerCase().includes(q) ||
-        (r.top_machines || []).some((t) =>
-          t.machine.toLowerCase().includes(q),
-        ),
+        (r.top_machines || []).some((t) => t.machine.toLowerCase().includes(q)),
     );
   }, [rows, search]);
 
@@ -404,7 +405,9 @@ export default function ProductPerformanceTab() {
           overflowX: "auto",
         }}
       >
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}
+        >
           <thead>
             <tr
               style={{
@@ -414,23 +417,39 @@ export default function ProductPerformanceTab() {
                 color: "var(--muted)",
               }}
             >
-              <th style={{ textAlign: "left", padding: "10px 8px 10px 16px" }}>#</th>
+              <th style={{ textAlign: "left", padding: "10px 8px 10px 16px" }}>
+                #
+              </th>
               <th style={{ textAlign: "left", padding: "10px 8px" }}>
                 PRODUCT · TOP MACHINES (UNITS, {weeks}W)
               </th>
               {weekDates.map((d) => (
                 <th
                   key={d}
-                  style={{ textAlign: "right", padding: "10px 6px", fontVariantNumeric: "tabular-nums" }}
+                  style={{
+                    textAlign: "right",
+                    padding: "10px 6px",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
                 >
                   {weekLabel(d)}
                 </th>
               ))}
-              <th style={{ textAlign: "right", padding: "10px 6px", color: "var(--muted-2)" }}>
+              <th
+                style={{
+                  textAlign: "right",
+                  padding: "10px 6px",
+                  color: "var(--muted-2)",
+                }}
+              >
                 THIS WK
               </th>
-              <th style={{ textAlign: "center", padding: "10px 6px" }}>TREND</th>
-              <th style={{ textAlign: "right", padding: "10px 16px 10px 6px" }}>AVG/WK</th>
+              <th style={{ textAlign: "center", padding: "10px 6px" }}>
+                TREND
+              </th>
+              <th style={{ textAlign: "right", padding: "10px 16px 10px 6px" }}>
+                AVG/WK
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -438,7 +457,12 @@ export default function ProductPerformanceTab() {
               <tr>
                 <td
                   colSpan={weekDates.length + 5}
-                  style={{ padding: 40, textAlign: "center", color: "var(--muted-2)", fontSize: 13 }}
+                  style={{
+                    padding: 40,
+                    textAlign: "center",
+                    color: "var(--muted-2)",
+                    fontSize: 13,
+                  }}
                 >
                   Loading ledger…
                 </td>
@@ -464,7 +488,12 @@ export default function ProductPerformanceTab() {
               <tr>
                 <td
                   colSpan={weekDates.length + 5}
-                  style={{ padding: 40, textAlign: "center", color: "var(--muted-2)", fontSize: 13 }}
+                  style={{
+                    padding: 40,
+                    textAlign: "center",
+                    color: "var(--muted-2)",
+                    fontSize: 13,
+                  }}
                 >
                   No products match.
                 </td>
@@ -475,16 +504,16 @@ export default function ProductPerformanceTab() {
       </div>
 
       <p style={{ fontSize: 11, color: "var(--muted-2)", margin: "10px 4px" }}>
-        Units / active week · refunds &amp; failed deliveries excluded · products
-        launched mid-window carry a <Badge tone="gold">nW</Badge> badge and are
-        averaged over their active weeks only; pre-launch weeks
-        show as dots. Live from sales data — always current.
+        Units / active week · refunds &amp; failed deliveries excluded ·
+        products launched mid-window carry a <Badge tone="gold">nW</Badge> badge
+        and are averaged over their active weeks only; pre-launch weeks show as
+        dots. Live from sales data — always current.
         {level === "boonz" && (
           <>
             {" "}
             <strong>Boonz-product view:</strong> mixed shelves (Chocolate Bar,
-            Coca Cola Mix, Soft Drinks Mix, Krambals &amp; Zigi…) are split
-            into their Boonz products using each machine&apos;s product-mapping
+            Coca Cola Mix, Soft Drinks Mix, Krambals &amp; Zigi…) are split into
+            their Boonz products using each machine&apos;s product-mapping
             ratios — modeled, since sales don&apos;t record the exact flavor
             picked.
           </>

@@ -81,12 +81,7 @@ export function StatCard({
 }
 
 export type BadgeTone =
-  | "brand"
-  | "gold"
-  | "success"
-  | "warn"
-  | "danger"
-  | "muted";
+  "brand" | "gold" | "success" | "warn" | "danger" | "muted";
 
 const badgeTones: Record<BadgeTone, { bg: string; fg: string }> = {
   brand: { bg: "var(--brand-tint)", fg: "var(--brand)" },
@@ -197,9 +192,7 @@ export function TabBar<T extends string>({
             textTransform: "uppercase",
             color: active === t ? "var(--ink)" : "var(--muted)",
             borderBottom:
-              active === t
-                ? "3px solid var(--ink)"
-                : "3px solid transparent",
+              active === t ? "3px solid var(--ink)" : "3px solid transparent",
             background: "none",
             border: "none",
             borderBottomWidth: 3,

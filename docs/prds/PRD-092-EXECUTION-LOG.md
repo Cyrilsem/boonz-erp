@@ -37,7 +37,9 @@ engine-ADD-sized rows, so no Wave-1 change can bite here. A non-zero delta requi
 engine-ADD fixture (see MASTER-PARKING-LOT program blocker).
 
 ## 2026-07-09 — SHIPPED (side-table + standalone fn, Option 1)
+
 Design ruling adopted: **092 = Option 1 (side-table)**, making it ADDITIVE (no engine edit, no freeze).
+
 - Table `public.refill_action_proposals` (RLS, SELECT-only; DEFINER-fn is the sole writer) +
   standalone `public.compute_nowh_proposals(plan_date)`: turns `pod_refills.clamp_reason='blocked_no_wh'`
   shelves into substitute (find_substitutes_for_shelf w/ pickable WH) / m2m (v_live_shelf_stock surplus)
@@ -45,4 +47,5 @@ Design ruling adopted: **092 = Option 1 (side-table)**, making it ADDITIVE (no e
 - **Validated by row count (07-06): 12/12 blocked shelves -> 12 proposals** (all substitute; no silent empty).
 - STANDALONE: NOT called by any engine; prod table left EMPTY (inert) - call `compute_nowh_proposals(date)`
   on demand. NO `engine_add_pod` edit; Family-A md5 UNCHANGED.
+
 ## Status: SHIPPED (side-table + standalone fn). Engine-wiring parked for freeze window.

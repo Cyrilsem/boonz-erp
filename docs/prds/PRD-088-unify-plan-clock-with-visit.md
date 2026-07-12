@@ -3,7 +3,12 @@
 Status: CLOSED 2026-07-10 - satisfied by the LIVE get_machine_health (md5 1cf209efedea59e6eec6d228db1c7740 == this PRD's parity migration 20260708171949; no plan_data CTE, no rpo.dispatched). Verified 2026-07-10: 0 mismatches (37 rows, 30 with a visit), days_since_visit untouched. No new migration written. Optional FE: redundant 'last plan {n}d' chip removed on feat/prd-087-ui-uplift (rides that train).
 
 **Date:** 2026-07-08
-**Status:** DRAFT → ready (backend: `get_machine_health()` only; Cody review — canonical reader)
+**Status:** ✅ CLOSED — SATISFIED BY LIVE FUNCTION (no migration needed). Verified 2026-07-10: the live
+`get_machine_health` (restructured under PRD-074 v3) already derives BOTH `last_plan_days` and
+`days_since_visit` from `hs.days_since_visit` — 0 mismatches across 37 rows. No `plan_data` CTE and no
+`rpo.dispatched=true` in the live body; PRD-087's narrowing is already superseded. Only the optional FE
+chip removal remains (rides `feat/prd-087-ui-uplift`). See `PRD-088-goal-command.md`.
+_(original spec below, retained for the record)_
 **Supersedes:** the `dispatched = true` narrowing shipped in PRD-087 (that split manual refills back out).
 **Scope:** `get_machine_health()` — how `last_plan_date` / `last_plan_days` are produced. No data change,
 no write-path change, `days_since_visit` untouched.

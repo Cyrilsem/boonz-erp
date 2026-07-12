@@ -13,6 +13,7 @@ Read-only STABLE SECURITY DEFINER reader; no write path, no data, no view, no en
 ## Proof
 
 BEGIN..ROLLBACK dry-run (DO+RAISE), then live re-verify after apply - identical results:
+
 - VOXMCC-1011-0101-B0: days_since_visit 0, last_plan_days 0 (planned == visited)
 - ACTIVATE-2005-0000-W0: days_since_visit 0, last_plan_days 0
 - OMDCW-1021-0100-W0: the goal named it "dispatched today" but live data shows its 2026-07-08 plan has 13 approved rows and ZERO dispatch legs - approved, never pushed; its visit 0d is a manual refill. Post-fix it correctly reads last_plan 2026-07-02 (its last EXECUTED plan, 6d) while last visit stays 0d. This is exactly acceptance criterion #2 (approved-only plans no longer inflate the plan clock) and doubles as the required approved-but-undispatched test machine (also verified: MC-2004 max approved 07-07 vs dispatched 07-06; HUAWEI-2003 same shape; JET-1016 07-02 vs 06-29).

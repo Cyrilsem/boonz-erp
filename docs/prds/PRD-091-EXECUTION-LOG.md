@@ -44,10 +44,13 @@ engine-ADD-sized rows, so no Wave-1 change can bite here. A non-zero delta requi
 engine-ADD fixture (see MASTER-PARKING-LOT program blocker).
 
 ## 2026-07-09 — SHIPPED (signal-only, Option 3)
+
 Design ruling adopted: **091 = Option 3 (signal-only)**, making it ADDITIVE (no engine edit, no freeze).
+
 - `refill_policy_params.expiry_risk_days` (default 7) + view `public.v_shelf_expiry_risk`
   (machine_id, shelf_id, pod_product_id, days_to_expiry_min, expiry_risk) from
   `v_pod_inventory_latest` + `slot_lifecycle`. Cody PASS. **Live: 80 shelves expiry_risk=true.**
 - Inert: reads only; NO `engine_add_pod` edit; Family-A md5 UNCHANGED (add=b91c530b/swap=90f26896/pick=48cc1844).
 - Consumed later by **PRD-095** (expiry-swap trigger, held for the engine-freeze window).
+
 ## Status: SHIPPED (signal-only). Engine-wiring parked for freeze window (PRD-095).

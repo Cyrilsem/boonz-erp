@@ -45,13 +45,13 @@ UPDATE public.warehouse_inventory
 
 It sets `app.provenance_reason='dispatch_return'` but **never sets `app.source_event_id`**, and the row's
 own `source_event_id` is left untouched. So after the flip the row has a non-whitelisted reason
-(`dispatch_return`) — and the constraint then *requires* `source_event_id IS NOT NULL`.
+(`dispatch_return`) — and the constraint then _requires_ `source_event_id IS NOT NULL`.
 
 - Returns that came **through the dispatch pipeline** (`return_dispatch_line`, batch
   `REMOVE-RECEIVE-2026-07-xx`) already carry a `source_event_id` → the flip passes. That's why most
   approvals work.
 - Returns that are **manual / legacy** carry `provenance_reason='unknown_pre_migration'` (whitelisted)
-  with `source_event_id = NULL`. Flipping them from a *whitelisted* reason to the *non-whitelisted*
+  with `source_event_id = NULL`. Flipping them from a _whitelisted_ reason to the _non-whitelisted_
   `dispatch_return` while the event id is still NULL trips the constraint. Confirmed on the two failing
   Barebells Hazelnut rows: `6cb1b7b2…` (exp 2026-12-12) and `8f24dda3…` (exp 2026-12-22), both
   `unknown_pre_migration` + `source_event_id = NULL`.

@@ -1,38 +1,51 @@
-# /goal — PRD-088 unify plan clock with visit clock (run once)
+# /goal — Close the dashboard-clocks + return-provenance chapter (PRD-086/087/088/099)
 
-Paste as your `/goal` in Claude Code. **AUTO MODE**: implement, verify, ship. Backend = one function
-(`get_machine_health`); route past **Cody** (canonical reader). Supersedes PRD-087's `dispatched=true`
-narrowing. No data change, no write path, `days_since_visit`/`v_machine_health_signals` untouched.
-Project ref: eizcexopcuoycuosittm.
+Paste as your `/goal` in Claude Code. **AUTO MODE**: verify, ship, close. Mostly bookkeeping — the only
+code change is merging an already-committed branch and one optional FE chip removal. Project ref:
+eizcexopcuoycuosittm.
 
 ---
 
-**GOAL:** A manual refill and a dispatched plan are the same servicing event, so `last_plan` must equal
-`last_visit` for both. Make `get_machine_health.last_plan_date/last_plan_days` mirror the canonical
-service clock (`days_since_visit`). Spec: `docs/prds/PRD-088-unify-plan-clock-with-visit.md`.
+**GOAL:** Close out the dashboard-clock work (086/087/088) and the return-provenance fix (099).
+Key finding (verified live 2026-07-10): **PRD-088's backend outcome is already live.**
+`get_machine_health` was restructured (PRD-074 v3) so both output columns already derive from
+`v_machine_health_signals.days_since_visit` (`hs` join):
+
+- `last_plan_days = COALESCE(hs.days_since_visit, -1)::int`
+- `days_since_visit = COALESCE(hs.days_since_visit, -1)::int` (identical)
+- `last_plan_date = CASE WHEN hs.days_since_visit < 0 THEN NULL ELSE CURRENT_DATE - hs.days_since_visit END`
+
+There is **no `plan_data` CTE and no `rpo.dispatched=true`** in the live body — PRD-087's narrowing is
+already superseded by this unification. So **do NOT write a PRD-088 migration.** Verify + close only.
 
 **Steps:**
 
-1. Read the PRD in full. Note it reverses the PRD-087 `AND rpo.dispatched = true` approach.
-2. `CREATE OR REPLACE FUNCTION public.get_machine_health()`:
-   - Drop the `plan_data` CTE and its `pld` join.
-   - Replace the two output columns so they derive from the existing `hs` join:
-     `last_plan_date := CASE WHEN hs.days_since_visit IS NULL OR hs.days_since_visit < 0 THEN NULL ELSE (CURRENT_DATE - hs.days_since_visit) END`
-     and `last_plan_days := COALESCE(hs.days_since_visit, -1)::int`.
-   - Everything else byte-identical. Run past Cody. Use the guarded-transform apply (verify live base
-     md5, verify result md5 = committed git file) to survive the concurrent `feat/prd-087-ui-uplift`
-     session; re-check the function md5 after applying in case that session re-applies.
-3. Verify (live SQL, must match dry-run):
-   - `select count(*) from get_machine_health() where days_since_visit >= 0 and last_plan_days <> days_since_visit;` → **0**.
-   - `select machine_name, days_since_visit, last_plan_days from get_machine_health() where machine_name in ('ADDMIND-1007-0000-W0','HUAWEI-2003-0000-B1','MINDSHARE-1009-4500-O1');` → last_plan_days == days_since_visit (1 == 1).
-   - Fleet-wide `days_since_visit` md5 identical before vs after.
-4. Apply the migration (MCP or `supabase db`), commit function + PRD + `PRD-088-EXECUTION-LOG.md` on
-   `fix/prd-088-unify-plan-clock`, push to main. Backend-only → no Vercel deploy. Report commit SHA +
-   migration version.
-5. (Optional, hand to the ui-uplift branch) remove the now-redundant `last plan {n}d` chip in
-   `SnapshotTab.tsx` (~L1670).
+1. **Verify PRD-088 (no migration):**
+   `select count(*) filter (where days_since_visit >= 0 and last_plan_days <> days_since_visit) as mismatches from get_machine_health();`
+   → must be **0** (was 0 across 37 rows / 30 with a visit on 2026-07-10). If 0, PRD-088 acceptance is met
+   by the live function — record the evidence, no code change.
 
-**Acceptance:** `last_plan_days == days_since_visit` for every machine; ADDMIND/HUAWEI/MINDSHARE read the
-same on both clocks; `days_since_visit` unchanged; zero data changes.
+2. **Merge PRD-099** (`approve_return` provenance fix). Branch `fix/prd-099-approve-return-provenance`
+   (commit `e693ffe`) is committed + pushed, Cody PASS, tsc green. The reconcile that was blocking merge
+   is **DONE** (2026-07-10, CS chose "discard shells": the two Barebells Hazelnut quarantine rows
+   `6cb1b7b2` + `8f24dda3` were `reject_return`'d; units remain in WH_CENTRAL batch `785bd939`; no
+   double-count). Open the PR and merge to `main`. No further data action.
 
-**Rollback:** `CREATE OR REPLACE` restoring the prior `plan_data` CTE + `pld` columns.
+3. **FE chip (optional, cosmetic):** on `feat/prd-087-ui-uplift`, remove the now-redundant `last plan {n}d`
+   chip in `src/app/(app)/refill/SnapshotTab.tsx` (~L1670) — it always equals `last visit {n}d` now. Leave
+   the single `last visit {n}d`. Correctness doesn't depend on this; let it ride the ui-uplift train.
+
+4. **Close the docs:** update EXECUTION-LOGs and set Status:
+   - PRD-086 → CLOSED (shipped `1b0bb8c`).
+   - PRD-087 → CLOSED as **SUPERSEDED by PRD-088** (its `dispatched=true` change is no longer in the live
+     function; the clock-unification is what shipped).
+   - PRD-088 → CLOSED — **satisfied by live `get_machine_health` (PRD-074 v3); 0 mismatches verified
+     2026-07-10; no migration required.** Optional FE chip noted.
+   - PRD-099 → CLOSED — merged to main; reconcile done (reject shells; units in batch `785bd939`).
+     Commit the EXECUTION-LOG/PRD status updates. Report the merge SHA(s).
+
+**Acceptance:** PRD-099 on `main`; 088 mismatch count = 0 recorded; 086/087/088/099 marked CLOSED; no new
+migration written for 088; `days_since_visit` untouched.
+
+**Rollback:** docs-only for 088 (nothing to undo). PRD-099 rollback = `CREATE OR REPLACE approve_return`
+reverting the two added lines (no data undo).

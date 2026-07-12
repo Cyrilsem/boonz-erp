@@ -38,6 +38,7 @@ placement source). Standalone-validated: **19 niche pod_products** (footprint â‰
 ## Status: SHIPPED DARK. Enable = CS sets add_niche_fill_v1=on after a real engine-sized delta review.
 
 ## REAL delta vs golden_v2 (rich 17-machine fixture, 2026-07-09)
+
 Baseline-vs-candidate rollback on engine-dense 2026-07-01 (235 rows, 17 machines): **delta = 0**,
 conservation green. NOT a fixture artifact this time â€” the trigger conditions don't occur on real
 data (velocity>0 shelves already sized above the floors; under-faced shelves are dead/excluded).

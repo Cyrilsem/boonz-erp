@@ -68,6 +68,7 @@ Multiple sessions are editing Family-A engines concurrently (the 086/087/088 wor
 - **093 seed:** VOX Aquafina/Ice Tea/M&M candidates PREPARED for CS confirmation (see PRD-093-EXECUTION-LOG). Not tagged.
 
 ### HELD for the engine-freeze window (no Family-A edits until then)
+
 - **094** product-anchored swap caps — needs Dara re-spec vs current `engine_swap_pod`.
 - **095** expiry-risk swap trigger — consumes the 091 `v_shelf_expiry_risk` signal.
 - **096** within-pod relocation — needs the hv→lv pairing rule (capacity_mismatch is per-shelf today).

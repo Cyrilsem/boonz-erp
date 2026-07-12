@@ -25,7 +25,7 @@ G. BLOCKER (failed test, unexpected diff, new conservation violation, missing de
 WAVE 0 COMPLETE when: all 10 SHIPPED, conservation shows no new violations vs baseline, diff_vs_golden shows only intended deltas.
 
 THEN (LOCKED until Wave 0 COMPLETE; PRDs must be authored before running):
-Wave 1 ADD (cases 2,3,6,12,14) · Wave 2 SWAP (4,5,7,10,R7,R3) · Wave 3 STRATEGIC (8,9) · Wave 4 FE/FLOW (add-swap-in-pack, dispatch-edit UX, drift tooling, 8pm advisory) · Wave 5 HARDENING (determinism, thresholds, base_stock default, config, observability).
+Wave 1 ADD = PRD-089-093 AUTHORED — run docs/prds/WAVE1-OVERNIGHT-goal-command.md (ships DARK, flags OFF until CS reviews each delta) · Wave 2 SWAP (4,5,7,10,R7,R3) · Wave 3 STRATEGIC (8,9) · Wave 4 FE/FLOW (add-swap-in-pack, dispatch-edit UX, drift tooling, 8pm advisory) · Wave 5 HARDENING (determinism, thresholds, base_stock default, config, observability).
 If a wave's PRDs are NOT authored -> HARD STOP + request authoring. Do NOT invent specs or acceptance criteria.
 
 GLOBAL GATES: branch-before-prod always; flag-gate always; referee green before enabling any flag; Cody signs every * migration; forward-only migrations; npm run build green; parks never block the loop.

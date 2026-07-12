@@ -9,6 +9,7 @@
 ## 1. Audit findings (2026-07-08)
 
 **Navigation** — 16 flat sidebar items (`src/app/(app)/sidebar-nav.tsx`). All targets exist. Issues:
+
 - `hiddenByRole.finance` references "Pods" — not a nav item (dead config).
 - Orphan pages reachable but not in nav: `/app/pods`, `/refill/drift`, `/refill/route` (stub placeholder), 6× `/admin/*` (driver-additions is linked; feedback-inbox, inventory-sessions, machines, sim-cards, wh-quarantine are not), `/chat`, `/portal`, `/consumers_vox`, root `/tracker`.
 - `/refill/route` is an empty stub → delete.
@@ -55,7 +56,8 @@ Removals: `/refill/route` stub deleted; "Pods" ghost in hiddenByRole fixed; `/ap
 
 ## 3. Product Performance (new, auto-updating)
 
-Live replica of *Boonz_Full_Catalogue_Velocity_NonVOX_Jun2026_v2.pdf* as a tab inside Performance:
+Live replica of _Boonz_Full_Catalogue_Velocity_NonVOX_Jun2026_v2.pdf_ as a tab inside Performance:
+
 - **Basis:** units/active-week (products active < full window averaged over active weeks, `nW` badge; pre-launch weeks shown as dots). Refunds & sensor errors excluded.
 - **Hero band:** total units, fleet pace/wk, active SKUs, top SKU share.
 - **Ledger:** full ranked SKU table — rank, product, top-3 machines (units, window) + machine count, per-week columns, sparkline trend, avg/wk. Editorial section breaks (Heavy Rotation / Upper Middle / Lower Middle / Long Tail).
@@ -77,13 +79,13 @@ Live replica of *Boonz_Full_Catalogue_Velocity_NonVOX_Jun2026_v2.pdf* as a tab i
 
 ## 6. Phasing
 
-| Phase | Content | Risk |
-|---|---|---|
-| **P1 Quick wins** | delete `/refill/route`, fix hiddenByRole, remove sales summary, auto-load heatmap, design tokens in globals.css | Low |
-| **P2 Nav regroup** | grouped sidebar + role gating + surface admin orphans | Low-med |
-| **P3 Refill split** | extract SnapshotTab, thin shell, no behavior change beyond P1 items | Med |
-| **P4 Product Performance** | view/RPC (Dara+Cody) + FE tab | Med |
-| **P5 Reskin pass** | Payments palette, shared primitives applied to Dashboard/Machines/Inventory | Low |
+| Phase                      | Content                                                                                                         | Risk    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
+| **P1 Quick wins**          | delete `/refill/route`, fix hiddenByRole, remove sales summary, auto-load heatmap, design tokens in globals.css | Low     |
+| **P2 Nav regroup**         | grouped sidebar + role gating + surface admin orphans                                                           | Low-med |
+| **P3 Refill split**        | extract SnapshotTab, thin shell, no behavior change beyond P1 items                                             | Med     |
+| **P4 Product Performance** | view/RPC (Dara+Cody) + FE tab                                                                                   | Med     |
+| **P5 Reskin pass**         | Payments palette, shared primitives applied to Dashboard/Machines/Inventory                                     | Low     |
 
 Each phase = separate commits on the branch; preview redeployed per phase; Performance/Consumers verified pixel-diff-level for logic parity.
 
@@ -97,25 +99,28 @@ Backend engines, RPCs with writes, field/driver app (`/field/*`), portal, chat, 
 
 All five phases built and committed on `feat/prd-087-ui-uplift` (branched from main @52e53d2):
 
-| Commit | Phase | Content |
-|---|---|---|
-| 97a5533 | P1+P2 | Sales summary removed from Stock Snapshot; refill page server-prefetch (`page.tsx` server component + `RefillPageClient` seeded with `initialData`, heatmap renders with the page); `/refill/route` stub deleted; design tokens in `globals.css` (`--brand/--gold/--ink/--line/--chart-1..6`, exposed via `@theme inline`); grouped sidebar (Dashboard + Operations/Supply/Commercial/Admin), orphans surfaced (Pods, Drift Monitor, Feedback Inbox, Inventory Sessions, WH Quarantine), ghost "Pods" role entry fixed, gold wordmark |
-| 0a4a803 | P3 | Refill monolith split: `SnapshotTab.tsx` (2513 lines, stays mounted via display:none), shell 2640→176 lines; planning tab machine names via `onMachineNamesChange`; zero behavior change |
-| ea65a2a + 093cc0a | P4 | `get_product_velocity_ledger(p_weeks,p_scope)` RPC (STABLE, SECURITY DEFINER, pinned search_path, read-only; active-week basis, refund-excluded, last N complete Dubai weeks, current partial week separate; scopes non_vox/vox/all/venue_group) + Product Performance tab in Performance page (hero StatCards, ranked ledger, weekly columns, sparklines, nW badges, pre-launch dots, editorial section breaks, search, filters, CSV export) |
-| e2bff3b | P5 | Payments tab retint to brand chart palette; Consumers VOX waterfall/legend/KPI/banner retint (visual-only, lint-identical); `src/components/ui/primitives.tsx` (Card, StatCard, Badge, SectionHeading); migration backfill for git parity |
+| Commit            | Phase | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 97a5533           | P1+P2 | Sales summary removed from Stock Snapshot; refill page server-prefetch (`page.tsx` server component + `RefillPageClient` seeded with `initialData`, heatmap renders with the page); `/refill/route` stub deleted; design tokens in `globals.css` (`--brand/--gold/--ink/--line/--chart-1..6`, exposed via `@theme inline`); grouped sidebar (Dashboard + Operations/Supply/Commercial/Admin), orphans surfaced (Pods, Drift Monitor, Feedback Inbox, Inventory Sessions, WH Quarantine), ghost "Pods" role entry fixed, gold wordmark |
+| 0a4a803           | P3    | Refill monolith split: `SnapshotTab.tsx` (2513 lines, stays mounted via display:none), shell 2640→176 lines; planning tab machine names via `onMachineNamesChange`; zero behavior change                                                                                                                                                                                                                                                                                                                                              |
+| ea65a2a + 093cc0a | P4    | `get_product_velocity_ledger(p_weeks,p_scope)` RPC (STABLE, SECURITY DEFINER, pinned search_path, read-only; active-week basis, refund-excluded, last N complete Dubai weeks, current partial week separate; scopes non_vox/vox/all/venue_group) + Product Performance tab in Performance page (hero StatCards, ranked ledger, weekly columns, sparklines, nW badges, pre-launch dots, editorial section breaks, search, filters, CSV export)                                                                                         |
+| e2bff3b           | P5    | Payments tab retint to brand chart palette; Consumers VOX waterfall/legend/KPI/banner retint (visual-only, lint-identical); `src/components/ui/primitives.tsx` (Card, StatCard, Badge, SectionHeading); migration backfill for git parity                                                                                                                                                                                                                                                                                             |
 
 **Key data findings (P4):**
+
 - "Non-VOX" in the Product Desk catalogue = machines NOT named `VOX*`. ACTIVATE/MPMCC/IFLYMCC are `venue_group='VOX'` but ARE in the non-VOX report scope — scope filter is name-based, not venue_group-based.
 - Live RPC reproduces the Jun-2026 PDF week-for-week (Aquafina 189/191/226/197…; total 8,282 vs PDF 8,239 — delta = the manual Plaay-Truffle sensor adjustment).
 - v2 fix: window = last N complete weeks; in-progress week shown as "THIS WK" column, excluded from avg.
 
 **Migrations (applied to prod via MCP + backfilled to git, versions match remote):**
+
 - `20260708071911_prd087_product_velocity_ledger.sql`
 - `20260708072000_prd087_velocity_ledger_v2_complete_weeks.sql`
 
 **Verification:** `tsc --noEmit` clean after every phase; ESLint clean on all new/modified files (pre-existing errors in performance/page.tsx (11× no-explicit-any, lines 4600+) and consumers/client.tsx (26, identical before/after retint) untouched); RPC output validated against the PDF.
 
 **Remaining for CS:**
+
 1. `git push -u origin feat/prd-087-ui-uplift` (sandbox cannot reach GitHub) → Vercel preview → click-through → merge to main.
 2. Pre-existing dirty docs files (RPC_REGISTRY.md + 3 EXECUTION-LOGs) left uncommitted, as found.
 3. Optional follow-ups: RPC_REGISTRY entry for get_product_velocity_ledger; apply primitives to more pages opportunistically.

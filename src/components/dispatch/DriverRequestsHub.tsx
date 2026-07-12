@@ -92,7 +92,9 @@ export default function DriverRequestsHub() {
         map.set(key, { machine: key, additions: [], feedback: [] });
       return map.get(key)!;
     };
-    (additions ?? []).forEach((a) => get(a.machine_name ?? "—").additions.push(a));
+    (additions ?? []).forEach((a) =>
+      get(a.machine_name ?? "—").additions.push(a),
+    );
     (feedback ?? []).forEach((f) =>
       get(f.machine_official_name ?? f.machine_id.slice(0, 8)).feedback.push(f),
     );
@@ -149,7 +151,9 @@ export default function DriverRequestsHub() {
           p_reason: "bulk/auto-approve policy (PRD-087)",
         });
         if (error) {
-          setErr(`${error.message} (stopped after ${done.length}/${rows.length})`);
+          setErr(
+            `${error.message} (stopped after ${done.length}/${rows.length})`,
+          );
           break;
         }
         done.push(row.dispatch_id);
@@ -186,7 +190,9 @@ export default function DriverRequestsHub() {
         <Badge tone={pendingCount > 0 ? "warn" : "success"}>
           {pendingCount} addition{pendingCount === 1 ? "" : "s"} pending
         </Badge>
-        <Badge tone="muted">{feedback?.length ?? 0} active feedback notes</Badge>
+        <Badge tone="muted">
+          {feedback?.length ?? 0} active feedback notes
+        </Badge>
         <div style={{ flex: 1 }} />
         {pendingCount > 0 && (
           <button
@@ -278,7 +284,9 @@ export default function DriverRequestsHub() {
                 background: "var(--surface-2)",
               }}
             >
-              <span style={{ fontWeight: 800, fontSize: 14, color: "var(--ink)" }}>
+              <span
+                style={{ fontWeight: 800, fontSize: 14, color: "var(--ink)" }}
+              >
                 {g.machine}
               </span>
               {g.additions.length > 0 && (

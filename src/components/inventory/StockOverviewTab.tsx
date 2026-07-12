@@ -66,7 +66,9 @@ export default function StockOverviewTab() {
       machine: rows.reduce((a, r) => a + r.machine_units, 0),
       wh: rows.reduce((a, r) => a + r.wh_units, 0),
       products: rows.length,
-      lowWh: rows.filter((r) => r.machine_units > 0 && r.wh_units < r.machine_units * 0.5).length,
+      lowWh: rows.filter(
+        (r) => r.machine_units > 0 && r.wh_units < r.machine_units * 0.5,
+      ).length,
     }),
     [rows],
   );
@@ -204,7 +206,9 @@ export default function StockOverviewTab() {
           overflowX: "auto",
         }}
       >
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}
+        >
           <thead>
             <tr
               style={{
@@ -218,7 +222,9 @@ export default function StockOverviewTab() {
               <th style={{ textAlign: "left", padding: "10px 8px 10px 16px" }}>
                 Product
               </th>
-              <th style={{ textAlign: "left", padding: "10px 8px", width: 220 }}>
+              <th
+                style={{ textAlign: "left", padding: "10px 8px", width: 220 }}
+              >
                 Split
               </th>
               <th style={{ textAlign: "right", padding: "10px 8px" }}>
@@ -241,7 +247,12 @@ export default function StockOverviewTab() {
               <tr>
                 <td
                   colSpan={7}
-                  style={{ padding: 40, textAlign: "center", color: "var(--muted-2)", fontSize: 13 }}
+                  style={{
+                    padding: 40,
+                    textAlign: "center",
+                    color: "var(--muted-2)",
+                    fontSize: 13,
+                  }}
                 >
                   Loading stock overview…
                 </td>
@@ -250,7 +261,12 @@ export default function StockOverviewTab() {
               <tr>
                 <td
                   colSpan={7}
-                  style={{ padding: 40, textAlign: "center", color: "var(--muted-2)", fontSize: 13 }}
+                  style={{
+                    padding: 40,
+                    textAlign: "center",
+                    color: "var(--muted-2)",
+                    fontSize: 13,
+                  }}
                 >
                   No products match.
                 </td>
@@ -259,14 +275,24 @@ export default function StockOverviewTab() {
               visible.map((r) => {
                 const thin =
                   r.machine_units > 0 && r.wh_units < r.machine_units * 0.5;
-                const mPct = (r.machine_units / Math.max(r.total_units, 1)) * 100;
+                const mPct =
+                  (r.machine_units / Math.max(r.total_units, 1)) * 100;
                 const barW = (r.total_units / maxTotal) * 100;
                 return (
                   <tr
                     key={r.boonz_product_id}
-                    style={{ borderBottom: "1px solid var(--line)", fontSize: 13 }}
+                    style={{
+                      borderBottom: "1px solid var(--line)",
+                      fontSize: 13,
+                    }}
                   >
-                    <td style={{ padding: "9px 8px 9px 16px", fontWeight: 600, color: "var(--ink)" }}>
+                    <td
+                      style={{
+                        padding: "9px 8px 9px 16px",
+                        fontWeight: 600,
+                        color: "var(--ink)",
+                      }}
+                    >
                       {r.product_name}
                       {thin && (
                         <span style={{ marginLeft: 6 }}>
@@ -288,25 +314,67 @@ export default function StockOverviewTab() {
                         }}
                         title={`${r.machine_units} in machines · ${r.wh_units} in WH`}
                       >
-                        <div style={{ width: `${mPct}%`, background: "var(--brand)" }} />
+                        <div
+                          style={{
+                            width: `${mPct}%`,
+                            background: "var(--brand)",
+                          }}
+                        />
                         <div style={{ flex: 1, background: "var(--gold)" }} />
                       </div>
                     </td>
-                    <td style={{ textAlign: "right", padding: "9px 8px", fontVariantNumeric: "tabular-nums", color: "var(--brand)", fontWeight: 700 }}>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "9px 8px",
+                        fontVariantNumeric: "tabular-nums",
+                        color: "var(--brand)",
+                        fontWeight: 700,
+                      }}
+                    >
                       {r.machine_units.toLocaleString()}
                     </td>
-                    <td style={{ textAlign: "right", padding: "9px 8px", fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "9px 8px",
+                        fontVariantNumeric: "tabular-nums",
+                        color: "var(--muted)",
+                      }}
+                    >
                       {r.machine_count}
                     </td>
-                    <td style={{ textAlign: "right", padding: "9px 8px", fontVariantNumeric: "tabular-nums", color: thin ? "var(--danger)" : "var(--warn)", fontWeight: 700 }}>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "9px 8px",
+                        fontVariantNumeric: "tabular-nums",
+                        color: thin ? "var(--danger)" : "var(--warn)",
+                        fontWeight: 700,
+                      }}
+                    >
                       {r.wh_units.toLocaleString()}
                     </td>
-                    <td style={{ padding: "9px 8px", fontSize: 11, color: "var(--muted)" }}>
+                    <td
+                      style={{
+                        padding: "9px 8px",
+                        fontSize: 11,
+                        color: "var(--muted)",
+                      }}
+                    >
                       {Object.entries(r.wh_by_warehouse || {})
                         .map(([w, u]) => `${w} ${Number(u).toLocaleString()}`)
                         .join(" · ") || "—"}
                     </td>
-                    <td style={{ textAlign: "right", padding: "9px 16px 9px 8px", fontVariantNumeric: "tabular-nums", fontWeight: 800, color: "var(--ink)" }}>
+                    <td
+                      style={{
+                        textAlign: "right",
+                        padding: "9px 16px 9px 8px",
+                        fontVariantNumeric: "tabular-nums",
+                        fontWeight: 800,
+                        color: "var(--ink)",
+                      }}
+                    >
                       {r.total_units.toLocaleString()}
                     </td>
                   </tr>

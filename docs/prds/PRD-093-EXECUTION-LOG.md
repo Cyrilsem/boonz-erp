@@ -45,12 +45,14 @@ data (velocity>0 shelves already sized above the floors; under-faced shelves are
 089/090 correctly implemented but currently inert. See GOLDEN-V2-EXECUTION-LOG.md.
 
 ## 2026-07-09 — Consignment seed PREPARED (NOT enabled)
+
 Per WS-093seed: candidate `is_consignment=true` list for **CS confirmation** (NOT applied; column exists from Part A).
 VOX machines carrying these: VOXMCC-1005-0201-B0, VOXMCC-1011-0101-B0, VOXMM-1013-0101-B0.
 Candidate boonz_products (venue-supplied):
+
 - Aquafina - Regular (`4fb8965d`)
 - Ice Tea - Peach (`de915c25`)
 - M&M - Chocolate Nuts (`1a8a2006`) / M&M Bag - Brown (`d19fbbbd`) / M&M Bag - Yellow (`e112924f`) / M&M Chocolate Bag - Regular (`13177887`)
-**CS to confirm**: which of these to tag, and whether product-level (`is_consignment`) or venue-scoped
-(`consignment_venue_id` = the VOX venue) — since M&M may be stocked elsewhere. Then Part B engine gating
-(behind `consignment_v1`) is built in the freeze window. NO tagging applied here.
+  **CS to confirm**: which of these to tag, and whether product-level (`is_consignment`) or venue-scoped
+  (`consignment_venue_id` = the VOX venue) — since M&M may be stocked elsewhere. Then Part B engine gating
+  (behind `consignment_v1`) is built in the freeze window. NO tagging applied here.

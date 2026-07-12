@@ -12,7 +12,7 @@
 
 **One module: Performance.** Lifecycle stops being a separate nav entry; its stage/signal logic becomes a "Lifecycle" lens inside the Product Performance ledger:
 
-- **Level toggle: Pod product | Boonz product.** Pod level uses the name-normalized sales ledger (product_name_conventions + weimi_product_alias tier). Boonz level distributes pod sales to SKUs via product_mapping split_pct (normalized — the mix_weight lesson from the stitch bug), flagged as *modeled* where a shelf is multi-SKU.
+- **Level toggle: Pod product | Boonz product.** Pod level uses the name-normalized sales ledger (product_name_conventions + weimi_product_alias tier). Boonz level distributes pod sales to SKUs via product_mapping split_pct (normalized — the mix_weight lesson from the stitch bug), flagged as _modeled_ where a shelf is multi-SKU.
 - **Lifecycle columns on the ledger:** stage (LAUNCH / RAMPING / CORE / WANING / WIND-DOWN / DEAD), weeks-in-stage, trend slope, distribution (machines carrying), and a "data quality" chip when the row is affected by drifted names or recent phantom archives.
 - **Phantom hygiene as a precondition:** stage math reads v_live_shelf_stock (alias-aware, PRD-075d) — never raw planogram/pod_inventory; rows flagged by v_pod_phantom_stock are excluded from supply-side signals.
 - **Stage rules recomputed on active-week velocity** (same basis as the ledger, refund-excluded) instead of the current lifecycle score — one number family across the app.

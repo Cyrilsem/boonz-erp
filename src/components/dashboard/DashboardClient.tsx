@@ -957,10 +957,10 @@ export default function DashboardClient({
       >
         Sales {new Date(sales.generated_at).toLocaleTimeString()} · ops snapshot
         cached up to 60s — refresh the page for live numbers. Sales are
-        refund-excluded. VOX toggle scopes by venue group (VOX cinemas +
-        sister pods ACTIVATE / IFLY / MPMCC). Default rate = canonical
-        PRD-023h: Adyen-matched gap ÷ matched sales, refunds and cash
-        recovery credited. Expiry & inventory are fleet-wide.
+        refund-excluded. VOX toggle scopes by venue group (VOX cinemas + sister
+        pods ACTIVATE / IFLY / MPMCC). Default rate = canonical PRD-023h:
+        Adyen-matched gap ÷ matched sales, refunds and cash recovery credited.
+        Expiry & inventory are fleet-wide.
       </p>
     </div>
   );

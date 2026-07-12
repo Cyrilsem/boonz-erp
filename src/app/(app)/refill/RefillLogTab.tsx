@@ -49,7 +49,8 @@ function outcomeOf(r: LogRow): Outcome {
   if (r.cancelled) return "cancelled";
   if (r.skipped) return "skipped";
   if (r.returned) return "returned";
-  if (r.pack_outcome === "not_filled" || r.not_filled_reason) return "not_filled";
+  if (r.pack_outcome === "not_filled" || r.not_filled_reason)
+    return "not_filled";
   if (r.dispatched) return "dispatched";
   if (r.packed) return "packed";
   return "pending";
@@ -164,19 +165,30 @@ export default function RefillLogTab() {
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
-      if (machineFilter !== "all" && r.machine_id !== machineFilter) return false;
-      if (outcomeFilter !== "all" && outcomeOf(r) !== outcomeFilter) return false;
+      if (machineFilter !== "all" && r.machine_id !== machineFilter)
+        return false;
+      if (outcomeFilter !== "all" && outcomeOf(r) !== outcomeFilter)
+        return false;
       if (q) {
         const prod =
           (r.boonz_product_id ? productNames[r.boonz_product_id] : "") ||
           (r.pod_product_id ? podNames[r.pod_product_id] : "") ||
           "";
-        const hay = `${prod} ${machineNames[r.machine_id] ?? ""} ${r.comment ?? ""} ${r.action ?? ""}`.toLowerCase();
+        const hay =
+          `${prod} ${machineNames[r.machine_id] ?? ""} ${r.comment ?? ""} ${r.action ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [rows, machineFilter, outcomeFilter, search, productNames, podNames, machineNames]);
+  }, [
+    rows,
+    machineFilter,
+    outcomeFilter,
+    search,
+    productNames,
+    podNames,
+    machineNames,
+  ]);
 
   // date -> machine -> rows
   const grouped = useMemo(() => {
@@ -192,8 +204,13 @@ export default function RefillLogTab() {
 
   const stats = useMemo(() => {
     const s: Record<Outcome, number> = {
-      dispatched: 0, packed: 0, not_filled: 0, returned: 0,
-      skipped: 0, cancelled: 0, pending: 0,
+      dispatched: 0,
+      packed: 0,
+      not_filled: 0,
+      returned: 0,
+      skipped: 0,
+      cancelled: 0,
+      pending: 0,
     };
     visible.forEach((r) => s[outcomeOf(r)]++);
     return s;
@@ -209,37 +226,72 @@ export default function RefillLogTab() {
             setDays(Number(e.target.value));
             setRows(null);
           }}
-          style={{ padding: "7px 10px", fontSize: 13, border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", fontFamily: font }}
+          style={{
+            padding: "7px 10px",
+            fontSize: 13,
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            background: "var(--surface)",
+            fontFamily: font,
+          }}
         >
           {RANGES.map((d) => (
-            <option key={d} value={d}>Last {d} days</option>
+            <option key={d} value={d}>
+              Last {d} days
+            </option>
           ))}
         </select>
         <select
           value={machineFilter}
           onChange={(e) => setMachineFilter(e.target.value)}
-          style={{ padding: "7px 10px", fontSize: 13, border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", fontFamily: font, maxWidth: 220 }}
+          style={{
+            padding: "7px 10px",
+            fontSize: 13,
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            background: "var(--surface)",
+            fontFamily: font,
+            maxWidth: 220,
+          }}
         >
           <option value="all">All machines</option>
           {machinesInLog.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
           ))}
         </select>
         <select
           value={outcomeFilter}
           onChange={(e) => setOutcomeFilter(e.target.value as "all" | Outcome)}
-          style={{ padding: "7px 10px", fontSize: 13, border: "1px solid var(--line)", borderRadius: 8, background: "var(--surface)", fontFamily: font }}
+          style={{
+            padding: "7px 10px",
+            fontSize: 13,
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            background: "var(--surface)",
+            fontFamily: font,
+          }}
         >
           <option value="all">All outcomes</option>
           {(Object.keys(OUTCOME_META) as Outcome[]).map((o) => (
-            <option key={o} value={o}>{OUTCOME_META[o].label}</option>
+            <option key={o} value={o}>
+              {OUTCOME_META[o].label}
+            </option>
           ))}
         </select>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search product / machine / comment…"
-          style={{ padding: "7px 10px", fontSize: 13, border: "1px solid var(--line)", borderRadius: 8, minWidth: 240, fontFamily: font }}
+          style={{
+            padding: "7px 10px",
+            fontSize: 13,
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            minWidth: 240,
+            fontFamily: font,
+          }}
         />
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: "var(--muted)" }}>
@@ -254,8 +306,17 @@ export default function RefillLogTab() {
             stats[o] > 0 && (
               <button
                 key={o}
-                onClick={() => setOutcomeFilter(outcomeFilter === o ? "all" : o)}
-                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", opacity: outcomeFilter === "all" || outcomeFilter === o ? 1 : 0.4 }}
+                onClick={() =>
+                  setOutcomeFilter(outcomeFilter === o ? "all" : o)
+                }
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  opacity:
+                    outcomeFilter === "all" || outcomeFilter === o ? 1 : 0.4,
+                }}
               >
                 <Badge tone={OUTCOME_META[o].tone}>
                   {stats[o].toLocaleString()} {OUTCOME_META[o].label}
@@ -266,91 +327,193 @@ export default function RefillLogTab() {
       </div>
 
       {err && (
-        <div style={{ padding: 12, borderRadius: 8, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13, marginBottom: 12 }}>
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            background: "var(--danger-bg)",
+            color: "var(--danger)",
+            fontSize: 13,
+            marginBottom: 12,
+          }}
+        >
           {err}
         </div>
       )}
 
       {loading ? (
-        <div style={{ padding: 48, textAlign: "center", color: "var(--muted-2)", fontSize: 13 }}>
+        <div
+          style={{
+            padding: 48,
+            textAlign: "center",
+            color: "var(--muted-2)",
+            fontSize: 13,
+          }}
+        >
           Loading refill history…
         </div>
       ) : grouped.size === 0 ? (
-        <div style={{ padding: 48, textAlign: "center", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface)", color: "var(--muted-2)", fontSize: 13 }}>
+        <div
+          style={{
+            padding: 48,
+            textAlign: "center",
+            border: "1px solid var(--line)",
+            borderRadius: 10,
+            background: "var(--surface)",
+            color: "var(--muted-2)",
+            fontSize: 13,
+          }}
+        >
           No refill lines match.
         </div>
       ) : (
         [...grouped.entries()].map(([date, machines]) => {
-          const dayLines = [...machines.values()].reduce((a, v) => a + v.length, 0);
+          const dayLines = [...machines.values()].reduce(
+            (a, v) => a + v.length,
+            0,
+          );
           return (
             <div key={date} style={{ marginBottom: 22 }}>
               <div
                 style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  fontSize: 12, fontWeight: 800, letterSpacing: "0.1em",
-                  textTransform: "uppercase", color: "var(--brand)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color: "var(--brand)",
                   margin: "0 0 8px",
                 }}
               >
                 {new Date(date + "T00:00:00").toLocaleDateString("en-GB", {
-                  weekday: "short", day: "numeric", month: "short", year: "numeric",
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
                 })}
-                <span style={{ fontWeight: 500, color: "var(--muted-2)", letterSpacing: 0, textTransform: "none" }}>
+                <span
+                  style={{
+                    fontWeight: 500,
+                    color: "var(--muted-2)",
+                    letterSpacing: 0,
+                    textTransform: "none",
+                  }}
+                >
                   {machines.size} machines · {dayLines} lines
                 </span>
-                <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
+                <span
+                  style={{ flex: 1, height: 1, background: "var(--line)" }}
+                />
               </div>
 
               {[...machines.entries()]
                 .sort((a, b) =>
-                  (machineNames[a[0]] ?? "").localeCompare(machineNames[b[0]] ?? ""),
+                  (machineNames[a[0]] ?? "").localeCompare(
+                    machineNames[b[0]] ?? "",
+                  ),
                 )
                 .map(([mid, lines]) => (
                   <div
                     key={mid}
-                    style={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--line)",
+                      borderRadius: 10,
+                      marginBottom: 8,
+                      overflow: "hidden",
+                    }}
                   >
                     <div
                       className="flex items-center gap-2 flex-wrap"
-                      style={{ padding: "7px 14px", background: "var(--surface-2)", borderBottom: "1px solid var(--line)" }}
+                      style={{
+                        padding: "7px 14px",
+                        background: "var(--surface-2)",
+                        borderBottom: "1px solid var(--line)",
+                      }}
                     >
-                      <span style={{ fontWeight: 800, fontSize: 13, color: "var(--ink)" }}>
+                      <span
+                        style={{
+                          fontWeight: 800,
+                          fontSize: 13,
+                          color: "var(--ink)",
+                        }}
+                      >
                         {machineNames[mid] ?? mid.slice(0, 8)}
                       </span>
                       <span style={{ fontSize: 11, color: "var(--muted-2)" }}>
-                        {lines.length} lines · {lines.reduce((a, r) => a + (Number(r.filled_quantity ?? r.quantity) || 0), 0)} units
+                        {lines.length} lines ·{" "}
+                        {lines.reduce(
+                          (a, r) =>
+                            a + (Number(r.filled_quantity ?? r.quantity) || 0),
+                          0,
+                        )}{" "}
+                        units
                       </span>
                     </div>
                     {lines.map((r) => {
                       const o = outcomeOf(r);
                       const prod =
-                        (r.boonz_product_id && productNames[r.boonz_product_id]) ||
+                        (r.boonz_product_id &&
+                          productNames[r.boonz_product_id]) ||
                         (r.pod_product_id && podNames[r.pod_product_id]) ||
                         "—";
                       const qty = Number(r.filled_quantity ?? r.quantity) || 0;
                       const planned = Number(r.quantity) || 0;
-                      const reason = r.not_filled_reason || r.return_reason || r.skip_reason;
+                      const reason =
+                        r.not_filled_reason || r.return_reason || r.skip_reason;
                       return (
                         <div
                           key={r.dispatch_id}
                           className="flex items-center gap-2 flex-wrap"
-                          style={{ padding: "6px 14px", borderBottom: "1px solid var(--line)", fontSize: 12.5 }}
+                          style={{
+                            padding: "6px 14px",
+                            borderBottom: "1px solid var(--line)",
+                            fontSize: 12.5,
+                          }}
                         >
-                          <Badge tone={OUTCOME_META[o].tone}>{OUTCOME_META[o].label}</Badge>
-                          <span style={{ fontWeight: 600, color: "var(--ink)" }}>{prod}</span>
-                          <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--muted)" }}>
-                            {qty}u{r.filled_quantity != null && planned !== qty ? ` (planned ${planned})` : ""}
+                          <Badge tone={OUTCOME_META[o].tone}>
+                            {OUTCOME_META[o].label}
+                          </Badge>
+                          <span
+                            style={{ fontWeight: 600, color: "var(--ink)" }}
+                          >
+                            {prod}
+                          </span>
+                          <span
+                            style={{
+                              fontVariantNumeric: "tabular-nums",
+                              color: "var(--muted)",
+                            }}
+                          >
+                            {qty}u
+                            {r.filled_quantity != null && planned !== qty
+                              ? ` (planned ${planned})`
+                              : ""}
                           </span>
                           {r.action && r.action.toLowerCase() !== "refill" && (
                             <Badge tone="muted">{r.action}</Badge>
                           )}
                           {r.is_m2m && <Badge tone="brand">M2M</Badge>}
                           {(r.edit_count ?? 0) > 0 && (
-                            <span style={{ fontSize: 10, color: "var(--muted-2)" }}>
+                            <span
+                              style={{ fontSize: 10, color: "var(--muted-2)" }}
+                            >
                               ✎ {r.edit_count}× {r.last_edited_by_role ?? ""}
                             </span>
                           )}
-                          <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted-2)", maxWidth: 340, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span
+                            style={{
+                              marginLeft: "auto",
+                              fontSize: 11,
+                              color: "var(--muted-2)",
+                              maxWidth: 340,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
                             {reason || r.comment || ""}
                           </span>
                         </div>
