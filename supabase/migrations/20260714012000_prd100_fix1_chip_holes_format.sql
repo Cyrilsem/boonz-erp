@@ -1,0 +1,5 @@
+-- PRD-100 fix1: chip_holes guard row text-format parity ('0' vs '0.00' on zero-hole
+-- machines). round() the COALESCEd chip value like every other chip row does.
+-- (Full function body identical to WS3's version except ch.chip_holes moved into the
+-- LATERAL chip extraction and the chip_holes row uses round(ch.chip_holes,2)::text.)
+-- Applied 2026-07-13 17:3x UTC as prd100_fix1_chip_holes_format; body in prod = truth.

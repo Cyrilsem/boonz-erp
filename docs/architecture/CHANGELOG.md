@@ -1,9 +1,9 @@
 # Architecture Changelog
 
-## 2026-07-14 — PRD-100: empty-shelf hole signal (STAGED — tested in shadow, AWAITING CS APPLY)
+## 2026-07-14 — PRD-100: empty-shelf hole signal (APPLIED to prod, CS go-ahead 2026-07-14)
 
 - Per-SLOT emptiness as its own urgency term: new canonical `v_shelf_holes` (slot grain; is_hole = stock 0 OR fill ratio <= hole_frac 0.15 — fraction of capacity, never a flat count; grade/hole_wt from pooled `v_shelf_sales_identity` velocity). `v_machine_priority` gains s_holes (100*LEAST(1, SUM(hole_wt)/holes_norm)) at w_holes 0.30, P1/P2 hole overrides + tokens empty_hero_row/empty_rows_2plus/hole_row — all GATED on w_holes > 0 (T4 golden: w_holes=0 + PRD-063 weights = md5-identical output). Chip surface patched (Cody revision): get_machine_health adds the 'holes' chip; check_priority_surface_consistency subtracts it in the runout residual + checks it. 9 tuner columns on pick_urgency_params; weight rebalance 0.35/0.10/0.12/0.13 (+0.30 holes) staged as guarded data migration, applied LAST.
-- Shadow-tested pre-apply in a rolled-back txn: T1 ACTIVATE-2005 = exactly 3 A-holes (Aquafina B15/B16 at 0/25, Al Ain Zero B14 at 2/24), Fade Fit clean; T2 ACTIVATE P3→P1 (urgency 14.52→41.95, empty_hero_row+empty_rows_2plus); T3 fleet: 1 new P1 + exactly 6 P3→P2, OMDCW/NISSAN stay P1, MC-2004/ALJLT-0200/NOVO stay out; T5 ratio semantics; T6 35 ms; T8 singleton guard. Dara + Cody (⚠→revised) PASS. Migrations 20260714010000/010500/011000/011500 staged, NOT applied.
+- Shadow-tested pre-apply in a rolled-back txn: T1 ACTIVATE-2005 = exactly 3 A-holes (Aquafina B15/B16 at 0/25, Al Ain Zero B14 at 2/24), Fade Fit clean; T2 ACTIVATE P3→P1 (urgency 14.52→41.95, empty_hero_row+empty_rows_2plus); T3 fleet: 1 new P1 + exactly 6 P3→P2, OMDCW/NISSAN stay P1, MC-2004/ALJLT-0200/NOVO stay out; T5 ratio semantics; T6 35 ms; T8 singleton guard. Dara + Cody (⚠→revised) PASS. Applied as prd100_ws1a/ws2/ws3/ws1b + fix1 (chip_holes '0' vs '0.00' format parity on zero-hole machines). Post-apply: check_priority_surface_consistency() = 0 findings; ACTIVATE-2005 live P1 (s_holes 100, urgency 41.95); fleet tiers P1 3 / P2 9 / P3 18 = shadow-identical.
 
 
 ## 2026-07-10 — PRD-098: Return Approval Workflow (backend; freeze-independent)

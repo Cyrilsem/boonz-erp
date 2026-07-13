@@ -599,7 +599,8 @@ Rollbacks: fix1 = UPDATE back to 'warn'; fix2/3/6/7 = originals preserved in ses
 | p0_fix15 | propose_decommission_plan ×2, propose_rebalance_plan | pod-inventory dedupe |
 | p0_fix16 | get_pod_refill_draft, v_refill_planning_compact, v_warehouse_at_risk | UI read-path dedupe |
 | p0_fix17 | product_mapping (data) + 2 partial unique indexes | 4,280 noise rows deactivated |
-| 20260714010000_prd100_ws1a_hole_params (STAGED, not applied) | pick_urgency_params | 9 hole-signal tuner columns (hole_frac, hole_wt_a..d, holes_norm, w_holes, p1/p2_holes_min) |
-| 20260714010500_prd100_ws2_v_shelf_holes (STAGED, not applied) | v_shelf_holes (new view) | per-slot hole state, canonical (PRD-100) |
-| 20260714011000_prd100_ws3_v_machine_priority_holes (STAGED, not applied) | v_machine_priority, get_machine_health, check_priority_surface_consistency | s_holes term + hole overrides/tokens (w_holes-gated) + holes chip |
-| 20260714011500_prd100_ws1b_weight_reseed (STAGED, not applied — apply LAST) | pick_urgency_params (data) | guarded reseed 0.50/0.15/0.20/0.15 → 0.35/0.10/0.12/0.13 |
+| 20260714010000_prd100_ws1a_hole_params | pick_urgency_params | 9 hole-signal tuner columns (hole_frac, hole_wt_a..d, holes_norm, w_holes, p1/p2_holes_min) |
+| 20260714010500_prd100_ws2_v_shelf_holes | v_shelf_holes (new view) | per-slot hole state, canonical (PRD-100) |
+| 20260714011000_prd100_ws3_v_machine_priority_holes | v_machine_priority, get_machine_health, check_priority_surface_consistency | s_holes term + hole overrides/tokens (w_holes-gated) + holes chip |
+| 20260714011500_prd100_ws1b_weight_reseed (data, applied last) | pick_urgency_params (data) | guarded reseed 0.50/0.15/0.20/0.15 → 0.35/0.10/0.12/0.13 |
+| 20260714012000_prd100_fix1_chip_holes_format | check_priority_surface_consistency | chip_holes guard row '0' vs '0.00' format parity |

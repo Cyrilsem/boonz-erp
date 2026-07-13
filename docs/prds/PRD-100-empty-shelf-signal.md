@@ -1,9 +1,9 @@
 # PRD-100 — Empty-shelf signal (per-shelf holes, not per-product runout)
 
-Status: TESTED IN SHADOW (2026-07-14) — Dara + Cody (revised: chip surface included) PASS;
-T1/T2/T3/T4-golden(md5)/T5/T6(35ms)/T8 all PASS in a rolled-back transaction; migrations
-20260714010000..011500 staged on branch feat/prd-100-empty-shelf-signal. AWAITING CS APPLY
-(hard gate: canonical v_machine_priority + fleet-wide weight rebalance). Note: live
+Status: APPLIED (2026-07-14, CS go-ahead) — ws1a/ws2/ws3/ws1b + fix1 live in prod.
+Shadow-tested first (T1-T8 PASS in rolled-back txn, T4 golden md5-identical); post-apply:
+consistency guard 0 findings, ACTIVATE-2005 P1 (s_holes 100), fleet P1 3 / P2 9 / P3 18
+= shadow-identical. Dara + Cody (chip-surface revision included) PASS. Note: live
 swaps_enabled flipped to true (p0_fix14) after this spec was written — PRD-100 does not
 touch it; T7 amended to "engines untouched" (byte-identical, no engine DDL in this PRD).
 Owner: CS · Author: Cowork conductor · Date: 2026-07-14
