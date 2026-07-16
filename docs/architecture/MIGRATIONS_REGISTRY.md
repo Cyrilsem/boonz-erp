@@ -577,19 +577,22 @@ WS3 (inventory reconciliation: VML receive + 2 WH transfers) intentionally NOT a
 Forward-only. Never reuse a name. If a migration was bad, write a new one that fixes it (and document the why in CHANGELOG.md).
 
 ---
+
 ## 2026-07-12 P0 incident package
-| Migration | Objects | Nature |
-|---|---|---|
-| p0_fix1_weimi_slot_guard_block | refill_policy_params (config UPDATE) + monitoring_alerts | guard warn→block |
-| p0_fix2_engine_add_pod_scoped_drift_skip | engine_add_pod(date,integer) | CREATE OR REPLACE, surgical (PRD-CLEAN-09 block only; md5-diff verified) |
-| p0_fix3_write_refill_plan_scoped_delete | write_refill_plan(date,jsonb) | CREATE OR REPLACE, surgical (4 changes; g8→g8+scoped-delete) |
-| p0_fix4_drift_monitor_v2 | cron_slot_binding_drift_alert() | CREATE OR REPLACE full body v2 |
-| p0_fix6_add_dispatch_row_is_m2m | add_dispatch_row | CREATE OR REPLACE, surgical (is_m2m column+value only) |
-| p0_fix7_dup_guard_identity_scope | prevent_duplicate_unstarted_dispatch() | CREATE OR REPLACE, surgical (2 hunks) |
-| p0_fix8 / p0_fix8b | sweep_inactivate_stale_zero_stock(text) NEW | new narrow-concern writer (proposal queue + status via sanctioned auto-confirm pattern) |
-Rollbacks: fix1 = UPDATE back to 'warn'; fix2/3/6/7 = originals preserved in session /tmp *_orig.sql and re-derivable from this registry's prior entries.
+
+| Migration                                                                                                                                                 | Objects                                                  | Nature                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| p0_fix1_weimi_slot_guard_block                                                                                                                            | refill_policy_params (config UPDATE) + monitoring_alerts | guard warn→block                                                                        |
+| p0_fix2_engine_add_pod_scoped_drift_skip                                                                                                                  | engine_add_pod(date,integer)                             | CREATE OR REPLACE, surgical (PRD-CLEAN-09 block only; md5-diff verified)                |
+| p0_fix3_write_refill_plan_scoped_delete                                                                                                                   | write_refill_plan(date,jsonb)                            | CREATE OR REPLACE, surgical (4 changes; g8→g8+scoped-delete)                            |
+| p0_fix4_drift_monitor_v2                                                                                                                                  | cron_slot_binding_drift_alert()                          | CREATE OR REPLACE full body v2                                                          |
+| p0_fix6_add_dispatch_row_is_m2m                                                                                                                           | add_dispatch_row                                         | CREATE OR REPLACE, surgical (is_m2m column+value only)                                  |
+| p0_fix7_dup_guard_identity_scope                                                                                                                          | prevent_duplicate_unstarted_dispatch()                   | CREATE OR REPLACE, surgical (2 hunks)                                                   |
+| p0_fix8 / p0_fix8b                                                                                                                                        | sweep_inactivate_stale_zero_stock(text) NEW              | new narrow-concern writer (proposal queue + status via sanctioned auto-confirm pattern) |
+| Rollbacks: fix1 = UPDATE back to 'warn'; fix2/3/6/7 = originals preserved in session /tmp *_orig.sql and re-derivable from this registry's prior entries. |
 
 ## 2026-07-12 engine rebuild wave
+
 | p0_fix9 | product_mapping (data) | Hunter Ridge single-homing |
 | p0_fix10 | engine_add_pod | WEIMI-first identity + wh dedupe + drift plans-true-product |
 | p0_fix11 | stitch_pod_to_boonz → v30 | variant substitution + markers + unfilled_shortfalls |
@@ -604,3 +607,11 @@ Rollbacks: fix1 = UPDATE back to 'warn'; fix2/3/6/7 = originals preserved in ses
 | 20260714011000_prd100_ws3_v_machine_priority_holes | v_machine_priority, get_machine_health, check_priority_surface_consistency | s_holes term + hole overrides/tokens (w_holes-gated) + holes chip |
 | 20260714011500_prd100_ws1b_weight_reseed (data, applied last) | pick_urgency_params (data) | guarded reseed 0.50/0.15/0.20/0.15 → 0.35/0.10/0.12/0.13 |
 | 20260714012000_prd100_fix1_chip_holes_format | check_priority_surface_consistency | chip_holes guard row '0' vs '0.00' format parity |
+
+## 2026-07-12 Suitability Swap Engine
+
+| wave1_shelf_size_backfill | shelf_configurations (+shelf_size col, 2583 backfill) | protected; audit GUCs |
+| wave1_product_size_fit | product_size_fit NEW table + RLS + seed (217 rows) | reference; Appendix A |
+| wave1_coexistence_krambals_zigi | coexistence_rules +1 (Krambals&Zigi family) | config |
+| wave2_rank_slot_suitability_fn | rank_slot_suitability() NEW | read-only INVOKER helper |
+| wave2_engine_swap_pod_rewire | engine_swap_pod (Pass 2a → rank_slot_suitability) | CREATE OR REPLACE, minimal |

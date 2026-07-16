@@ -30,11 +30,11 @@ The inversion: an empty row triggers P1 **only when the product has no other fac
 collapses to 0). The more facings a product has — i.e. the more important it is — the harder it is for
 an empty row of it to fire.
 
-| Machine | empty selling rows | seller/day | pooled DOS the model sees | tier today |
-| --- | --- | --- | --- | --- |
-| OMDCW-1021 | 1 | 2.4 | 0.00 | P1 |
-| NISSAN-0804 | 1 | 0.5 | 0.00 | P1 |
-| **ACTIVATE-2005** | **2** | **22.1** | **2.40** | **P3_OK** |
+| Machine           | empty selling rows | seller/day | pooled DOS the model sees | tier today |
+| ----------------- | ------------------ | ---------- | ------------------------- | ---------- |
+| OMDCW-1021        | 1                  | 2.4        | 0.00                      | P1         |
+| NISSAN-0804       | 1                  | 0.5        | 0.00                      | P1         |
+| **ACTIVATE-2005** | **2**              | **22.1**   | **2.40**                  | **P3_OK**  |
 
 There is no backstop, because PRD-063 deliberately removed "empty shelf" as a trigger (it was
 over-picking empty-plus-dead cosmetics: MC-2004, ALJLT, NOVO). Correct decision, but it also killed
@@ -45,9 +45,9 @@ the case where the empty shelf is a **seller**.
 Measure emptiness **per shelf**, as its own present-tense signal, and weight it heavily. An empty
 shelf is bad aesthetically and commercially, independent of whether the machine is about to run dry.
 
-Explicitly **do not** fake a per-shelf runout. Pooled DOS is the *correct* answer to "when do we run
+Explicitly **do not** fake a per-shelf runout. Pooled DOS is the _correct_ answer to "when do we run
 out of water" (when one water row empties, the machine keeps selling water from the other six). It is
-the *wrong* answer to "is there a hole in my machine right now". These are two different questions and
+the _wrong_ answer to "is there a hole in my machine right now". These are two different questions and
 the model will now answer both.
 
 ## The model (locked with CS 2026-07-14)
@@ -67,12 +67,12 @@ Holes are weighted by how well the row's product sells, but the curve is **delib
 per CS, an empty shelf is bad even when the product is a laggard, so the weights stay high in relative
 terms:
 
-| grade | daily velocity | `hole_wt` |
-| --- | --- | --- |
-| A | ≥ 0.5/day | 1.0 |
-| B | ≥ 0.2/day | 0.8 |
-| C | > 0 | 0.6 |
-| D | dead (0 sales 30d) | 0.4 |
+| grade | daily velocity     | `hole_wt` |
+| ----- | ------------------ | --------- |
+| A     | ≥ 0.5/day          | 1.0       |
+| B     | ≥ 0.2/day          | 0.8       |
+| C     | > 0                | 0.6       |
+| D     | dead (0 sales 30d) | 0.4       |
 
 ### Score
 
@@ -90,13 +90,13 @@ to swap just refill.")
 
 ### Weight rebalance (the empty signal must be heavy — CS Q2)
 
-| component | PRD-063 | PRD-100 | note |
-| --- | --- | --- | --- |
-| `w_runout` | 0.50 | **0.35** | still the biggest single driver |
-| `w_holes` | — | **0.30** | NEW, second-heaviest by design |
-| `w_expiry` | 0.20 | **0.12** | |
-| `w_stale` | 0.15 | **0.13** | |
-| `w_capacity` | 0.15 | **0.10** | mostly funds `w_holes`: machine-level fill % is the blunt version of exactly what `s_holes` now measures sharply, per shelf |
+| component    | PRD-063 | PRD-100  | note                                                                                                                        |
+| ------------ | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `w_runout`   | 0.50    | **0.35** | still the biggest single driver                                                                                             |
+| `w_holes`    | —       | **0.30** | NEW, second-heaviest by design                                                                                              |
+| `w_expiry`   | 0.20    | **0.12** |                                                                                                                             |
+| `w_stale`    | 0.15    | **0.13** |                                                                                                                             |
+| `w_capacity` | 0.15    | **0.10** | mostly funds `w_holes`: machine-level fill % is the blunt version of exactly what `s_holes` now measures sharply, per shelf |
 
 Sum = 1.00. All tunable via `pick_urgency_params`.
 
@@ -104,17 +104,17 @@ Sum = 1.00. All tunable via `pick_urgency_params`.
 
 Only **9 machines** fleet-wide have any hole at all under the 15% rule.
 
-| Machine | track | holes (A/B/C/D) | tier today | tier with PRD-100 |
-| --- | --- | --- | --- | --- |
-| ACTIVATE-2005 | vox | 3 (3/0/0/0) | P3_OK | **P1** ← the target case |
-| OMDCW-1021 | main | 1 (1/0/0/0) | P1 | P1 (unchanged) |
-| NISSAN-0804 | main | 1 (0/1/0/0) | P1 | P1 (unchanged) |
-| WAVEMAKER-1006 | main | 1 (0/0/0/1) | P3_OK | P2 |
-| OMDBB-1020 | main | 1 (0/1/0/0) | P3_OK | P2 |
-| HUAWEI-2003 | main | 1 (0/0/1/0) | P3_OK | P2 |
-| VML-1003 | main | 1 (0/1/0/0) | P3_OK | P2 |
-| USH-1008 | main | 1 (0/0/1/0) | P3_OK | P2 |
-| ALJLT-1015-0100 | main | 1 (0/0/1/0) | P3_OK | P2 |
+| Machine         | track | holes (A/B/C/D) | tier today | tier with PRD-100        |
+| --------------- | ----- | --------------- | ---------- | ------------------------ |
+| ACTIVATE-2005   | vox   | 3 (3/0/0/0)     | P3_OK      | **P1** ← the target case |
+| OMDCW-1021      | main  | 1 (1/0/0/0)     | P1         | P1 (unchanged)           |
+| NISSAN-0804     | main  | 1 (0/1/0/0)     | P1         | P1 (unchanged)           |
+| WAVEMAKER-1006  | main  | 1 (0/0/0/1)     | P3_OK      | P2                       |
+| OMDBB-1020      | main  | 1 (0/1/0/0)     | P3_OK      | P2                       |
+| HUAWEI-2003     | main  | 1 (0/0/1/0)     | P3_OK      | P2                       |
+| VML-1003        | main  | 1 (0/1/0/0)     | P3_OK      | P2                       |
+| USH-1008        | main  | 1 (0/0/1/0)     | P3_OK      | P2                       |
+| ALJLT-1015-0100 | main  | 1 (0/0/1/0)     | P3_OK      | P2                       |
 
 Net: **one new P1** (ACTIVATE, and it's on the VOX track so it does not consume the main cap of 8),
 plus six machines promoted P3 → P2. MC-2004 / ALJLT-0200 / NOVO — the machines PRD-063 correctly

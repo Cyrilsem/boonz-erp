@@ -5,7 +5,6 @@
 - Per-SLOT emptiness as its own urgency term: new canonical `v_shelf_holes` (slot grain; is_hole = stock 0 OR fill ratio <= hole_frac 0.15 — fraction of capacity, never a flat count; grade/hole_wt from pooled `v_shelf_sales_identity` velocity). `v_machine_priority` gains s_holes (100*LEAST(1, SUM(hole_wt)/holes_norm)) at w_holes 0.30, P1/P2 hole overrides + tokens empty_hero_row/empty_rows_2plus/hole_row — all GATED on w_holes > 0 (T4 golden: w_holes=0 + PRD-063 weights = md5-identical output). Chip surface patched (Cody revision): get_machine_health adds the 'holes' chip; check_priority_surface_consistency subtracts it in the runout residual + checks it. 9 tuner columns on pick_urgency_params; weight rebalance 0.35/0.10/0.12/0.13 (+0.30 holes) staged as guarded data migration, applied LAST.
 - Shadow-tested pre-apply in a rolled-back txn: T1 ACTIVATE-2005 = exactly 3 A-holes (Aquafina B15/B16 at 0/25, Al Ain Zero B14 at 2/24), Fade Fit clean; T2 ACTIVATE P3→P1 (urgency 14.52→41.95, empty_hero_row+empty_rows_2plus); T3 fleet: 1 new P1 + exactly 6 P3→P2, OMDCW/NISSAN stay P1, MC-2004/ALJLT-0200/NOVO stay out; T5 ratio semantics; T6 35 ms; T8 singleton guard. Dara + Cody (⚠→revised) PASS. Applied as prd100_ws1a/ws2/ws3/ws1b + fix1 (chip_holes '0' vs '0.00' format parity on zero-hole machines). Post-apply: check_priority_surface_consistency() = 0 findings; ACTIVATE-2005 live P1 (s_holes 100, urgency 41.95); fleet tiers P1 3 / P2 9 / P3 18 = shadow-identical.
 
-
 ## 2026-07-10 — PRD-098: Return Approval Workflow (backend; freeze-independent)
 
 - Kills the quarantine backlog: v_pending_return_approvals + v_pending_legacy_quarantine (manager worklists) + approve_return (provenance_reason=dispatch_return => generated quarantined flips pickable; optional expiry/qty correction) + reject_return (drain + canonical inactivate_warehouse_row) + return_approval_log (append-only) + cron_pending_return_alert (daily). Role-gated (warehouse/operator_admin/superadmin/manager). Article-6 clean (no direct status write; reject uses the canonical writer). Cody PASS. Family-A engines UNCHANGED. Baseline: 24 unverified + 42 legacy (19 recoverable/23 expired). No auto-release (policy).
@@ -2784,3 +2783,34 @@ CS directives: (1) warehouse numbers must be true across ALL products, (2) Hunte
 - `p0_fix17_product_mapping_dedup_noise` — 4,280 machine rows byte-identical to their global row deactivated (8,401→4,121 active; 319 pairs preserved; avg_cost drift proven inert on v_product_landed_cost); partial unique indexes uq_pm_global_pair + uq_pm_machine_pair lock the table clean. 22 multi-pod is_global_default products listed for CS business review (Coca Cola/Pepsi/Zigi/Krambals families).
 
 All patches byte-diff verified deployed==intended; originals in session /tmp. Plan-number regression: Activia @1057 wh_avail 17 before and after cleanup.
+
+## 2026-07-12 (late) — Suitability Swap Engine (Wave 1 + Wave 2), CS-directed rebuild
+
+CS spec: per-pod ranked candidate pool by lookalike + proven-here history; S/M/L size-fit (A1-8 Small/A9-14 Medium/A15-16 Large, non-V0); min-quantity gate (need ≥0.7×cap in WH or the product waits and resurfaces — embargo-aware); coexistence hard-filter (curated block-list, size-up exempt); no ADD change (ADD only tops up). All Cody-reviewed.
+
+WAVE 1 (foundation):
+
+- `wave1_shelf_size_backfill` — shelf_configurations.shelf_size column + CHECK + backfill 2,583 rows (A rule + B mirror + V0 all-Small + C/D/E NULL). Audit GUCs set (Article 8). [PROTECTED — Cody ✅ Articles 1,2,8,12,14,15]
+- `wave1_product_size_fit` — NEW reference table product_size_fit (pod_product_id,shelf_size,fits,fit_basis,machines_seen,cap_typical,min_refill_qty), RLS mirroring capacity_standard, seeded via occupancy backtrace ∪ capacity_standard; 217 rows/109 products; min_refill_qty=ceil(0.7×cap_typical). Dubai Popcorn confirmed no-Small. [file to Appendix A]
+- `wave1_coexistence_krambals_zigi` — coexistence_rules family self-pair for Krambals & Zigi (family c7212554). CS-final block-list = Coca-Cola, Pepsi, Almarai, Loacker, +Krambals&Zigi. Gatorade/AlAin/Perrier/Plaay/Healthy/Evian/Hunter-HunterRidge/Snack-Chocolate all ALLOWED per CS.
+
+WAVE 2 (engine):
+
+- `wave2_rank_slot_suitability_fn` — NEW read-only helper rank_slot_suitability(date,uuid,uuid,uuid,int,uuid[]) SECURITY INVOKER STABLE. Returns gated ranked pool: 7-signal suitability (0.28 proven_local +0.20 lookalike +0.16 margin/band +0.12 basket +0.10 capped-avail +0.08 increment +0.06 fresh) + true-hero size-up (+0.05); hard gates size-fit, min-qty, coexistence (incl. in-run pending pods), decommission, not-already-present-except-size-up. [RPC_REGISTRY read-only helper]
+- `wave2_engine_swap_pod_rewire` — engine_swap_pod Pass 2a now calls rank_slot_suitability (threaded per-machine pending-pods array); all else byte-identical (GUCs, operator_admin guard, _assert_*, swaps_enabled, R5 cooldowns, _travel_scope_blocks, Pass 1/2b/3, return shape). find_substitutes_for_shelf untouched (v_swap_candidate_ranking intact). [Cody ✅ Articles 1,4,8,12,14]
+
+Size-up rule: same pod allowed on a 2nd shelf ONLY when full cap/velocity < trip AND proven_local pctile ≥0.80 AND not a blended/aggregate pod. Coexistence blocks DIFFERENT variants of a redundant family; identical-pod size-up is exempt.
+
+## 2026-07-15 — Refill post-mortem defect package (plan 2026-07-14), Cody-approved
+
+Root-caused from the 14 Jul messy-refill brief. Five code defects fixed + live (A, C, D, D2, E); B/F need CS go-ahead.
+
+- `fixA_picker_independent_sibling` — pick_machines_for_refill: sibling expansion now excludes the `INDEPENDENT` catch-all bucket (`AND sc.r_cluster <> 'INDEPENDENT'`). No-group machines (8 of them: ALJLT×2, HUAWEI, JET, LVLUP, MC, NISSAN, NOOK) stop being pulled as false siblings of each other. Cody ✅ Articles 1,4,8,12.
+- `fixCE_stitch_provenance_and_dedup` — stitch_pod_to_boonz + write_refill_plan:
+  - C: stitch lines_agg now emits `source_origin` + `from_machine_id`; write_refill_plan INSERT carries them into refill_plan_output. Internal transfers now reach dispatch as M2M (un-gates push_plan_to_dispatch's internal_transfer branch + pair_internal_transfer_m2m) instead of mislabeled warehouse/NULL → no more "pick N from warehouse" for a product with 0 WH stock.
+  - E: pull_raw dedup was action-blind — a leftover REFILL qty=0 row tied with ADD_NEW qty=12 and (unstable tiebreak) zeroed the fill (NISSAN A02 Protein Balls wrote 8, dropped Choco Hazelnut which had 8u, reported unfilled_shortfalls:[]). Fixed: `AND a.qty > 0` + `a.qty DESC` tiebreak; added `pull_underfill` CTE so a silent under-fill is now reported in unfilled_shortfalls. Cody ✅.
+- `fixD_add_dispatch_row_shelf_binding` + `fixD2_edit_dispatch_product_shelf_binding` — both now resolve pod_product_id from the shelf's live slot_lifecycle binding (validated against an Active mapping), falling back to is_global_default only when no binding carries the SKU. Kills the "Plaay Tablets vs Plaay Tablets - Mix" wrong-pod phantom-archival bug. Cody ✅ Articles 1,4,8,12.
+
+Post-apply behavioral checks pending next run: E fills NISSAN A02 to 12; C routes a transfer line as M2M (no WH debit).
+
+OPEN (need CS go-ahead): B — mint VOX_SOURCED sentinels for Skittles, Pepsi Regular, 7Up Diet, M&M Yellow Bag, Maltesers (× WH_MCC + WH_MM) via canonical adjust_warehouse_stock. CORRECTION vs brief: Fade Fit is boonz-sourced (not venue_team) — do NOT sentinel it; blocked Fade Fit = real procurement need. F — Freakin pilot lines (Awesome Thins, Healthy Bites, Garnola Bar, Roasted Dipped) at 0 WH; raise the pilot PO. Advisory task fired 05:28 not 8pm — reschedule to 16:05 UTC (task not visible via API; likely desktop-app scheduled task).

@@ -1,4 +1,3 @@
-
 ## FLEET RECONCILE COMPLETE - 2026-07-10 (CS-approved in session)
 
 CS gave explicit in-session approval ("Approved - run it now"). Fleet reconcile applied per-machine across all 30 drifted machines.
@@ -8,6 +7,7 @@ One fix required first: the initial fleet apply hit `idx_pod_inv_active_shelf` (
 Apply result (all 30 machines, dry_run=false): 11 moved, ~89 archived, ~226 planogram deactivated; 30 audit alerts to monitoring_alerts.
 
 ACCEPTANCE - ALL GREEN:
+
 - Post-Phase-3 fleet drift report = **0 mismatches** (was 282 / 29 machines); 0 drifted machines.
 - Idempotent: dry-run rerun on HUAWEI-2003 = 0 actions.
 - Incident replay: A10 resolves to Freakin Healthy Garnola Bar (stock 3), NOT Be-kind; A08 Barebells; AMZ-1068 A09 Freakin Awesome Thins; AMZ-1038/1057 A01 Freakin Awesome Filled Dates.
