@@ -1,5 +1,20 @@
 # Architecture Changelog
 
+## 2026-07-16 - Audit trigger on product_mapping (security gap closed)
+
+- `audit_product_mapping_writes` (migration 20260716093730): `tg_audit_product_mapping`
+  AFTER INSERT/UPDATE/DELETE FOR EACH ROW -> `audit_log_write('mapping_id')`.
+  product_mapping (canonical for procurement splits + stitching) was the only
+  major write target with NO audit trail: a 4,280-row bulk status deactivation
+  on 2026-07-13 01:33:08 UTC left zero trace. The trigger reuses the shared
+  audit function (same as refill_dispatching), so every future write records
+  actor, actor_role, via_rpc, rpc_name, old/new row images, occurred_at to
+  write_audit_log. Verified: rolled-back self-update wrote 1 audit row, op
+  UPDATE, row_pk = mapping_id, old+new payloads captured. Additive/observational
+  (cannot block writes), no RLS change, no function replacement.
+  Rollback: DROP TRIGGER tg_audit_product_mapping ON public.product_mapping;
+
+
 ## 2026-07-10 — PRD-098: Return Approval Workflow (backend; freeze-independent)
 
 - Kills the quarantine backlog: v_pending_return_approvals + v_pending_legacy_quarantine (manager worklists) + approve_return (provenance_reason=dispatch_return => generated quarantined flips pickable; optional expiry/qty correction) + reject_return (drain + canonical inactivate_warehouse_row) + return_approval_log (append-only) + cron_pending_return_alert (daily). Role-gated (warehouse/operator_admin/superadmin/manager). Article-6 clean (no direct status write; reject uses the canonical writer). Cody PASS. Family-A engines UNCHANGED. Baseline: 24 unverified + 42 legacy (19 recoverable/23 expired). No auto-release (policy).
