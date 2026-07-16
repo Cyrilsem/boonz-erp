@@ -463,3 +463,78 @@ Loop remains COMPLETE and all deliverables intact. One open operational carry-fo
 drift has re-grown to ~25% (as PRD-01 predicted, root cause deferred). Owner: CS — either run the
 attended resync as an interim re-zero, or author PRD-CLEAN-08 for the decrement root cause. No
 prod data was mutated by this re-invocation (read-only verification only).
+
+## PRD-CLEAN-13 + 2026-07-15 prod mirror (2026-07-16)
+
+### Task 1 — mirror verification (live state vs the goal's list)
+All five claims verified true in prod before writing files. Seven mirror migrations
+written (20260715120000..123000), idempotent, NOT re-applied (prod already holds them):
+CHECKs (gym / bottle_shot), venue_groups LVLUP + 3 machine updates, PD168-177 product
+quads (boonz+pod+mapping+alias, live UUIDs) + the Plaay 35g alias, commercial_agreements
+FULL table (it had never had a repo migration: base DDL + RLS policies + get_venue_terms
++ 10-row data + NOT NULL/CHECK pass, DDL and data in separate files), v_slot_binding_drift
+view DDL (live since drift-kill but never captured; PRD-CLEAN-09's migration only consumes it).
+- Data migration safety: row inserts use ON CONFLICT DO NOTHING and the model-column
+  backfill only touches NULLs, so an accidental `db push` against prod cannot clobber
+  later tuning.
+- DRIFT LOGGED, not fixed: (a) the earlier 2026-07-10 LevelUp batch PD148-PD162
+  (14 products incl. all 'Assorted' SKUs + Choco Brownie/PB Brownie/Fresh Banana/OJ,
+  boonz+pod+mapping+alias) is ALSO unmirrored - out of this goal's scope, needs its own
+  mirror; (b) statement_of_account_registry + issue_soa_number have no repo migration;
+  (c) venue_commercial_terms confirmed dropped (to_regclass NULL) - not recreated.
+
+### Task 2 — PRD-CLEAN-13 implementation (skills, not repo code)
+partner-performance-report.skill and statement-of-account.skill live only as .skill zips
+in BOONZ BRAIN (INDEX.md: "loose .skill package, no source folder"). Edited in place,
+originals kept as *.skill.bak-20260716. Both now branch on
+get_venue_terms(<group>).source_of_supply:
+- PPR: venue_team => waterfall Gross -> fee schedule (adyen_pct x gross + adyen_fixed x
+  txns) -> Net -> boonz/partner split; NO COGS math (avg_cost NULL by design, never
+  zero-defaulted); refill-execution section REPLACED by sell-through intelligence -
+  new queries.sql section 9 (9a velocity + never-sold, 9b holes via canonical
+  v_shelf_holes/PRD-100, 9c suggested top-up list). Fee base = GROSS: LVLUP Adyen
+  capture rows lag/absent (live captured = 0.00 for the whole window), and the PRD's
+  own verification numbers (302 x 0.026 + 35 x 0.50) confirm gross-basis.
+- SoA: venue_team => no Boonz COGS line, Net Client = Net Sales x partner_share_pct;
+  cogs_recovered_from_venue now explicit: true (VOX) deducts COGS from client dues
+  (numerically unchanged), false (GRIT/OhmyDesk) = Boonz absorbs, no COGS deduction.
+  COGS coverage pre-flight skipped when boonz_bears_cogs=false. LevelUp added to the
+  client registry. Canonical monthly SQL byte-identical.
+- Bug fixed in passing: PPR queries.sql query 1a referenced commercial_agreements.
+  effective_from, a column that does not exist (renamed effective_date) - the query
+  errored as written; replaced by get_venue_terms(). Metadata-only, no number changes.
+
+### Verification results
+1. PASS (formula-exact): PRD constants 35 txns/302.00 gross => net 276.65, Boonz 69.16,
+   LevelUp 207.49 - reproduced to the fils from get_venue_terms('LVLUP') terms. The PRD
+   snapshot was taken mid-day 07-15; the full window now reads 41/354.00 => 324.30 /
+   81.07 / 243.22 with the same formula (6 more sales landed; per-day buckets verified).
+2. PASS by construction: venue_team branch has no COGS line and replaces the
+   refill-execution section (diff inspected).
+3. PASS (differential): boonz-path formula text, canonical SQL, build.py and fonts are
+   byte-identical to the .bak originals - same inputs regenerate the same OhmyDesk/GRIT
+   report. Only additive branch text + the broken 1a metadata query changed.
+4. PASS with caveat (differential exact, registry drifted): VOX 2026-02-06..04-30
+   recomputes total_sales 36,940.00 = registry exactly; net_client recomputes 25,921.91
+   vs issued 25,893.52 (+28.39) UNDER BOTH old and new formulas (identical expression) -
+   the delta is post-issuance DATA movement, chiefly Eviron Wellness gaining a 5.00
+   cost in vox_product_mapping after the 2026-06-02 issuance (the methodology's own
+   known gap, now closed). My change contributes zero delta on fixed data.
+5. BLOCKED-ATTENDED: v_slot_binding_drift reads 5 (4x Freakin Awesome Filled Dates,
+   1x Plaay Tablets - Mix 35g) - drift CAUSED by the 2026-07-15 alias/product additions
+   re-resolving Weimi names. Canonical fix = rebind_slot_lifecycle_from_weimi (dry run
+   verified: 5 inserts, 0 locked machines) but the auto-mode classifier denied the live
+   run (prod write). NOT bypassed. One attended line clears it:
+   SELECT rebind_slot_lifecycle_from_weimi(NULL,false,'PRD-CLEAN-13: rebind 5 slots
+   drifted by 2026-07-15 alias additions'); NOTE: engines assert this view is empty
+   (PRD-CLEAN-09) - tonight's 16:00 UTC build may HALT on it if not cleared.
+6. PASS: 0 active machines without a commercial_agreements row.
+7. PASS: tsc 0 errors; next build (see commit).
+
+### Git
+- "Cherry-pick the earlier PRD-CLEAN commits onto main" verified UNNECESSARY: 8198dc1
+  (loop) and 4957c36 (PRD-09) are already ancestors of origin/main (merged 2026-07-13).
+- PRD-100 commits (88835a4/532bdd9) remain on feat/prd-100-empty-shelf-signal: applied
+  to prod but CS has not given the push go-ahead; not this goal's scope.
+- Committed to main: this goal's files only (7 mirror migrations, PRD-CLEAN-13 doc,
+  DECISIONS.md). The ~30 unrelated modified files stay uncommitted.
