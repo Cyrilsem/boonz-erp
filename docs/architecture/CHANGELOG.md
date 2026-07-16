@@ -1,5 +1,28 @@
 # Architecture Changelog
 
+## 2026-07-16 - Data correction: NISSAN + NOVO warehouse remap (WH_MCC -> WH_CENTRAL)
+
+- Two non-VOX machines were mis-mapped to the VOX staging warehouse as their
+  primary: NISSAN-0804-0000-L0 (INDEPENDENT) and NOVO-1023-0000-W0 (NOVO). Rule
+  is that only VOX venues use WH_MCC. Effect: returns routed into WH_MCC (Freakin
+  stock surfaced there via dispatch_return_unverified) and, more seriously,
+  refills SOURCED from WH_MCC - since 2026-06-16, NISSAN bound 203 units / 82
+  lines and NOVO 155 units / 69 lines with from_warehouse_id = WH_MCC.
+  Correction (execute_sql, 2026-07-16 14:10 UTC): set primary_warehouse_id =
+  WH_CENTRAL, secondary_warehouse_id = NULL for both, matching the 26-machine
+  non-VOX standard. Guarded on current value = WH_MCC. Audit trigger captured
+  both UPDATE rows (Article 8). Cody: Approve-with-revisions (Articles 1, 3, 8,
+  12); flagged standing Article 1 gap - machines has NO canonical writer for the
+  warehouse-mapping columns (they are only set at creation or by anonymous direct
+  writes, e.g. the 2026-07-04 14:22 bulk write on 12 machine rows).
+  Rollback: UPDATE machines SET primary_warehouse_id='4fcfb52c-271f-4aa7-a373-3495e3271cd3',
+  secondary_warehouse_id='4bebef68-9e36-4a5c-9c2c-142f8dbdae85'
+  WHERE official_name IN ('NISSAN-0804-0000-L0','NOVO-1023-0000-W0');
+  Follow-ups: (1) Dara to design set_machine_warehouse() DEFINER writer;
+  (2) reconcile ~358 units historically dispatched from WH_MCC (Central likely
+  overstated / VOX staging mis-debited); (3) 2 quarantined WH_MCC Freakin return
+  units await the manager approve_return worklist (no auto-release, per PRD-098).
+
 ## 2026-07-16 - Audit trigger on product_mapping (security gap closed)
 
 - `audit_product_mapping_writes` (migration 20260716093730): `tg_audit_product_mapping`
@@ -2763,3 +2786,9 @@ ALTER TABLE public.pod_inventory_audit_log DISABLE ROW LEVEL SECURITY;
 - `refillv2_swap_qty_from_live_shelf_stock`: engine_swap_pod v9_4 -> v9_5. Removal/M2W `qty_out` now reads `v_live_shelf_stock` (pod-scoped, slot_name->shelf_code map) instead of the `v_pod_inventory_latest x product_mapping` SUM that fanned out (78 mapping rows -> 234u phantom M2W on NOVO A08). Verified qty_out == live stock. Cody+Dara cleared. Articles 1,4,12,14.
 - `refillv2_slots_view_add_ids`: `get_machine_slots_with_expiry` now also returns shelf_id, pod_product_id, suggested_pod_product_id (read-only, DROP+CREATE, backward-compatible). Unblocks manual-refill FE row writers. Cody cleared (class c).
 - Open follow-ups: product_mapping 78-rows-per-pod bloat; M2W->Remove+destination redesign (Dara); manual-refill FE wiring (Stax spec in BOONZ BRAIN/spec_manual_refill_fe_stax.md).
+
+## 2026-07-16 — PRD-100 F1 structured capture + F2 atomic record_actual_refill
+
+- `f1_structured_capture_tables`: new Appendix-A entities `refill_events` (capture header) + `refill_event_lines` (typed detail). Append-only RLS (SELECT authenticated; INSERT manager-roles via user_profiles; UPDATE/DELETE blocked). Indexes: (machine_id, plan_date DESC), partial status∈(pending,failed), (event_id), (boonz_product_id, applied). Dara design, Cody ⚠️→revised. Articles 2,7,12,14.
+- `f2_record_actual_refill`: canonical ATOMIC write path for a physical refill. SECURITY DEFINER; sets app.via_rpc/app.rpc_name; validates machine+lines+role. Orchestrates adjust_pod_inventory + adjust_warehouse_stock + refill_plan_output INSERT inside one subtransaction → pod+WH+log move together or not at all. p_dry_run=true default (Gate-1). Self-tested: dry-run writes nothing; failure rolls back all target writes + records header 'failed'. Articles 1,4,6,7,8.
+- Appendix A updated (refill_events, refill_event_lines). Open follow-ups: FE capture surface (Stax) to replace the Google Doc; migrate boonz-manual-refill skill to call record_actual_refill; daily reconciliation diff. Spec: docs/prds/PRD-100-structured-capture-atomic-refill.md, docs/architecture/DARA-F1F2-structured-capture-atomic-refill.md.

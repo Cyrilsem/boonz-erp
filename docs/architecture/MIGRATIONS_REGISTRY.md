@@ -575,3 +575,7 @@ WS3 (inventory reconciliation: VML receive + 2 WH transfers) intentionally NOT a
 `phase{A|B|C}_{step}_{verb_noun}` — e.g., `phaseA_a3_audit_log_infra`, `phaseB_b2_machines_canonical_rpc_only`.
 
 Forward-only. Never reuse a name. If a migration was bad, write a new one that fixes it (and document the why in CHANGELOG.md).
+
+## 2026-07-16 — PRD-100 (applied via MCP)
+- `f1_structured_capture_tables` — creates refill_events + refill_event_lines (Appendix A), RLS, indexes.
+- `f2_record_actual_refill` — creates record_actual_refill (canonical atomic refill writer).
