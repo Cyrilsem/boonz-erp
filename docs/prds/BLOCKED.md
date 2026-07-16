@@ -1,4 +1,18 @@
-# BLOCKED — Clean Ecosystem Loop halted at PRD-CLEAN-03 apply (2026-07-11 ~14:50 UTC)
+# ✅ RESOLVED 2026-07-11 — this block was cleared the same day; the loop completed all 7 PRDs.
+
+> **Status: RESOLVED.** The PRD-CLEAN-03 graveyard migration was applied attended later on
+> 2026-07-11 and the loop ran to completion. All 7 PRDs are DONE; see `CLEANUP-REPORT.md` and
+> `DECISIONS.md`. Verified still live on 2026-07-16: `graveyard` schema holds 14 tables/views +
+> 13 functions, `v_dispatch_state` / `v_refill_config` live, correlation + slot-binding-drift crons
+> active, both engines carry the PRD-CLEAN-09 guard. This file is retained for history only — it is
+> NOT an active halt signal.
+>
+> Carry-forward (NOT a block): the PRD-01 fleet-drift 7-day watch has triggered — see the
+> `2026-07-16` drift-watch entry in `DECISIONS.md`.
+
+---
+
+# BLOCKED (historical) — Clean Ecosystem Loop halted at PRD-CLEAN-03 apply (2026-07-11 ~14:50 UTC)
 
 ## Why
 

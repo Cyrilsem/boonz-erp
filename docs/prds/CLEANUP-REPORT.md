@@ -57,3 +57,19 @@ both were approved and completed. Full per-decision detail: DECISIONS.md.
 - refill_plan_output sentinel row plan_date=2099-12-09 (left untouched).
 - 22 ledger-stocked shelves absent from fresh Weimi snapshots (AMZ x4, WH1-2002) +
   ALHQ-1016 (stale Apr snapshot) + ALJ-1014_OLD — unresolvable until devices report.
+
+---
+
+## Addendum 2026-07-16 — day-5 drift-watch outcome (re-invocation, read-only)
+
+Loop re-verified: all 7 PRDs still DONE, every deliverable live (graveyard schema, v_dispatch_state,
+v_refill_config, correlation + slot-binding-drift crons, PRD-CLEAN-09 engine guards, uuid-keyed plan
+output). Reconciled the stale `BLOCKED.md` (it was cleared same-day 2026-07-11; not an active halt).
+
+**Final-acceptance #2 (fleet drift) — watch TRIGGERED.** Day-5 fresh matched-shelf drift = **25.0%**
+(1,395 / 5,587 units, snapshots <24h), above the 2% threshold — as predicted from the deferred
+sales-decrement root cause, plus a couple of empty-ledger machines (LVLUP-2015/1048) the 07-11 resync
+skipped or that were added since. **No data was mutated by this re-invocation.** Owner action (CS):
+attended re-zero `SELECT * FROM public.resync_pod_inventory_from_weimi();` (outside cron windows) as an
+interim, and/or author **PRD-CLEAN-08** for the decrement root cause. Full detail + the A01↔A1 join
+landmine: `DECISIONS.md` (2026-07-16 entry).

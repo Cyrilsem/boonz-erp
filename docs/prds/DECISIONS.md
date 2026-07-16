@@ -417,3 +417,49 @@ unpark work.
 ### Rollback
 engine_add_pod_2026-07-12.sql + engine_swap_pod_2026-07-12.sql in docs/prds/rollback/;
 cron.unschedule('slot_binding_drift_nightly') + DROP cron_slot_binding_drift_alert().
+
+---
+
+## 2026-07-16 — PRD-01 fleet-drift 7-day watch reading (re-invocation verification, NO data mutation)
+
+Re-invoked the Clean Ecosystem Loop; all 7 PRDs were already DONE (2026-07-11) and every
+deliverable still persists live (verified: graveyard 14 tbl/vw + 13 fns, v_dispatch_state,
+v_refill_config, refresh_correlation_weekly cron, slot_binding_drift_nightly cron, PRD-CLEAN-09
+drift guard in both engines, uuid-keyed write_refill_plan). Reconciled the stale BLOCKED.md
+(it falsely implied an active halt at PRD-03; that was cleared same-day 2026-07-11).
+
+### The watch item (CLEANUP-REPORT final acceptance #2)
+The report set a 7-day watch: "open PRD-CLEAN-08 if fleet drift exceeds 2%." Day 5 reading today:
+
+- **Measurement (correct join — the A01↔A1 landmine):** `shelf_configurations.shelf_code` is
+  zero-padded (`A01`); `v_live_shelf_stock.slot_name` is un-padded (`A1`). A direct
+  `shelf_code = slot_name` join matches only 318 rows and reports a bogus 126% drift. The correct
+  normalized join `LEFT(shelf_code,1)||(SUBSTR(shelf_code,2)::int)::text` matches 759 and is the
+  number used below. (Logged so the next reader does not repeat the direct-join error.)
+- **Fresh matched-shelf drift (snapshots < 24h, 40 machines, snapshot 3.6h old):**
+  **1,395 drift units / 5,587 weimi = 25.0%** over 631 fresh matched shelves. **> 2% → watch triggered.**
+- **Composition (spot-check top-3):** genuine sales-decrement drift (e.g. ACTIVATE-2005: ledger
+  316 / weimi 362, shelf-by-shelf divergence) MIXED with empty-ledger machines
+  (LVLUP-2015: ledger 0 / weimi 194; LVLUP-1048: ledger 0 / weimi 141 — resync-skipped-on-stale
+  or added after 07-11; not decrement drift, these just need a resync populate).
+
+### Judgement calls (safest reversible option, per goal protocol)
+1. **Did NOT auto-fire `resync_pod_inventory_from_weimi()`.** It is a fleet-wide inventory
+   mutation (~1,400 write-offs + unattributed adds) that materially rewrites truth + priority
+   signals; the established pattern (PRD-01 M2, PRD-03, PROGRAM-2026-05-25) and the auto-mode
+   classifier itself gate resyncs as **attended**; and it is cosmetic while the sales-decrement
+   root cause is unfixed (drift re-accumulates). On a verification re-invocation of a completed
+   loop, not performing a heavy data write is the safer, reversible choice.
+   - **Attended re-zero lever (CS, seconds):** `SELECT * FROM public.resync_pod_inventory_from_weimi();`
+     (run outside 15:45-16:30 UTC draft cron + 01:45-02:30 UTC picker/reconcile crons).
+2. **Did NOT author or execute PRD-CLEAN-08.** It is unauthored, and it is the sales-decrement
+   root-cause fix that PRD-01 explicitly scoped OUT ("Do not fix sales decrement logic in this
+   PRD"). The goal forbids inventing specs. **This reading is the formal trigger to author
+   PRD-CLEAN-08** (root-cause: sales/removals do not reliably decrement the pod_inventory batch
+   ledger; the daily_inventory_reconciliation cron @ 02:00 UTC is not converging it to <2%).
+
+### Net
+Loop remains COMPLETE and all deliverables intact. One open operational carry-forward: fleet
+drift has re-grown to ~25% (as PRD-01 predicted, root cause deferred). Owner: CS — either run the
+attended resync as an interim re-zero, or author PRD-CLEAN-08 for the decrement root cause. No
+prod data was mutated by this re-invocation (read-only verification only).
