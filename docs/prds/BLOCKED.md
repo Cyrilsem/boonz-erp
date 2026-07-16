@@ -1,43 +1,38 @@
-# ✅ RESOLVED 2026-07-11 — this block was cleared the same day; the loop completed all 7 PRDs.
+# BLOCKED — HUAWEI-2003-0000-B1 rebind (2026-07-16 ~10:10 UTC)
 
-> **Status: RESOLVED.** The PRD-CLEAN-03 graveyard migration was applied attended later on
-> 2026-07-11 and the loop ran to completion. All 7 PRDs are DONE; see `CLEANUP-REPORT.md` and
-> `DECISIONS.md`. Verified still live on 2026-07-16: `graveyard` schema holds 14 tables/views +
-> 13 functions, `v_dispatch_state` / `v_refill_config` live, correlation + slot-binding-drift crons
-> active, both engines carry the PRD-CLEAN-09 guard. This file is retained for history only — it is
-> NOT an active halt signal.
->
-> Carry-forward (NOT a block): the PRD-01 fleet-drift 7-day watch has triggered — see the
-> `2026-07-16` drift-watch entry in `DECISIONS.md`.
+## Why (per the task's hard-stop rule: guard still blocks after Task 1)
+`rebind_slot_lifecycle_from_weimi` still skips HUAWEI (`skipped_live_plan_machines`)
+because its live-plan guard locks any machine with an OPEN dispatch line
+(cancelled=false AND include=true AND picked_up=false AND dispatch_date >= today).
+Three legitimate rows from today's visit are still open — A03 Healthy Cola x1,
+A10 Barebells x1, A16 Vitamin Well x1 (all packed=false, include=true). The Caprice
+row is NOT the blocker. Suppressing those three would cancel possibly-legitimate
+pending work; out of this task's scope ("cancel only the single Caprice row").
+The guard keys on open-line state, exactly as designed — not on plan status.
 
----
+## Task 1 state: already satisfied before this task ran
+The orphan Caprice A08 row (fdb39ced) was ALREADY neutralized at 2026-07-16 04:42 UTC
+via the canonical skip path: skipped=true, include=false,
+skip_reason 'CS: cancel +1 Caprice refill, A08 Caprice expiring 07-17, swapping to
+Dates'. Skipped lines are inert (PRD-028: pack refuses unconditionally). Judgement
+call: NOT double-cancelled via cancel_dispatch_line — skip is reversible
+(unskip_dispatch_line) and already carries the drift-referencing reason.
 
-# BLOCKED (historical) — Clean Ecosystem Loop halted at PRD-CLEAN-03 apply (2026-07-11 ~14:50 UTC)
+## The 20:00-Dubai-halt premise is STALE — no emergency
+Verified from live pg_proc: p0_fix2 + p0_fix12 (2026-07-12/13) replaced PRD-CLEAN-09's
+global halt. Tonight engine_add_pod will AUTO-PLAN the two drifted HUAWEI shelves from
+the TRUE WEIMI identity (A06 Plaay 35g, A08 Freakin Awesome Filled Dates) as cold
+start + raise a critical monitoring alert; engine_swap_pod per-shelf-skips them.
+HUAWEI is picked for 2026-07-17 → expect ONE 'engine_add_pod_binding_drift' critical
+alert tonight, with a CORRECT plan. No halt, no wrong-product lines.
 
-## Why
-
-The auto-mode permission classifier denied the graveyard migration (moving 10 tables,
-1 view, 13 functions out of public in prod). Not bypassed via execute_sql, per the
-established pattern (PRD-CLEAN-01 M2, PROGRAM-2026-05-25).
-
-## State
-
-- PRD-CLEAN-01: DONE. PRD-CLEAN-02: DONE (committed).
-- PRD-CLEAN-03: analysis COMPLETE, migration WRITTEN and reviewed, NOT applied.
-  - Migration: supabase/migrations/20260711144500_prd_clean_03_schema_graveyard.sql
-  - Restore: docs/prds/rollback/graveyard_restore_2026-07-11.sql
-  - Full decision matrix in DECISIONS.md (what moves, what stays and why).
-- Baseline `npx next build`: PASSES (0 errors) before any move.
-- Nothing was moved; prod schema unchanged by PRD-03 so far.
-
-## To resume
-
-1. Attended: apply supabase/migrations/20260711144500_prd_clean_03_schema_graveyard.sql
-   via Supabase MCP apply_migration (name: prd_clean_03_schema_graveyard).
-2. Verification battery (avoid 15:45-16:30 UTC draft-cron window):
-   a. Pipeline dry cycle on a NON-LIVE date (CURRENT_DATE+2):
-   pick_machines_for_refill -> build_draft_for_confirmed -> get_pod_refill_draft ->
-   stitch_pod_to_boonz(date, true); zero errors; then clean up the test picks
-   (pending rows only).
-   b. npx next build - 0 errors.
-3. Continue at PRD-CLEAN-04.
+## To resume (one line, after the EOD sweep clears the 3 open rows)
+eod_auto_release_unpicked runs 19:59 UTC daily. Any time after that (or tomorrow):
+```sql
+SELECT rebind_slot_lifecycle_from_weimi(
+  (SELECT ARRAY[machine_id] FROM machines WHERE official_name='HUAWEI-2003-0000-B1'),
+  false,
+  'Post-swap rebind: A06 -> Plaay Tablets - Mix 35g, A08 -> Freakin Awesome Filled Dates. Swaps dispatched 2026-07-16; slot_lifecycle was stale.');
+```
+Dry-run first if desired (p_dry_run=true; expect exactly 2 inserts, HUAWEI only).
+Then confirm SELECT COUNT(*) FROM v_slot_binding_drift = 0.

@@ -538,3 +538,34 @@ get_venue_terms(<group>).source_of_supply:
   to prod but CS has not given the push go-ahead; not this goal's scope.
 - Committed to main: this goal's files only (7 mirror migrations, PRD-CLEAN-13 doc,
   DECISIONS.md). The ~30 unrelated modified files stay uncommitted.
+
+## HUAWEI-2003-0000-B1 binding drift (2026-07-16, task blocked at the rebind guard)
+
+### Root cause (confirms the forensics)
+Post-swap slot_lifecycle staleness, NOT the 2026-07-15 alias: today's dispatched swaps
+(A08 Caprice out -> Freakin Awesome Filled Dates in; A06 Plaay Mix out -> Plaay Mix 35g
+in; all packed/picked_up/dispatched=true) never updated slot_lifecycle - the same
+failure mode as the 2026-07-12 incident that produced rebind_slot_lifecycle_from_weimi.
+
+### What was (not) done
+- Orphan Caprice A08 refill row: found ALREADY skipped (04:42 UTC, canonical path,
+  reason references this exact swap). Left as-is - skip is inert per PRD-028 and
+  reversible; double-cancelling adds nothing. Zero writes made to refill_dispatching.
+- Rebind: dry run -> would_rebind 0, skipped_live_plan_machines=[HUAWEI] - guard locks
+  on THREE other legitimate open lines from today's visit (A03/A10/A16, include=true,
+  packed=false), which resolve at the 19:59 UTC EOD sweep. Not bypassed; hard-stop
+  honored (BLOCKED.md).
+- All packed=true rows untouched (no writes at all this task); no other machine touched.
+
+### Key discovery (updates PRD-CLEAN-09 doctrine)
+The engines NO LONGER halt globally on v_slot_binding_drift: p0_fix2/p0_fix12 scope the
+check to picked machines and handle drift per-shelf (add: auto-plan from TRUE WEIMI
+identity as cold start + critical alert; swap: per-shelf skip + alert). Tonight's build
+proceeds and plans HUAWEI CORRECTLY; expect one engine_add_pod_binding_drift critical
+alert until the rebind lands. Rebind remains required hygiene, not an emergency.
+
+### Verification status
+1 drift=0: PENDING (one-liner in BLOCKED.md after 19:59 UTC). 2: the Caprice row remains
+as skipped/include=false - the correct terminal state (nothing dispatchable remains).
+3: PASS trivially (zero writes). 4: PASS (zero writes). 5: tsc clean.
+
