@@ -569,3 +569,45 @@ alert until the rebind lands. Rebind remains required hygiene, not an emergency.
 as skipped/include=false - the correct terminal state (nothing dispatchable remains).
 3: PASS trivially (zero writes). 4: PASS (zero writes). 5: tsc clean.
 
+
+## PRD-CLEAN-14 — post-swap slot_lifecycle write gap CLOSED (2026-07-16, applied to prod)
+
+### Investigation
+The "physically confirmed at the machine" moment is refill_dispatching.item_added
+false->true: receive_dispatch_line asserts NOT item_added then sets it, writes
+pod_inventory in the same transaction, and today's HUAWEI Add News all carry it —
+but NOTHING wrote slot_lifecycle anywhere in that flow. Confirmed the exact gap
+behind the 2026-07-12 incident and the 2026-07-16 HUAWEI drift.
+
+### Host decision: trigger, not receive_dispatch_line
+item_added is set by receive_dispatch_line AND repack_machine (return_dispatch_line
+only checks it, verified). A trigger on the flip is the single choke point covering
+all current AND future writers, runs in the same transaction, and avoids replacing
+the ~400-line receive function (nothing replaced; rollback = DROP trigger + fn).
+
+### What shipped (migration 20260716110000, applied as prd_clean_14_rebind_slot_on_add_confirm)
+- tg_rebind_slot_lifecycle_on_add_confirm() + trg_rebind_slot_on_add_confirm:
+  AFTER UPDATE OF item_added, WHEN item_added false->true AND action IN
+  ('Add New','Add') AND NOT returned/cancelled/skipped AND shelf+pod present AND
+  filled>0. Mirrors rebind_slot_lifecycle_from_weimi's write rules: FOR UPDATE lock,
+  no-op if already bound (multi-variant Add News), archive outgoing (archived,
+  is_current=false, rotated_out_at), revive prior (machine,shelf,pod) row else
+  INSERT signal='KEEP'. Writes ONLY slot_lifecycle; never refill_dispatching,
+  never packed rows. Respects uq_slot_lifecycle_current_per_slot.
+
+### Verification (single rolled-back transaction on ACTIVATE-2005 A03; zero persistence confirmed)
+Full lifecycle simulated: patched the live Weimi snapshot in place (Sun Blast Juice ->
+Ritz Cracker; one-snapshot-per-device-day constraint forced update-in-place over
+insert) => drift 0 -> 1; inserted a packed+picked_up Add New line; canonical
+receive_dispatch_line => drift back to 0 IN THE SAME TRANSACTION; new binding =
+Ritz Cracker, outgoing row archived=t rotated_out=t, exactly 1 current row; second
+Add New of the same pod = no-op (still 0 drift, 1 row); other machines' slot_lifecycle
+delta 0; fleet drift delta (excl. sim machine) 0. Post-rollback: 0 sim rows, 0 sim
+bindings, trigger enabled, fleet drift = 2 (the pre-existing HUAWEI pair awaiting its
+attended rebind after the 19:59 UTC sweep). tsc clean.
+
+### Residual (documented, out of scope)
+A Remove-only line (M2W, shelf emptied, nothing added) still leaves the old binding
+current — same as rebind_slot_lifecycle_from_weimi's behaviour (no Weimi product to
+bind to). Acceptable: the drift view + nightly alert cover it, and the next Add New
+on the shelf now self-heals.
