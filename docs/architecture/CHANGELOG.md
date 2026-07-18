@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-18 — PRD-101: SIM assignment is Edit-only on /field/config/sims (FE-only)
+
+- Removed the redundant inline Assign/Unassign row button + its AssignModal bottom sheet from the field SIM page; assignment AND unassignment stay fully available in the Edit drawer's machine dropdown ('— unassigned —' clears machine_id+machine_name). Now matches /app/sims (which has its own Edit-only table and was untouched). 2 files, -108 lines, zero backend/DB/RPC change; engines untouched (plan-neutral). Rollback = single revert.
+
+
 ## 2026-07-16 - Data correction: NISSAN + NOVO warehouse remap (WH_MCC -> WH_CENTRAL)
 
 - Two non-VOX machines were mis-mapped to the VOX staging warehouse as their

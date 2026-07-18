@@ -6,7 +6,6 @@ interface SimCardTableProps {
   sims: SimCard[];
   todayStr: string; // YYYY-MM-DD (Dubai)
   onEdit: (sim: SimCard) => void;
-  onAssignToggle: (sim: SimCard) => void;
 }
 
 function daysUntil(dateStr: string | null, today: string): number | null {
@@ -48,12 +47,7 @@ function serialDisplay(serial: string | null): React.ReactNode {
   );
 }
 
-export function SimCardTable({
-  sims,
-  todayStr,
-  onEdit,
-  onAssignToggle,
-}: SimCardTableProps) {
+export function SimCardTable({ sims, todayStr, onEdit }: SimCardTableProps) {
   if (sims.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-gray-400">
@@ -115,12 +109,6 @@ export function SimCardTable({
                     className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
                   >
                     Edit
-                  </button>
-                  <button
-                    onClick={() => onAssignToggle(sim)}
-                    className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
-                  >
-                    {sim.machine_id ? "Unassign" : "Assign"}
                   </button>
                 </div>
               </td>

@@ -18,79 +18,6 @@ interface MachineOption {
   official_name: string;
 }
 
-// Assign-to-machine modal
-function AssignModal({
-  sim,
-  machines,
-  onClose,
-  onAssigned,
-}: {
-  sim: SimCard;
-  machines: MachineOption[];
-  onClose: () => void;
-  onAssigned: () => void;
-}) {
-  const [machineId, setMachineId] = useState(sim.machine_id ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-    const supabase = createClient();
-    const selectedMachine = machines.find((m) => m.machine_id === machineId);
-    const { error: dbErr } = await supabase
-      .from("sim_cards")
-      .update({
-        machine_id: machineId || null,
-        machine_name: selectedMachine?.official_name ?? null,
-      })
-      .eq("sim_id", sim.sim_id);
-    setSaving(false);
-    if (dbErr) {
-      setError(dbErr.message);
-    } else {
-      onAssigned();
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 rounded-t-3xl bg-white px-4 pb-10 pt-5">
-        <h3 className="mb-3 text-center text-base font-bold">
-          Assign SIM — {sim.sim_ref}
-        </h3>
-        {error && (
-          <p className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
-            {error}
-          </p>
-        )}
-        <label className="mb-1 block text-xs text-gray-500">Machine</label>
-        <select
-          value={machineId}
-          onChange={(e) => setMachineId(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
-        >
-          <option value="">— unassigned —</option>
-          {machines.map((m) => (
-            <option key={m.machine_id} value={m.machine_id}>
-              {m.official_name}
-            </option>
-          ))}
-        </select>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {saving ? "Saving…" : "Save Assignment"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function SimsPage() {
   const router = useRouter();
   const [sims, setSims] = useState<SimCard[]>([]);
@@ -99,7 +26,6 @@ export default function SimsPage() {
   const [search, setSearch] = useState("");
   const [showDrawer, setShowDrawer] = useState(false);
   const [editSim, setEditSim] = useState<SimCard | null>(null);
-  const [assignSim, setAssignSim] = useState<SimCard | null>(null);
 
   const todayStr = getDubaiDate();
 
@@ -173,10 +99,6 @@ export default function SimsPage() {
     setShowDrawer(true);
   }
 
-  function handleAssignToggle(sim: SimCard) {
-    setAssignSim(sim);
-  }
-
   if (loading) {
     return (
       <>
@@ -223,12 +145,7 @@ export default function SimsPage() {
           className="mb-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
         />
 
-        <SimCardTable
-          sims={filtered}
-          todayStr={todayStr}
-          onEdit={openEdit}
-          onAssignToggle={handleAssignToggle}
-        />
+        <SimCardTable sims={filtered} todayStr={todayStr} onEdit={openEdit} />
       </div>
 
       {showDrawer && (
@@ -243,17 +160,6 @@ export default function SimsPage() {
         />
       )}
 
-      {assignSim && (
-        <AssignModal
-          sim={assignSim}
-          machines={machines}
-          onClose={() => setAssignSim(null)}
-          onAssigned={() => {
-            setAssignSim(null);
-            fetchData();
-          }}
-        />
-      )}
     </div>
   );
 }
