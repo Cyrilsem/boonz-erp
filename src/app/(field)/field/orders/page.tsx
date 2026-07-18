@@ -509,7 +509,7 @@ export default function OrdersPage() {
                                       <div className="flex items-center justify-end gap-1.5">
                                         {showLock && (
                                           <span
-                                            title="Received — only superadmin can edit"
+                                            title="Received — qty & price are superadmin-only; expiry can still be corrected via Edit"
                                             className="text-xs"
                                           >
                                             🔒

@@ -4,6 +4,12 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## Dispatch role vocabulary fix (APPLIED 2026-07-18)
+
+| Migration name                                          | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------- | ----------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `phaseF_dispatch_role_chk_align_field_staff_warehouse`  | 1, 2, 7, 12 | ✅ Applied to prod | Widened `refill_dispatching_last_edited_role_chk` + `refill_dispatching_edit_log_edited_by_role_check` to allow `field_staff` + `warehouse` (legacy `driver`/`warehouse_manager` kept). Fixes `swap_shelf_pod`/`add_dispatch_row` INSERTs being rejected for field/warehouse users. Additive, forward-only DROP+ADD. Cody PASS. Verified via field_staff swap on WH1-2002. |
+
 ## PRD-055 notes consolidation into Signals (APPLIED 2026-06-23)
 
 | Migration name                                   | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -615,3 +621,5 @@ Forward-only. Never reuse a name. If a migration was bad, write a new one that f
 | wave1_coexistence_krambals_zigi | coexistence_rules +1 (Krambals&Zigi family) | config |
 | wave2_rank_slot_suitability_fn | rank_slot_suitability() NEW | read-only INVOKER helper |
 | wave2_engine_swap_pod_rewire | engine_swap_pod (Pass 2a → rank_slot_suitability) | CREATE OR REPLACE, minimal |
+
+| `20260718133205_prd103_edit_po_line_expiry_unlock_post_receipt` | 2026-07-18 | `edit_purchase_order_line` CREATE OR REPLACE (forward-only, rebuilt from live) | Received lines: warehouse/operator_admin/manager may correct EXPIRY only (qty/price superadmin-only). Adds `post_receipt_expiry_edit` audit flag. PO record only. Cody Articles 1,4,5,6,8,12. |

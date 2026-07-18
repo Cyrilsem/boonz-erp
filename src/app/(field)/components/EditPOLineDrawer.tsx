@@ -4,6 +4,13 @@
 // Each line shows the three editable fields (ordered_qty, price_per_unit_aed, expiry_date).
 // One Reason input is shared across all changed lines.
 // Save iterates changed lines and calls edit_purchase_order_line once per line.
+//
+// PRD-103 — per-field lock on received lines. Received lines used to be fully
+// read-only for everyone but superadmin. Now the EXPIRY field stays editable for
+// the standard edit roles (a common receiving typo to fix), while ordered_qty and
+// price remain superadmin-only. This mirrors the backend edit_purchase_order_line
+// guard exactly, so the two never diverge. Every change is still logged (reason +
+// who + before/after) via procurement_events + write_audit_log.
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -24,8 +31,8 @@ interface EditPOLineDrawerProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
-  // PRD-002: caller role gates per-line edit. Received lines are
-  // superadmin-only; everyone else sees disabled inputs + a lock chip.
+  // PRD-002/103: caller role gates the per-field lock. On received lines,
+  // qty & price are superadmin-only; expiry stays editable for all edit roles.
   userRole?: string | null;
 }
 
@@ -58,23 +65,37 @@ function toDraft(line: POLineForEdit): DraftLine {
   };
 }
 
-// PRD-002: mirror the backend received-state guard. Locked lines are
-// rendered read-only unless the caller is superadmin.
-function lineIsLocked(d: DraftLine, role: string | null | undefined): boolean {
-  const received =
-    (d.received_qty ?? 0) > 0 || d.purchase_outcome === "received";
-  return received && role !== "superadmin";
+function lineIsReceived(d: DraftLine): boolean {
+  return (d.received_qty ?? 0) > 0 || d.purchase_outcome === "received";
 }
 
-function lineHasChange(d: DraftLine): boolean {
+// PRD-103: qty & price are the superadmin-only fields on a received line.
+// Expiry is NOT locked — it stays editable for every edit role.
+function qtyPriceLocked(d: DraftLine, role: string | null | undefined): boolean {
+  return lineIsReceived(d) && role !== "superadmin";
+}
+
+function expiryChanged(d: DraftLine): boolean {
+  const expiryParsed = d.expiry.trim() === "" ? null : d.expiry;
+  return expiryParsed !== null && expiryParsed !== d.original_expiry;
+}
+
+function qtyOrPriceChanged(d: DraftLine): boolean {
   const qtyParsed = d.ordered_qty.trim() === "" ? null : Number(d.ordered_qty);
   const priceParsed = d.price.trim() === "" ? null : Number(d.price);
-  const expiryParsed = d.expiry.trim() === "" ? null : d.expiry;
-  const qtyChanged = qtyParsed !== null && qtyParsed !== d.original_ordered_qty;
-  const priceChanged = priceParsed !== null && priceParsed !== d.original_price;
-  const expiryChanged =
-    expiryParsed !== null && expiryParsed !== d.original_expiry;
-  return qtyChanged || priceChanged || expiryChanged;
+  const qtyChangedV = qtyParsed !== null && qtyParsed !== d.original_ordered_qty;
+  const priceChangedV = priceParsed !== null && priceParsed !== d.original_price;
+  return qtyChangedV || priceChangedV;
+}
+
+// A line is submittable if it has a change we're actually allowed to send:
+// on qty/price-locked lines that means an expiry change only.
+function lineHasSubmittableChange(
+  d: DraftLine,
+  role: string | null | undefined,
+): boolean {
+  if (qtyPriceLocked(d, role)) return expiryChanged(d);
+  return expiryChanged(d) || qtyOrPriceChanged(d);
 }
 
 export function EditPOLineDrawer({
@@ -162,15 +183,9 @@ export function EditPOLineDrawer({
       return;
     }
 
-    // PRD-002: never send locked lines to the backend; the RPC would reject
-    // them anyway, but skipping client-side keeps the UX honest.
-    const changed = lines
-      .filter((l) => !lineIsLocked(l, userRole))
-      .filter(lineHasChange);
+    const changed = lines.filter((l) => lineHasSubmittableChange(l, userRole));
     if (changed.length === 0) {
-      setError(
-        "No changes to save. Edit at least one unlocked field, or close.",
-      );
+      setError("No changes to save. Edit at least one field, or close.");
       return;
     }
 
@@ -179,6 +194,7 @@ export function EditPOLineDrawer({
     const errors: string[] = [];
 
     for (const d of changed) {
+      const locked = qtyPriceLocked(d, userRole);
       const qtyParsed =
         d.ordered_qty.trim() === "" ? null : Number(d.ordered_qty);
       const priceParsed = d.price.trim() === "" ? null : Number(d.price);
@@ -188,11 +204,14 @@ export function EditPOLineDrawer({
         p_po_line_id: d.po_line_id,
         p_reason: reasonTrimmed,
       };
-      if (qtyParsed !== null && qtyParsed !== d.original_ordered_qty) {
-        args.p_new_ordered_qty = qtyParsed;
-      }
-      if (priceParsed !== null && priceParsed !== d.original_price) {
-        args.p_new_price_per_unit_aed = priceParsed;
+      // PRD-103: never send qty/price for a received line unless superadmin.
+      if (!locked) {
+        if (qtyParsed !== null && qtyParsed !== d.original_ordered_qty) {
+          args.p_new_ordered_qty = qtyParsed;
+        }
+        if (priceParsed !== null && priceParsed !== d.original_price) {
+          args.p_new_price_per_unit_aed = priceParsed;
+        }
       }
       if (expiryParsed !== null && expiryParsed !== d.original_expiry) {
         args.p_new_expiry_date = expiryParsed;
@@ -248,39 +267,35 @@ export function EditPOLineDrawer({
           ) : (
             <ul className="space-y-3">
               {lines.map((line, idx) => {
-                const dirty = lineHasChange(line);
-                // PRD-002: per-line lock. Received lines for non-superadmin
-                // are read-only; the backend would reject anyway, so the UI
-                // must not let the user type.
-                const locked = lineIsLocked(line, userRole);
-                const fieldDisabled = saving || locked;
+                const dirty = lineHasSubmittableChange(line, userRole);
+                // PRD-103: qty & price locked on received lines for non-superadmin;
+                // expiry stays editable. Mirrors the backend guard exactly.
+                const lockQtyPrice = qtyPriceLocked(line, userRole);
                 return (
                   <li
                     key={line.po_line_id}
                     className={`rounded-lg border p-3 ${
-                      locked
-                        ? "border-neutral-200 bg-neutral-50 opacity-75 dark:border-neutral-800 dark:bg-neutral-900"
-                        : dirty
-                          ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"
-                          : "border-neutral-200 dark:border-neutral-800"
+                      dirty
+                        ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950"
+                        : "border-neutral-200 dark:border-neutral-800"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-medium">{line.product_name}</p>
-                      {locked && (
+                      {lockQtyPrice && (
                         <span
-                          title="Received — only superadmin can edit"
-                          className="shrink-0 text-xs"
+                          title="Received — qty & price are superadmin-only. Expiry can still be corrected."
+                          className="shrink-0 text-xs text-neutral-500"
                         >
-                          🔒 Locked
+                          🔒 Qty/price locked
                         </span>
                       )}
                     </div>
                     {line.received_qty != null && line.received_qty > 0 && (
                       <p className="mt-0.5 text-xs text-neutral-500">
                         Received: {line.received_qty} units
-                        {locked
-                          ? " (only superadmin can edit this line)"
+                        {lockQtyPrice
+                          ? " — expiry editable; qty & price superadmin-only"
                           : " (cannot drop ordered_qty below this)"}
                       </p>
                     )}
@@ -298,8 +313,8 @@ export function EditPOLineDrawer({
                             patchLine(idx, { ordered_qty: e.target.value })
                           }
                           className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
-                          disabled={fieldDisabled}
-                          readOnly={locked}
+                          disabled={saving || lockQtyPrice}
+                          readOnly={lockQtyPrice}
                         />
                       </label>
                       <label className="block">
@@ -315,12 +330,19 @@ export function EditPOLineDrawer({
                             patchLine(idx, { price: e.target.value })
                           }
                           className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
-                          disabled={fieldDisabled}
-                          readOnly={locked}
+                          disabled={saving || lockQtyPrice}
+                          readOnly={lockQtyPrice}
                         />
                       </label>
                       <label className="block">
-                        <span className="text-xs text-neutral-500">Expiry</span>
+                        <span className="text-xs text-neutral-500">
+                          Expiry
+                          {lockQtyPrice && (
+                            <span className="ml-1 text-emerald-600 dark:text-emerald-400">
+                              ✎ editable
+                            </span>
+                          )}
+                        </span>
                         <input
                           type="date"
                           value={line.expiry}
@@ -328,8 +350,7 @@ export function EditPOLineDrawer({
                             patchLine(idx, { expiry: e.target.value })
                           }
                           className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1.5 text-sm focus:border-neutral-500 focus:outline-none disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
-                          disabled={fieldDisabled}
-                          readOnly={locked}
+                          disabled={saving}
                         />
                       </label>
                     </div>
@@ -349,7 +370,7 @@ export function EditPOLineDrawer({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
-              placeholder="e.g. Supplier delivered 12 instead of 10; corrected price per WhatsApp"
+              placeholder="e.g. Supplier delivered 12 instead of 10; corrected expiry per box label"
               className="mt-1 w-full resize-none rounded-md border border-neutral-300 px-2 py-2 text-sm focus:border-neutral-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
               disabled={saving}
             />
