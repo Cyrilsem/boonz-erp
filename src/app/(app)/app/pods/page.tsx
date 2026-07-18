@@ -70,12 +70,7 @@ const DRAWER_TABS: { key: DrawerTab; label: string }[] = [
 // Fleet reclassification 2026-07-12: statuses collapsed to Active|Inactive
 // ('Warehouse' retired — whereabouts now live in pod_location: Office/DIP/
 // China/Legacy). Remaining values kept for edge cases only.
-const STATUS_OPTIONS = [
-  "Active",
-  "Inactive",
-  "Maintenance",
-  "Pending",
-];
+const STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Pending"];
 
 // ── Inventory buckets ─────────────────────────────────────────────────────────
 // The physical split CS uses to read the fleet. Legacy = bookkeeping ghosts,
@@ -1303,7 +1298,12 @@ export default function MachinesPage() {
           }}
         />
         {(["All", ...BUCKET_ORDER] as const)
-          .filter((b) => b === "All" || b === "Active" || machines.some((m) => bucketOf(m) === b))
+          .filter(
+            (b) =>
+              b === "All" ||
+              b === "Active" ||
+              machines.some((m) => bucketOf(m) === b),
+          )
           .map((s) => (
             <button
               key={s}
@@ -1443,106 +1443,106 @@ export default function MachinesPage() {
                   </td>
                 </tr>,
                 ...rows.map((m) => {
-                const isActive = m.status?.toLowerCase() === "active";
-                const isLegacy = bucket === "Legacy";
-                const isSelected = selected?.machine_id === m.machine_id;
-                return (
-                  <tr
-                    key={m.machine_id}
-                    style={{
-                      borderBottom: "1px solid #f5f2ee",
-                      cursor: "pointer",
-                      background: isSelected ? "#f0fdf4" : undefined,
-                    }}
-                    onClick={() => {
-                      setSelected(m);
-                      setDrawerTab("overview");
-                      setEditing(false);
-                      setEditValues({});
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected)
-                        (
-                          e.currentTarget as HTMLTableRowElement
-                        ).style.background = "#faf9f7";
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected)
-                        (
-                          e.currentTarget as HTMLTableRowElement
-                        ).style.background = "transparent";
-                    }}
-                  >
-                    <td
-                      className="px-4 py-3"
-                      style={{ fontWeight: 600, color: "#24544a" }}
-                    >
-                      {m.official_name}
-                    </td>
-                    <td
-                      className="px-4 py-3"
+                  const isActive = m.status?.toLowerCase() === "active";
+                  const isLegacy = bucket === "Legacy";
+                  const isSelected = selected?.machine_id === m.machine_id;
+                  return (
+                    <tr
+                      key={m.machine_id}
                       style={{
-                        color: "#6b6860",
-                        fontFamily:
-                          "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        fontSize: 12,
+                        borderBottom: "1px solid #f5f2ee",
+                        cursor: "pointer",
+                        background: isSelected ? "#f0fdf4" : undefined,
                       }}
-                      title={m.adyen_store_code ?? undefined}
+                      onClick={() => {
+                        setSelected(m);
+                        setDrawerTab("overview");
+                        setEditing(false);
+                        setEditValues({});
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected)
+                          (
+                            e.currentTarget as HTMLTableRowElement
+                          ).style.background = "#faf9f7";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected)
+                          (
+                            e.currentTarget as HTMLTableRowElement
+                          ).style.background = "transparent";
+                      }}
                     >
-                      {deviceNumber(m) ?? "—"}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "#6b6860" }}>
-                      {m.venue_group ?? "\u2014"}
-                    </td>
-                    <td
-                      className="px-4 py-3 max-w-[160px] truncate"
-                      style={{ color: "#0a0a0a" }}
-                      title={m.pod_location ?? undefined}
-                    >
-                      {m.pod_location ?? "\u2014"}
-                    </td>
-                    <td className="px-4 py-3" style={{ color: "#6b6860" }}>
-                      {m.adyen_status ?? "\u2014"}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {m.adyen_inventory_in_store?.startsWith("Live") ? (
-                        <span style={{ color: "#24544a", fontWeight: 700 }}>
-                          &#10003;
-                        </span>
-                      ) : (
-                        <span style={{ color: "#9ca3af" }}>&mdash;</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      {m.include_in_refill ? (
-                        <span style={{ color: "#24544a", fontWeight: 700 }}>
-                          &#10003;
-                        </span>
-                      ) : (
-                        <span style={{ color: "#9ca3af" }}>&mdash;</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "2px 10px",
-                          borderRadius: 20,
-                          fontSize: 11,
-                          fontWeight: 600,
-                          background: isActive ? "#f0fdf4" : "#f5f2ee",
-                          color: isActive
-                            ? "#065f46"
-                            : isLegacy
-                              ? "#9ca3af"
-                              : "#6b6860",
-                        }}
+                      <td
+                        className="px-4 py-3"
+                        style={{ fontWeight: 600, color: "#24544a" }}
                       >
-                        {isLegacy ? "\u2014" : (m.status ?? "\u2014")}
-                      </span>
-                    </td>
-                  </tr>
-                );
+                        {m.official_name}
+                      </td>
+                      <td
+                        className="px-4 py-3"
+                        style={{
+                          color: "#6b6860",
+                          fontFamily:
+                            "ui-monospace, SFMono-Regular, Menlo, monospace",
+                          fontSize: 12,
+                        }}
+                        title={m.adyen_store_code ?? undefined}
+                      >
+                        {deviceNumber(m) ?? "—"}
+                      </td>
+                      <td className="px-4 py-3" style={{ color: "#6b6860" }}>
+                        {m.venue_group ?? "\u2014"}
+                      </td>
+                      <td
+                        className="px-4 py-3 max-w-[160px] truncate"
+                        style={{ color: "#0a0a0a" }}
+                        title={m.pod_location ?? undefined}
+                      >
+                        {m.pod_location ?? "\u2014"}
+                      </td>
+                      <td className="px-4 py-3" style={{ color: "#6b6860" }}>
+                        {m.adyen_status ?? "\u2014"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {m.adyen_inventory_in_store?.startsWith("Live") ? (
+                          <span style={{ color: "#24544a", fontWeight: 700 }}>
+                            &#10003;
+                          </span>
+                        ) : (
+                          <span style={{ color: "#9ca3af" }}>&mdash;</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {m.include_in_refill ? (
+                          <span style={{ color: "#24544a", fontWeight: 700 }}>
+                            &#10003;
+                          </span>
+                        ) : (
+                          <span style={{ color: "#9ca3af" }}>&mdash;</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "2px 10px",
+                            borderRadius: 20,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: isActive ? "#f0fdf4" : "#f5f2ee",
+                            color: isActive
+                              ? "#065f46"
+                              : isLegacy
+                                ? "#9ca3af"
+                                : "#6b6860",
+                          }}
+                        >
+                          {isLegacy ? "\u2014" : (m.status ?? "\u2014")}
+                        </span>
+                      </td>
+                    </tr>
+                  );
                 }),
               ])
             )}

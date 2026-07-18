@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260716121037  name: f2_record_actual_refill
 CREATE OR REPLACE FUNCTION public.record_actual_refill(
   p_machine_name text,
   p_plan_date    date,

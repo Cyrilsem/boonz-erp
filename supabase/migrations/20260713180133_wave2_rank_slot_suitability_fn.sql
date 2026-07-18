@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260713180133  name: wave2_rank_slot_suitability_fn
 CREATE OR REPLACE FUNCTION public.rank_slot_suitability(
   p_plan_date          date,
   p_machine_id         uuid,
@@ -383,4 +385,4 @@ COMMENT ON FUNCTION public.rank_slot_suitability(date,uuid,uuid,uuid,int,uuid[])
 --   ONLY Pass 2a substitute-selection changed: find_substitutes_for_shelf(...)
 --   replaced by rank_slot_suitability(...) with per-machine in-run pending array.
 --   Everything else preserved byte-identical.
--- ============================================================================;
+-- ============================================================================

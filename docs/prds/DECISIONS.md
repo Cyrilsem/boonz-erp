@@ -371,12 +371,14 @@ graveyard restore file + DROP VIEW public.v_refill_config;
 ## PRD-CLEAN-09 (2026-07-12) — engine-side binding-drift fix
 
 ### Verified state before acting
+
 - v_slot_binding_drift ALREADY EXISTED with exactly the specified join axis
   (regexp_replace slot_name -> shelf_code; no aisle_code) - reused, not recreated.
 - Live drift at build time: 0 rows across 525 current bindings, so the global halt
   assertion is safe to install (tonight's plan unaffected).
 
 ### Judgement calls
+
 1. Hard-skip chosen over derive-from-v_live_shelf_stock: rebinding the candidates CTE
    to Weimi identity would change engine behaviour broadly; the skip leaves agreeing
    shelves byte-identical. With the assertion halting on ANY drift, the skip is
@@ -395,6 +397,7 @@ graveyard restore file + DROP VIEW public.v_refill_config;
    replacements (PRD-05 technique) - the diff is provably minimal.
 
 ### Observed pre-existing bug (NOT touched, out of scope)
+
 engine_swap_pod's dead-tag resolution loop filters reasoning->>'tagged_by' IN
 ('engine_add_pod_v15','engine_add_pod_v16') but the live add-engine writes
 'engine_add_pod_v19_base_stock' -> dead tags from the current engine are never
@@ -402,6 +405,7 @@ resolved by the swap engine. Moot while swaps_enabled=false; flag for the Wave-2
 unpark work.
 
 ### Verification (all in rolled-back transactions, zero residue confirmed)
+
 1. Positive: manufactured 1 drift row (slot_lifecycle flip) -> engine_add_pod halted
    ("1 slot binding drift row(s) ... plan halted (PRD-CLEAN-09)"), engine_swap_pod
    halted, cron_slot_binding_drift_alert reported drift_rows=1 and wrote 1 critical
@@ -415,6 +419,7 @@ unpark work.
    carry the guard (prosrc check).
 
 ### Rollback
+
 engine_add_pod_2026-07-12.sql + engine_swap_pod_2026-07-12.sql in docs/prds/rollback/;
 cron.unschedule('slot_binding_drift_nightly') + DROP cron_slot_binding_drift_alert().
 

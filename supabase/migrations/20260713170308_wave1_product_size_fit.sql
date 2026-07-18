@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260713170308  name: wave1_product_size_fit
 -- WAVE-1 (Cody-approved): product_size_fit reference table + deterministic seed.
 -- New engine-load-bearing reference table (file to Appendix A). RLS mirrors capacity_standard.
 CREATE TABLE IF NOT EXISTS public.product_size_fit (

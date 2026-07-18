@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714235045  name: fixD2_edit_dispatch_product_shelf_binding
 -- FIX D2 — edit_dispatch_product: resolve pod from the shelf's live binding
 -- (slot_lifecycle is_current) instead of the product_mapping is_global_default
 -- default, mirroring the fix already shipped to add_dispatch_row.

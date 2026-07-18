@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714233600  name: fixD_add_dispatch_row_shelf_binding
 CREATE OR REPLACE FUNCTION public.add_dispatch_row(p_machine_id uuid, p_shelf_code text, p_boonz_product_id uuid, p_quantity numeric, p_action text, p_dispatch_date date, p_source_kind text DEFAULT 'unknown'::text, p_source_warehouse_id uuid DEFAULT NULL::uuid, p_source_machine_id uuid DEFAULT NULL::uuid, p_edit_role text DEFAULT NULL::text, p_reason text DEFAULT NULL::text, p_conductor_session text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql

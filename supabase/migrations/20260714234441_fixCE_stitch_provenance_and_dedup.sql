@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714234441  name: fixCE_stitch_provenance_and_dedup
 -- fixCE_stitch_provenance_and_dedup
 -- Defect C: carry source_origin + from_machine_id through the stitch into refill_plan_output.
 -- Defect E: fix action-blind pull_raw dedup collision + never-silent underfill shortfall.

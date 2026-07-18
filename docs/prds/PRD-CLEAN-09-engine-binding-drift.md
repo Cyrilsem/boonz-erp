@@ -6,6 +6,7 @@ the plan halts) live in BOTH engines + defense-in-depth hard-skip (clamp_reason
 alert cron. Positive/negative tests + full dry cycle passed in rolled-back txns.
 
 ## Spec (CS, 2026-07-12)
+
 Modify engine_add_pod and engine_swap_pod: derive pod_product_id from
 v_live_shelf_stock OR hard-skip any shelf where slot_lifecycle.pod_product_id <>
 v_live_shelf_stock.pod_product_id with clamp_reason 'binding_drift'. Pre-run assertion:
@@ -15,6 +16,7 @@ Join axis: regexp_replace(slot_name, '^([A-Z])(\d)$', '\10\2') = shelf_code, nev
 aisle_code.
 
 ## What shipped
+
 - v_slot_binding_drift already existed with exactly the specified join axis (reused).
 - engine_add_pod: assertion right after param validation (RAISE aborts the whole
   engine txn, so partial DELETEs roll back); drifted shelves -> qty 0 +
@@ -29,6 +31,7 @@ aisle_code.
   assertion is ever relaxed.
 
 ## Rollback
+
 - docs/prds/rollback/engine_add_pod_2026-07-12.sql
 - docs/prds/rollback/engine_swap_pod_2026-07-12.sql
 - SELECT cron.unschedule('slot_binding_drift_nightly');

@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260716093730  name: audit_product_mapping_writes
 -- Audit trail for product_mapping (canonical for procurement splits + stitching).
 -- Incident 2026-07-13 01:33:08 UTC: a 4,280-row bulk status deactivation left
 -- ZERO trace because this table was the only major write target with no audit

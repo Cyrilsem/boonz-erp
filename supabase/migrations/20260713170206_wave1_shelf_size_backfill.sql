@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260713170206  name: wave1_shelf_size_backfill
 -- WAVE-1 (Cody-approved w/ audit-GUC revision): shelf_configurations.shelf_size backfill.
 -- Rule: non-V0 A01-08=Small/A09-14=Medium/A15-16=Large; B mirrored; V0 all Small; C/D/E NULL.
 -- Article 8: set audit GUCs so tg_audit_shelf_configurations logs via_rpc=true.
@@ -35,4 +37,5 @@ WHERE m.machine_id = sc.machine_id
   AND (
         (m.official_name LIKE '%V0'     AND sc.shelf_code LIKE 'A%')
      OR (m.official_name NOT LIKE '%V0' AND (sc.shelf_code BETWEEN 'A01' AND 'A16'
-                                          OR sc.shelf_code BETWEEN 'B01' AND 'B16')));
+                                          OR sc.shelf_code BETWEEN 'B01' AND 'B16')))
+  ;

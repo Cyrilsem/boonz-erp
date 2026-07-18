@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260716144426  name: phasef_machine_warehouse_canonical_writer
 -- Close the Article-1 gap on machine warehouse mapping.
 -- Adds FK hygiene + the VOX invariant as a CHECK + a canonical DEFINER writer.
 -- Table is tiny (39 rows); all rows already satisfy these, so validation is immediate.

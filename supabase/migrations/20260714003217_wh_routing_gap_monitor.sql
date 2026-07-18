@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714003217  name: wh_routing_gap_monitor
 -- Warehouse routing-gap monitor: surfaces "right stock, wrong warehouse" gaps.
 -- Read-only view + monitoring_alerts summariser (mirrors cron_slot_binding_drift_alert).
 

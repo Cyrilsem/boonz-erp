@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260716120827  name: f1_structured_capture_tables
 -- F1: structured refill-capture ledger (Dara design, Cody ⚠️-approved 2026-07-16)
 -- Appendix A additions: refill_events, refill_event_lines
 

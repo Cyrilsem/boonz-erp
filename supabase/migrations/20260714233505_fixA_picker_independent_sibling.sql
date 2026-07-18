@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714233505  name: fixA_picker_independent_sibling
 CREATE OR REPLACE FUNCTION public.pick_machines_for_refill(p_plan_date date DEFAULT resolve_refill_plan_date(), p_max_total integer DEFAULT 8, p_max_siblings integer DEFAULT 2)
  RETURNS TABLE(out_machine_id uuid, out_official_name text, out_picked_reasons text[], out_priority_score numeric, out_route_cluster text, out_visit_order integer)
  LANGUAGE plpgsql

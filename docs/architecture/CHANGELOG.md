@@ -47,6 +47,23 @@
   (cannot block writes), no RLS change, no function replacement.
   Rollback: DROP TRIGGER tg_audit_product_mapping ON public.product_mapping;
 
+## 2026-07-18 — Dispatch role CHECK constraints aligned to current role vocabulary (Cody PASS — Articles 1,2,7,12,14)
+
+- **Bug:** the field packing "Swap the pod" flow (`swap_shelf_pod` → `add_dispatch_row`) failed with `new row for relation "refill_dispatching" violates check constraint "refill_dispatching_last_edited_role_chk"` for any caller whose `user_profiles.role` is `field_staff` or `warehouse` (i.e. the drivers/packers who actually do refills). Root cause: role-vocabulary drift — the app + `user_profiles` moved to `field_staff`/`warehouse`, but two dispatch CHECK constraints still only permitted the legacy `driver`/`warehouse_manager`. The canonical writer passes the caller's role straight through with no translation, so its legitimate output was rejected. Only operator_admin/superadmin/manager could swap. (Backend/MCP calls slipped through because they resolve to `system`/`operator_admin`.)
+- **Fix (migration `phaseF_dispatch_role_chk_align_field_staff_warehouse`):** widened both `refill_dispatching_last_edited_role_chk` (last_edited_by_role) and `refill_dispatching_edit_log_edited_by_role_check` (edited_by_role) to additionally allow `field_staff` + `warehouse`; legacy `driver`/`warehouse_manager` retained for historical rows. Additive; RLS untouched; no audit-history rewrite; DROP+ADD is the sanctioned forward-only way to widen a CHECK (existing rows all hold allowed values, re-validation passes). Verified live: a `field_staff`-impersonated `swap_shelf_pod` on WH1-2002 A01 now succeeds — Remove + two Add New rows written with `last_edited_by_role='field_staff'`.
+- Rollback: new forward migration restoring the prior two constraints (ARRAY without field_staff/warehouse).
+
+## 2026-07-16 — Machine warehouse mapping: canonical writer + VOX invariant + data fix
+
+- **Data fix:** NISSAN-0804-0000-L0 (INDEPENDENT) and NOVO-1023-0000-W0 (NOVO) were mis-mapped primary=WH_MCC (VOX staging); reset to primary=WH_CENTRAL, secondary=NULL. Effect had been: returns routed to WH_MCC and refills bound from_warehouse_id=WH_MCC (NISSAN 203u/82 lines, NOVO 155u/69 lines since 06-16). Reconciliation showed the real drift was cosmetic — 272u actually bound to WH_CENTRAL batches, 31u to real WH_MCC-staged batches (Central transfers/returns, NOT VOX 999 sentinels), 55u unbound (general capture-gap pattern). No inventory correction warranted.
+- **Structural fix (migration `phasef_machine_warehouse_canonical_writer`, Cody PASS — Articles 1,2,4,8,12,14):** on `machines` (39 rows, all compliant, immediate validation): (1) FK machines_primary_wh_fk + machines_secondary_wh_fk → warehouses ON DELETE RESTRICT; (2) CHECK machines_nonvox_primary_central = `venue_group='VOX' OR primary_warehouse_id = WH_CENTRAL` (blocks the bug on ANY write path); (3) `set_machine_warehouse(machine_id, primary, secondary, reason)` SECURITY DEFINER canonical writer — role-gated (operator_admin/superadmin/manager), validates WH existence + primary≠secondary + VOX invariant, sets app.via_rpc/app.rpc_name. Verified present + negative test confirmed the CHECK blocks non-VOX→WH_MCC.
+- Rollback: `DROP FUNCTION public.set_machine_warehouse(uuid,uuid,uuid,text); ALTER TABLE public.machines DROP CONSTRAINT machines_nonvox_primary_central, DROP CONSTRAINT machines_primary_wh_fk, DROP CONSTRAINT machines_secondary_wh_fk;`
+- Follow-up: reconcile the 2 quarantined WH_MCC Freakin return units via manager approve_return (no auto-release, PRD-098). Full write-path retrospective: `BOONZ BRAIN/POSTMORTEM_backend_reliability_2026-07-16.md`.
+
+## 2026-07-14 — PRD-100: empty-shelf hole signal (APPLIED to prod, CS go-ahead 2026-07-14)
+
+- Per-SLOT emptiness as its own urgency term: new canonical `v_shelf_holes` (slot grain; is_hole = stock 0 OR fill ratio <= hole_frac 0.15 — fraction of capacity, never a flat count; grade/hole_wt from pooled `v_shelf_sales_identity` velocity). `v_machine_priority` gains s_holes (100*LEAST(1, SUM(hole_wt)/holes_norm)) at w_holes 0.30, P1/P2 hole overrides + tokens empty_hero_row/empty_rows_2plus/hole_row — all GATED on w_holes > 0 (T4 golden: w_holes=0 + PRD-063 weights = md5-identical output). Chip surface patched (Cody revision): get_machine_health adds the 'holes' chip; check_priority_surface_consistency subtracts it in the runout residual + checks it. 9 tuner columns on pick_urgency_params; weight rebalance 0.35/0.10/0.12/0.13 (+0.30 holes) staged as guarded data migration, applied LAST.
+- Shadow-tested pre-apply in a rolled-back txn: T1 ACTIVATE-2005 = exactly 3 A-holes (Aquafina B15/B16 at 0/25, Al Ain Zero B14 at 2/24), Fade Fit clean; T2 ACTIVATE P3→P1 (urgency 14.52→41.95, empty_hero_row+empty_rows_2plus); T3 fleet: 1 new P1 + exactly 6 P3→P2, OMDCW/NISSAN stay P1, MC-2004/ALJLT-0200/NOVO stay out; T5 ratio semantics; T6 35 ms; T8 singleton guard. Dara + Cody (⚠→revised) PASS. Applied as prd100_ws1a/ws2/ws3/ws1b + fix1 (chip_holes '0' vs '0.00' format parity on zero-hole machines). Post-apply: check_priority_surface_consistency() = 0 findings; ACTIVATE-2005 live P1 (s_holes 100, urgency 41.95); fleet tiers P1 3 / P2 9 / P3 18 = shadow-identical.
 
 ## 2026-07-10 — PRD-098: Return Approval Workflow (backend; freeze-independent)
 
@@ -2802,3 +2819,68 @@ ALTER TABLE public.pod_inventory_audit_log DISABLE ROW LEVEL SECURITY;
 - `f1_structured_capture_tables`: new Appendix-A entities `refill_events` (capture header) + `refill_event_lines` (typed detail). Append-only RLS (SELECT authenticated; INSERT manager-roles via user_profiles; UPDATE/DELETE blocked). Indexes: (machine_id, plan_date DESC), partial status∈(pending,failed), (event_id), (boonz_product_id, applied). Dara design, Cody ⚠️→revised. Articles 2,7,12,14.
 - `f2_record_actual_refill`: canonical ATOMIC write path for a physical refill. SECURITY DEFINER; sets app.via_rpc/app.rpc_name; validates machine+lines+role. Orchestrates adjust_pod_inventory + adjust_warehouse_stock + refill_plan_output INSERT inside one subtransaction → pod+WH+log move together or not at all. p_dry_run=true default (Gate-1). Self-tested: dry-run writes nothing; failure rolls back all target writes + records header 'failed'. Articles 1,4,6,7,8.
 - Appendix A updated (refill_events, refill_event_lines). Open follow-ups: FE capture surface (Stax) to replace the Google Doc; migrate boonz-manual-refill skill to call record_actual_refill; daily reconciliation diff. Spec: docs/prds/PRD-100-structured-capture-atomic-refill.md, docs/architecture/DARA-F1F2-structured-capture-atomic-refill.md.
+
+## 2026-07-12 — P0 incident package: slot-binding drift + dispatch/packing state machine (8 migrations)
+
+Root-caused via 6-track investigation (session 2026-07-12 evening). Incident refs: `incident_slot_lifecycle_binding_drift_2026-07-12.md`, `HANDOFF_2026-07-12.md`, `P0_FIX_REPORT_2026-07-12.md`. All Cody-reviewed (Articles 1/Amdt-005, 4, 5, 6/Amdt-002, 8, 11, 12, 15).
+
+- `p0_fix1_weimi_slot_guard_block` — refill_policy_params.weimi_slot_guard 'warn'→'block'. Guard verified row-scoped (rejects only mismatched refill_plan_output rows, never raises).
+- `p0_fix2_engine_add_pod_scoped_drift_skip` — engine_add_pod PRD-CLEAN-09 unscoped fleet-halt RAISE replaced by scoped count (machines_to_visit picked/cs_added for plan_date) + critical monitoring_alert; activates the pre-existing per-row binding_drift hard-skip path (final_qty=0, clamp_reason='binding_drift').
+- `p0_fix3_write_refill_plan_scoped_delete` — pending DELETE now replacement-scoped (machine+canonical shelf must appear in payload; M2W empty-shelf special case); preserved rows counted + alerted; return gains `stale_pending_preserved`. Closes the reset_approved_undispatched + partial-stitch row-destruction defect (27 rows lost 2026-07-11).
+- `p0_fix4_drift_monitor_v2` — cron_slot_binding_drift_alert v2: adds WEIMI-unresolved-but-bound slots (view blind spot), fixes stale 'plan will HALT' text. cron.job 39 unchanged.
+- `p0_fix6_add_dispatch_row_is_m2m` — add_dispatch_row INSERT omitted is_m2m (default false) → every source_kind='m2m' insert violated m2m_consistency. Column added with `(p_source_kind IN ('m2m','truck_transfer'))`. All 4 constraint legs verified satisfied.
+- `p0_fix7_dup_guard_identity_scope` — prevent_duplicate_unstarted_dispatch: identity-unchanged UPDATEs early-return (qty edits/pack no longer trapped by duplicate generations); duplicate predicate now excludes skipped/cancelled rows. Trigger stays BEFORE INSERT OR UPDATE.
+- `p0_fix8` + `p0_fix8b` — NEW canonical writer `sweep_inactivate_stale_zero_stock(p_reason)`: sweeps Active rows with zero warehouse+consumer stock missed by the transition-only trigger, mirroring its sanctioned auto-confirm proposal pattern (Amendment 002 precedent). Executed 2026-07-12: 43 rows inactivated (phantom FEFO batch-pick feedstock).
+
+Data corrections (canonical paths only): confirm_machine_packed AMZ-1057-2403-O1 2026-07-12 final=true (pack session was stuck in_progress). M2M REMOVE leg ea9d15c3 left untouched pending return-path P1 fix. reconcile_shelf_identity_weimi(AMZ-1068) dry-run only — live A09 rebind deferred to physical count.
+
+## 2026-07-12 (evening, part 2) — Engine rebuild wave: WEIMI-first identity + fleet-wide mapping fan-out kill (p0_fix9..17)
+
+CS directives: (1) warehouse numbers must be true across ALL products, (2) Hunter Ridge is its own pod + stitch must substitute-with-marker instead of silent-drop, (3) slot_lifecycle must never be an identity source in refill/swap.
+
+- `p0_fix9_hunter_ridge_mapping_disambiguation` — 32 active rows of boonz 'Hunter Ridge - Hot N Sweet' under pod 'Hunter' deactivated; Hunter Ridge now single-homed.
+- `p0_fix10_engine_weimi_identity_wh_dedup` — engine_add_pod: shelf identity = WEIMI-first (v_shelf_slot_identity latest, lifecycle only as fallback for unmatched; weimi_override rows sized cold-start, reasoning carries identity_source + stale lifecycle pod); wh_avail deduped on wh_inventory_id (Activia 34→17; 20/47 shelves corrected on test machines); binding_drift no longer skips — drifted shelves now plan the TRUE product (alert retitled: lifecycle STALE, rebind).
+- `p0_fix11_stitch_variant_substitution` — stitch v30: WH-aware variant redistribution (donor/receiver pool per pod line, descending real stock), explicit '[variant_sub] N units X → Y' line comments, return keys variant_substitutions + unfilled_shortfalls (+ deviations rows) — silent drop eliminated; diag CTE fan-out fixed (EXISTS). Conservation verified on live data (9 units shifted, 0 violations).
+- `p0_fix12_engine_swap_weimi_identity_scoped_drift` — engine_swap_pod: fleet-wide PRD-CLEAN-09 halt → scoped alert + per-shelf skip (was about to kill tonight's run on the live 1068 A09 drift); WEIMI-first identity at all three incumbent-resolution sites (Pass 1 / 2b / 3).
+- `p0_fix13_find_substitutes_real_stock_volume_rank` — find_substitutes_for_shelf: wh CTE rebuilt (DISTINCT pairs, machine's primary/secondary warehouses, reservations, quarantine/expiry) killing 38-44x inflation (Vitamin Well 1,416→32); ranking = COALESCE(corr,0.05) × ln(1+real_wh) DESC (CS rule: closest product with HIGH real volume); active-decommission candidates excluded.
+- `p0_fix14_enable_swaps_global` — refill_settings.swaps_enabled false→true (Gate 1 still gates every proposal).
+- `p0_fix15_intent_planners_dedup` — propose_decommission_plan (both overloads) + propose_rebalance_plan: pod-inventory sums deduped (Vitamin Well decommission target 11,026→258; rebalance phantom donors gone).
+- `p0_fix16_ui_readpath_dedup` — get_pod_refill_draft + v_refill_planning_compact wh numbers deduped (Gate-1 UI 56→32 class); v_warehouse_at_risk deterministic single-pod LATERAL + status filter (246 rows→216, one per batch). auto_generate_refill_plan: 0 DB callers — Article-13 deprecation recommended, not applied.
+- `p0_fix17_product_mapping_dedup_noise` — 4,280 machine rows byte-identical to their global row deactivated (8,401→4,121 active; 319 pairs preserved; avg_cost drift proven inert on v_product_landed_cost); partial unique indexes uq_pm_global_pair + uq_pm_machine_pair lock the table clean. 22 multi-pod is_global_default products listed for CS business review (Coca Cola/Pepsi/Zigi/Krambals families).
+
+All patches byte-diff verified deployed==intended; originals in session /tmp. Plan-number regression: Activia @1057 wh_avail 17 before and after cleanup.
+
+## 2026-07-12 (late) — Suitability Swap Engine (Wave 1 + Wave 2), CS-directed rebuild
+
+CS spec: per-pod ranked candidate pool by lookalike + proven-here history; S/M/L size-fit (A1-8 Small/A9-14 Medium/A15-16 Large, non-V0); min-quantity gate (need ≥0.7×cap in WH or the product waits and resurfaces — embargo-aware); coexistence hard-filter (curated block-list, size-up exempt); no ADD change (ADD only tops up). All Cody-reviewed.
+
+WAVE 1 (foundation):
+
+- `wave1_shelf_size_backfill` — shelf_configurations.shelf_size column + CHECK + backfill 2,583 rows (A rule + B mirror + V0 all-Small + C/D/E NULL). Audit GUCs set (Article 8). [PROTECTED — Cody ✅ Articles 1,2,8,12,14,15]
+- `wave1_product_size_fit` — NEW reference table product_size_fit (pod_product_id,shelf_size,fits,fit_basis,machines_seen,cap_typical,min_refill_qty), RLS mirroring capacity_standard, seeded via occupancy backtrace ∪ capacity_standard; 217 rows/109 products; min_refill_qty=ceil(0.7×cap_typical). Dubai Popcorn confirmed no-Small. [file to Appendix A]
+- `wave1_coexistence_krambals_zigi` — coexistence_rules family self-pair for Krambals & Zigi (family c7212554). CS-final block-list = Coca-Cola, Pepsi, Almarai, Loacker, +Krambals&Zigi. Gatorade/AlAin/Perrier/Plaay/Healthy/Evian/Hunter-HunterRidge/Snack-Chocolate all ALLOWED per CS.
+
+WAVE 2 (engine):
+
+- `wave2_rank_slot_suitability_fn` — NEW read-only helper rank_slot_suitability(date,uuid,uuid,uuid,int,uuid[]) SECURITY INVOKER STABLE. Returns gated ranked pool: 7-signal suitability (0.28 proven_local +0.20 lookalike +0.16 margin/band +0.12 basket +0.10 capped-avail +0.08 increment +0.06 fresh) + true-hero size-up (+0.05); hard gates size-fit, min-qty, coexistence (incl. in-run pending pods), decommission, not-already-present-except-size-up. [RPC_REGISTRY read-only helper]
+- `wave2_engine_swap_pod_rewire` — engine_swap_pod Pass 2a now calls rank_slot_suitability (threaded per-machine pending-pods array); all else byte-identical (GUCs, operator_admin guard, _assert_*, swaps_enabled, R5 cooldowns, _travel_scope_blocks, Pass 1/2b/3, return shape). find_substitutes_for_shelf untouched (v_swap_candidate_ranking intact). [Cody ✅ Articles 1,4,8,12,14]
+
+Size-up rule: same pod allowed on a 2nd shelf ONLY when full cap/velocity < trip AND proven_local pctile ≥0.80 AND not a blended/aggregate pod. Coexistence blocks DIFFERENT variants of a redundant family; identical-pod size-up is exempt.
+
+## 2026-07-15 — Refill post-mortem defect package (plan 2026-07-14), Cody-approved
+
+Root-caused from the 14 Jul messy-refill brief. Five code defects fixed + live (A, C, D, D2, E); B/F need CS go-ahead.
+
+- `fixA_picker_independent_sibling` — pick_machines_for_refill: sibling expansion now excludes the `INDEPENDENT` catch-all bucket (`AND sc.r_cluster <> 'INDEPENDENT'`). No-group machines (8 of them: ALJLT×2, HUAWEI, JET, LVLUP, MC, NISSAN, NOOK) stop being pulled as false siblings of each other. Cody ✅ Articles 1,4,8,12.
+- `fixCE_stitch_provenance_and_dedup` — stitch_pod_to_boonz + write_refill_plan:
+  - C: stitch lines_agg now emits `source_origin` + `from_machine_id`; write_refill_plan INSERT carries them into refill_plan_output. Internal transfers now reach dispatch as M2M (un-gates push_plan_to_dispatch's internal_transfer branch + pair_internal_transfer_m2m) instead of mislabeled warehouse/NULL → no more "pick N from warehouse" for a product with 0 WH stock.
+  - E: pull_raw dedup was action-blind — a leftover REFILL qty=0 row tied with ADD_NEW qty=12 and (unstable tiebreak) zeroed the fill (NISSAN A02 Protein Balls wrote 8, dropped Choco Hazelnut which had 8u, reported unfilled_shortfalls:[]). Fixed: `AND a.qty > 0` + `a.qty DESC` tiebreak; added `pull_underfill` CTE so a silent under-fill is now reported in unfilled_shortfalls. Cody ✅.
+- `fixD_add_dispatch_row_shelf_binding` + `fixD2_edit_dispatch_product_shelf_binding` — both now resolve pod_product_id from the shelf's live slot_lifecycle binding (validated against an Active mapping), falling back to is_global_default only when no binding carries the SKU. Kills the "Plaay Tablets vs Plaay Tablets - Mix" wrong-pod phantom-archival bug. Cody ✅ Articles 1,4,8,12.
+
+Post-apply behavioral checks pending next run: E fills NISSAN A02 to 12; C routes a transfer line as M2M (no WH debit).
+
+OPEN (need CS go-ahead): B — mint VOX_SOURCED sentinels for Skittles, Pepsi Regular, 7Up Diet, M&M Yellow Bag, Maltesers (× WH_MCC + WH_MM) via canonical adjust_warehouse_stock. CORRECTION vs brief: Fade Fit is boonz-sourced (not venue_team) — do NOT sentinel it; blocked Fade Fit = real procurement need. F — Freakin pilot lines (Awesome Thins, Healthy Bites, Garnola Bar, Roasted Dipped) at 0 WH; raise the pilot PO. Advisory task fired 05:28 not 8pm — reschedule to 16:05 UTC (task not visible via API; likely desktop-app scheduled task).
+
+
+## 2026-07-18 — PRD-103 post-receipt expiry correction
+- `edit_purchase_order_line` (migration `20260718133205_prd103_edit_po_line_expiry_unlock_post_receipt`): the PRD-002 received-line lock is relaxed so warehouse/operator_admin/manager can correct the **expiry date only** on a received PO line; ordered_qty and price stay superadmin-only. PO record only — does NOT re-date already-received `warehouse_inventory` batches. Full audit preserved (`procurement_events` + `write_audit_log`), now tagged `post_receipt_expiry_edit=true`. Coherence guard `ordered_qty < received_qty` now only fires when qty is actually changed. Rebuilt from the LIVE body (PRD-1 `boonz_product_block_reason` guardrail preserved). FE: `EditPOLineDrawer.tsx` per-field lock mirrors the backend. Cody-reviewed (Articles 1, 4, 5, 6, 8, 12).

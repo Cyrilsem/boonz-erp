@@ -4,6 +4,12 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## Dispatch role vocabulary fix (APPLIED 2026-07-18)
+
+| Migration name                                          | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------- | ----------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `phaseF_dispatch_role_chk_align_field_staff_warehouse`  | 1, 2, 7, 12 | ✅ Applied to prod | Widened `refill_dispatching_last_edited_role_chk` + `refill_dispatching_edit_log_edited_by_role_check` to allow `field_staff` + `warehouse` (legacy `driver`/`warehouse_manager` kept). Fixes `swap_shelf_pod`/`add_dispatch_row` INSERTs being rejected for field/warehouse users. Additive, forward-only DROP+ADD. Cody PASS. Verified via field_staff swap on WH1-2002. |
+
 ## PRD-055 notes consolidation into Signals (APPLIED 2026-06-23)
 
 | Migration name                                   | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -581,3 +587,45 @@ Forward-only. Never reuse a name. If a migration was bad, write a new one that f
 - `f2_record_actual_refill` — creates record_actual_refill (canonical atomic refill writer).
 | 20260718071500_prd102_d1_swap_shelf_pod_qty | swap_shelf_pod (5-arg dropped, 6-arg created) | operator-decided swap quantity; wh_limited clamp |
 | 20260718072000_prd102_d2_decline_swap_pair | refill_dispatching_edit_log CHECKs + decline_swap_pair (new) | Don't-swap decline with reason + swap_rejected signal |
+
+---
+
+## 2026-07-12 P0 incident package
+
+| Migration                                                                                                                                                 | Objects                                                  | Nature                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| p0_fix1_weimi_slot_guard_block                                                                                                                            | refill_policy_params (config UPDATE) + monitoring_alerts | guard warn→block                                                                        |
+| p0_fix2_engine_add_pod_scoped_drift_skip                                                                                                                  | engine_add_pod(date,integer)                             | CREATE OR REPLACE, surgical (PRD-CLEAN-09 block only; md5-diff verified)                |
+| p0_fix3_write_refill_plan_scoped_delete                                                                                                                   | write_refill_plan(date,jsonb)                            | CREATE OR REPLACE, surgical (4 changes; g8→g8+scoped-delete)                            |
+| p0_fix4_drift_monitor_v2                                                                                                                                  | cron_slot_binding_drift_alert()                          | CREATE OR REPLACE full body v2                                                          |
+| p0_fix6_add_dispatch_row_is_m2m                                                                                                                           | add_dispatch_row                                         | CREATE OR REPLACE, surgical (is_m2m column+value only)                                  |
+| p0_fix7_dup_guard_identity_scope                                                                                                                          | prevent_duplicate_unstarted_dispatch()                   | CREATE OR REPLACE, surgical (2 hunks)                                                   |
+| p0_fix8 / p0_fix8b                                                                                                                                        | sweep_inactivate_stale_zero_stock(text) NEW              | new narrow-concern writer (proposal queue + status via sanctioned auto-confirm pattern) |
+| Rollbacks: fix1 = UPDATE back to 'warn'; fix2/3/6/7 = originals preserved in session /tmp *_orig.sql and re-derivable from this registry's prior entries. |
+
+## 2026-07-12 engine rebuild wave
+
+| p0_fix9 | product_mapping (data) | Hunter Ridge single-homing |
+| p0_fix10 | engine_add_pod | WEIMI-first identity + wh dedupe + drift plans-true-product |
+| p0_fix11 | stitch_pod_to_boonz → v30 | variant substitution + markers + unfilled_shortfalls |
+| p0_fix12 | engine_swap_pod | scoped drift skip + WEIMI-first identity |
+| p0_fix13 | find_substitutes_for_shelf | real deduped scoped stock + volume-aware rank + decommission guard |
+| p0_fix14 | refill_settings (data) | swaps_enabled=true |
+| p0_fix15 | propose_decommission_plan ×2, propose_rebalance_plan | pod-inventory dedupe |
+| p0_fix16 | get_pod_refill_draft, v_refill_planning_compact, v_warehouse_at_risk | UI read-path dedupe |
+| p0_fix17 | product_mapping (data) + 2 partial unique indexes | 4,280 noise rows deactivated |
+| 20260714010000_prd100_ws1a_hole_params | pick_urgency_params | 9 hole-signal tuner columns (hole_frac, hole_wt_a..d, holes_norm, w_holes, p1/p2_holes_min) |
+| 20260714010500_prd100_ws2_v_shelf_holes | v_shelf_holes (new view) | per-slot hole state, canonical (PRD-100) |
+| 20260714011000_prd100_ws3_v_machine_priority_holes | v_machine_priority, get_machine_health, check_priority_surface_consistency | s_holes term + hole overrides/tokens (w_holes-gated) + holes chip |
+| 20260714011500_prd100_ws1b_weight_reseed (data, applied last) | pick_urgency_params (data) | guarded reseed 0.50/0.15/0.20/0.15 → 0.35/0.10/0.12/0.13 |
+| 20260714012000_prd100_fix1_chip_holes_format | check_priority_surface_consistency | chip_holes guard row '0' vs '0.00' format parity |
+
+## 2026-07-12 Suitability Swap Engine
+
+| wave1_shelf_size_backfill | shelf_configurations (+shelf_size col, 2583 backfill) | protected; audit GUCs |
+| wave1_product_size_fit | product_size_fit NEW table + RLS + seed (217 rows) | reference; Appendix A |
+| wave1_coexistence_krambals_zigi | coexistence_rules +1 (Krambals&Zigi family) | config |
+| wave2_rank_slot_suitability_fn | rank_slot_suitability() NEW | read-only INVOKER helper |
+| wave2_engine_swap_pod_rewire | engine_swap_pod (Pass 2a → rank_slot_suitability) | CREATE OR REPLACE, minimal |
+
+| `20260718133205_prd103_edit_po_line_expiry_unlock_post_receipt` | 2026-07-18 | `edit_purchase_order_line` CREATE OR REPLACE (forward-only, rebuilt from live) | Received lines: warehouse/operator_admin/manager may correct EXPIRY only (qty/price superadmin-only). Adds `post_receipt_expiry_edit` audit flag. PO record only. Cody Articles 1,4,5,6,8,12. |

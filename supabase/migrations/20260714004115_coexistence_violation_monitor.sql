@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714004115  name: coexistence_violation_monitor
 -- Read-only monitor: surfaces pairs of DISTINCT live pods on a machine that
 -- violate an ACTIVE machine-scope coexistence_rules rule, using the SAME
 -- matching logic as public._coexistence_blocks(). Excludes rule1 tccc

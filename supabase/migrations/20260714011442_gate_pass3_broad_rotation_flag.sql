@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260714011442  name: gate_pass3_broad_rotation_flag
 -- STEP 1: idempotent OFF-by-default flag (setting_value is jsonb; boolean false to match swaps_enabled/sweep_enabled)
 INSERT INTO public.refill_settings(setting_key, setting_value)
 SELECT 'broad_rotation_enabled','false'::jsonb

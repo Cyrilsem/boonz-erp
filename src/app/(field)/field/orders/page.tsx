@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
 import { EditPOLineDrawer } from "../../components/EditPOLineDrawer";
 import { CancelPOLineDrawer } from "../../components/CancelPOLineDrawer";
+import { CancelPODrawer } from "../../components/CancelPODrawer";
 import { POEditHistoryPill } from "../../components/POEditHistoryPill";
 
 const EDIT_ROLES = new Set([
@@ -23,6 +24,8 @@ const EDIT_ROLES = new Set([
 
 interface POGroup {
   po_id: string;
+  // PRD-103b: cancel_po (whole-PO cancel) is keyed by po_number.
+  po_number: number | null;
   supplier_name: string;
   purchase_date: string;
   line_count: number;
@@ -103,6 +106,8 @@ export default function OrdersPage() {
   const [cancellingLine, setCancellingLine] = useState<POLineDetail | null>(
     null,
   );
+  // PRD-103b: whole-PO cancel drawer state.
+  const [cancellingPo, setCancellingPo] = useState<POGroup | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([]);
@@ -130,6 +135,7 @@ export default function OrdersPage() {
         `
         po_line_id,
         po_id,
+        po_number,
         purchase_date,
         ordered_qty,
         received_qty,
@@ -155,6 +161,9 @@ export default function OrdersPage() {
         (line.received_date ? (line.ordered_qty ?? 0) : 0);
       if (existing) {
         existing.line_count += 1;
+        if (existing.po_number == null && line.po_number != null) {
+          existing.po_number = line.po_number as number;
+        }
         existing.total_ordered += line.ordered_qty ?? 0;
         existing.total_received += lineReceivedQty;
         if (!line.received_date) {
@@ -163,6 +172,7 @@ export default function OrdersPage() {
       } else {
         grouped.set(line.po_id, {
           po_id: line.po_id,
+          po_number: (line.po_number as number | null) ?? null,
           supplier_name: s.supplier_name,
           purchase_date: line.purchase_date,
           line_count: 1,
@@ -272,6 +282,19 @@ export default function OrdersPage() {
     }
 
     setExpandLoading(false);
+  }
+
+  // PRD-103b: whole-PO cancel is only offered while NOTHING on the PO has
+  // been received (mirrors the cancel_po backend gate, which loops the
+  // canonical cancel_po_line per open line) and the PO has a po_number.
+  function canCancelWholePo(o: POGroup): boolean {
+    return (
+      o.po_number != null &&
+      !o.received_date &&
+      o.total_received === 0 &&
+      !!userRole &&
+      EDIT_ROLES.has(userRole)
+    );
   }
 
   // Filter for pending tab: unreceived OR collected-but-not-WH-received
@@ -391,6 +414,17 @@ export default function OrdersPage() {
                           )}
                           {tab === "pending" && (
                             <div className="flex gap-1.5">
+                              {canCancelWholePo(order) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCancellingPo(order);
+                                  }}
+                                  className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                                >
+                                  Cancel PO
+                                </button>
+                              )}
                               {userRole && EDIT_ROLES.has(userRole) && (
                                 <button
                                   onClick={(e) => {
@@ -509,7 +543,7 @@ export default function OrdersPage() {
                                       <div className="flex items-center justify-end gap-1.5">
                                         {showLock && (
                                           <span
-                                            title="Received — only superadmin can edit"
+                                            title="Received — qty & price are superadmin-only; expiry can still be corrected via Edit"
                                             className="text-xs"
                                           >
                                             🔒
@@ -567,6 +601,17 @@ export default function OrdersPage() {
                                 className="flex-1 rounded-lg border border-neutral-300 py-2 text-center text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-200 dark:hover:bg-neutral-900"
                               >
                                 Edit
+                              </button>
+                            )}
+                            {canCancelWholePo(order) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCancellingPo(order);
+                                }}
+                                className="flex-1 rounded-lg border border-red-300 py-2 text-center text-xs font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+                              >
+                                Cancel PO
                               </button>
                             )}
                             {!order.received_date && (
@@ -631,6 +676,23 @@ export default function OrdersPage() {
               setExpandedPoId(null);
               setTimeout(() => toggleExpand(id), 0);
             }
+          }}
+        />
+      )}
+
+      {/* PRD-103b: whole-PO cancel drawer (canonical cancel_po RPC) */}
+      {cancellingPo && cancellingPo.po_number != null && (
+        <CancelPODrawer
+          poNumber={cancellingPo.po_number}
+          poId={cancellingPo.po_id}
+          supplierName={cancellingPo.supplier_name}
+          lineCount={cancellingPo.line_count}
+          totalOrdered={cancellingPo.total_ordered}
+          open={true}
+          onClose={() => setCancellingPo(null)}
+          onConfirmed={() => {
+            setRefreshKey((k) => k + 1);
+            fetchOrders();
           }}
         />
       )}

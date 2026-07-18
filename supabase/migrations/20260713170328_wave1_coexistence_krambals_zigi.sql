@@ -1,3 +1,5 @@
+-- backported from prod schema_migrations on 2026-07-18, RC-15 parity
+-- version: 20260713170328  name: wave1_coexistence_krambals_zigi
 -- WAVE-1 (Cody-approved, fast-path config): Krambals & Zigi family self-pair coexistence rule.
 INSERT INTO public.coexistence_rules
   (rule_group, a_match_type, a_match_value, b_match_type, b_match_value, scope, rule_type, is_active, note)
