@@ -457,3 +457,8 @@ Five objects, all verified live in `pg_proc`; FE wired in Track C C2 (Article 3 
 3. If helper: keep `SECURITY DEFINER` only if RLS-bypass on read is genuinely needed. Otherwise prefer `SECURITY INVOKER`.
 4. Add an entry to CHANGELOG.md citing the Constitution article(s) it satisfies.
 5. CI lint (Phase A.6) will check that any new function in `pg_proc` is registered here.
+
+## PRD-102 (2026-07-18)
+
+- `swap_shelf_pod(p_plan_date date, p_machine_id uuid, p_shelf_id uuid, p_new_pod_product_id uuid, p_reason text, p_new_qty integer DEFAULT NULL)` — v2 canonical field pod-swap writer (5-arg signature dropped; default-NULL keeps all named-param callers). NULL qty = fill-to-WEIMI-cap (legacy, byte-identical); qty>=1 = operator quantity, WH-availability-limited only (`clamp_reason='wh_limited'` + `requested_qty` + `wh_available` in response). Legs via add_dispatch_row (Article 1). Roles: field_staff, warehouse, operator_admin, superadmin, manager; reason >= 10 chars.
+- `decline_swap_pair(p_plan_date date, p_machine_id uuid, p_shelf_id uuid, p_dispatch_ids uuid[], p_reason text)` — NEW canonical writer: declines an unstarted planner swap pair. skipped=true/include=false/skip_reason 'decline_swap: …' (visible decision; unskip_dispatch_line reactivates), edit-log rows kind='decline_swap' (append-only), one refill_edit_signals `swap_rejected` row (source='field', incoming pod) for engine suppression. Same role list (role-vocab rule: always includes field_staff + warehouse). Refuses started/packed/picked-up/cancelled/already-skipped legs.

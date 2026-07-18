@@ -290,6 +290,22 @@ export default function PackingDetailPage() {
     [],
   );
   const [podSearch, setPodSearch] = useState<string>("");
+  // PRD-102 D1: operator-decided swap quantity + WH context for the chosen pod.
+  const [swapQty, setSwapQty] = useState<string>("");
+  const [swapShelfCap, setSwapShelfCap] = useState<number | null>(null);
+  const [podWhTotals, setPodWhTotals] = useState<Map<string, number>>(
+    new Map(),
+  );
+  // PRD-102 D2: "Don't swap" decline sheet target (planner pair legs).
+  const [declineTarget, setDeclineTarget] = useState<{
+    dispatchIds: string[];
+    shelfId: string;
+    shelfCode: string;
+    label: string;
+  } | null>(null);
+  const [declineReason, setDeclineReason] = useState<string>("");
+  const [declineBusy, setDeclineBusy] = useState(false);
+  const [declineMsg, setDeclineMsg] = useState<string | null>(null);
 
   const [committedByBatch, setCommittedByBatch] = useState<Map<string, number>>(
     new Map(),
@@ -1600,8 +1616,10 @@ export default function PackingDetailPage() {
     setSwapReason("");
     setPodSearch("");
     setPodOptions([]);
+    setSwapQty("");
+    setSwapShelfCap(null);
     const supabase = createClient();
-    const [{ data: maps }, { data: wh }] = await Promise.all([
+    const [{ data: maps }, { data: wh }, { data: capRows }] = await Promise.all([
       supabase
         .from("product_mapping")
         .select(
@@ -1614,7 +1632,19 @@ export default function PackingDetailPage() {
         .from("v_wh_pickable")
         .select("boonz_product_id, warehouse_stock")
         .limit(10000),
+      supabase
+        .from("v_shelf_max_stock")
+        .select("max_stock_weimi")
+        .eq("shelf_id", shelfId)
+        .limit(100),
     ]);
+    // PRD-102 D1: the legacy default fill = the shelf's WEIMI cap (spread target).
+    const cap = (capRows ?? []).reduce(
+      (m, r) =>
+        Math.max(m, Number((r as { max_stock_weimi?: number }).max_stock_weimi ?? 0)),
+      0,
+    );
+    setSwapShelfCap(cap > 0 ? cap : null);
     const stock = new Map<string, number>();
     for (const r of (wh ?? []) as Record<string, unknown>[]) {
       const id = r.boonz_product_id as string | null;
@@ -1622,11 +1652,14 @@ export default function PackingDetailPage() {
         stock.set(id, (stock.get(id) ?? 0) + Number(r.warehouse_stock ?? 0));
     }
     const pods = new Map<string, string>();
+    const whTotals = new Map<string, number>();
     for (const r of (maps ?? []) as Record<string, unknown>[]) {
       const bId = r.boonz_product_id as string | null;
       // in-stock scope: only pods with at least one WH-available variant
       if (!bId || (stock.get(bId) ?? 0) <= 0) continue;
       const podId = r.pod_product_id as string | null;
+      if (podId)
+        whTotals.set(podId, (whTotals.get(podId) ?? 0) + (stock.get(bId) ?? 0));
       const ppRaw = r.pod_products;
       const pp = Array.isArray(ppRaw) ? ppRaw[0] : ppRaw;
       const name =
@@ -1640,11 +1673,18 @@ export default function PackingDetailPage() {
         a.name.localeCompare(b.name),
       ),
     );
+    setPodWhTotals(whTotals);
   }
 
   async function submitPodSwap() {
     if (!swapShelfId || !swapNewPodId || swapReason.trim().length < 10) {
       setSwapMsg("Pick the new pod and a reason (min 10 chars).");
+      return;
+    }
+    // PRD-102 D1: the operator's quantity wins (capacity no longer clamps).
+    const qty = parseInt(swapQty, 10);
+    if (!Number.isFinite(qty) || qty < 1) {
+      setSwapMsg("Quantity to add must be at least 1.");
       return;
     }
     setSwapBusy(true);
@@ -1656,12 +1696,43 @@ export default function PackingDetailPage() {
       p_shelf_id: swapShelfId,
       p_new_pod_product_id: swapNewPodId,
       p_reason: swapReason.trim(),
+      p_new_qty: qty,
     });
     setSwapBusy(false);
     if (error) {
       setSwapMsg(error.message);
       return;
     }
+    setSwapOpen(false);
+    await fetchData();
+  }
+
+  // PRD-102 D2: decline a planner swap pair with a reason (min 10 chars).
+  // Calls decline_swap_pair: legs -> skipped (visible decision), edit-log rows,
+  // and one swap_rejected learning signal for the engine.
+  async function submitDeclineSwap() {
+    if (!declineTarget) return;
+    if (declineReason.trim().length < 10) {
+      setDeclineMsg("Reason must be at least 10 characters.");
+      return;
+    }
+    setDeclineBusy(true);
+    setDeclineMsg(null);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("decline_swap_pair", {
+      p_plan_date: getDubaiDate(),
+      p_machine_id: machineId,
+      p_shelf_id: declineTarget.shelfId,
+      p_dispatch_ids: declineTarget.dispatchIds,
+      p_reason: declineReason.trim(),
+    });
+    setDeclineBusy(false);
+    if (error) {
+      setDeclineMsg(error.message);
+      return;
+    }
+    setDeclineTarget(null);
+    setDeclineReason("");
     setSwapOpen(false);
     await fetchData();
   }
@@ -2971,10 +3042,57 @@ export default function PackingDetailPage() {
                             ✓ Swap confirmed
                           </p>
                         )}
+                        {/* PRD-102 D2: decline the planner pair (unstarted only) */}
+                        {!isReadOnly && !bothPacked && (
+                          <button
+                            onClick={() =>
+                              setDeclineTarget({
+                                dispatchIds: [
+                                  addLine.dispatch_id,
+                                  ...(removeLine ? [removeLine.dispatch_id] : []),
+                                ],
+                                shelfId:
+                                  addLine.shelf_id ??
+                                  removeLine?.shelf_id ??
+                                  "",
+                                shelfCode: addLine.shelf_code ?? "",
+                                label: addLine.display_name,
+                              })
+                            }
+                            className="mt-2 w-full rounded-lg border border-neutral-300 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800/60"
+                          >
+                            Don&apos;t swap
+                          </button>
+                        )}
                       </div>
                     </li>
                   );
                 })}
+
+              {/* PRD-102 D2: declined pairs stay visible in the SWAPS section
+                  (struck-through, with the recorded reason) for the rest of the day. */}
+              {section.key === "swap" &&
+                skippedLines
+                  .filter((s) => s.skip_reason?.startsWith("decline_swap:"))
+                  .map((s) => (
+                    <li
+                      key={`declined-${s.dispatch_id}`}
+                      className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="rounded bg-neutral-200 px-1.5 py-0.5 text-xs font-mono text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                          {s.shelf_code}
+                        </span>
+                        <span className="truncate text-neutral-500 line-through decoration-neutral-400 dark:text-neutral-400">
+                          {s.display_name}
+                        </span>
+                      </span>
+                      <span className="mt-0.5 block text-xs text-rose-600 dark:text-rose-400">
+                        Declined —{" "}
+                        {s.skip_reason?.replace(/^decline_swap:\s*/, "")}
+                      </span>
+                    </li>
+                  ))}
 
               {/* ── M2M TRANSFER SECTION: info-only cards grouped by transfer ── */}
               {section.key === "m2m" &&
@@ -4003,7 +4121,9 @@ export default function PackingDetailPage() {
                   {/* PRD-020 (AC-2): show the recorded skip reason inline. */}
                   {s.skip_reason && (
                     <span className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-                      Skipped: {s.skip_reason}
+                      {s.skip_reason.startsWith("decline_swap:")
+                        ? `Declined — ${s.skip_reason.replace(/^decline_swap:\s*/, "")}`
+                        : `Skipped: ${s.skip_reason}`}
                     </span>
                   )}
                 </span>
@@ -4269,7 +4389,17 @@ export default function PackingDetailPage() {
                             type="button"
                             role="option"
                             aria-selected={swapNewPodId === p.id}
-                            onClick={() => setSwapNewPodId(p.id)}
+                            onClick={() => {
+                              setSwapNewPodId(p.id);
+                              // PRD-102 D1: prefill with the legacy default fill
+                              // (spread target = WEIMI cap), bounded by WH avail.
+                              const avail = podWhTotals.get(p.id) ?? 0;
+                              const suggested =
+                                swapShelfCap && swapShelfCap > 0
+                                  ? Math.min(swapShelfCap, avail)
+                                  : avail;
+                              setSwapQty(String(Math.max(1, suggested)));
+                            }}
                             className={`flex min-h-[44px] w-full items-center justify-between gap-2 px-3 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-indigo-600 ${
                               swapNewPodId === p.id
                                 ? "bg-indigo-50 font-medium text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200"
@@ -4285,6 +4415,31 @@ export default function PackingDetailPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* PRD-102 D1: operator-decided quantity */}
+                  <label className="block text-xs font-medium">
+                    Quantity to add
+                    <input
+                      type="number"
+                      min={1}
+                      value={swapQty}
+                      onChange={(e) => setSwapQty(e.target.value)}
+                      placeholder="units to add"
+                      className="mt-1 min-h-[44px] w-full rounded-lg border border-neutral-300 px-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+                    />
+                    {swapNewPodId && (
+                      <span className="mt-1 block text-[11px] font-normal text-neutral-500 dark:text-neutral-400">
+                        suggested:{" "}
+                        {swapShelfCap && swapShelfCap > 0
+                          ? Math.min(
+                              swapShelfCap,
+                              podWhTotals.get(swapNewPodId) ?? 0,
+                            )
+                          : (podWhTotals.get(swapNewPodId) ?? 0)}{" "}
+                        · WH available: {podWhTotals.get(swapNewPodId) ?? 0}
+                      </span>
+                    )}
+                  </label>
 
                   <label className="block text-xs font-medium">
                     Reason (min 10 chars)
@@ -4306,6 +4461,37 @@ export default function PackingDetailPage() {
               </p>
             )}
 
+            {/* PRD-102 D2: decline available when this shelf has a planner pair */}
+            {(() => {
+              const pair = swapPairs.find(
+                (p) =>
+                  (p.addLine.shelf_id ?? p.addLine.shelf_code) ===
+                  (swapShelfId || swapShelfCode),
+              );
+              if (!pair || pair.addLine.action === "packed") return null;
+              return (
+                <button
+                  onClick={() =>
+                    setDeclineTarget({
+                      dispatchIds: [
+                        pair.addLine.dispatch_id,
+                        ...(pair.removeLine
+                          ? [pair.removeLine.dispatch_id]
+                          : []),
+                      ],
+                      shelfId: pair.addLine.shelf_id ?? "",
+                      shelfCode: pair.addLine.shelf_code ?? "",
+                      label: pair.addLine.display_name,
+                    })
+                  }
+                  disabled={swapBusy}
+                  className="mt-3 min-h-[44px] w-full rounded-lg border border-rose-200 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                >
+                  Don&apos;t swap — decline the planned pair
+                </button>
+              );
+            })()}
+
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => setSwapOpen(false)}
@@ -4320,6 +4506,56 @@ export default function PackingDetailPage() {
                 className="min-h-[44px] flex-1 rounded-lg bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-700 disabled:opacity-50"
               >
                 {swapBusy ? "Swapping…" : "Confirm pod swap"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRD-102 D2: Don't-swap reason sheet -> decline_swap_pair */}
+      {declineTarget && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => !declineBusy && setDeclineTarget(null)}
+          />
+          <div className="relative z-10 rounded-t-3xl bg-white px-4 pb-10 pt-5 dark:bg-neutral-900">
+            <h3 className="mb-1 text-center text-base font-bold">
+              Don&apos;t swap — {declineTarget.shelfCode}
+            </h3>
+            <p className="mb-3 text-center text-xs text-neutral-500 dark:text-neutral-400">
+              {declineTarget.label} · the pair stays visible as declined and the
+              planner learns not to re-propose it.
+            </p>
+            {declineMsg && (
+              <p className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                {declineMsg}
+              </p>
+            )}
+            <label className="mb-1 block text-xs text-neutral-500">
+              Why not? (min 10 chars)
+            </label>
+            <input
+              type="text"
+              value={declineReason}
+              onChange={(e) => setDeclineReason(e.target.value)}
+              placeholder="e.g. product is selling well here"
+              className="mb-4 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDeclineTarget(null)}
+                disabled={declineBusy}
+                className="min-h-[44px] flex-1 rounded-lg border border-neutral-300 text-sm font-medium text-neutral-700 disabled:opacity-50 dark:border-neutral-600 dark:text-neutral-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitDeclineSwap}
+                disabled={declineBusy || declineReason.trim().length < 10}
+                className="min-h-[44px] flex-1 rounded-lg bg-rose-600 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {declineBusy ? "Declining…" : "Confirm don't swap"}
               </button>
             </div>
           </div>

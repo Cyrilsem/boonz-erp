@@ -579,3 +579,5 @@ Forward-only. Never reuse a name. If a migration was bad, write a new one that f
 ## 2026-07-16 — PRD-100 (applied via MCP)
 - `f1_structured_capture_tables` — creates refill_events + refill_event_lines (Appendix A), RLS, indexes.
 - `f2_record_actual_refill` — creates record_actual_refill (canonical atomic refill writer).
+| 20260718071500_prd102_d1_swap_shelf_pod_qty | swap_shelf_pod (5-arg dropped, 6-arg created) | operator-decided swap quantity; wh_limited clamp |
+| 20260718072000_prd102_d2_decline_swap_pair | refill_dispatching_edit_log CHECKs + decline_swap_pair (new) | Don't-swap decline with reason + swap_rejected signal |

@@ -1,5 +1,10 @@
 # Architecture Changelog
 
+## 2026-07-18 — PRD-102: pod-swap operator quantity + Don't-swap decline (field packing)
+
+- swap_shelf_pod v2 (6-arg, 5-arg dropped — no PostgREST overload ambiguity): p_new_qty NULL = legacy fill-to-WEIMI-cap byte-identical; p_new_qty>=1 = operator's number wins (NOT clamped to the old product's shelf cap), WH availability the only limit (short => fill available + clamp_reason='wh_limited' + requested_qty). New DEFINER decline_swap_pair (roles incl. field_staff+warehouse): unstarted Remove/Add New legs -> skipped (visible decision, PRD-028 semantics), append-only edit-log rows (new kind 'decline_swap'), one swap_rejected learning signal (incoming pod) feeding engine_swap_pod suppression; removed-pod no-repeat comes from the rpo r5 cooldown. FE packing page: Quantity-to-add input (suggested + WH-available), "Don't swap" on pair cards + swap modal, declined pairs struck-through with reason. Engines md5-unchanged; T1-T8 pass (rolled-back txn, field_staff impersonation). Cody PASS.
+
+
 ## 2026-07-18 — PRD-101: SIM assignment is Edit-only on /field/config/sims (FE-only)
 
 - Removed the redundant inline Assign/Unassign row button + its AssignModal bottom sheet from the field SIM page; assignment AND unassignment stay fully available in the Edit drawer's machine dropdown ('— unassigned —' clears machine_id+machine_name). Now matches /app/sims (which has its own Edit-only table and was untouched). 2 files, -108 lines, zero backend/DB/RPC change; engines untouched (plan-neutral). Rollback = single revert.
