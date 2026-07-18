@@ -10,6 +10,7 @@ import {
   SetStateAction,
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { adjustWarehouseLineMetadata } from "@/lib/inventory/adjust-warehouse-line";
@@ -141,6 +142,19 @@ type SaveFeedback = {
   qty?: "saved" | "error";
   location?: "saved" | "error";
 };
+
+// RC-02 (Batch 2, PRD-100): a WH qty edit is no longer a bare absolute
+// overwrite. The user must pick a disposition: count correction (with reason),
+// refill to machine (deep-links the capture flow), or write-off.
+interface DispositionState {
+  id: string; // wh_inventory_id
+  oldQty: number;
+  newQty: number;
+  productId: string;
+  productName: string;
+  warehouseId: string;
+  expirationDate: string | null;
+}
 
 const expiryFilters: { label: string; value: ExpiryFilter }[] = [
   { label: "All", value: "all" },
@@ -487,6 +501,13 @@ export default function InventoryPage() {
   const [saveFeedback, setSaveFeedback] = useState<
     Record<string, SaveFeedback>
   >({});
+
+  // RC-02: disposition chooser state for inline qty edits.
+  const router = useRouter();
+  const [disposition, setDisposition] = useState<DispositionState | null>(null);
+  const [dispositionReason, setDispositionReason] = useState("");
+  const [dispositionSaving, setDispositionSaving] = useState(false);
+  const [dispositionError, setDispositionError] = useState<string | null>(null);
 
   // Pending reviews
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -974,6 +995,15 @@ export default function InventoryPage() {
     }, 1500);
   }
 
+  // RC-02 (Batch 2, PRD-100): the inline qty box no longer performs a bare
+  // absolute overwrite on blur. It now opens a disposition chooser — the
+  // warehouse user must say WHY the number changed: (a) count correction with
+  // a reason (>= 10 chars, still via attempt_inventory_correction, which now
+  // stamps honest manual_adjust provenance after backend M1/M2), (b) refill to
+  // machine (deep-links /field/capture prefilled -> record_actual_refill), or
+  // (c) write-off (warehouse_expire_writeoff for a full batch; partial
+  // write-offs go through count-correction with a mandatory 'write-off:'
+  // prefix — there is no partial write-off RPC yet).
   async function saveInlineQty(id: string, qty: number) {
     const safeQty = Math.max(0, qty);
     const row = rows.find((r) => r.wh_inventory_id === id);
@@ -985,6 +1015,9 @@ export default function InventoryPage() {
       clearFeedbackField(id, "qty");
       return;
     }
+    // Unchanged value -> no write, no modal (previously every blur fired an
+    // attempt_inventory_correction even when nothing changed).
+    if (safeQty === row.warehouse_stock) return;
     // Phase G P1: stock writes must flow through attempt_inventory_correction
     // so the session captures the attempt (success or failure).
     if (!canEdit || !session) {
@@ -998,16 +1031,33 @@ export default function InventoryPage() {
       alertNoSession();
       return;
     }
-    const supabase = createClient();
-    const result = await attemptCorrection(supabase, {
-      sessionId: session.session_id,
-      whInventoryId: id,
-      newWarehouseStock: safeQty,
-      reason: "inline_qty_edit",
-      correlationId: correlationId(),
+    setDispositionReason("");
+    setDispositionError(null);
+    setDisposition({
+      id,
+      oldQty: row.warehouse_stock,
+      newQty: safeQty,
+      productId: row.boonz_product_id,
+      productName: row.boonz_product_name,
+      warehouseId: row.warehouse_id,
+      expirationDate: row.expiration_date,
     });
+  }
 
-    const ok = result.result === "success";
+  /** Close the chooser without writing; revert the inline value. */
+  function cancelDisposition() {
+    if (!disposition) return;
+    setInlineQtys((prev) => ({
+      ...prev,
+      [disposition.id]: disposition.oldQty,
+    }));
+    setDisposition(null);
+  }
+
+  /** Shared post-write bookkeeping for the disposition paths. */
+  function finishDisposition(ok: boolean, appliedQty: number) {
+    if (!disposition) return;
+    const { id, oldQty } = disposition;
     setSaveFeedback((prev) => ({
       ...prev,
       [id]: { ...prev[id], qty: ok ? "saved" : "error" },
@@ -1015,11 +1065,103 @@ export default function InventoryPage() {
     if (ok) {
       setRows((prev) =>
         prev.map((r) =>
-          r.wh_inventory_id === id ? { ...r, warehouse_stock: safeQty } : r,
+          r.wh_inventory_id === id ? { ...r, warehouse_stock: appliedQty } : r,
         ),
       );
+    } else {
+      setInlineQtys((prev) => ({ ...prev, [id]: oldQty }));
     }
     clearFeedbackField(id, "qty");
+    setDispositionSaving(false);
+    setDisposition(null);
+  }
+
+  /** Disposition (a): count correction — reason required, >= 10 chars. */
+  async function applyCountCorrection() {
+    if (!disposition || !session) return;
+    const reason = dispositionReason.trim();
+    if (reason.length < 10) {
+      setDispositionError(
+        `Count correction needs a reason of at least 10 characters (got ${reason.length}).`,
+      );
+      return;
+    }
+    setDispositionSaving(true);
+    const supabase = createClient();
+    const result = await attemptCorrection(supabase, {
+      sessionId: session.session_id,
+      whInventoryId: disposition.id,
+      newWarehouseStock: disposition.newQty,
+      reason: `inline_qty_edit: ${reason}`,
+      correlationId: correlationId(),
+    });
+    finishDisposition(result.result === "success", disposition.newQty);
+  }
+
+  /** Disposition (c): write-off (expired/damaged). Full batch (new qty 0)
+   *  routes through warehouse_expire_writeoff (zeroes the row, audit-logged,
+   *  inactivation stays propose-then-confirm). Partial write-offs fall back to
+   *  attempt_inventory_correction with a mandatory 'write-off:' reason prefix
+   *  — no partial write-off RPC exists yet (gap noted in FE_CHANGES). */
+  async function applyWriteOff() {
+    if (!disposition || !session) return;
+    const reason = dispositionReason.trim();
+    if (reason.length < 10) {
+      setDispositionError(
+        `Write-off needs a reason of at least 10 characters (got ${reason.length}).`,
+      );
+      return;
+    }
+    setDispositionSaving(true);
+    const supabase = createClient();
+    if (disposition.newQty === 0) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      // Live signature (verified): warehouse_expire_writeoff(
+      //   p_wh_inventory_id uuid, p_reason text, p_caller_id uuid) -> jsonb
+      const { data, error } = await supabase.rpc("warehouse_expire_writeoff", {
+        p_wh_inventory_id: disposition.id,
+        p_reason: `write-off: ${reason}`,
+        p_caller_id: user?.id ?? null,
+      });
+      const status = (data as { status?: string } | null)?.status;
+      const ok =
+        !error && (status === "written_off" || status === "already_done");
+      if (!ok && error) setDispositionError(error.message);
+      finishDisposition(ok, 0);
+      return;
+    }
+    const result = await attemptCorrection(supabase, {
+      sessionId: session.session_id,
+      whInventoryId: disposition.id,
+      newWarehouseStock: disposition.newQty,
+      reason: `write-off: ${reason}`,
+      correlationId: correlationId(),
+    });
+    finishDisposition(result.result === "success", disposition.newQty);
+  }
+
+  /** Disposition (b): the qty drop was really a refill — nothing is written
+   *  here. Revert the inline value (record_actual_refill will do the WH
+   *  decrement itself) and deep-link the capture flow prefilled. */
+  function goToRefillCapture() {
+    if (!disposition) return;
+    const delta = disposition.oldQty - disposition.newQty;
+    setInlineQtys((prev) => ({
+      ...prev,
+      [disposition.id]: disposition.oldQty,
+    }));
+    const params = new URLSearchParams({
+      product: disposition.productId,
+      warehouse: disposition.warehouseId,
+      qty: String(delta),
+    });
+    if (disposition.expirationDate) {
+      params.set("expiry", disposition.expirationDate);
+    }
+    setDisposition(null);
+    router.push(`/field/capture?${params.toString()}`);
   }
 
   async function saveInlineLocation(id: string, location: string) {
@@ -1840,6 +1982,92 @@ export default function InventoryPage() {
           )}
         </div>
       </div>
+
+      {/* RC-02: disposition chooser for inline qty edits. No default — the
+          user must pick what the change IS. Keyboard path for the common case
+          (count correction): type qty, blur, type reason, Enter. Esc cancels. */}
+      {disposition && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl dark:bg-neutral-900">
+            <p className="text-sm font-bold">{disposition.productName}</p>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              {disposition.oldQty} → {disposition.newQty} (
+              {disposition.newQty - disposition.oldQty > 0 ? "+" : ""}
+              {disposition.newQty - disposition.oldQty} units)
+              {disposition.expirationDate
+                ? ` · exp ${formatExpiryBatch(disposition.expirationDate)}`
+                : ""}
+            </p>
+            <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+              What is this change? Nothing is saved until you choose.
+            </p>
+
+            <input
+              type="text"
+              autoFocus
+              value={dispositionReason}
+              onChange={(e) => {
+                setDispositionReason(e.target.value);
+                setDispositionError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !dispositionSaving) {
+                  void applyCountCorrection();
+                } else if (e.key === "Escape") {
+                  cancelDisposition();
+                }
+              }}
+              placeholder="Reason (min 10 chars) — required for correction / write-off"
+              className="mt-2 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-950"
+            />
+            {dispositionError && (
+              <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                {dispositionError}
+              </p>
+            )}
+
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                onClick={() => void applyCountCorrection()}
+                disabled={dispositionSaving}
+                className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+              >
+                {dispositionSaving
+                  ? "Saving…"
+                  : "✓ Count correction (Enter)"}
+              </button>
+              {disposition.newQty < disposition.oldQty && (
+                <button
+                  onClick={goToRefillCapture}
+                  disabled={dispositionSaving}
+                  className="w-full rounded-lg border border-blue-300 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                >
+                  → Refill to machine (
+                  {disposition.oldQty - disposition.newQty} units)
+                </button>
+              )}
+              {disposition.newQty < disposition.oldQty && (
+                <button
+                  onClick={() => void applyWriteOff()}
+                  disabled={dispositionSaving}
+                  className="w-full rounded-lg border border-red-300 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
+                >
+                  {disposition.newQty === 0
+                    ? "🗑 Write off entire batch (expired/damaged)"
+                    : "🗑 Write off (partial — logged as correction)"}
+                </button>
+              )}
+              <button
+                onClick={cancelDisposition}
+                disabled={dispositionSaving}
+                className="w-full rounded-lg bg-neutral-100 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+              >
+                Cancel (Esc)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Review toast */}
       {reviewToast && (
