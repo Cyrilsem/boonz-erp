@@ -1,12 +1,27 @@
 "use client";
 
-// PRD-036 Phase B: field-time batch + expiry capture.
-// Captures qty + expiry + new-purchase flag per line and submits through the
-// canonical writer log_manual_refill (Rule S1: no direct table writes; S2: the
-// rpc() call site is a greppable literal). For new_purchase=true the writer
-// creates a WH receipt batch with the captured expiry then places to the pod;
-// for replacement/existing-stock (new_purchase=false) it FEFO-decrements WH then
-// places. Replaces the "Error in the Data: log it on paper" backlog.
+// PRD-036 Phase B / PRD-100 RC-02: field-time batch + expiry capture.
+// Captures qty + expiry + on-the-spot-purchase flag per line and submits
+// through the canonical writer record_actual_refill (Rule S1: no direct table
+// writes; S2: the rpc() call site is a greppable literal).
+//
+// RC-02 (Batch 2): submit was refactored from log_manual_refill to
+// record_actual_refill. log_manual_refill is LEGACY — it pre-dates the
+// refill_events / refill_event_lines ledger and does not produce a dry-run
+// preview. record_actual_refill writes the pod + warehouse + refill_plan_output
+// log AND the refill_events ledger atomically, with p_dry_run=true validation
+// first (nothing applied) and p_dry_run=false on operator confirm.
+//
+// Sourcing semantics (CS hard rule 3 — empty shelves must always be fillable):
+// - normal line  -> action 'refill' with warehouse_id: FEFO-style WH decrement
+//   then pod placement.
+// - "Bought on the spot" line -> action 'refill' WITHOUT warehouse_id: pod-only
+//   placement (stock never entered the warehouse), expiry required so the pod
+//   batch is honest. No phantom WH decrement.
+//
+// This component was previously dead code under src/app/(app)/refill/ —
+// it is now mounted at /field/capture (RC-02) and deep-linked from the
+// field inventory disposition flow.
 
 import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -23,6 +38,36 @@ type CaptureRow = {
   new_purchase: boolean;
 };
 
+/** Prefill passed by the inventory disposition flow (deep link). */
+export interface CapturePrefill {
+  boonz_product_id?: string;
+  qty?: string;
+  expiration_date?: string;
+  warehouse_id?: string;
+}
+
+// record_actual_refill p_lines element (live signature verified 2026-07-18).
+type RefillLine = {
+  action: "refill";
+  boonz_product_id: string;
+  shelf_code: string;
+  qty: number;
+  set_mode: "delta";
+  expiration_date: string | null;
+  warehouse_id: string | null;
+  notes: string | null;
+};
+
+type RecordActualRefillResponse = {
+  status?: "dry_run_ok" | "applied" | "failed";
+  event_id?: string;
+  machine?: string;
+  plan_date?: string;
+  lines?: number;
+  failed_at_line?: number;
+  error?: string;
+} | null;
+
 // PRD-036 Phase B step 3: unresolved field corrections (driver_feedback.resolved=false).
 type UnloggedCorrection = {
   feedback_id: string;
@@ -36,19 +81,19 @@ type UnloggedCorrection = {
 };
 
 let rowSeq = 0;
-function blankRow(): CaptureRow {
+function blankRow(prefill?: CapturePrefill): CaptureRow {
   rowSeq += 1;
   return {
     key: `r${rowSeq}`,
-    boonz_product_id: "",
+    boonz_product_id: prefill?.boonz_product_id ?? "",
     shelf_code: "",
-    qty: "",
-    expiration_date: "",
+    qty: prefill?.qty ?? "",
+    expiration_date: prefill?.expiration_date ?? "",
     new_purchase: false,
   };
 }
 
-export function FieldCapturePanel() {
+export function FieldCapturePanel({ prefill }: { prefill?: CapturePrefill }) {
   const planDate = getDubaiDate();
 
   const [machines, setMachines] = useState<Opt[]>([]);
@@ -63,12 +108,18 @@ export function FieldCapturePanel() {
     {},
   );
   const [machineName, setMachineName] = useState("");
-  const [warehouseId, setWarehouseId] = useState("");
-  const [rows, setRows] = useState<CaptureRow[]>([blankRow()]);
+  const [warehouseId, setWarehouseId] = useState(prefill?.warehouse_id ?? "");
+  const [rows, setRows] = useState<CaptureRow[]>([blankRow(prefill)]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unlogged, setUnlogged] = useState<UnloggedCorrection[]>([]);
+  // RC-02: dry-run preview gate. Holds the exact payload that was validated so
+  // Confirm applies precisely what the operator previewed. Any edit clears it.
+  const [preview, setPreview] = useState<{
+    lines: RefillLine[];
+    lineCount: number;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +179,7 @@ export function FieldCapturePanel() {
   }, []);
 
   const updateRow = useCallback((key: string, patch: Partial<CaptureRow>) => {
+    setPreview(null); // edited after preview -> must re-preview
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }, []);
 
@@ -198,67 +250,104 @@ export function FieldCapturePanel() {
     };
   }, [machineName, machines]);
 
-  async function submit() {
+  function buildLines(): RefillLine[] | string {
+    if (!machineName) return "Pick a machine";
+    const complete = rows.filter(
+      (r) => r.boonz_product_id && r.shelf_code && Number(r.qty) > 0,
+    );
+    if (complete.length === 0) return "Add at least one complete line";
+    const needsWh = complete.some((r) => !r.new_purchase);
+    if (needsWh && !warehouseId)
+      return "Pick a source warehouse (or mark lines as bought on the spot)";
+    const bad = complete.find((l) => l.new_purchase && !l.expiration_date);
+    if (bad)
+      return "An on-the-spot purchase line needs an expiry date (it creates the pod batch)";
+    return complete.map((r) => ({
+      action: "refill" as const,
+      boonz_product_id: r.boonz_product_id,
+      shelf_code: r.shelf_code.trim(),
+      qty: Number(r.qty),
+      set_mode: "delta" as const,
+      expiration_date: r.expiration_date || null,
+      // CS hard rule 3: on-the-spot sourcing never decrements the warehouse —
+      // record_actual_refill only touches WH stock when warehouse_id is set.
+      warehouse_id: r.new_purchase ? null : warehouseId,
+      notes: r.new_purchase ? "on_spot_purchase" : null,
+    }));
+  }
+
+  async function callRecordActualRefill(lines: RefillLine[], dryRun: boolean) {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    // Live signature (verified): record_actual_refill(p_machine_name text,
+    // p_plan_date date, p_lines jsonb, p_source text, p_actor uuid,
+    // p_reason text, p_dry_run boolean) -> jsonb
+    return supabase.rpc("record_actual_refill", {
+      p_machine_name: machineName,
+      p_plan_date: planDate,
+      p_lines: lines,
+      p_source: "field_capture",
+      p_actor: user?.id ?? null,
+      p_reason: "field_capture",
+      p_dry_run: dryRun,
+    });
+  }
+
+  async function submit(dryRun: boolean) {
     setError(null);
     setResult(null);
-    if (!machineName) return setError("Pick a machine");
-    if (!warehouseId) return setError("Pick a source warehouse");
-    const lines = rows
-      .filter((r) => r.boonz_product_id && r.shelf_code && Number(r.qty) > 0)
-      .map((r) => ({
-        boonz_product_id: r.boonz_product_id,
-        shelf_code: r.shelf_code.trim(),
-        qty: Number(r.qty),
-        expiration_date: r.expiration_date || null,
-        new_purchase: r.new_purchase,
-      }));
-    if (lines.length === 0) return setError("Add at least one complete line");
-    const bad = lines.find((l) => l.new_purchase && !l.expiration_date);
-    if (bad)
-      return setError(
-        "A new-purchase line needs an expiry date (it creates the WH batch)",
-      );
+    const linesOrError = dryRun ? buildLines() : (preview?.lines ?? null);
+    if (typeof linesOrError === "string") return setError(linesOrError);
+    if (!linesOrError) return setError("Preview first, then confirm.");
+    const lines = linesOrError;
 
     // PRD-075 WS-B: offline-tolerant submit - never lose typed lines. Rows are
     // only cleared on confirmed success; network failures keep state + prompt retry.
     if (typeof navigator !== "undefined" && !navigator.onLine) {
       return setError(
-        "You look offline — your lines are kept. Reconnect and press Submit again.",
+        "You look offline — your lines are kept. Reconnect and try again.",
       );
     }
     setSubmitting(true);
-    const supabase = createClient();
-    let data: unknown = null;
+    let data: RecordActualRefillResponse = null;
     let rpcErr: { message: string } | null = null;
     try {
-      const res = await supabase.rpc("log_manual_refill", {
-        p_machine_name: machineName,
-        p_source_warehouse_id: warehouseId,
-        p_refill_date: planDate,
-        p_lines: lines,
-        p_reason: "field_capture",
-      });
-      data = res.data;
+      const res = await callRecordActualRefill(lines, dryRun);
+      data = res.data as RecordActualRefillResponse;
       rpcErr = res.error;
     } catch {
       rpcErr = {
         message:
-          "Network error — your lines are kept. Reconnect and press Submit again.",
+          "Network error — your lines are kept. Reconnect and try again.",
       };
     }
     setSubmitting(false);
     if (rpcErr) {
+      setPreview(null);
       setError(rpcErr.message);
       return;
     }
-    const r = data as {
-      lines_processed?: number;
-      total_units_to_pod?: number;
-      shortfall_warning?: string | null;
-    } | null;
+    if (data?.status === "failed") {
+      setPreview(null);
+      setError(
+        `Rejected${data.failed_at_line ? ` at line ${data.failed_at_line}` : ""}: ${
+          data.error ?? "unknown error"
+        }`,
+      );
+      return;
+    }
+    if (dryRun) {
+      // dry_run_ok: nothing was applied — show the gate.
+      setPreview({ lines, lineCount: data?.lines ?? lines.length });
+      return;
+    }
+    setPreview(null);
     setResult(
-      `Captured ${r?.lines_processed ?? 0} line(s), ${r?.total_units_to_pod ?? 0} units to pod.` +
-        (r?.shortfall_warning ? ` ⚠ ${r.shortfall_warning}` : ""),
+      `Applied ${data?.lines ?? lines.length} line(s) to ${machineName} (event ${
+        data?.event_id ?? "?"
+      }).`,
     );
     setRows([blankRow()]);
   }
@@ -269,9 +358,10 @@ export function FieldCapturePanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Field batch capture ({planDate}). Records a physical placement (new
-        purchase, replacement, or partial) straight into the warehouse + pod via
-        the canonical path. No more paper backlog.
+        Field refill capture ({planDate}). Records a physical placement
+        (warehouse-sourced or bought on the spot) straight into the pod +
+        warehouse + refill ledger via the canonical path. Preview validates
+        everything first; nothing is written until you confirm.
       </p>
 
       {error && (
@@ -314,7 +404,10 @@ export function FieldCapturePanel() {
           <span className="mr-2 text-gray-600">Machine</span>
           <select
             value={machineName}
-            onChange={(e) => setMachineName(e.target.value)}
+            onChange={(e) => {
+              setPreview(null);
+              setMachineName(e.target.value);
+            }}
             className={inputCls}
           >
             <option value="">— select —</option>
@@ -329,7 +422,10 @@ export function FieldCapturePanel() {
           <span className="mr-2 text-gray-600">Source WH</span>
           <select
             value={warehouseId}
-            onChange={(e) => setWarehouseId(e.target.value)}
+            onChange={(e) => {
+              setPreview(null);
+              setWarehouseId(e.target.value);
+            }}
             className={inputCls}
           >
             <option value="">— select —</option>
@@ -365,7 +461,12 @@ export function FieldCapturePanel() {
             >
               <option value="">— product —</option>
               {(scopedProductIds.size > 0
-                ? products.filter((p) => scopedProductIds.has(p.id))
+                ? // keep a deep-linked/selected product visible even when the
+                  // machine scope would filter it out
+                  products.filter(
+                    (p) =>
+                      scopedProductIds.has(p.id) || p.id === r.boonz_product_id,
+                  )
                 : products
               ).map((p) => (
                 <option key={p.id} value={p.id}>
@@ -405,14 +506,15 @@ export function FieldCapturePanel() {
                   updateRow(r.key, { new_purchase: e.target.checked })
                 }
               />
-              New purchase
+              Bought on the spot
             </label>
             <button
-              onClick={() =>
+              onClick={() => {
+                setPreview(null);
                 setRows((rs) =>
                   rs.length > 1 ? rs.filter((x) => x.key !== r.key) : rs,
-                )
-              }
+                );
+              }}
               className="ml-auto rounded border border-gray-300 px-2 py-1 text-xs"
             >
               ✕
@@ -421,20 +523,59 @@ export function FieldCapturePanel() {
         ))}
       </div>
 
+      {preview && (
+        <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
+          <p className="font-semibold">
+            Preview OK — {preview.lineCount} line(s) to {machineName}. Nothing
+            written yet.
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {preview.lines.map((l, i) => (
+              <li key={i}>
+                {l.qty} ×{" "}
+                {products.find((p) => p.id === l.boonz_product_id)?.name ??
+                  l.boonz_product_id}{" "}
+                → shelf {l.shelf_code}
+                {l.warehouse_id
+                  ? ` (from ${
+                      warehouses.find((w) => w.id === l.warehouse_id)?.name ??
+                      "WH"
+                    })`
+                  : " (bought on the spot — no WH decrement)"}
+                {l.expiration_date ? ` · exp ${l.expiration_date}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex gap-2">
         <button
-          onClick={() => setRows((rs) => [...rs, blankRow()])}
+          onClick={() => {
+            setPreview(null);
+            setRows((rs) => [...rs, blankRow()]);
+          }}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
         >
           + Add line
         </button>
-        <button
-          onClick={submit}
-          disabled={submitting}
-          className="rounded-lg bg-black px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
-        >
-          {submitting ? "Capturing…" : "Capture to WH + pod"}
-        </button>
+        {!preview ? (
+          <button
+            onClick={() => void submit(true)}
+            disabled={submitting}
+            className="rounded-lg bg-black px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {submitting ? "Checking…" : "Preview capture"}
+          </button>
+        ) : (
+          <button
+            onClick={() => void submit(false)}
+            disabled={submitting}
+            className="rounded-lg bg-green-700 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {submitting ? "Applying…" : "Confirm & apply"}
+          </button>
+        )}
       </div>
     </div>
   );

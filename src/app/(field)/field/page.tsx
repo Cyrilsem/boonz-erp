@@ -393,6 +393,13 @@ function WarehouseHome({
             cardStyle={ratioCardStyle(kpis.dispatchedMachines, n)}
             href="/field/dispatching"
           />
+          {/* RC-02: structured capture of unplanned/on-spot refills */}
+          <Link
+            href="/field/capture"
+            className="col-span-2 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
+          >
+            + Capture Manual Refill
+          </Link>
         </div>
       </SectionCard>
 
@@ -808,6 +815,13 @@ function OperatorAdminHome({
             cardStyle={ratioCardStyle(kpis.dispatchedMachines, n)}
             href="/field/dispatching"
           />
+          {/* RC-02: structured capture of unplanned/on-spot refills */}
+          <Link
+            href="/field/capture"
+            className="col-span-2 flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
+          >
+            + Capture Manual Refill
+          </Link>
         </div>
       </SectionCard>
 
