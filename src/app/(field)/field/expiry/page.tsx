@@ -71,7 +71,7 @@ export default function ExpiryPage() {
       .from("warehouse_inventory")
       .select(
         `
-        inventory_id,
+        wh_inventory_id,
         batch_id,
         wh_location,
         warehouse_stock,
@@ -91,7 +91,11 @@ export default function ExpiryPage() {
     const mapped: InventoryRow[] = data.map((row) => {
       const p = row.boonz_products as unknown as { boonz_product_name: string };
       return {
-        inventory_id: row.inventory_id,
+        // RC-04 (Batch 3): the real PK column is wh_inventory_id; the prior
+        // select referenced a non-existent `inventory_id` column. Source the
+        // local field from the real column so warehouse_expire_writeoff gets a
+        // valid id.
+        inventory_id: row.wh_inventory_id,
         boonz_product_name: p.boonz_product_name,
         batch_id: row.batch_id ?? "",
         wh_location: row.wh_location,
@@ -135,10 +139,21 @@ export default function ExpiryPage() {
     setRemoving(inventoryId);
     const supabase = createClient();
 
-    await supabase
-      .from("warehouse_inventory")
-      .update({ status: "Expired" })
-      .eq("inventory_id", inventoryId);
+    // RC-04 (Batch 3): writing status='Expired' directly to warehouse_inventory
+    // is a stock write-off with no audit/provenance. Route through the canonical
+    // warehouse_expire_writeoff RPC, which role-gates, requires a reason, and
+    // records the write-off. Backward-safe: the RPC exists on the current live
+    // backend.
+    const { error } = await supabase.rpc("warehouse_expire_writeoff", {
+      p_wh_inventory_id: inventoryId,
+      p_reason: "Expired stock write-off from field expiry tab",
+      p_caller_id: null,
+    });
+    if (error) {
+      console.error("[Expiry] warehouse_expire_writeoff error:", error);
+      setRemoving(null);
+      return;
+    }
 
     setRows((prev) => prev.filter((r) => r.inventory_id !== inventoryId));
     setRemoving(null);

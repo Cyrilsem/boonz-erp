@@ -296,47 +296,79 @@ export function DailyDispatchingTab({
 
   // ── Bulk update handler ──────────────────────────────────────────────────
 
+  // RC-04 (Batch 3): the bulk "Mark All ..." actions used to raw-UPDATE
+  // refill_dispatching (packed/picked_up/dispatched), which faked the pack
+  // WITHOUT the warehouse_stock -> consumer_stock move that pack_dispatch_line
+  // performs. receive_all_dispatches_for_machine then credited pod_inventory
+  // with NO warehouse deduction = phantom stock minting. All three actions now
+  // route through canonical RPCs so backend invariants (and the
+  // enforce_canonical_dispatch_write guard) hold and no pod credit ever happens
+  // without a real warehouse move.
+  //
+  // Backward-safe: confirm_machine_packed / mark_picked_up /
+  // receive_all_dispatches_for_machine all exist on the current live backend
+  // (batch-0/1/2). Batch-4 only hardens receive to require packed+picked_up and
+  // do the real WH deduction; this code already respects that contract.
   async function handleBulkUpdate(
-    machineId: string,
+    m: MachineSummary,
     field: "packed" | "picked_up" | "dispatched",
   ) {
+    const machineId = m.machine_id;
     setUpdatingMachine(machineId);
     try {
       const supabase = createClient();
-      // Build the update payload: set the target field and all preceding fields to true
-      const updatePayload: Record<string, boolean> = {};
+
       if (field === "packed") {
-        updatePayload.packed = true;
+        // Canonical pack-finalize gate. This does NOT fabricate line.packed:
+        // it verifies every included line is genuinely packed (via the field
+        // packing PWA / pack_dispatch_line) or explicitly not_filled/skipped,
+        // then records the machine-level confirmation. If lines are still
+        // unpacked it returns { status: 'blocked' } — surfaced to the admin so
+        // the phantom "one-click fake pack" is impossible.
+        const { data, error } = await supabase.rpc("confirm_machine_packed", {
+          p_machine_name: m.official_name,
+          p_dispatch_date: queryDate,
+          p_packed_by: null,
+          p_reason: "Admin bulk pack confirmation from Daily Dispatching tab",
+          p_final: true,
+        });
+        const result = data as { status?: string; message?: string } | null;
+        if (error) {
+          console.error("[DailyDispatching] confirm_machine_packed error:", error);
+        } else if (result?.status === "blocked") {
+          console.warn(
+            "[DailyDispatching] pack blocked — unpacked lines remain:",
+            result.message,
+          );
+        }
       } else if (field === "picked_up") {
-        updatePayload.packed = true;
-        updatePayload.picked_up = true;
+        // Canonical bulk pickup. mark_picked_up only flips lines that are
+        // genuinely packed=true (Article 5 state machine); un-packed ids are
+        // returned as not_packed_ids and left untouched — no fabrication.
+        const dispatchIds = m.lines.map((l) => l.dispatch_id);
+        const { error } = await supabase.rpc("mark_picked_up", {
+          p_dispatch_ids: dispatchIds,
+        });
+        if (error) {
+          console.error("[DailyDispatching] mark_picked_up error:", error);
+        }
       } else if (field === "dispatched") {
-        updatePayload.packed = true;
-        updatePayload.picked_up = true;
-        updatePayload.dispatched = true;
-      }
-
-      await supabase
-        .from("refill_dispatching")
-        .update(updatePayload)
-        .eq("machine_id", machineId)
-        .eq("dispatch_date", queryDate)
-        .eq("include", true);
-
-      // B2: when admin marks all dispatched, also materialize inventory —
-      // pod_inventory rows + return any underfilled units back to WH.
-      if (field === "dispatched") {
-        const { error: rpcErr } = await supabase.rpc(
+        // Canonical receive: credits pod_inventory from the ACTUAL filled
+        // quantity and moves warehouse stock (drains consumer_stock / returns
+        // the unfilled delta). Only processes lines drivers already marked
+        // dispatched=true. NEVER a planned-qty pod credit.
+        const { error } = await supabase.rpc(
           "receive_all_dispatches_for_machine",
           {
             p_machine_id: machineId,
             p_dispatch_date: queryDate,
+            p_use_filled_as_received: true,
           },
         );
-        if (rpcErr) {
+        if (error) {
           console.error(
             "[DailyDispatching] receive_all_dispatches_for_machine error:",
-            rpcErr,
+            error,
           );
         }
       }
@@ -413,7 +445,7 @@ export function DailyDispatchingTab({
         disabled={isUpdating}
         onClick={(e) => {
           e.stopPropagation();
-          handleBulkUpdate(m.machine_id, c.field);
+          handleBulkUpdate(m, c.field);
         }}
         style={{
           fontSize: 12,

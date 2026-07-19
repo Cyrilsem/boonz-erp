@@ -269,6 +269,9 @@ export function MachineSetupConfigTab({
     if (!draft) return;
     setSaving((prev) => ({ ...prev, [machineId]: true }));
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): machine payment/hardware setup fields — no
+    // canonical RPC covers these columns. Left as a direct update to preserve
+    // the setup capability; rewire once a canonical machine-setup RPC lands.
     const { error } = await supabase
       .from("machines")
       .update({

@@ -599,6 +599,10 @@ export default function MachinesPage() {
     if (!draft) return;
     setMachineSaving((p) => ({ ...p, [id]: true }));
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): no canonical machine-edit RPC covers this full
+    // field set (add_new_machine lacks contact/venue_group/pod_address;
+    // set_machine_warehouse only touches warehouse assignment). Left as-is to
+    // avoid dropping fields; rewire to a canonical update_machine RPC in Batch 5.
     const { error } = await supabase
       .from("machines")
       .update({
@@ -701,6 +705,10 @@ export default function MachinesPage() {
     setAddingMachine(true);
     setAddMachineError(null);
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): the canonical add_new_machine RPC does NOT accept
+    // contact_person/email/phone, venue_group, or pod_address, so routing here
+    // would silently drop those fields (destructive). Left as a direct insert
+    // until add_new_machine is extended to the full field set in Batch 5.
     const { error } = await supabase.from("machines").insert({
       official_name: newMachine.official_name.trim(),
       pod_number: newMachine.pod_number.trim() || null,
@@ -762,6 +770,9 @@ export default function MachinesPage() {
       return;
     }
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): bulk CSV machine import — no bulk canonical machine
+    // insert RPC exists (add_new_machine is single-row and misses fields). Left
+    // as a direct insert; rewire when a bulk canonical importer lands.
     const { error } = await supabase.from("machines").insert(
       toInsert.map((r) => ({
         official_name: r["official_name"],

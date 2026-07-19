@@ -230,6 +230,10 @@ export default function MachinesPage() {
 
       if (action === "set_active" || action === "set_inactive") {
         const newStatus = action === "set_active" ? "Active" : "Inactive";
+        // TODO(Batch 5 / RC-04): no canonical set_machine_status RPC exists.
+        // Left as a direct update to preserve the bulk activate/deactivate
+        // capability; rewire (fan-out per row like toggle_machine_refill) once
+        // a set_machine_status RPC lands in Batch 5.
         const { error: updateError } = await supabase
           .from("machines")
           .update({ status: newStatus })
@@ -313,6 +317,9 @@ export default function MachinesPage() {
   const handleSave = useCallback(
     async (machineId: string, updates: Partial<Machine>) => {
       const supabase = createClient();
+      // TODO(Batch 5 / RC-04): arbitrary machine-field edit — no canonical
+      // update_machine RPC exists. Left as a direct update to preserve the edit
+      // capability; rewire once Batch 5 provides a field-scoped machine RPC.
       const { error: updateError } = await supabase
         .from("machines")
         .update(updates)

@@ -251,20 +251,35 @@ export default function MachineRefillPage() {
     setSubmitting(true);
     const supabase = createClient();
 
-    const updates = lines
-      .filter((l) => l.confirmed)
-      .map((l) =>
-        supabase
-          .from("refill_dispatching")
-          .update({
-            filled_quantity: l.filled_quantity,
-            dispatched: true,
-            comment: l.comment.trim() || null,
-          })
-          .eq("dispatch_id", l.dispatch_id),
-      );
+    // RC-04 (Batch 3): this used to raw-UPDATE refill_dispatching, setting
+    // filled_quantity + dispatched=true directly and clobbering the numbers
+    // pack_dispatch_line had written. Confirming a fill at the machine is a
+    // RECEIVE — route each confirmed line through receive_dispatch_line, which
+    // records the actual filled quantity, credits pod_inventory, and returns
+    // the unfilled delta to the warehouse (real WH move, no phantom credit).
+    // The comment is persisted via the canonical update_dispatch_comment RPC,
+    // matching the field dispatching page. Backward-safe: both RPCs exist on
+    // the current live backend.
+    const confirmed = lines.filter((l) => l.confirmed);
+    for (const l of confirmed) {
+      const { error } = await supabase.rpc("receive_dispatch_line", {
+        p_dispatch_id: l.dispatch_id,
+        p_filled_quantity: l.filled_quantity,
+      });
+      if (error) {
+        // Idempotent: a line already received in a prior submit is not an error.
+        if (!(error.message ?? "").includes("already received")) {
+          console.error("[Trips] receive_dispatch_line error:", error);
+        }
+      }
+      if (l.comment.trim()) {
+        await supabase.rpc("update_dispatch_comment", {
+          p_dispatch_id: l.dispatch_id,
+          p_comment: l.comment.trim(),
+        });
+      }
+    }
 
-    await Promise.all(updates);
     router.push("/field/trips");
   }
 

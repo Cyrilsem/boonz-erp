@@ -441,6 +441,11 @@ export default function ProductMappingPage() {
     setSaveError(null);
     const supabase = createClient();
 
+    // TODO(Batch 5 / RC-04): product_mapping has NO canonical write RPC today
+    // (delete / insert / update / upsert below). These direct writes are LEFT
+    // AS-IS to avoid breaking mapping edits. Rewire every product_mapping write
+    // in this file to the canonical mapping RPC (e.g. set_product_mapping /
+    // upsert_product_mapping) once it lands in Batch 5.
     try {
       for (const line of lines) {
         if (line.toDelete) {
@@ -577,6 +582,8 @@ export default function ProductMappingPage() {
     const active = (splitDrafts[key] ?? []).filter((s) => !s.toDelete);
     setBulkSaving(true);
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): direct product_mapping delete+insert — no canonical
+    // mapping RPC exists yet. Left as-is; rewire when the RPC lands.
     for (const mid of bulkSelected) {
       await supabase
         .from("product_mapping")
@@ -625,6 +632,8 @@ export default function ProductMappingPage() {
     setAddError(null);
     const supabase = createClient();
     const machineId = addMachineId || null;
+    // TODO(Batch 5 / RC-04): direct product_mapping upsert — no canonical
+    // mapping RPC exists yet. Left as-is; rewire when the RPC lands.
     const { error } = await supabase.from("product_mapping").upsert(
       addSplits.map((s) => ({
         pod_product_id: addPodId,

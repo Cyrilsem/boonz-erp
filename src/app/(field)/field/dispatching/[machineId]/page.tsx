@@ -531,6 +531,12 @@ export default function DispatchingDetailPage() {
   async function handleRemoveExtraReturn(dispatchId: string) {
     if (!confirm("Remove this driver-added variant from the dispatch?")) return;
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): this runs in the DRIVER (field_staff) context and
+    // deletes a driver-added dispatch row. remove_dispatch_row exists but is
+    // role-gated to warehouse/operator_admin ("not allowed for driver"), and
+    // cancel_dispatch_line's driver-safety is unverified. Left as a direct
+    // delete to avoid breaking the driver flow; rewire to a driver-safe
+    // canonical cancel/remove RPC in Batch 5.
     const { error } = await supabase
       .from("refill_dispatching")
       .delete()

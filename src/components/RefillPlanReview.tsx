@@ -211,27 +211,49 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
     setPlanProcessing((prev) => new Set([...prev, machineName]));
     const supabase = createClient();
     const comment = planComments[machineName] ?? "";
-    await supabase
-      .from("refill_plan_output")
-      .update({
-        operator_status: status,
-        reviewed_at: new Date().toISOString(),
-        operator_comment: comment || null,
-      })
-      .eq("machine_name", machineName)
-      .eq("operator_status", "pending");
 
-    if (status === "approved" && planDate) {
-      const { data: dispatched, error: pushError } = await supabase.rpc(
-        "push_plan_to_dispatch",
-        {
-          p_plan_date: planDate,
-          p_machine_name: machineName,
-        },
-      );
-      // v7 returns jsonb ({ status, lines_pushed, ... }), not a number (PRD-072)
-      setPlanToast(pushResultToToast(dispatched, pushError?.message));
-      setTimeout(() => setPlanToast(null), 5000);
+    if (status === "approved") {
+      // RC-04 (Batch 3): approving used to raw-UPDATE refill_plan_output
+      // (operator_status='approved') and then call push_plan_to_dispatch
+      // explicitly. The status flip is now the canonical approve_refill_plan
+      // RPC, which sets operator_status='approved' and fires
+      // trg_fire_dispatch_on_approval -> push_plan_to_dispatch. Backward-safe:
+      // approve_refill_plan exists on the current live backend.
+      const { error: approveErr } = await supabase.rpc("approve_refill_plan", {
+        p_plan_date: planDate,
+        p_machine_names: [machineName],
+      });
+      if (approveErr) {
+        setPlanToast(`Approve failed: ${approveErr.message}`);
+        setTimeout(() => setPlanToast(null), 5000);
+      } else if (planDate) {
+        // Idempotent explicit push preserves the existing dispatch-result toast
+        // (push_plan_to_dispatch no-ops if the approval trigger already pushed).
+        const { data: dispatched, error: pushError } = await supabase.rpc(
+          "push_plan_to_dispatch",
+          {
+            p_plan_date: planDate,
+            p_machine_name: machineName,
+          },
+        );
+        // v7 returns jsonb ({ status, lines_pushed, ... }), not a number (PRD-072)
+        setPlanToast(pushResultToToast(dispatched, pushError?.message));
+        setTimeout(() => setPlanToast(null), 5000);
+      }
+    } else {
+      // TODO(Batch 5 / RC-04): needs a canonical reject_refill_plan RPC.
+      // No RPC currently rejects refill_plan_output rows at machine level, so
+      // this direct UPDATE is intentionally LEFT AS-IS to avoid breaking the
+      // reject capability. Replace with the canonical RPC once it exists.
+      await supabase
+        .from("refill_plan_output")
+        .update({
+          operator_status: status,
+          reviewed_at: new Date().toISOString(),
+          operator_comment: comment || null,
+        })
+        .eq("machine_name", machineName)
+        .eq("operator_status", "pending");
     }
 
     setPlanRows((prev) => prev.filter((r) => r.machine_name !== machineName));
@@ -245,6 +267,9 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
 
   async function handlePlanRejectLine(id: string) {
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): needs a canonical reject_refill_plan (per-row) RPC.
+    // Left as a direct UPDATE for now — no canonical rejecter exists and we must
+    // not break per-line reject. Rewire once the RPC lands.
     await supabase
       .from("refill_plan_output")
       .update({

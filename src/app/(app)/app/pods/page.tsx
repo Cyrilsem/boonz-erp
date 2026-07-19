@@ -688,6 +688,9 @@ export default function MachinesPage() {
     }
 
     const supabase = createClient();
+    // TODO(Batch 5 / RC-04): arbitrary machine-field edit — no canonical
+    // update_machine RPC exists. Left as a direct update to preserve the edit
+    // capability; rewire once Batch 5 provides a field-scoped machine RPC.
     const { error } = await supabase
       .from("machines")
       .update(diff)
