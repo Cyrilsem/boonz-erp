@@ -29,6 +29,8 @@ interface POGroup {
   supplier_name: string;
   purchase_date: string;
   line_count: number;
+  // PRD-103b: count of still-open (purchase_outcome IS NULL) lines.
+  open_lines: number;
   total_ordered: number;
   total_received: number;
   received_date: string | null;
@@ -140,6 +142,7 @@ export default function OrdersPage() {
         ordered_qty,
         received_qty,
         received_date,
+        purchase_outcome,
         suppliers!inner(supplier_name)
       `,
       )
@@ -161,6 +164,7 @@ export default function OrdersPage() {
         (line.received_date ? (line.ordered_qty ?? 0) : 0);
       if (existing) {
         existing.line_count += 1;
+        if (line.purchase_outcome == null) existing.open_lines += 1;
         if (existing.po_number == null && line.po_number != null) {
           existing.po_number = line.po_number as number;
         }
@@ -176,6 +180,7 @@ export default function OrdersPage() {
           supplier_name: s.supplier_name,
           purchase_date: line.purchase_date,
           line_count: 1,
+          open_lines: line.purchase_outcome == null ? 1 : 0,
           total_ordered: line.ordered_qty ?? 0,
           total_received: lineReceivedQty,
           received_date: line.received_date,
@@ -284,12 +289,27 @@ export default function OrdersPage() {
     setExpandLoading(false);
   }
 
-  // PRD-103b: whole-PO cancel is only offered while NOTHING on the PO has
-  // been received (mirrors the cancel_po backend gate, which loops the
-  // canonical cancel_po_line per open line) and the PO has a po_number.
+  // PRD-103b: a PO is fully cancelled when every line is not_purchased
+  // (no open lines, nothing received). It stays visible but must not offer
+  // Cancel/Edit/Receive — there is nothing left to act on. Without this the
+  // Cancel PO button showed on already-cancelled POs and cancel_po raised
+  // "no open lines".
+  function isFullyCancelled(o: POGroup): boolean {
+    return (
+      o.line_count > 0 &&
+      o.open_lines === 0 &&
+      o.total_received === 0 &&
+      !o.received_date
+    );
+  }
+
+  // PRD-103b: whole-PO cancel is only offered while the PO still has at least
+  // one OPEN line and nothing received (mirrors the cancel_po backend gate,
+  // which loops cancel_po_line over lines whose purchase_outcome IS NULL).
   function canCancelWholePo(o: POGroup): boolean {
     return (
       o.po_number != null &&
+      o.open_lines > 0 &&
       !o.received_date &&
       o.total_received === 0 &&
       !!userRole &&
@@ -407,12 +427,16 @@ export default function OrdersPage() {
                           {task?.status === "collected" ||
                           task?.status === "acknowledged" ? (
                             <CollectionBadge task={task} />
+                          ) : isFullyCancelled(order) ? (
+                            <span className="rounded-full bg-neutral-200 px-2.5 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+                              Cancelled
+                            </span>
                           ) : (
                             <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                               Pending
                             </span>
                           )}
-                          {tab === "pending" && (
+                          {tab === "pending" && !isFullyCancelled(order) && (
                             <div className="flex gap-1.5">
                               {canCancelWholePo(order) && (
                                 <button
