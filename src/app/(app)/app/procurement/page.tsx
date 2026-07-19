@@ -27,7 +27,9 @@ interface POLine {
   po_id: string;
   purchase_date: string;
   ordered_qty: number | null;
+  received_qty: number | null;
   received_date: string | null;
+  purchase_outcome: string | null;
   suppliers: { supplier_name: string };
 }
 
@@ -37,6 +39,10 @@ interface POGroup {
   purchase_date: string;
   line_count: number;
   total_ordered: number;
+  // PRD-103b: open (purchase_outcome IS NULL) line count + received units, so
+  // fully-cancelled POs can drop out of Pending.
+  open_lines: number;
+  total_received: number;
   received_date: string | null;
 }
 
@@ -81,6 +87,18 @@ interface POAddition {
 }
 
 type TabFilter = "pending" | "all" | "demand";
+
+// PRD-103b: a PO is fully cancelled when every line is not_purchased and
+// nothing was received. Such POs leave Pending and show as "Cancelled" in
+// All Orders (their cancellation stays in procurement_events / write_audit_log).
+function isFullyCancelled(o: POGroup): boolean {
+  return (
+    o.line_count > 0 &&
+    o.open_lines === 0 &&
+    o.total_received === 0 &&
+    !o.received_date
+  );
+}
 
 interface DemandRow {
   boonz_product_id: string;
@@ -501,7 +519,7 @@ export default function ProcurementPage() {
     const { data } = await supabase
       .from("purchase_orders")
       .select(
-        "po_line_id, po_id, purchase_date, ordered_qty, received_date, suppliers!inner(supplier_name)",
+        "po_line_id, po_id, purchase_date, ordered_qty, received_qty, received_date, purchase_outcome, suppliers!inner(supplier_name)",
       )
       .order("purchase_date", { ascending: false })
       .limit(10000);
@@ -515,9 +533,14 @@ export default function ProcurementPage() {
     const grouped = new Map<string, POGroup>();
     for (const line of data as unknown as POLine[]) {
       const existing = grouped.get(line.po_id);
+      const lineRecvQty =
+        (line.received_qty as number | null) ??
+        (line.received_date ? (line.ordered_qty ?? 0) : 0);
       if (existing) {
         existing.line_count += 1;
         existing.total_ordered += line.ordered_qty ?? 0;
+        existing.total_received += lineRecvQty;
+        if (line.purchase_outcome == null) existing.open_lines += 1;
         if (!line.received_date) existing.received_date = null;
       } else {
         grouped.set(line.po_id, {
@@ -526,6 +549,8 @@ export default function ProcurementPage() {
           purchase_date: line.purchase_date,
           line_count: 1,
           total_ordered: line.ordered_qty ?? 0,
+          total_received: lineRecvQty,
+          open_lines: line.purchase_outcome == null ? 1 : 0,
           received_date: line.received_date,
         });
       }
@@ -1506,7 +1531,8 @@ export default function ProcurementPage() {
 
   const displayed = useMemo(() => {
     let result = allOrders;
-    if (tab === "pending") result = result.filter((o) => !o.received_date);
+    if (tab === "pending")
+      result = result.filter((o) => !o.received_date && !isFullyCancelled(o));
     if (search) {
       const q = search.toLowerCase();
       result = result.filter(
@@ -1519,7 +1545,8 @@ export default function ProcurementPage() {
   }, [allOrders, tab, search]);
 
   const pendingCount = useMemo(
-    () => allOrders.filter((o) => !o.received_date).length,
+    () =>
+      allOrders.filter((o) => !o.received_date && !isFullyCancelled(o)).length,
     [allOrders],
   );
 
@@ -3188,7 +3215,8 @@ export default function ProcurementPage() {
                 </tr>
               ) : (
                 displayed.map((o) => {
-                  const isPending = !o.received_date;
+                  const cancelled = isFullyCancelled(o);
+                  const isPending = !o.received_date && !cancelled;
                   return (
                     <tr
                       key={o.po_id}
@@ -3251,13 +3279,23 @@ export default function ProcurementPage() {
                             borderRadius: 20,
                             fontSize: 11,
                             fontWeight: 600,
-                            background: isPending ? "#fef9ee" : "#f0fdf4",
-                            color: isPending ? "#b45309" : "#065f46",
+                            background: cancelled
+                              ? "#f3f4f6"
+                              : isPending
+                                ? "#fef9ee"
+                                : "#f0fdf4",
+                            color: cancelled
+                              ? "#6b7280"
+                              : isPending
+                                ? "#b45309"
+                                : "#065f46",
                           }}
                         >
-                          {isPending
-                            ? "Pending"
-                            : `Received ${formatDate(o.received_date)}`}
+                          {cancelled
+                            ? "Cancelled"
+                            : isPending
+                              ? "Pending"
+                              : `Received ${formatDate(o.received_date)}`}
                         </span>
                       </td>
                       <td className="px-4 py-3">

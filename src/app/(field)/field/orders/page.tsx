@@ -320,7 +320,7 @@ export default function OrdersPage() {
   // Filter for pending tab: unreceived OR collected-but-not-WH-received
   const filtered =
     tab === "pending"
-      ? orders.filter((o) => !o.received_date)
+      ? orders.filter((o) => !o.received_date && !isFullyCancelled(o))
       : orders.slice(0, 30);
 
   if (loading) {
