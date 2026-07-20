@@ -27,8 +27,8 @@ type LedgerRow = {
 };
 
 const SCOPES: { value: string; label: string }[] = [
-  { value: "non_vox", label: "Non-VOX fleet" },
-  { value: "vox", label: "VOX cinemas" },
+  { value: "non_vox", label: "Boonz Sourcing" },
+  { value: "vox", label: "Partner Sourcing (VOX · LVLUP)" },
   { value: "all", label: "All machines" },
   { value: "AMAZON", label: "Amazon" },
   { value: "ADDMIND", label: "Addmind" },
