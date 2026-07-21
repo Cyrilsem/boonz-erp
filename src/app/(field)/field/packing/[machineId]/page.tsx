@@ -1619,29 +1619,34 @@ export default function PackingDetailPage() {
     setSwapQty("");
     setSwapShelfCap(null);
     const supabase = createClient();
-    const [{ data: maps }, { data: wh }, { data: capRows }] = await Promise.all([
-      supabase
-        .from("product_mapping")
-        .select(
-          "pod_product_id, boonz_product_id, pod_products(pod_product_name)",
-        )
-        .eq("status", "Active")
-        .or(`machine_id.eq.${machineId},machine_id.is.null`)
-        .limit(10000),
-      supabase
-        .from("v_wh_pickable")
-        .select("boonz_product_id, warehouse_stock")
-        .limit(10000),
-      supabase
-        .from("v_shelf_max_stock")
-        .select("max_stock_weimi")
-        .eq("shelf_id", shelfId)
-        .limit(100),
-    ]);
+    const [{ data: maps }, { data: wh }, { data: capRows }] = await Promise.all(
+      [
+        supabase
+          .from("product_mapping")
+          .select(
+            "pod_product_id, boonz_product_id, pod_products(pod_product_name)",
+          )
+          .eq("status", "Active")
+          .or(`machine_id.eq.${machineId},machine_id.is.null`)
+          .limit(10000),
+        supabase
+          .from("v_wh_pickable")
+          .select("boonz_product_id, warehouse_stock")
+          .limit(10000),
+        supabase
+          .from("v_shelf_max_stock")
+          .select("max_stock_weimi")
+          .eq("shelf_id", shelfId)
+          .limit(100),
+      ],
+    );
     // PRD-102 D1: the legacy default fill = the shelf's WEIMI cap (spread target).
     const cap = (capRows ?? []).reduce(
       (m, r) =>
-        Math.max(m, Number((r as { max_stock_weimi?: number }).max_stock_weimi ?? 0)),
+        Math.max(
+          m,
+          Number((r as { max_stock_weimi?: number }).max_stock_weimi ?? 0),
+        ),
       0,
     );
     setSwapShelfCap(cap > 0 ? cap : null);
@@ -1886,17 +1891,32 @@ export default function PackingDetailPage() {
 
   const packedCount = lines.filter((l) => l.action === "packed").length;
   const notFilledCount = lines.filter((l) => l.action === "not_filled").length;
-  const pendingCount = lines.filter((l) => l.action === null).length;
+  // Only Refill/Add New/Add lines can ever hold the Finish gate. This mirrors the
+  // confirm_machine_packed server predicate EXACTLY (its unresolved set is
+  // `... AND rd.action IN ('Refill','Add New','Add')`), so a Remove line is never
+  // "outstanding" server-side and must not be counted outstanding here either —
+  // otherwise the badge and the gate disagree (Remove-only machines showed pending
+  // while the server would let Finish through). Remove/other actions are inherently
+  // resolved.
+  const isGatingLine = (l: PackLine) =>
+    l.dispatch_action === "Refill" ||
+    l.dispatch_action === "Add New" ||
+    l.dispatch_action === "Add";
+  const pendingCount = lines.filter(
+    (l) => isGatingLine(l) && l.action === null,
+  ).length;
   // PRD-020: skipped lines live in skippedLines (skipped=true, include=false) once
   // skip_dispatch_line runs, so they are no longer in `lines`. Count the genuinely
   // skipped (not cancelled) ones as resolved against the fillable total.
   const skippedActive = skippedLines.filter((s) => s.skipped && !s.cancelled);
   const skippedCount = skippedActive.length;
   // Progress (AC-3): resolved = packed + not_filled + skipped over the included,
-  // non-cancelled, fillable set. Skipped lines are both resolved and part of total,
-  // so they cancel out of the gate (resolved === total <=> all `lines` actioned).
+  // non-cancelled, fillable set, PLUS every non-gating line (Remove etc.) which the
+  // server never blocks on. Skipped lines are both resolved and part of total, so
+  // they cancel out of the gate (resolved === total <=> all GATING `lines` actioned).
   const resolvedCount =
-    lines.filter((l) => l.action !== null).length + skippedCount;
+    lines.filter((l) => !isGatingLine(l) || l.action !== null).length +
+    skippedCount;
   const totalCount = lines.length + skippedCount;
   const isReadOnly = saved && !editingAfterSave;
   // Issue #6: detect if this machine was already packed (DB-side) and no driver
@@ -2533,7 +2553,7 @@ export default function PackingDetailPage() {
             <ul className="space-y-2">
               {/* ── SWAP SECTION: combined cards ── */}
               {section.key === "swap" &&
-                swapPairs.map((pair, pairIdx) => {
+                swapPairs.map((pair) => {
                   const addLine = pair.addLine;
                   const removeLine = pair.removeLine;
                   const bothPacked =
@@ -2570,7 +2590,7 @@ export default function PackingDetailPage() {
                   if (isInternalMove) {
                     return (
                       <li
-                        key={`swap-${pairIdx}`}
+                        key={addLine.dispatch_id}
                         className={`rounded-lg border border-teal-200 bg-white p-0 overflow-hidden dark:border-teal-900 dark:bg-neutral-950 ${
                           bothPacked
                             ? "border-l-4 border-l-green-400"
@@ -2642,7 +2662,7 @@ export default function PackingDetailPage() {
                   // ── STANDARD SWAP: product comes from warehouse ───────────
                   return (
                     <li
-                      key={`swap-${pairIdx}`}
+                      key={addLine.dispatch_id}
                       className={`rounded-lg border border-blue-200 bg-white p-0 overflow-hidden dark:border-blue-900 dark:bg-neutral-950 ${
                         bothPacked
                           ? "border-l-4 border-l-green-400"
@@ -3042,6 +3062,64 @@ export default function PackingDetailPage() {
                             ✓ Swap confirmed
                           </p>
                         )}
+                        {/* A swap line gets the SAME per-line controls a refill line
+                            has, so an out-of-stock or wrong-flavor swap never stalls
+                            the machine: edit the product/qty, mark not filled, or skip
+                            with a reason. These act on THIS add leg only; the paired
+                            Remove is non-gating (isGatingLine) so it never holds Finish.
+                            Reuses the refill handlers (no new component). */}
+                        {!isReadOnly && !bothPacked && (
+                          <div className="mt-2 flex gap-2">
+                            <button
+                              onClick={() =>
+                                setEditingDispatch({
+                                  dispatch_id: addLine.dispatch_id,
+                                  quantity:
+                                    addLine.packed_qty ||
+                                    addLine.recommended_qty,
+                                  shelf_code: addLine.shelf_code,
+                                  boonz_product_name:
+                                    addLine.boonz_display_name ??
+                                    addLine.display_name,
+                                  source_kind: addLine.from_warehouse_name
+                                    ? "wh"
+                                    : "unknown",
+                                  picked_up: false,
+                                  allowed_tabs: ["product", "qty"],
+                                })
+                              }
+                              title="Change product / edit qty"
+                              aria-label="Edit swap line"
+                              className="shrink-0 rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              onClick={() => handleMarkNotFilled(addLine)}
+                              disabled={saving}
+                              title="No stock to swap in — mark not filled (no warehouse debit)"
+                              className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                                addLine.action === "not_filled"
+                                  ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                                  : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                              }`}
+                            >
+                              ⊘ Not filled
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSkipDialogLine(addLine);
+                                setSkipCategory("");
+                                setSkipNote("");
+                              }}
+                              disabled={saving}
+                              title="Cannot swap this line — skip with a reason"
+                              className="flex-1 rounded-lg border border-neutral-200 py-1.5 text-xs font-semibold text-neutral-500 transition-colors hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                            >
+                              ✗ Skip
+                            </button>
+                          </div>
+                        )}
                         {/* PRD-102 D2: decline the planner pair (unstarted only) */}
                         {!isReadOnly && !bothPacked && (
                           <button
@@ -3049,7 +3127,9 @@ export default function PackingDetailPage() {
                               setDeclineTarget({
                                 dispatchIds: [
                                   addLine.dispatch_id,
-                                  ...(removeLine ? [removeLine.dispatch_id] : []),
+                                  ...(removeLine
+                                    ? [removeLine.dispatch_id]
+                                    : []),
                                 ],
                                 shelfId:
                                   addLine.shelf_id ??
