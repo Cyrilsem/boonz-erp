@@ -418,16 +418,29 @@ export default function ConsumerDashboardClient({
   // AC1: the green ribbon binds to the COMMERCIAL waterfall (same source as the cards),
   // so the ribbon and the Commercial cards always tell one story for the same (period, pods).
   const W = C?.waterfall;
-  const ribTotal = W ? Number(W.total_amount) : ts;
+  // Total excludes no-settlement baskets (Boonz-borne system incidents, tracked
+  // separately - CS ruling 2026-07-28) so the strip adds up exactly:
+  // Total = Captured(net) + Refunds + Gap. accounted_total comes from the RPC
+  // (recon_fix6); fall back to total_amount - unmatched_amount, then raw total.
+  const ribTotal = W
+    ? Number(
+        W.accounted_total ??
+          Number(W.total_amount) - Number(W.unmatched_amount ?? 0),
+      )
+    : ts;
+  // Captured net of refunds (captured_amount is gross-of-refund since recon_fix5b).
   const ribCaptured = W
-    ? Number(W.captured_amount)
+    ? Number(W.captured_amount) - Number(W.refund_amount ?? 0)
     : (S?.matched_captured ?? 0);
+  const ribRefund = W
+    ? Number(W.refund_amount ?? 0)
+    : Number(S?.total_refunded ?? 0);
   const ribGap = W ? Number(W.default_amount) : gp;
   const ribDefault = W ? Number(W.default_rate_pct).toFixed(2) : dp;
   const ribMatched = W ? Number(W.matched_txns) : (S?.matched_txns ?? 0);
   const ribTotalTxns = W ? Number(W.txn_count) : (S?.total_txns ?? 0);
   const ribDisc = W
-    ? (C?.transactions?.filter((t) => Number(t.default_amount || 0) > 0)
+    ? (C?.transactions?.filter((t) => Number(t.default_amount || 0) > 0.01)
         .length ?? 0)
     : (S?.disc_count ?? 0);
 
@@ -1420,6 +1433,11 @@ export default function ConsumerDashboardClient({
             <span style={{ color: "rgba(255,255,255,0.8)" }}>
               Captured{" "}
               <strong style={{ color: "#a7f3d0" }}>{aed(ribCaptured)}</strong>
+            </span>
+            <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
+            <span style={{ color: "rgba(255,255,255,0.8)" }}>
+              Refunds{" "}
+              <strong style={{ color: "#c4b5fd" }}>{aed(ribRefund)}</strong>
             </span>
             <span style={{ color: "rgba(255,255,255,0.3)" }}>|</span>
             <span style={{ color: "rgba(255,255,255,0.8)" }}>

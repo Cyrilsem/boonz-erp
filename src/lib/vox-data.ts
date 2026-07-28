@@ -82,6 +82,8 @@ export interface VoxSummary {
   total_txns: number;
   total_units: number;
   total_captured: number; // Adyen + cash combined
+  total_refunded?: number; // SUM(refunded_amount_value) over the period (recon_fix5a)
+  refunded_txns?: number; // baskets with a refund (recon_fix5a)
   total_adyen_captured?: number; // Adyen only (new)
   total_cash_recovered?: number; // SUM(cash_recovery_log) over the period (new)
   num_machines: number;
@@ -201,8 +203,11 @@ export interface VoxCommercialReport {
   };
   waterfall: {
     total_amount: number;
+    // recon_fix6: no-settlement (Boonz-borne) exclusion support
+    unmatched_amount?: number; // SUM(total) of baskets with no Adyen record
+    accounted_total?: number; // total_amount - unmatched_amount
     default_amount: number;
-    captured_amount: number;
+    captured_amount: number; // GROSS of refunds since recon_fix5b
     refund_amount: number;
     adyen_fees: number;
     net_revenue: number;
