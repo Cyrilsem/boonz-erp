@@ -1077,6 +1077,11 @@ export default function ConsumerDashboardClient({
           const captured = num(w.captured_amount);
           const refund = num(w.refund_amount);
           const adyenFees = num(w.adyen_fees);
+          // Boonz-borne no-settlement credit (CS policy 2026-07-28): recon_fix7
+          const boonzBorne = num(
+            (w as any).boonz_borne_amount ?? (w as any).unmatched_amount ?? 0,
+          );
+          const effCaptured = captured + boonzBorne;
           const netRev = num(w.net_revenue);
           const boonzShare = num(w.boonz_share);
           const voxShare = num(w.vox_share);
@@ -1092,7 +1097,7 @@ export default function ConsumerDashboardClient({
             },
             {
               label: ["Default"],
-              base: captured,
+              base: effCaptured,
               top: total,
               color: "#dc2626",
               displayVal: num(w.default_amount),
@@ -1105,16 +1110,23 @@ export default function ConsumerDashboardClient({
               displayVal: captured,
             },
             {
+              label: ["Boonz-", "borne"],
+              base: captured,
+              top: effCaptured,
+              color: "#8b5cf6",
+              displayVal: boonzBorne,
+            },
+            {
               label: ["Refund"],
-              base: captured - refund,
-              top: captured,
+              base: effCaptured - refund,
+              top: effCaptured,
               color: "#d97706",
               displayVal: refund,
             },
             {
               label: ["Adyen", "Fees"],
-              base: captured - refund - adyenFees,
-              top: captured - refund,
+              base: effCaptured - refund - adyenFees,
+              top: effCaptured - refund,
               color: "#9a948e",
               displayVal: adyenFees,
             },

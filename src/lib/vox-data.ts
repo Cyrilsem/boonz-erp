@@ -206,6 +206,7 @@ export interface VoxCommercialReport {
     // recon_fix6: no-settlement (Boonz-borne) exclusion support
     unmatched_amount?: number; // SUM(total) of baskets with no Adyen record
     accounted_total?: number; // total_amount - unmatched_amount
+    boonz_borne_amount?: number; // no-settlement value credited to net (recon_fix7)
     default_amount: number;
     captured_amount: number; // GROSS of refunds since recon_fix5b
     refund_amount: number;
