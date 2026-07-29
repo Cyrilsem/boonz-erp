@@ -3519,7 +3519,37 @@ export default function ProcurementPage() {
                             className="py-2 px-2"
                             style={{ color: "#0a0a0a" }}
                           >
-                            {l.ordered_qty}
+                            {/* Show received vs ordered when they differ (short or over
+                                delivery). Previously only ordered_qty rendered, so an
+                                adjusted line read "8" while the money reflected 3. */}
+                            {(() => {
+                              const rec = l.received_qty;
+                              const ord = l.ordered_qty ?? 0;
+                              if (rec == null || isCancelled || Number(rec) === ord)
+                                return <>{ord}</>;
+                              const short = Number(rec) < ord;
+                              return (
+                                <span
+                                  title={`Ordered ${ord}, received ${rec}`}
+                                  style={{ whiteSpace: "nowrap" }}
+                                >
+                                  <strong>{rec}</strong>
+                                  <span style={{ color: "#a3a39a" }}> of {ord}</span>
+                                  <span
+                                    style={{
+                                      marginLeft: 6,
+                                      fontSize: 10,
+                                      padding: "1px 5px",
+                                      borderRadius: 4,
+                                      background: short ? "#fdeceb" : "#eaf3de",
+                                      color: short ? "#a32d2d" : "#3b6d11",
+                                    }}
+                                  >
+                                    {short ? "short" : "over"}
+                                  </span>
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td
                             className="py-2 px-2"
@@ -3631,19 +3661,68 @@ export default function ProcurementPage() {
                     color: "#6b6860",
                   }}
                 >
-                  <span>
-                    {poLines.length} line{poLines.length !== 1 ? "s" : ""} ·{" "}
-                    {selectedPO.total_ordered} units
-                  </span>
-                  {poLines.some((l) => l.total_price_aed) && (
-                    <span style={{ fontWeight: 600, color: "#0a0a0a" }}>
-                      Total:{" "}
-                      {poLines
-                        .reduce((sum, l) => sum + (l.total_price_aed ?? 0), 0)
-                        .toFixed(2)}{" "}
-                      AED
-                    </span>
-                  )}
+                  {/* Received additions live in po_additions, a separate table, so
+                      they were excluded from the PO total. PO-9242 read 61.66 when the
+                      supplier invoice was 121.35 (a 59.70 addition sat outside the sum).
+                      Additions are now counted in units and value. */}
+                  {(() => {
+                    const recvAdds = poAdditions.filter(
+                      (a) => a.status === "received",
+                    );
+                    const addUnits = recvAdds.reduce(
+                      (s, a) => s + (a.qty ?? 0),
+                      0,
+                    );
+                    const addValue = recvAdds.reduce(
+                      (s, a) => s + (a.qty ?? 0) * (a.price_per_unit_aed ?? 0),
+                      0,
+                    );
+                    const lineValue = poLines.reduce(
+                      (s, l) => s + (l.total_price_aed ?? 0),
+                      0,
+                    );
+                    return (
+                      <>
+                        <span>
+                          {poLines.length} line
+                          {poLines.length !== 1 ? "s" : ""} ·{" "}
+                          {selectedPO.total_ordered} units
+                          {addUnits > 0 && (
+                            <span style={{ color: "#92400e" }}>
+                              {" "}
+                              + {recvAdds.length} addition
+                              {recvAdds.length !== 1 ? "s" : ""} ({addUnits}{" "}
+                              units)
+                            </span>
+                          )}
+                        </span>
+                        {(lineValue > 0 || addValue > 0) && (
+                          <span
+                            style={{ fontWeight: 600, color: "#0a0a0a" }}
+                            title={
+                              addValue > 0
+                                ? `Lines ${lineValue.toFixed(2)} + additions ${addValue.toFixed(2)} AED`
+                                : undefined
+                            }
+                          >
+                            Total: {(lineValue + addValue).toFixed(2)} AED
+                            {addValue > 0 && (
+                              <span
+                                style={{
+                                  fontWeight: 400,
+                                  fontSize: 11,
+                                  color: "#6b6860",
+                                }}
+                              >
+                                {" "}
+                                (incl. {addValue.toFixed(2)} additions)
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
