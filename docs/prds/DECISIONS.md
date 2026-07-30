@@ -434,6 +434,7 @@ drift guard in both engines, uuid-keyed write_refill_plan). Reconciled the stale
 (it falsely implied an active halt at PRD-03; that was cleared same-day 2026-07-11).
 
 ### The watch item (CLEANUP-REPORT final acceptance #2)
+
 The report set a 7-day watch: "open PRD-CLEAN-08 if fleet drift exceeds 2%." Day 5 reading today:
 
 - **Measurement (correct join — the A01↔A1 landmine):** `shelf_configurations.shelf_code` is
@@ -449,6 +450,7 @@ The report set a 7-day watch: "open PRD-CLEAN-08 if fleet drift exceeds 2%." Day
   or added after 07-11; not decrement drift, these just need a resync populate).
 
 ### Judgement calls (safest reversible option, per goal protocol)
+
 1. **Did NOT auto-fire `resync_pod_inventory_from_weimi()`.** It is a fleet-wide inventory
    mutation (~1,400 write-offs + unattributed adds) that materially rewrites truth + priority
    signals; the established pattern (PRD-01 M2, PRD-03, PROGRAM-2026-05-25) and the auto-mode
@@ -464,6 +466,7 @@ The report set a 7-day watch: "open PRD-CLEAN-08 if fleet drift exceeds 2%." Day
    ledger; the daily_inventory_reconciliation cron @ 02:00 UTC is not converging it to <2%).
 
 ### Net
+
 Loop remains COMPLETE and all deliverables intact. One open operational carry-forward: fleet
 drift has re-grown to ~25% (as PRD-01 predicted, root cause deferred). Owner: CS — either run the
 attended resync as an interim re-zero, or author PRD-CLEAN-08 for the decrement root cause. No
@@ -472,27 +475,32 @@ prod data was mutated by this re-invocation (read-only verification only).
 ## PRD-CLEAN-13 + 2026-07-15 prod mirror (2026-07-16)
 
 ### Task 1 — mirror verification (live state vs the goal's list)
+
 All five claims verified true in prod before writing files. Seven mirror migrations
 written (20260715120000..123000), idempotent, NOT re-applied (prod already holds them):
 CHECKs (gym / bottle_shot), venue_groups LVLUP + 3 machine updates, PD168-177 product
 quads (boonz+pod+mapping+alias, live UUIDs) + the Plaay 35g alias, commercial_agreements
 FULL table (it had never had a repo migration: base DDL + RLS policies + get_venue_terms
-+ 10-row data + NOT NULL/CHECK pass, DDL and data in separate files), v_slot_binding_drift
-view DDL (live since drift-kill but never captured; PRD-CLEAN-09's migration only consumes it).
-- Data migration safety: row inserts use ON CONFLICT DO NOTHING and the model-column
+
+- 10-row data + NOT NULL/CHECK pass, DDL and data in separate files), v_slot_binding_drift
+  view DDL (live since drift-kill but never captured; PRD-CLEAN-09's migration only consumes it).
+
+* Data migration safety: row inserts use ON CONFLICT DO NOTHING and the model-column
   backfill only touches NULLs, so an accidental `db push` against prod cannot clobber
   later tuning.
-- DRIFT LOGGED, not fixed: (a) the earlier 2026-07-10 LevelUp batch PD148-PD162
+* DRIFT LOGGED, not fixed: (a) the earlier 2026-07-10 LevelUp batch PD148-PD162
   (14 products incl. all 'Assorted' SKUs + Choco Brownie/PB Brownie/Fresh Banana/OJ,
   boonz+pod+mapping+alias) is ALSO unmirrored - out of this goal's scope, needs its own
   mirror; (b) statement_of_account_registry + issue_soa_number have no repo migration;
   (c) venue_commercial_terms confirmed dropped (to_regclass NULL) - not recreated.
 
 ### Task 2 — PRD-CLEAN-13 implementation (skills, not repo code)
+
 partner-performance-report.skill and statement-of-account.skill live only as .skill zips
 in BOONZ BRAIN (INDEX.md: "loose .skill package, no source folder"). Edited in place,
 originals kept as *.skill.bak-20260716. Both now branch on
 get_venue_terms(<group>).source_of_supply:
+
 - PPR: venue_team => waterfall Gross -> fee schedule (adyen_pct x gross + adyen_fixed x
   txns) -> Net -> boonz/partner split; NO COGS math (avg_cost NULL by design, never
   zero-defaulted); refill-execution section REPLACED by sell-through intelligence -
@@ -510,6 +518,7 @@ get_venue_terms(<group>).source_of_supply:
   errored as written; replaced by get_venue_terms(). Metadata-only, no number changes.
 
 ### Verification results
+
 1. PASS (formula-exact): PRD constants 35 txns/302.00 gross => net 276.65, Boonz 69.16,
    LevelUp 207.49 - reproduced to the fils from get_venue_terms('LVLUP') terms. The PRD
    snapshot was taken mid-day 07-15; the full window now reads 41/354.00 => 324.30 /
@@ -537,6 +546,7 @@ get_venue_terms(<group>).source_of_supply:
 7. PASS: tsc 0 errors; next build (see commit).
 
 ### Git
+
 - "Cherry-pick the earlier PRD-CLEAN commits onto main" verified UNNECESSARY: 8198dc1
   (loop) and 4957c36 (PRD-09) are already ancestors of origin/main (merged 2026-07-13).
 - PRD-100 commits (88835a4/532bdd9) remain on feat/prd-100-empty-shelf-signal: applied
@@ -547,12 +557,14 @@ get_venue_terms(<group>).source_of_supply:
 ## HUAWEI-2003-0000-B1 binding drift (2026-07-16, task blocked at the rebind guard)
 
 ### Root cause (confirms the forensics)
+
 Post-swap slot_lifecycle staleness, NOT the 2026-07-15 alias: today's dispatched swaps
 (A08 Caprice out -> Freakin Awesome Filled Dates in; A06 Plaay Mix out -> Plaay Mix 35g
 in; all packed/picked_up/dispatched=true) never updated slot_lifecycle - the same
 failure mode as the 2026-07-12 incident that produced rebind_slot_lifecycle_from_weimi.
 
 ### What was (not) done
+
 - Orphan Caprice A08 refill row: found ALREADY skipped (04:42 UTC, canonical path,
   reason references this exact swap). Left as-is - skip is inert per PRD-028 and
   reversible; double-cancelling adds nothing. Zero writes made to refill_dispatching.
@@ -563,6 +575,7 @@ failure mode as the 2026-07-12 incident that produced rebind_slot_lifecycle_from
 - All packed=true rows untouched (no writes at all this task); no other machine touched.
 
 ### Key discovery (updates PRD-CLEAN-09 doctrine)
+
 The engines NO LONGER halt globally on v_slot_binding_drift: p0_fix2/p0_fix12 scope the
 check to picked machines and handle drift per-shelf (add: auto-plan from TRUE WEIMI
 identity as cold start + critical alert; swap: per-shelf skip + alert). Tonight's build
@@ -570,14 +583,15 @@ proceeds and plans HUAWEI CORRECTLY; expect one engine_add_pod_binding_drift cri
 alert until the rebind lands. Rebind remains required hygiene, not an emergency.
 
 ### Verification status
+
 1 drift=0: PENDING (one-liner in BLOCKED.md after 19:59 UTC). 2: the Caprice row remains
 as skipped/include=false - the correct terminal state (nothing dispatchable remains).
 3: PASS trivially (zero writes). 4: PASS (zero writes). 5: tsc clean.
 
-
 ## PRD-CLEAN-14 — post-swap slot_lifecycle write gap CLOSED (2026-07-16, applied to prod)
 
 ### Investigation
+
 The "physically confirmed at the machine" moment is refill_dispatching.item_added
 false->true: receive_dispatch_line asserts NOT item_added then sets it, writes
 pod_inventory in the same transaction, and today's HUAWEI Add News all carry it —
@@ -585,12 +599,14 @@ but NOTHING wrote slot_lifecycle anywhere in that flow. Confirmed the exact gap
 behind the 2026-07-12 incident and the 2026-07-16 HUAWEI drift.
 
 ### Host decision: trigger, not receive_dispatch_line
+
 item_added is set by receive_dispatch_line AND repack_machine (return_dispatch_line
 only checks it, verified). A trigger on the flip is the single choke point covering
 all current AND future writers, runs in the same transaction, and avoids replacing
 the ~400-line receive function (nothing replaced; rollback = DROP trigger + fn).
 
 ### What shipped (migration 20260716110000, applied as prd_clean_14_rebind_slot_on_add_confirm)
+
 - tg_rebind_slot_lifecycle_on_add_confirm() + trg_rebind_slot_on_add_confirm:
   AFTER UPDATE OF item_added, WHEN item_added false->true AND action IN
   ('Add New','Add') AND NOT returned/cancelled/skipped AND shelf+pod present AND
@@ -601,6 +617,7 @@ the ~400-line receive function (nothing replaced; rollback = DROP trigger + fn).
   never packed rows. Respects uq_slot_lifecycle_current_per_slot.
 
 ### Verification (single rolled-back transaction on ACTIVATE-2005 A03; zero persistence confirmed)
+
 Full lifecycle simulated: patched the live Weimi snapshot in place (Sun Blast Juice ->
 Ritz Cracker; one-snapshot-per-device-day constraint forced update-in-place over
 insert) => drift 0 -> 1; inserted a packed+picked_up Add New line; canonical
@@ -612,6 +629,7 @@ bindings, trigger enabled, fleet drift = 2 (the pre-existing HUAWEI pair awaitin
 attended rebind after the 19:59 UTC sweep). tsc clean.
 
 ### Residual (documented, out of scope)
+
 A Remove-only line (M2W, shelf emptied, nothing added) still leaves the old binding
 current — same as rebind_slot_lifecycle_from_weimi's behaviour (no Weimi product to
 bind to). Acceptable: the drift view + nightly alert cover it, and the next Add New

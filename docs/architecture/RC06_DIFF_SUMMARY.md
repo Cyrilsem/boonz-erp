@@ -15,7 +15,7 @@
 --- live engine_swap_pod (prod, 2026-07-18)
 +++ 20260718034118_rc06_engine_swap_pod_version_agnostic_tags.sql
 @@ -93,7 +93,7 @@
- 
+
    DELETE FROM public.pod_swaps
     WHERE plan_date = p_plan_date
 -     AND NOT (pod_product_id_in IS NULL AND reasoning->>'tagged_by' IN ('engine_add_pod_v15','engine_add_pod_v16'));
@@ -38,16 +38,16 @@ Marker choice: `reasoning->>'tagged_by' LIKE 'engine_add_pod%'`. Audit of the li
 
 `select reasoning->>'tagged_by', pod_product_id_in is null, reason, count(*), min(plan_date), max(plan_date) from pod_swaps group by 1,2,3;`
 
-| tagged_by | in IS NULL | reason | count | plan dates |
-|---|---|---|---|---|
-| (null, legacy pre-v15) | false | dead | 175 | 05-12 → 06-09 |
-| (null) | true | m2w | 51 | 05-12 → 06-12 |
-| (null) | false | rotate_out | 41 | 05-12 → 06-09 |
-| (null) | false | wind_down | 41 | 05-12 → 06-09 |
-| engine_add_pod_v16 | false | dead | 30 | 06-11 → 06-14 |
-| **engine_add_pod_v19_base_stock** | **true** | **dead** | **12** | **07-01 → 07-07** |
-| engine_add_pod_v15 | false | dead | 7 | 06-10 |
-| engine_add_pod_v16 | true | dead | 7 | 06-13 → 06-14 |
+| tagged_by                         | in IS NULL | reason     | count  | plan dates        |
+| --------------------------------- | ---------- | ---------- | ------ | ----------------- |
+| (null, legacy pre-v15)            | false      | dead       | 175    | 05-12 → 06-09     |
+| (null)                            | true       | m2w        | 51     | 05-12 → 06-12     |
+| (null)                            | false      | rotate_out | 41     | 05-12 → 06-09     |
+| (null)                            | false      | wind_down  | 41     | 05-12 → 06-09     |
+| engine_add_pod_v16                | false      | dead       | 30     | 06-11 → 06-14     |
+| **engine_add_pod_v19_base_stock** | **true**   | **dead**   | **12** | **07-01 → 07-07** |
+| engine_add_pod_v15                | false      | dead       | 7      | 06-10             |
+| engine_add_pod_v16                | true       | dead       | 7      | 06-13 → 06-14     |
 
 Read of the evidence:
 

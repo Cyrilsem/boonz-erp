@@ -6,9 +6,9 @@ Migrations not listed here are pre-reform (operational migrations from before 20
 
 ## Dispatch role vocabulary fix (APPLIED 2026-07-18)
 
-| Migration name                                          | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------- | ----------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `phaseF_dispatch_role_chk_align_field_staff_warehouse`  | 1, 2, 7, 12 | ✅ Applied to prod | Widened `refill_dispatching_last_edited_role_chk` + `refill_dispatching_edit_log_edited_by_role_check` to allow `field_staff` + `warehouse` (legacy `driver`/`warehouse_manager` kept). Fixes `swap_shelf_pod`/`add_dispatch_row` INSERTs being rejected for field/warehouse users. Additive, forward-only DROP+ADD. Cody PASS. Verified via field_staff swap on WH1-2002. |
+| Migration name                                         | Article(s)  | Status             | Note                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------ | ----------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `phaseF_dispatch_role_chk_align_field_staff_warehouse` | 1, 2, 7, 12 | ✅ Applied to prod | Widened `refill_dispatching_last_edited_role_chk` + `refill_dispatching_edit_log_edited_by_role_check` to allow `field_staff` + `warehouse` (legacy `driver`/`warehouse_manager` kept). Fixes `swap_shelf_pod`/`add_dispatch_row` INSERTs being rejected for field/warehouse users. Additive, forward-only DROP+ADD. Cody PASS. Verified via field_staff swap on WH1-2002. |
 
 ## PRD-055 notes consolidation into Signals (APPLIED 2026-06-23)
 
@@ -583,10 +583,11 @@ WS3 (inventory reconciliation: VML receive + 2 WH transfers) intentionally NOT a
 Forward-only. Never reuse a name. If a migration was bad, write a new one that fixes it (and document the why in CHANGELOG.md).
 
 ## 2026-07-16 — PRD-100 (applied via MCP)
+
 - `f1_structured_capture_tables` — creates refill_events + refill_event_lines (Appendix A), RLS, indexes.
 - `f2_record_actual_refill` — creates record_actual_refill (canonical atomic refill writer).
-| 20260718071500_prd102_d1_swap_shelf_pod_qty | swap_shelf_pod (5-arg dropped, 6-arg created) | operator-decided swap quantity; wh_limited clamp |
-| 20260718072000_prd102_d2_decline_swap_pair | refill_dispatching_edit_log CHECKs + decline_swap_pair (new) | Don't-swap decline with reason + swap_rejected signal |
+  | 20260718071500_prd102_d1_swap_shelf_pod_qty | swap_shelf_pod (5-arg dropped, 6-arg created) | operator-decided swap quantity; wh_limited clamp |
+  | 20260718072000_prd102_d2_decline_swap_pair | refill_dispatching_edit_log CHECKs + decline_swap_pair (new) | Don't-swap decline with reason + swap_rejected signal |
 
 ---
 
@@ -629,3 +630,526 @@ Forward-only. Never reuse a name. If a migration was bad, write a new one that f
 | wave2_engine_swap_pod_rewire | engine_swap_pod (Pass 2a → rank_slot_suitability) | CREATE OR REPLACE, minimal |
 
 | `20260718133205_prd103_edit_po_line_expiry_unlock_post_receipt` | 2026-07-18 | `edit_purchase_order_line` CREATE OR REPLACE (forward-only, rebuilt from live) | Received lines: warehouse/operator_admin/manager may correct EXPIRY only (qty/price superadmin-only). Adds `post_receipt_expiry_edit` audit flag. PO record only. Cody Articles 1,4,5,6,8,12. |
+
+## 2026-07-28 VOX SOA reconciliation wave (Cody-reviewed; CS per-row approval on data rows)
+
+| recon_fix1_lvlup_terminal_id | machines (data, 1 row, audit GUCs) | LVLUP-2015 adyen_unique_terminal_id ...993605 (VOX MPMCC-1054's) -> ...993390 (own, validated from store LVLUP_2015_0000_R0) |
+| recon_fix1b_stale_terminal_ids | machines (data, 13 rows, audit GUCs) | NULL stale terminal claims on Inactive machines whose terminal has exactly one Active owner; JET-2001/WH2-2001 pair (...499563, both Inactive) deliberately untouched |
+| recon_fix2_attributed_view_dedupe | v_adyen_transactions_attributed | LATERAL LIMIT 1 on m_current + history joins: structurally one row per adyen txn (was fanning out when >1 Active machine claimed a terminal: 211 May-Jun VOX baskets doubled, +6,039.83 phantom captured); security_invoker=true preserved; 3 columns appended (refunded_amount_value, refund_date, net_captured_value) |
+| recon_fix3_adyen_refund_backfill_mayjun | adyen_transactions (data, 6 rows) | refunded_amount_value = captured (FULL-refund assumption per CS, true-up if Adyen shows partials); net_captured_value self-corrects |
+| recon_fix4_pd_summary_refund_net | get_payment_default_summary | refunds = actual refunded_amount_value (was gross captured of refunded baskets); captured_net no longer double-subtracts refunds; semantics tag matched_only_v2_2_refund_amount |
+| recon_fix5a_vox_consumer_report_refunds | get_vox_consumer_report | refund = refunded_amount_value (was adjusted=gross); refunded baskets matched via refund-row psp (were shown wallet/unmatched); refunds excluded from default stats; summary +total_refunded/+refunded_txns; recent_txns +'refunded' status/+refunded amount |
+| recon_fix5b_vox_commercial_report_refunds | get_vox_commercial_report | refund = refunded_amount_value; captured_amount now GROSS of refunds so net_revenue subtracts refund exactly once (was double-subtracted, net ~611 low over May-Jun); refunded baskets carry 0.50 fixed fee on net-0 capture (matches SOA) |
+
+## PRD-105 Expiry Truth at Shelf Grain (APPLIED 2026-07-28, read-path only)
+
+| Migration name                   | Article(s)         | Status             | Note                                                                                                                                                                                                                                              |
+| -------------------------------- | ------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `expiry_truth_batches_regrain`   | 12, 16             | ✅ Applied to prod | `v_machine_expiry_batches` dedupe re-grained to `(machine, COALESCE(shelf::text,'noshelf'), boonz_product_id)` via ROW_NUMBER; recovers 285-ish dropped siblings (not-null rows 698→975). 0-collision precondition verified. Old md5 `f2f6397d…`. |
+| `expiry_truth_index`             | (non-mutating DDL) | ✅ Applied to prod | Partial index `idx_pod_inventory_active_shelf_expiry (machine_id, shelf_id, expiration_date) WHERE status='Active' AND current_stock>0`.                                                                                                          |
+| `expiry_truth_slots_shelf_keyed` | 12, 16             | ✅ Applied to prod | `get_machine_slots_with_expiry` re-keyed product-name→shelf_id; name-keyed CTEs removed; `expiry_qty` unconditional; scorer arg = shelf highest-stock boonz (inert). Old md5 `f57322b3…`.                                                         |
+| `expiry_truth_orphan_live_aisle` | 12, 16             | ✅ Applied to prod | `get_machine_orphan_expiry` off-aisle branch (`shelf_id IS NULL OR NOT IN live_shelf`); `live_boonz` exclusion kept. Old md5 `e5e19b3c…`.                                                                                                         |
+
+## PRD-106 Machine-level swap recommender (APPLIED 2026-07-29, additive read-only)
+
+| Migration name                       | Article(s) | Status             | Note                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | ---------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd106_recommend_swaps_for_machine` | 1, 16      | ✅ Applied to prod | New read-only `recommend_swaps_for_machine(date,uuid,int)` (plpgsql STABLE, INVOKER, zero writes). Machine-level distinct-K swap recommender; reads canonical `v_wh_pickable` (WH dedup, no fan-out) + `get_candidate_affinity`. Engine wiring PARKED for the Wave-2 engine-freeze (PRD-094/095 collision). |
+
+## PRD-107 Pack-stage truth (APPLIED 2026-07-29, backend; FE built NOT deployed)
+
+| Migration name                                  | Article(s) | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------- | ---------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd107_pack_outcome_no_pack_needed_enum`       | 12         | ✅ Applied to prod | Adds `no_pack_needed` to pack_outcome enum.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `prd107_pack_outcome_backfill_and_constraint`   | 12, 16     | ✅ Applied to prod | Backfills packed=true/outcome-NULL rows (4,143 fleet-wide, not the 10 the PRD estimated); constraint packed=true ⇒ pack_outcome NOT NULL ships NOT VALID (6 legacy May-2026 M2M rows unfixable without inventing source-machine identity; still blocks all new/updated rows, probe-proven). ⚠️ AUDIT NOTE: the backfill deliberately LOGGED rather than suppressed — ~4,137 `bypass_violation_log` rows dated 2026-07-29 from this migration are BACKFILL ARTIFACTS, not genuine canonical-write bypasses. Do not read them as incidents. |
+| `prd107_v_dispatch_pack_progress`               | 16         | ✅ Applied to prod | Single source of truth for pack-close: packable_n (Refill/Add New/Add), resolved_n, driver_action_n, orphaned_swap_legs, ready_to_pack_close. Article-16 collision with registered `v_machine_pack_status` resolved by repointing that view at this one (Cody block #1).                                                                                                                                                                                                                                                                  |
+| `prd107_confirm_machine_packed_view_backed`     | 4, 16      | ✅ Applied to prod | confirm_machine_packed reads the view (FE/RPC divergence structurally impossible; 460 machine-dates, 0 parity mismatches). Added to `enforce_canonical_dispatch_write` allowlist (Cody block #2: orphan flags would have logged as bypasses). Orphaned-swap-leg guard included.                                                                                                                                                                                                                                                           |
+| `prd107_stamp_no_pack_needed_driver_legs`       | 12         | ✅ Applied to prod | Driver-side legs (Remove/M2W/M2M-source) stamped `no_pack_needed` via UPDATE, not at INSERT: BEFORE-INSERT stamping would fire `conserve_split_dispatch_quantity` and corrupt split Remove quantities (probe: 38→38 conserved). Covers all FIVE packed=true writers with one trigger.                                                                                                                                                                                                                                                     |
+| `prd107_auto_resolve_driver_legs_at_pack_close` | 4, 12      | ✅ Applied to prod | Auto-resolve at pack close, NOT board-only fix: `mark_picked_up` only flips packed=true rows and `driver_confirm_remove` raises on unpacked — packer toggle was load-bearing in the Remove state machine.                                                                                                                                                                                                                                                                                                                                 |
+
+Carry-forwards (PRD-107): pgTAP suite (assertions ran as rolled-back SQL probes only) · 6 legacy rows under NOT VALID constraint · FE deploy pending (tsc clean, build green, lint 147 pre-existing) · PRD-106 B6/B7 engine rewire + `p_exclude_in_machine` overload PARKED under PRD-094/095 engine freeze (7-arg overload would create 42725 ambiguity per RPC_REGISTRY.md:372).
+
+## PRD-106b Size-up gating (APPLIED 2026-07-29, engine helper only; PRD-094/095 freeze NOT touched)
+
+| Migration name                        | Article(s)       | Status             | Note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------- | ---------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd106b_sizeup_requires_double_down` | 1, 4, 12, 13, 15 | ✅ Applied to prod | `rank_slot_suitability` (read-only INVOKER helper consumed by engine_swap_pod) size-up gate gains `AND is_dd`: a duplicate facing is only recommendable when an existing facing carries slot_lifecycle.signal='DOUBLE DOWN' (CS rule 2026-07-29). Root cause of the 07-29 "duplicate swap" incident: all 3 dups (Barebells MC A15, CCZ MC A06, CCZ HUAWEI A12) were deliberate `suitability_size_up` picks whose existing facings were only KEEP. engine_swap_pod itself NOT edited — PRD-094/095 parking claims stand, no override needed. Probes: target (MC A15: no Barebells/CCZ) + control (HUAWEI A12: normal ranks unchanged) both pass. Cody verdict recorded in-session. |
+| `prd106b2_exclude_evian_1l_swapin`    | 1, 12, 15        | ✅ Applied to prod | `universe` CTE excludes pod 990461ff (Evian - 1L) — standing CS guardrail "Evian 1L never a swap-in"; hole surfaced by the PRD-106b probe (ranked #3 on MC A15); parity with recommend_swaps_for_machine which already excluded it. Post-apply probe clean.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+## PRD-108 — Volume-Driven Size-Up (2026-07-29)
+
+Replaces the machine-relative `proven_machine_pctile >= 0.80` size-up test in
+`rank_slot_suitability` with three absolute volume tests plus a machine-level floor.
+Thresholds are the CS sign-off of 2026-07-29 following a read-only 90d calibration pass.
+
+| Migration                                                                   | What                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd108_sizeup_params`                                                      | 4 additive columns on `refill_policy_params`: `sizeup_min_vel_per_day` 1.25, `sizeup_overflow_factor` 1.25, `sizeup_vs_alternative_factor` 1.3, `sizeup_min_machine_units_wk` 30                                                      |
+| `prd108_rank_slot_suitability_volume_tests`                                 | DROP+CREATE (return type gains `sizeup_rationale jsonb`). T1 velocity floor, T2 overflow, T3 opportunity-cost vs the rank-1-by-suitability newcomer, machine floor. `is_present` / `NOT is_blended` / `is_dd` (PRD-106b) all retained |
+| `prd108_v_sizeup_candidates` + `prd108_v_sizeup_candidates_rank1_benchmark` | Phase 2b weekly DOUBLE DOWN proposal surface (`earns_double_down`, `dd_proposal`). Proposes only; the function remains the gate                                                                                                       |
+| `prd108_recommend_swaps_dd_parity`                                          | `recommend_swaps_for_machine` DD exception now also requires floor + T1 + T2 (T3 structural there)                                                                                                                                    |
+
+**Calibration corrections that changed the build** (details in `docs/prds/PRD-108-EXECUTION-LOG.md`):
+`machine_vel` falls back to `ppad` (units per SELLING day), overstating calendar velocity 23.6x mean /
+90x max. Used for T1 it passed 286 false positives; used for T3's benchmark it inflated the OMDCW
+newcomer 0.258 -> 1.462 and failed the star case. A parallel calendar-day `proven_cal` was introduced
+for the size-up path only; `proven_raw` is untouched so candidate ranking is unchanged.
+
+**Cody:** approve with revisions — Article 16 blocked inline velocity; T1 repointed at canonical
+`v_shelf_sales_identity.dvel`, machine floor at `v_machine_velocity`. Articles 1, 2, 4, 12, 13, 14, 15, 16.
+**Not done:** pgTAP suite (acceptance criterion unmet).
+`engine_swap_pod` NOT edited - PRD-094/095 freeze intact (`rank_slot_suitability` is not Family-A).
+
+## PRD-109 — Pre-Flight Refill Gate (2026-07-29) — PARTIAL
+
+| Migration                                                | What                                                                                                                                                                                            |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd109_preflight_refill_plan`                           | `preflight_refill_plan(p_plan_date date)` -> `(verdict, violations, warnings, checked_at, invariant_versions)`. READ-ONLY FOREVER, STABLE, SECURITY INVOKER, no overload. Implements INV-01..12 |
+| INV-06 conservation fix (assertion-guarded substitution) | Children matched across both REMOVE and M2W parents; removed 3 false positives                                                                                                                  |
+
+**Cody:** approve, class (c) read-only. Articles 4, 12, 13, 14, 16. Reads canonical objects only
+(`v_wh_pickable`, `v_live_shelf_stock`, `v_dispatch_pack_progress`). Zero write statements.
+
+**Verified:** 2026-07-29 replay -> FAIL in **310 ms** (budget 10 s), citing INV-03 on the named
+Barebells / Coca Cola Zero duplicate facings and INV-04 on the named MC-2004 A15 orphan.
+
+**NOT DONE:** the stitch gate is NOT wired (`stitch_pod_to_boonz` unchanged, no `p_force`); no pgTAP;
+no frozen 07-29 fixture; no FE. See `docs/prds/PRD-109-EXECUTION-LOG.md` for the reasons.
+Key finding: every WH aggregation must dedupe by `wh_inventory_id` BEFORE any mapping join, and the
+INV-01/02 name family is Active mappings at ANY scope UNION same `product_family_id` - never name
+prefix matching (`Hunter` would swallow `Hunter Ridge`).
+
+### PRD-109 continued (2026-07-29)
+
+| Migration                                                                      | What                                                                                                                                                                                              |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prd109_stitch_preflight_gate`                                                 | `preflight_override_log` (append-only, Article 7) + stitch DROP 2-arg / CREATE 4-arg with `p_force`, `p_force_reason`. **Applied as blocking - superseded within minutes, see next row**          |
+| `prd109_preflight_enforcement_warn_mode`                                       | `refill_policy_params.preflight_enforcement` ('warn'\|'block', DEFAULT 'warn'). Gate honours it. **SHIPS AS 'warn'** - the flip to 'block' is a manual CS decision after ~7 plan dates of burn-in |
+| INV-02 tighten + INV-07/INV-11 differentiate (assertion-guarded substitutions) | warnings 89 -> 26/date; INV-11 9 -> 1                                                                                                                                                             |
+
+Cody class (b) reviewed before the gate apply: Articles 1, 2, 4, 6, 7, 8, 12, 13, 16.
+`stitch_pod_to_boonz` is NOT in the frozen Family-A set; PRD-094/095 freeze untouched.
+`pg_proc` = 1 row for stitch - all 4 DB callers + FE bind to the 4-arg defaults (42725 avoided).
+
+## PRD-110 P1.1 — truth layer: operating models + product sourcing (2026-07-30, relay leg 5)
+
+| Migration                                                        | What it does                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260730150001_prd110_p11_machines_operating_model`             | `machines.operating_model` text NULL + CHECK (fully_managed\|co_managed\|partner_managed) + `v_machine_operating_model_proposed`. SPEC CORRECTION: shipped NULLABLE, not the spec's NOT NULL — the same clause parks the backfill for CS review, and a NOT NULL column with a parked backfill cannot exist. NULL = unclassified, and every operating-model rule is INERT while NULL (no silent default). |
+| `20260730150002_prd110_p11_product_sourcing_table`               | `product_sourcing` append-only edge table + RLS (SELECT only, no write policy) + `tg_product_sourcing_append_only` + `tg_product_sourcing_model_guard` + audit trigger. Append-only is enforced by TRIGGER, not RLS: the canonical writer is DEFINER and bypasses RLS, so an RLS-only rule would bind nothing.                                                                                           |
+| `20260730150003_prd110_p11_product_sourcing_writers_and_readers` | `v_product_sourcing_current`, `resolve_product_sourcing_v3` (INVOKER), `v_product_sourcing_model_conflicts`, `set_product_sourcing_v3`, `set_machine_operating_model_v3`.                                                                                                                                                                                                                                |
+| `20260730150004_prd110_p11_backfill_product_sourcing_v3`         | `backfill_product_sourcing_v3` (idempotent, insert-only) + PARKED `apply_proposed_operating_models_v3`. Backfill executed: **4022 edges**.                                                                                                                                                                                                                                                               |
+| `20260730150005_prd110_p11_fixture5_p1_sourcing_assertions`      | Fixture 5 seq 10 re-phased P1 → P2; new seq 11/12/13/14 = the P1-layer acceptance tests.                                                                                                                                                                                                                                                                                                                 |
+| `20260730150006_prd110_p11_fixture105_seq10_rephase`             | Fixture 105 seq 10 re-phased P1 → P2 (LAW 8 bisect: it reads `blocked_demand` = engine output).                                                                                                                                                                                                                                                                                                          |
+
+Cody class (a) DDL on protected entity (`machines`, Appendix A) + (a) new table + (b) writer DEFINER ×3 + (c) read-only helper.
+Articles checked: 1, 2, 3, 4, 7, 8, 12, 14, 16. `machines.operating_model` is written ONLY by
+`set_machine_operating_model_v3` — a raw UPDATE would violate Articles 1 and 3, which is why the
+parked activation is an RPC call and not an UPDATE statement.
+Article 14: `product_sourcing` holds sourcing DECISIONS and their history, which no view can derive
+(product_mapping is only the seed; the point is that CS edits the edges afterwards). Same standing
+as `blocked_demand`. No ADR required.
+
+### PRD-110 Phase 1 - P1.2 `shelf_state` canonical view (2026-07-30, relay leg 6)
+
+| Migration                                                   | What it does                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260730160001_prd110_p12_v_shelf_state`                   | `v_shelf_state` - the WS-A1 canonical shelf object. 656 rows = one per non-phantom shelf on an Active + `include_in_refill` machine. `security_invoker=true`, anon REVOKEd. Full column-by-column provenance in `docs/architecture/SHELF_STATE_DEFINITION.md`.                  |
+| `20260730160002_prd110_p12_shelf_lifecycle_autoprovision`   | `provision_shelf_lifecycle_v3(shelf_id)` (canonical single-shelf lifecycle writer, DEFINER, idempotent) + `tg_provision_shelf_lifecycle()` + `tg_provision_shelf_lifecycle_ins` AFTER INSERT ON `shelf_configurations` WHEN `NOT is_phantom`. Closes the coverage-regrowth gap. |
+| `20260730160003_prd110_p12_fixture3_shelf_state_assertions` | Fixture 3 seq 10–18 (`phase_required='P1'`): coverage, no fan-out, fleet-wide G2, WEIMI-identity-only, sourcing totality, explicit NULL placeholders, S-10/S-06 truth layer, guarantee installed, velocity-grain safety.                                                        |
+
+Cody class (a) DDL on protected entity (`shelf_configurations` + `slot_lifecycle`, both Appendix A) + (b) writer DEFINER + (c) read-only view.
+Articles checked: 1, 2, 3, 4, 8, 11, 12, 14, 16.
+Article 1 - `provision_shelf_lifecycle_v3` is the canonical SINGLE-shelf lifecycle writer;
+`seed_missing_slot_lifecycle` remains the canonical BATCH writer. Both apply the identical scope
+guard (`status='Active' AND include_in_refill`), so they cannot disagree about who is in scope.
+Article 4 - the DEFINER sets `app.via_rpc`/`app.rpc_name`; role validation is skipped ONLY when
+`app.via_trigger='true'`, i.e. when the parent `shelf_configurations` INSERT already carried its own
+authorization. The trigger clears the GUC immediately after the call so provenance cannot leak to
+later statements in the same transaction (PRD-016B lesson).
+Article 14 - `v_shelf_state` is a VIEW, not a snapshot table, so the staleness test does not apply.
+Article 16 - `days_since_visit` is a PASSTHROUGH of `v_machine_health_signals` (PRD-074 SSOT); it is
+not re-derived. `current_stock` comes from `v_live_shelf_stock` via `v_shelf_slot_identity`, expiry
+from `v_machine_expiry_batches`, sourcing from `v_product_sourcing_current` - every registered metric
+is read from its canonical object.
+
+## PRD-110 P1.4 (WS-J2) — inventory events + composition estimator · 2026-07-30 (relay leg 8)
+
+| Migration                                           | What                                                                                   |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `prd110_p14_inventory_events_composition_anomalies` | 3 additive tables + 14 indexes + 7 triggers + 3 SELECT-only RLS policies               |
+| `prd110_p14_inventory_event_writers_v3`             | 5 canonical `_v3` DEFINER writers + 5 `composition_*` params on `refill_policy_params` |
+| `prd110_p14_composition_estimator_v3`               | `estimate_shelf_composition_v3` + `_estimator_rise_disposition_v3`                     |
+| `prd110_p14_estimator_conservation_fix`             | fixed 2 real quantity-conservation defects in the estimator (see below)                |
+
+Cody verdict on the DDL: ⚠️ approve with revisions; all three revisions incorporated BEFORE apply
+(append-only trigger, audit triggers, shelf/machine consistency guard).
+
+Article 1 - `record_inventory_event_v3` is the ONLY write path to `inventory_events` and the only
+thing that moves a `shelf_composition` bucket. `raise_inventory_anomaly_v3` is the only writer of
+`inventory_anomalies`. Enforced structurally: all three tables have a SELECT policy and **no**
+INSERT/UPDATE/DELETE policy at all.
+Article 2/3 - RLS enabled on all three; `authenticated` may only SELECT (role join via
+`user_profiles`, `field_staff` included on events + composition for the driver collapse UI, excluded
+from anomalies). `anon` REVOKEd on tables and functions.
+Article 4 - every writer sets `app.via_rpc`/`app.rpc_name`, validates inputs, and applies the house
+role gate: a NULL actor is permitted so cron/estimator can call it, a real caller must hold the role.
+Article 7 - `tg_inventory_events_append_only` blocks UPDATE and DELETE at the row level. RLS alone is
+insufficient because DEFINER RPCs and `service_role` bypass it. A bad event is corrected by a
+compensating `correction` event, never by editing history.
+Article 8 - `tg_audit_inventory_events` / `_shelf_composition` / `_inventory_anomalies` →
+`audit_log_write(<pk>)`, the same pattern as `blocked_demand` and `product_sourcing`. NOTE:
+`audit_log_write` logs unconditionally, so estimator-derived decrements double into `write_audit_log`;
+exempting a self-auditing ledger would need an Article 15 amendment and was NOT assumed.
+Article 12 - purely additive, `IF NOT EXISTS` throughout, no existing object altered or dropped.
+Article 14 - **no ADR required.** None of the three materializes a query result: `inventory_events` is
+an event log, `inventory_anomalies` an exception queue, and `shelf_composition` holds a value that
+depends on event ORDER and confidence-decay history, which no SELECT can derive. Same reasoning that
+exempted `blocked_demand`. (The `pod_refill_plan_shadow` ADR is a separate, still-binding obligation.)
+
+**THE GRAIN DECISION — do not "simplify" this.** `shelf_composition` is keyed
+`UNIQUE NULLS NOT DISTINCT (shelf_id, boonz_product_id, expiry_bucket)`. `expiry_bucket` is part of
+IDENTITY because the EXPIRY IRON RULE requires an expired bucket to coexist with a sellable bucket of
+the same product on the same shelf; collapse the key and the rule becomes unrepresentable.
+`NULLS NOT DISTINCT` (PG 17.6) stops the unknown-expiry bucket from splintering into unbounded
+NULL-keyed duplicates. `expiry_bucket IS NULL` means UNKNOWN and is treated as SELLABLE — the
+fail-safe direction, since treating unknown as expired would freeze it from decrements forever and
+inflate `est_qty` without bound.
+
+**Two real conservation defects fixed in `prd110_p14_estimator_conservation_fix`:**
+(1) the cold-start seed used `FLOOR()` of each `split_pct` share and dropped the remainder, seeding 11
+units against a WEIMI count of 14 — a silent quantity loss. Replaced with a largest-remainder spread,
+plus a conservation assertion that raises an anomaly when a pod's mapping genuinely cannot conserve
+the count. (2) the drop allocator awarded remainder units without checking bucket headroom, so
+`LEAST(est_qty, base+1)` could discard a unit; now only buckets with headroom win one and the residual
+is computed from units actually taken.
+
+## PRD-110 P1.4 acceptance fixtures + the two missing spec objects (2026-07-30, relay leg 9)
+
+Three migrations, registry 33 → 36. Cody verdict: ⚠️ approve with revisions (Article 16 registry
+entries + a residue assertion on every fixture); both revisions incorporated before apply.
+
+| Version          | Name                                              | What                                                                  |
+| ---------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| `20260730135658` | `prd110_p14_audit_prompt_and_expiry_action_views` | `v_shelf_audit_prompts` + `v_expiry_action_queue`, both INVOKER views |
+| `20260730140130` | `prd110_fixtures_19_20`                           | fixtures 19 (venue fill) + 20 (expired never assumed sold)            |
+| `20260730140354` | `prd110_fixtures_21_22`                           | fixtures 21 (driver confirm collapse) + 22 (multi-SKU decay)          |
+
+**Why the two views exist.** BUILD SPEC P1.4 carries two clauses that leg 8 shipped params for but no
+object: "flagged shelves only (top uncertainty x value-at-risk, max 3/visit)" and "expiry
+auto-write-off lines require confidence >= 0.7, else a verify task". Without a DB object those rules
+would have been implemented in the FE — recreating the exact defect P1.2 removed when it deleted the
+FE's independent shelf scorer (G1 "one truth"). Both are views, so Article 14 does not apply: nothing
+is materialized and nothing can go stale.
+
+### ⚠️ The load-bearing pattern a future editor must not "simplify"
+
+Fixtures 19-22 mutate **live** shelves and machines through the canonical `_v3` writers, then
+**deliberately roll the mutations back** inside a plpgsql subtransaction:
+
+```
+BEGIN
+  ... canonical writer calls, then build a jsonb of observations ...
+  RAISE EXCEPTION 'GP20:%', payload::text;     -- rolls the subtransaction back
+EXCEPTION WHEN raise_exception THEN
+  IF SQLERRM LIKE 'GP20:%' THEN payload := substring(SQLERRM from 'GP20:(.*)$')::jsonb; ELSE RAISE; END IF;
+END;
+INSERT INTO golden.scratch ...   -- outside the rolled-back block, so it survives
+```
+
+The observations travel out **through the exception message** because a `golden.scratch` INSERT placed
+inside the block is rolled back with everything else (this was tried first and lost the payload).
+
+**Why it must stay:** `inventory_events` is append-only and trigger-enforced, so a fixture that wrote
+for real would deposit permanently undeletable test rows in a production ledger on every nightly
+`run_all()`, and would not be repeatable (its own prior events change the next run's starting belief —
+the estimator is idempotent per `(shelf, WEIMI snapshot)`). Deleting or renaming the `RAISE` sentinel
+silently converts these fixtures into a production writer.
+
+**Enforcement, per Cody:** every fixture carries residue assertions (seq 95-97, plus seq 98 on fixture
+19 for `machines.operating_model`) that fail if the rollback ever stops holding. The rollback is
+asserted, not assumed.
+
+**Second reason the pattern is required:** it is what lets the fixtures use **belief** rather than
+synthetic sensor data. Setting `shelf_composition` above the live WEIMI count makes the estimator see a
+genuine drop, so fixtures 20 and 22 need no fabricated WEIMI snapshot and no synthetic machine.
+
+**Evidence at apply:** fixture 19 15/15 · 20 20/20 · 21 13/13 · 22 19/19 = **67 pass / 0 fail**, run
+**three consecutive times with identical results** (stress-suite S7 satisfied for the P1 set).
+`run_all('P0')` = **47/0**, byte-identical to leg 8 — zero regression. Residue after every run:
+`inventory_events` 0 · `shelf_composition` 0 · `inventory_anomalies` 0 · classified machines 0.
+
+---
+
+## PRD-110 P1.3 (relay leg 10) — the availability contract that retires the sentinel pattern
+
+`prd110_p13_availability_contract` — three additive objects. No consumer rewired, no engine touched,
+no row deleted. Cody classified (c) read-only, verdict ⚠️ approve with revisions; both revisions were
+incorporated **before** apply.
+
+- `_is_sentinel_wh_row_v3(text, date)` IMMUTABLE — THE single definition of a VOX fake-stock sentinel:
+  `batch_id LIKE 'VOXSOURCE-%' AND expiration_date = '2099-12-31'`.
+  ⚠️ **The conjunction is load-bearing, not defensive style.** 9 REAL PO-batch rows (202 units at
+  WH_CENTRAL) carry `wh_location = 'VOX_SOURCED'`. A retirement keyed on `wh_location` would destroy
+  real stock. Verified live: predicate selects exactly 40 rows and rejects all 9.
+- `v_shelf_availability_v3` (`security_invoker`) — availability per pod-bound shelf.
+  `available_units IS NULL` ⇒ unconstrained (venue/partner-supplied). Otherwise real Boonz WH stock
+  with sentinels excluded. Also exposes `wh_units_sentinel`, `sentinel_backed`,
+  `would_block_on_retirement` so the parked D-09 decision is a live view and can never go stale
+  (Article 14).
+- `resolve_shelf_availability_v3(uuid)` — per-shelf point lookup, a wrapper over the view so
+  availability has exactly ONE definition for the engine (set) and stitch/pack (per line).
+
+**Cody revision 1 (Article 16, the one that mattered):** the draft re-derived the WH-pickable
+predicate inline. `v_wh_pickable` is the REGISTERED canonical object for that metric, and
+`engine_add_pod` v19's inline copy is explicitly **grandfathered debt** — not a licence for new
+objects. The view now consumes `v_wh_pickable`, exactly as `v_product_shelf_life` does.
+Known divergence, stated rather than hidden: `v_wh_pickable` expires on the **Dubai** date and
+requires `warehouse_stock > 0`; v19 inline uses `CURRENT_DATE` with no stock floor. Only a batch
+expiring exactly today can differ; zero-stock rows add zero to a SUM.
+
+**Cody revision 2 (Article 16):** disjointness from `v_wh_pickable` / `v_dispatch_availability` /
+`v_dispatch_pickable` recorded in `METRICS_REGISTRY.md` with the reason, so a later "consolidation"
+cannot silently drop the sourcing dimension.
+
+**Evidence at apply:** 544 rows (463 boonz_wh · 75 venue · 6 mixed) · 75 unconstrained rows carry
+`available_units IS NULL` · 61 shelves are sentinel-backed, of which 53 are venue (safe by
+definition) · **`would_block_on_retirement` = 0 fleet-wide** · the 8 constrained sentinel-backed
+shelves hold **≥195** real units against capacities of 14-25.
+
+---
+
+## PRD-110 P1.3 (relay leg 11) — golden fixture 24, and the retirement path measured rather than assumed
+
+Two additive migrations. **`golden` schema only** — no `public` object created, altered or dropped,
+no row deleted, no flag flipped, no cron touched, no engine body modified.
+
+| version          | name                                      | content                          |
+| ---------------- | ----------------------------------------- | -------------------------------- |
+| `20260730144123` | `prd110_p13_golden_fixture_24_row`        | 1 row into `golden.fixtures`     |
+| `20260730144214` | `prd110_p13_golden_fixture_24_assertions` | 34 rows into `golden.assertions` |
+
+⚠️ **Version-ordering note for future legs:** these two carry real wall-clock versions
+(`2026073014:41/14:42`), while legs 5-9 hand-assigned synthetic higher ones (`20260730150004`,
+`20260730160003`). So `ORDER BY version` no longer equals apply order for PRD-110. Do **not** rewrite
+the old versions to "fix" this — Article 12 is forward-only and the mismatch is cosmetic. Locate
+migrations by name.
+
+### TWO SPEC CORRECTIONS — the retirement writer is neither of the two previously named
+
+Leg 10 corrected BUILD SPEC P1.3's `DELETE` to "inactivation via `inactivate_warehouse_row`". **That
+correction was itself wrong**, and the fixture found it by probing the writer instead of trusting the
+parked script:
+
+1. `inactivate_warehouse_row` **refuses any row with `warehouse_stock > 0`** — and all 40 sentinels
+   hold stock (686-999). Measured error: _"refusing to inactivate row with stock > 0
+   (warehouse_stock=999, consumer_stock=0). Drain stock via apply_inventory_correction first."_
+2. After draining to 0 via `apply_inventory_correction`, the AFTER-UPDATE trigger
+   **`tg_propose_inactivate_on_zero_stock` writes an auto-confirmed proposal row and flips the row to
+   `Inactive` itself**. A follow-up `inactivate_warehouse_row` call then fails _"row already in status
+   Inactive"_.
+
+**Canonical retirement is therefore ONE call per row**, and the status flip is the trigger's:
+
+```sql
+SELECT public.apply_inventory_correction(wh_inventory_id, NULL, NULL, NULL, 0,
+         'PRD-110 P1.3 sentinel retirement: venue sourcing now makes this shelf unconstrained',
+         '82bba4ee-cceb-4aa0-a4fd-22e3e3fd9e7d'::uuid)
+FROM public.warehouse_inventory
+WHERE public._is_sentinel_wh_row_v3(batch_id, expiration_date) AND status = 'Active';
+```
+
+`v_wh_pickable` requires `warehouse_stock > 0` **and** `status='Active'`, so the drain alone already
+removes a sentinel from availability; the trigger's flip is hygiene on top. Verified live: after the
+drain a sentinel is absent from `v_wh_pickable` **and** already `Inactive`.
+
+### Cody — Article 6 finding, PRE-EXISTING, recorded not resolved
+
+Article 6 reads _"warehouse_inventory.status is set only by the warehouse manager via the canonical
+RPC. No trigger, function, cron, n8n sync, or app flow may write it."_ Two live facts sit against it:
+
+- `tg_propose_inactivate_on_zero_stock` **is a trigger that UPDATEs `warehouse_inventory.status`
+  directly** — the only one on the table — and the retirement path depends on it.
+- Article 6's stated enforcement hook is `app.rpc_name = 'set_warehouse_status'`, and
+  **`set_warehouse_status` does not exist.** The live canonical writers are
+  `inactivate_warehouse_row` / `reactivate_warehouse_row` / `confirm_warehouse_status_proposal`
+  / `reject_warehouse_status_proposal`. `trg_detect_silent_warehouse_write` only _logs_, and only
+  Pattern A (silent Inactive/0 → Active/N reactivation).
+
+Grandfathered as RC-14 Tier 2a debt. It is **not** introduced by this migration and it is not a block
+on a fixture that merely observes it. Flagged for CS because the parked D-09 activation now performs
+its status change through a trigger rather than a manager RPC.
+
+**Cody verdict:** ⚠️ approve with revisions — both incorporated before apply. (1) assert the
+protected-entity `DELETE` never returns `SUCCEEDED` (seq 28) so it fails loudly if the FK is ever
+relaxed, not merely if the error text changes; (2) record the Article 6 tension in
+`golden.fixtures.notes` where the next leg reads it.
+
+### Fixture 24 shape (34 assertions, all green first run)
+
+Reuses the leg-9 pattern exactly: mutate live rows through canonical writers inside a plpgsql
+subtransaction, `RAISE EXCEPTION 'GP24:%'` with a jsonb payload, catch, extract via
+`substring(SQLERRM from 'GP24:(.*)$')`, INSERT to `golden.scratch` **outside** the block.
+
+- **seq 1-5 preconditions.** 40 sentinel rows, all Active, all 40 in `v_wh_pickable`, 61
+  sentinel-backed shelves. seq 1 doubles as a **D-04 tripwire**: if the population moves off 40,
+  someone re-topped or minted and the fixture must be re-baselined.
+- **seq 6-9 the headline.** SOA `BNZ/MAFE/2026-06/001` = **101,181.71** before AND after all 40 are
+  retired; delta exactly 0; the registry row is re-read each run so the fixture cannot drift with it.
+- **seq 10-12 the structural proof — stronger than the behavioural one, because it holds for every
+  month, not just 2026-06.** `get_vox_consumer_report` does not contain the string
+  `warehouse_inventory`; **25** revenue-shaped objects scanned; **0** read the table. seq 11 exists
+  so a regex that silently matches nothing cannot be mistaken for evidence.
+- **seq 13-18 the retirement happened.** 40 drained · 0 units left · 40 now `Inactive` · 0 pickable ·
+  **+40 auto-confirmed status proposals** (the flip is provenanced, not silent).
+- **seq 19-23 the load-bearing invariant.** The per-shelf `available_units` fingerprint is
+  **byte-identical** (`5e2dbd4a07fc864aa72dc6ce27c5b8fb`) with all 40 sentinels retired, because
+  `v_shelf_availability_v3` computes it with `FILTER (WHERE NOT is_sentinel)`. 544 rows unchanged ·
+  `would_block_on_retirement` 0 **after** the act, not merely predicted 0 before it · venue shelves
+  keep `available_units IS NULL` · sentinel-backing 61 → 0.
+- **seq 24-28 both spec corrections proven live**, each captured as a real `SQLERRM`, not asserted
+  from a count: the `DELETE` aborts on `inventory_audit_log_wh_inventory_id_fkey` (255 rows); the
+  stocked-row refusal; the already-Inactive refusal; and the fail-loud guard.
+- **seq 90 / 95-99 residue.** S-08 tripwire plus: 40 rows `Active` again · unit total restored exactly
+  · `inventory_audit_log` unchanged · proposals unchanged · availability fingerprint back to baseline.
+
+**Evidence at apply:** fixture 24 **34 pass / 0 fail on the first run**. `run_all('P1')` =
+19:15 · 20:20 · 21:13 · 22:19 · 24:34 = **101 pass / 0 fail**, run **three consecutive times with
+identical per-fixture results** (S7 satisfied for the P1 set). `run_all('P0')` = **47/0**,
+byte-identical to legs 8-10 — zero regression. Live state re-verified independently after the runs:
+sentinels **40 Active / 39,463 units**, proposals back to **1118** (1158 inside the block),
+`inventory_audit_log` **15,227**, `inventory_events`/`shelf_composition`/`inventory_anomalies`
+**0/0/0**, availability fingerprint unchanged, and **zero** `monitoring_alerts` raised.
+
+---
+
+## PRD-110 Phase 2 scaffold (relay leg 12, registered retroactively by leg 14 — S-19)
+
+⚠️ **These two migrations were applied by relay leg 12, which then ended without logging them or
+writing a RESUME POINTER.** Leg 13 found the objects live and undocumented and raised S-19; leg 14
+dumped them from `pg_catalog`, verified every promise in `ADR-shadow-plan-tables.md` §7, and wrote
+this entry. **Nothing was re-applied** — this is paperwork catching up to a correct apply.
+
+| Version          | Name                                   | What it did                                                                                                                                                              |
+| ---------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `20260730145843` | `prd110_p2_0_pod_refill_plan_shadow`   | `pod_refill_plan_shadow` — the LAW-4 shadow plan ledger `engine_add_pod_v3` writes instead of `pod_refill_plan`. 14 cols, 3 indexes, 10 constraints, RLS on, 3 policies. |
+| `20260730145907` | `prd110_p2_0_v_shadow_vs_live_plan_v3` | `v_shadow_vs_live_plan_v3` — the Article-16 canonical v3-vs-v19 diff, `security_invoker=true`.                                                                           |
+
+⚠️ **Version is NOT apply order here** (the standing PRD-110 caveat): `20260730145843` sorts _before_
+the P1.1 (`2026073015xxxx`) and P1.2 (`2026073016xxxx`) migrations but was applied _after_ both.
+Locate PRD-110 migrations **by name**, never by version ordering.
+
+### ADR §7 verification (leg 14, from `pg_catalog` — every promise measured, none assumed)
+
+| ADR §7 promise                       | Verdict | Measured evidence                                                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Art 1 — single writer                | ✅      | `authenticated` holds `SELECT, REFERENCES, TRIGGER` only — **no INSERT grant** — and there is **no INSERT policy**, so RLS denies by default. Only `service_role` / a DEFINER writer can insert.                                                                                                       |
+| Art 2/3 — RLS on, `anon` REVOKEd     | ✅      | `relrowsecurity = true`. `has_table_privilege('anon', …, 'SELECT')` = **false** on both table and view. `anon` appears in neither grant list.                                                                                                                                                          |
+| Art 2/3 — reads limited to roles     | ✅      | Policy `pod_refill_plan_shadow_select` (cmd `r`, role `authenticated`) requires `up.role IN (warehouse, operator_admin, superadmin, manager)` via `(SELECT auth.uid())` — correct RLS idiom, not bare `auth.uid()`.                                                                                    |
+| Art 2/3 — `security_invoker` on view | ✅      | `reloptions = {security_invoker=true}`.                                                                                                                                                                                                                                                                |
+| Art 8 — append-only                  | ✅      | Policies `pod_refill_plan_shadow_no_update` (cmd `w`) and `…_no_delete` (cmd `d`), both `USING (false)`, both role PUBLIC. `run_id` + `produced_at` are the audit trail.                                                                                                                               |
+| Art 12 — forward-only                | ✅      | Two new objects. Nothing dropped, downgraded, or re-signatured. `pod_refill_plan` untouched.                                                                                                                                                                                                           |
+| Art 14 — ADR signoff                 | ✅      | `docs/architecture/ADR-shadow-plan-tables.md`, ACCEPTED, and **linked from the table's `COMMENT`** — obligation §8.4 discharged at apply time.                                                                                                                                                         |
+| ADR §2 — column-compatible with live | ✅      | The 11 shared columns are exactly `pod_refill_plan`'s engine-output subset, **identical types**, and the `action` CHECK is byte-identical (`REFILL / REMOVE / ADD_NEW / M2W` — UPPERCASE in both). PK = the live PK **plus `run_id`**, so re-runs are additive-and-distinguishable, never destructive. |
+
+**Deliberately unmirrored** (11 live-only columns): `status`, `approved_at/by`, `stitched_at`,
+`created_at`, `updated_at`, `edited_at/by`, `linked_refill_pk`, `linked_swap_id`, `linked_intent_id`.
+All lifecycle/approval fields the engine never produces. The diff view reads `live_status` from the
+live table rather than storing it — coherent with the ADR.
+
+### Two obligations that remain OPEN and are NOT closed by this entry
+
+1. **ADR §7 Article 4** — "writer validates `plan_date`, refuses a date with non-pending live rows
+   (LAW 12)". That is a property of `engine_add_pod_v3`, which **does not exist yet**
+   (`pg_proc` count = 0). It must be built into the writer, not retrofitted.
+2. **ADR §8.3** — "a golden assertion that `pod_refill_plan` row count is unchanged across any v3
+   shadow run", carried on **every** Phase-2 fixture the way the S-08 tripwire (seq 90) rides on
+   every engine-calling fixture. Owed by the fixtures, tracked as the **seq 91** tripwire.
+
+`RPC_REGISTRY.md` gets the `engine_add_pod_v3` entry when the engine lands; there is no RPC to
+register today.
+
+### Known shape note for Phase 3
+
+The shadow table carries **no** `linked_refill_pk` / `linked_swap_id`. If the P3.1 stitch ladder needs
+a shadow line table (`pod_refills_shadow`, ADR §2), that pair must be **designed in**, not assumed
+inherited.
+
+## PRD-110 P2.1 in-stock velocity (relay leg 17, registered by leg 18)
+
+⚠️ **Registered one leg late.** Leg 17 applied both migrations and then lost the database to a
+runaway read-only SELECT (see below) before it could write this entry. It deliberately left the
+registry blank rather than write it from memory (standing rule: registries are written from a live
+`pg_catalog` read). Leg 18 wrote it after the DB recovered. **Nothing was re-applied.**
+
+| Version          | Name                                     | What it did                                                                                                                                                                                                                                                               |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260730170001` | `prd110_p21_v_weimi_shelf_history_v3`    | `v_weimi_shelf_history_v3` — historical WEIMI shelf state resolved to pod identity; a strict generalisation of `v_live_shelf_stock` over all snapshots. `security_invoker=true`. Measured live (leg 18): **79,094 rows, 44 machines**, 2026-03-31 → 2026-07-30 14:00:39Z. |
+| `20260730170002` | `prd110_p21_v_shelf_instock_velocity_v3` | `v_shelf_instock_velocity_v3` — in-stock velocity at (machine_id, pod_product_id). `security_invoker=true`. ⚠️ **APPLIED BUT NEVER VERIFIED, AND TOO SLOW TO QUERY AS WRITTEN** (S-22).                                                                                   |
+
+⚠️ **Version drift, corrected by leg 18.** These two were applied via the MCP, which assigns its own
+apply-time version: they landed as `20260730160930` / `20260730161226` while the files on disk are
+named `…170001` / `…170002`. Left alone, `supabase db push` would have seen both files as unapplied
+and re-applied them. Leg 18 realigned the two `schema_migrations` rows to match the filenames (the
+repo's recorded pattern for MCP version drift). Every earlier PRD-110 migration was already aligned.
+
+**Resolver coverage over full history** (leg 18, live): direct 73,886 · conventions 2,455 ·
+case_insensitive 1,108 · alias 591 · **unmatched 1,054** (1.33%). The four-tier resolver is lifted
+verbatim from `v_live_shelf_stock`; a hand-rolled three-rung version diverged on 17.1% of keys
+(leg-16 F5), so it must never be re-implemented.
+
+**Equivalence invariant (Cody's Article 16 condition) — PROVEN EXACT at apply.** Restricting the
+history view to the latest snapshot per device and applying the live view's own final
+`DISTINCT ON (machine_id, cabinet, layer, slot_name)` reproduces `v_live_shelf_stock` row-for-row:
+807 = 807, zero diffs on `pod_product_id`, `current_stock`, `match_method`, `is_eligible_machine`.
+⚠️ A naive comparison that does **not** reproduce that final collapse shows a phantom 241-row gap —
+do not "fix" it.
+
+### ⛔ The P2.1 velocity view is UNVERIFIED and caused a production incident
+
+Querying `v_shelf_instock_velocity_v3` with ~10 independent aggregates in one statement saturated
+production for **~35 minutes** (2026-07-30 16:13→16:48 UTC): `execute_sql` connection timeouts,
+PostgREST HTTP 522, platform status `ACTIVE_HEALTHY` throughout. The statement was a **read-only
+SELECT** holding only ACCESS SHARE — no write blocking, no lock escalation, no corruption or
+data-loss path, nothing half-applied. It self-terminated; the DB recovered on its own and leg 18
+confirmed `pg_stat_activity` clean. **`cron 13` ran normally at 16:00 UTC in 29.7s — the nightly
+advisory was never affected (LAW 12 intact), and no live plan table was touched.**
+
+**Root cause** (leg 18, from the on-disk artifacts): the velocity view references the history view
+**four times** — twice for `max(snapshot_at)` in `w`, plus `hist`, plus `snaps` — and each
+evaluation re-runs a triple-LATERAL JSONB flatten of 79k rows plus four LATERAL resolver lookups per
+row. Worse, `w` derives the window bounds _from the view itself_, so the 30-day predicate cannot
+push down. Fix drafted (4 evaluations → 1) in `docs/prds/PRD-110-P21-PERF-FIX-PROPOSAL.md` —
+**deliberately not a migration file** until its pre-flight assertions pass.
+
+**Binding rule for anyone touching this view:** one cheap aggregate per statement, scoped to one
+machine first, and always `SET statement_timeout` — a client timeout does **not** cancel the server
+query. That is precisely how prod stayed saturated for 35 minutes.
+
+### ✅ Perf fix APPLIED (leg 18) — `20260730170009_prd110_p21_velocity_v3_perf_single_flatten`
+
+| Version          | Name                                         | What it did                                                                                                                                                    |
+| ---------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260730170009` | `prd110_p21_velocity_v3_perf_single_flatten` | `CREATE OR REPLACE VIEW v_shelf_instock_velocity_v3` — 4 history-view evaluations → 1. Only `w` and `snaps` change; `hist` still reads the canonical resolver. |
+
+Forward-only (Article 12): this **replaces the view body**, it does not edit `20260730170002`.
+The view is now queryable fleet-wide in a single statement (687 series / 41 machines).
+
+**Equivalence proven BEFORE apply, three independent assertions:**
+
+| Assertion                 | Result                                                                                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A1** anchor equality    | base(+`machines` join) max = raw base max = view max, all three `2026-07-30 14:00:39.507348+00`                                                                                 |
+| **A2** snaps set-equality | base **1208 = 1208** view over the 30d window; `EXCEPT` both directions **0 / 0**                                                                                               |
+| **A3** output equality    | **687 = 687** rows, only_old 0, only_new 0, **zero diffs** on `stock_hours`, `elapsed_hours`, `velocity_instock`, `velocity_status`, all five `n_case_*`, `t_start`, `t_anchor` |
+
+Verified again **after** apply against the `_test` shadow (0 diffs), then the shadow was **DROPPED**.
+`security_invoker=true` re-verified from `reloptions`; column list unchanged (18 cols — and
+`CREATE OR REPLACE VIEW` errors outright if it changed, so that condition is self-proving).
+
+⚠️ **This makes the view FAST and proves it did not change MEANING. It does not prove the meaning is
+right** — the P2.1 oracle comparison is still outstanding, and the object stays 🔴 not-yet-canonical
+in `METRICS_REGISTRY.md`. Perf work never promotes a metric.
+
+⚠️ **Version drift did NOT recur here:** applied as `20260730170009` and the on-disk file is named
+`20260730170009_…`. Checked deliberately, because leg 17's two migrations drifted (see above).

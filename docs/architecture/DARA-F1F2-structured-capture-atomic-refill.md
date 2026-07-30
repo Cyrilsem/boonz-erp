@@ -117,6 +117,7 @@ record_actual_refill(
 ```
 
 Behaviour (one transaction, all-or-nothing):
+
 1. Insert a `refill_events` header (`status='dry_run'` when p_dry_run, else `pending`).
 2. For each line: resolve product + shelf, validate; insert a `refill_event_lines` row.
 3. If not dry-run: apply each line by **orchestrating the existing proven RPCs** inside the same transaction
@@ -157,4 +158,7 @@ will fix in one place).
   dry_run(terminal). Confirm the graph.
 - **Article 15:** if "structured physical-capture ledger" is a new concept the Constitution doesn't cover,
   surface as an amendment.
+
+```
+
 ```

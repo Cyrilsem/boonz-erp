@@ -12,14 +12,14 @@ except the marked RC-07 blocks. DARA did **not** apply or write anything.
 
 ## 0. Root cause (confirmed against live bodies) & what each fix does
 
-| # | Object | Live defect (line refs = pre-image `rollback/*_pre.sql`) | Fix |
-|---|--------|----------------------------------------------------------|-----|
-| 1 | `receive_dispatch_line` | Only guard is `item_added` (pre L28). No packed/picked_up precondition → any line force-received; final `UPDATE` flips `packed/picked_up/dispatched` (pre L~92). Overfill branch debits a **single** Active row via `LIMIT 1`, and if no row has `>= v_overfill` the subquery is NULL → `WHERE wh_inventory_id = NULL` → **silent no-op** (pre, overfill block). | Add `p_override boolean`/`p_override_reason text`. State-machine precondition (fill path only) requiring `packed AND picked_up` OR audited override — **gated behind `refill_qa.flag('rc07_receive_gate')` (default `off`)**. Overfill now debits **specific FEFO batch(es)** via canonical `wh_fefo_for_line` (multi-batch) and **RAISEs** if the warehouse can't cover it. `pack_outcome` set consistent (`partial` when filled<planned). |
-| 2 | `edit_dispatch_qty` | Only guard is `item_added` (pre L27-29). Editing a **packed** line changes `quantity` without touching `filled_quantity`/`pack_outcome` → "packed 2 / filled 1". | Block when `packed=true` (Cody's "block on packed"); keep `item_added` guard. |
-| 3 | `return_dispatch_line` | Never reads `is_m2m` → returning an M2M leg mints WH stock. Raw `EXCEPTION` on terminal/settled legs (pre L~24-40). Remove path inserts `REMOVE-RETURN` rows instead of reactivating origin. Leaves `pack_outcome='packed'` after zeroing `filled_quantity`. | Structured `jsonb` refusal for M2M legs (points to sibling via `m2m_transfer_id`) and for terminal legs. Prefer **reactivating** `from_wh_inventory_id`. Stamp `pack_outcome='returned'`. |
-| 4 | `repack_machine` | Step 3 calls `push_plan_to_dispatch(p_machine_name, v_target_date)` = `(text,date)` but the live signature is `(date,text)` → never resolves → **0 rows pushed ever**; unwrapped so it aborts repack (pre, Step 3). | Fix arg order → `push_plan_to_dispatch(v_target_date, p_machine_name)`; wrap in `BEGIN/EXCEPTION` returning a structured error; skip M2M legs in Step 1. |
-| 5 | `edit_dispatch_product` (via trigger) | `protect_packed_dispatch_row` blocks `boonz_product_id`/`pod_product_id` changes when `OLD.packed=true`; `edit_dispatch_product` requires `picked_up` (⇒ packed) → **0 product edits ever**. `edit_dispatch_product` body itself is correct (FIX D2 shelf-binding intact) and is **not modified**. | Exempt `current_setting('app.rpc_name')='edit_dispatch_product'` for product/pod fields in the trigger; identity fields (machine/shelf/date) stay protected. |
-| 6 | Multi-batch FEFO fill | `pack_dispatch_line` auto-substitution binds ONE `v_sub_id` with `warehouse_stock >= qty` (single batch). Multi-batch fills already work when the **caller** supplies multiple `p_picks` (child-row mechanism). | In-scope here: `receive` overfill now spans batches via `wh_fefo_for_line`. Pack auto-substitution multi-batch spanning = **Deferral D1** (see §7). |
+| #   | Object                                | Live defect (line refs = pre-image `rollback/*_pre.sql`)                                                                                                                                                                                                                                                                                                         | Fix                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `receive_dispatch_line`               | Only guard is `item_added` (pre L28). No packed/picked_up precondition → any line force-received; final `UPDATE` flips `packed/picked_up/dispatched` (pre L~92). Overfill branch debits a **single** Active row via `LIMIT 1`, and if no row has `>= v_overfill` the subquery is NULL → `WHERE wh_inventory_id = NULL` → **silent no-op** (pre, overfill block). | Add `p_override boolean`/`p_override_reason text`. State-machine precondition (fill path only) requiring `packed AND picked_up` OR audited override — **gated behind `refill_qa.flag('rc07_receive_gate')` (default `off`)**. Overfill now debits **specific FEFO batch(es)** via canonical `wh_fefo_for_line` (multi-batch) and **RAISEs** if the warehouse can't cover it. `pack_outcome` set consistent (`partial` when filled<planned). |
+| 2   | `edit_dispatch_qty`                   | Only guard is `item_added` (pre L27-29). Editing a **packed** line changes `quantity` without touching `filled_quantity`/`pack_outcome` → "packed 2 / filled 1".                                                                                                                                                                                                 | Block when `packed=true` (Cody's "block on packed"); keep `item_added` guard.                                                                                                                                                                                                                                                                                                                                                               |
+| 3   | `return_dispatch_line`                | Never reads `is_m2m` → returning an M2M leg mints WH stock. Raw `EXCEPTION` on terminal/settled legs (pre L~24-40). Remove path inserts `REMOVE-RETURN` rows instead of reactivating origin. Leaves `pack_outcome='packed'` after zeroing `filled_quantity`.                                                                                                     | Structured `jsonb` refusal for M2M legs (points to sibling via `m2m_transfer_id`) and for terminal legs. Prefer **reactivating** `from_wh_inventory_id`. Stamp `pack_outcome='returned'`.                                                                                                                                                                                                                                                   |
+| 4   | `repack_machine`                      | Step 3 calls `push_plan_to_dispatch(p_machine_name, v_target_date)` = `(text,date)` but the live signature is `(date,text)` → never resolves → **0 rows pushed ever**; unwrapped so it aborts repack (pre, Step 3).                                                                                                                                              | Fix arg order → `push_plan_to_dispatch(v_target_date, p_machine_name)`; wrap in `BEGIN/EXCEPTION` returning a structured error; skip M2M legs in Step 1.                                                                                                                                                                                                                                                                                    |
+| 5   | `edit_dispatch_product` (via trigger) | `protect_packed_dispatch_row` blocks `boonz_product_id`/`pod_product_id` changes when `OLD.packed=true`; `edit_dispatch_product` requires `picked_up` (⇒ packed) → **0 product edits ever**. `edit_dispatch_product` body itself is correct (FIX D2 shelf-binding intact) and is **not modified**.                                                               | Exempt `current_setting('app.rpc_name')='edit_dispatch_product'` for product/pod fields in the trigger; identity fields (machine/shelf/date) stay protected.                                                                                                                                                                                                                                                                                |
+| 6   | Multi-batch FEFO fill                 | `pack_dispatch_line` auto-substitution binds ONE `v_sub_id` with `warehouse_stock >= qty` (single batch). Multi-batch fills already work when the **caller** supplies multiple `p_picks` (child-row mechanism).                                                                                                                                                  | In-scope here: `receive` overfill now spans batches via `wh_fefo_for_line`. Pack auto-substitution multi-batch spanning = **Deferral D1** (see §7).                                                                                                                                                                                                                                                                                         |
 
 ---
 
@@ -33,17 +33,19 @@ WHERE n.nspname='public' AND p.proname IN
   'repack_machine','protect_packed_dispatch_row')
 ORDER BY 1;
 ```
+
 **Expected (must match exactly, else STOP and re-pull):**
 
-| object | md5(pg_get_functiondef) |
-|--------|--------------------------|
-| `receive_dispatch_line(uuid,numeric,uuid,jsonb)`    | `780e34d8c4c436ea8d9d9c7df85efcbb` |
-| `return_dispatch_line(uuid,text,uuid,jsonb)`        | `11d697af27f182d6b15b81cc4547a4e8` |
-| `edit_dispatch_qty(uuid,numeric,text,text,text)`    | `e9f99a0dd72c6504539acf186d542748` |
-| `repack_machine(text,date,text)`                    | `e6a7d13f41e5876bf5dacd9f9eee0447` |
-| `protect_packed_dispatch_row()`                     | `42217e9fde5538995739ca9646c2e4f2` |
+| object                                           | md5(pg_get_functiondef)            |
+| ------------------------------------------------ | ---------------------------------- |
+| `receive_dispatch_line(uuid,numeric,uuid,jsonb)` | `780e34d8c4c436ea8d9d9c7df85efcbb` |
+| `return_dispatch_line(uuid,text,uuid,jsonb)`     | `11d697af27f182d6b15b81cc4547a4e8` |
+| `edit_dispatch_qty(uuid,numeric,text,text,text)` | `e9f99a0dd72c6504539acf186d542748` |
+| `repack_machine(text,date,text)`                 | `e6a7d13f41e5876bf5dacd9f9eee0447` |
+| `protect_packed_dispatch_row()`                  | `42217e9fde5538995739ca9646c2e4f2` |
 
 **Dependency pre-checks (all read-only):**
+
 ```sql
 -- push signature must be (date,text) — the arg-order fix depends on it
 SELECT to_regprocedure('public.push_plan_to_dispatch(date,text)') IS NOT NULL AS push_ok;      -- true
@@ -56,6 +58,7 @@ SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 SELECT enumlabel FROM pg_enum WHERE enumtypid='public.pack_outcome_enum'::regtype ORDER BY 1;   -- packed/partial/not_filled/packed_transferred (no 'returned' yet)
 SELECT to_regclass('refill_qa.feature_flag') IS NOT NULL AS flag_tbl_ok;                        -- true
 ```
+
 **Timing (B4):** off-peak only. Not during the 20:00 Dubai engine and not during a field
 packing window (`receive`/`return` briefly `DROP`/`CREATE`).
 
@@ -64,9 +67,11 @@ packing window (`receive`/`return` briefly `DROP`/`CREATE`).
 ## 2. APPLY
 
 Single file, single transaction:
+
 ```
 20260718170000_rc07_dispatch_line_state_machine.sql
 ```
+
 Order inside the file: (1) `ALTER TYPE … ADD VALUE 'returned'`, (2) seed flag `off`,
 (3) `receive` DROP+CREATE+GRANT, (4) `edit_dispatch_qty`, (5) `return`, (6) `repack`,
 (7) `protect_packed_dispatch_row`.
@@ -138,6 +143,7 @@ UPDATE refill_qa.feature_flag SET value='on', updated_at=now() WHERE flag='rc07_
 -- DISABLE / instant kill-switch:
 UPDATE refill_qa.feature_flag SET value='off', updated_at=now() WHERE flag='rc07_receive_gate';
 ```
+
 While `off`, the always-on improvements still apply: FEFO multi-batch overfill debit
 (+RAISE instead of silent no-op) and `pack_outcome` consistency on receive.
 
@@ -161,6 +167,7 @@ UPDATE public.refill_dispatching
    SET pack_outcome='returned'
  WHERE returned AND filled_quantity=0 AND pack_outcome::text='packed';
 ```
+
 > These touch `refill_dispatching`, guarded by `protect_packed_dispatch_row`. That trigger
 > only blocks identity fields (product/pod/machine/shelf/date) on packed rows — `pack_outcome`
 > is not protected — so the backfill passes. Run inside the canonical write context if your
@@ -179,6 +186,7 @@ pre-images. Verify restoration with the §1 md5 gate (values must return to the 
 Irreversible remnants (harmless): the `pack_outcome_enum` value `'returned'` cannot be
 dropped, and the `rc07_receive_gate` flag row remains (value `off`). **Before** rolling back,
 relabel any live `pack_outcome='returned'` rows (the pre-body never sets that value):
+
 ```sql
 UPDATE public.refill_dispatching SET pack_outcome='packed'
  WHERE returned=true AND pack_outcome::text='returned';

@@ -1,14 +1,20 @@
 # Architecture Changelog
 
+## 2026-07-29 — PRD-106: machine-level swap recommender (additive read-only RPC; engine wiring parked for freeze)
+
+- New read-only `recommend_swaps_for_machine(p_plan_date date, p_machine_id uuid, p_k int DEFAULT NULL)` (plpgsql STABLE, INVOKER, zero writes; migration `prd106_recommend_swaps_for_machine`). Returns K DISTINCT, warehouse-backed, in-machine-deduped swap-ins for a machine's K dead/swap-tagged shelves — replacing the per-shelf substitute framing. WH availability aggregated by `boonz_product_id` FIRST via canonical `v_wh_pickable`, then mapped to pod grain (kills the ~10-40x `product_mapping` fan-out: Red Bull 714→17). Basket affinity via canonical `get_candidate_affinity` (no inline Pearson). Exclusions: in-machine pods (unless `slot_lifecycle.signal='DOUBLE DOWN'`), decommission `strategic_intents`, Evian 1L, `venue_team` source on non-VOX, catch-alls, `_coexistence_blocks`/`_travel_scope_blocks`, `product_size_fit` at shelf size with `wh>=min_refill_qty`. Score = `GREATEST(get_candidate_affinity,0.30)*ln(1+fleet_units_30d)*avail_factor` (near-FEFO 1.25 boost). Greedy distinct-K assignment by shelf capacity; `qty=LEAST(cap,wh)`. No candidate → qty-0 `no_viable_swap_candidate` (M2W NEVER emitted, CS rule 2026-07-28). Validated: MC-2004 3 distinct (Sunbites/G&H/Freakin, no Coke, wh≥qty); fleet invariants 0 violations. Cody ✅ (Art 1,2,3,12,14,16). Reconciliation of the PRD's stale root-cause model + the parked 3-engine wiring (collides with the Wave-2 engine-freeze / PRD-094) documented in `docs/prds/PRD-106-EXECUTION-LOG.md`. RC-06 confirmed already fixed (`20260718034118`). No git push.
+
+## 2026-07-28 — PRD-105: Expiry Truth at Shelf Grain (read-path only, zero writes)
+
+- Four read-path migrations, no row writes. **`v_machine_expiry_batches`** (the batch-resolution rule under the canonical `v_machine_expiry_summary`) re-grained: dedupe partition `(machine, shelf)` → `(machine, COALESCE(shelf::text,'noshelf'), boonz_product_id)` via `ROW_NUMBER() ORDER BY snapshot_date DESC, pod_inventory_id`. A newer snapshot on one product no longer evicts a sibling product on the same shelf. Precondition verified live: 0 collisions at the finer grain. Recovers the dropped siblings: not-null rows 698→975, units 3499→4626. **`get_machine_slots_with_expiry`** re-keyed from product-name to `shelf_id`: removed name-keyed `product_boonz`/`product_expiry`/`prod_nearest_*` CTEs (machine-blind, arbitrary-lowest-UUID variant), replaced with `shelf_expiry`(MIN per shelf)+`shelf_min_batch`(SUM at that MIN)+`shelf_top_boonz`; `expiry_qty` now unconditional (7d window dropped); `compute_refill_decision` gets the shelf's highest-stock boonz_product_id (that arg is unused inside the fn → scoring byte-unchanged). **`get_machine_orphan_expiry`** extended: `shelf_id IS NULL` → `IS NULL OR NOT IN live_shelf` (off-aisle ghosts), `live_boonz` exclusion kept per design. New partial index `idx_pod_inventory_active_shelf_expiry (machine_id, shelf_id, expiration_date) WHERE Active AND stock>0`. FE `SnapshotTab.tsx` boundary `days<0`→`days<=0` (today = EXPIRED). Reconciliation drawer==summary 31/31; blind-spot wrong-MIN 63→0; decision coverage 544/544. `s_expiry` byte-identical before/after (no picker perturbation — recovered rows are far-future). Migrations `expiry_truth_batches_regrain` / `_index` / `_slots_shelf_keyed` / `_orphan_live_aisle`. Cody ✅ (Articles 1, 2, 3, 12, 14, 16). Rollback md5s + full acceptance battery in `docs/prds/PRD-105-EXECUTION-LOG.md`. Git not pushed — PROD-SYNC pending. Open item: orphan `live_boonz` exclusion suppresses off-aisle ghosts whose product is live elsewhere (36u on AMZ-1029-3003-O1) — CS ruling needed to surface them.
+
 ## 2026-07-18 — PRD-102: pod-swap operator quantity + Don't-swap decline (field packing)
 
 - swap_shelf_pod v2 (6-arg, 5-arg dropped — no PostgREST overload ambiguity): p_new_qty NULL = legacy fill-to-WEIMI-cap byte-identical; p_new_qty>=1 = operator's number wins (NOT clamped to the old product's shelf cap), WH availability the only limit (short => fill available + clamp_reason='wh_limited' + requested_qty). New DEFINER decline_swap_pair (roles incl. field_staff+warehouse): unstarted Remove/Add New legs -> skipped (visible decision, PRD-028 semantics), append-only edit-log rows (new kind 'decline_swap'), one swap_rejected learning signal (incoming pod) feeding engine_swap_pod suppression; removed-pod no-repeat comes from the rpo r5 cooldown. FE packing page: Quantity-to-add input (suggested + WH-available), "Don't swap" on pair cards + swap modal, declined pairs struck-through with reason. Engines md5-unchanged; T1-T8 pass (rolled-back txn, field_staff impersonation). Cody PASS.
 
-
 ## 2026-07-18 — PRD-101: SIM assignment is Edit-only on /field/config/sims (FE-only)
 
 - Removed the redundant inline Assign/Unassign row button + its AssignModal bottom sheet from the field SIM page; assignment AND unassignment stay fully available in the Edit drawer's machine dropdown ('— unassigned —' clears machine_id+machine_name). Now matches /app/sims (which has its own Edit-only table and was untouched). 2 files, -108 lines, zero backend/DB/RPC change; engines untouched (plan-neutral). Rollback = single revert.
-
 
 ## 2026-07-16 - Data correction: NISSAN + NOVO warehouse remap (WH_MCC -> WH_CENTRAL)
 
@@ -2881,6 +2887,56 @@ Post-apply behavioral checks pending next run: E fills NISSAN A02 to 12; C route
 
 OPEN (need CS go-ahead): B — mint VOX_SOURCED sentinels for Skittles, Pepsi Regular, 7Up Diet, M&M Yellow Bag, Maltesers (× WH_MCC + WH_MM) via canonical adjust_warehouse_stock. CORRECTION vs brief: Fade Fit is boonz-sourced (not venue_team) — do NOT sentinel it; blocked Fade Fit = real procurement need. F — Freakin pilot lines (Awesome Thins, Healthy Bites, Garnola Bar, Roasted Dipped) at 0 WH; raise the pilot PO. Advisory task fired 05:28 not 8pm — reschedule to 16:05 UTC (task not visible via API; likely desktop-app scheduled task).
 
-
 ## 2026-07-18 — PRD-103 post-receipt expiry correction
+
 - `edit_purchase_order_line` (migration `20260718133205_prd103_edit_po_line_expiry_unlock_post_receipt`): the PRD-002 received-line lock is relaxed so warehouse/operator_admin/manager can correct the **expiry date only** on a received PO line; ordered_qty and price stay superadmin-only. PO record only — does NOT re-date already-received `warehouse_inventory` batches. Full audit preserved (`procurement_events` + `write_audit_log`), now tagged `post_receipt_expiry_edit=true`. Coherence guard `ordered_qty < received_qty` now only fires when qty is actually changed. Rebuilt from the LIVE body (PRD-1 `boonz_product_block_reason` guardrail preserved). FE: `EditPOLineDrawer.tsx` per-field lock mirrors the backend. Cody-reviewed (Articles 1, 4, 5, 6, 8, 12).
+
+## 2026-07-28 — VOX SOA reconciliation wave (recon_fix1..5b)
+
+Root causes from the May+Jun MAFE statement reconciliation: (1) terminal S1U2-000573253993605 claimed by 2 Active machines (LVLUP-2015 stale claim vs MPMCC-1054 real owner) made v_adyen_transactions_attributed fan out — /refill/consumers captured inflated +6,039.83 and 86.42 of real defaults hidden May-Jun; (2) Adyen refund backfill had never run — 6 RefundedBulk baskets (611.00 gross) carried refunded_amount_value=0; (3) consumer/commercial RPCs read adjusted_amount_value (gross) as the refund and the commercial waterfall double-subtracted refunds; get_payment_default_summary double-penalized refunds in captured_net. All fixed forward-only; view keeps security_invoker=true; RPC signatures unchanged (grants preserved). Verified post-apply: consumer captured = commercial-derived Net Sales walk = get_payment_default_summary = canonical SOA SQL to the cent (defaults 635.30/497.58, refunds 170.00/441.00 May/Jun). Articles 1, 2, 3, 4, 12. Data rows CS-approved individually. Known residual: get_payment_default_summary total_sales excludes NULL-total/paid-only baskets (-29.00 May / -87.00 Jun vs statement definition) — monitoring metric only.
+
+## 2026-07-29 — PRD-106b size-up gating (rank_slot_suitability)
+
+- `rank_slot_suitability` (migrations `prd106b_sizeup_requires_double_down`, `prd106b2_exclude_evian_1l_swapin`): the Wave-2 TRUE-HERO size-up path now requires the candidate's existing facing to be explicitly flagged `DOUBLE DOWN` in `slot_lifecycle` — percentile-derived hero status alone no longer authorizes a duplicate facing (CS rule, incident 2026-07-29: Barebells and Coca Cola Zero sized-up onto machines whose facings were only KEEP). Also: Evian - 1L (pod 990461ff) excluded from the candidate universe, closing a guardrail gap vs `recommend_swaps_for_machine`. `engine_swap_pod` untouched; PRD-094/095 parked claims intact. Cody-reviewed (Articles 1, 4, 12, 13, 15); target + control probes green.
+
+## 2026-07-29 — PRD-108 Volume-Driven Size-Up
+
+Size-up is now volume-driven rather than machine-relative. `rank_slot_suitability`'s
+`proven_machine_pctile >= 0.80` is replaced by: T1 absolute velocity floor (1.25/day), T2
+demonstrated overflow with margin (demand over trip > full shelf x 1.25), T3 opportunity cost
+(incremental units/day >= 1.3 x the rank-1-by-suitability newcomer's expected velocity), and a
+machine floor (> 30 units/week). `is_present`, `NOT is_blended` and `is_dd` (PRD-106b) are retained,
+so a DOUBLE DOWN flag remains a required human authorisation. Thresholds live in
+`refill_policy_params` and are tunable without a migration. Every decision is auditable via the new
+`sizeup_rationale` jsonb column.
+
+New `v_sizeup_candidates` view is the weekly DOUBLE DOWN proposal surface (`dd_proposal` = passes all
+tests but has no flag yet). `recommend_swaps_for_machine`'s DD exception now carries the same volume
+tests. `engine_swap_pod` was not touched.
+
+Calibration (read-only, 90d, fleet-wide) found the velocity fallback `ppad` divides by SELLING days
+not calendar days, overstating by 23.6x on average and up to 90x - it would have passed 286 false
+positives and failed the intended star case. Fixed with a calendar-day velocity read from the
+canonical `v_shelf_sales_identity` / `v_machine_velocity` objects (Article 16).
+
+Zero size-up proposals on machines at or below 30 units/week. 17 products currently earn a DOUBLE DOWN
+flag and await CS batch approval; none takes effect until approved.
+
+## 2026-07-29 — PRD-109 Pre-Flight Refill Gate (partial)
+
+New read-only RPC `preflight_refill_plan(plan_date)` returns PASS / PASS_WITH_WARNINGS / FAIL with a
+violation list naming, per finding, the invariant id, machine, shelf, product, expected vs found, and
+the fix path. Twelve invariants ship as set v1, version-stamped in `invariant_versions`. The function
+is read-only forever: it may only report, never mutate.
+
+Replaying 2026-07-29 returns FAIL in 310 ms, catching the week's incidents by construction: the
+Barebells and Coca Cola Zero duplicate facings (INV-03) and the MC-2004 A15 orphaned swap leg (INV-04).
+
+The Extra Gum ghost stockout turned out to be an ABSENCE, not a bad line - the stitch had dropped the
+line entirely, so there was nothing for a per-line check to inspect. INV-10 is therefore the absence
+detector, reporting name-level units so a genuine stockout is distinguishable from one hidden by
+machine-scoped product mapping. The name-family rule returns the correct 19 units across 2 variants.
+
+The commit gate itself is NOT yet wired: `stitch_pod_to_boonz` is unchanged. INV-06 was found to
+produce false positives against live data before wiring, which would have refused valid plans; it was
+fixed first. pgTAP, the frozen fixture and the FE surface remain outstanding.

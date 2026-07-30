@@ -13,26 +13,30 @@
 **File:** `src/app/(app)/refill/DailyDispatchingTab.tsx`
 
 ### What was wrong (verified live in the snapshot)
+
 `handleBulkUpdate` did a **raw `UPDATE refill_dispatching`** flipping `packed` / `picked_up` / `dispatched` to `true` for every included line, then — for the dispatched action — called `receive_all_dispatches_for_machine`.
 
 The raw flip set `packed=true` **without** the `warehouse_stock → consumer_stock` move that `pack_dispatch_line` performs. `receive_dispatch_line` (which `receive_all_dispatches_for_machine` loops) credits `pod_inventory` by **draining `consumer_stock`**. With no real pack, `consumer_stock` was never credited, so the receive path **credited pod_inventory while deducting nothing from the warehouse = phantom stock minting.** Confirmed by reading `pack_dispatch_line` (moves WH→consumer) and `receive_dispatch_line` (draws from `consumer_stock`; when none exists it credits pod with no WH draw).
 
 ### What it does now (each action → canonical RPC, no raw write)
-| Button | Old (raw) | New (canonical) | Notes |
-|---|---|---|---|
-| **Mark All Packed** | `UPDATE ... packed=true` | `confirm_machine_packed(p_machine_name, p_dispatch_date, p_packed_by:null, p_reason, p_final:true)` | Finalize **gate** — it does **not** fabricate `line.packed`. It verifies every included line is genuinely packed (via the field packing PWA / `pack_dispatch_line`) or `not_filled`/`skipped`; if unpacked lines remain it returns `{status:'blocked'}` (surfaced to console/CS). The one-click *fake pack* is now impossible. |
-| **Mark All Picked Up** | `UPDATE ... packed,picked_up=true` | `mark_picked_up(p_dispatch_ids)` | Bulk (array) RPC. Only flips lines already `packed=true`; un-packed ids come back as `not_packed_ids` untouched. No fabrication. |
-| **Mark All Dispatched** | `UPDATE ... packed,picked_up,dispatched=true` + `receive_all(...)` | `receive_all_dispatches_for_machine(p_machine_id, p_dispatch_date, p_use_filled_as_received:true)` | Credits pod from the **actual `filled_quantity`** and does the real WH move; **never** a planned-qty credit. Processes only lines drivers already set `dispatched=true`. |
+
+| Button                  | Old (raw)                                                          | New (canonical)                                                                                     | Notes                                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Mark All Packed**     | `UPDATE ... packed=true`                                           | `confirm_machine_packed(p_machine_name, p_dispatch_date, p_packed_by:null, p_reason, p_final:true)` | Finalize **gate** — it does **not** fabricate `line.packed`. It verifies every included line is genuinely packed (via the field packing PWA / `pack_dispatch_line`) or `not_filled`/`skipped`; if unpacked lines remain it returns `{status:'blocked'}` (surfaced to console/CS). The one-click _fake pack_ is now impossible. |
+| **Mark All Picked Up**  | `UPDATE ... packed,picked_up=true`                                 | `mark_picked_up(p_dispatch_ids)`                                                                    | Bulk (array) RPC. Only flips lines already `packed=true`; un-packed ids come back as `not_packed_ids` untouched. No fabrication.                                                                                                                                                                                               |
+| **Mark All Dispatched** | `UPDATE ... packed,picked_up,dispatched=true` + `receive_all(...)` | `receive_all_dispatches_for_machine(p_machine_id, p_dispatch_date, p_use_filled_as_received:true)`  | Credits pod from the **actual `filled_quantity`** and does the real WH move; **never** a planned-qty credit. Processes only lines drivers already set `dispatched=true`.                                                                                                                                                       |
 
 **Signature confirmed live:** `confirm_machine_packed(text,date,uuid,text,boolean)`, `mark_picked_up(uuid[])`, `receive_all_dispatches_for_machine(uuid,date,boolean)`.
 
 ### UX notes for CS (picture the change)
-- The three buttons look and behave the same for the **happy path**: warehouse packs in the field PWA → admin clicks *Mark All Packed* (now a confirmation, not a fabrication) → *Mark All Picked Up* → *Mark All Dispatched* materializes stock at the real filled quantity.
-- **Behavioural change to know:** *Mark All Packed* can no longer "complete" a machine whose lines were never actually packed in the field. If the field team hasn't packed, the button no-ops with a blocked reason instead of silently faking it (and silently teeing up a phantom credit). This is the intended kill. Empty shelves are still fillable — the real pack path (`pack_dispatch_line` with picks in the packing PWA) is untouched.
+
+- The three buttons look and behave the same for the **happy path**: warehouse packs in the field PWA → admin clicks _Mark All Packed_ (now a confirmation, not a fabrication) → _Mark All Picked Up_ → _Mark All Dispatched_ materializes stock at the real filled quantity.
+- **Behavioural change to know:** _Mark All Packed_ can no longer "complete" a machine whose lines were never actually packed in the field. If the field team hasn't packed, the button no-ops with a blocked reason instead of silently faking it (and silently teeing up a phantom credit). This is the intended kill. Empty shelves are still fillable — the real pack path (`pack_dispatch_line` with picks in the packing PWA) is untouched.
 - **Keyboard-speed preserved:** still one click per machine per stage; `mark_picked_up` is a single bulk call.
 
 ### Backend follow-up flagged (does not block this deploy)
-- *Mark All Dispatched* relies on lines already being `dispatched=true` (driver-set). There is **no canonical `mark_dispatched_for_machine` RPC** to flip that flag from the admin monitor. Today the driver flow sets it; the admin button "receives what drivers dispatched." A canonical `dispatch_all_for_machine` (or extend `receive_all` to also mark dispatched) is a **Batch-5** nicety, not a blocker.
+
+- _Mark All Dispatched_ relies on lines already being `dispatched=true` (driver-set). There is **no canonical `mark_dispatched_for_machine` RPC** to flip that flag from the admin monitor. Today the driver flow sets it; the admin button "receives what drivers dispatched." A canonical `dispatch_all_for_machine` (or extend `receive_all` to also mark dispatched) is a **Batch-5** nicety, not a blocker.
 
 ---
 
@@ -75,37 +79,38 @@ The raw flip set `packed=true` **without** the `warehouse_stock → consumer_sto
 
 ## 5. The 23 write sites — full disposition
 
-22 direct-write anchors were detected across 11 files (RefillPlanReview `:215` carries **two** logical dispositions — approve *rewired* + reject *flagged* — reconciling to the "23 sites"). Detection method: `.from("<protected>")` followed within-window by `.update/.insert/.upsert/.delete`, verified by reading each site.
+22 direct-write anchors were detected across 11 files (RefillPlanReview `:215` carries **two** logical dispositions — approve _rewired_ + reject _flagged_ — reconciling to the "23 sites"). Detection method: `.from("<protected>")` followed within-window by `.update/.insert/.upsert/.delete`, verified by reading each site.
 
-| # | File : line | Table | Op | Disposition |
-|---|---|---|---|---|
-| 1a | `refill/DailyDispatchingTab.tsx:320` | refill_dispatching | update | **REWIRED** → `confirm_machine_packed` / `mark_picked_up` / `receive_all_dispatches_for_machine` (phantom-mint kill) |
-| 2 | `field/trips/[machineId]/page.tsx:258` | refill_dispatching | update | **REWIRED** → `receive_dispatch_line` (+ `update_dispatch_comment`) |
-| 3a | `components/RefillPlanReview.tsx:215` (approve) | refill_plan_output | update | **REWIRED** → `approve_refill_plan` |
-| 3b | `components/RefillPlanReview.tsx:215` (reject branch) | refill_plan_output | update | **FLAGGED** — no `reject_refill_plan` RPC; left as-is + TODO |
-| 4 | `components/RefillPlanReview.tsx:249` | refill_plan_output | update | **FLAGGED** — no per-row reject RPC; left as-is + TODO |
-| 5 | `field/expiry/page.tsx:139` | warehouse_inventory | update | **REWIRED** → `warehouse_expire_writeoff` (+ column fix) |
-| 6 | `field/config/product-mapping/page.tsx:450` | product_mapping | delete | **FLAGGED** — no mapping RPC; TODO |
-| 7 | `field/config/product-mapping/page.tsx:465` | product_mapping | delete | **FLAGGED** — no mapping RPC; TODO |
-| 8 | `field/config/product-mapping/page.tsx:476` | product_mapping | insert | **FLAGGED** — no mapping RPC; TODO |
-| 9 | `field/config/product-mapping/page.tsx:494` | product_mapping | update | **FLAGGED** — no mapping RPC; TODO |
-| 10 | `field/config/product-mapping/page.tsx:503` | product_mapping | upsert | **FLAGGED** — no mapping RPC; TODO |
-| 11 | `field/config/product-mapping/page.tsx:582` | product_mapping | delete | **FLAGGED** — no mapping RPC; TODO |
-| 12 | `field/config/product-mapping/page.tsx:587` | product_mapping | insert | **FLAGGED** — no mapping RPC; TODO |
-| 13 | `field/config/product-mapping/page.tsx:628` | product_mapping | upsert | **FLAGGED** — no mapping RPC; TODO |
-| 14 | `field/config/machines/page.tsx:603` | machines | update | **FLAGGED** — no full-field `update_machine` RPC; TODO |
-| 15 | `field/config/machines/page.tsx:704` | machines | insert | **FLAGGED** — `add_new_machine` misses contact/venue_group/pod_address (would drop fields); TODO |
-| 16 | `field/config/machines/page.tsx:765` | machines | insert (CSV bulk) | **FLAGGED** — no bulk machine-insert RPC; TODO |
-| 17 | `admin/machines/page.tsx:234` | machines | update (status bulk) | **FLAGGED** — no `set_machine_status` RPC; TODO |
-| 18 | `admin/machines/page.tsx:317` | machines | update (edit) | **FLAGGED** — no field-scoped `update_machine` RPC; TODO |
-| 19 | `app/pods/page.tsx:692` | machines | update (edit) | **FLAGGED** — no field-scoped `update_machine` RPC; TODO |
-| 20 | `components/config/MachineSetupConfigTab.tsx:273` | machines | update (setup fields) | **FLAGGED** — no machine-setup RPC; TODO |
-| 21 | `field/packing/[machineId]/page.tsx:1372` | refill_dispatching | delete | **FLAGGED** — hard-delete of stale un-packed slices for OB-2 respawn; `remove_dispatch_row` soft-cancels (collides w/ `prevent_duplicate_unstarted_dispatch`); TODO |
-| 22 | `field/dispatching/[machineId]/page.tsx:535` | refill_dispatching | delete | **FLAGGED** — driver-context delete; `remove_dispatch_row` forbids driver role; needs driver-safe cancel RPC; TODO |
+| #   | File : line                                           | Table               | Op                    | Disposition                                                                                                                                                         |
+| --- | ----------------------------------------------------- | ------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1a  | `refill/DailyDispatchingTab.tsx:320`                  | refill_dispatching  | update                | **REWIRED** → `confirm_machine_packed` / `mark_picked_up` / `receive_all_dispatches_for_machine` (phantom-mint kill)                                                |
+| 2   | `field/trips/[machineId]/page.tsx:258`                | refill_dispatching  | update                | **REWIRED** → `receive_dispatch_line` (+ `update_dispatch_comment`)                                                                                                 |
+| 3a  | `components/RefillPlanReview.tsx:215` (approve)       | refill_plan_output  | update                | **REWIRED** → `approve_refill_plan`                                                                                                                                 |
+| 3b  | `components/RefillPlanReview.tsx:215` (reject branch) | refill_plan_output  | update                | **FLAGGED** — no `reject_refill_plan` RPC; left as-is + TODO                                                                                                        |
+| 4   | `components/RefillPlanReview.tsx:249`                 | refill_plan_output  | update                | **FLAGGED** — no per-row reject RPC; left as-is + TODO                                                                                                              |
+| 5   | `field/expiry/page.tsx:139`                           | warehouse_inventory | update                | **REWIRED** → `warehouse_expire_writeoff` (+ column fix)                                                                                                            |
+| 6   | `field/config/product-mapping/page.tsx:450`           | product_mapping     | delete                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 7   | `field/config/product-mapping/page.tsx:465`           | product_mapping     | delete                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 8   | `field/config/product-mapping/page.tsx:476`           | product_mapping     | insert                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 9   | `field/config/product-mapping/page.tsx:494`           | product_mapping     | update                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 10  | `field/config/product-mapping/page.tsx:503`           | product_mapping     | upsert                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 11  | `field/config/product-mapping/page.tsx:582`           | product_mapping     | delete                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 12  | `field/config/product-mapping/page.tsx:587`           | product_mapping     | insert                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 13  | `field/config/product-mapping/page.tsx:628`           | product_mapping     | upsert                | **FLAGGED** — no mapping RPC; TODO                                                                                                                                  |
+| 14  | `field/config/machines/page.tsx:603`                  | machines            | update                | **FLAGGED** — no full-field `update_machine` RPC; TODO                                                                                                              |
+| 15  | `field/config/machines/page.tsx:704`                  | machines            | insert                | **FLAGGED** — `add_new_machine` misses contact/venue_group/pod_address (would drop fields); TODO                                                                    |
+| 16  | `field/config/machines/page.tsx:765`                  | machines            | insert (CSV bulk)     | **FLAGGED** — no bulk machine-insert RPC; TODO                                                                                                                      |
+| 17  | `admin/machines/page.tsx:234`                         | machines            | update (status bulk)  | **FLAGGED** — no `set_machine_status` RPC; TODO                                                                                                                     |
+| 18  | `admin/machines/page.tsx:317`                         | machines            | update (edit)         | **FLAGGED** — no field-scoped `update_machine` RPC; TODO                                                                                                            |
+| 19  | `app/pods/page.tsx:692`                               | machines            | update (edit)         | **FLAGGED** — no field-scoped `update_machine` RPC; TODO                                                                                                            |
+| 20  | `components/config/MachineSetupConfigTab.tsx:273`     | machines            | update (setup fields) | **FLAGGED** — no machine-setup RPC; TODO                                                                                                                            |
+| 21  | `field/packing/[machineId]/page.tsx:1372`             | refill_dispatching  | delete                | **FLAGGED** — hard-delete of stale un-packed slices for OB-2 respawn; `remove_dispatch_row` soft-cancels (collides w/ `prevent_duplicate_unstarted_dispatch`); TODO |
+| 22  | `field/dispatching/[machineId]/page.tsx:535`          | refill_dispatching  | delete                | **FLAGGED** — driver-context delete; `remove_dispatch_row` forbids driver role; needs driver-safe cancel RPC; TODO                                                  |
 
 **Summary:** 4 rewired (5 counting the approve/reject split), 18 flagged-needs-backend (all left functional with an in-code `TODO(Batch 5 / RC-04)` comment — no capability removed, nothing broken).
 
 ### Why the flagged sites were NOT force-fit (constitutional / CS-rule reasoning)
+
 - **`product_mapping`** — no canonical write RPC exists anywhere in `pg_proc` (only `auto_fill_machine_mapping`, a maintenance trigger). Inventing one is Batch-5 backend work; the task forbids inventing backend here.
 - **`machines` inserts** — `add_new_machine(p_pod_number,p_official_name,p_location_type,p_pod_location,p_status,p_include_in_refill,p_installation_date,p_notes)` does **not** accept `contact_person/email/phone`, `venue_group`, or `pod_address`. Routing there would **silently drop** those fields — a destructive change, forbidden by CS Hard Rules.
 - **`machines` updates (status / arbitrary / setup fields)** — no `set_machine_status` or field-scoped `update_machine` RPC exists. `set_machine_warehouse` only touches warehouse assignment (none of these sites edit warehouse assignment). `repurpose_machine`/`rename_machine` are identity transitions, not field edits.
@@ -130,6 +135,7 @@ npm run lint
 **Ambient-stub typecheck performed here (no node_modules in the snapshot):** a `declare module "react"` shim + `declare module "*"` wildcard + `lib:["ES2020","DOM","DOM.Iterable"]`, `files` = the 4 rewired components. Result: the changed files produce the **exact same 4-error profile as their originals** (`TS2322` JSX `key`, `TS2347` unshimmed hook, `2×TS2503` `React` namespace) — all pre-existing stub artifacts on unchanged lines. **My edits introduced zero new type errors.** The reviewer's `npx tsc --noEmit` (with real `@types/react`) is the authoritative gate.
 
 ### Manual QA focus for the reviewer
+
 1. **Daily Dispatching → Mark All Packed** on a machine whose lines were NOT packed in the field PWA → expect a no-op/blocked (console warn), **no** phantom pod credit.
 2. **Mark All Dispatched** on a machine the drivers already dispatched → pod credited at **filled** qty, warehouse decremented; verify no WH double-count vs. the pack move.
 3. **Driver trips → submit** → line received (pod credited, unfilled delta returned to WH), comment persisted.
@@ -141,12 +147,14 @@ npm run lint
 ## 7. Files changed (staged under `batch3/fe/`, same relative paths)
 
 **Rewired (canonical RPCs):**
+
 - `src/app/(app)/refill/DailyDispatchingTab.tsx`
 - `src/app/(field)/field/trips/[machineId]/page.tsx`
 - `src/components/RefillPlanReview.tsx`
 - `src/app/(field)/field/expiry/page.tsx`
 
 **Flagged (TODO added, left functional):**
+
 - `src/app/(field)/field/config/product-mapping/page.tsx`
 - `src/app/(field)/field/config/machines/page.tsx`
 - `src/app/(app)/admin/machines/page.tsx`
@@ -162,14 +170,15 @@ Unified diffs for all of the above are inline in §8.
 ## 8. Unified diffs
 
 <!-- BEGIN DIFFS -->
+
 ```diff
 ===== src/app/(app)/refill/DailyDispatchingTab.tsx =====
 --- a/src/app/(app)/refill/DailyDispatchingTab.tsx	2026-07-18 14:47:02.520424870 +0000
 +++ src/app/(app)/refill/DailyDispatchingTab.tsx	2026-07-18 14:47:43.697574637 +0000
 @@ -296,47 +296,79 @@
- 
+
    // ── Bulk update handler ──────────────────────────────────────────────────
- 
+
 +  // RC-04 (Batch 3): the bulk "Mark All ..." actions used to raw-UPDATE
 +  // refill_dispatching (packed/picked_up/dispatched), which faked the pack
 +  // WITHOUT the warehouse_stock -> consumer_stock move that pack_dispatch_line
@@ -286,7 +295,7 @@ Unified diffs for all of the above are inline in §8.
 @@ -251,20 +251,35 @@
      setSubmitting(true);
      const supabase = createClient();
- 
+
 -    const updates = lines
 -      .filter((l) => l.confirmed)
 -      .map((l) =>
@@ -327,11 +336,11 @@ Unified diffs for all of the above are inline in §8.
 +        });
 +      }
 +    }
- 
+
 -    await Promise.all(updates);
      router.push("/field/trips");
    }
- 
+
 
 ===== src/components/RefillPlanReview.tsx =====
 --- a/src/components/RefillPlanReview.tsx	2026-07-18 14:47:02.526358720 +0000
@@ -349,7 +358,7 @@ Unified diffs for all of the above are inline in §8.
 -      })
 -      .eq("machine_name", machineName)
 -      .eq("operator_status", "pending");
- 
+
 -    if (status === "approved" && planDate) {
 -      const { data: dispatched, error: pushError } = await supabase.rpc(
 -        "push_plan_to_dispatch",
@@ -404,10 +413,10 @@ Unified diffs for all of the above are inline in §8.
 +        .eq("machine_name", machineName)
 +        .eq("operator_status", "pending");
      }
- 
+
      setPlanRows((prev) => prev.filter((r) => r.machine_name !== machineName));
 @@ -245,6 +267,9 @@
- 
+
    async function handlePlanRejectLine(id: string) {
      const supabase = createClient();
 +    // TODO(Batch 5 / RC-04): needs a canonical reject_refill_plan (per-row) RPC.
@@ -445,7 +454,7 @@ Unified diffs for all of the above are inline in §8.
 @@ -135,10 +139,21 @@
      setRemoving(inventoryId);
      const supabase = createClient();
- 
+
 -    await supabase
 -      .from("warehouse_inventory")
 -      .update({ status: "Expired" })
@@ -465,7 +474,7 @@ Unified diffs for all of the above are inline in §8.
 +      setRemoving(null);
 +      return;
 +    }
- 
+
      setRows((prev) => prev.filter((r) => r.inventory_id !== inventoryId));
      setRemoving(null);
 
@@ -475,7 +484,7 @@ Unified diffs for all of the above are inline in §8.
 @@ -441,6 +441,11 @@
      setSaveError(null);
      const supabase = createClient();
- 
+
 +    // TODO(Batch 5 / RC-04): product_mapping has NO canonical write RPC today
 +    // (delete / insert / update / upsert below). These direct writes are LEFT
 +    // AS-IS to avoid breaking mapping edits. Rewire every product_mapping write
@@ -543,7 +552,7 @@ Unified diffs for all of the above are inline in §8.
 --- a/src/app/(app)/admin/machines/page.tsx	2026-07-18 14:47:02.537543298 +0000
 +++ src/app/(app)/admin/machines/page.tsx	2026-07-18 14:51:10.565569906 +0000
 @@ -230,6 +230,10 @@
- 
+
        if (action === "set_active" || action === "set_inactive") {
          const newStatus = action === "set_active" ? "Active" : "Inactive";
 +        // TODO(Batch 5 / RC-04): no canonical set_machine_status RPC exists.
@@ -569,7 +578,7 @@ Unified diffs for all of the above are inline in §8.
 +++ src/app/(app)/app/pods/page.tsx	2026-07-18 14:51:16.797569763 +0000
 @@ -688,6 +688,9 @@
      }
- 
+
      const supabase = createClient();
 +    // TODO(Batch 5 / RC-04): arbitrary machine-field edit — no canonical
 +    // update_machine RPC exists. Left as a direct update to preserve the edit

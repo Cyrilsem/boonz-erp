@@ -19,6 +19,7 @@
   of the filesystem root") — APFS clone copy (cp -cR) works.
 
 ### T-tests
+
 - T1 PASS: Actions cell renders Edit only; zero AssignModal/onAssignToggle/assignSim
   symbols remain (grep = 0 in both files).
 - T2 PASS (code-verified, drawer untouched): pick machine => machine_id + machine_name

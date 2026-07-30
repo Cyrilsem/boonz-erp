@@ -4,7 +4,7 @@ Status: SHIPPED 2026-07-18. All T-tests pass; build green; FE-only (2 files, -10
 
 ## Why (verified in the FE)
 
-`/field/config/sims` renders a standalone **Assign / Unassign** button on every SIM row (`SimCardTable.tsx` → opens a bottom-sheet `AssignModal`), *in addition to* the machine dropdown already inside the Edit drawer (`SimCardDrawer`). The office page `/app/sims` has **no** such button — there, assignment happens only inside Edit.
+`/field/config/sims` renders a standalone **Assign / Unassign** button on every SIM row (`SimCardTable.tsx` → opens a bottom-sheet `AssignModal`), _in addition to_ the machine dropdown already inside the Edit drawer (`SimCardDrawer`). The office page `/app/sims` has **no** such button — there, assignment happens only inside Edit.
 
 So the field page is the inconsistent one, and the row button is redundant: the Edit drawer's machine dropdown (with `— unassigned —`) already covers both assign **and** unassign, writing the exact same `machine_id` + `machine_name`. The button label is also misleading — it reads `Assign` whenever a SIM has no machine linked (`sim.machine_id ? "Unassign" : "Assign"`), which looks like the wrong state after a stale page load even when the data is correct. Make assignment Edit-only, matching `/app/sims`.
 
@@ -12,7 +12,7 @@ So the field page is the inconsistent one, and the row button is redundant: the 
 
 1. `src/components/config/SimCardTable.tsx` — remove the Assign/Unassign `<button>` from the Actions cell (keep **Edit**). Remove `onAssignToggle` from the `SimCardTableProps` interface and from the destructure.
 2. `src/app/(field)/field/config/sims/page.tsx` — delete the `AssignModal` component, the `assignSim` state, `handleAssignToggle`, the `onAssignToggle={handleAssignToggle}` prop, and the `{assignSim && <AssignModal .../>}` render block. Keep `openEdit → SimCardDrawer` and `fetchData` wiring intact.
-3. No change to `SimCardDrawer.tsx` — it already writes `machine_id` + `machine_name` on save and clears both when `— unassigned —` is picked (assign *and* unassign live here). No change to `/app/sims`. No DB / RPC / engine change.
+3. No change to `SimCardDrawer.tsx` — it already writes `machine_id` + `machine_name` on save and clears both when `— unassigned —` is picked (assign _and_ unassign live here). No change to `/app/sims`. No DB / RPC / engine change.
 
 ## Gates
 

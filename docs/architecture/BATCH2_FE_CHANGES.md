@@ -30,13 +30,13 @@ is present on the line — that is the hook used for on-spot sourcing.
 
 ## Files changed
 
-| # | File | Change |
-|---|------|--------|
-| 1 | `src/components/field/FieldCapturePanel.tsx` | NEW (moved + refactored from `src/app/(app)/refill/FieldCapturePanel.tsx`) |
-| 2 | `src/app/(app)/refill/FieldCapturePanel.tsx` | **DELETED** (dead code — imported nowhere; moved to #1. `git mv` + edit) |
-| 3 | `src/app/(field)/field/capture/page.tsx` | NEW route `/field/capture` mounting the panel |
-| 4 | `src/app/(field)/field/page.tsx` | +2 nav cards ("+ Capture Manual Refill") in WarehouseHome and OperatorAdminHome |
-| 5 | `src/app/(field)/field/inventory/page.tsx` | Inline qty box converted to disposition flow |
+| #   | File                                         | Change                                                                          |
+| --- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| 1   | `src/components/field/FieldCapturePanel.tsx` | NEW (moved + refactored from `src/app/(app)/refill/FieldCapturePanel.tsx`)      |
+| 2   | `src/app/(app)/refill/FieldCapturePanel.tsx` | **DELETED** (dead code — imported nowhere; moved to #1. `git mv` + edit)        |
+| 3   | `src/app/(field)/field/capture/page.tsx`     | NEW route `/field/capture` mounting the panel                                   |
+| 4   | `src/app/(field)/field/page.tsx`             | +2 nav cards ("+ Capture Manual Refill") in WarehouseHome and OperatorAdminHome |
+| 5   | `src/app/(field)/field/inventory/page.tsx`   | Inline qty box converted to disposition flow                                    |
 
 CS hard rules honored: the inline box is CONVERTED (not deleted) in the same
 deploy that mounts the capture flow; nothing destructive; empty shelves stay
@@ -60,6 +60,7 @@ fill-to-cap qty defaults (PRD-075 WS-B), the unlogged-corrections amber panel
 lost).
 
 **New behavior**:
+
 - Submit is a two-step gate: **Preview capture** → RPC with `p_dry_run: true`
   (server validates machine, shelves, products; writes only a `refill_events`
   header with status `dry_run`, applies nothing) → blue preview box lists each
@@ -78,17 +79,18 @@ lost).
   hide it.
 
 **RPC call (greppable literal)**:
+
 ```ts
 supabase.rpc("record_actual_refill", {
-  p_machine_name: machineName,      // machines.official_name
+  p_machine_name: machineName, // machines.official_name
   p_plan_date: getDubaiDate(),
-  p_lines: lines,                   // [{action:'refill', boonz_product_id, shelf_code, qty,
-                                    //   set_mode:'delta', expiration_date, warehouse_id|null,
-                                    //   notes:'on_spot_purchase'|null}]
+  p_lines: lines, // [{action:'refill', boonz_product_id, shelf_code, qty,
+  //   set_mode:'delta', expiration_date, warehouse_id|null,
+  //   notes:'on_spot_purchase'|null}]
   p_source: "field_capture",
-  p_actor: user?.id ?? null,        // auth.getUser(); role-gated server-side
+  p_actor: user?.id ?? null, // auth.getUser(); role-gated server-side
   p_reason: "field_capture",
-  p_dry_run: dryRun,                // true first, false on confirm
+  p_dry_run: dryRun, // true first, false on confirm
 });
 ```
 
@@ -134,7 +136,7 @@ kept (row/warehouse check, Phase G P1 session + role gate with
      `/field/capture?product=<boonz_product_id>&warehouse=<warehouse_id>&qty=<delta>&expiry=<expiration_date>`.
    - **(c) Write-off** (shown only when qty went DOWN) — reason min 10 chars.
      - new qty **= 0** → `supabase.rpc("warehouse_expire_writeoff", {
-       p_wh_inventory_id, p_reason: "write-off: <text>", p_caller_id: user.id })`
+p_wh_inventory_id, p_reason: "write-off: <text>", p_caller_id: user.id })`
        (RPC exists live — verified). Treats `written_off` and `already_done`
        as success.
      - new qty **> 0** (partial) → **GAP**: no partial write-off RPC exists;
@@ -149,7 +151,7 @@ kept (row/warehouse check, Phase G P1 session + role gate with
 **Untouched (per instructions)**: `DailyDispatchingTab` "Mark All", driver
 trips direct writes (Batch 3), the bulk "Inventory Control" mode
 (`completeControl` — that is the deliberate counted-session flow, reason
-`inventory_control`), and inline *location* edits (metadata-only writer).
+`inventory_control`), and inline _location_ edits (metadata-only writer).
 
 ---
 
@@ -175,7 +177,7 @@ trips direct writes (Batch 3), the bulk "Inventory Control" mode
    batch): M2 fixes `record_actual_refill` (same signature — FE wiring here
    matches the live/target signature) and M1 gives
    `attempt_inventory_correction` honest `manual_adjust` provenance. The FE
-   calls will *run* against today's functions but the provenance/ledger
+   calls will _run_ against today's functions but the provenance/ledger
    guarantees only hold after M1/M2.
 2. Then Vercel deploy of this FE change set (one deploy — the inline box
    conversion and the capture mount ship together per CS hard rule 1).
@@ -195,6 +197,7 @@ referenced symbol was grep-verified to exist in the snapshot
 `getDubaiDate`, `createClient`, `formatExpiryBatch`, Suspense pattern).
 
 Must-run before merge:
+
 1. `npx tsc --noEmit` (per CLAUDE.md, after every change)
 2. `npm run build` && `npm run lint`
 3. Confirm `src/app/(app)/refill/FieldCapturePanel.tsx` is deleted in the
@@ -213,6 +216,7 @@ Must-run before merge:
 # Unified diffs
 
 ## src/app/(field)/field/page.tsx
+
 ```diff
 --- /tmp/orig/field-home.tsx	2026-07-18 13:22:53.515823135 +0000
 +++ boonz-erp/src/app/(field)/field/page.tsx	2026-07-18 13:24:55.725431632 +0000
@@ -229,7 +233,7 @@ Must-run before merge:
 +          </Link>
          </div>
        </SectionCard>
- 
+
 @@ -808,6 +815,13 @@
              cardStyle={ratioCardStyle(kpis.dispatchedMachines, n)}
              href="/field/dispatching"
@@ -243,10 +247,11 @@ Must-run before merge:
 +          </Link>
          </div>
        </SectionCard>
- 
+
 ```
 
 ## src/app/(field)/field/inventory/page.tsx
+
 ```diff
 --- /tmp/orig/inventory-page.tsx	2026-07-18 13:22:53.514172536 +0000
 +++ boonz-erp/src/app/(field)/field/inventory/page.tsx	2026-07-18 13:26:00.701435495 +0000
@@ -261,7 +266,7 @@ Must-run before merge:
 @@ -142,6 +143,19 @@
    location?: "saved" | "error";
  };
- 
+
 +// RC-02 (Batch 2, PRD-100): a WH qty edit is no longer a bare absolute
 +// overwrite. The user must pick a disposition: count correction (with reason),
 +// refill to machine (deep-links the capture flow), or write-off.
@@ -281,7 +286,7 @@ Must-run before merge:
 @@ -488,6 +502,13 @@
      Record<string, SaveFeedback>
    >({});
- 
+
 +  // RC-02: disposition chooser state for inline qty edits.
 +  const router = useRouter();
 +  const [disposition, setDisposition] = useState<DispositionState | null>(null);
@@ -295,7 +300,7 @@ Must-run before merge:
 @@ -974,6 +995,15 @@
      }, 1500);
    }
- 
+
 +  // RC-02 (Batch 2, PRD-100): the inline qty box no longer performs a bare
 +  // absolute overwrite on blur. It now opens a disposition chooser — the
 +  // warehouse user must say WHY the number changed: (a) count correction with
@@ -351,7 +356,7 @@ Must-run before merge:
 +    }));
 +    setDisposition(null);
 +  }
- 
+
 -    const ok = result.result === "success";
 +  /** Shared post-write bookkeeping for the disposition paths. */
 +  function finishDisposition(ok: boolean, appliedQty: number) {
@@ -463,12 +468,12 @@ Must-run before merge:
 +    setDisposition(null);
 +    router.push(`/field/capture?${params.toString()}`);
    }
- 
+
    async function saveInlineLocation(id: string, location: string) {
 @@ -1841,6 +1983,92 @@
          </div>
        </div>
- 
+
 +      {/* RC-02: disposition chooser for inline qty edits. No default — the
 +          user must pick what the change IS. Keyboard path for the common case
 +          (count correction): type qty, blur, type reason, Enter. Esc cancels. */}
@@ -561,12 +566,13 @@ Must-run before merge:
 ```
 
 ## src/components/field/FieldCapturePanel.tsx (moved from src/app/(app)/refill/FieldCapturePanel.tsx — diff vs the old file)
+
 ```diff
 --- /tmp/orig/FieldCapturePanel.tsx	2026-07-18 13:22:53.517613084 +0000
 +++ boonz-erp/src/components/field/FieldCapturePanel.tsx	2026-07-18 13:24:02.353428460 +0000
 @@ -1,12 +1,27 @@
  "use client";
- 
+
 -// PRD-036 Phase B: field-time batch + expiry capture.
 -// Captures qty + expiry + new-purchase flag per line and submits through the
 -// canonical writer log_manual_refill (Rule S1: no direct table writes; S2: the
@@ -596,13 +602,13 @@ Must-run before merge:
 +// This component was previously dead code under src/app/(app)/refill/ —
 +// it is now mounted at /field/capture (RC-02) and deep-linked from the
 +// field inventory disposition flow.
- 
+
  import { useState, useEffect, useCallback } from "react";
  import { createClient } from "@/lib/supabase/client";
 @@ -23,6 +38,36 @@
    new_purchase: boolean;
  };
- 
+
 +/** Prefill passed by the inventory disposition flow (deep link). */
 +export interface CapturePrefill {
 +  boonz_product_id?: string;
@@ -638,7 +644,7 @@ Must-run before merge:
    feedback_id: string;
 @@ -36,19 +81,19 @@
  };
- 
+
  let rowSeq = 0;
 -function blankRow(): CaptureRow {
 +function blankRow(prefill?: CapturePrefill): CaptureRow {
@@ -655,11 +661,11 @@ Must-run before merge:
      new_purchase: false,
    };
  }
- 
+
 -export function FieldCapturePanel() {
 +export function FieldCapturePanel({ prefill }: { prefill?: CapturePrefill }) {
    const planDate = getDubaiDate();
- 
+
    const [machines, setMachines] = useState<Opt[]>([]);
 @@ -63,12 +108,18 @@
      {},
@@ -679,21 +685,21 @@ Must-run before merge:
 +    lines: RefillLine[];
 +    lineCount: number;
 +  } | null>(null);
- 
+
    useEffect(() => {
      let cancelled = false;
 @@ -128,6 +179,7 @@
    }, []);
- 
+
    const updateRow = useCallback((key: string, patch: Partial<CaptureRow>) => {
 +    setPreview(null); // edited after preview -> must re-preview
      setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
    }, []);
- 
+
 @@ -198,67 +250,104 @@
      };
    }, [machineName, machines]);
- 
+
 -  async function submit() {
 +  function buildLines(): RefillLine[] | string {
 +    if (!machineName) return "Pick a machine";
@@ -764,7 +770,7 @@ Must-run before merge:
 +    if (typeof linesOrError === "string") return setError(linesOrError);
 +    if (!linesOrError) return setError("Preview first, then confirm.");
 +    const lines = linesOrError;
- 
+
      // PRD-075 WS-B: offline-tolerant submit - never lose typed lines. Rows are
      // only cleared on confirmed success; network failures keep state + prompt retry.
      if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -844,7 +850,7 @@ Must-run before merge:
 +        warehouse + refill ledger via the canonical path. Preview validates
 +        everything first; nothing is written until you confirm.
        </p>
- 
+
        {error && (
 @@ -314,7 +404,10 @@
            <span className="mr-2 text-gray-600">Machine</span>
@@ -907,7 +913,7 @@ Must-run before merge:
 @@ -421,20 +523,59 @@
          ))}
        </div>
- 
+
 +      {preview && (
 +        <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
 +          <p className="font-semibold">
@@ -975,6 +981,7 @@ Must-run before merge:
 ```
 
 ## src/app/(field)/field/capture/page.tsx (new file)
+
 ```diff
 --- /dev/null	2026-07-18 09:27:21.992973788 +0000
 +++ boonz-erp/src/app/(field)/field/capture/page.tsx	2026-07-18 13:24:11.369428996 +0000
