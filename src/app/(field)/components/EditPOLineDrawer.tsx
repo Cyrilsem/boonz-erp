@@ -71,7 +71,10 @@ function lineIsReceived(d: DraftLine): boolean {
 
 // PRD-103: qty & price are the superadmin-only fields on a received line.
 // Expiry is NOT locked — it stays editable for every edit role.
-function qtyPriceLocked(d: DraftLine, role: string | null | undefined): boolean {
+function qtyPriceLocked(
+  d: DraftLine,
+  role: string | null | undefined,
+): boolean {
   return lineIsReceived(d) && role !== "superadmin";
 }
 
@@ -83,8 +86,10 @@ function expiryChanged(d: DraftLine): boolean {
 function qtyOrPriceChanged(d: DraftLine): boolean {
   const qtyParsed = d.ordered_qty.trim() === "" ? null : Number(d.ordered_qty);
   const priceParsed = d.price.trim() === "" ? null : Number(d.price);
-  const qtyChangedV = qtyParsed !== null && qtyParsed !== d.original_ordered_qty;
-  const priceChangedV = priceParsed !== null && priceParsed !== d.original_price;
+  const qtyChangedV =
+    qtyParsed !== null && qtyParsed !== d.original_ordered_qty;
+  const priceChangedV =
+    priceParsed !== null && priceParsed !== d.original_price;
   return qtyChangedV || priceChangedV;
 }
 

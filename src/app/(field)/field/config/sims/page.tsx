@@ -159,7 +159,6 @@ export default function SimsPage() {
           }}
         />
       )}
-
     </div>
   );
 }

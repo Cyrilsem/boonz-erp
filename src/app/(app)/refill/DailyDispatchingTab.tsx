@@ -334,7 +334,10 @@ export function DailyDispatchingTab({
         });
         const result = data as { status?: string; message?: string } | null;
         if (error) {
-          console.error("[DailyDispatching] confirm_machine_packed error:", error);
+          console.error(
+            "[DailyDispatching] confirm_machine_packed error:",
+            error,
+          );
         } else if (result?.status === "blocked") {
           console.warn(
             "[DailyDispatching] pack blocked — unpacked lines remain:",

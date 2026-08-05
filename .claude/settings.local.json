@@ -81,7 +81,9 @@
       "Bash(bash git-commit-cc15.sh)",
       "Read(//Users/cyrilsemaan/Desktop/public_html/assets/**)",
       "Read(//Users/cyrilsemaan/Downloads/boonz-website/project/assets/**)",
-      "Read(//Users/cyrilsemaan/Downloads/boonz-website/project/uploads/**)"
+      "Read(//Users/cyrilsemaan/Downloads/boonz-website/project/uploads/**)",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "mcp__claude_ai_Supabase__apply_migration"
     ]
   }
 }

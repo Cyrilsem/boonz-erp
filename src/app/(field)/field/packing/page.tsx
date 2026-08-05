@@ -13,9 +13,17 @@ interface PackingMachine {
   machine_id: string;
   official_name: string;
   adyen_store_code: string | null;
-  sku_count: number;
-  packed_count: number;
-  /** PRD-030 Article 16: canonical readiness from v_machine_pack_status */
+  /**
+   * PRD-107 A5: progress is resolved/packable, both from the canonical view.
+   * The FE no longer counts lines to build its own denominator - counting every
+   * included line put Remove legs in the denominator, which is what stranded
+   * MC-2004 at "32/39" while the server gate had zero unresolved lines.
+   */
+  packable_n: number;
+  resolved_n: number;
+  /** Remove / Machine To Warehouse legs: real work, but never a pack gate. */
+  driver_action_n: number;
+  /** PRD-107: canonical readiness from v_dispatch_pack_progress. */
   is_pack_complete: boolean;
   pack_confirmed: boolean;
   /** PRD-020: machine finished as Complete but Partial (skipped or not_filled > 0) */
@@ -45,33 +53,54 @@ export default function PackingPage() {
       return;
     }
 
-    // PRD-030 Article 16: read canonical pack readiness instead of counting
-    // packed lines client-side. is_pack_complete is true once every included
-    // line is resolved (packed / not_filled / skipped), so not_filled lines
-    // don't hold the machine below 100%.
-    const { data: statusRows } = await supabase
-      .from("v_machine_pack_status")
-      .select(
-        "machine_id, is_pack_complete, pack_confirmed, not_filled, skipped, total_included, resolved",
-      )
-      .eq("dispatch_date", today)
-      .limit(10000);
+    // PRD-107 A5 / Article 16: v_dispatch_pack_progress is THE pack-close state.
+    // ready_to_pack_close is the exact negation of confirm_machine_packed's
+    // unresolved predicate, so the board and the server gate cannot disagree.
+    // pack_confirmed still comes from v_machine_pack_status because that is a
+    // confirmation-record fact, not a progress fact.
+    const [{ data: progressRows }, { data: confirmRows }] = await Promise.all([
+      supabase
+        .from("v_dispatch_pack_progress")
+        .select(
+          "machine_id, packable_n, resolved_n, driver_action_n, not_filled_n, skipped_n, ready_to_pack_close",
+        )
+        .eq("dispatch_date", today)
+        .limit(10000),
+      supabase
+        .from("v_machine_pack_status")
+        .select("machine_id, pack_confirmed")
+        .eq("dispatch_date", today)
+        .limit(10000),
+    ]);
+    const confirmedByMachine = new Map<string, boolean>(
+      (confirmRows ?? []).map((c) => [
+        c.machine_id as string,
+        !!c.pack_confirmed,
+      ]),
+    );
     const statusByMachine = new Map<
       string,
       {
         is_pack_complete: boolean;
         pack_confirmed: boolean;
         is_partial: boolean;
+        packable_n: number;
+        resolved_n: number;
+        driver_action_n: number;
       }
     >(
-      (statusRows ?? []).map((s) => [
+      (progressRows ?? []).map((s) => [
         s.machine_id as string,
         {
-          is_pack_complete: !!s.is_pack_complete,
-          pack_confirmed: !!s.pack_confirmed,
+          is_pack_complete: !!s.ready_to_pack_close,
+          pack_confirmed:
+            confirmedByMachine.get(s.machine_id as string) ?? false,
           // PRD-020: partial = finished with at least one skipped or not_filled line.
           is_partial:
-            Number(s.skipped ?? 0) > 0 || Number(s.not_filled ?? 0) > 0,
+            Number(s.skipped_n ?? 0) > 0 || Number(s.not_filled_n ?? 0) > 0,
+          packable_n: Number(s.packable_n ?? 0),
+          resolved_n: Number(s.resolved_n ?? 0),
+          driver_action_n: Number(s.driver_action_n ?? 0),
         },
       ]),
     );
@@ -111,18 +140,17 @@ export default function PackingPage() {
         adyen_store_code: string | null;
       };
       const existing = grouped.get(line.machine_id);
-      if (existing) {
-        existing.sku_count += 1;
-        if (line.packed) existing.packed_count += 1;
-      } else {
+      if (!existing) {
         const status = statusByMachine.get(line.machine_id);
         const dispatchedComplete = isDispatchComplete(line.machine_id);
         grouped.set(line.machine_id, {
           machine_id: line.machine_id,
           official_name: m.official_name,
           adyen_store_code: m.adyen_store_code,
-          sku_count: 1,
-          packed_count: line.packed ? 1 : 0,
+          // PRD-107 A5: counts come from the view, never from counting lines here.
+          packable_n: status?.packable_n ?? 0,
+          resolved_n: status?.resolved_n ?? 0,
+          driver_action_n: status?.driver_action_n ?? 0,
           // dispatch dominance: fully-dispatched ⇒ pack shows complete
           is_pack_complete:
             (status?.is_pack_complete ?? false) || dispatchedComplete,
@@ -217,7 +245,14 @@ export default function PackingPage() {
                     )}
                   </div>
                   <p className="text-sm text-neutral-500">
-                    {machine.packed_count}/{machine.sku_count} packed
+                    {machine.resolved_n}/{machine.packable_n} packed
+                    {machine.driver_action_n > 0 && (
+                      <span className="text-neutral-400">
+                        {" "}
+                        · +{machine.driver_action_n} driver action
+                        {machine.driver_action_n === 1 ? "" : "s"}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <span

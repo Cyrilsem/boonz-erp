@@ -2032,9 +2032,7 @@ export default function InventoryPage() {
                 disabled={dispositionSaving}
                 className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
               >
-                {dispositionSaving
-                  ? "Saving…"
-                  : "✓ Count correction (Enter)"}
+                {dispositionSaving ? "Saving…" : "✓ Count correction (Enter)"}
               </button>
               {disposition.newQty < disposition.oldQty && (
                 <button
@@ -2042,8 +2040,8 @@ export default function InventoryPage() {
                   disabled={dispositionSaving}
                   className="w-full rounded-lg border border-blue-300 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-40 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
                 >
-                  → Refill to machine (
-                  {disposition.oldQty - disposition.newQty} units)
+                  → Refill to machine ({disposition.oldQty - disposition.newQty}{" "}
+                  units)
                 </button>
               )}
               {disposition.newQty < disposition.oldQty && (

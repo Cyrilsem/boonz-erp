@@ -11,8 +11,8 @@ session. Dates are approximate where memory carries them.
 Over ~9 weeks the inputs have been remarkably consistent in shape. Six streams:
 
 **1. Near-daily refill documents (Google Docs).**
-Driver/venue updates per machine, in three buckets you standardised: *engine-refill errors*, *data to fix
-(warehouse/pods/log the flow)*, and *driver recommendations*. Processed on 01, 02, 03, 06, 07, 08, 09, 10,
+Driver/venue updates per machine, in three buckets you standardised: _engine-refill errors_, _data to fix
+(warehouse/pods/log the flow)_, and _driver recommendations_. Processed on 01, 02, 03, 06, 07, 08, 09, 10,
 14, 15, 16 July (and the earlier 01/07 Mirdif reconciliation, the 22-May retro). These are the single
 highest-frequency input, and the source of most manual writes.
 

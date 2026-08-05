@@ -85,7 +85,8 @@ Sales attribution v2: observed mix (composition at sale time) logged per vend fo
 
 ## PHASE 3 — Optimizer + editing (WS-D + WS-E)
 
-- P3.1 Substitution ladder (WS-D1) in stitch_v3: variant → Pearson substitute (margin-weighted) → alt WH (auto-transfer line) → sibling M2M (overstock donor) → spot_buy_candidate → blocked_demand. Every rung logged in reasoning; silent qty-0 forbidden (assert).
+- P3.1 Substitution ladder (WS-D1) in stitch_v3: variant → substitute product → alt WH (auto-transfer line) → sibling M2M (overstock donor) → spot_buy_candidate → blocked_demand. Every rung logged in reasoning; silent qty-0 forbidden (assert).
+  ⛔ **Substitute-product selection rules (CS, 2026-07-31, live incident):** raw Pearson basket correlation finds COMPLEMENTS (chips buyer also buys Pepsi), not SUBSTITUTES. Selection order is (1) SAME CATEGORY first (product_category on pod/boonz), (2) exclude anything already assorted on the machine (any shelf — the documented in-machine-duplicate bug), (3) then rank by performance/margin/stock, Pearson only as tiebreak WITHIN category. A beverage may replace a snack only when no in-category candidate has stock, and then flagged for CS. Fixture: Hunter Ridge OOS on a machine already carrying cola+soft-drink rows must NOT yield Pepsi; must yield an in-stock snack not already on the machine (Popit/G&H case, 07-31).
 - P3.2 M2M SKU-level (fixture 4): transfers match on boonz_product_id; mixed-SKU source shelves split legs per SKU.
 - P3.3 Rotation heartbeat: weekly job → rotation_proposals scored (fit, projected_days_to_sell) → CS gate → approved ⇒ M2M lines next plan.
 - P3.4 Facing rightsizing proposals (revenue/facing/day report + proposal queue).

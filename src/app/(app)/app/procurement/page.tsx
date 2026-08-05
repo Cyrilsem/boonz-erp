@@ -3525,7 +3525,11 @@ export default function ProcurementPage() {
                             {(() => {
                               const rec = l.received_qty;
                               const ord = l.ordered_qty ?? 0;
-                              if (rec == null || isCancelled || Number(rec) === ord)
+                              if (
+                                rec == null ||
+                                isCancelled ||
+                                Number(rec) === ord
+                              )
                                 return <>{ord}</>;
                               const short = Number(rec) < ord;
                               return (
@@ -3534,7 +3538,10 @@ export default function ProcurementPage() {
                                   style={{ whiteSpace: "nowrap" }}
                                 >
                                   <strong>{rec}</strong>
-                                  <span style={{ color: "#a3a39a" }}> of {ord}</span>
+                                  <span style={{ color: "#a3a39a" }}>
+                                    {" "}
+                                    of {ord}
+                                  </span>
                                   <span
                                     style={{
                                       marginLeft: 6,

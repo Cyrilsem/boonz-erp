@@ -65,9 +65,32 @@ Cody references articles by number. The full text is in the Constitution; this i
 | 11  | Cron via RPC                            | pg_cron jobs call RPCs only. Same rule as n8n.                                                                                                                                                          |
 | 12  | Forward-only migrations                 | No editing past migrations. No DROP-and-recreate. New migration to fix old migration.                                                                                                                   |
 | 13  | Deprecation process                     | Deprecate by `SECURITY INVOKER` + `REVOKE EXECUTE`. Monitor 90 days. Then DROP.                                                                                                                         |
-| 14  | No snapshot tables                      | No "\_v2" or "\_new" parallel tables. Forward migrations evolve the canonical table.                                                                                                                    |
+| 14  | No snapshot tables when a view suffices | Prefer a view. A new table that MATERIALIZES a query result for performance needs ADR signoff. (Does NOT ban versioned/parallel tables per se - see the note below.)                                    |
 | 15  | PRs declare invariants                  | Every PR touching protected entities lists which articles it satisfies. CI lint enforces.                                                                                                               |
 | 16  | One canonical object per metric         | Every registered business metric has exactly ONE canonical DB object (view or read-only fn); all consumers read it; inline re-derivation is blocked. Registry: `docs/architecture/METRICS_REGISTRY.md`. |
+
+### Article 14, stated precisely (corrected 2026-07-30, PRD-110 S-03)
+
+The cheat-sheet row above previously read _"No `_v2` or `_new` parallel tables"_, and the refusal
+list called a parallel `_v2` table an auto-refusal. **That is not what Article 14 says.** Verified
+against `01_constitution.html`, the article is:
+
+> **Article 14 - No snapshot tables when a view suffices.** New tables that materialize a query
+> result **for performance reasons** require ADR signoff. Existing snapshot tables
+> (`machine_summary`, `refill_dispatch_plan`, `daily_pipeline_runs`) are scheduled for retirement
+> in favor of views or materialized views with explicit refresh semantics.
+> _Why:_ snapshot tables go stale silently.
+
+So the test is **staleness**, not the suffix in the name:
+
+- ❌ Block: a table that caches what a view could compute, with no refresh semantics and no ADR.
+- ✅ Allow: a new table holding state a view cannot derive (an append-only ledger, an event log, a
+  shadow table an engine writes during a parallel-run migration). These need the usual Article 2/4/8
+  discipline, and an **ADR** if they materialize a query result.
+
+Why the correction matters: under the old wording, every shadow-mode migration was auto-refused,
+which would have blocked PRD-110's entire "shadow, don't switch" strategy (`pod_refill_plan_shadow`)
+and its `blocked_demand` ledger - both of which the real article permits.
 
 ## Protected entity list (Appendix A of the Constitution)
 
@@ -111,7 +134,7 @@ For (a) DDL on protected entity:
 1. Article 2: does the table have RLS enabled? If not, the migration must enable it.
 2. Article 7: if it's an audit log, are UPDATE/DELETE blocked at the policy layer?
 3. Article 12: is this a forward-only migration? (no DROP-and-recreate, no edit-in-place of past migrations)
-4. Article 14: does this introduce a "\_v2" parallel table? Block if yes.
+4. Article 14: does this table materialize a query result a view could compute? If yes, require an ADR and explicit refresh semantics. (Do NOT block merely because the name carries a version suffix - see "Article 14, stated precisely".)
 
 For (b) writer DEFINER:
 
@@ -176,7 +199,7 @@ Cody refuses (block, not just revise) when any of the following are true:
 - The change writes to `warehouse_inventory.status` from anything other than the warehouse-manager UI path. (Article 6 — non-negotiable.)
 - The change adds a direct `INSERT/UPDATE/DELETE` on a protected table from FE, n8n, edge fn, or cron. (Articles 1, 3, 9, 10, 11.)
 - The change drops a function with active callers and no 90-day deprecation window. (Article 13.)
-- The change introduces a parallel "\_v2" / "\_new" table to "experiment". (Article 14.)
+- The change adds a table that caches what a view could compute, with no refresh semantics and no ADR signoff. (Article 14 - the test is silent staleness, NOT the name: a ledger, an event log, or a shadow table for a parallel-run migration is permitted with the usual Article 2/4/8 discipline.)
 - The change disables RLS on a protected table for any reason. (Article 2.)
 - The migration is a destructive edit-in-place of a past migration. (Article 12.)
 

@@ -162,14 +162,14 @@ function fillBg(pct: number): string {
 }
 
 function expiryDayClass(days: number): string {
-  if (days < 0) return "text-red-600 font-bold";
+  if (days <= 0) return "text-red-600 font-bold";
   if (days <= 7) return "text-amber-600 font-semibold";
   if (days <= 30) return "text-yellow-600";
   return "text-gray-400";
 }
 
 function expiryDaysToDate(days: number): string {
-  if (days < 0) return "EXPIRED";
+  if (days <= 0) return "EXPIRED";
   const d = new Date(Date.now() + days * 86400000);
   return d.toLocaleDateString("en-AE", {
     day: "numeric",

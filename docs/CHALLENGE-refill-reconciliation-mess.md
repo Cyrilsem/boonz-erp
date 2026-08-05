@@ -83,9 +83,10 @@ against. Nothing else on this list pays off until capture is structured.
 
 **Fix 2: one atomic write chain.**
 Every stock change goes through a single transactional RPC that writes `pod_inventory` + `warehouse_inventory`
-+ `refill_plan_output` together, or writes nothing. The `boonz-manual-refill` skill already encodes exactly
-this chain by hand: productise it as one RPC so a partial write becomes impossible (kills #2). Transfers are
-one call with two balanced legs, never one leg logged and the other lost.
+
+- `refill_plan_output` together, or writes nothing. The `boonz-manual-refill` skill already encodes exactly
+  this chain by hand: productise it as one RPC so a partial write becomes impossible (kills #2). Transfers are
+  one call with two balanced legs, never one leg logged and the other lost.
 
 **Fix 3: validate the flows, then relabel, then tighten.**
 Execute the FEFO ticket: publish the pick-order of every stock path, make labels match behaviour, fix the one
@@ -116,4 +117,5 @@ invest in **structured capture at the machine + one atomic write + a daily diff*
 the latter, and to freeze new guard-tightening until it is in place. Everything else is rearranging the mess.
 
 ---
+
 _Companion: `docs/tickets/ISSUE-flow-validity-fefo-vs-fifo.md` (flow semantics), `docs/architecture/DARA-warehouse-availability-canonical.md` (one truth for availability), `docs/refill-updates/RECON-14-15jul-logging-audit.md` (a worked example of the reconciliation cost)._

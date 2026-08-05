@@ -236,6 +236,19 @@ export default function PackingDetailPage() {
     not_filled?: number;
     skipped?: number;
   } | null>(null);
+  /**
+   * PRD-107 R4: orphaned swap legs returned by confirm_machine_packed(final).
+   * A REMOVE whose paired swap-in all went not_filled/skipped would ship an EMPTY
+   * shelf. The server flags them needs_review='orphaned_swap_leg' and proposes a
+   * skip; the packer accepts explicitly here. Never auto-applied.
+   */
+  const [orphanLegs, setOrphanLegs] = useState<
+    {
+      dispatch_id: string;
+      shelf_id: string;
+      quantity: number;
+    }[]
+  >([]);
 
   /**
    * Per-batch pick quantities for mix lines.
@@ -1551,6 +1564,13 @@ export default function PackingDetailPage() {
           not_filled?: number;
           skipped?: number;
         };
+        // PRD-107 R4
+        orphaned_swap_legs?: {
+          dispatch_id: string;
+          shelf_id: string;
+          quantity: number;
+        }[];
+        orphaned_swap_leg_n?: number;
       } | null;
       if (result?.status === "blocked") {
         setConfirmBlock({
@@ -1562,6 +1582,8 @@ export default function PackingDetailPage() {
       }
       // PRD-020: capture the Complete / Complete but Partial summary.
       setConfirmSummary(result?.summary ?? null);
+      // PRD-107 R4: surface orphaned swap legs so the shelf does not go out empty.
+      setOrphanLegs(result?.orphaned_swap_legs ?? []);
 
       // PRD-044: Save & come back leaves the machine in_progress (NOT marked done).
       // Re-fetch so already-resolved lines show locked and the rest stay editable
@@ -4241,6 +4263,69 @@ export default function PackingDetailPage() {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* PRD-107 R4: orphaned swap legs — the swap-in failed, so removing would
+          leave the shelf EMPTY. Server has flagged these for review and proposes
+          a skip; the packer accepts explicitly. Never applied silently. */}
+      {orphanLegs.length > 0 && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3 text-sm dark:border-red-800 dark:bg-red-950/30">
+          <p className="mb-1 font-semibold text-red-800 dark:text-red-300">
+            {orphanLegs.length} remove
+            {orphanLegs.length === 1 ? "" : "s"} would empty a shelf
+          </p>
+          <p className="mb-2 text-xs text-red-700 dark:text-red-400">
+            The swap-in for{" "}
+            {orphanLegs.length === 1 ? "this shelf" : "these shelves"} was not
+            filled, so taking the old product out would leave nothing in its
+            place. Recommended: keep the current product and redo the swap on
+            the next plan.
+          </p>
+          <ul className="mb-3 space-y-1">
+            {orphanLegs.map((o) => {
+              const shelf = lines.find((l) => l.dispatch_id === o.dispatch_id);
+              return (
+                <li
+                  key={o.dispatch_id}
+                  className="flex items-center gap-2 text-xs text-red-700 dark:text-red-400"
+                >
+                  <span className="font-mono">{shelf?.shelf_code ?? "—"}</span>
+                  <span className="truncate">
+                    {shelf?.display_name ?? "Remove leg"}
+                  </span>
+                  <span className="ml-auto shrink-0">×{o.quantity}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <button
+            disabled={saving}
+            onClick={async () => {
+              setSaving(true);
+              const supabase = createClient();
+              for (const o of orphanLegs) {
+                const { error } = await supabase.rpc("skip_dispatch_line", {
+                  p_dispatch_id: o.dispatch_id,
+                  p_reason:
+                    "Swap-in not filled at pack time; keeping current product to avoid an empty shelf, redo swap next plan (PRD-107 orphaned swap leg)",
+                });
+                if (error) {
+                  console.error("[PRD-107] skip orphaned leg failed", error);
+                  setWhWarnMsg(`Skip failed: ${error.message}`);
+                  setSaving(false);
+                  return;
+                }
+              }
+              setOrphanLegs([]);
+              await fetchData();
+              setSaving(false);
+            }}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            Keep current product (skip {orphanLegs.length} remove
+            {orphanLegs.length === 1 ? "" : "s"})
+          </button>
         </div>
       )}
 

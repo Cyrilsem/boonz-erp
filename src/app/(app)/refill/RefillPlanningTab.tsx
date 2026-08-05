@@ -671,13 +671,38 @@ export function RefillPlanningTab({
       }
 
       // Re-resolve the reopened rows against current warehouse stock.
-      const { error: stErr } = await supabase.rpc("stitch_pod_to_boonz", {
-        p_plan_date: selectedDate,
-        p_dry_run: false,
-      });
+      // PRD-109: stitch now runs the pre-flight gate and returns its verdict.
+      // refill_policy_params.preflight_enforcement ships as 'warn', so a FAIL is
+      // reported but never blocks. When it is flipped to 'block', the RPC returns
+      // status='preflight_failed' instead of stitching, and p_force + p_force_reason
+      // become the audited override path.
+      const { data: stData, error: stErr } = await supabase.rpc(
+        "stitch_pod_to_boonz",
+        {
+          p_plan_date: selectedDate,
+          p_dry_run: false,
+        },
+      );
       if (stErr) {
         throw new Error(
           `Reopened ${res?.reopened ?? 0} row(s) but the re-stitch failed: ${stErr.message}`,
+        );
+      }
+      const stitchResult = stData as {
+        status?: string;
+        preflight_verdict?: string;
+        preflight_violation_count?: number;
+        message?: string;
+      } | null;
+      if (stitchResult?.status === "preflight_failed") {
+        throw new Error(
+          stitchResult.message ??
+            `Commit refused by pre-flight: ${stitchResult.preflight_violation_count ?? 0} invariant violation(s).`,
+        );
+      }
+      if (stitchResult?.preflight_verdict === "FAIL") {
+        console.warn(
+          `[PRD-109] Pre-flight FAILED with ${stitchResult.preflight_violation_count ?? 0} violation(s). Enforcement is in warn mode, so the commit proceeded.`,
         );
       }
 
