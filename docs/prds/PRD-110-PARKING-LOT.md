@@ -10849,3 +10849,56 @@ proof an S7-style TRIPLE rather than a single run.
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** ⭐ Now sharper: the ten rows are **SKU-grain** (`Galaxy - Milk Chocolate`) on the **Chocolate Bar** pod, dated `2026-08-06 20:43Z`, so the pod stays `boonz_wh`-constrained for its other SKUs. The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 138 raised no new decision.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+---
+
+## LEG 139 (2026-08-06/07) - S-258 and S-259 CLOSED · golden fully green · DR-3 deferred whole
+
+### ✅ S-258 CLOSED - fixture 45, 11/7 -> **22/0**
+
+The residue hypothesis leg 138 handed off is **DISPROVEN**: all 31 `shelf_composition` rows were
+created `2026-07-30 18:40Z` (7 days before fixture 41), the 20:40 batch's estimator ran 67 minutes
+BEFORE fixture 41 executed, and the 21:40 batch carries no new event at all. **S-256 / fixture 41 is
+exonerated.** Same class as 16/40/41/24: a rented precondition that decayed.
+Remedy = the one the resolver itself names, "plan a Remove on the donor shelf" - the PRODUCTION
+`donor_remove_rows` path. Donor, crossing SKU and refused SKU all selected BY PREDICATE. Four new
+assertions, three stated as PROPERTIES so they cannot rot. Zero existing `expect` values changed.
+Migration `20260806223034_prd110_s258_fx45_donor_remove_plant_self_supplied`.
+
+### ✅ S-259 CLOSED - fixture 53, 19/3 -> **23/0**
+
+⛔ **Leg 138's diagnosis was wrong.** `rows_before = rows_after` is the forced-rollback idiom
+WORKING - fixture 53's own **seq 18 asserts exactly that and has always been green**. The plant
+always landed. The real fault: `v_shadow_runner_health_v3` picks the newest `note='cron'` summary
+row, cron 45 writes one nightly at 21:22 UTC, and the fixture stamped its plant at `now() - 2h` -
+so between 21:22 and 23:22 UTC the LIVE row out-ranked the plant and the view judged production.
+**The fixture was green or red by wall-clock alone.** Leg 138's sweep ran 22:08Z, inside the dead
+zone. Fixed with a recency anchor (`GREATEST(now(), newest live cron row) + 1s`) plus new seq 23,
+a **selection** receipt. Re-fired 23/0 at 22:35Z - inside the old dead zone.
+⭐ `v_shadow_runner_health_v3` is exonerated and now genuinely proven - it is the object that would
+hide a failed shadow night before DR-1 cutover.
+Migration `20260806223459_prd110_s259_fx53_mask_probe_recency_anchor`.
+
+### ⭐ GOLDEN IS FULLY GREEN - 58/58 fixtures, 2118/2118 enabled assertions, 0 fail
+
+LAW 8 is released for the first time since leg 134. `total_pass` EQUALS `enabled_assertions`, so
+the denominator is the whole population (the S-250 check).
+
+### ⏸️ DR-3 DEFERRED WHOLE, NOT PARTLY
+
+Built and Cody-approved at leg 138; three files unchanged on disk (434 lines). It is
+protected-entity DDL (`pod_inventory` REVOKE + write-guard) and a half-applied write-freeze is the
+exact state the RELAY "nothing half-applied" invariant forbids. **Next leg's first task.**
+
+### ⛔ THREE NEW STANDING RULES
+
+1. **A fixture that plants a row a view must SELECT needs a selection receipt, not an insertion
+   receipt.** Asserting the row landed proves nothing if a live row out-ranks it.
+2. **Before calling a plant a no-op, check whether a GREEN assertion already pins the symptom you
+   are reading as the fault.**
+3. **`run_fixture` does NOT roll back** - any fixture writing a live table must clean up before AND
+   after. Article 1 precedent for harness writes to `refill_plan_output`: fixtures 9/10/33/63.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 139 raised no new decision.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
