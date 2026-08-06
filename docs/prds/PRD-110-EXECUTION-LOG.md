@@ -33265,3 +33265,55 @@ file and writing the other two AT the DB-assigned versions, after which both md5
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257, S-258, S-259 and S-260 are CLOSED.**
   New findings resume at **S-261**.
 - ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.
+
+### ⛔⛔ ADDENDUM leg 140 - S-261 (NEW, OPEN): DR-5's PRECONDITION IS WORSE THAN THE RULING DESCRIBES, AND I STOPPED BEFORE TOUCHING IT
+
+DR-5 was scoped next (DR-6 needs an FE deploy this loop cannot perform, so D-19 is blocked behind
+it either way). ⛔ **I probed DR-5's stated precondition and did NOT begin its mutations.**
+The ruling says: *"clear the fixture-58 pending `w_empty` residue first, or the live miner is
+refused with `pending_exists` and the flip is a no-op that looks like a decision."* Measured:
+
+| what the DR-5 ruling says is pending | what is ACTUALLY pending right now      |
+| ------------------------------------ | --------------------------------------- |
+| `w_empty` 0.900 → **0.945**          | `w_empty` 0.900 → **0.958**             |
+| **68.57 %** concordance              | **71.43 %**                             |
+| **1318** evaluable / **474** discrim. | **150** pairs                           |
+| **24** days covered                  | **10** days                             |
+| (stable across legs 86-130)          | mined **2026-08-06 22:52:43Z** - ⛔ **THIS LEG** |
+
+⛔ **`picker_weight_proposals_v3` holds EXACTLY 2 ROWS IN TOTAL, both `pending`, both minted inside
+a 4-second window around fixture 58's run** (`started_at 22:52:47Z`), during THIS leg's
+blast-radius sweep. The second is `w_stale` 0.130 → 0.122 at **28.57 %** concordance.
+⇒ **The table's entire contents are fixture-58 residue.** The ruling's 0.945 / 24-day proposal is
+**not in the database at all**.
+
+⛔ **THE TRAP THIS WOULD HAVE SPRUNG.** A leg that executes DR-5 literally - "accept the `w_empty`
+0.900 → 0.945 proposal" - finds no such row. If it instead accepts *what is there*, it applies
+**0.958 derived from a 10-day, 150-pair synthetic window** and calls it the CS-ruled decision.
+⭐ **That is a re-baseline of a production picker weight wearing a ruling's clothes.**
+
+⭐ **SAME CLASS AS S-258'S LESSON, NOW ON A PRODUCTION TABLE: `run_fixture` DOES NOT ROLL BACK.**
+Fixture 58 ("the pick miner defends its own proposals") MINTS INTO `picker_weight_proposals_v3`
+and leaves the rows `pending`. ⛔ Every sweep re-mints them. This is why the residue exists and
+why it will exist again after the next sweep.
+
+**WHAT THE NEXT LEG MUST DO FIRST (do not skip to the flip):**
+
+1. ⛔ **Establish which proposal is the REAL one** - run the pick miner against the real window
+   (or read `miner_runs_v3`, **26** runs) and confirm the 24-day / 1318-pair answer, rather than
+   trusting either the ruling's remembered numbers or the residue.
+2. ⚠️ **Clear the residue by STATUS, not by `DELETE`** (memory rule: no destructive ops on
+   protected-shaped entities without per-row approval; and the append-only instinct applies).
+   Check the allowed `status` domain first - today the only value present is `pending`.
+3. Only then: accept the real proposal, `UPDATE refill_policy_params SET
+   miner_weekly_pick_dry_run = false;` and `... miner_weekly_edit_dry_run = false;`.
+4. ⛔ **Fixture 60 seq 12 WILL GO RED BY DESIGN** (it asserts the pick dial is still `true`).
+   Re-baseline `expect` **AND** `description` together per S-103; never weaken it to `not_null`.
+   ⭐ This one IS a sanctioned re-baseline - the ruling names it as the known, intended cost.
+5. Re-fire fixtures **57, 58, 59, 60** and expect 58/60 to move.
+
+⛔ **NOTHING WAS MUTATED FOR DR-5 THIS LEG.** Both dry-run dials remain **`true`**, `w_empty`
+remains **0.900**, and the two residue rows were left exactly as found - RELAY: never begin a unit
+you cannot finish. **The `## RESUME POINTER ... leg 140` block above stands, with its "NEXT TASK"
+line AMENDED by this addendum: DR-5 is the recommended next unit (DR-6 is FE-deploy-blocked), and
+it starts at step 1 above, not at the flip.**

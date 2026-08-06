@@ -10936,3 +10936,16 @@ Migrations `20260806224643` / `20260806224842` / `20260806224935`.
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46, DR-3 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/5/6/7/8 remain as WORK, not asks. Leg 140 raised no new decision. ⚠️ **A new DECISIONS-READY entry exists** (arming the freeze dial) but it is explicitly NOT ready - it is gated on the delta report, not on CS attention today.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+### ⛔ S-261 (leg 140, OPEN) - DR-5's "pending residue" is not what the ruling assumes
+
+`picker_weight_proposals_v3` holds **exactly 2 rows, both `pending`, both minted this leg** inside
+a 4-second window around fixture 58's run (fixture 58 MINTS and `run_fixture` does not roll back).
+⛔ **The ruling's proposal (`w_empty` 0.900→**0.945**, 68.57 %, 1318 evaluable / 474 discriminating,
+24 days) IS NOT IN THE DATABASE.** What is actually pending is `w_empty` 0.900→**0.958** (71.43 %,
+150 pairs, **10** days) plus `w_stale` 0.130→0.122 (28.57 %).
+⇒ Executing DR-5 literally finds no 0.945 row; accepting what IS there applies a 10-day synthetic
+result as though it were the CS decision. **Establish the real proposal FIRST.**
+⚠️ Clear residue by STATUS, never by `DELETE`. Fixture 60 seq 12 going red is the sanctioned,
+ruling-named cost (re-baseline `expect` AND `description` together, S-103).
+⛔ **Nothing was mutated: both dials still `true`, `w_empty` still 0.900.**
