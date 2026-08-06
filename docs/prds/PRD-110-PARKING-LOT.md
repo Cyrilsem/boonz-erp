@@ -10687,6 +10687,6 @@ PREDICATE, or plant the precondition** inside the rolled-back probe block. 41 = 
 (still mixed, 3 SKUs) + headroom 9->10 · 16 = the "zero-availability" probe shelf now has 16 WH units ·
 40 = ONE cause, `D_net_primary` = 0 makes rung 1 unsatisfiable and the other four cascade.
 
-### ⏸️ OPEN CS DECISIONS after this leg - **ONE NEW ASK: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 136 raised no new *decision* beyond S-251's confirmation ask.
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE NEW ASK: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 136 raised no new _decision_ beyond S-251's confirmation ask.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
