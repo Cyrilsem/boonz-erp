@@ -31883,3 +31883,386 @@ version))` over `name LIKE '%prd110%'` must equal the md5 of the sorted disk fil
 - ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
   D-33, D-34, D-37, D-39, D-40. ⭐ **D-46 and DR-4 are now EXECUTED** — D-43, D-44, D-45, D-47 and
   DR-1/3/5/6/7/8 remain. ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.
+
+---
+
+## LEG 133 — 2026-08-05 — D-45 EXECUTED AND PROVEN RED-THEN-GREEN. S-248 RAISED (D-43 hands the warehouse role a SILENT freeze).
+
+### [leg 133] STEP R pickup — S-241 first, then RISK 104, and ONE pointer claim did not hold
+
+⛔ **S-241 OBEYED BEFORE ANY DB PROBE.** `ps` at 23:40:10Z returned **nothing**. Quiet machine.
+
+⭐ **RISK 104 probe order obeyed.** `max(version)` **20260805232851** ✅ · `prd110%` **300** ✅ ·
+owed-set md5 **2aec1fd048e2644a28dfaa4dad462e35** ✅ (recomputed, not copied) · disk **301** ✅.
+
+⚠️ **THE ONE DISCREPANCY, RECONCILED BEFORE ANY WORK — `git status --porcelain` read `0`, NOT the
+308 the leg-132 pointer predicted.** Cause: a commit landed **after** leg 132 closed. `fcbfcb5`
+("PRD-110 DONE: 131 legs…") contains leg 132's six migrations AND `PRD-110-goal-command-2.md`, so
+the tree is clean at HEAD and **nothing was lost** — the pointer's figure was simply stale, not
+contradicted. ⭐ **This is the benign direction of the S-80 lesson**: a pointer's git figure ages
+the moment anyone commits, so verify it rather than treat a mismatch as corruption.
+
+⭐ Pointer claims re-verified live and ALL held: `bind_dispatch_fefo` **8ad35ce9** (D-46 not
+reverted) · `compose_plan_with_edits_v3` **32d2a805** · `preflight_refill_plan` **3d6d7b34** ·
+`spot_buy_cap_enforcement` **block** / cap **15** (DR-4 holds) · `preflight_enforcement` **warn** ·
+both miner dry-run flags **true** · `gate0_require_manual_confirm` **true**.
+⚠️ **LAW 12 re-probed THIS leg:** `2026-08-06` **103** rows, `2026-08-07` **0**, `2026-08-08` **0**.
+
+### ✅ D-45 CLOSED BY EXECUTION — `add` is ADDITIVE in the composer, and the red was banked first
+
+**Two migrations, deliberately not one** (the D-46 idiom from leg 132):
+
+1. `20260805235500_prd110_d45_compose_add_additive` (Cody ✅, Articles 1/2/3/4/6/8/12/14/16) —
+   ⭐ **the tell moved: `compose_plan_with_edits_v3` 32d2a805 → 0f8dcfb6.**
+2. `20260805235600_prd110_d45_s3_sensors_flip_to_additive` (Cody ✅, Articles 7/12/14/16) —
+   ⭐ `golden.stress_s3_verify_v1` → **f09fc2ff**.
+
+⭐ **THE CHANGE IS ONE `CASE`, APPLIED BY NAMED SUBSTITUTION ON `pg_get_functiondef` OUTPUT AND
+DIFF-VERIFIED TO ONE HUNK.** Loop (b) untouched: its base is 0, so `0 + qty = qty` was already the
+additive answer. That is also **why fixtures 1/50/54 never moved** — every add in them lands on a
+shelf the base never planned, which is the loop-(b) path.
+
+⭐ **THE PROOF IS A PAIR OF BANKED ROWS, NOT A NARRATIVE** (S-243: written after the evidence):
+
+- `golden.stress_runs` **`2ecddab8-fbdd-4d5a-92ef-3f870ab19a34`** — S3, `passed=false`, **33/2**.
+  Fixed composer, OLD sensors. seq **18** `hard_edits_present_in_composed_output` actual **5**,
+  expect "0 missing of 10"; seq **20** `add_composes_as_absolute_D45_sensor` actual **5**, expect
+  "0 mismatched of 5". ⛔ **DO NOT DELETE THIS ROW** — paired with the green below it is the whole
+  proof, exactly as `a2020a40`/`ef56c478` are for D-46.
+- `golden.stress_runs` **`ec76abd0-0bd4-4275-98fb-c3e8dea2a4ba`** — S3, `passed=true`, **36/0**.
+
+⛔ **ASSERTION 18 MOVED TOO AND THE GOAL COMMAND ONLY NAMED 20.** Leg 132's recon called this and it
+was exact: `v_hard_bad` asserts `s.qty = e.qty` over hard edits of kind `set_qty` **or** `add`, and
+**5 of the run's 10 qualifying hard edits were adds**. Re-basing 20 alone would have left S3
+permanently red and read as "the composer fix was wrong".
+
+⭐ **THE BASE IS READ FROM `v_base`, NOT `base_qty_at_edit`.** A hard edit is _defined_ as outranking
+a base that moved after it was recorded, so the composer applies `base_qty + qty` against the
+CURRENT base run. Asserting against the edit-time snapshot would have re-reddened seq 18 the first
+time that property was actually exercised.
+
+⭐ **NEW S3 seq 36 `D45_additive_assertion_is_load_bearing` — an ANTI-VACUITY GUARD, and it reads 5.**
+An `add` onto a base of 0 composes to `qty` under BOTH readings, so a future run whose adds all
+landed on unplanned shelves would pass seq 20 while proving nothing. `v_add_diverge` was already
+computed and only ever reported as a diagnostic; seq 36 promotes it to an assertion (≥1 add on a
+non-zero base). S-173 family: a guard passed by inspection is not a guard passed.
+
+⭐ **S-103 obeyed on both**: seq 18 renamed `…_at_D45_additive_qty`, seq 20 renamed
+`add_composes_as_additive_D45_property`; neither LOOSENED — both still demand exactly 0 bad.
+
+⭐ **ALL SIX compose/`plan_edits_v3` FIXTURES RE-RUN GREEN, every assertion evaluated, 0 skipped:**
+**1** 59/0 · **11** 39/0 · **50** 49/0 · **51** 53/0 · **54** 41/0 · **57** 39/0.
+⭐ LAW 12 held inside S3's own tripwires: `refill_plan_output` **8494**, `pod_refill_plan` **6643**,
+`pod_refills` **3996** — identical before and after.
+
+⚠️ **Cody's one watch, recorded not swallowed:** an additive `add` can now compose a line ABOVE
+`max_stock`. The composer has never clamped `set_qty` either, so this is not a new _class_ of
+exposure — but it is newly reachable without a human typing a large number. Not constitutional; no
+clamp was added (that would be an unruled policy move).
+
+### ⛔ S-248 (NEW) — EXECUTING D-43 CONVERTS A LOUD FAILURE INTO A SILENT ONE FOR THE WAREHOUSE ROLE
+
+Raised during D-43 recon, **before** any D-43 migration was written, and it is a genuine ordering
+problem rather than a blocker:
+
+- Today the packing role hits **S-191**: repack half-completes and RAISES `push_failed` — **loud**.
+- D-43 half 1 adds `warehouse` to `push_plan_to_dispatch`'s role list, so that role becomes fully
+  authorised. It then lands on **S-193** instead: repack returns **`status='ok'`** having created
+  **zero** fresh dispatch rows, leaving the plan reading `dispatched=true` with no row to serve it.
+- ⛔ **So D-43, shipped alone, hands the warehouse role a SILENT freeze in place of a loud error.**
+  The parking lot has said since leg 107 that _"S-193 is independent of D-43 and must be fixed
+  regardless"_ — ⚠️ **but S-193 is NOT in goal-command-2's work queue**, in any tier.
+
+⭐ **A SECOND STRUCTURAL FINDING, worth more than the first:** after half 1, `repack_machine`'s gate
+`('warehouse','operator_admin','superadmin','manager')` and push's list become **identical sets**, so
+half 2's pre-flight becomes a branch **no role can reach**. That does not make it pointless — it is
+the guard that stops the two lists silently diverging again — but it does mean **the pre-flight
+cannot be proven by a role replay**. It has to be asserted structurally, as
+`repack_roles ⊆ push_roles`, or it ships untested. ⛔ A fixture that "passes" it by inspection is
+exactly the S-173 sin this build keeps refusing.
+
+⏸️ **D-43 IS THEREFORE STARTED-AND-PARKED, NOT SILENTLY SKIPPED.** No D-43 migration was written; no
+role list was touched. Recon is banked below so the next leg does not re-derive it.
+
+### ⏸️ [leg 133] D-43 RECON — banked, so the next leg starts from evidence
+
+- **Half 1 is one array literal.** `push_plan_to_dispatch` (md5 **21371529**, single overload
+  `p_plan_date date, p_machine_name text`) gates at its line ~57:
+  `IF v_user_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.user_profiles WHERE id = v_user_id
+AND role = ANY (ARRAY['operator_admin','superadmin','manager'])) THEN RAISE`.
+  ⛔ Note the `v_user_id IS NOT NULL` guard: a **NULL caller (service role) already bypasses the gate
+  entirely** — so the role list is not the only way in, and any assertion about it must say so.
+- **Half 2 goes after the machine lookup and BEFORE the return loop.** `repack_machine`
+  (md5 **d719d3c1**, single overload) resolves `machines.official_name`, checks
+  `dispatched_count`, then runs `FOR v_row IN … PERFORM public.return_dispatch_line(…)`. **That loop
+  is the first destructive act** and there is no savepoint; the pre-flight belongs immediately above it.
+- ⚠️ **`repack_machine`'s `search_path` is `public` ALONE, no `pg_temp`** — fixture 9 seq 4 pins this
+  as a known-unhardened shape. Any `CREATE OR REPLACE` must decide deliberately whether to fix it
+  (and if it does, seq 4 moves and that is a second re-baseline).
+- **Fixture 9 (73 assertions, scenario 16 226 bytes, 2030-07-20 + 2030-07-21) is the proof surface.**
+  Leg 108 recorded which move: ⛔ _"When D-43 is executed, seq 1-2 and 16-28 go red and updating them
+  IS the proof. Do NOT loosen them."_ Verified this leg against the live `check_sql`:
+  - seq **1** reads `repack_machine.prosrc LIKE '%IN (''warehouse'',…)%'` → under option (a) it
+    **stays green**; only option (b) would have reddened it. ⭐ The leg-108 note says "1-2" and that
+    is half right — **expect seq 2 to move, not seq 1.**
+  - seq **2** reads `push_plan_to_dispatch.prosrc LIKE '%ARRAY[''operator_admin'',''superadmin'',''manager'']%'`
+    → goes red the instant half 1 lands. This is the one true half-1 sensor.
+  - seq **16-22** all read `golden.scratch` key **`s191`** (`status`/`error`/`message`/`returned`/
+    `failed`/`reset`/`fresh`). After D-43 the warehouse replay stops erroring, so `status` ok,
+    `error`/`message` NULL, and the block must be REWRITTEN to assert the S-193 freeze it now hits —
+    not merely re-`expect`ed.
+- ⭐ **The 2030-07-20 (unauthorised) and 2030-07-21 (authorised) replays COLLAPSE INTO THE SAME
+  BEHAVIOUR** once warehouse is authorised. The fixture's two-date design exists to keep them apart;
+  the next leg must decide whether 07-20 becomes a _pre-flight_ replay instead of deleting it.
+
+---
+
+## LEG 134 — 2026-08-06 — D-43 EXECUTED (both halves) + S-193 CLOSED. ⛔ AND THE HARNESS WAS ALREADY RED BEFORE THIS LEG TOUCHED IT (S-249).
+
+### [leg 134] STEP R pickup — S-241 first, RISK 104 second, and leg 133 left NO resume pointer
+
+⛔ **S-241 OBEYED BEFORE ANY DB PROBE.** `ps` narrowed to `prd110|golden|stress_s|psql` returned
+**nothing**. Quiet machine.
+
+⚠️ **LEG 133 ENDED WITHOUT A `### RESUME POINTER` BLOCK.** Its log stops mid-way through the D-43
+recon; the session was cut off. ⭐ **That is not corruption and nothing was lost** — its two D-45
+migrations are on disk, applied, and registered — but it means the relay's normal hand-off channel
+was empty and every claim had to be rebuilt from the DB. ⛔ **The recon leg 133 banked was complete
+enough to start from, which is the whole argument for banking recon before ending a unit.**
+
+⭐ **RISK 104 probe order obeyed and ALL FIVE held**: `max(version)` **20260805235600** ·
+`prd110%` **302** · owed-set md5 **866dfa2e6070636fa06ae18fea0404a0** on BOTH sides (recomputed, not
+copied; 302 names each) · disk **303** (302 + S-31's retained `20260730203000`) ·
+`git status --porcelain` **6** (leg 133's uncommitted work).
+
+⚠️ **ONE CONVENTION CORRECTION, RECORDED SO IT IS NOT RE-DISCOVERED: the function-roll md5s are
+`md5(prosrc)`, NOT `md5(pg_get_functiondef(oid))`.** The first probe used functiondef and every
+single value mismatched — which reads exactly like a reverted leg until you notice ALL of them moved
+together. ⛔ **A total mismatch is a measurement bug; a partial one is a real change.** Under
+`prosrc` all six pointer claims held byte-for-byte: `compose_plan_with_edits_v3` **0f8dcfb6** ·
+`bind_dispatch_fefo` **8ad35ce9** (D-46 not reverted) · `preflight_refill_plan` **3d6d7b34** ·
+`push_plan_to_dispatch` **21371529** · `repack_machine` **d719d3c1** ·
+`golden.stress_s3_verify_v1` **f09fc2ff**.
+
+⭐ Flags re-read live: `preflight_enforcement` **warn** · `gate0_require_manual_confirm` **true** ·
+`spot_buy_cap_enforcement` **block** / cap **15** · both miner dry-run flags **true** ·
+`w_empty` **0.900** (DR-5 not yet applied). ⚠️ **LAW 12 re-probed THIS leg:** `2026-08-06` **103**
+rows, `2026-08-07` **0**.
+
+⛔ **THE MCP SUPABASE SERVER NEVER CONNECTED THIS LEG.** `ToolSearch` found no
+`mcp__supabase__*` tool. Everything below went through the `curl` shim against the management API,
+and every migration had to be **hand-registered** into `supabase_migrations.schema_migrations` — the
+MCP does that for you. ⛔ **A migration applied without that INSERT breaks the RISK-104 owed-set md5
+and looks like a lost file.** `/tmp/apply_mig.sh` (applies + registers, derives version/name from
+the filename) is the shape to recreate.
+
+### ✅ D-43 EXECUTED — BOTH HALVES — AND S-193 CLOSED WITH IT, WHICH IS THE DECISION THIS LEG MADE
+
+Leg 133 raised **S-248** and parked D-43 on it: half 1 alone converts the packing role's **loud**
+`push_failed` into a **silent** freeze, because the role stops hitting S-191 and starts hitting
+S-193 instead — `status='ok'`, zero fresh rows, plan re-stamped `dispatched=true`. ⛔ **S-193 is in
+no tier of goal-command-2's work queue**, and leg 133 flagged that as the open question.
+
+⭐ **THE ANSWER, AND WHY IT IS NOT SCOPE DRIFT.** The parking lot has said since **leg 107** that
+_"S-193 is independent of D-43 and must be fixed regardless"_. It is the **precondition that makes
+the ruled change safe**, and both defects live inside the same function. Shipping D-43 without it
+would have handed a silent freeze to the exact role that reported the 2026-07-20 incident. They
+shipped together, in one Cody pass, with the S-193 half named in the migration title.
+
+**Three migrations, and the split is deliberate:**
+
+1. `20260806003000_prd110_d43_push_roles_and_s193_returned_squat` (Cody ⚠️→✅, Articles
+   1/2/3/4/5/6/8/12/13/14/16) — the functions. ⭐ **The tells moved:
+   `push_plan_to_dispatch` 21371529 → 6372fe60** (v10 → `v11_rc01_single_writer_d43_s193`) and
+   **`repack_machine` d719d3c1 → 2e8330fe**.
+2. `20260806003100_prd110_d43_s193_fixture9_rebase` — the sensors, AFTER the red was banked.
+3. `20260806003200_prd110_d43_fixture9_stale_crossrefs` — two descriptions, text only.
+
+⭐ **S-193's MECHANISM IS ONE PREDICATE, AND THE PROOF IT WAS THE RIGHT ONE IS THAT EVERYTHING ELSE
+ALREADY AGREED.** push's RC-01 §5(5b) multi-wave idempotency probe excluded
+`skipped`/`cancelled`/`is_m2m` rows but **not `returned`** ones — so the row repack had just returned
+still matched, the plan line was "preserved" against a corpse, and 0 rows were pushed. The partial
+unique index on `refill_dispatching` **and** `prevent_duplicate_unstarted_dispatch` **both already
+exclude `returned=true`**. This probe was the last place that did not, which is exactly why the
+fresh INSERT starts succeeding the moment it agrees with them — no trigger fights it.
+
+⭐ **BLAST RADIUS MEASURED BEFORE THE CHANGE, NOT ARGUED AFTER IT.** Only three functions in the
+whole schema ever set `refill_plan_output.dispatched = false`: `push_plan_to_dispatch`,
+`repack_machine`, and `reset_approved_undispatched`. ⛔ The third also moves `operator_status` to
+`'pending'`, which push does not select. **So the `returned` predicate reaches the repack path and
+nothing else** — no cron, no EOD sweep, no ordinary driver return.
+
+⭐ **THE ROLE LIST BECAME A NAMED OBJECT, AND THAT IS HOW S-248 GOT ANSWERED RATHER THAN WAIVED.**
+New `public.push_dispatch_authorized_roles()` (IMMUTABLE sql, `search_path ''`) is now the ONLY
+place the push-authorisation set is written down; push gates on it and repack pre-flights against
+it. S-248's point was that once `warehouse` joins push's list the two sets are **identical**, so
+half 2's pre-flight is a branch **no role can reach** and cannot be proven by a role replay. Naming
+the set makes the relation assertable **as data**: fixture 9 seq **78** asserts
+`repack_roles ⊆ push_roles` with expect **`0|4`** — ⛔ **not `0`, because a regexp that stops
+matching yields zero rows and would pass a bare `0` vacuously.** seq **79** asserts the pre-flight
+PRECEDES the first `return_dispatch_line`; ordering is the entire defect, since repack has no
+savepoint.
+
+⚠️ **CODY'S ONE REVISION, APPLIED NOT SWALLOWED:** the `GRANT EXECUTE … TO authenticated` was
+**dropped** (Article 3, least privilege). Both callers are DEFINER owned by `postgres`, so the
+EXECUTE check resolves as the definer — the grant would only have published the privileged-role list
+to every logged-in user for no caller that needs it. `service_role` only.
+
+⭐ **THE PROOF IS A THREE-RUN CHAIN IN `golden.runs`, ALL RE-READABLE, NONE TO BE DELETED:**
+
+- **`58a80197-4796-4d26-9d8f-7970c7bd18b0`** 04:11:35Z — **73/0 green**, OLD functions. The baseline
+  that makes the red mean something.
+- **`78ebb82f-1750-4da8-a612-66f09028d356`** 04:17:47Z — **63/10 RED**, fixed functions against OLD
+  sensors: seq **2, 9, 10, 11, 16, 17, 18, 22, 27, 28**. ⛔ **Not a standing red — the red the CS
+  ruling predicted.**
+- **`f0d4c08b-2116-4f4e-9774-4adfbccf6bd7`** 04:24:07Z — **80/0 green**, re-based.
+
+⭐ **FOUR ASSERTIONS THAT STAYED GREEN WERE REWRITTEN ANYWAY (6, 12, 13, 15), AND THAT IS S-103'S
+WHOLE POINT.** Each reads the same value as before and now means the opposite: seq 6's `ok` was the
+worst of the three defects and is now the true answer; seq 12's `dispatched=true` was the freeze;
+seq 13's zero-line re-push was the freeze and is now **idempotency**. ⛔ Leaving them would have left
+the fixture green while its own text described a system that no longer exists.
+
+⭐ **AND FOUR NEW ASSERTIONS EXIST ONLY BECAUSE THE RE-BASED ONES BECAME VACUOUS.** `dispatched=true`
+reads identically under the freeze and under the fix — what separates them is **what the plan row is
+BOUND to**. seq **74/76** assert the bind target is not a returned row on both dates; seq **75**
+asserts there IS a bound row, because `bool_or` over an empty join returns `false` and would pass 74
+with nothing bound at all. Fixture 9: **73 → 80 assertions, none loosened**, every re-based expect
+still an exact equality.
+
+⚠️ **S-192 IS NOT CLOSED AND IS NOW THE ONLY ONE OF THE THREE STILL OPEN.** A repack's own returns
+stamp `dispatched=true`, so the second repack on a (machine, date) is still refused permanently.
+Fixture 9 seq 31-34 continue to pin it. ⛔ Do not read "D-43 executed" as "repack is fixed".
+
+⚠️ **DELIBERATELY NOT CHANGED, so silence is not read as oversight:** repack's own gate literal
+(fixture 9 seq **1** pins it, and it correctly did NOT move — option (a) widens push, not repack;
+leg 108's "seq 1-2 go red" was half right, leg 133 predicted it, leg 134 measured it) and repack's
+`search_path` — still `'public'` alone, no `pg_temp`, the S-198 fleet-scale shape seq 4 records.
+
+### ⛔ S-249 (NEW, AND THE MOST IMPORTANT THING IN THIS LEG) — THE GOLDEN HARNESS HAS BEEN RED SINCE BEFORE LEG 134, AND NO DOCUMENT SAYS SO
+
+⭐ **Found by running the full sweep, not by reading one.** Leg 134's sweep: **58 fixtures, 2090
+pass / 12 fail, five red — 16(3), 17(1), 30(1), 40(5), 41(2).**
+
+⛔ **AND THEN THE BISECT, WHICH IS DECISIVE.** `golden.runs` already holds a **full sweep taken
+BEFORE leg 134's first migration** — note **`leg127 S7 r133`**, 2026-08-06 **00:02:41Z → 02:16:16Z**,
+51 fixtures banked, **12 fails across 16, 17, 30, 40, 41**. ⭐ **The same five fixtures with
+byte-identical counts: 3/1/1/5/2.** Leg 134's first migration applied at ~04:15Z (its 04:11:35Z
+baseline run is the fence). **Leg 134 introduced ZERO new failures.**
+
+⛔ **THAT SWEEP APPEARS IN NO LOG AND NO PARKING-LOT ENTRY.** Leg 133 ran it (re-using leg 127's S7
+script with `ROUND=133`) and its session was cut off before it could report — the same truncation
+that cost the resume pointer. ⭐ **So the last full sweep anyone WROTE DOWN is leg 131's S7 on
+2026-08-04 (58/58, 2094/2094).** Legs 132 and 133 each re-ran only the handful of fixtures they
+touched, and both were green on those — which is exactly why neither noticed.
+
+⛔ **THE CONSEQUENCE, STATED PLAINLY: "golden fully green" has been FALSE since somewhere between
+2026-08-04 09:28Z and 2026-08-06 00:02Z, and the DONE report, the parking lot and goal-command-2's
+own premise all still assert it.** ⚠️ **A targeted re-run of the fixtures a leg touched is not a
+regression check — it is the definition of a blind spot**, and this build has now shipped two legs
+inside one.
+
+**What the twelve failures actually are — measured, not guessed:**
+
+- ⭐ **Fixture 17 is not an assertion failure at all.** Its `detail` carries a non-assertion element:
+  `{"scenario_error": "FX17 setup: no headroom on A01 (stock=14 max=14) - a facing pin could not
+  bite"}`. ⛔ **The scenario could not set itself up because production filled the shelf.**
+  Unambiguously ambient drift. ⚠️ **This is also why `n_pass+n_fail` (26) exceeds fixture 17's
+  enabled assertion count (25)** — the runner counts a scenario error as a failure without a `seq`,
+  so a `detail` scan for `passed=false` finds NOTHING and the fixture reads red for no visible
+  reason. ⛔ That trap cost this leg two probes.
+- ⭐ **Fixture 41 seq 5 is an EXPLICIT drift guard doing its job:** `v_shelf_state` for shelf
+  `31894963` reads `A07|G&H Popped Chips` where the fixture pins `A07|Krambals & Zigi`. The live
+  shelf was re-podded. Ambient.
+- **Fixture 30 seq 2** reads live `venue_team` mappings: 10 where 0 is pinned. Ambient.
+- ⚠️ **Fixture 16 seq 13/15/16 are the ones that are NOT obviously ambient.** The clamp reason moved
+  `blocked_no_wh` → `pin_floor` and a plan that shipped 0 units now ships 1. That is **warehouse
+  availability**, and `bind_dispatch_fefo` — changed by **D-46 in leg 132** — is what writes
+  `committed_elsewhere` into `wh_fefo_for_line`. ⛔ **Leg 132 re-ran only fixtures 18 and 26 after
+  D-46. This is a candidate D-46 blast radius that was never swept**, and it must be settled before
+  it is re-baselined.
+- **Fixture 40 seq 44/48/50/51/55** — the stitch_v3 rung ladder terminates at `substitute#2` where
+  `variant#1` is pinned, and the non-vacuity guard (seq 44) reads 0. Not yet attributed.
+
+⏸️ **NOT RE-BASELINED THIS LEG, AND THAT IS A DECISION, NOT AN OMISSION.** Three of the five are
+live-data drift and two are candidate code blast radius; re-baselining all five uniformly would bury
+the second kind inside the first. ⛔ **LAW 8 halts phase work on a golden failure — so the next leg's
+FIRST unit is this bisect, ahead of DR-3 and everything else in Tier 1.**
+
+### ⛔ S-250 (NEW) — A PER-FIXTURE SWEEP SILENTLY LOSES RUNS, AND THE LOSS LOOKS LIKE A SMALLER SUITE
+
+`golden.run_all()` cannot be used through the management API — the single call exceeds the gateway
+ceiling and returns an empty body having committed nothing (verified: zero rows banked). The
+leg-126/127 idiom is right: fire per fixture, discard the body, read the verdict back from
+`golden.runs`. ⛔ **But 8 of 58 fires — 8, 9, 37, 39, 40, 45, 54, 57 — never committed**, and the
+read-back then reported `fixtures_run = 50` with a clean-looking pass/fail split. ⚠️ **A sweep that
+silently covers 86 % of the suite is worse than one that fails**, and fixture **40 (5 failures) was
+among the missing** — the sweep would have under-reported the red by a third. ⛔ **ALWAYS reconcile
+fired-count against banked-count before believing a sweep verdict.** The eight were re-fired and all
+eight banked on the second attempt.
+
+### [leg 134] STATE AT CLOSE — every figure re-derived live
+
+`max(version)` **20260806003200** · `prd110%` **305** (was 302; **+3 this leg**) · disk **306** ·
+owed-set md5 **83288219167a1b75f8a9e9a878adb3bd on BOTH sides**, recomputed not copied (305 names
+each) · golden **58 fixtures / 2101 enabled assertions** (fixture 9: 73 → 80) ·
+`golden.stress_runs` **14** (unchanged this leg) · **36 active crons, 0 changed** ·
+⛔ **LIVE plan tables untouched:** `refill_plan_output` **8494**, `pod_refill_plan` **6643**,
+`2026-08-06` **103** rows, `2026-08-07` **0** (LAW 12 honoured).
+
+**FLAGS AT CLOSE — NOT ONE CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`miner_weekly_pick_dry_run` **true** · `miner_weekly_edit_dry_run` **true** · `w_empty` **0.900**.
+⛔ **No cutover flag exists and none was created (LAW 4).**
+
+### RESUME POINTER 2026-08-06 leg 134 · FINAL
+
+- ⚠️ **FIRST — `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql` (a bare
+  `ps -A` grep returns 75 KB of Google Drive and is useless). Leg 134 left **no process running**.
+  Then RISK 104: **expect `prd110%` = 305, `max(version)` = 20260806003200, 306 prd110 files on
+  disk, owed md5 `83288219167a1b75f8a9e9a878adb3bd` both sides.**
+- ⛔ **THE FUNCTION-ROLL md5 CONVENTION IS `md5(prosrc)`, NOT `md5(pg_get_functiondef(oid))`.** If
+  every value mismatches at once, that is the measurement, not a revert.
+- ⛔ **`/tmp` IS CLEARED BETWEEN LEGS.** Recreate `/tmp/prd110_sql.sh` with **`curl`** (urllib's UA
+  is rejected with `error code 1010`); token at `~/.claude.json` → `projects[<repo>].mcpServers
+.supabase.args --access-token=`, never printed. ⛔ **The supabase MCP did NOT connect this leg** —
+  recreate `/tmp/apply_mig.sh` too, because migrations must then be **hand-registered** into
+  `supabase_migrations.schema_migrations` or the owed-set md5 breaks.
+- ⛔ **NEXT TASK IS S-249, NOT DR-3. LAW 8 HALTS PHASE WORK ON A GOLDEN FAILURE.** Five fixtures are
+  red — **16(3), 17(1), 30(1), 40(5), 41(2)** — and the red PRE-DATES leg 134 (proven: note
+  `leg127 S7 r133`, 2026-08-06 00:02-02:16Z, identical counts). ⭐ Split them before touching any:
+  **17 is a `scenario_error` (live shelf has no headroom) · 41 seq 5 and 30 seq 2 are live-data
+  drift · 16 seq 13/15/16 are a candidate D-46 blast radius on WH availability and 40's rung ladder
+  is unattributed.** ⛔ Do NOT re-baseline all five uniformly — that buries the code-caused ones
+  inside the ambient ones.
+- ⛔ **A FIXTURE CAN READ RED WITH NO FAILING ASSERTION.** `detail` may carry
+  `{"scenario_error": …}` with no `seq`, and `n_pass+n_fail` then exceeds the fixture's enabled
+  assertion count. Scan for elements WITHOUT a `seq` key before concluding the detail is empty.
+- ⛔ **RECONCILE FIRED vs BANKED ON EVERY SWEEP (S-250).** 8 of 58 fires silently failed to commit
+  this leg, including fixture 40 which carries 5 of the 12 failures. `golden.run_all()` through the
+  management API commits **nothing** — fire per fixture and read the verdict back from `golden.runs`.
+  Keep the cron-44 straddle guard (never START a fixture in UTC minutes 37-40).
+- ⏸️ **THEN, in goal-command-2 order:** DR-3 (pod_inventory physical write-freeze: revoke +
+  write-guard + daily-delta report) · then Tier 2 (DR-6 Stax unit first, then D-19) · Tier 3
+  (D-44, D-47, DR-5, DR-7, DR-8) · Tier 4 (DR-1 cutover unit, **flag-off**).
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** DR-4 done (leg 132). DR-5 and D-19-after-DR-6 are
+  the only other authorised flips. **The cutover flag stays untouchable and must not be
+  created-then-thrown.**
+- ⭐ **D-43/S-193 ARE CLOSED AND THEIR PROOF IS RE-READABLE**, not banked-and-forgotten:
+  `golden.runs` **58a80197** (73/0, old) → **78ebb82f** (63/10, the predicted red) → **f0d4c08b**
+  (80/0, re-based). ⛔ **Do NOT delete any of the three.** `push_plan_to_dispatch` **6372fe60**,
+  `repack_machine` **2e8330fe** — ⛔ if either reads **21371529** / **d719d3c1** again the fix has
+  been reverted.
+- ⚠️ **S-192 IS STILL OPEN** (a repack's own returns block every later repack, permanently) and is
+  now the only one of the three fixture-9 defects that is. It is in NO tier of goal-command-2.
+- ⛔ **S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** New findings resume at **S-251**.
+- ⛔ **THE FUNCTION ROLL IS NOW 35** (34 + `push_dispatch_authorized_roles`). Changed this leg:
+  `push_plan_to_dispatch` **21371529 → 6372fe60**, `repack_machine` **d719d3c1 → 2e8330fe**.
+  ⭐ All others byte-identical, `bind_dispatch_fefo` **8ad35ce9** included.
+- ⚠️ **LAW 12 — re-probe the live plan date EVERY leg.** At this close `2026-08-06` held **103** rows
+  and `2026-08-07` **0**. 2030-11-02 is still the only free date in the stress band; 11-01 S1,
+  11-03 S3, 11-04 S4, 11-05 S5 (four plants deep). Fixture dates unchanged.
+- ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
+  D-33, D-34, D-37, D-39, D-40. ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED** — D-44, D-47 and
+  DR-1/3/5/6/7/8 remain. ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.

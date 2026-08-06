@@ -10465,3 +10465,175 @@ added"_ and is the likeliest to pin the absolute reading. The change itself is t
 ### ⏸️ OPEN CS DECISIONS after this leg — **NOTHING WAITS ON CS.** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-46 and DR-4 are now EXECUTED**; D-43, D-44, D-45, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 132 raised no new decision.
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 133 (2026-08-05) — D-45 EXECUTED AND PROVEN. D-43 STARTED-AND-PARKED ON S-248.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every figure below was read back live, and the
+S3 verdicts cite **banked** `golden.stress_runs` rows, never a running process.
+
+### ✅ D-45 CLOSED BY EXECUTION — `add` is ADDITIVE (`base + qty`) in the composer
+
+Two migrations, deliberately not one (the leg-132 D-46 idiom — bank the red, then re-base the sensor):
+
+1. `20260805235500_prd110_d45_compose_add_additive` (Cody ✅) —
+   ⭐ **`compose_plan_with_edits_v3` 32d2a805 → 0f8dcfb6.**
+2. `20260805235600_prd110_d45_s3_sensors_flip_to_additive` (Cody ✅) —
+   `golden.stress_s3_verify_v1` → **f09fc2ff**.
+
+⭐ **THE PROOF IS A PAIR OF BANKED ROWS AND BOTH MUST BE RETAINED:**
+
+- **`2ecddab8-fbdd-4d5a-92ef-3f870ab19a34`** — S3, `passed=false`, **33/2**: the FIXED composer
+  against the OLD sensors. seq 18 actual **5** ("0 missing of 10"), seq 20 actual **5**
+  ("0 mismatched of 5"). ⛔ **This is not a standing red — it is the red the CS ruling predicted.**
+- **`ec76abd0-0bd4-4275-98fb-c3e8dea2a4ba`** — S3, `passed=true`, **36/0**.
+
+⛔ **ASSERTION 18 MOVED AS WELL AS 20, AND THE GOAL COMMAND NAMED ONLY 20** — 5 of the 10 qualifying
+hard edits were adds. Leg 132's recon predicted this exactly; re-basing 20 alone would have left S3
+permanently red and read as a wrong fix.
+
+⭐ **Loop (b) untouched, and that is why fixtures 1/50/54 never moved** — their adds all land on
+shelves the base never planned, where base is 0 and `0 + qty = qty` was already additive.
+
+⭐ **New S3 seq 36 `D45_additive_assertion_is_load_bearing` reads 5.** An add onto a base of 0
+composes to `qty` under BOTH readings, so seq 20 would pass vacuously on a run whose adds all landed
+on unplanned shelves. `v_add_diverge` already existed as a diagnostic; seq 36 makes it an assertion.
+
+⭐ Fixtures **1** 59/0 · **11** 39/0 · **50** 49/0 · **51** 53/0 · **54** 41/0 · **57** 39/0, every
+assertion evaluated, 0 skipped. LAW 12 tripwires inside S3 unchanged: `refill_plan_output` **8494**,
+`pod_refill_plan` **6643**, `pod_refills` **3996**.
+
+⚠️ **Cody's watch, recorded not swallowed:** an additive `add` can now compose ABOVE `max_stock`. The
+composer never clamped `set_qty` either, so the _class_ of exposure is not new — but it is newly
+reachable without a human typing a large number. No clamp added (that would be an unruled policy move).
+
+### ⛔ S-248 (NEW) — D-43 SHIPPED ALONE TRADES A LOUD FAILURE FOR A SILENT ONE
+
+- Today the packing role hits **S-191**: repack half-completes and RAISES `push_failed` — **loud**.
+- D-43 half 1 authorises `warehouse` for push, so that role then lands on **S-193** instead: repack
+  returns **`status='ok'`** with **zero** fresh dispatch rows and a plan still reading
+  `dispatched=true`. ⛔ **A silent freeze, handed to the exact role that reported the original incident.**
+- The parking lot has said since leg 107 that _"S-193 is independent of D-43 and must be fixed
+  regardless"_ — ⚠️ **yet S-193 appears in NO tier of goal-command-2's work queue.**
+- ⭐ **AND half 2 becomes unreachable by construction:** once `warehouse` joins push's list,
+  `repack_machine`'s gate and push's list are **identical sets**, so no role can reach the pre-flight.
+  It is still worth shipping as the guard against future divergence, but ⛔ **it cannot be proven by a
+  role replay — it must be asserted structurally as `repack_roles ⊆ push_roles`**, or it ships
+  untested and passes only by inspection (the S-173 sin).
+
+⏸️ **D-43 was STARTED AND PARKED, not skipped.** No migration written, no role list touched, DB
+unchanged. Full recon is banked in the leg-133 EXECUTION-LOG block: half 1 is one array literal at
+`push_plan_to_dispatch` line ~57 (md5 **21371529**); half 2 belongs immediately above
+`repack_machine`'s `return_dispatch_line` loop (md5 **d719d3c1**), which is its first destructive act
+and has no savepoint. ⛔ **Fixture 9 seq 2 — not seq 1 — is the true half-1 sensor** (seq 1 pins
+repack's own gate, which option (a) leaves intact; the leg-108 note said "1-2" and is half right).
+seq 16-22 read `golden.scratch['s191']` and must be REWRITTEN to assert the S-193 freeze, not merely
+re-`expect`ed. ⚠️ **A NULL caller (service role) already bypasses push's gate entirely** — any
+assertion about the role list must say so or it overclaims.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **NOTHING WAITS ON CS.** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-45 is now EXECUTED** (joining D-46 and DR-4); D-43, D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. ⚠️ **S-248 is a NEW finding, not a new decision** — but the next leg should weigh whether S-193 must ride with D-43. Leg 133 raised no new decision.
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 134 (2026-08-06) — D-43 EXECUTED (both halves) + S-193 CLOSED. ⛔ S-249: THE HARNESS WAS ALREADY RED.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every figure below was read back live, and
+both verdicts cite **banked** `golden.runs` rows, never a running process.
+
+### ✅ D-43 CLOSED BY EXECUTION — and S-193 rode with it, which is the decision this leg made
+
+`20260806003000_prd110_d43_push_roles_and_s193_returned_squat` (Cody ⚠️→✅) ·
+`20260806003100_prd110_d43_s193_fixture9_rebase` · `20260806003200_prd110_d43_fixture9_stale_crossrefs`.
+⭐ **The tells moved: `push_plan_to_dispatch` 21371529 → 6372fe60** (v10 →
+`v11_rc01_single_writer_d43_s193`) and **`repack_machine` d719d3c1 → 2e8330fe**.
+
+⭐ **WHY S-193 RODE ALONG, ANSWERING LEG 133's OPEN QUESTION.** S-248 was right: half 1 alone turns
+the packing role's **loud** `push_failed` into a **silent** freeze. The parking lot has said since
+leg 107 that S-193 _"must be fixed regardless"_ — it is the precondition that makes the ruled change
+safe, and both defects live in the same function. ⛔ Shipping D-43 alone would have handed a silent
+freeze to the exact role that reported the 2026-07-20 incident.
+
+⭐ **S-193 IS ONE PREDICATE, AND EVERYTHING ELSE ALREADY AGREED WITH IT.** push's RC-01 §5(5b)
+idempotency probe excluded skipped/cancelled/is_m2m but **not `returned`**. The partial unique index
+**and** `prevent_duplicate_unstarted_dispatch` both already exclude `returned=true` — this probe was
+the last holdout, which is why the fresh INSERT starts succeeding the instant it agrees.
+
+⭐ **BLAST RADIUS MEASURED FIRST:** only `push_plan_to_dispatch`, `repack_machine` and
+`reset_approved_undispatched` ever set `refill_plan_output.dispatched=false`, and the third also
+moves `operator_status` to `pending` (which push does not select). **The predicate reaches the repack
+path and nothing else.**
+
+⭐ **S-248 ANSWERED STRUCTURALLY.** New `public.push_dispatch_authorized_roles()` is the ONLY place
+the role set is written down; push gates on it, repack pre-flights against it. Fixture 9 seq **78**
+asserts `repack_roles ⊆ push_roles` as DATA, expect **`0|4`** — ⛔ not `0`, because a regexp that
+stops matching yields zero rows and passes a bare `0` vacuously. seq **79** asserts the pre-flight
+precedes the first `return_dispatch_line`; ordering IS the defect (no savepoint).
+
+⭐ **THREE-RUN PROOF CHAIN, ALL RETAINED:** `58a80197` **73/0** (old functions) → `78ebb82f`
+**63/10 RED** (fixed functions, old sensors — the red the CS ruling predicted) → `f0d4c08b`
+**80/0** (re-based). ⛔ **Do not delete any of the three.** Fixture 9: **73 → 80 assertions, none
+loosened.** Four green-but-lying descriptions (seq 6, 12, 13, 15) rewritten per S-103.
+
+⚠️ **Cody's revision, applied not swallowed:** `GRANT EXECUTE … TO authenticated` dropped (Article 3)
+— both callers are DEFINER owned by postgres, so the grant published the privileged-role list for no
+caller that needed it. `service_role` only.
+
+⚠️ **S-192 IS NOT CLOSED** — a repack's own returns still block every later repack, permanently
+(fixture 9 seq 31-34). It is now the only one of the three original defects still open, and it is in
+**no tier** of goal-command-2.
+
+### ⛔ S-249 (NEW) — GOLDEN HAS BEEN RED SINCE BEFORE THIS LEG, AND NO DOCUMENT SAYS SO
+
+Leg 134's full sweep: **58 fixtures, 2090 pass / 12 fail — 16(3), 17(1), 30(1), 40(5), 41(2).**
+
+⛔ **THE BISECT IS DECISIVE AND IT IS NOT LEG 134's.** `golden.runs` already held a full sweep from
+**BEFORE leg 134's first migration** — note `leg127 S7 r133`, 2026-08-06 **00:02-02:16Z** — with the
+**same five fixtures and byte-identical counts 3/1/1/5/2**. Leg 134's first apply was ~04:15Z.
+**Zero new failures were introduced.**
+
+⛔ **THAT SWEEP IS IN NO LOG.** Leg 133 ran it and its session was truncated before it could report —
+the same truncation that cost the resume pointer. ⭐ **The last full sweep anyone WROTE DOWN is leg
+131's S7 (2026-08-04, 58/58).** Legs 132 and 133 each re-ran only the fixtures they touched and were
+green on those. ⛔ **A targeted re-run is not a regression check — it is the definition of a blind
+spot, and this build shipped two legs inside one.**
+
+**The twelve, split by cause rather than lumped:**
+- ⭐ **17 is not an assertion failure at all** — `detail` carries `{"scenario_error": "FX17 setup: no
+  headroom on A01 (stock=14 max=14)"}`. Production filled the shelf; the scenario cannot set itself
+  up. ⛔ Its `n_pass+n_fail` (26) exceeds its enabled assertion count (25) for that reason.
+- ⭐ **41 seq 5** is an explicit drift guard firing correctly (live shelf re-podded, `A07|G&H Popped
+  Chips` vs pinned `A07|Krambals & Zigi`); **30 seq 2** reads live mappings. Both ambient.
+- ⚠️ **16 seq 13/15/16 are NOT obviously ambient** — the clamp reason moved `blocked_no_wh` →
+  `pin_floor`, i.e. warehouse availability changed, and `bind_dispatch_fefo` (**D-46, leg 132**)
+  writes `committed_elsewhere` into `wh_fefo_for_line`. **Leg 132 re-ran only fixtures 18 and 26.**
+  Candidate un-swept blast radius.
+- **40 seq 44/48/50/51/55** — stitch_v3's rung ladder ends at `substitute#2` where `variant#1` is
+  pinned, non-vacuity guard reads 0. Unattributed.
+
+⏸️ **NOT RE-BASELINED — A DECISION, NOT AN OMISSION.** Three are drift and two are candidate code
+effects; re-baselining uniformly would bury the second kind inside the first. ⛔ **LAW 8 halts phase
+work, so the next leg's FIRST unit is this bisect, ahead of DR-3.**
+
+### ⛔ S-250 (NEW) — A PER-FIXTURE SWEEP LOSES RUNS SILENTLY, AND THE LOSS READS AS A SMALLER SUITE
+
+`golden.run_all()` through the management API exceeds the gateway ceiling and commits **nothing**.
+The per-fixture idiom is correct — but **8 of 58 fires never committed** (8, 9, 37, 39, 40, 45, 54,
+57) and the read-back reported a clean-looking `fixtures_run = 50`. ⛔ **Fixture 40 was among them
+and carries 5 of the 12 failures** — the sweep under-reported the red by a third. **Reconcile
+fired-count against banked-count before believing any sweep verdict.** All eight banked on re-fire.
+
+### ⚠️ RELAY HYGIENE — leg 133 left NO resume pointer, and the recon it banked is what saved the leg
+
+Its log stops mid D-43-recon. Nothing was lost (migrations applied + registered), but every claim had
+to be rebuilt from the DB. ⭐ **Banking recon BEFORE ending a unit is what made leg 134 startable.**
+⚠️ Also recorded: the function-roll md5s are **`md5(prosrc)`**, not `md5(pg_get_functiondef(oid))` —
+a probe with the wrong one mismatches ALL of them at once, which reads exactly like a revert.
+⛔ **The supabase MCP did not connect this leg**, so migrations were hand-registered into
+`supabase_migrations.schema_migrations`; skipping that INSERT breaks the RISK-104 owed-set md5.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **NOTHING WAITS ON CS.** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43 is now EXECUTED** (joining D-45, D-46, DR-4); D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. ⚠️ **S-249 and S-250 are findings, not decisions** — but S-249 makes the standing claim "golden fully green" FALSE, and the next leg must close it before Tier-1 work resumes. Leg 134 raised no new decision.
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.

@@ -1573,6 +1573,21 @@ outside `hard/soft`, a `drop` carrying a quantity, and a negative quantity.
 ⛔ It resolves its default base run with `engine_tag <> 'compose_v3'`: composing over a previous
 composed run would apply the overlay to its own output and make every soft edit read as fresh forever.
 
+⭐ **D-45 EXECUTED (CS ruling 2026-08-04, applied leg 133, `prosrc` md5 `32d2a805` → `0f8dcfb6`):
+`add` is ADDITIVE.** An applied `add` composes to **`base_qty + qty`**, `set_qty` stays ABSOLUTE, and
+`drop` stays 0. Before the fix the composer applied `add` as absolute while `record_plan_edit_v3`
+evaluated it as additive for its pin-contradiction guard — so "add 3" on a base of 12 composed to 3,
+a silent 9-unit REDUCTION of a line the human meant to raise. ⛔ **The writer was deliberately NOT
+touched**; `record_plan_edit_v3` still reads `add` additively and always did.
+⛔ **Loop (b) — edits with no base line — is unchanged and must stay unchanged**: base is 0 there, so
+`0 + qty = qty` was already the additive answer. This is why fixtures 1/50/54 never moved: their adds
+all land on shelves the base never planned.
+⭐ Proof pair, both banked and both to be retained: `golden.stress_runs`
+**`2ecddab8`** (S3, `passed=false`, 33/2 — the fixed composer against the OLD sensors, seq 18 and 20
+red exactly as the ruling predicted) and **`ec76abd0`** (S3, `passed=true`, **36/0** — sensors
+re-based). S3 seq 36 `D45_additive_assertion_is_load_bearing` reads **5**, so the assertion is not
+vacuous. Fixtures 1/11/50/51/54/57 re-run green (59/39/49/53/41/39, 0 skipped).
+
 ⛔ **`edits_considered` is counted INDEPENDENTLY of the loops that consume it**, so a base run carrying
 two rows for one `(shelf, pod)` makes the accounting assertion RAISE instead of being silently
 absorbed by an in-loop counter.
@@ -2564,3 +2579,68 @@ kept distinct from `goods_received` precisely because D-E creates no warehouse b
 **not yet built**. Until it is green, phase 2 has guard-level and shape-level evidence only — the
 end-to-end conservation claim (WH debited exactly n, composition n+m, phase-2 idempotency) is
 **unproven**.
+
+---
+
+## 2026-08-06 — PRD-110 leg 134: `push_plan_to_dispatch` v11, `repack_machine` pre-flight, and a new role-set object
+
+### NEW read-only helper — `public.push_dispatch_authorized_roles() RETURNS text[]`
+
+`LANGUAGE sql IMMUTABLE`, `SET search_path TO ''`, **SECURITY INVOKER** (not DEFINER — it reads
+nothing). Body is a constant: `ARRAY['operator_admin','superadmin','manager','warehouse']`.
+Grants: `REVOKE ALL FROM PUBLIC, anon` · `GRANT EXECUTE TO service_role` **only** (Cody revision,
+Article 3 — both callers are DEFINER owned by `postgres`, so the EXECUTE check resolves as the
+definer and an `authenticated` grant would publish the privileged-role list for no caller that needs
+it). ⛔ **This is the ONLY place the push-authorisation role set is written down.** Both
+`push_plan_to_dispatch` (gate) and `repack_machine` (pre-flight) read it, so the two can never
+silently diverge again — which is the defect class that produced the 2026-07-20 NOOK incident.
+
+### `push_plan_to_dispatch(p_plan_date date, p_machine_name text)` → **v11_rc01_single_writer_d43_s193**
+
+Was `v10_rc01_single_writer`, md5 **21371529 → 6372fe60**. Single overload; signature unchanged.
+Four named substitutions on `pg_get_functiondef` output, diff-verified to 4 hunks / 6 changed lines:
+
+1. **D-43 half 1** — the role gate now reads `role = ANY (public.push_dispatch_authorized_roles())`
+   instead of the literal `ARRAY['operator_admin','superadmin','manager']`. `warehouse` is admitted.
+   ⚠️ The `v_user_id IS NOT NULL` guard is UNCHANGED: a **NULL caller (service role) still bypasses
+   the gate entirely**. Any claim about "who may push" must say so.
+2. **S-193**, preserve-block RC-01 §5(5a) — `AND COALESCE(rd.returned,false) = false`.
+3. **S-193**, preserve-block RC-01 §5(5b) (the multi-wave idempotency probe — the actual freeze
+   path) — `AND COALESCE(rd.returned,false) = false`.
+4. version tell.
+
+⭐ **Effect:** a dispatch row that has been RETURNED no longer counts as already serving its plan
+line, so a re-push after a repack creates the replacement row instead of "preserving" the plan
+against a corpse. The partial unique index and `prevent_duplicate_unstarted_dispatch` already
+excluded `returned=true`; this predicate was the last place that did not.
+
+⚠️ **Blast radius, measured:** only `push_plan_to_dispatch`, `repack_machine` and
+`reset_approved_undispatched` ever set `refill_plan_output.dispatched=false`, and the third also
+moves `operator_status` to `pending` (which push does not select). The change reaches the repack
+path and nothing else.
+
+### `repack_machine(p_machine_name text, p_dispatch_date date, p_reason text)` — **D-43 half 2**
+
+md5 **d719d3c1 → 2e8330fe**. Single overload; signature unchanged. One inserted block, placed after
+the machine lookup and the `cannot_repack_after_dispatch` check and **immediately above the
+`return_dispatch_line` loop** — that loop is the function's first destructive act and there is no
+savepoint. Returns `{"status":"error","error":"push_not_authorized", …, "returned_count":0,
+"plan_rows_reset":0, "fresh_dispatch_rows_created":0}`.
+
+⛔ **The pre-flight mirrors push's NULL-caller bypass exactly** (`IF auth.uid() IS NOT NULL AND …`).
+An asymmetric pre-flight would refuse the unattended path push itself permits.
+
+⛔ **UNCHANGED ON PURPOSE:** repack's own gate literal
+`('warehouse','operator_admin','superadmin','manager')` (fixture 9 seq 1 pins it; CS chose option
+(a), so only push widened) and its `search_path` — still `'public'` **alone, no `pg_temp`**, the
+unhardened shape fixture 9 seq 4 records as fleet-scale item **S-198**.
+
+⚠️ **S-192 IS NOT FIXED.** A repack's own returns stamp `dispatched=true`, so the second repack on a
+(machine, date) is still refused permanently. Fixture 9 seq 31-34 continue to pin it, and it is now
+the only one of the three original defects still open.
+
+⭐ **S-248 note for whoever reads this next:** once `warehouse` joined push's set, repack's gate and
+push's set became **identical**, so the pre-flight is a branch **no role can reach**. It is not
+pointless — it is the guard that fires the day the two diverge — but it **cannot be proven by a role
+replay**. Fixture 9 seq 78 asserts `repack_roles ⊆ push_roles` as data; seq 79 asserts the
+pre-flight precedes the first destructive act.

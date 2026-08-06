@@ -5079,3 +5079,109 @@ viewdef md5 **62c096f1** before and after: no engine object touched.
 **Evidence.** Dry-run probe ran the fixture inside an aborted transaction: 21 pass / 0 fail / 21
 evaluated. Post-apply live re-run: **21/21, zero reds**. ⭐ No apply-time version drift; applied with
 `/tmp/prd110_sql.sh` (S-215) and the `schema_migrations` row inserted explicitly. `prd110%` 293 -> **294**.
+
+---
+
+## 20260805235500 · `prd110_d45_compose_add_additive` (PRD-110 leg 133, D-45 EXECUTE)
+
+⚠️ **REGISTRY GAP FLAGGED, NOT SILENTLY PAPERED OVER:** leg 132's six migrations
+(`20260805231203`, `231420`, `231824`, `232010`, `232501`, `232851`) are **applied and registered in
+`schema_migrations` but absent from this document**. This file's last narrative entry is leg 127's
+`20260804073000`. The two entries below are leg 133's own; the leg-132 six remain owed.
+
+**What changed.** `compose_plan_with_edits_v3` — one `CASE` in loop (a): plan-edit kind `add` now
+composes to **`base_qty + edit_qty`** instead of `edit_qty`. `set_qty` stays absolute, `drop` stays 0.
+Applied by named substitution on `pg_get_functiondef` output, diff-verified to a single hunk.
+⛔ Loop (b) (edits with no base line) deliberately unchanged — base is 0 there, so it was already
+additive. ⛔ `record_plan_edit_v3` deliberately untouched per the CS ruling.
+
+**Why.** The two halves of the edit path disagreed: the writer read `add` additively for its
+pin-contradiction guard while the composer applied it as absolute, so "add 3" on a base of 12
+composed to **3** — a silent 9-unit reduction of a line the human meant to raise. Measured exposure
+at S3 leg 122: **5 of 5** applied `add` edits carried a non-zero base.
+
+**Cody:** ✅ Approve. Articles 1, 2, 3, 4, 6, 8, 12, 14, 16 checked. No protected entity written —
+the function's only write target is `pod_refills_shadow` (shadow table, LAW 4). `SECURITY DEFINER`
+and `SET search_path TO 'public','pg_temp'` restated verbatim; ACL preserved by `CREATE OR REPLACE`.
+
+**Evidence.** `prosrc` md5 **32d2a805 → 0f8dcfb6**. Owed-set recomputed both sides.
+
+---
+
+## 20260805235600 · `prd110_d45_s3_sensors_flip_to_additive` (PRD-110 leg 133, D-45 proof leg 2)
+
+**What changed.** `golden.stress_s3_verify_v1` — assertions **18** and **20** re-based from the
+absolute expectation to the additive one, reading the base from the composer's own base run
+(`v_base`), **not** from `base_qty_at_edit`. Both renamed per S-103
+(`…_at_D45_additive_qty`, `add_composes_as_additive_D45_property`), neither loosened. New seq **36**
+`D45_additive_assertion_is_load_bearing` promotes the already-computed `v_add_diverge` diagnostic to
+an anti-vacuity assertion (≥1 applied add on a non-zero base).
+
+**Why a SECOND migration rather than one.** The red is the proof. S3 ran against the fixed composer
+with the OLD sensors and failed exactly as the CS ruling predicted — banked
+`golden.stress_runs` **`2ecddab8`**, `passed=false`, 33/2. These sensors live in a `golden.stress_*`
+function, **not** in `golden.assertions`, so `golden.run_all()` was never left red between the two.
+
+**Cody:** ✅ Approve. Articles 7, 12, 14, 16. Harness-only object; `prosecdef=false` (INVOKER)
+correctly preserved — this function was never DEFINER; `search_path` `'golden','public','pg_temp'`
+restated verbatim. The append-only `plan_edits_v3` refusal probes (Article 7) untouched.
+
+**Evidence.** `prosrc` md5 → **f09fc2ff**. S3 re-run **`ec76abd0`**, `passed=true`, **36/0**, with
+seq 36 reading **5** (assertion is load-bearing, not vacuous). Fixtures 1/11/50/51/54/57 green
+(59/39/49/53/41/39, 0 skipped). `prd110%` 300 → **302**.
+
+---
+
+## 20260806003000 / 20260806003100 / 20260806003200 — PRD-110 leg 134: D-43 EXECUTED (both halves) + S-193 CLOSED
+
+**CS ruling (2026-08-04).** _"D-43 CLOSED: warehouse SELF-SERVES repacks. Add `warehouse` to
+`push_plan_to_dispatch`'s role list (option a). The pre-flight fix (repack_machine must check push
+authorisation BEFORE returning a single row) remains mandatory and independent."_
+
+**Why S-193 rides in the same migration.** Leg 133 raised S-248 and parked D-43 on it. Today the
+packing role hits S-191: repack half-completes and RAISES `push_failed` — **loud**. Half 1 alone
+authorises that role for push, so it stops erroring and lands on **S-193** instead: `status='ok'`,
+**zero** fresh dispatch rows, plan re-stamped `dispatched=true`. Shipping half 1 by itself would
+hand the exact role that reported the 2026-07-20 incident a **silent freeze in place of a loud
+error**. The parking lot has demanded the S-193 fix since leg 107; it is the precondition that makes
+D-43 safe, and both defects live in the same function.
+
+**S-193's mechanism, one line.** push's RC-01 §5(5b) multi-wave idempotency probe excluded
+`skipped`/`cancelled`/`is_m2m` rows but **not `returned` ones**, so a row repack had just RETURNED
+still matched and the plan line was "preserved" against a dead row. The partial unique index and
+`prevent_duplicate_unstarted_dispatch` **both already excluded `returned=true`** — this predicate
+was the only place that did not, which is why the fresh INSERT succeeds the moment it agrees.
+
+**Blast radius, measured live rather than argued.** Only three functions ever set
+`refill_plan_output.dispatched=false`: `push_plan_to_dispatch`, `repack_machine`,
+`reset_approved_undispatched`. The third also flips `operator_status` to `pending`, which push does
+not select. **The `returned` predicate change therefore reaches the repack path and nothing else** —
+no cron, no EOD sweep, no driver return.
+
+**Objects.** NEW `public.push_dispatch_authorized_roles()` (IMMUTABLE sql, `search_path ''`,
+`ARRAY['operator_admin','superadmin','manager','warehouse']`) — the ONLY place the push-authorisation
+role set is written down. `push_plan_to_dispatch` **21371529 → 6372fe60** (v10 → `v11_rc01_single_writer_d43_s193`;
+4 named substitutions / 6 changed lines). `repack_machine` **d719d3c1 → 2e8330fe** (1 inserted
+pre-flight block, immediately above the `return_dispatch_line` loop — its first destructive act, and
+there is no savepoint).
+
+**Cody:** ⚠️ Approve with revisions → applied. Articles 1, 2, 3, 4, 5, 6, 8, 12, 13, 14, 16. The
+revision: `GRANT EXECUTE … TO authenticated` **dropped** (Article 3, least privilege) — both callers
+are DEFINER owned by `postgres`, so the EXECUTE check resolves as the definer; the grant would only
+publish the privileged-role list to every logged-in user. `service_role` only.
+
+**S-248 answered structurally, not by inspection.** Once `warehouse` joins push's set, repack's gate
+and push's set are **identical**, so half 2's pre-flight is a branch **no role can reach**. It ships
+anyway as the anti-divergence guard, and fixture 9 seq **78** asserts the relation as DATA
+(`repack_roles ⊆ push_roles`, expect `0|4` — the second number is anti-vacuity, because a regexp that
+stops matching yields zero rows and would pass a bare `0`). seq **79** asserts the pre-flight
+PRECEDES the first destructive act; ordering is the whole defect.
+
+**Evidence — a three-run chain in `golden.runs`, all re-readable, none to be deleted:**
+`58a80197-4796-4d26-9d8f-7970c7bd18b0` **73/0 green** (old functions) →
+`78ebb82f-1750-4da8-a612-66f09028d356` **63/10 RED** (fixed functions, old sensors: seq 2, 9, 10, 11,
+16, 17, 18, 22, 27, 28) → `f0d4c08b-2116-4f4e-9774-4adfbccf6bd7` **80/0 green** (re-based).
+Fixture 9 population **73 → 80**; no assertion loosened, every re-based expect still exact equality.
+
+**⚠️ S-192 IS NOT CLOSED and is still pinned** (fixture 9 seq 31-34): a repack's own returns stamp
+`dispatched=true`, so the second repack on a (machine, date) is still refused forever.
