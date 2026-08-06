@@ -32166,7 +32166,7 @@ inside one.
 
 - ⭐ **Fixture 17 is not an assertion failure at all.** Its `detail` carries a non-assertion element:
   `{"scenario_error": "FX17 setup: no headroom on A01 (stock=14 max=14) - a facing pin could not
-  bite"}`. ⛔ **The scenario could not set itself up because production filled the shelf.**
+bite"}`. ⛔ **The scenario could not set itself up because production filled the shelf.**
   Unambiguously ambient drift. ⚠️ **This is also why `n_pass+n_fail` (26) exceeds fixture 17's
   enabled assertion count (25)** — the runner counts a scenario error as a failure without a `seq`,
   so a `detail` scan for `passed=false` finds NOTHING and the fixture reads red for no visible
@@ -32266,3 +32266,204 @@ each) · golden **58 fixtures / 2101 enabled assertions** (fixture 9: 73 → 80)
 - ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
   D-33, D-34, D-37, D-39, D-40. ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED** — D-44, D-47 and
   DR-1/3/5/6/7/8 remain. ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.
+
+---
+
+## LEG 136 - 2026-08-06/07 - S-249 BISECTED AND ANSWERED: **ZERO CODE REGRESSIONS**. Fixtures 30 and 17 CLOSED (30 by fixing PRODUCTION, not the fixture). S-251, S-252 raised.
+
+### [leg 136] STEP R pickup - clean, and the pointer told the truth on every claim
+
+⭐ **S-241 OBEYED BEFORE ANY DB PROBE.** `ps` narrowed to `prd110|golden|stress_s|psql` returned
+**nothing**. Quiet machine.
+
+⭐ **RISK 104 - ALL FIVE HELD:** `prd110%` **305** · `max(version)` **20260806003200** · disk **306**
+(305 + S-31's retained `20260730203000`) · owed-set md5 **83288219167a1b75f8a9e9a878adb3bd on BOTH
+sides**, recomputed not copied (305 names each) · `git status --porcelain` **2**.
+
+⭐ **THE MCP SUPABASE SERVER DID CONNECT THIS LEG** (it did not for leg 134), so migrations were
+applied through `apply_migration` and registered automatically. ⛔ **But it assigns its OWN version
+from the server clock, not from your filename** - `20260806070000` was requested and
+**`20260806205135`** was recorded. The disk file was RENAMED to match. ⛔ **Reconcile the assigned
+version against the filename on EVERY apply or the owed-set md5 breaks silently.**
+
+⭐ Function roll re-read under `md5(prosrc)`, all six pointer claims byte-identical:
+`bind_dispatch_fefo` **8ad35ce9** · `compose_plan_with_edits_v3` **0f8dcfb6** ·
+`preflight_refill_plan` **3d6d7b34** · `push_plan_to_dispatch` **6372fe60** ·
+`repack_machine` **2e8330fe** · `golden.stress_s3_verify_v1` **f09fc2ff**. Flags all unchanged.
+**S-80 grep of the WHOLE parking lot: no CS ruling landed since leg 134. Nothing waits on CS.**
+
+### ⚠️ A PRIOR "leg 135" EXISTS, RAN ONE FIXTURE, AND DIED - RECONCILED, NOTHING LOST
+
+`golden.runs` carries a single row noted **`leg135 S-249 bisect re-run`** (fixture 16, 06:44:07Z,
+28/3). That session banked **one read-only run row and nothing else**: no migration, no log entry,
+no pointer. `prd110%` still read 305 at pickup, matching leg 134's close exactly. ⭐ **The handoff
+invariant held - nothing was half-applied.** This leg numbers itself **136** so the log stays
+unambiguous.
+
+### ⛔⛔ S-249 ANSWERED: ALL TWELVE FAILURES ARE AMBIENT LIVE-DATA DRIFT. **ZERO ARE CODE.**
+
+Leg 134 correctly refused to re-baseline five fixtures uniformly and named two as candidate code
+blast radius. Both are now **refuted by measurement, not by argument**:
+
+1. ⭐ **THE ENGINE AND THE STITCHER ARE BYTE-IDENTICAL TO THE LAST-GREEN RUN.**
+   `engine_add_pod_v3` **e9f3caff** and `stitch_v3` **a8753091** - the exact values the function
+   roll has carried since before 2026-08-04. The code that decides `blocked_no_wh` and the code
+   that walks the rung ladder **did not change**.
+2. ⭐ **THE D-46 HYPOTHESIS FOR FIXTURE 16 IS STRUCTURALLY IMPOSSIBLE, AND THAT IS BETTER THAN A
+   RE-RUN.** Only four functions in the schema reference `wh_fefo_for_line` -
+   `push_plan_to_dispatch`, `receive_dispatch_line`, `record_actual_refill`,
+   `resolve_fefo_sku_legs_v3` - and only `bind_dispatch_fefo` and `create_spot_purchase_v3` call
+   the binder. ⛔ **`engine_add_pod_v3` calls neither.** The binder is entirely dispatch-side; the
+   planner's availability read never passes through it. D-46 **cannot** reach fixture 16.
+3. ⭐ **THE EIGHT MIGRATIONS IN THE last-green -> first-red WINDOW TOUCH NO PLANNING CODE:**
+   D-46 (binder + S5 sensors), S-245a/b/c (S5 re-runnable fefo, retired plant rows, seq 25),
+   DR-4 (a param), D-45 (composer + S3 sensors).
+4. ⭐ **AND THE CAUSE IS DATABLE.** Every `product_mapping` row for one product carries the
+   identical `updated_at` **2026-08-05 22:33:50.241906Z** - a single bulk production write,
+   landing INSIDE the window and ~40 minutes BEFORE leg 132's first migration. Two production
+   mapping sessions ran that day (07:00Z: 22 rows/5 products · 22:00Z: 25 rows/6 products).
+
+⛔ **CONSEQUENCE: goal-command-2's premise is restored.** The red was never a regression. But
+"golden fully green" stays FALSE until the five are actually closed, and LAW 8 still binds.
+
+### ✅ FIXTURE 30 CLOSED BY FIXING **PRODUCTION**, NOT THE FIXTURE (S-251)
+
+⭐ **This is the one of the five that was never a fixture problem at all.** Fixture 30 seq 2 asserts
+the S-53 loop obligation: every ANY-SCOPE `venue_team` mapping on a `co_managed` machine carries an
+Active `venue` edge. It read **10** where **0** is pinned.
+
+All ten gaps were **one product - "Galaxy - Milk Chocolate"** - across ten co_managed machines
+(ACTIVATEMCC-1037, IFLYMCC-1024, MPMCC-1054, MPMCC-1058, VOXMCC-1005/1011/1012/1017, VOXMM-1001/1013),
+every one still carrying its **`origin='backfill'`, "PRD-110 P1.1 genesis"** edge. ⛔ **The
+2026-08-05 22:33Z bulk write flipped the mapping to `venue_team` and never executed the loop
+obligation. That is S-53 RECURRING, on a new product, caught by the fixture built for it.**
+
+⛔ **Re-baselining seq 2 to `10` would have silently accepted ten machines sizing venue-supplied
+stock against Boonz WH - the exact money defect S-53 exists to prevent.** Corrected instead via the
+canonical RPC `set_product_sourcing_v3`, ten calls, Cody-reviewed (Articles 1/3/4/5/8/12/16;
+`tg_product_sourcing_model_guard` refuses only partner_managed+boonz_wh and fully_managed+venue, so
+`co_managed`+`venue` is permitted). Pre-flight **10**, all ten returned `changed:true`
+`boonz_wh -> venue` each with a `superseded_id` - **supersede-then-insert, nothing destroyed**.
+Read-back gap **0**. **Fixture 30: 20/0 GREEN**, run `41694c6e`.
+
+⚠️ **FOR CS, AND IT IS NOT RHETORICAL: the 22:33Z flip is UNATTRIBUTED.** This leg mirrored intent
+already recorded in `product_mapping`; it did **not** originate that intent and does not validate
+it. ⛔ **If Galaxy is NOT venue-supplied on those ten machines, the mapping is what is wrong and
+both sides must be reverted together.**
+
+### ✅ FIXTURE 17 CLOSED - IT NOW SELF-SUPPLIES ITS OWN PRECONDITION
+
+Fixture 17 was not failing an assertion; it **could not set itself up**. `detail` carried
+`{"scenario_error": "FX17 setup: no headroom on A01 (stock=14 max=14)"}` - production filled the
+shelf, and a fixture that INHERITS its precondition from live data eventually cannot run at all.
+
+⭐ **The fix is the leg-114/115 idiom the build already blesses: PLANT the precondition inside the
+rolled-back probe block.** Two migrations:
+
+1. `20260806205135_prd110_s249_fx17_self_supply_headroom` - new **`golden.plant_shelf_stock`**
+   (the named, reusable planter; fixtures 2 and 8 hand-rolled this JSONB navigation inline, so the
+   zero-pad law and the read-back-through-`v_shelf_state` proof now live in ONE place), plus
+   fixture 17's setup and two new assertions.
+2. `20260806205557_prd110_s249_plant_shelf_stock_inflight_guard` - **S-252**, below.
+
+⭐ **NOTHING WAS LOOSENED, AND THE REASON IS IN THE FIXTURE'S OWN DESIGN:** every assertion that
+reads the planted value (seq **9, 10, 14**) is **RELATIVE to `v_facing`**, a difference, not an
+absolute. The planted level cannot bias any of them. Only the SETUP inherited live state.
+
+⭐ **TWO NEW ASSERTIONS EXIST BECAUSE THE PLANT ITSELF MUST BE PROVEN:** seq **26** non-vacuity
+(`facing >= 1` - the pin can actually bite, whether the headroom was inherited or planted) and seq
+**27** residue (`weimi_restored = 1` - ⛔ a planter that leaked would silently rewrite live shelf
+state for every later fixture in the same sweep). Fixture 17: **25 -> 27 assertions, 27/0 GREEN.**
+Measured: `planted_to` **11**, `facing` **3**, `weimi_restored` **1**, and **live A01 still reads
+14/14** - production untouched.
+
+### ⛔ S-252 (NEW) - THE PLANTER SHIPPED WITHOUT THE GUARD EVERY OTHER WEIMI-WRITER CARRIES
+
+⭐ **Found by reading the neighbours, not by a test failing.** `golden.pin_machine_stock`,
+`golden.restore_machine_stock` and `golden.arrange_shelf` (leg 27) all refuse unless
+`EXISTS (SELECT 1 FROM golden.runs WHERE finished_at IS NULL)` - a golden run is in flight.
+`plant_shelf_stock` shipped with only a **COMMENT** saying so. ⛔ **A comment is documentation, not
+enforcement: called outside a fixture it would rewrite a live WEIMI observation and never restore
+it.** Fixed in a forward-only follow-up (Article 12 - the first migration stays as applied).
+**Verified both directions:** the call now raises `REFUSED - no golden run is in flight` outside a
+fixture, and fixture 17 re-ran **27/0 GREEN** with the guard in place.
+
+### ⏸️ THE REMAINING THREE - DIAGNOSED PRECISELY, NOT LEFT AS "AMBIENT"
+
+- **Fixture 41 (2)** - seq **5**: source shelf `31894963` (VML-1004-0500-O1 A07) was **re-podded**,
+  `Krambals & Zigi` -> **`G&H Popped Chips`**. ⭐ **The structural premise SURVIVES: the new pod is
+  still MIXED (3 Active SKUs)**, so the M2M per-SKU split still has something to split. seq **18**:
+  Anchor A headroom moved **9 -> 10**. Remedy: select the source anchor by PREDICATE (a mixed-SKU
+  shelf) and assert the structural property, not the pod name. ⛔ Check that the new pod's SKUs
+  still give the scenario BOTH an assortable and a non-assortable leg, or the fixture proves less
+  than it claims.
+- **Fixture 16 (3)** - A07 "Freakin Healthy Bites 2P" was chosen as a **zero-availability probe**
+  and now has **16 Active, in-date, unreserved WH units** (row created 2026-07-22, so availability
+  moved, not the row). `clamp_z` `blocked_no_wh` -> `pin_floor`, `qb_z` 0 -> 1, `moved` 1 -> 2.
+  ⛔ **A10 and A07 are DIFFERENT pods** (Chocolate Bar vs Freakin), so this is NOT pin fan-out.
+  Remedy: choose `sh_z` by predicate (a shelf whose product genuinely has zero WH availability), or
+  plant the zero.
+- **Fixture 40 (5)** - ⭐ **ONE cause, not five:** `D_net_primary` reads **0** where seq 44 requires
+  `>= 1`, so anchor D's rung 1 is unsatisfiable and 48/50/51/55 all cascade from it (the ladder
+  falls through to `substitute#2` where `variant#1` is pinned). Remedy: anchor D must self-supply
+  rung-1 satisfiability.
+
+### [leg 136] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260806205557** · `prd110%` **307** (was 305; **+2 this leg**) · disk **308** ·
+owed-set md5 **0ad1d488a5a5e117fa112402aeff998b on BOTH sides**, recomputed not copied (307 names
+each) · golden **58 fixtures / 2103 enabled assertions** (fixture 17: 25 -> 27) ·
+`golden.stress_runs` **14** (unchanged) · **36 active crons, 0 changed** ·
+⛔ **LIVE plan tables untouched by this leg.** ⚠️ **THE DATE ROLLED MID-LEG:** `2026-08-06` **103**
+rows and **`2026-08-07` is now 101, NOT 0** - the nightly cron populated it. `2026-08-08` **0**.
+
+**FLAGS AT CLOSE - NOT ONE CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`miner_weekly_pick_dry_run` **true** · `miner_weekly_edit_dry_run` **true** · `w_empty` **0.900**.
+⛔ **No cutover flag exists and none was created (LAW 4).**
+
+### RESUME POINTER 2026-08-07 leg 136 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg
+  136 left **no process running**. Then RISK 104: **expect `prd110%` = 307,
+  `max(version)` = 20260806205557, 308 prd110 files on disk, owed md5
+  `0ad1d488a5a5e117fa112402aeff998b` both sides.** md5s are `md5(prosrc)`, never `functiondef`.
+- ⛔ **S-249 IS ANSWERED: THE RED IS 100 % AMBIENT, ZERO CODE.** Do NOT re-open the bisect.
+  `engine_add_pod_v3` **e9f3caff** and `stitch_v3` **a8753091** are byte-identical to the last-green
+  run, and `engine_add_pod_v3` **does not call `bind_dispatch_fefo`** - the binder is dispatch-side
+  only, so D-46 cannot reach fixture 16. ⛔ If either md5 ever moves, THAT is a real regression.
+- ⛔ **NEXT TASK: CLOSE FIXTURES 41, 16, 40 - still LAW 8, still ahead of DR-3.** Two of five are
+  done (30, 17). Per-fixture diagnoses are in this leg's body and are precise; the remedy shape for
+  all three is the SAME as fixture 17's: **select the anchor by PREDICATE, or plant the precondition
+  via `golden.plant_shelf_stock`, inside the rolled-back probe block.**
+- ⭐ **`golden.plant_shelf_stock(shelf_id, stock)` NOW EXISTS AND IS THE TOOL FOR THIS.** It
+  re-derives WEIMI indices every call, refuses an ambiguous `showName`, verifies through
+  `v_shelf_state`, and (S-252) **refuses entirely unless a golden run is in flight**. Fixture 41
+  already uses the machine-grain `golden.pin_machine_stock`; prefer the existing helper where it fits.
+- ⛔ **A FIXTURE CAN READ RED WITH NO FAILING ASSERTION** (scenario_error with no `seq`), and
+  ⛔ **RECONCILE FIRED vs BANKED ON EVERY SWEEP (S-250)** - 8 of 58 silently failed to commit for
+  leg 134. `golden.run_all()` through the management API commits NOTHING; fire per fixture.
+  Keep the cron-44 straddle guard (never START a fixture in UTC minutes 37-40).
+- ⛔ **A FULL 58-FIXTURE SWEEP IS OWED BEFORE DONE-2 AND HAS NOT BEEN RUN THIS LEG.** Only 30, 17,
+  5 and 8 were re-run (5 and 8 as a Galaxy blast-radius probe, both green). ⚠️ **S-251 changed
+  PRODUCTION sourcing on ten machines - its true blast radius is unmeasured.** A targeted re-run is
+  a blind spot, which is the whole lesson of S-249.
+- ⚠️ **S-251 CARRIES A LIVE CS ASK** (the only thing on this list that does): confirm that
+  "Galaxy - Milk Chocolate" really is venue-supplied on the ten co_managed machines. The 2026-08-05
+  22:33Z mapping flip that triggered it is unattributed. ⛔ If it was wrong, revert BOTH sides.
+- ⏸️ **THEN, in goal-command-2 order:** DR-3 (pod_inventory write-freeze) · Tier 2 (DR-6 Stax unit
+  first, then D-19) · Tier 3 (D-44, D-47, DR-5, DR-7, DR-8) · Tier 4 (DR-1 cutover unit, **flag-off**).
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** DR-4 done (leg 132). DR-5 and D-19-after-DR-6 are
+  the only other authorised flips. **The cutover flag stays untouchable and must not be created-then-thrown.**
+- ⚠️ **LAW 12 - THE LIVE DATE MOVED THIS LEG.** `2026-08-07` now holds **101** rows (it was 0);
+  `2026-08-08` is **0**. ⛔ **Re-probe every leg and never assume yesterday's free date is still free.**
+  2030-11-02 remains the only free date in the stress band.
+- ⚠️ **S-192 IS STILL OPEN** (a repack's own returns block every later repack, permanently). It is in
+  NO tier of goal-command-2.
+- ⛔ **S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** New findings resume at **S-253**.
+- ⛔ **THE FUNCTION ROLL IS NOW 36** (35 + `golden.plant_shelf_stock`). ⛔ Per S-80 grep the **WHOLE**
+  PARKING-LOT for `CS DECISION`, never the tail.
+- ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
+  D-33, D-34, D-37, D-39, D-40. ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED** - D-44, D-47 and
+  DR-1/3/5/6/7/8 remain.

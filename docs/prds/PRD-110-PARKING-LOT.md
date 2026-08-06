@@ -10601,11 +10601,12 @@ green on those. ⛔ **A targeted re-run is not a regression check — it is the 
 spot, and this build shipped two legs inside one.**
 
 **The twelve, split by cause rather than lumped:**
+
 - ⭐ **17 is not an assertion failure at all** — `detail` carries `{"scenario_error": "FX17 setup: no
-  headroom on A01 (stock=14 max=14)"}`. Production filled the shelf; the scenario cannot set itself
+headroom on A01 (stock=14 max=14)"}`. Production filled the shelf; the scenario cannot set itself
   up. ⛔ Its `n_pass+n_fail` (26) exceeds its enabled assertion count (25) for that reason.
 - ⭐ **41 seq 5** is an explicit drift guard firing correctly (live shelf re-podded, `A07|G&H Popped
-  Chips` vs pinned `A07|Krambals & Zigi`); **30 seq 2** reads live mappings. Both ambient.
+Chips` vs pinned `A07|Krambals & Zigi`); **30 seq 2** reads live mappings. Both ambient.
 - ⚠️ **16 seq 13/15/16 are NOT obviously ambient** — the clamp reason moved `blocked_no_wh` →
   `pin_floor`, i.e. warehouse availability changed, and `bind_dispatch_fefo` (**D-46, leg 132**)
   writes `committed_elsewhere` into `wh_fefo_for_line`. **Leg 132 re-ran only fixtures 18 and 26.**
@@ -10620,8 +10621,7 @@ work, so the next leg's FIRST unit is this bisect, ahead of DR-3.**
 ### ⛔ S-250 (NEW) — A PER-FIXTURE SWEEP LOSES RUNS SILENTLY, AND THE LOSS READS AS A SMALLER SUITE
 
 `golden.run_all()` through the management API exceeds the gateway ceiling and commits **nothing**.
-The per-fixture idiom is correct — but **8 of 58 fires never committed** (8, 9, 37, 39, 40, 45, 54,
-57) and the read-back reported a clean-looking `fixtures_run = 50`. ⛔ **Fixture 40 was among them
+The per-fixture idiom is correct — but **8 of 58 fires never committed** (8, 9, 37, 39, 40, 45, 54, 57) and the read-back reported a clean-looking `fixtures_run = 50`. ⛔ **Fixture 40 was among them
 and carries 5 of the 12 failures** — the sweep under-reported the red by a third. **Reconcile
 fired-count against banked-count before believing any sweep verdict.** All eight banked on re-fire.
 
@@ -10637,3 +10637,56 @@ a probe with the wrong one mismatches ALL of them at once, which reads exactly l
 ### ⏸️ OPEN CS DECISIONS after this leg — **NOTHING WAITS ON CS.** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43 is now EXECUTED** (joining D-45, D-46, DR-4); D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. ⚠️ **S-249 and S-250 are findings, not decisions** — but S-249 makes the standing claim "golden fully green" FALSE, and the next leg must close it before Tier-1 work resumes. Leg 134 raised no new decision.
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 136 (2026-08-06/07) - S-249 ANSWERED: ZERO CODE REGRESSIONS. Fixtures 30 + 17 closed. S-251, S-252 raised.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every number below was read back live at close.
+
+### ⭐ S-249 CLOSED AS A DIAGNOSIS - the red was never a regression
+
+All twelve failures across fixtures 16/17/30/40/41 are **ambient live-data drift**. Proven three ways,
+not asserted: (1) `engine_add_pod_v3` **e9f3caff** and `stitch_v3` **a8753091** are byte-identical to
+the last-green run; (2) `engine_add_pod_v3` **does not call `bind_dispatch_fefo`** - only
+`bind_dispatch_fefo` and `create_spot_purchase_v3` do, and `wh_fefo_for_line` is read only by
+push/receive/record_actual_refill/resolve_fefo_sku_legs_v3, so **D-46 cannot structurally reach
+fixture 16**; (3) the one datable cause is a **production bulk `product_mapping` write at
+2026-08-05 22:33:50Z**, inside the window and before leg 132's first migration.
+
+⛔ **Leg 134 was right to refuse a uniform re-baseline** - one of the five was a real production
+defect and would have been buried by it.
+
+### ⚠️ S-251 (NEW) - CS ASK, AND THE ONLY THING ON THIS PAGE THAT WAITS ON A HUMAN
+
+Fixture 30 caught **S-53 RECURRING**: ten `venue_team` mappings for **"Galaxy - Milk Chocolate"** on
+ten co_managed machines with no matching `venue` sourcing edge, all still on their P1.1 genesis
+backfill. Corrected via the canonical `set_product_sourcing_v3` (10 calls, all `changed:true`,
+`boonz_wh -> venue`, each with a `superseded_id` - nothing destroyed). Fixture 30 **20/0 green**.
+
+⛔ **THE ASK:** confirm that Galaxy - Milk Chocolate really is **venue-supplied** on ACTIVATEMCC-1037,
+IFLYMCC-1024, MPMCC-1054, MPMCC-1058, VOXMCC-1005/1011/1012/1017 and VOXMM-1001/1013. This leg
+**mirrored intent already recorded in `product_mapping`; it did not originate that intent.** The
+22:33Z flip that created it is **unattributed**. ⛔ **If the flip was wrong, the mapping is what is
+wrong and BOTH sides must be reverted together.**
+⚠️ **Blast radius unmeasured** - only fixtures 5 and 8 were re-run as a probe (both green). A full
+sweep is owed.
+
+### ⛔ S-252 (NEW) - a harness helper shipped without the guard its neighbours all carry
+
+`golden.plant_shelf_stock` (new this leg, the named reusable shelf-stock planter) shipped with only a
+COMMENT saying "call me inside a fixture". `pin_machine_stock`, `restore_machine_stock` and
+`arrange_shelf` all **enforce** it via `EXISTS (SELECT 1 FROM golden.runs WHERE finished_at IS NULL)`.
+⛔ **A comment is documentation, not enforcement.** Fixed forward-only; refusal verified outside a
+fixture, and fixture 17 re-verified 27/0 green with the guard live.
+
+### ⏸️ STILL OPEN FROM S-249 - fixtures 41, 16, 40 (LAW 8 still binds)
+
+Diagnosed precisely in the leg-136 log body; remedy shape for all three is fixture 17's: **anchor by
+PREDICATE, or plant the precondition** inside the rolled-back probe block. 41 = source shelf re-podded
+(still mixed, 3 SKUs) + headroom 9->10 · 16 = the "zero-availability" probe shelf now has 16 WH units ·
+40 = ONE cause, `D_net_primary` = 0 makes rung 1 unsatisfiable and the other four cascade.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE NEW ASK: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 136 raised no new *decision* beyond S-251's confirmation ask.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
