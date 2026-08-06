@@ -10761,3 +10761,91 @@ committing fixture. Fire per fixture (S-250), clear scratch first (S-254), avoid
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 137 raised no new decision.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 138 (2026-08-06/07) - THE OWED SWEEP RAN. S-257 closed, S-258/S-259 raised. DR-3 built, Cody-approved, NOT applied.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every number below was read back live at
+leg-138 close from `golden.runs` / `pg_proc` / `schema_migrations`, never from a pointer.
+
+### ✅ THE FULL 58-FIXTURE SWEEP - owed since leg 136, now banked
+
+**58/58 fixtures · 2111/2111 enabled assertions EVALUATED · 2100 pass · 11 fail · 0 skipped ·
+0 scenario_errors.** Note namespace `leg138 sweep r1`. Runner checked in at
+`scripts/prd110_leg138_full_sweep.sh` (leg-126 design + the two S-254 rules: scratch cleared from
+OUTSIDE the fixture transaction, and `scenario_error` surfaced in the read-back).
+⭐ **Evaluated == enabled**, so no fixture silently failed to bank - the S-250 failure that cost
+leg 134 eight fixtures did not recur.
+
+⛔ **THREE REDS, ALL THE SAME CLASS** - a fixture inheriting a precondition from live production
+instead of owning it. **Not one is an engine regression**; the two S-249 sentinels
+`engine_add_pod_v3` **e9f3caff** and `stitch_v3` **a8753091** never moved.
+
+### ✅ S-257 CLOSED - fixture 24, and the exoneration matters more than the fix
+
+seq 5 pinned `61` sentinel-backed shelves and read **62**. Dated off `golden.runs`: 61 at leg 134
+(`08-06 05:02:14Z`), 62 at leg 138 (`21:57:26Z`).
+
+⛔ **S-251 IS EXONERATED.** `v_shelf_availability_v3` derives `sentinel_backed` from
+**product_mapping x v_wh_pickable x the machine's warehouses** and **never reads
+`product_sourcing`**. Leg 136's ten sourcing rows move `is_constrained`/`available_units`, which are
+different columns. ⭐ **Read the view before attributing a red to the most recent production write.**
+Ruled out by measurement: sentinels 40, pickable 40, `product_mapping` untouched since `08-05
+22:33Z` (before the 61 reading), `machines` untouched 24 h, shelf population 544. ⇒ The mover is a
+per-shelf **pod re-resolution in `v_shelf_state`** - WEIMI identity drift.
+
+⭐ **STRENGTHENED, NOT RE-BASELINED.** seq 5 keeps its only real job (non-vacuity, `gt 0`, expect and
+description moved together per S-103); the work moves to two rot-proof assertions - **seq 36** every
+sentinel-backed shelf is on a **co_managed** machine (a sentinel propping a fully_managed machine is
+phantom stock standing in for stock Boonz owes), **seq 37** no sentinel-backed shelf would block on
+retirement, measured on the LIVE population. Both earned: 36 = 0, 37 = 0. Fixture 24 **44/0**, run
+`0552cfb5`, migration `20260806221223_prd110_s257_fx24_sentinel_backed_property_not_literal`.
+
+### ⏸️ S-258 (NEW) - fixture 45 rung-4 M2M, 11/7. **A COMMITTING FIXTURE'S RESIDUE PROOF MUST COVER DERIVED OBJECTS.**
+
+18/0 at `08-06 06:30:22Z`, 11/7 at `22:06:34Z`. seq 7 `no_resolvable_donor`; all five donors return
+`source_composition_unknown`. ⛔ **`shelf_composition` holds 31 rows on 16 shelves, ALL on
+`MPMCC-1058-0000-R0`** - one machine of 37 - written by cron 44 in three batches (`08-05 22:40` 1
+shelf · **`08-06 20:40` 11 shelves** · `08-06 21:40` 4 shelves), confidence 0.00-0.05, and it is not
+a full hourly rewrite (3 distinct `updated_at`).
+⚠️ **MPMCC-1058 is the machine leg 137's COMMITTING fixture 41 wrote and restored live WEIMI on.**
+Leg 137's residue proof was correct **on WEIMI** and never looked at the derived object; cron 44
+rewrote that machine's composition twice inside the window.
+⛔ **NEXT LEG'S FIRST STEP IS A QUESTION:** are the 20:40/21:40 rows genuine estimator output or
+fixture-41 artefacts? The answer picks the remedy - anchor-by-predicate (S-255/S-256) or plant a
+`shelf_composition` row inside the rolled-back probe (not a protected entity).
+
+### ⏸️ S-259 (NEW) - fixture 53, 19/3. The detector self-test is measuring nothing.
+
+seq 15/16/17 want `is_healthy=false` / `last_scheduled_night_errored` / `error`; they read
+**true / ok / ok**. ⛔ **The health object is not the fault - the plant is:** scratch key `mask`
+carries `rows_before = rows_after = 249`, so the errored-night plant inserted nothing and the
+assertions scored unplanted live state. ⚠️ `v_shadow_runner_health_v3` is therefore **not proven
+regressed, but no longer proven working** - and it is the object that would hide a failed shadow
+night before the DR-1 cutover. ⭐ Remedy (same class as S-254): add a plant-landed assertion so a
+no-op plant fails LOUDLY at its own seq, then find the no-op.
+
+### ⏸️ DR-3 - BUILT, CODY-APPROVED, **NOT APPLIED** (RELAY: never begin a unit you cannot finish)
+
+Files: `docs/prds/dr3_design.sql` · `dr3_fixture67.sql` · `dr3_fixture67_assertions.sql` (32
+assertions, fixture 67, `plan_date 2030-04-17`, `baseline_status 'failing_expected'`).
+⛔ **Zero database change.** Shape: a four-level dial `pod_inventory_write_freeze`
+(`off`/`warn`/`block`/`frozen`) shipping **off** · a BEFORE UPDATE OR DELETE write-guard - ⛔ **the
+live `trg_block_direct_pod_inventory_insert` is INSERT-ONLY and UPDATE/DELETE are guarded by nothing
+today** · REVOKE of INSERT/UPDATE/DELETE/TRUNCATE from `authenticated` and `anon` (all 14 writers are
+DEFINER owned by `postgres`; all five FE call sites verified `.select()`-only; **service_role
+deliberately retained** because the n8n flows cannot be read to prove none writes) · and
+`v_pod_inventory_daily_delta_v3`, which reports `not_ready` because `inventory_events` holds 65 rows
+against ~150-215 `pod_inventory` writes **per day**.
+**Cody APPROVE WITH REVISIONS** (Articles 1/2/3/4/7/8/12/14/16), all three applied: policy comment ·
+the guard's `SECURITY DEFINER` is **load-bearing** (as INVOKER the dial read returns no row, COALESCE
+resolves `'off'`, and ⛔ **the guard fails open silently**) plus the declared fail-open · and
+`net_delta_units` -> `audited_delta_units_writevol` (Article 16: `v_live_shelf_stock` owns "live
+shelf stock"). ⚠️ Apply with no sweep in flight and outside UTC minutes :30/:40/:45.
+⚠️ **Adding fixture 67 changes the fixture population**, which per DONE-2 makes the final golden
+proof an S7-style TRIPLE rather than a single run.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** ⭐ Now sharper: the ten rows are **SKU-grain** (`Galaxy - Milk Chocolate`) on the **Chocolate Bar** pod, dated `2026-08-06 20:43Z`, so the pod stays `boonz_wh`-constrained for its other SKUs. The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 138 raised no new decision.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.

@@ -32675,3 +32675,212 @@ migrations are `golden.*` only.
 - ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
   D-33, D-34, D-37, D-39, D-40. ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED** - D-44, D-47 and
   DR-1/3/5/6/7/8 remain.
+
+## LEG 138 - 2026-08-06/07 - **THE OWED 58-FIXTURE SWEEP RAN.** 2100/2111, zero scenario_errors, THREE reds - and all three are the SAME class: a live precondition that decayed. S-257 closed; S-258/S-259 diagnosed and handed off. DR-3 built and Cody-reviewed, NOT applied.
+
+### [leg 138] STEP R pickup - the pointer told the truth on every claim
+
+⭐ **S-241 OBEYED FIRST.** `ps` narrowed to `prd110|golden|stress_s|psql` returned nothing. Quiet machine.
+
+⭐ **RISK 104 - ALL FIVE HELD**, and the md5 was recomputed from the recipe recorded in the pointer,
+not copied: `prd110%` **311** · `max(version)` **20260806213635** · disk **312** (311 + S-31's
+retained `20260730203000`) · owed md5 **4a12ccfedc54ac02f41644596db3a69b on BOTH sides** ·
+`git status --porcelain` **0**. Function roll re-read under `md5(prosrc)`: all nine claims
+byte-identical, including the two S-249 sentinels `engine_add_pod_v3` **e9f3caff** and `stitch_v3`
+**a8753091**. Flags all unchanged. **S-80 grep of the WHOLE parking lot: no CS ruling has landed
+since leg 137.**
+
+### ⭐⭐ THE LEG'S RESULT - THE SWEEP THAT WAS OWED SINCE LEG 136 IS DONE
+
+**58/58 fixtures · 2111/2111 enabled assertions EVALUATED · 2100 pass · 11 fail · 0 skipped ·
+0 scenario_errors · 1165 s of engine time.** Fired PER FIXTURE (S-250), each preceded by an
+out-of-transaction `DELETE FROM golden.scratch` (S-254), with the cron-44 straddle guard.
+Runner checked in at `scripts/prd110_leg138_full_sweep.sh`. Note namespace `leg138 sweep r1`.
+
+⭐ **THE DENOMINATOR IS THE WHOLE POPULATION.** 2111 evaluated against 2111 enabled - no fixture
+silently failed to bank, which is the exact S-250 failure that cost leg 134 eight fixtures.
+⭐ **AND ZERO scenario_errors**, so per S-254 every red below is a trustworthy measurement rather
+than a stale blob being re-scored.
+
+| fixture | result | root cause                                | status          |
+| ------- | ------ | ----------------------------------------- | --------------- |
+| 24      | 41/1   | S-257 sentinel-backed population 61 -> 62 | **CLOSED 44/0** |
+| 45      | 11/7   | S-258 no donor whose SKU mix is knowable  | handed off      |
+| 53      | 19/3   | S-259 the errored-night plant is a no-op  | handed off      |
+
+⛔ **ALL THREE ARE THE SAME CLASS AND IT IS THE CLASS LEG 137 NAMED:** a fixture inheriting a
+precondition from live production instead of owning it. Not one is an engine regression.
+
+### ⛔⛔ S-257 - FIXTURE 24, AND THE EXONERATION THAT MATTERS MORE THAN THE FIX
+
+seq 5 pinned "61 shelves are sentinel-backed" and read **62**. Dated precisely off `golden.runs`,
+not remembered: **61** at leg 134 (`2026-08-06 05:02:14Z`), **62** at leg 138 (`21:57:26Z`).
+
+⛔ **S-251 IS EXONERATED, AND THE OBVIOUS READING IS WRONG.** "Leg 136 changed PRODUCTION sourcing
+on ten co_managed machines at 20:43Z, so of course an availability count moved" is false.
+`v_shelf_availability_v3` computes `sentinel_backed := wh_units_sentinel > 0` from
+**product_mapping x v_wh_pickable x the machine's primary/secondary warehouse**, and
+⛔ **NEVER READS `product_sourcing` AT ALL.** The ten sourcing rows move `is_constrained` and
+`available_units`, which are different columns. ⭐ Read the view before attributing a red to the
+most recent production write.
+
+⭐ **RULED OUT BY MEASUREMENT:** sentinel rows **40** (seq 1 green) · pickable sentinels **40**
+(seq 4 green) · `product_mapping` untouched since `2026-08-05 22:33Z`, which is BEFORE the 61
+reading · `machines` untouched 24 h · shelf population **544**, unchanged. ⇒ The mover is a
+per-shelf **pod re-resolution in `v_shelf_state`** - WEIMI identity drift, the one input that moves
+on its own and that the DATA-SOURCE LAW says WEIMI owns.
+
+⭐ **THE FIX IS A STRENGTHENING, NOT A RE-BASELINE.** seq 5's only job was NON-VACUITY; a count of
+61 never proved anything about safety. It keeps that job (`gt 0`, description rewritten with the
+expect per S-103) and the real work moves to two assertions that **cannot rot**:
+**seq 36** - every sentinel-backed shelf sits on a **co_managed** machine (a sentinel propping up a
+fully_managed machine is phantom stock standing in for stock Boonz actually owes - a real defect a
+population count could never catch); **seq 37** - no sentinel-backed shelf would block on
+retirement, measured on the LIVE population at fixture start (seq 21 proves the same AFTER the
+simulated retirement, inside the probe). ⭐ Both **EARNED**: seq 36 = 0, seq 37 = 0, seq 5 = 62.
+Migration `20260806221223_prd110_s257_fx24_sentinel_backed_property_not_literal`. Fixture 24
+re-fired **44/0**, run `0552cfb5`.
+
+### ⏸️ S-258 (NEW, HANDED OFF) - FIXTURE 45's RUNG-4 M2M HAS NO DONOR IT CAN NAME
+
+18/0 at `2026-08-06 06:30:22Z`, **11/7** at `22:06:34Z`. seq 7 reads `no_resolvable_donor` and
+cascades to 8/11/12/14/16/18. ⭐ **The fixture diagnoses itself**: all five candidate donors return
+`source_composition_unknown` via `shelf_composition_via_callee`, and its own note says the remedy -
+"widen shelf_composition coverage or plan a Remove on the donor shelf".
+
+⛔ **`shelf_composition` HOLDS 31 ROWS ACROSS 16 DISTINCT SHELVES, ALL ON `MPMCC-1058-0000-R0`** -
+one machine out of 37 - written by cron 44 in three batches: `08-05 22:40` (1 shelf), **`08-06
+20:40` (11 shelves)**, `08-06 21:40` (4 shelves). Confidence **0.00-0.05**. It is NOT a full hourly
+rewrite: only 3 distinct `updated_at` values across 31 rows.
+
+⚠️ **`MPMCC-1058` IS THE MACHINE LEG 137's COMMITTING FIXTURE 41 (S-256) WROTE AND RESTORED LIVE
+WEIMI ON.** Leg 137 disproved residue **on WEIMI itself** (A06 4/15, A05 4/6, `weimi_pin_backup`
+0 rows) - and that check was correct as far as it went. ⛔ **Nobody checked the DERIVED object**,
+and cron 44 rewrote MPMCC-1058's composition twice inside that window.
+⭐ **THE TRANSFERABLE RULE: RESTORING A FIXTURE'S DIRECT WRITES DOES NOT RESTORE THE SYSTEM.** A
+committing fixture that perturbs a source table can leave permanent residue in a cron-maintained
+derived object, and the residue proof must cover the derived object too.
+⛔ **The next leg must establish whether the 20:40/21:40 composition rows are genuine or fixture-41
+artefacts BEFORE choosing the remedy** - the answer decides between the two candidates (select the
+rung-4 anchor BY PREDICATE so a donor is composition-covered, per S-255/S-256; or plant a
+`shelf_composition` row inside the rolled-back probe - it is not a protected entity).
+
+### ⏸️ S-259 (NEW, HANDED OFF) - FIXTURE 53's DETECTOR SELF-TEST IS MEASURING NOTHING
+
+seq 15/16/17 expect `is_healthy=false` / `verdict=last_scheduled_night_errored` /
+`last_scheduled_status=error`; they read **true / ok / ok**.
+⛔ **THE HEALTH OBJECT IS NOT THE FAULT - THE PLANT IS.** `golden.scratch` key `mask` carries
+`rows_before = rows_after = 249`: the errored-scheduled-night plant **inserted nothing**, so
+seq 15-17 scored the unplanted live state. ⚠️ So `v_shadow_runner_health_v3` is **not proven
+regressed - but it is no longer proven working either**, and it is the object that would hide a
+failed shadow night before the DR-1 cutover.
+⭐ **REMEDY SHAPE (same class as S-254): add a plant-landed assertion (`rows_after > rows_before`)
+so a no-op plant fails LOUDLY at its own seq**, instead of surfacing three seqs later as what looks
+like a monitoring regression. Then find why the insert is a no-op (likely date-relative targeting
+of "last scheduled night").
+
+### ⏸️ DR-3 BUILT AND CODY-REVIEWED - **DELIBERATELY NOT APPLIED** (RELAY: never begin a unit you cannot finish)
+
+Three files on disk, complete and reviewed: `docs/prds/dr3_design.sql` (the dial + write-guard +
+revoke + report), `docs/prds/dr3_fixture67.sql`, `docs/prds/dr3_fixture67_assertions.sql`
+(32 assertions). ⛔ **Nothing was applied to the database.**
+
+**Measured facts the design rests on**, all re-read live: the live guard
+`trg_block_direct_pod_inventory_insert` is **INSERT-ONLY** - ⛔ **UPDATE and DELETE on
+`pod_inventory` are guarded by nothing today**, and that gap is the substance of the unit ·
+`authenticated` holds INSERT/UPDATE/DELETE/TRUNCATE on a protected entity (a standing Article 3
+violation) · all **14** writer functions are SECURITY DEFINER owned by `postgres`, so the revoke
+cannot reach them · all **five** FE call sites were read and are `.select()` only ·
+`pod_inventory_audit_log` already carries operation/source/delta (~150-215 writes/day) so the
+report needs no new capture · `inventory_events` holds **65** rows against that - the replacement
+is **not** carrying the load, and the report is built to keep saying `not_ready`.
+
+**Cody: APPROVE WITH REVISIONS** (Articles 1/2/3/4/7/8/12/14/16). Three revisions applied:
+(1) `COMMENT ON POLICY field_write_pod_inventory` - it survives the revoke and now grants what the
+grant denies; not dropped, per Article 12. (2) The `SECURITY DEFINER` on the guard is **load-bearing,
+not stylistic** - `refill_policy_params` has RLS with `force=false` owned by `postgres`, so as
+INVOKER the dial read would return no row, `COALESCE` would resolve `'off'`, and ⛔ **the guard would
+fail open silently**; that plus the declared fail-open on a missing params row are now commented.
+(3) `net_delta_units` renamed `audited_delta_units_writevol` - "Live shelf stock" is a registered
+metric owned by `v_live_shelf_stock`, and a unit-total name on a `pod_inventory`-derived object
+invites the inline re-derivation Article 16 exists to block.
+⚠️ Cody also flagged: apply the DDL only when no sweep is in flight (ACCESS EXCLUSIVE on
+`pod_inventory`), and avoid UTC minutes :30 / :40 / :45 (crons 17, 44, 47).
+
+### [leg 138] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260806221223** · `prd110%` **312** (was 311; **+1 this leg**) · disk **313** ·
+owed-set md5 **b43b10e8db3a31d86a67c5546a74b42d on BOTH sides**, recomputed not copied (312 names
+each) · golden **58 fixtures / 2113 enabled assertions** (was 2111; fixture 24 +2) ·
+`golden.stress_runs` **14** (unchanged) · **36 active crons, 0 changed** ·
+⛔ **LIVE plan tables untouched by this leg** - `2026-08-07` **101** (unchanged all leg),
+`2026-08-08` **0**. 2030-11-02 remains the only free date in the stress band.
+
+⭐ **THE TWO REGRESSION SENTINELS DID NOT MOVE:** `engine_add_pod_v3` **e9f3caff** · `stitch_v3`
+**a8753091**. **No engine, stitcher, binder, composer or RPC was touched this leg** - the single
+migration is `golden.*` only.
+
+**FLAGS AT CLOSE - NOT ONE CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`miner_weekly_pick_dry_run` **true** · `miner_weekly_edit_dry_run` **true**.
+⛔ **No cutover flag exists and none was created (LAW 4).**
+
+### RESUME POINTER 2026-08-07 leg 138 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg
+  138 left **no process running**. Then RISK 104: **expect `prd110%` = 312,
+  `max(version)` = 20260806221223, 313 prd110 files on disk, owed md5
+  `b43b10e8db3a31d86a67c5546a74b42d` both sides.** ⛔ The recipe is
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; the
+  disk side is the sorted filename list MINUS S-31's retained `20260730203000`. Count + max
+  agreeing while md5 disagrees means the wrong recipe, not a drifted DB.
+- ⭐ **THE OWED FULL SWEEP IS DONE AND BANKED** (`note = 'leg138 sweep r1'`): 58/58, 2111/2111
+  evaluated, 2100/11, **0 skipped, 0 scenario_errors**. ⛔ Do not re-run it to "confirm" - read it
+  back from `golden.runs`. ⭐ **S-251's and S-256's blast radii are now MEASURED**, which was the
+  whole reason it was owed.
+- ⛔ **GOLDEN IS NOT FULLY GREEN: TWO REDS REMAIN, 45 and 53.** Fixture 24 is closed at **44/0**
+  (run `0552cfb5`). ⛔ **LAW 8 therefore still binds** - close 45 and 53 before new phase work.
+  Both are fully diagnosed in this leg's body; neither is an engine regression and neither needs a
+  bisect.
+- ⏸️ **NEXT TASK: S-258 (fixture 45), and its FIRST STEP IS A QUESTION, NOT A FIX** - establish
+  whether the `08-06 20:40`/`21:40` `shelf_composition` rows on MPMCC-1058 are genuine estimator
+  output or residue from leg 137's committing fixture 41. The answer picks the remedy. **Then S-259
+  (fixture 53)**, which is smaller: add the plant-landed assertion first, then find the no-op.
+- ⏸️ **THEN DR-3, WHICH IS BUILT AND CODY-APPROVED AND NEEDS ONLY APPLYING.** Files:
+  `docs/prds/dr3_design.sql`, `dr3_fixture67.sql`, `dr3_fixture67_assertions.sql`. Order: fixture 67
+  first (it will read RED with a `scenario_error` - the column, trigger and view do not exist yet,
+  and that is the honest baseline), then the design, then re-fire 67 green. ⛔ Fixture 67 uses
+  `plan_date 2030-04-17` and `baseline_status 'failing_expected'` - both constraint-checked already.
+  ⚠️ **Apply the DDL with no sweep in flight and outside UTC minutes :30 / :40 / :45.**
+  ⚠️ **Adding fixture 67 CHANGES THE FIXTURE POPULATION**, which per DONE-2 turns the final golden
+  proof into an S7-style TRIPLE rather than a single run. Budget for that.
+- ⛔ **THE REMEDY PATTERN NOW HAS FOUR WORKED EXAMPLES** (16, 40, 41, 24). A red precondition is
+  closed by SELECTING the anchor by predicate and/or PLANTING the part that is a shelf property -
+  ⛔ never by planting a warehouse shortage (`warehouse_inventory` is protected) and never by
+  touching `pod_refills` on a real past date (LAW 12). Prefer the incumbent via `ORDER BY`, never
+  via `WHERE` - a preference cannot rot.
+- ⛔ **NEW STANDING RULE (S-258): A COMMITTING FIXTURE'S RESIDUE PROOF MUST COVER DERIVED OBJECTS,
+  NOT ONLY THE TABLE IT WROTE.** Restoring WEIMI does not restore `shelf_composition`.
+- ⛔ **AND (S-257): READ THE VIEW BEFORE BLAMING THE MOST RECENT PRODUCTION WRITE.**
+  `v_shelf_availability_v3` never reads `product_sourcing`; S-251 was innocent.
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (the SKU-grain rows are dated `2026-08-06 20:43Z`;
+  the pod is **Chocolate Bar**, and the flip is SKU-grain, not pod-grain, so the pod stays
+  `boonz_wh`-constrained for its other SKUs). The `2026-08-05 22:33Z` mapping flip behind it is
+  still unattributed. ⛔ If it was wrong, revert BOTH sides.
+- ⏸️ **THEN, in goal-command-2 order:** Tier 2 (DR-6 Stax unit first, then D-19) · Tier 3 (D-44,
+  D-47, DR-5, DR-7, DR-8) · Tier 4 (DR-1 cutover unit, **flag-off**).
+  ⭐ **D-44's design is worked out and in leg 138's context but NOT written to a file** - the picker
+  is `rank_machines_by_value_at_risk_v3`; reserve K by adding a `money_rank` window over
+  `value_at_risk_aed DESC` and sorting `(NOT is_money_reserved)` FIRST, guarded by
+  `value_at_risk_aed > 0` so a slot is never reserved for a 0.00 AED machine.
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** DR-4 done (leg 132). DR-5 and D-19-after-DR-6 are
+  the only other authorised flips. **The cutover flag stays untouchable.**
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⚠️ **S-192 IS STILL OPEN** (a repack's own returns block every later repack). In NO tier.
+- ⛔ **S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** New findings resume at **S-260**.
+- ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.
+- ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
+  D-33, D-34, D-37, D-39, D-40. ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED** - D-44, D-47 and
+  DR-1/3/5/6/7/8 remain.
