@@ -32900,10 +32900,10 @@ Flags all unchanged. LAW 12: `2026-08-07` **101**, `2026-08-08` **0**.
 
 ### ⭐⭐ THE LEG'S RESULT - THE TWO OWED REDS ARE CLOSED, AND NEITHER WAS RE-BASELINED
 
-| fixture | was  | now      | root cause                                        |
-| ------- | ---- | -------- | ------------------------------------------------- |
+| fixture | was  | now      | root cause                                           |
+| ------- | ---- | -------- | ---------------------------------------------------- |
 | 45      | 11/7 | **22/0** | S-258 rented precondition - donor SKU mix unknowable |
-| 53      | 19/3 | **23/0** | S-259 wall-clock time-bomb in the masking probe   |
+| 53      | 19/3 | **23/0** | S-259 wall-clock time-bomb in the masking probe      |
 
 ⛔ **NOT ONE EXISTING ASSERTION'S `expect` WAS CHANGED IN EITHER FIXTURE.** Both fixtures GREW
 (45: 18 -> 22 assertions, 53: 22 -> 23). Golden now **58 fixtures / 2118 enabled assertions**,
@@ -32995,7 +32995,7 @@ before.** That matters: it is the object that would hide a failed shadow night b
 any hour, forever - ordered, not literal, so it cannot rot when the cron schedule moves. The manual
 mask sits 1s later still, preserving the S-113 incident shape while remaining invisible to `sl`
 (which filters `note='cron'`).
-⭐ **NEW seq 23 IS A *SELECTION* RECEIPT, NOT AN INSERTION RECEIPT** - it banks the plan_date the
+⭐ **NEW seq 23 IS A _SELECTION_ RECEIPT, NOT AN INSERTION RECEIPT** - it banks the plan_date the
 view actually judged and asserts it is the FIXTURE's date. That is S-259's remedy shape corrected
 for the real fault: a live row can never again silently stand in for the plant.
 ⚠️ Tagged **P2** to match all 22 incumbent assertions - a P3 tag would let it be SKIPPED at lower
@@ -33066,7 +33066,7 @@ this leg** - both migrations are `golden.*` only.
   needs - ⛔ never by planting a warehouse shortage (`warehouse_inventory` is protected) and never
   by touching `pod_refills` on a real past date (LAW 12). Prefer the incumbent via `ORDER BY`,
   never via `WHERE` - a preference cannot rot.
-- ⛔ **NEW STANDING RULE (S-259): A FIXTURE THAT PLANTS A ROW A VIEW MUST *SELECT* NEEDS A SELECTION
+- ⛔ **NEW STANDING RULE (S-259): A FIXTURE THAT PLANTS A ROW A VIEW MUST _SELECT_ NEEDS A SELECTION
   RECEIPT, NOT AN INSERTION RECEIPT.** Asserting the row landed proves nothing if a live row
   out-ranks it. Assert that the object under test judged YOUR row.
 - ⛔ **AND (S-259, second): BEFORE CALLING A PLANT A NO-OP, CHECK WHETHER A GREEN ASSERTION ALREADY
@@ -33092,3 +33092,176 @@ this leg** - both migrations are `golden.*` only.
 - ⏸️ **THE TWELVE ANSWERED-UNEXECUTED ARE STILL TWELVE:** D-19, D-21, D-27, D-28, D-29, D-31, D-32,
   D-33, D-34, D-37, D-39, D-40. ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED** - D-44, D-47 and
   DR-1/3/5/6/7/8 remain.
+
+---
+
+## LEG 140 - 2026-08-06/07 - **DR-3 IS APPLIED, GREEN AND FLAG-OFF.** The `pod_inventory` physical write-freeze shipped: the two verbs nothing guarded are now guarded, every dial level was EXECUTED rather than inspected, and the 15-fixture blast radius re-fired clean. Golden **59/59, 2150/2150**. S-260 raised and closed.
+
+### [leg 140] STEP R - THE POINTER VERIFIED CLEAN, AFTER ONE FALSE ALARM I CAUGHT
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**. Then RISK
+104: `prd110%` **314** · `max(version)` **20260806223459** · disk **315** · owed md5
+**37e1b16de719a6ef9fef110c1507a27e on BOTH sides**, recomputed not copied. Golden read back (NOT
+re-run, per the pointer): **58/58, 2118/2118, 0 fail**. LAW 12: `2026-08-07` **101**,
+`2026-08-08` **0**. Flags all as recorded. **S-80 grep of the WHOLE parking lot: no CS ruling has
+landed since leg 139**; the file's last entry is leg 139's own close block.
+
+⚠️ **THE SENTINELS READ AS DRIFTED AND THEY HAD NOT.** My first probe used
+`md5(pg_get_functiondef(oid))` and returned `engine_add_pod_v3` **06859fd7** / `stitch_v3`
+**ad3155e4** against the recorded `e9f3caff` / `a8753091`. ⛔ **This is S-109 EXACTLY, and S-109
+predicted the precise wrong value** - leg 70 read `stitch_v3` as `ad3155e4` too. The pointers'
+md5s are `md5(prosrc)`. Re-probed under `prosrc`: **e9f3caff / a8753091, both exact.**
+⭐ **RISK 104's rule generalises and it saved this leg: count + max agreeing while an md5 disagrees
+means the WRONG RECIPE, not a drifted DB. Suspect the recipe before the database.**
+
+### ⭐⭐ DR-3 EXECUTED - BUILT AT LEG 138, CODY-APPROVED, APPLIED HERE
+
+Order per the pointer, and the red-then-green IS the proof:
+
+| step                       | migration                                             | result                                            |
+| -------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| fixture 67 BEFORE the code | `20260806224643_prd110_dr3_fixture67_red_baseline`    | **0/32 RED**, `scenario_error`, scratch empty     |
+| the design                 | `20260806224842_prd110_dr3_pod_inventory_write_freeze` | dial + guard + revoke + report                    |
+| re-fire                    | -                                                      | **31/32** - seq 14 red (S-260)                    |
+| S-260 fix                  | `20260806224935_prd110_dr3_fx67_seq14_verb_order_property` | ⭐ **32/32 GREEN**, run `leg140 ... property fix` |
+
+**The red baseline was honest**: `column "pod_inventory_write_freeze" does not exist`, 0 scratch
+rows, all 32 actuals null. ⛔ **AND IT NEARLY READ AS CLEAN.** `detail->>'scenario_error'` returned
+**NULL** - because `detail` is an ARRAY, not an object: the scenario error is `detail->0`, the
+assertions are `detail[1..n]`, and `detail->-1` is a summary footer
+(`vacuous` / `skipped_count` / `expected_red_count`). `n_fail` **33** = 32 assertions + the
+scenario error counted as one. ⭐ **RECORD THIS SHAPE** - reading the error as a top-level key
+returns null and makes a fully-errored run look like a clean one.
+
+### ⛔ S-260 (NEW, CLOSED) - POSTGRES CANONICALISES TRIGGER VERB ORDER, AND THE ASSERTION WAS AUTHORED FROM INTUITION
+
+Seq 14 asserted `contains 'BEFORE UPDATE OR DELETE'`. Postgres renders
+**`BEFORE DELETE OR UPDATE`** - it canonicalises the verb list. The guard was correct; the literal
+was wrong about the RENDERING, not about the claim.
+⛔ **THIS IS NOT A RE-BASELINE, AND THE DISTINCTION IS THE WHOLE POINT.** Seq 14 was authored in
+this same leg and **was never green**; nothing that ever passed was loosened. The claim is
+UNCHANGED and is **independently proven BY EXECUTION** at seq 22 (UPDATE refused 42501) and seq 24
+(DELETE refused 42501) - the trigger-def read is only their static mirror.
+⭐ Per S-257 the replacement is a **PROPERTY** (`BEFORE` ∧ `UPDATE` ∧ `DELETE` all present), which
+asserts **strictly more** than the single substring did and cannot rot on server-chosen ordering.
+
+### ⭐ THE DIAL WAS EXECUTED AT EVERY LEVEL, NOT INSPECTED (D-47 / S-173 doctrine)
+
+Measured, inside a force-rolled-back probe: `off` → non-RPC UPDATE **succeeds** (so DR-3 did NOT
+ship armed) · `warn` → **succeeds** · `block` non-RPC UPDATE → **42501** ⭐ *the gap DR-3 exists to
+close: UPDATE and DELETE were guarded by NOTHING, while INSERT has been guarded since PRD-012* ·
+`block` WITH `app.via_rpc` → **succeeds** ⭐ *proves DR-3 guarded production rather than broke it* ·
+`block` DELETE → **42501** · `frozen` WITH `app.via_rpc` → **42501** ⭐ *the only thing separating
+`frozen` from `block`, and precisely what "read-only historical" means*.
+**Residue clean:** dial back at `off`, `pod_inventory` **9528 unchanged** (the probe's real DELETE
+was discarded), `app.via_rpc` **UNSET** (no S-197 leak).
+
+### ⭐ ONE CHECK THE DESIGN DID NOT MAKE - I MADE IT BY PREDICATE
+
+The design enumerated its 14 writers **by name**. ⛔ A name list cannot prove the absence of a
+15th. Re-asked as a predicate - every `public` function whose body writes `pod_inventory` and is
+NOT `SECURITY DEFINER` owned by `postgres` - the answer is **ZERO ROWS**. ⭐ **The revoke cannot
+break any writer, and that is now established by predicate rather than by enumeration.**
+
+⚠️ **`SET LOCAL lock_timeout = '5s'` was added at apply time** - NOT a semantic change to Cody's
+reviewed design. The trigger DDL takes ACCESS EXCLUSIVE on a 9,528-row protected table; failing
+fast beats queueing in front of every other writer. Applied at **22:48Z**, inside the clear window
+(crons 17/44/47 at :30/:40/:45, cron 36 every 5 min) with **0 running jobs** and **0 active
+`pod_inventory` queries** confirmed immediately beforehand.
+
+### ⭐⭐ THE BLAST RADIUS WAS MEASURED, NOT ASSUMED - 15 FIXTURES, ALL GREEN
+
+DR-3 changed a **protected table's privilege surface** and added a trigger, so "the engines did not
+move, therefore golden is fine" would have been an assumption. ⛔ Instead the radius was SELECTED BY
+PREDICATE: every enabled fixture whose scenario or assertions reference `pod_inventory` or
+`refill_policy_params` → **8, 9, 18, 22, 28, 29, 31, 33, 42, 43, 48, 58, 59, 60, 63** (+67).
+**All 15 re-fired GREEN: 677 assertions, 0 fail, 0 scenario_errors, 0 skipped, none vacuous.**
+
+⛔ **`golden.run_all()` REFUSED TO RUN AND WAS RIGHT TO.** `run_all('P5', ...)` raised
+*"matched 0 enabled fixtures - an empty result set must not be mistaken for green"*: its `p_phase`
+is an EXACT filter, not a max_phase. ⭐ **The harness has an anti-vacuity guard on its own sweep** -
+had it returned silently, an empty sweep would have read as a green one.
+⭐ **Per-fixture fires through the management API DO bank** (verified by reading `golden.runs` back
+after every batch); S-250's non-banking defect is specific to the single long `run_all` call.
+
+### [leg 140] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260806224935** · `prd110%` **317** (was 314; **+3 this leg**) · disk **318** ·
+owed md5 **5d417285ccfe9eaa13489393a2eca07e on BOTH sides**, recomputed not copied ·
+golden **59 fixtures / 2150 enabled assertions** (was 58 / 2118; fixture 67 is +1 fixture and its
+32 assertions) · latest run per fixture **59 green / 0 red / 2150 pass / 0 fail** -
+⭐ **total_pass EQUALS enabled_assertions, so the denominator is the whole population** ·
+`golden.stress_runs` **14** (unchanged) · **36 active crons, 0 changed**.
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101** (unchanged all leg), `2026-08-08` **0**,
+`2030-04-17` (fixture 67's date) **0** - it plants no plan rows at all.
+⛔ **`pod_inventory` 9528 rows, unchanged from open to close.**
+
+⚠️ **APPLY-TIME VERSION DRIFT HIT ALL THREE TIMES, AS THE LAST LEG WARNED.** I wrote
+`...224700`; the MCP assigned `...224643`, `...224842`, `...224935`. Realigned by RENAMING the disk
+file and writing the other two AT the DB-assigned versions, after which both md5 sides agree.
+⛔ **Expect this on every apply.**
+
+⭐ **THE TWO REGRESSION SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** ·
+`stitch_v3` **a8753091**. No engine, stitcher, binder, composer, view, runner or RPC was touched.
+
+**FLAGS AT CLOSE - NOT ONE CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`miner_weekly_pick_dry_run` **true** · `miner_weekly_edit_dry_run` **true** ·
+⭐ **NEW `pod_inventory_write_freeze` = `off`** (before: column did not exist. LAW 4: ships inert).
+⛔ **No cutover flag exists and none was created.**
+
+### RESUME POINTER 2026-08-07 leg 140 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg
+  140 left **no process running**. Then RISK 104: **expect `prd110%` = 317,
+  `max(version)` = 20260806224935, 318 prd110 files on disk, owed md5
+  `5d417285ccfe9eaa13489393a2eca07e` both sides.** ⛔ Recipe is
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; the
+  disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`.
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Under `functiondef`
+  you will read `06859fd7` / `ad3155e4` and think the engines drifted. They have not.
+  Expect **`engine_add_pod_v3` e9f3caff · `stitch_v3` a8753091**.
+- ⭐⭐ **GOLDEN IS FULLY GREEN: 59/59 fixtures, 2150/2150 enabled assertions, 0 fail.** ⛔ Read it
+  back from the latest run per fixture; do NOT re-run a sweep to "confirm" it.
+- ⛔ **DR-3 IS DONE AND SHIPPED FLAG-OFF.** `pod_inventory_write_freeze` = `off`, fixture 67 green
+  32/32. ⚠️ **Arming it is a CS decision, NOT loop work**: it needs
+  `v_pod_inventory_daily_delta_v3` to read something other than `not_ready` for ~2 weeks
+  (BUILD SPEC P1.4 line 68). Today **22 of 30 days read `not_ready`** - `inventory_events` holds
+  **65** rows against **1,134** pod_inventory writes in the window. The replacement is NOT
+  carrying the load. ⛔ Do not flip the dial to chase a green.
+- ⏸️ **NEXT TASK: TIER 2 - DR-6 FIRST (the Stax unit: `p_force` passthrough + refusal
+  affordance), THEN D-19** (flip `preflight_enforcement` → `block`, update fixture 33 seq 91 as
+  proof). D-19 is BLOCKED ON DR-6's FE deploy - do not flip the flag before the FE ships, or the
+  field gets a refusal it has no affordance to answer.
+- ⏸️ **THEN:** the other eleven answered decisions (D-21, D-27, D-28, D-29, D-31, D-32, D-33,
+  D-34, D-37, D-39, D-40) · Tier 3 (D-44, D-47, DR-5, DR-7, DR-8) · Tier 4 (DR-1 cutover unit,
+  **flag-off**). ⭐ **D-44's design still lives only in leg 138's prose, not in a file:** the
+  picker is `rank_machines_by_value_at_risk_v3`; reserve K=2 by adding a `money_rank` window over
+  `value_at_risk_aed DESC` and sorting `(NOT is_money_reserved)` FIRST, guarded by
+  `value_at_risk_aed > 0` so a slot is never reserved for a 0.00 AED machine.
+- ⛔ **DONE-2 OWES AN S7-STYLE TRIPLE, AND THIS LEG IS WHY.** The fixture population CHANGED
+  (58 → 59), so the final golden proof is `×3 consecutive identical`, not `×1`. ⚠️ Budget for it:
+  a full sweep is **~19.4 minutes of DB time** (1,164,473 ms; slowest fixtures 7/42/43 at
+  ~105-110s each). ⛔ **FIRE PER FIXTURE - `run_all` through the management API banks nothing
+  (S-250)** - and never START a fixture in UTC minutes 37-40 (cron 44 straddle).
+- ⛔ **NEW STANDING RULE (S-260, two parts).** (1) `golden.runs.detail` IS A JSON **ARRAY**:
+  `detail->0` is the `scenario_error`, `detail->-1` is the summary footer.
+  ⛔ `detail->>'scenario_error'` returns NULL on a fully-errored run and makes it look clean.
+  (2) Never assert a Postgres-rendered definition by intuited literal - **Postgres canonicalises**
+  (trigger verb order became `BEFORE DELETE OR UPDATE`). Assert the PROPERTY.
+- ⛔ **AND (S-260, third): A NAME LIST CANNOT PROVE AN ABSENCE.** Before trusting any "all N
+  writers are SECURITY DEFINER" claim, re-ask it as a predicate over `pg_proc`. It held here
+  (zero non-definer writers) - but the design had only enumerated.
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (SKU-grain, pod is **Chocolate Bar**, so the pod
+  stays `boonz_wh`-constrained for its other SKUs). The `2026-08-05 22:33Z` mapping flip behind it
+  is still unattributed. ⛔ If it was wrong, revert BOTH sides.
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** DR-4 done (leg 132), DR-3 shipped inert (leg 140).
+  DR-5 and D-19-after-DR-6 are the only other authorised flips. **The cutover flag stays untouchable.**
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⚠️ **S-192 IS STILL OPEN** (a repack's own returns block every later repack). In NO tier.
+- ⛔ **S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257, S-258, S-259 and S-260 are CLOSED.**
+  New findings resume at **S-261**.
+- ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.

@@ -10902,3 +10902,37 @@ exact state the RELAY "nothing half-applied" invariant forbids. **Next leg's fir
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 139 raised no new decision.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+---
+
+## LEG 140 DELTA - DR-3 MOVES FROM "BUILT, NOT APPLIED" TO "SHIPPED FLAG-OFF"
+
+⭐ **DR-3 IS EXECUTED.** `pod_inventory` physical write-freeze applied 2026-08-06T22:48Z:
+the dial `refill_policy_params.pod_inventory_write_freeze` (`off`/`warn`/`block`/`frozen`,
+CHECK-constrained), the `BEFORE UPDATE OR DELETE` write-guard `trg_guard_pod_inventory_write`
+(the two verbs nothing guarded - INSERT has been guarded since PRD-012), the REVOKE of
+INSERT/UPDATE/DELETE/TRUNCATE from `authenticated` and `anon`, and the daily-delta report
+`v_pod_inventory_daily_delta_v3`. Fixture **67 green 32/32**, every dial level EXECUTED.
+Migrations `20260806224643` / `20260806224842` / `20260806224935`.
+
+### ⏸️ NEW DECISIONS-READY ENTRY - THE FREEZE ITSELF (arming the dial)
+
+- **What:** `pod_inventory` becomes writer-gated (`block`), then read-only historical (`frozen`).
+- **Ships:** `off` - fully inert. LAW 4 respected; the guard returns immediately at `off`.
+- **Evidence it works:** fixture 67 seq 20-25 EXECUTE all four levels (off/warn succeed;
+  block refuses non-RPC UPDATE **and** DELETE with 42501; block WITH `app.via_rpc` succeeds so the
+  14 canonical writers keep working; frozen refuses even RPCs). Residue proven at seq 30-32.
+- **The single command CS runs:**
+  `UPDATE refill_policy_params SET pod_inventory_write_freeze = 'warn';` (then `'block'`, then
+  `'frozen'` - three deliberate steps, never one).
+- ⛔ **NOT READY TODAY, AND THE REPORT SAYS SO.** `v_pod_inventory_daily_delta_v3` reads
+  **`not_ready` on 22 of 30 days**: `inventory_events` holds **65** rows against **1,134**
+  `pod_inventory` writes in the same window. The replacement is not carrying the load.
+  BUILD SPEC P1.4 line 68 wants ~2 weeks of the report first. ⛔ **Do not arm to chase a green.**
+- ⚠️ `service_role` KEEPS its write privileges DELIBERATELY (n8n / break-glass; this build cannot
+  read the n8n flows to prove none of them writes). The guard covers it instead. Fixture 67 seq 8
+  pins that, so a future silent revoke has to be argued for.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46, DR-3 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/5/6/7/8 remain as WORK, not asks. Leg 140 raised no new decision. ⚠️ **A new DECISIONS-READY entry exists** (arming the freeze dial) but it is explicitly NOT ready - it is gated on the delta report, not on CS attention today.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
