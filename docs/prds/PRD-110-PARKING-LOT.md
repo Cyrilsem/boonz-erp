@@ -10690,3 +10690,74 @@ PREDICATE, or plant the precondition** inside the rolled-back probe block. 41 = 
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE NEW ASK: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 136 raised no new _decision_ beyond S-251's confirmation ask.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+## ⭐⭐ leg 137 (2026-08-06/07) - THE S-249 FIVE ARE CLOSED. S-253/S-253b/S-254/S-255/S-256 raised.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every run id below is a **banked**
+`golden.runs` row with `scenario_error` null, re-read at leg close, never a running process.
+
+### ✅ LAW 8 SATISFIED - fixtures 16, 40, 41 closed, joining 30 and 17 from leg 136
+
+**16: 33/0** (`ddc38265`) · **40: 60/0** (`60608877`) · **41: 66/0** (`678473e2`).
+⛔ **NOT ONE EXPECTATION WAS LOOSENED.** Every red was a decayed PRECONDITION, never a wrong
+assertion. Assertions went **2103 -> 2111**: a dynamically selected anchor has to prove and name
+itself, so each fixture gained non-vacuity + attributability checks.
+
+⭐ **THE PATTERN, now with three worked examples.** Close a decayed precondition by SELECTING the
+anchor by predicate - resolved ONCE into `golden.scratch` so the population read and the call site
+consume the SAME anchor - and/or PLANTING the part that is a shelf property.
+⛔ **Never plant a warehouse shortage** (`warehouse_inventory` is protected; fixture 16 needed a dry
+shelf and SELECTED one instead). ⛔ **Never touch `pod_refills` on a real past date** (LAW 12;
+fixture 40's `net_primary` could only have been restored that way, so the anchor moved instead).
+⭐ **Prefer the incumbent in `ORDER BY`, never in `WHERE`** - a preference keeps continuity with the
+BUILD-SPEC anchor and still cannot rot (fixtures 40 and 41 both do this; 41's incumbent still won).
+
+### ⛔⛔ S-254 (NEW) - **A `scenario_error` MAKES A FIXTURE'S WHOLE ASSERTION LIST LIE, NOT GO BLANK**
+
+The first fixture-16 run after the rewrite reported **28/6** with seq 13/15/16 red at **exactly their
+pre-fix values**. That reads as a faithful re-measurement of the known defect. It measured nothing.
+
+⭐ **MECHANISM:** every scenario opens with `DELETE FROM golden.scratch WHERE fixture_id = N`.
+`run_fixture` runs the scenario in a plpgsql subtransaction, so a raise rolls that DELETE back and
+the PREVIOUS run's blob survives. The assertions then score days-old observations and reproduce the
+old verdict perfectly. ⛔ **Only the two brand-new assertions exposed it** - their keys did not exist
+in the stale blob, so they alone read NULL. A fix that added no assertions would have looked exactly
+like an honest unfixed red.
+
+⛔ **STANDING RULES:** (1) read `golden.runs.detail[0]->>'scenario_error'` before believing ANY red;
+(2) `DELETE FROM golden.scratch WHERE fixture_id=N` before firing a fixture you just edited, so an
+error reads NULL everywhere instead of plausibly-old; (3) never build a `RAISE` message by
+concatenation in a scenario. **S-253b** is the underlying fault, fixed forward per Article 12:
+`RAISE EXCEPTION 'a' || 'b'` does not parse - `RAISE` takes a format string LITERAL.
+
+### S-253 (fixture 16) · S-255 (fixture 40) · S-256 (fixture 41)
+
+- **S-253** - the "zero WH availability" probe was hardcoded to a shelf code; production restocked it
+  (16 units) and it stopped being a probe. Dryness is now SELECTED via the engine's own arithmetic
+  (`is_constrained AND available_units = 0`); headroom is self-supplied. Stock is held **>= 1** so
+  the min-facing floor cannot lift `need_raw` in the pin's place. Chose **A08**, `z_avail` 0,
+  `pinfloor_z` 1, `clamp_z` back to **blocked_no_wh**.
+- **S-255** - anchor D's `net_primary` fell to 0 (4 units of stock, **7 already claimed**), turning a
+  rung-1 PARTIAL into a rung-1 MISS and cascading five assertions off one cause. Ladder dry-run first
+  (it is STABLE/read-only), then shipped. Chose **AMZ-1046 A12 Soft Drinks Mix**, 8 variants,
+  437/438, short 1, `variant#1`. ⚠️ A 438-unit ask is unrealistic but harmless: every claim D proves
+  is quantity-independent. It is the cost of ranking variant-breadth above tightness.
+- **S-256** - **three** decays, not the two leg 136 saw: anchor B's headroom had also drifted 1 -> 2,
+  and anchor A's moved **again** (9 -> 10 -> 11) between legs. No shelf carries pod `098f5c0c` any
+  more, so seq 5 now asserts STRUCTURE (mixed pod · off the destination machine · outside
+  `shelf_composition`) instead of a pod name. seq 18/19 keep `eq 9` / `eq 1` and are PLANTED -
+  loosening them to ranges would have dissolved the A-versus-B contrast the fixture rests on.
+  ⛔ **Fixture 41 COMMITS** (no rolled-back probe block), so block (4) restores both shelves and
+  seq 64/65 prove it; residue was also disproven independently off live WEIMI (A06 **4/15**, A05
+  **4/6**, `weimi_pin_backup` **0 rows**).
+
+### ⏸️ CARRIED FORWARD
+
+⛔ **THE FULL 58-FIXTURE SWEEP IS STILL OWED** and was deliberately not started this leg - it cannot
+be finished and adjudicated in the space left. ⚠️ Two unmeasured blast radii make it non-optional:
+S-251's PRODUCTION sourcing change on ten machines, and S-256's live-WEIMI write/restore inside a
+committing fixture. Fire per fixture (S-250), clear scratch first (S-254), avoid UTC minutes 37-40.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46 and DR-4 are EXECUTED**; D-44, D-47 and DR-1/3/5/6/7/8 remain as WORK, not asks. Leg 137 raised no new decision.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
