@@ -29,10 +29,14 @@
 #      note can carry the window. Rounds must not cross 00:00 UTC.
 #
 # S-210 stays fixed: per-round output subdirectories, nothing is ever deleted.
+#  (4) NOTE NAMESPACE IS A PARAMETER (leg 144). Change (1) requires the note to be leg-scoped,
+#      but the prefix was hard-coded to 'leg127', so every later leg had to fork the file.
+#      Pass the prefix as $2. Rows in golden.runs stay attributable to the leg that fired them.
 set -u
-ROUND=${1:?usage: prd110_leg127_s7.sh <round>}
-NOTE="leg127 S7 r${ROUND}"
-BASE=/tmp/prd110_leg127_out
+ROUND=${1:?usage: prd110_s7_golden_determinism_sweep.sh <round> [note_prefix]}
+PREFIX=${2:-leg127}
+NOTE="${PREFIX} S7 r${ROUND}"
+BASE=/tmp/prd110_${PREFIX}_out
 OUT=$BASE/r${ROUND}
 mkdir -p $OUT
 LOG=$BASE/progress.log

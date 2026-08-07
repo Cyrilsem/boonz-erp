@@ -34182,3 +34182,206 @@ assertions** · **fixture 59: 56/56 · fixture 68: 28/28 · no known red** · **
   migration got right. ⭐ **The working tree is part of "verify the pointer against reality".**
   ⚠️ Sibling drafts `docs/prds/dr5a_design.sql` and `dr5b_design.sql` were untracked too and are
   now committed as the historical record they are.
+
+---
+
+## LEG 144 - 2026-08-07 - **D-44 EXECUTED. THE MACHINE THE RULING WAS RAISED ABOUT IS NOW RANK 1.** VOXMCC-1005-0201-B0 moved from rank 12 / unselected to rank 1 / `money_reserved`. Fixture 42 is **85/85**. S-271 and S-272 raised.
+
+### [leg 144] STEP R - POINTER VERIFIED CLEAN, ZERO DISCREPANCIES (second leg running with nothing to reconcile)
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**.
+⭐ **S-270 OBEYED ON ITS FIRST LEG: the untracked set was read at STEP R.** `git status --porcelain`
+and `--untracked-files=all` both returned **empty** - no abandoned draft this time. The rule cost
+one command and is now part of STEP R.
+RISK 104: `prd110%` **327** · `max(version)` **20260807155200** · disk **328** · owed md5
+**b1e382680cb133d6cba8362b8cd7ac69 on BOTH sides**, disk side computed in **Python** per leg 141.
+Sentinels under `prosrc` (S-109): `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e**. LAW 12:
+`2026-08-07` **101**, `2026-08-08` **0**. `37` active crons · golden **60 fixtures / 2190 enabled
+assertions** · `stress_runs` **14**. All seven flags plus the two new D-21 dials exactly as leg 143
+recorded. `feedback_proposals_v3` pending **12** = **8 real + 4 synthetic**, split on S-244's
+`plan_date < '2027-01-01'` - the S-265 residue, exactly as recorded, not a drift.
+S-80 grep of the WHOLE parking lot for `CS DECISION`: latest ruling block is still
+**"POST-DONE DR REGISTER CLOSED" (2026-08-04)** - **no CS ruling has landed since leg 141.**
+⭐ **Every figure matched the pointer.**
+
+⛔ **THE SUPABASE MCP DID NOT CONNECT THIS LEG EITHER (fourth in a row).** `/tmp/prd110_sql.sh` AND
+`/tmp/apply_mig.sh` had BOTH survived this time; neither needed rebuilding.
+
+### ⛔⛔ [leg 144] THE OWED S7 TRIPLE WAS RE-SEQUENCED, DELIBERATELY, AND IT IS STILL OWED
+
+Leg 143's pointer named the S7 triple as NEXT TASK. It was started (`leg144 S7 r1`) and then
+**deliberately stopped at 13 fixtures**, for a reason worth recording rather than burying:
+
+⭐ **A determinism triple is only meaningful over the suite it will be reported about.** Running it
+BEFORE D-44 would have proven three-round determinism over a suite this leg then changed (+9
+assertions on fixture 42), and DONE-2 would owe the triple again. Running the full sweep AFTER the
+unit validates **the state the next leg inherits**, which is what a handoff gate is for.
+⛔ **THE TRIPLE IS NOT SKIPPED AND MUST NOT BE READ AS SKIPPED.** It is owed at DONE-2, on the FINAL
+suite, per the goal command's own words ("S7-style triple only if the fixture population changed").
+⭐ The 13 fixtures that did complete are banked as the **pre-change baseline: 13/13 fixtures,
+491/491 assertions, 0 fail, 0 skip** (ids 1,2,3,5,6,7,8,9,10,11,12,14,16), and they are the reason
+this leg can say the D-44 reds were caused by D-44 rather than inherited.
+⚠️ **Cost measured, so the next leg budgets honestly: ~44 s/fixture, NOT the ~19.4 min/sweep the
+pointer carried.** A 60-fixture round is **~45 min** plus cron-44 holds (8 HOLD ticks = ~4 min were
+spent in the [37,40] guard on this attempt alone). Budget **~50 min per round, ~2.5 h for a triple.**
+
+### ⭐ [leg 144] THE RUNNER IS NO LONGER FORKED PER LEG
+
+`scripts/prd110_s7_golden_determinism_sweep.sh` hard-coded `NOTE="leg127 S7 r${ROUND}"`, so change
+(1)'s own requirement - that notes be leg-scoped - forced every later leg to copy the file. The note
+prefix is now **`$2`** (default `leg127`, so nothing historical moves) and the output root follows
+it. `scripts/prd110_s7_fixtures.txt` was restored to `/tmp` (S-269 reconcile run first: manifest
+**60** vs `golden.fixtures WHERE enabled` **60**, exact match).
+
+### ⭐⭐ D-44 EXECUTED - `20260807160000_prd110_d44_money_reserved_slots` (Cody ⚠️ Approve with one required revision, applied)
+
+**THE RESULT, read off the picker's own output inside the fixture's planted world:**
+
+| machine                  |  rank | value at risk | breached | reserved | reason           |
+| ------------------------ | ----: | ------------: | -------- | -------- | ---------------- |
+| VOXMCC-1005-0201-B0      | **1** |    **931.72** | false    | **true** | `money_reserved` |
+| VOXMCC-1011-0101-B0      | **2** |        289.66 | false    | **true** | `money_reserved` |
+| NOVO-1023-0000-W0        |     3 |      **0.00** | **true** | false    | `cadence_floor`  |
+| ACTIVATEMCC-1037-0000-L0 |     4 |        227.50 | false    | false    | `value_at_risk`  |
+
+⭐ **VOXMCC-1005-0201-B0 IS THE MACHINE D-44 WAS RAISED ABOUT.** Leg 117 recorded it at
+**rank 12, not selected, reason `below_day_capacity`**, starved behind eleven breached machines of
+which nine carried 0.00 AED. It is now **rank 1 and selected**. ⭐ **And cadence debt still clears:**
+NOVO-1023 at 0.00 AED is still picked at rank 3 on the breached floor - the ruling asked for both,
+and both happened.
+
+**Shipped:** dial `var_money_reserved_slots` **2** (the ruled K, manager-gated by the existing
+`rpp_write` policy) · picker rewritten with a `money_rank` ladder computed on money ALONE, an
+`is_money_reserved` flag, and `is_money_reserved DESC` sorting above `cadence_floor_due DESC` ·
+third `selection_reason` value `money_reserved` · new `reasoning->'money_reservation'` object.
+⭐ **THE OUT SIGNATURE IS BYTE-IDENTICAL, DELIBERATELY.** Adding an OUT column to a `RETURNS TABLE`
+would have forced a DROP (LAW 3 forbids destructive change), so both new facts travel in the
+existing jsonb. Blast radius was proven EMPTY before the edit: **zero** functions and **zero** views
+reference the picker (`pg_proc.prosrc` + `pg_get_viewdef` scan), and fixture 42 is its only golden
+consumer.
+
+⛔ **THE `value_at_risk_aed > 0` GUARD IS LOAD-BEARING AND IS ASSERTED (seq 79), NOT COMMENTED.**
+Without it, on a day when fewer than K machines carry any value, the reservation would hold a driver
+slot for a **0.00 AED** machine and outrank a genuinely breached one - the exact harm D-44 was
+raised to stop, inverted.
+
+### ⛔⛔ S-271 (NEW) - THE RULING'S "DAY CAPACITY OF 6" IS NOT THE `driver_capacity` DIAL
+
+CS wrote "Of the day capacity of **6**, 2 slots always go to the money rule; the remaining 4 drain
+the breached-cadence set." Live `pick_urgency_params.driver_capacity` is **8**; leg 118's
+conservative `eff_cap_model` reads **5**. The "6" is the **observed minutes-bound** capacity read
+off the picker's output on 2026-08-04 - a measurement, not a dial.
+⭐ **This matters because it decides the implementation.** Read as a ratio (2/6 = one third), K
+would have to float with capacity. Read as CS actually wrote it - "2 slots **always**" - K is an
+**absolute** reservation. The absolute reading is what shipped, and the arithmetic "remaining 4" is
+simply the sentence's illustration on the day it was written, not a constraint the code can honour.
+⛔ **A ruling that names a number the database also has a column for must be checked against that
+column before the number is implemented.** They were different here by 2.
+
+### ⛔⛔ S-272 (NEW) - S-103 NEEDS A THIRD CLAUSE: RESTATE THE **SHAPE**, NOT JUST `expect` AND `description`
+
+Fixture 42 came back **82/84** on the first D-44 fire. Both reds were mine, and they are different
+species:
+
+- **seq 35, actual `0`** - `20260807160000` rewrote the `check_sql` from a boolean to a `count(*)`
+  and moved the `description` with it, **but left `expect_op`/`expect` at `eq`/`'true'`**. The
+  assertion was comparing `'0'` to `'true'` and **could not have passed in either direction**.
+  ⛔ **It reads in the diff as a careful S-103 restatement.** S-103 says move `expect` and
+  `description` together; the missing clause is that when a restatement changes the SHAPE of what
+  `check_sql` returns, `expect_op`/`expect` must move WITH it. **Now enforced at apply time**
+  (D-44b GUARD 2: no fixture-42 assertion may carry a boolean `expect` over a `count(*)::text`).
+- **seq 31, actual `2`** - a REAL policy consequence, not a defect. "Every BREACHED machine ranks
+  above every non-breached - 0 inversions" is a D-24 universal that D-44 breaks **by ruling**,
+  exactly K times. ⭐ **The 2 IS the ruling working**, and it is now pinned as such by seq 85.
+
+⛔ **HOW seq 31 WAS MISSED, AND THE RULE THAT FOLLOWS.** The blast-radius set for
+`20260807160000` was built by grepping fixture 42 for `selection_reason` / `reason` and reading the
+assertions D-44's prose named. **seq 31 mentions neither.** ⭐ **The blast radius of a RANKING change
+is every assertion about ORDER, not every assertion that shares vocabulary with the ruling.**
+⭐ **And the fixture found it in 109 seconds** - which is fixture-first paying for itself rather than
+a process failure.
+
+### ✅ D-44b - `20260807161500_prd110_d44b_restate_cadence_universals` (Cody ✅, Articles 1/2/3/12/14/16)
+
+- **seq 31 RESTATED AS THE AMENDED UNIVERSAL, NOT SCOPED AWAY.** ⛔ The naive fix - assert the
+  property over the non-reserved population only - is **weaker than it looks**: it stops
+  constraining the reserved rows entirely, so a regression that reserved SIX machines, or reserved a
+  machine ranked 40th, would sail through. The shipped form keeps the universal over **every**
+  machine and names the single licensed exception (`AND NOT b.res`). Strictly stronger on the
+  reserved rows, identical everywhere else.
+- **seq 35 RE-POINTED AT THE CS PAIR.** `20260807160000` had replaced the pair with a universal -
+  but seq 31 already IS the universal, so that left two copies of one claim and **no** assertion on
+  the specific pair D-24 and D-44 were both argued over. seq 35 now pins **both the new order AND
+  its cause**: M_TOP outranks M_CAD *and* M_TOP is reserved *and* M_CAD is not. A run where M_TOP
+  wins for any other reason goes red.
+- **seq 85 NEW - "D-44 IS NOT A NO-OP".** seqs 77-84 prove the reservation is well-FORMED; none of
+  them proved it CHANGED anything. A reservation landing only on machines D-24 would have picked
+  first is inert, and every green above it would be green over a no-op. Reads **2**.
+
+### ✅ THE VERDICT, adjudicated from `golden.runs` and never from the returned set (S-260/S-266)
+
+**FIXTURE 42: 85/85, `n_fail` 0, `passed` true, ZERO `scenario_error`, 111 s.**
+D-44 family actuals, all recorded in `detail` for the next investigator:
+`31=0 · 35=true · 42=0 · 60=true · 77=2 · 78=true · 79=0 · 80=0 · 81=0 · 82=2 · 83=1 · 84=0 · 85=2`.
+
+⭐ **seq 60 - THE CS D-24 ACCEPTANCE TEST - IS BYTE-UNTOUCHED AND STILL TRUE.** The ruling said "Do
+NOT loosen seq 60"; both migrations pin its `md5(check_sql|expect_op|expect)` before and after and
+**RAISE if it moved**. That is enforcement, not a promise.
+⭐ **S-267 HONOURED ON A NEW OBJECT:** seq 80 re-derives the reserved SET independently off
+`value_at_risk_aed` (top-K by money, ties by name) and demands zero symmetric difference with the
+flag the picker emitted. seqs 78/79/81/82/84 read the object under test and prove only
+self-consistency; **seq 80 is the one that proves it RIGHT.**
+⚠️ **seq 83 reads `1`** - the non-reserved population has both breached and non-breached members,
+but the smaller group holds exactly ONE machine. Non-vacuous, and thin. If a later plant loses that
+machine, seq 31/35 quietly become 0=0. Worth watching, not worth widening today.
+
+### ⏸️ [leg 144] TWO ITEMS DELIBERATELY NOT DONE (LAW 13: verify, then act)
+
+- **seq 64 (D-25 coverage-staleness tiebreak) was NOT pre-emptively rescoped.** Its pair-join can in
+  principle straddle the reservation boundary (two machines tied on breach state AND on money, one
+  reserved and one not). It was analysed, predicted as a possible red, and **left alone** - it came
+  back **green**, so touching it would have been a speculative edit to a working assertion. ⛔ If a
+  future plant produces that tie, restate it with `a.res = b.res`; do not loosen it.
+- **D-47 (fixture 28 synthetic tier plant) NOT started.** Its shape is now scoped (below) rather
+  than begun, per RELAY: never begin a unit you cannot finish.
+
+### [leg 144] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260807161500** · `prd110%` **329** (was 327; **+2 this leg**) · disk **330** ·
+owed md5 **17894944aa420e27ea6982583bf08641 on BOTH sides**, recomputed not copied (disk side in
+**Python**) · golden **60 fixtures / 2199 enabled assertions** (was 60 / 2190: **+9 assertions, 0
+fixtures** - all fixture 42) · `golden.stress_runs` **14** (unchanged) · **37 active crons**
+(unchanged).
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101** (unchanged all leg), `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e**. No engine,
+stitcher, binder, composer or ladder body was touched - **the picker is advisory and writes
+nothing** (LAW 11: Gate 0 stays manual; CS still selects).
+🆕 **NEW SENTINEL: `rank_machines_by_value_at_risk_v3` 3a6c5914 -> 754532ac.** If it ever reads
+`3a6c5914` again, D-44 has been reverted.
+⭐ **NO APPLY-TIME VERSION DRIFT ON EITHER MIGRATION** - `/tmp/apply_mig.sh` registers the version it
+is handed.
+
+**FLAGS AT CLOSE - NOT ONE PRE-EXISTING FLAG CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `pick_urgency_params.w_empty` **0.945** ·
+`substitute_margin_min_coverage_pct` **90.00** · `substitute_margin_weight` **0.000**.
+🆕 **ONE NEW DIAL, AND IT IS NOT INERT:** `var_money_reserved_slots` **2**. ⭐ This is an
+**authorised execution**, not a LAW-4 flip - the goal command's amendment lists the ruled changes as
+authorised, and D-44's ruling names K=2 explicitly. K=0 restores the pure D-24 ordering.
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE (unchanged by this leg):** `picker_weight_proposals_v3` pending **0** ·
+`feedback_proposals_v3` pending **12** = 8 real + 4 synthetic (S-265) · `rotation_proposals_v3`
+pending **25** (DR-7 first fires 2026-08-09).
+
+### ⏸️ [leg 144] ARTICLE 16 PAPERWORK PAID IN THE SAME UNIT, NOT DEFERRED
+
+`METRICS_REGISTRY.md` line 632 (`rank_machines_by_value_at_risk_v3`, "Expected revenue lost if a
+machine is not visited today") now records D-44: **the ranking contract changed, the metric did
+not.** `value_at_risk_aed` and the three-tier price cascade feeding it are byte-unchanged, so the
+D-31 convergence debt is neither widened nor touched. ⭐ Cody made this a REQUIRED revision rather
+than owed paperwork, because a registry that still described the D-24 ordering would have been read
+as current. ⚠️ Leg 143's owed margin-coverage row is **still owed**.
