@@ -11311,3 +11311,44 @@ pending 0 throughout). Fixture 48 pushed facings 18→20. **Budget the S-262 cle
 ### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (a value: the margin weight W%, and whether 90 % is still the right bar now the binding number is margin-computability at 53.99 %). The answered-unexecuted list stays at **ELEVEN**: D-19, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40. ⭐ **D-21(half 1), D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; DR-1/6/8 remain as WORK, not asks. Leg 145 raised no new decision. ⚠️ **S-274 is a DEFECT that BLOCKS the S7 triple and DR-8 (LAW 8); S-265 and S-266 remain OPEN.**
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 146 (2026-08-07) — S-274 CLOSED (golden's only known red). S-277 raised and closed same leg.
+
+### ✅ S-274 CLOSED BY EXECUTION — fixture 54 MAKES its premises instead of inheriting them
+
+`20260807171000_prd110_s274_fixture54_owns_its_assortment_premises`. NEW
+`golden.plant_shelf_identity` (identity sibling of `plant_shelf_stock`; pod identity is WEIMI
+`goodsName` through the four tiers of `v_live_shelf_stock`, so it is the same class of write on the
+same row) + NEW `golden.evict_pod_from_machine`. Fixture 54 plants five premises and restores two
+machines; **41 → 44** assertions. ⛔ **seq 2 keeps `eq 0` verbatim — nothing was loosened.**
+⭐ `swap_v3` **ffff8485 unmoved**: the fix landed in the fixture, exactly where S-274 said it belongs.
+
+### ✅ S-277 CLOSED BY EXECUTION — an absolute count over an append-only ledger cannot state a relative property
+
+`20260807171500_prd110_s277_fixture54_seq54_restated_to_the_invariant`. **A07 was re-podded in the
+SAME ~18-hour window as A03 — one event, two casualties**, and the first masked the second. The
+orphaned SF Pancake drop leg can never be superseded (its key will never be re-emitted) and can never
+be deleted (`tg_plan_edits_v3_append_only`). seq 54 restated to edit_id **set equality**, plus seq 56
+(all four of the fixture's own legs applied) and seq 57 (all other applied edits inert). **44 → 46.**
+One assertion became three, each stricter than the one it replaces.
+
+### ⛔ GOLDEN'S STANDING CLAIM — STILL NOT RE-EARNED
+
+Per **S-275**, "no known red" requires a run over `golden.fixtures WHERE enabled`. The honest
+statement at this leg's close is: **fixture 54 is 46/46 and the last full census (2026-08-07 16:18Z)
+was 59/60 with fixture 54 the sole red — now fixed.** A leg-146 full sweep was launched at 16:49Z;
+whoever adjudicates it may re-earn the phrase, and nobody may write it before then.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+`golden.plant_shelf_stock` keys its WEIMI row on `device_name = official_name`. NOVO-1023 carries
+snapshots under **three** historical device names, and `v_shelf_slot_identity` resolves
+newest-per-`device_name` then newest-overall — so on such a machine `plant_shelf_stock` can edit a row
+**no view reads** and report a successful plant that proves nothing. `golden.plant_shelf_identity`
+(this leg) does it correctly and is the reference shape.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (a value: the margin weight W%, and whether 90 % is still the right bar now the binding number is margin-computability at 53.99 %). The answered-unexecuted list stays at **ELEVEN**: D-19, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40. ⭐ **D-21(half 1), D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; DR-1/6/8 remain as WORK, not asks. Leg 146 raised no new decision. ⚠️ **S-274 and S-277 are CLOSED; S-265 and S-266 remain OPEN.**
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.

@@ -5185,3 +5185,93 @@ Fixture 9 population **73 → 80**; no assertion loosened, every re-based expect
 
 **⚠️ S-192 IS NOT CLOSED and is still pinned** (fixture 9 seq 31-34): a repack's own returns stamp
 `dispatched=true`, so the second repack on a (machine, date) is still refused forever.
+
+## `20260807171000_prd110_s274_fixture54_owns_its_assortment_premises`
+
+PRD-110 leg 146. **S-274 — fixture 54 was red at 33/41 and the first failure was its own premise
+sensor.** seq 2 ("the incoming pod is NOT already assorted on the machine") read **1**: HUAWEI-2003
+A03 had been re-podded to **Al Ain Zero**, which is the fixture's incoming pod, so `swap_v3` refused
+correctly and six downstream assertions read `absent`. ⭐ **Not an engine regression** — `swap_v3`
+`md5(prosrc)` is **ffff8485** before and after, unmoved since leg 126.
+
+**The defect is that the fixture READ its premises off live assortment instead of OWNING them** (the
+S-34 class). Closed with the leg-114/115 self-supply idiom, **not** by loosening seq 2 (it keeps
+`eq 0` verbatim) and **not** by re-pointing the anchors at whatever pod is free today.
+
+**Objects.** NEW `golden.plant_shelf_identity(uuid, uuid, integer)` — the identity sibling of
+`golden.plant_shelf_stock` (leg 136). Identity in this system is WEIMI `goodsName` resolved through
+the four tiers of `v_live_shelf_stock`, so planting an identity is the **same class of write on the
+same row** as planting a stock level. `p_pod_product_id` NULL vacates with a sentinel proven to match
+no tier ('unmatched' is a real live state — six aisles carry it). Takes custody of the machine
+pre-image in `golden.weimi_pin_backup` so the existing `golden.restore_machine_stock` puts it back.
+NEW `golden.evict_pod_from_machine(uuid, uuid)` — vacates every shelf carrying a pod, which is what
+turns "pod X is not on this machine" into a **construction**. Fixture 54 gains step (0b) (five plants:
+A04 = outgoing, A05 = duplicate, A07 = cross-swap incumbent, evict incoming, evict cross, donor
+NOVO-1023 A13 = cross pod @ 6) and step (7) (restore both machines). Assertions **41 → 44**.
+
+⛔ **The planter keys on the row the VIEWS read, not on `official_name`.** NOVO-1023 carries snapshots
+under three historical `device_name`s; `v_shelf_slot_identity` resolves newest-per-`device_name` then
+newest-overall, and keying on the machine's current name alone would sometimes edit a row no view
+reads. `golden.plant_shelf_stock` still has that shape — recorded, not fixed here (LAW 10).
+
+⭐ **Residue is impossible by construction and was also measured.** `golden.run_fixture` runs the
+scenario in a plpgsql subtransaction, so any error between plant and restore rolls the plants back;
+the step-(7) restore is deliberately **not** wrapped, because a failed restore should roll the whole
+scenario back rather than be swallowed. Measured after the run: `pre_state` = `post_state` =
+`f9d2d73c301789067cba0179e14182e0` across both machines, `golden.weimi_pin_backup` **0**, zero
+`GOLDEN-VACANT-%` rows in `v_live_shelf_stock`, A03 back to Al Ain Zero, donor A13 back to 7 units.
+
+**Cody:** ⚠️ Approve with revisions → applied. Articles 1, 2, 3, 4, 6, 7, 8, 12, 14, 16.
+`weimi_device_status` is **not** in Appendix A (settled precedent: `pin_machine_stock` leg 28, the
+leg-114/115 fixture-8 plant/restore, `plant_shelf_stock` leg 136). **R1:** seq 8 (custody released)
+must read `golden.weimi_pin_backup` **live and whole-table**, never `golden.scratch` — a scenario that
+RAISEs rolls back its own scratch DELETE (S-266), so a scratch-derived residue sensor goes green off
+the previous run's snapshot exactly when a leak is most likely, and a two-machine filter would miss a
+third plant whose restore was forgotten. **R2:** custody is keyed by `machine_id` and
+`restore_machine_stock` DELETEs the row, so the anchor and donor MUST stay distinct — recorded as a
+comment on step (7). Both functions are SECURITY **INVOKER** with `search_path = ''` and explicitly
+`REVOKE`d from `PUBLIC, anon, authenticated` (S-268 shape). Article 16 ✅ the residue fingerprint reads
+`v_shelf_state`, the canonical object, rather than re-parsing the `door_statuses` JSONB.
+
+⚠️ Recorded: `weimi_device_status` is the n8n sync target and the plant holds a row lock on up to two
+snapshot rows for the fixture's duration — do not start fixture 54 inside cron 44's window (UTC :40).
+
+**Verified: fixture 54 `43 / 1`** — every premise, every swap and all of D-36 green; the lone survivor
+was seq 54, closed by `20260807171500`.
+
+## `20260807171500_prd110_s277_fixture54_seq54_restated_to_the_invariant`
+
+PRD-110 leg 146. **S-277 — an absolute count over an APPEND-ONLY ledger can never state a relative
+property.** With the S-274 plants in place fixture 54 read 43/44, the survivor being seq 54
+("RE-RUN PRESERVATION: a second compose applies the same swap, dropping nothing", expect **4**,
+actual **5**).
+
+⭐ **THE FIFTH EDIT IS NOT THIS RUN'S, AND IT IS THE SAME INCIDENT.** `plan_edits_v3` history for
+(2030-02-24, A07) shows every run from 2026-07-31 22:25Z to 2026-08-06 22:09Z dropping **SF Pancake**,
+and the run at 2026-08-07 16:15:59Z dropping **Keen Health Dipped Crackers** instead. HUAWEI-2003 A07
+was re-podded in the **same ~18-hour window** that re-podded A03. **One re-podding event, two
+casualties** — and the first masked the second, because with the same-machine swap refused the cross
+swap was the only swap left and nobody counted its legs.
+
+⛔ **The orphan cannot be retired, by constitutional design.** `record_plan_edit_v3` supersedes on
+(plan_date, shelf_id, pod_product_id) and no future run will ever emit an edit on the SF Pancake key
+again — A07's incumbent is now OWNED by the S-274 plant. `plan_edits_v3` carries
+`tg_plan_edits_v3_append_only` on DELETE, UPDATE and TRUNCATE (verified from `pg_trigger`). The row
+stays active forever, inert: `effective_qty` 0, note "drop on a shelf the base did not plan".
+
+**So `expect 4` was never the invariant — it was a census of the ledger that happened to agree with
+it.** Restated per S-103 / S-272 (the row is UPDATEd in place with a landing guard, never deleted;
+`expect_op`/`expect` move with the SHAPE of `check_sql`). **One assertion becomes three, each stricter
+than the one it replaces:** seq **54** now compares c2's applied **edit_id SET** to c1's — the old
+form could not tell "applied the same four" from "applied four different ones"; seq **56** requires
+all four of the fixture's OWN legs in c2.applied, matched by (shelf_id, pod_product_id, kind), which
+the absolute count never checked; seq **57** requires every non-fixture applied edit to be **inert**
+(`effective_qty` 0), so a genuinely live extra edit goes red while the unretirable historical no-op is
+tolerated **explicitly** rather than absorbed into a number. Assertions **44 → 46**.
+
+**Cody:** ✅ Approve (fast-path, class f — `golden.assertions` only). Articles 12, 16.
+
+**Verified: fixture 54 `46 / 0`, `passed` true, zero `scenario_error`, 5020 ms** — adjudicated from
+`golden.runs`, never from the returned set (S-260/S-266). Actuals: `2=0 · 7=yes · 8=0 · 9=restored ·
+20=ok · 21=2 · 54=preserved · 56=4 · 57=inert · 60=ok · 61=2 · 62=swap_v3 · 63=true`.
+⭐ `swap_v3` **ffff8485 unmoved** — the fix landed in the fixture, which is where S-274 says it belongs.
