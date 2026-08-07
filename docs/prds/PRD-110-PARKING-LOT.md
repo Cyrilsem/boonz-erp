@@ -11014,7 +11014,7 @@ shape on FACING proposals.
 which shipped). ⛔ **The pointer's named smallest fix was correct and INSUFFICIENT:**
 `feedback_ledger_v3` has **no `plan_date`**, so its machine-wide DELETE could not be epoch-scoped at
 all - and **8 of the 11 miner ledger rows are real**. It is scoped **by citation** instead
-(`feedback_id = ANY(own_fids)`, harvested from the fixture's own epoch-scoped proposals *before* they
+(`feedback_id = ANY(own_fids)`, harvested from the fixture's own epoch-scoped proposals _before_ they
 are deleted; verified exact and complete: 3 proposals cite 3 ids matching 3 rows, 0 uncited).
 ⛔ **There were TWO copies of the defect** - the `mPrev` anchor-move block carried its own. Both gone.
 ⭐ **PROVEN TWICE:** fixture 57 **42/42** from `golden.runs`, and independently by hand outside the
@@ -11059,3 +11059,107 @@ carries **0 non-internal triggers**, so none of this reaches `write_audit_log`. 
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; D-44, D-47 and DR-1/6/8 remain as WORK, not asks. Leg 142 raised no new decision. ⚠️ **S-263, S-265 and S-266 are DEFECTS, not decisions.** ⭐ **Leg 142 flipped NO flag and touched NO engine body.**
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 143 (2026-08-07) - S-263 CLOSED (golden's last red). D-21 HALF 1 EXECUTED. S-267 and S-268 raised OPEN.
+
+### ✅ S-263 CLOSED BY EXECUTION - fixture 59 measures its own delta, not the world's population
+
+`20260807145900`. 29 of 53 assertions rewritten: live -> **DELTA**, fixture -> **STABILITY**, rate ->
+**FORMULA**, verdict -> **FORMULA-CONSISTENCY**, `FINAL = 0` -> `final = before`. ⭐ **No `expect`
+weakened**: 8, 5, 4, 1, 2, 80.00, 20.00, `pass`, `fail`, `insufficient_evidence` all survive, now
+stated about the fixture's own contribution. **53/53, `n_fail` 0**, and independently: real proposals
+**8 -> 8**, miner ledger **11 -> 11**, sentinel residue **0**.
+
+⛔ **THE BANKED DESIGN CONTAINED ONE INSTRUCTION THAT WOULD HAVE SHIPPED A VACUOUS ASSERTION.** Leg
+142 said capture `before_sentinel` _after_ the reclaim. There the count is **0 by construction** and
+seq 5 - the fixture's only remaining absolute - would have asserted nothing. Moved before the
+reclaim. ⭐ **A handed-off design is a hypothesis, not a spec.**
+
+⛔ **AND THE RED SET WAS WIDER AGAIN**: seq **23** and **29** were already hard red and neither
+earlier list named them (DR-5's applied `w_empty` proposal makes `picker_weights` read
+`live_accepted 1, live_acceptance_pct 100.00`). ⭐ **Leg 141's and leg 142's lists were REASONED;
+this one was OBSERVED. S-266 is exactly why the earlier two could not be.**
+
+⭐ Three apply-time tripwires now guard it: any assertion reading `after`/`final` must also read
+`before` (two documented exemptions); fixture 59 must hold exactly 4 sentinel-scoped
+`DELETE FROM public.`; 53 assertions in, 53 out.
+
+### ✅ D-21 HALF 1 EXECUTED - and the ruling itself is what parks half 2
+
+`20260807153000` + `20260807153600`. **Fixture 68: 28/28.** Shipped `v_pod_margin_coverage_v3` (the
+ops worklist) and `v_pod_margin_gate_v3` (the >=90% verdict), plus dials
+`substitute_margin_min_coverage_pct` **90** and `substitute_margin_weight` **0**.
+
+⏸️ **HALF 2 (the margin term in the substitute ranking) STAYS PARKED, and NOT for want of leg room:**
+CS's ruling reserves the weight to "a later CS value". **There is no W% to build with.** ⭐ The
+parking is ENFORCED (S-138): fixture 68 **seq 18** asserts `find_substitutes_for_shelf_v3` reads
+neither dial nor gate, and **seq 20** pins its md5 at **6aa6885e**. That matters - the function feeds
+`resolve_supply_ladder_v3`, so a ranking change reaches the v3 engine.
+
+⛔ **NEW ONE-LINE ASK FOR CS, sharper than the original:** the ruling's `purchasing_cost` bar is
+**necessary but not sufficient** - `unit_margin` needs RSP too. Live: **cost coverage 62.58%, margin
+coverage 53.99%**. The gate now requires both. _"Once coverage clears 90%, at what weight should
+margin enter the substitute score - and is 90% still the right bar now that the binding number is
+margin-computability, not cost alone?"_
+
+### ⛔⛔ S-267 (NEW, CLOSED SAME LEG) - a self-consistent object can be wrong, and only a hand-derived count sees it
+
+`has_cost = (purchasing_cost > 0)` is **NULL** for the 53 pods with a NULL cost, so every FILTER that
+NEGATED it dropped them: the gate said `missing_cost = 8`, truth **61**. ⭐ **All the POSITIVE counts
+and every rate were correct** - the headline read 62.58% covered / 8 missing, and those two are not
+consistent. Twelve count assertions passed; the one that failed is the only one deriving its number
+**independently off the source table**.
+⛔ **STANDING RULE: a count assertion that reads the object under test proves self-consistency, never
+correctness. Every new object needs at least one count derived from the source, by hand.**
+
+### ⛔⛔ S-268 (NEW, CLOSED SAME LEG) - `REVOKE ... FROM PUBLIC` does not remove Supabase's default privileges
+
+Both new views were created `anon=rxtm, authenticated=arwdDxtm` - **anon-readable and
+authenticated-writable** - **despite the migration carrying a `REVOKE ALL ... FROM PUBLIC` and a
+`GRANT SELECT TO authenticated`.** Live ~3 minutes; the D-30 exposure class, self-inflicted.
+⭐ **S-140 restated at its real mechanism: the grant was there. The defaults were already wrong before
+it ran, and `PUBLIC` does not name `anon` / `authenticated` / `service_role`.**
+⛔ **EVERY future `CREATE VIEW` in `public` must carry `REVOKE ALL ON <v> FROM anon, authenticated;`
+before its GRANT.** Target ACL: `postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres`.
+
+### ⏸️ TWO ITEMS NAMED, NOT FIXED (LAW 10)
+
+- `pod_products` itself carries **`anon=rxtm`**. Pre-existing; not widened here; its own reviewed unit.
+- **Article 16 paperwork owed:** `METRICS_REGISTRY.md` has no margin-coverage row. These are genuinely
+  NEW canonical objects, not a duplicate derivation - but the registry entry is owed at the DONE-2 pass.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask above (a value, not a re-decision). The answered-unexecuted list drops from twelve to **eleven**: D-19, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40. ⭐ **D-21, D-43, D-45, D-46, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; D-44, D-47 and DR-1/6/8 remain as WORK, not asks. Leg 143 raised no new decision. ⚠️ **S-265 and S-266 remain OPEN; S-263, S-267 and S-268 are CLOSED.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+### ⛔ S-269 (leg 143, CLOSED SAME LEG) - the S7 sweep manifest had silently drifted two fixtures behind the DB
+
+`scripts/prd110_s7_fixtures.txt` held **58** ids; `golden.fixtures WHERE enabled` held **60**.
+Missing: **67** (DR-3's fixture, leg 140) and **68** (D-21, leg 143). ⛔ **The owed DONE-2 sweep would
+have fired 58 of 60 and reported itself a complete, green suite** - including a clean bill for the
+`pod_inventory` write-freeze, which is the last thing anyone should take on trust.
+⭐ **S-250's cousin, and the pair is worth holding together: S-250 is fires that do not BANK; S-269 is
+fixtures that never FIRE.** Both read as a smaller-but-green suite.
+⛔ **RECONCILE THE MANIFEST AGAINST `golden.fixtures WHERE enabled` BEFORE EVERY SWEEP.** Reconciled
+this leg; both sides now agree exactly at **60**.
+
+### ⛔⛔ S-270 (leg 143, CLOSED SAME LEG) - an unlogged draft of this leg's own work was sitting untracked in the repo
+
+`docs/prds/s263_fixture59_delta.sql`, 427 lines, mtime **2026-08-07 03:16Z**, self-labelled "leg
+143". **Never applied** (proven at STEP R: `prd110%` = 323 and fixture 59 still carried `v_foreign`),
+and it left **no execution-log entry, no resume pointer, no parking-lot delta** - so by the RELAY
+protocol it was not a leg. ⭐ **It surfaced only in `git status` while staging the commit.** It was in
+the session's opening status block the whole time.
+
+⛔ **RULE: READ THE UNTRACKED SET AT STEP R.** The protocol says verify the pointer against reality.
+**The working tree is part of that reality**, and an abandoned draft is precisely the artefact no
+pointer will ever mention.
+
+⭐ **Reading it paid.** It was right about two things `20260807145900` shipped without - the S-264
+safety sensor (fixture 57 has one; fixture 59 touches the same two queues and had none) and
+non-vacuity for the stability family (`after = before` is satisfied by `0 = 0`). Both harvested in
+`20260807155200`; fixture 59 now **56/56**. ⛔ **And it was WRONG about the thing this leg got right**:
+it kept leg 142's instruction to capture `before_sentinel` after the reclaim, where it asserts
+nothing. **Neither artefact was complete; the shipped fixture is the union.**

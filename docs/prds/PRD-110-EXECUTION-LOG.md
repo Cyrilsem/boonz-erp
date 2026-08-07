@@ -33605,7 +33605,7 @@ cited by a pre-epoch proposal, so it can never enter `own_fids`.
 machine-wide ledger DELETE. Both are gone; the migration RAISEs if either string survives the
 rewrite, and asserts exactly one proposal DELETE and one ledger DELETE remain.
 
-### ⭐ WHY "MARKER *AND* MACHINE" WAS NEVER GOING TO HOLD
+### ⭐ WHY "MARKER _AND_ MACHINE" WAS NEVER GOING TO HOLD
 
 The anchor predicate excludes machines carrying foreign `plan_edits_v3`, `pod_refill_plan_audit`,
 `feedback_ledger_v3` or `planning_pins_v3` rows. It does **not** exclude machines that receive real
@@ -33621,7 +33621,7 @@ Articles 1/2/3/5/7/8/12/14/16.
 
 - ⛔ **REQUIRED REVISION (applied) - GUARD THE GUARD.** Every scope in the fixture now leans on
   `g12_fixture_epoch`, which is a **mutable column**. Moved earlier, all three reclaims silently
-  widen back onto live data and seq 40 would only notice *after* the damage. New **seq 42** pins the
+  widen back onto live data and seq 40 would only notice _after_ the damage. New **seq 42** pins the
   dial above every live `plan_date`, so widening it goes red **before** a reclaim can run.
 - ⚠️ **Article 1 gap (pre-existing, verified by predicate over `pg_proc`, not memory):** **no function
   anywhere deletes from `feedback_proposals_v3`** - the only writers are
@@ -33633,7 +33633,7 @@ Articles 1/2/3/5/7/8/12/14/16.
 
 ### ⭐ THE PROOF IS A SENSOR, NOT AN ASSERTION THAT THE CODE CHANGED
 
-New **seq 40** captures the real pre-epoch population *before the first DELETE runs* and compares it
+New **seq 40** captures the real pre-epoch population _before the first DELETE runs_ and compares it
 after both miner runs; **seq 41** is its non-vacuity guard (**8** real rows to protect, so it is not
 comparing zero to zero). Assertions **24/25/29** were absolute counts over a machine the fixture no
 longer exclusively owns - the S-262 class - and are now scoped to the fixture band.
@@ -33720,13 +33720,13 @@ re-derived:
 
 **One rule, applied uniformly:**
 
-| shape today | becomes |
-| --- | --- |
-| absolute `live_*` count | **DELTA**: `after.X - before.X = <the fixture's own contribution>` |
-| absolute `fixture_*` count | **STABILITY**: `after.X = before.X` (several descriptions ALREADY say "UNMOVED") |
-| a rendered rate (`80.00`, `20.00`, `75.00`) | **FORMULA**: `pct = round(100.0 * accepted / decided, 2)` |
-| a literal verdict (`pass`/`fail`/`insufficient_evidence`) | **FORMULA-CONSISTENCY** against `g12_bar_pct` + `g12_min_decided` |
-| `FINAL: ... = 0` (seq 45/46) | **`final.X = before.X`** - strictly STRONGER: proves the fixture RESTORED the baseline, not merely that the queue is empty |
+| shape today                                               | becomes                                                                                                                    |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| absolute `live_*` count                                   | **DELTA**: `after.X - before.X = <the fixture's own contribution>`                                                         |
+| absolute `fixture_*` count                                | **STABILITY**: `after.X = before.X` (several descriptions ALREADY say "UNMOVED")                                           |
+| a rendered rate (`80.00`, `20.00`, `75.00`)               | **FORMULA**: `pct = round(100.0 * accepted / decided, 2)`                                                                  |
+| a literal verdict (`pass`/`fail`/`insufficient_evidence`) | **FORMULA-CONSISTENCY** against `g12_bar_pct` + `g12_min_decided`                                                          |
+| `FINAL: ... = 0` (seq 45/46)                              | **`final.X = before.X`** - strictly STRONGER: proves the fixture RESTORED the baseline, not merely that the queue is empty |
 
 **Per-seq:** deltas -> 10 (=8), 12 (=8), 14 (=5), 16 (=0), 18 (=4), 19 (=1), 20 (=2), 21 (=1),
 22 (=5), 23 (=1), 24 (=4), 33 (delta = `g12_min_decided`) · stability -> 6, 11, 13, 15, 17, 45, 46 ·
@@ -33819,3 +33819,366 @@ pending **25** (DR-7 first fires 2026-08-09).
 - ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-262 and S-264 are CLOSED. S-263, S-265, S-266 are
   OPEN.** New findings resume at **S-267**.
+
+## LEG 143 - 2026-08-07 - **S-263 CLOSED. GOLDEN'S LAST KNOWN RED IS GONE: FIXTURE 59 IS 53/53.** The banked design was executed - and one of its instructions would have produced a VACUOUS assertion, caught in review rather than in six months.
+
+### [leg 143] STEP R - POINTER VERIFIED CLEAN, ZERO DISCREPANCIES
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**. RISK 104:
+`prd110%` **323** · `max(version)` **20260806235727** · disk **324** · owed md5
+**579c1ff6f6e200e6b8bdee26bdff1b99 on BOTH sides**, disk side computed in **Python** per leg 141's
+warning. Sentinels under `prosrc` (S-109): `engine_add_pod_v3` **e9f3caff** · `stitch_v3`
+**a8753091** · `bind_dispatch_fefo` **8ad35ce9**. LAW 12: `2026-08-07` **101**, `2026-08-08` **0**.
+`37` active crons · golden **59 fixtures / 2159 enabled assertions** · `stress_runs` **14**.
+All seven flags exactly as leg 142 recorded. S-80 grep of the WHOLE parking lot for `CS DECISION`:
+latest block is still the leg-130-era "POST-DONE DR REGISTER CLOSED" - **no CS ruling has landed
+since leg 141**. ⭐ **Every single figure matched the pointer.** First leg since 138 with nothing to
+reconcile.
+
+⛔ **THE SUPABASE MCP DID NOT CONNECT THIS LEG EITHER.** `/tmp/prd110_sql.sh` had survived;
+`/tmp/apply_mig.sh` had not and was recreated (applies the file AND hand-registers it into
+`supabase_migrations.schema_migrations` in the SAME POST, because the management API does not
+register and RISK-104's owed-set md5 breaks without it). ⭐ **The shim is transactional - PROVEN
+this leg, not assumed:** the dry run below rolled back completely.
+
+### ⭐⭐ S-263 CLOSED - `20260807145900_prd110_s263_fixture59_delta_shape` (Cody ⚠️ Approve with one required revision, applied)
+
+29 of fixture 59's 53 assertions rewritten under one rule, plus the mandatory `scenario_sql` change.
+⭐ **NOTHING WAS WEAKENED AND NO `expect` WAS RE-BASELINED IN THE S-103 SENSE.** Every original
+numeric claim - 8, 5, 4, 1, 2, 80.00, 20.00, `pass`, `fail`, `insufficient_evidence` - survives
+verbatim; each is now made about **the fixture's own delta** instead of about a population it shares
+with production.
+
+| shape               | seqs                                           |
+| ------------------- | ---------------------------------------------- |
+| DELTA               | 10, 12, 14, 16, 18, 19, 20, 21, 22, 23, 24, 33 |
+| STABILITY           | 6, 11, 13, 15, 17, 45, 46                      |
+| FORMULA             | 8, 9, 27, 29, 32                               |
+| FORMULA-CONSISTENCY | 7, 28, 30, 31                                  |
+| the one absolute    | 5                                              |
+
+### ⛔ THE TRUE RED SET WAS WIDER THAN **BOTH** EARLIER DERIVATIONS - AND THIS ONE WAS OBSERVED
+
+Leg 141 named seq 5/10/20/45 + 14/23/29/46 (reasoned). Leg 142 added seq 12 (reasoned). Re-derived
+this leg **against the live view**, the fixture would today have failed **5, 10, 12, 14, 20, 23 and
+29**. ⭐ **Leg 142 named seq 29 only as "fragile" and never named seq 23 at all** - both are already
+hard red, because DR-5's **applied** `w_empty` proposal is a real live row: `picker_weights` reads
+`live_rows 1, live_accepted 1, live_acceptance_pct 100.00`. The old seq 29 demanded 20.00.
+⭐ **This is the third derivation and the first observed one. S-266 is why: you cannot read a
+raising fixture's own output to find its reds.**
+
+### ⛔⛔ CODY REQUIRED REVISION - THE BANKED DESIGN'S seq 5 WOULD HAVE ASSERTED NOTHING
+
+Leg 142's design said: capture `before_sentinel` **immediately AFTER the reclaim**. Taken there the
+count is **0 by construction** - the reclaim's two `DELETE`s have just removed exactly the rows the
+count counts. seq 5, _the only absolute this fixture is still allowed to keep_, would have been
+vacuous: an S-48/S-52/S-55-class zero-equals-zero, shipped as the fixture's one durable claim.
+⭐ **The measurement now runs BEFORE the reclaim; only the `golden.scratch` INSERT waits**, because
+`DELETE FROM golden.scratch` lives inside the reclaim. The claim seq 5 makes is now real: _nothing
+of OURS survived the last run_. It goes red only after a killed run, and the same run repairs it.
+⛔ **LESSON FOR BANKED DESIGNS: a handed-off design is a hypothesis, not a spec. Review it against
+the code you are about to write, not against the prose that wrote it.**
+
+### ⭐ WHY THE FOREIGN-ROW `RAISE` HAD TO GO, NOT BE LOOSENED
+
+Deleted outright, with an inline comment forbidding its return. Two independent reasons:
+
+1. Its condition (real pre-epoch proposal rows exist) became **permanently true** on 2026-08-06.
+2. ⛔ **By S-266 it does not fail loudly - it fails INVISIBLY, in the other direction.** The RAISE
+   aborts the `DO` block, which rolls back the scenario's own `DELETE FROM golden.scratch`, so all
+   53 assertions re-evaluate the previous run's snapshot and report **green over nothing**.
+
+### ⭐ THREE APPLY-TIME TRIPWIRES, SO THE NEXT LEG CANNOT UNDO THIS QUIETLY
+
+- **The structural rule, enforced in the migration itself:** any assertion reading the `after` or
+  `final` snapshot must ALSO read `before`. Two documented exemptions (seq 32 is a within-snapshot
+  formula; the `reallocation` seqs 25/26/51/52/53 were already S-204-hardened). A future
+  single-snapshot absolute now goes red **at apply time**, not silently months later.
+- **S-264 applied pre-emptively:** the migration asserts fixture 59 holds **exactly 4**
+  `DELETE FROM public.` statements, all scoped to the 1999 sentinel - 2 reclaim, 2 cleanup.
+- 53 assertions before and after; none added, none dropped.
+
+### ✅ THE VERDICT, AND THE INDEPENDENT CHECK THAT MATTERS MORE
+
+**FIXTURE 59: 53/53, `n_fail` 0, `passed` true, ZERO `scenario_error`**, 78 ms - adjudicated from
+`golden.runs`, never from the returned set (S-260/S-266).
+⭐ **AND BY HAND, OUTSIDE THE HARNESS, EITHER SIDE OF THE RUN:** real feedback proposals **8 -> 8** ·
+live picker_weight rows **1 -> 1** · miner ledger rows **11 -> 11** · rows left on the 1999 sentinel
+**0**. The fixture measured a live population it does not own and **moved none of it**.
+
+### [leg 143] STATE AFTER THE S-263 UNIT
+
+`max(version)` **20260807145900** · `prd110%` **324** (+1) · disk **325** · owed md5
+**03871db992f4e70915bcf6789650ed07 on BOTH sides** · golden **59 fixtures / 2159 enabled
+assertions** (unchanged - 29 rewrites, 0 additions) · ⭐ **golden has NO known red** ·
+**37 active crons** (unchanged). ⛔ **LIVE plan tables untouched:** `2026-08-07` **101**,
+`2026-08-08` **0**. ⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** ·
+`stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9**. **All flags unchanged - this unit
+flipped nothing.** ⭐ **NO APPLY-TIME VERSION DRIFT**: the disk filename and the DB version agree at
+`20260807145900`, because `/tmp/apply_mig.sh` registers the version it was given.
+
+### ✅ [leg 143] D-21 HALF 1 EXECUTED - and the ruling itself cuts the decision in two
+
+`20260807153000_prd110_d21_margin_coverage_gate` + `20260807153600_prd110_d21b_null_safe_flags_and_anon_revoke`
+(Cody ⚠️ then ✅; Articles 1, 2, 3, 12, 14, 16). **Fixture 68: 28/28, `n_fail` 0, zero
+`scenario_error`.**
+
+⭐ **THE RULING SPLITS D-21, AND ONLY ONE HALF WAS EVER EXECUTABLE THIS SPRINT.** CS wrote: "Surface
+the 61-pod missing-cost list for the ops team **(task, not migration)**; weight term activates only
+after the threshold, **with the weight itself defaulting off pending a later CS value**."
+
+| half | what                                        | status                                       |
+| ---- | ------------------------------------------- | -------------------------------------------- |
+| 1    | the ops worklist + the >=90% threshold gate | ⭐ **SHIPPED**                               |
+| 2    | the margin term in the substitute ranking   | ⏸️ **PARKED - there is no W% to build with** |
+
+⛔ **Half 2 is NOT parked because a leg ran out of room.** The ruling reserves the weight value to a
+later CS call. Building the term at a guessed weight would invent the decision CS kept. ⭐ **And the
+parking is ENFORCED, not commented (S-138):** fixture 68 **seq 18** asserts
+`find_substitutes_for_shelf_v3` reads neither the weight dial nor the gate, and goes red the day
+somebody wires it. The function is byte-unchanged - **`6aa6885e`, pinned by seq 20** - which matters
+because `resolve_supply_ladder_v3` consumes it, so a ranking change there reaches the v3 engine.
+
+**Shipped:** `v_pod_margin_coverage_v3` (pod grain, the ops worklist, `worklist_reason` in
+`ok|missing_cost|missing_rsp|missing_both`) · `v_pod_margin_gate_v3` (one row, the verdict) · dials
+`substitute_margin_min_coverage_pct` **90** and `substitute_margin_weight` **0** (so CS's answer is
+one `UPDATE`, not a migration).
+
+### ⛔⛔ [leg 143] THE RULING'S THRESHOLD IS NECESSARY AND NOT SUFFICIENT - S-267
+
+CS's bar names `purchasing_cost` coverage. But `unit_margin` needs **both** columns - the finder's
+own predicate is `purchasing_cost > 0 AND recommended_selling_price > 0`. Measured live:
+
+**163 pods · 102 with cost (62.58%) · 136 with RSP · but only 88 MARGIN-COMPUTABLE (53.99%).**
+
+A gate reading cost coverage alone would open at 90% while **a sixth of the fleet still had no
+computable margin** - and those pods would then be silently demoted for a data-entry gap, which is
+the precise harm D-21 was raised to prevent. ⭐ **The gate therefore requires BOTH coverages to clear
+the bar and PUBLISHES BOTH**, so the ruling's number is honoured and the hole beside it is named
+rather than quietly shut. Fixture 68 **seq 12** asserts `margin_coverage_pct <= cost_coverage_pct`
+and **seq 13** is its non-vacuity partner (they differ by 8.59 today, so seq 12 is not comparing a
+number to itself). ⭐ **The 61 is still 61** - D-21 was raised at 54% cost coverage; ops has moved it
+to 62.58% and the missing-cost count is exactly the 61 the ruling names.
+
+### ⭐ [leg 143] THE DIAL IS PROVEN TO CONTROL THE GATE, BECAUSE D-40 IS THE STANDING WARNING
+
+Fixture 68's scenario moves `substitute_margin_min_coverage_pct` to **0** (gate must OPEN) and to
+**100** (gate must SHUT, `blocking_reason = both_below_bar`), then restores **the value it found**,
+never the literal 90. ⛔ **Why moving a live dial is safe here, asserted rather than assumed:**
+**seq 19** proves `v_pod_margin_gate_v3` is the ONLY object in the database reading that column, so
+the probe has no blast radius - and it goes red the day a second reader appears. Seq 23/24 prove the
+restore (the dial AND the whole gate row, `before = final`).
+
+### ⛔⛔ S-267 (NEW) - THREE-VALUED LOGIC ATE 53 PODS, AND ONLY THE **NEGATIVE** COUNTS
+
+`has_cost` shipped as `(pp.purchasing_cost > 0)`. For the 53 pods with a NULL cost that is **NULL,
+not false**, so `count(*) FILTER (WHERE NOT has_cost)` dropped them: the gate reported
+`missing_cost = 8` when the truth is **61**.
+
+⭐ **EVERY POSITIVE COUNT WAS CORRECT.** `FILTER (WHERE has_cost)` = 102 and `cost_coverage_pct` =
+62.58% were right. **That is what made it dangerous**: the headline rate read true while the ops
+worklist count under it was wrong by 53, _in the direction that makes the job look nearly done_. A
+reviewer reading "62.58% covered, 8 missing" would have taken the two for consistent. They are not.
+
+⛔ **WHAT CAUGHT IT, AND THE STANDING RULE THAT FOLLOWS.** Twelve count assertions passed. The one
+that failed - **seq 8** - is the only one that does not read the object under test: it derives the
+missing-cost count **independently off `pod_products`** and compares. ⭐ **A count assertion that
+reads the object under test proves the object is SELF-CONSISTENT, never that it is RIGHT. At least
+one count per new object must be derived from the source, by hand.** Fixed in D-21b by COALESCE-ing
+the three exposed booleans, plus **seq 25/26** which state the partition invariant
+(`with_cost + missing_cost = pods_total`) directly instead of catching its violation by cross-check,
+**seq 27** (the booleans are total) and **seq 28** (its non-vacuity partner - NULL-cost pods exist).
+⭐ `worklist_reason` and `unit_margin` were already correct and untouched: a `CASE WHEN` treats a NULL
+predicate as not-matched, which is exactly right. That is why seq 6 and 7 passed.
+
+### ⛔⛔ S-268 (NEW) - S-140 FIRED, AND `REVOKE ... FROM PUBLIC` DID NOT STOP IT
+
+Both views were created carrying
+`postgres=arwdDxtm, anon=rxtm, authenticated=arwdDxtm, service_role=arwdDxtm`.
+⛔ **They shipped READABLE BY `anon` AND WRITABLE BY `authenticated`** - the D-30 exposure class,
+self-inflicted, live for about three minutes - **despite the migration containing a
+`REVOKE ALL ... FROM PUBLIC` and a `GRANT SELECT ... TO authenticated`.** Both statements were
+no-ops against the privileges that actually existed.
+
+⭐ **THE SHARPEST AVAILABLE RESTATEMENT OF S-140: the trap is not "remember to grant" - the grant was
+there. The trap is that Supabase's schema DEFAULT PRIVILEGES are already wrong before your grant
+runs, and `PUBLIC` does not name them.** `anon`, `authenticated` and `service_role` are NAMED ROLES.
+⛔ **Every future `CREATE VIEW` in `public` must carry `REVOKE ALL ON <v> FROM anon, authenticated;`
+before its GRANT.** Target ACL, byte-matching what `v_proposal_acceptance_v3` already sets:
+`postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres` - read back and
+confirmed on both views. Caught by **seq 22**, which was right the first time and is restated only
+to name the mechanism.
+
+⚠️ **PRE-EXISTING, NAMED NOT FIXED (LAW 10):** `pod_products` itself carries `anon=rxtm`. This unit
+does not widen it; the `REVOKE` belongs in its own reviewed unit.
+⚠️ **OWED PAPERWORK (Article 16):** `METRICS_REGISTRY.md` has no margin-coverage entry, so these are
+genuinely NEW canonical objects rather than a second derivation - but the registry row is owed at the
+DONE-2 documentation pass.
+
+### [leg 143] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260807153600** · `prd110%` **326** (was 323; **+3 this leg**) · disk **327** ·
+owed md5 **9879ae3d8bb969ad28da2f3e091e27df on BOTH sides**, recomputed not copied (disk side in
+**Python**) · golden **60 fixtures / 2187 enabled assertions** (was 59 / 2159: **+1 fixture, +28
+assertions**, all fixture 68) · ⭐ **golden has NO known red** · `golden.stress_runs` **14**
+(unchanged) · **37 active crons** (unchanged).
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101** (unchanged all leg), `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e**. No engine,
+stitcher, binder, composer or ladder body was touched.
+⭐ **NO APPLY-TIME VERSION DRIFT ON ANY OF THE THREE** - `/tmp/apply_mig.sh` registers the version it
+is handed, so disk filename and DB version agree by construction.
+
+**FLAGS AT CLOSE - NOT ONE PRE-EXISTING FLAG CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `pick_urgency_params.w_empty` **0.945**.
+🆕 **TWO NEW DIALS, BOTH INERT:** `substitute_margin_min_coverage_pct` **90.00** (the ruling's bar) ·
+`substitute_margin_weight` **0.000** (half 2, parked).
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE:** `picker_weight_proposals_v3` pending **0** · `feedback_proposals_v3` **real**
+pending **8** · `rotation_proposals_v3` pending **25** (DR-7 first fires 2026-08-09).
+
+### ✅ [leg 143] S-263c - AN UNLOGGED DRAFT WAS RIGHT ABOUT TWO THINGS, AND THEY WERE HARVESTED (S-270)
+
+`20260807155200_prd110_s263c_fixture59_safety_sensor` (Cody ✅; Articles 1, 7, 12).
+**Fixture 59 re-run: 56/56, `n_fail` 0.**
+
+⛔ **S-270 (NEW) - AN UNLOGGED, UNAPPLIED DRAFT WAS SITTING IN THE REPO AND NOTHING POINTED AT IT.**
+`docs/prds/s263_fixture59_delta.sql`, untracked, mtime **2026-08-07 03:16Z**, self-labelled "leg
+143", 427 lines. It was **never applied** - proven at STEP R, where `prd110%` read 323 and fixture
+59's scenario still carried `v_foreign` - and it left **no log entry, no resume pointer, no
+parking-lot delta**, so by the RELAY protocol it was not a leg. ⭐ **I found it only because
+`git status` listed it while staging.** It was in the session's opening `git status` all along.
+⛔ **RULE: read the untracked set at STEP R.** The RELAY protocol says verify the pointer against
+reality; the working tree IS part of that reality, and an abandoned draft is the one artefact no
+pointer will ever mention.
+
+⭐ **AND IT WAS RIGHT ABOUT TWO THINGS `20260807145900` SHIPPED WITHOUT:**
+
+1. ⛔ **THE SAFETY SENSOR.** Fixture 57 got one at leg 142 (its seq 40/41) after S-264 caught it
+   eating real proposals. **Fixture 59 touches the SAME TWO QUEUES and never got one.** Leg 143
+   proved 8 -> 8 and 11 -> 11 **by hand, outside the harness** - which proves exactly nothing about
+   the next run. New **seq 54** captures the pre-epoch, non-sentinel population of both queues
+   **before the first DELETE** and compares it after everything the fixture does; **seq 55** is its
+   non-vacuity partner. Read back live: `real_before` and `real_final` both `{feedback: 8, picker: 1}`.
+2. ⛔ **NON-VACUITY FOR THE STABILITY FAMILY.** seq 11/15/17 are `after = before`, and **`0 = 0`
+   satisfies all three** - the S-48/S-52/S-55 mode. Nothing ruled it out. New **seq 56** asserts
+   `LEAST(fixture_rows)` across all three guarded families is `> 0`.
+
+⭐ **AND THE DRAFT WAS WRONG ABOUT THE THING THIS LEG GOT RIGHT:** it kept leg 142's instruction to
+capture `before_sentinel` AFTER the reclaim, where the count is 0 by construction. **Neither
+artefact was complete. The migration is the union of the two**, which is the only reason to have
+looked at the draft at all rather than deleting it as stale.
+
+⛔ **The migration refuses to double-apply, and refuses to place the sensor after a `DELETE`** - a
+sensor that fires after the reclaim proves the reclaim WORKED, not that it was SAFE TO RUN.
+
+### [leg 143] STATE AT CLOSE - RESTATED after S-263c
+
+`max(version)` **20260807155200** · `prd110%` **327** (was 323; **+4 this leg**) · disk **328** ·
+owed md5 **b1e382680cb133d6cba8362b8cd7ac69 on BOTH sides** · golden **60 fixtures / 2190 enabled
+assertions** · **fixture 59: 56/56 · fixture 68: 28/28 · no known red** · **37 active crons**.
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101**, `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE:** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e**.
+
+### RESUME POINTER 2026-08-07 leg 143 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 143
+  left **no process running**. Then RISK 104: **expect `prd110%` = 327, `max(version)` =
+  20260807155200, 328 prd110 files on disk, owed md5 `b1e382680cb133d6cba8362b8cd7ac69` both sides.**
+  ⛔ Recipe is `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`;
+  the disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON** - the `tr`/`sed` version silently re-adds a
+  newline and returns a wrong md5 against a perfectly good DB.
+- ⛔ **THE SUPABASE MCP DID NOT CONNECT (third leg running). `/tmp` IS CLEARED BETWEEN LEGS.**
+  `/tmp/prd110_sql.sh` survived this time; **`/tmp/apply_mig.sh` did not and was recreated** - it
+  applies the file AND hand-registers it into `supabase_migrations.schema_migrations` **in the same
+  POST**, because the management API does not register and RISK-104's md5 breaks without it.
+  ⭐ **The shim is transactional - PROVEN, not assumed** (a terminal `RAISE` rolled a whole migration
+  back cleanly). ⛔ **USE THAT AS A FREE DRY RUN ON EVERY MIGRATION**: append
+  `DO $dry$ BEGIN RAISE EXCEPTION 'DRY'; END $dry$;` and the entire body executes, guards and all,
+  then vanishes. It cost seconds and caught nothing this leg only because both dry runs were clean.
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Expect
+  `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9** ·
+  🆕 `find_substitutes_for_shelf_v3` **6aa6885e** (new sentinel - D-21 half 2 is parked against it).
+- ⭐⭐ **GOLDEN HAS NO KNOWN RED.** S-263 closed: fixture 59 **56/56** (53 rewritten + 3 S-263c
+  sensors). Fixture 68 (new) **28/28**. Suite is **60 fixtures / 2190 enabled assertions**.
+- ⛔⛔ **NEXT TASK: THE OWED S7 GOLDEN SWEEP, and it is now genuinely unblocked** (S-264 closed leg
+  142, S-263 closed leg 143 - those were the two reasons it could not run). Budget **~19.4
+  min/sweep**; ⛔ **fire PER FIXTURE** (`run_all` through the management API banks nothing, S-250);
+  ⛔ **never START a fixture in UTC minutes 37-40** (cron 44); reconcile FIRED vs BANKED after.
+  Runners are checked in: `scripts/prd110_s7_golden_determinism_sweep.sh` +
+  `scripts/prd110_s7_fixtures.txt`. ⭐ **THE MANIFEST WAS RECONCILED THIS LEG AND IT WAS WRONG -
+  see S-269: it held 58 ids while `golden.fixtures WHERE enabled` held 60.** Fixtures **67** (DR-3,
+  leg 140) and **68** (D-21, this leg) were both absent, so the owed sweep would have run 58 of 60
+  and reported itself complete. Both added; manifest and DB now reconcile exactly at **60**.
+  ⛔ **RECONCILE THE MANIFEST AGAINST `golden.fixtures WHERE enabled` BEFORE EVERY SWEEP** - this is
+  S-250's cousin: S-250 is fires that do not bank, S-269 is fixtures that never fire.
+  ⭐ DONE-2 says `run_all` ×1 suffices **unless the fixture population changed - IT DID** (+fixture
+  68), so the S7-style triple is owed.
+- ⛔ **READ S-266 BEFORE YOU TRUST ANY RED FIXTURE'S PASSING ROWS.** A scenario that RAISEs rolls back
+  its own `golden.scratch` delete, so scratch-reading assertions re-evaluate the PREVIOUS run's
+  snapshot **and pass**. `n_fail` is the only sound verdict; `n_pass` on a red fixture is NO EVIDENCE.
+- ⛔⛔ **TWO NEW RULES THAT BIND EVERY FUTURE UNIT, both earned the hard way this leg:**
+  - **S-267:** a count assertion that reads the object under test proves SELF-CONSISTENCY, never
+    correctness. **Every new object needs at least one count derived from the SOURCE, by hand.** A
+    NULL-vs-false FILTER hole made a gate report `missing_cost = 8` against a truth of **61** while
+    every rate on the same row read correct.
+  - **S-268:** **`REVOKE ALL ... FROM PUBLIC` does NOT remove Supabase's schema default privileges.**
+    Two views shipped `anon`-readable and `authenticated`-WRITABLE despite carrying a GRANT.
+    ⛔ **Every `CREATE VIEW` in `public` must carry `REVOKE ALL ON <v> FROM anon, authenticated;`
+    before its GRANT.** Target ACL:
+    `postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres`.
+- ⏸️ **D-21 IS HALF-DONE BY THE RULING'S OWN SEAM, NOT BY FATIGUE.** Half 1 shipped. **Half 2 needs a
+  CS value (the margin weight W%) and cannot be built without inventing it.** ⭐ **The ask is now
+  sharper:** the ruling's `purchasing_cost` bar is necessary but NOT sufficient - `unit_margin` needs
+  RSP too, and live coverage is **cost 62.58% / margin 53.99%**. Ask CS for the weight AND whether
+  90% is still the right bar now the binding number is margin-computability.
+- ⏸️ **THEN, in goal-command-2 order - the answered-unexecuted list is now ELEVEN:** D-19 (⛔ blocked
+  on DR-6, a Stax FE-deploy unit **this loop cannot perform**) · D-27, D-28, D-31 (three CONVERGE
+  units - each wants a before/after diff of what the convergence moves) · D-29, D-33, D-34 (see DR-9)
+  · D-32 (⭐ **partly done - DR-7 shipped its weekly Sunday half at leg 141**; what remains is DR-8's
+  approve-RPC) · D-37 (⛔ **CS overrode the on-file recommendation: param
+  `ladder_prefer_own_stock_transfer` DEFAULT **TRUE**, not false - it is an engine change to
+  `resolve_supply_ladder_v3` and fixture 6 seq 22/25/26 must be **RESTATED, never deleted**) · D-39 ·
+  D-40 (⛔ CS chose option (a) over the on-file (b)/(c): add the `w_intents` dial **and** an
+  `s_intent` term to the LIVE `v_machine_priority`; ship at weight 0 and prove byte-identical output,
+  the PRD-074 invariance pattern, then the monotonicity probe **before** the miner may map to it).
+  Then Tier 3 (**D-44, D-47, DR-8**) and Tier 4 (DR-1 cutover unit, **flag-off**).
+  ⭐ **D-44's design still lives only in leg 138's prose:** the picker is
+  `rank_machines_by_value_at_risk_v3`; reserve K=2 by adding a `money_rank` window over
+  `value_at_risk_aed DESC` and sorting `(NOT is_money_reserved)` FIRST, guarded by
+  `value_at_risk_aed > 0` so a slot is never reserved for a 0.00 AED machine.
+  ⭐ **DR-8 has TWO siblings worth building with it:** no approve-RPC exists for
+  `picker_weight_proposals_v3.status` (leg 141), and none for `feedback_proposals_v3` DELETE either
+  (leg 142, verified over `pg_proc`).
+- ⏸️ **S-265 (OPEN):** fixture 57 mints into the LIVE CS review queue (`p_dry_run => false`), so 4
+  synthetic proposals sit beside the 8 real ones. ⭐ **S-244's `plan_date < '2027-01-01'` filter binds
+  `feedback_proposals_v3`, not just the diff board.**
+- ⛔ **THE RESIDUE TREADMILL (S-262) IS UNCHANGED:** after ANY fixture-58 run, re-run dr5d's predicate
+  (`status='pending' AND window_start >= miner_fixture_epoch` -> `superseded`) or the next weekly
+  miner run is refused `pending_exists`. Structural fix parked (scope `ux_pwp_one_pending_per_param`,
+  Dara + Cody).
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (SKU-grain, pod is **Chocolate Bar**). ⛔ If wrong,
+  revert BOTH sides.
+- ⏸️ **OWED PAPERWORK (Article 16), do not let it slide to DONE-2 unnoticed:** `METRICS_REGISTRY.md`
+  needs a margin-coverage row for `v_pod_margin_coverage_v3` / `v_pod_margin_gate_v3`.
+  ⚠️ Also pre-existing and NOT fixed: `pod_products` carries **`anon=rxtm`** on the base table.
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** D-21, DR-3, DR-4, DR-5, DR-7 done. **D-19-after-DR-6
+  is the only remaining authorised flip.** Leg 143 changed **no pre-existing flag**; it added two
+  inert dials (`substitute_margin_min_coverage_pct` 90.00, `substitute_margin_weight` 0.000).
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264 and S-267..S-270 are CLOSED. S-265 and S-266
+  are OPEN.** New findings resume at **S-271**.
+- ⛔⛔ **S-270 - READ THE UNTRACKED SET AT STEP R.** An unlogged, unapplied 427-line draft of this
+  leg's own work was sitting at `docs/prds/s263_fixture59_delta.sql` and no pointer mentioned it;
+  it surfaced only in `git status` while staging. It was right about two things the shipped
+  migration missed (harvested in `20260807155200`) and wrong about the one thing the shipped
+  migration got right. ⭐ **The working tree is part of "verify the pointer against reality".**
+  ⚠️ Sibling drafts `docs/prds/dr5a_design.sql` and `dr5b_design.sql` were untracked too and are
+  now committed as the historical record they are.
