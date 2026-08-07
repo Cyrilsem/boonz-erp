@@ -34442,8 +34442,8 @@ mechanism is not a synthetic `machines` row, for two measured reasons:
 
 ⭐ **AND THE LIVE DATA MADE THE SUBSTITUTE ALMOST LITERAL.** The n_gaps histogram over the 31
 in-scope machines has **exactly one machine at the minimum** (n_gaps = **2**, in a fleet spanning
-2..34). Raising the bar by one therefore plants precisely the ruling's *"one machine with fewer than
-the required gaps + a seeded policy row"* - and it is a REAL machine carrying a REAL
+2..34). Raising the bar by one therefore plants precisely the ruling's _"one machine with fewer than
+the required gaps + a seeded policy row"_ - and it is a REAL machine carrying a REAL
 `machine_service_policy` seed. **Zero writes to any Appendix-A protected entity.**
 
 ⭐ **WHY MOVING A LIVE DIAL IS SAFE HERE, ASSERTED NOT ASSUMED.** `base_stock_min_gaps` has **exactly
@@ -34470,10 +34470,10 @@ returned **2191 pass / 8 FAIL**, determinism md5 `418ba947fd1f201de4daca45d4196a
 127 (r0/r1/r2), leg 133, leg 134 and **leg 138 (2026-08-06 22:09Z)**; red at **2026-08-07 16:15Z**.
 No migration between those points touched `swap_v3` (legs 139-145 shipped DR-3, DR-5, DR-7, the
 fixture-57 and fixture-59 safety units, D-21, D-44 and D-47).
-⛔ **THE FIRST FAILURE IS THE FIXTURE'S OWN PREMISE SENSOR.** seq 2 - *"premise: the incoming pod is
-NOT already assorted on the machine"* - reads **1**. The pod IS now on the machine, so `swap_v3`
-refuses correctly (*"pod Al Ain Zero is already on shelf 7e93eea4... of machine 9db7a821... - swapping
-it in here would duplicate it within the machine"*) and seq 20/21/60/61/62/63 all read `absent`
+⛔ **THE FIRST FAILURE IS THE FIXTURE'S OWN PREMISE SENSOR.** seq 2 - _"premise: the incoming pod is
+NOT already assorted on the machine"_ - reads **1**. The pod IS now on the machine, so `swap_v3`
+refuses correctly (_"pod Al Ain Zero is already on shelf 7e93eea4... of machine 9db7a821... - swapping
+it in here would duplicate it within the machine"_) and seq 20/21/60/61/62/63 all read `absent`
 because the swap never happened. seq 54 drifts 4 -> 5 for the same reason.
 ⭐ **The fixture did exactly what it was built to do: it refused to report a green over a premise
 that had stopped being true.** The defect is that it READS its premise off live assortment instead of
@@ -34500,11 +34500,11 @@ red. Fixture 28 banked **21/21** in the census BEFORE D-47 was applied, and fixt
 
 Before building the ruled approve-RPC, the queue it serves was measured:
 
-| claim (CS ruling, 2026-08-04)                | live truth (2026-08-07)                                            |
-| -------------------------------------------- | ------------------------------------------------------------------ |
-| "The 23 proposals stay for CS Sunday review" | **18 pending**, and **all 18 carry `plan_date = 2030-02-18`**       |
+| claim (CS ruling, 2026-08-04)                | live truth (2026-08-07)                                               |
+| -------------------------------------------- | --------------------------------------------------------------------- |
+| "The 23 proposals stay for CS Sunday review" | **18 pending**, and **all 18 carry `plan_date = 2030-02-18`**         |
 | implied: a reviewable queue                  | `2030-02-18` is **fixture 48's own plan_date**; `proposed_at` = 08-06 |
-| implied: it refills                          | **zero** cron mints facings (`propose_facing_changes_v3` unwired)   |
+| implied: it refills                          | **zero** cron mints facings (`propose_facing_changes_v3` unwired)     |
 
 ⛔ **Under S-244 (`plan_date < '2027-01-01'` for any CS-facing read) the reviewable queue is EMPTY -
 `fac_real = 0`.** Every row is fixture-48 residue. ⭐ **Contrast DR-7, which shipped at leg 141 with a
@@ -34606,7 +34606,7 @@ pending **25** · `facing_proposals_v3` pending **20**, of which **0 are real** 
   the ~19.4 min earlier pointers carried). Budget **~30 min/round, ~1.5 h for a triple.**
   ⛔ Fire PER FIXTURE (`run_all` through the management API banks nothing, S-250); ⛔ never START a
   fixture in UTC minutes 37-40 (cron 44); ⛔ reconcile the manifest against `golden.fixtures WHERE
-  enabled` first (S-269 - it reconciled exactly at 60 this leg). Runner:
+enabled` first (S-269 - it reconciled exactly at 60 this leg). Runner:
   `scripts/prd110_s7_golden_determinism_sweep.sh <round> <note_prefix>` (prefix is `$2` since leg 144).
   Round-1 determinism md5 for reference: **`418ba947fd1f201de4daca45d4196a96`** - ⛔ this will CHANGE,
   because D-47 added 15 assertions to fixture 28 after the census fired it at 21.
@@ -34615,7 +34615,7 @@ pending **25** · `facing_proposals_v3` pending **20**, of which **0 are real** 
   EVERY sweep, re-run dr5d's predicate or the next weekly miner run is refused `pending_exists`.
 - ⏸️ **DR-8 IS FULLY SCOPED AND NOT STARTED** - see the "[leg 145] DR-8 SCOPED" block above for the
   three sharp bits (refuse the NULL caller by name because of `chk` on `reviewed_by`; `plan_effect:
-  'none_yet'` as DISCLOSURE not refusal, unlike S-128; never set `applied`/`applied_to_plan_date`).
+'none_yet'` as DISCLOSURE not refusal, unlike S-128; never set `applied`/`applied_to_plan_date`).
   ⛔ **And read S-276 first: the queue it serves holds ZERO real proposals** - all 20 pending rows are
   fixture-48 residue at `plan_date = 2030-02-18`, and no cron mints facings. Ship the RPC, and put the
   gap in the DONE-2 report rather than reporting "facing review shipped".
