@@ -11252,3 +11252,62 @@ Fixture 28 is green at **21/21** as it stands; nothing waits on this.
 ### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (a value: the margin weight W%, and whether 90% is still the right bar now the binding number is margin-computability at 53.99%). The answered-unexecuted list drops from eleven to **ten**: D-19, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40 minus none - ⛔ **correction: D-44 was a Tier-3 WORK item, not one of the answered-unexecuted D-items, so that list stays at ELEVEN.** ⭐ **D-21(half 1), D-43, D-44, D-45, D-46, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; D-47 and DR-1/6/8 remain as WORK, not asks. Leg 144 raised no new decision. ⚠️ **S-265 and S-266 remain OPEN; S-271 and S-272 are CLOSED.**
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 145 (2026-08-07) — D-47 EXECUTED. THE FULL-SUITE CENSUS FOUND A RED. S-273..S-276 raised.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every number below was read back live at close.
+
+### ✅ D-47 EXECUTED — `20260807170000_prd110_d47_fixture28_policy_seed_execution` (Cody ⚠️→applied)
+
+**Fixture 28: 36/36, `n_fail` 0, zero `scenario_error`.** The `policy_seed` tier is now EXECUTED, not
+inspected: probe A raises the resolver's own `base_stock_min_gaps` bar 2→3 and **exactly 1 of 31**
+machines falls below it; probe B raises it to 35 and all 31 do. Both sets match an independent
+re-derivation with zero symmetric difference (S-267). Dial and whole-view output restored
+byte-identical; `machine_service_policy` byte-untouched.
+
+### ⛔ S-273 — the ruling said "synthetic plant"; the machine shipped is REAL, and that is safer
+
+No fixture in the suite of 60 plants a `machines` or `shelf_configurations` row (verified by regex
+over every `scenario_sql`; an earlier `ILIKE` scan returned twelve fixtures, **all twelve false
+positives on `machines_to_visit`**). The scope predicate needs `status='Active' AND
+include_in_refill=true`, so a synthetic row is an Active refillable ghost machine for as long as it
+exists — the S-264 hazard class on a protected entity, for LESS coverage. ⭐ The live n_gaps histogram
+has **exactly one machine at the minimum**, so raising the bar by one plants the ruling's "one
+machine" almost literally, with **zero protected-entity writes**.
+
+### ⛔⛔ S-274 (OPEN) — FIXTURE 54 IS RED. 33/41. LAW 8 APPLIES
+
+Census: **60/60 fired, 2199 evaluated, 0 skipped, 2191 pass / 8 FAIL**. Fixture 54 ("One-verb swap_v3
+emits correct legs") was green at 41/41 on legs 126/127/133/134/138 and red at 2026-08-07 16:15Z.
+⭐ **Not an engine regression** — no migration since touched `swap_v3` (pinned **ffff8485**). The first
+failure is the fixture's **own premise sensor seq 2**: the pod it swaps in is now already assorted on
+the machine, so `swap_v3` refuses correctly and six downstream assertions read `absent`.
+⛔ **The fix is the leg-114/115 self-supply idiom, NOT a loosened assertion.** This is the S-34 class —
+the same defect D-44's ruling forced out of fixture 42.
+
+### ⛔⛔ S-275 — "golden has no known red" was a per-fixture claim wearing a suite's clothes
+
+Legs 143 and 144 both carried it. Both were honest about the fixtures they fired; **neither had fired
+fixture 54.** ⭐ **RULE: "no known red" may only be written after a run over `golden.fixtures WHERE
+enabled`.** The census cost ~25 minutes and overturned four legs of standing claim.
+
+### ⛔⛔ S-276 — DR-8's "23 proposals for CS Sunday review" are ZERO real proposals
+
+**18 pending, all at `plan_date = 2030-02-18` — fixture 48's own plan_date.** Under S-244 the
+CS-facing queue is **empty** (`fac_real = 0`), and **no cron mints facings**. Contrast DR-7, which
+shipped at leg 141 calling `propose_rotations_v3(resolve_refill_plan_date())` on a REAL date.
+⛔ Build the approve-RPC (it closes an Article-1 gap and it is ruled) — but the DONE-2 report must say
+it is a writer for a queue nothing fills, not "facing review shipped".
+
+### ⛔ A FULL SWEEP HAS QUEUE SIDE-EFFECTS
+
+Fixture 58 re-armed S-262 (`picker_weight_proposals_v3` 0→2; cleared this leg, 2 superseded, real
+pending 0 throughout). Fixture 48 pushed facings 18→20. **Budget the S-262 cleanup into every sweep.**
+
+### ✅ Article 16 debt paid — leg 143's owed `METRICS_REGISTRY.md` margin-coverage row now exists
+
+### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (a value: the margin weight W%, and whether 90 % is still the right bar now the binding number is margin-computability at 53.99 %). The answered-unexecuted list stays at **ELEVEN**: D-19, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40. ⭐ **D-21(half 1), D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; DR-1/6/8 remain as WORK, not asks. Leg 145 raised no new decision. ⚠️ **S-274 is a DEFECT that BLOCKS the S7 triple and DR-8 (LAW 8); S-265 and S-266 remain OPEN.**
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.

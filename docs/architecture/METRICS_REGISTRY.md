@@ -937,3 +937,54 @@ EITHER a real value (`is_vacuous = false`, `metric_value NOT NULL`) OR an explic
 `ck_scoreboard_vacuity`. **A consumer that treats a NULL metric as 0 is reading the scoreboard wrong.**
 Every row also records `source_object`, so an auditor can confirm no metric was re-derived locally
 (Article 16) without reading the function body.
+
+## PRD-110 D-21 half 1 (2026-08-07, relay leg 143 — registry row paid leg 145) — pod margin coverage
+
+⚠️ **This row was OWED from leg 143 and is paid here.** Two genuinely new canonical objects shipped
+in `20260807153000_prd110_d21_margin_coverage_gate` / `..._d21b_null_safe_flags_and_anon_revoke`
+with no registry entry, which is precisely the state Article 16 exists to prevent: a reader had no
+way to tell whether they were a new metric or a second derivation of an existing one. They are new.
+
+| Metric                                            | Canonical object                | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-pod margin data completeness (the ops worklist) | **`v_pod_margin_coverage_v3`** | ✅ LIVE 2026-08-07. Pod grain, one row per pod. `worklist_reason ∈ {ok, missing_cost, missing_rsp, missing_both}`. This is the list ops works down; it is NOT a rate.                                                                                                                                                                                                                                                                                                    |
+| Fleet margin-coverage verdict (the D-21 gate)       | **`v_pod_margin_gate_v3`**     | ✅ LIVE 2026-08-07, **INERT**. One row. Publishes `cost_coverage_pct` AND `margin_coverage_pct` and opens only when BOTH clear `refill_policy_params.substitute_margin_min_coverage_pct` (90.00). Measured at ship: 163 pods · 102 with cost (62.58 %) · 88 margin-computable (**53.99 %**). Gate SHUT, `blocking_reason` populated. |
+
+⛔ **THE RULING'S BAR IS NECESSARY AND NOT SUFFICIENT — read this before changing either object.**
+CS's D-21 threshold names `purchasing_cost` coverage. But `unit_margin` needs **both** columns
+(`purchasing_cost > 0 AND recommended_selling_price > 0`), so a gate reading cost coverage alone
+would open at 90 % while a sixth of the fleet still had **no computable margin** — and those pods
+would then be silently demoted in substitute ranking for a data-entry gap, which is the exact harm
+D-21 was raised to prevent. The gate therefore requires BOTH and **publishes both**, so the ruling's
+number is honoured and the hole beside it is named rather than quietly shut.
+
+⛔ **NOTHING CONSUMES THE GATE YET, AND THAT IS ENFORCED, NOT COMMENTED.** D-21 half 2 — the margin
+term inside `find_substitutes_for_shelf_v3` — is PARKED because the ruling reserves the weight value
+(`substitute_margin_weight`, live **0.000**) to a later CS call. Golden fixture 68 **seq 18** asserts
+that `find_substitutes_for_shelf_v3` reads neither the weight dial nor the gate, and goes red the day
+somebody wires it; **seq 20** pins the function body (`6aa6885e`). That matters because
+`resolve_supply_ladder_v3` consumes it, so a ranking change there reaches the v3 engine.
+
+⚠️ **S-267 — the standing lesson these objects taught.** `has_cost` first shipped as
+`(purchasing_cost > 0)`, which is **NULL, not false**, for the 53 pods with no cost. The gate then
+reported `missing_cost = 8` against a truth of **61** while every RATE on the same row read correct.
+⭐ **A count assertion that reads the object under test proves the object is SELF-CONSISTENT, never
+that it is RIGHT. At least one count per new object must be derived from the source, by hand.**
+
+⚠️ **S-268 — Supabase default privileges.** Both views shipped `anon`-readable and
+`authenticated`-WRITABLE despite the migration carrying `REVOKE ALL ... FROM PUBLIC`. `PUBLIC` does
+not name `anon` / `authenticated` / `service_role`. ⛔ **Every `CREATE VIEW` in `public` must carry
+`REVOKE ALL ON <v> FROM anon, authenticated;` before its GRANT.** Target ACL:
+`postgres=arwdDxtm/postgres,service_role=arwdDxtm/postgres,authenticated=r/postgres`.
+⚠️ Pre-existing and NOT fixed by that unit (LAW 10): `pod_products` itself still carries `anon=rxtm`.
+
+### PRD-110 D-47 (2026-08-07, leg 145) — no new metric; `v_machine_base_stock_policy_v3` strengthened
+
+⭐ **Registered here only so a reader does not mistake it for a metric change. It is not one.** The
+resolver is byte-unchanged. What changed is its PROOF: golden fixture 28's `policy_seed` tier was
+guarded only STRUCTURALLY (seq 19 reads `pg_get_viewdef`), because the fleet converged to 31/31
+`observed` on 2026-08-04 and no live machine exercised the branch. Fixture 28 now EXECUTES it
+(seq 22-36) by raising the resolver's own `base_stock_min_gaps` bar inside its transaction and
+restoring the value it found. Measured at ship: bar 2→3 flips exactly **1 of 31** machines to
+`policy_seed` (the ruling's "one machine"); bar 2→35 flips all 31; both sets match an independent
+re-derivation with zero symmetric difference.

@@ -34313,7 +34313,7 @@ a process failure.
 - **seq 35 RE-POINTED AT THE CS PAIR.** `20260807160000` had replaced the pair with a universal -
   but seq 31 already IS the universal, so that left two copies of one claim and **no** assertion on
   the specific pair D-24 and D-44 were both argued over. seq 35 now pins **both the new order AND
-  its cause**: M_TOP outranks M_CAD *and* M_TOP is reserved *and* M_CAD is not. A run where M_TOP
+  its cause**: M_TOP outranks M_CAD _and_ M_TOP is reserved _and_ M_CAD is not. A run where M_TOP
   wins for any other reason goes red.
 - **seq 85 NEW - "D-44 IS NOT A NO-OP".** seqs 77-84 prove the reservation is well-FORMED; none of
   them proved it CHANGED anything. A reservation landing only on machines D-24 would have picked
@@ -34385,3 +34385,277 @@ not.** `value_at_risk_aed` and the three-tier price cascade feeding it are byte-
 D-31 convergence debt is neither widened nor touched. ⭐ Cody made this a REQUIRED revision rather
 than owed paperwork, because a registry that still described the D-24 ordering would have been read
 as current. ⚠️ Leg 143's owed margin-coverage row is **still owed**.
+
+---
+
+## LEG 145 - 2026-08-07 - **D-47 EXECUTED (fixture 28: 36/36) AND THE FULL-SUITE CENSUS FOUND A RED NOBODY KNEW ABOUT.** Fixture 54 is 33/41. The "golden has no known red" claim carried by legs 143 and 144 was a per-fixture claim, never a suite claim. S-273..S-276 raised.
+
+### [leg 145] STEP R - POINTER VERIFIED CLEAN, AND LEG 144 LEFT NO POINTER
+
+`ps` (S-241) FIRST: ⛔ **a process WAS running** - `prd110_s7_golden_determinism_sweep.sh 1 leg144post`,
+started 15:53Z. ⭐ **Leg 144 launched a full-suite S7 round and then ended without writing a
+`### RESUME POINTER` block** - the log's leg-144 section stops at the Article-16 paragraph. The
+effective pointer for this leg was therefore leg 143's, amended by leg 144's STATE AT CLOSE.
+⛔ **RULE EARNED: a running background sweep IS part of the handoff and must be named in the
+pointer.** Only `ps` revealed it; nothing in the log did.
+
+S-270 obeyed: `git status --porcelain --untracked-files=all` **empty** - no abandoned draft.
+RISK 104: `prd110%` **329** · `max(version)` **20260807161500** · disk **330** · owed md5
+**17894944aa420e27ea6982583bf08641 on BOTH sides** (disk side in **Python** per leg 141).
+Sentinels under `prosrc` (S-109): `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** ·
+`rank_machines_by_value_at_risk_v3` **754532ac**. LAW 12: `2026-08-07` **101**, `2026-08-08` **0**.
+37 active crons · golden **60 fixtures / 2199 enabled assertions** · `stress_runs` **14**. All nine
+dials exactly as leg 144 recorded. S-80 grep of the WHOLE parking lot for `CS DECISION`: latest
+ruling block is still **"POST-DONE DR REGISTER CLOSED" (2026-08-04)** - **no CS ruling since leg 141.**
+⭐ **Every figure matched.** ⛔ The Supabase MCP did not connect (fifth leg in a row); both `/tmp`
+shims had survived and neither needed rebuilding.
+
+### ⭐⭐ D-47 EXECUTED - `20260807170000_prd110_d47_fixture28_policy_seed_execution` (Cody ⚠️ Approve with one required revision, applied)
+
+**FIXTURE 28: 36/36, `n_fail` 0, `passed` true, ZERO `scenario_error`, 1623 ms** - adjudicated from
+`golden.runs`, never from the returned set (S-260/S-266). Actuals for the whole new band:
+`22=true · 23=0 · 24=31 · 25=1 · 26=true · 27=0 · 28=0 · 29=0 · 30=0 · 31=0 · 32=0 · 33=true ·
+34=true · 35=true · 36=true`.
+
+Fixture 28's `policy_seed` tier was guarded only STRUCTURALLY (seq 19 reads `pg_get_viewdef`) because
+the fleet converged to 31/31 `observed` on 2026-08-04 and no live machine exercised the branch. It is
+now **EXECUTED**: probe A raises the resolver's own `base_stock_min_gaps` bar 2 -> 3 and **exactly
+ONE of 31 machines** falls below it and resolves `policy_seed`; probe B raises it to 35 (fleet max
+gaps + 1) and **all 31** do.
+
+### ⛔⛔ S-273 (NEW) - THE RULING SAID "SYNTHETIC PLANT". THE MACHINE SHIPPED IS **REAL**, AND THAT IS THE SAFER READING
+
+CS wrote: "Plant one machine with <2 gaps + a seeded policy row so the policy_seed branch is
+EXECUTED." The purpose - execute the branch rather than inspect it - is delivered exactly. The
+mechanism is not a synthetic `machines` row, for two measured reasons:
+
+1. ⛔ **NO fixture in the suite of 60 plants a `machines` or a `shelf_configurations` row.** Verified
+   by regex over every `golden.fixtures.scenario_sql`. (An earlier `ILIKE '%INSERT INTO public.machines%'`
+   scan returned twelve fixtures and **all twelve were false positives on `machines_to_visit`.** The
+   idiom does not exist, and D-47 is a poor place to invent it.)
+2. ⛔ **The scope predicate makes the ghost dangerous.** `v_shelf_state` requires
+   `machines.status='Active' AND include_in_refill=true`, plus `shelf_configurations`, plus the WEIMI
+   chain through `v_live_shelf_stock`. A row satisfying that is, for as long as it exists, an Active
+   refillable ghost machine - the S-264 hazard class on a protected entity, bought at the price of
+   LESS coverage than what shipped.
+
+⭐ **AND THE LIVE DATA MADE THE SUBSTITUTE ALMOST LITERAL.** The n_gaps histogram over the 31
+in-scope machines has **exactly one machine at the minimum** (n_gaps = **2**, in a fleet spanning
+2..34). Raising the bar by one therefore plants precisely the ruling's *"one machine with fewer than
+the required gaps + a seeded policy row"* - and it is a REAL machine carrying a REAL
+`machine_service_policy` seed. **Zero writes to any Appendix-A protected entity.**
+
+⭐ **WHY MOVING A LIVE DIAL IS SAFE HERE, ASSERTED NOT ASSUMED.** `base_stock_min_gaps` has **exactly
+ONE reader in the database** - the object under test - with **zero** `pg_proc` bodies referencing it;
+**seq 23** pins that and goes red the day a second reader appears. The move and restore share the
+scenario's transaction, so no other session ever observes the changed value (fixture 3's S-34
+MVCC-invisible idiom). ⭐ **And the fail-safe was VERIFIED, not assumed:** `golden.run_fixture` wraps
+the scenario `EXECUTE` in a PL/pgSQL `BEGIN ... EXCEPTION WHEN OTHERS` block - a subtransaction - so
+an error anywhere between the first UPDATE and the restore rolls the dial back automatically. The
+probe **cannot** strand the dial. Live state after the run: dial **2**, fleet **31 observed**.
+⭐ Cody's one required revision shipped: the probe block carries a comment forbidding any future
+append AFTER it, because the first UPDATE holds a row lock on `refill_policy_params` until commit.
+
+### ⛔⛔ S-274 (NEW) - **GOLDEN HAD A RED AND FOUR LEGS DID NOT KNOW IT.** FIXTURE 54 IS 33/41
+
+The `leg144post` round-1 census - **60/60 fixtures fired, 2199 assertions evaluated, 0 skipped** -
+returned **2191 pass / 8 FAIL**, determinism md5 `418ba947fd1f201de4daca45d4196a96`. Manifest and
+`golden.fixtures WHERE enabled` reconciled exactly at 60 (S-269 honoured).
+
+**Fixture 54 ("One-verb swap_v3 emits correct legs", P3) failed 8 assertions:**
+`2=1 · 20=absent · 21=none · 54=5 · 60=threw · 61/62/63=absent`.
+
+⭐ **BISECTED, AND IT IS NOT AN ENGINE REGRESSION.** Run history: green at **41/41** on leg 126, leg
+127 (r0/r1/r2), leg 133, leg 134 and **leg 138 (2026-08-06 22:09Z)**; red at **2026-08-07 16:15Z**.
+No migration between those points touched `swap_v3` (legs 139-145 shipped DR-3, DR-5, DR-7, the
+fixture-57 and fixture-59 safety units, D-21, D-44 and D-47).
+⛔ **THE FIRST FAILURE IS THE FIXTURE'S OWN PREMISE SENSOR.** seq 2 - *"premise: the incoming pod is
+NOT already assorted on the machine"* - reads **1**. The pod IS now on the machine, so `swap_v3`
+refuses correctly (*"pod Al Ain Zero is already on shelf 7e93eea4... of machine 9db7a821... - swapping
+it in here would duplicate it within the machine"*) and seq 20/21/60/61/62/63 all read `absent`
+because the swap never happened. seq 54 drifts 4 -> 5 for the same reason.
+⭐ **The fixture did exactly what it was built to do: it refused to report a green over a premise
+that had stopped being true.** The defect is that it READS its premise off live assortment instead of
+OWNING it - the S-34 class, and the very thing D-44's ruling demanded of fixture 42 ("make fixture 42
+self-supply its precondition per the leg-114/115 idiom"). ⛔ **THE FIX IS THE leg-114/115 IDIOM, NOT A
+LOOSENED ASSERTION.** Do not re-point seq 2 at whatever pod happens to be free today; that buys one
+more day and re-arms the same trap.
+
+### ⛔⛔ S-275 (NEW) - "GOLDEN HAS NO KNOWN RED" WAS A PER-FIXTURE CLAIM WEARING A SUITE'S CLOTHES
+
+Legs 143 and 144 both carried **"⭐⭐ GOLDEN HAS NO KNOWN RED"** in their resume pointers. Both were
+honest: each had fired the fixtures it TOUCHED and each came back green. ⛔ **Neither had fired
+fixture 54, and nothing in the claim's wording admitted that.** The last full sweep before today was
+leg 138's, and fixture 54 was green in it - so the red was born in the ~18 hours between.
+⭐ **RULE: "no known red" may only be written after a run over `golden.fixtures WHERE enabled`. A
+per-fixture green is evidence about that fixture and about nothing else.** The census that found this
+cost ~25 minutes of wall clock and zero attention; four legs of standing claim were wrong without it.
+⛔ **This is why the round was allowed to finish rather than being killed as "stale".** It was started
+by leg 144 against the pre-D-44 suite and looked like sunk work; it was the only thing that found the
+red. Fixture 28 banked **21/21** in the census BEFORE D-47 was applied, and fixture 42 banked
+**85/85**, so the census is a clean statement about the suite as of leg 144's close.
+
+### ⛔⛔ S-276 (NEW) - DR-8's "23 PROPOSALS FOR CS SUNDAY REVIEW" ARE **ZERO** REAL PROPOSALS
+
+Before building the ruled approve-RPC, the queue it serves was measured:
+
+| claim (CS ruling, 2026-08-04)                | live truth (2026-08-07)                                            |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| "The 23 proposals stay for CS Sunday review" | **18 pending**, and **all 18 carry `plan_date = 2030-02-18`**       |
+| implied: a reviewable queue                  | `2030-02-18` is **fixture 48's own plan_date**; `proposed_at` = 08-06 |
+| implied: it refills                          | **zero** cron mints facings (`propose_facing_changes_v3` unwired)   |
+
+⛔ **Under S-244 (`plan_date < '2027-01-01'` for any CS-facing read) the reviewable queue is EMPTY -
+`fac_real = 0`.** Every row is fixture-48 residue. ⭐ **Contrast DR-7, which shipped at leg 141 with a
+REAL date:** `prd110_dr7_rotation_heartbeat_0530_sunday_dubai` calls
+`propose_rotations_v3(resolve_refill_plan_date())`, so rotations genuinely accumulate. Facings have no
+such half. ⛔ **Building the approve-RPC is still correct and still ruled** - it closes an Article-1
+gap - **but it is a writer for a queue nothing fills, and the DONE-2 report must say so** rather than
+report "facing review shipped".
+
+### ⏸️ [leg 145] DR-8 SCOPED AND DELIBERATELY NOT STARTED (RELAY: never begin a unit you cannot finish)
+
+Everything needed is below, so the next leg starts writing rather than probing.
+⛔ **THE SHARP BIT, AND IT DIFFERS FROM THE FEEDBACK TEMPLATE:** `facing_proposals_v3` carries
+`CHECK (status NOT IN ('approved','rejected','applied') OR reviewed_by IS NOT NULL)`.
+`approve_feedback_proposal_v3` tolerates `auth.uid() IS NULL`; **a copy of it here would reach that
+CHECK and surface to the caller as a bare 23514 naming a constraint instead of the missing identity.**
+Refuse the NULL caller by name, first.
+⭐ **AND THE S-128 LESSON APPLIES AS DISCLOSURE, NOT REFUSAL.** `approve_feedback_proposal_v3` REFUSES
+`never_stock` because approving MINTS A PIN the engine ignores - a live rule that lies. Approving a
+facing proposal mints nothing; it records a decision. So return an explicit
+`plan_effect: 'none_yet'` naming that no object consumes `status='approved'` today, and **never set
+`status='applied'` or `applied_to_plan_date`** - those belong to a future applier. Refusing instead
+would leave CS unable to clear the queue at all.
+Other measured facts: RLS on, **only** an `fp_v3_select` policy (so Article 3 is already satisfied);
+ACL already `authenticated=r` (S-268 target shape); the only readers are `propose_facing_changes_v3`
+and `v_proposal_acceptance_v3`. Two siblings are chartered with it: no approve-RPC exists for
+`picker_weight_proposals_v3.status` (leg 141) nor a canonical DELETE writer for
+`feedback_proposals_v3` (leg 142). ⛔ Fixture sentinel must NOT be `plan_date >= '2030-01-01'` - that
+band is occupied by fixture 48's residue (S-276).
+
+### ✅ [leg 145] ARTICLE 16 DEBT PAID - leg 143's OWED REGISTRY ROW
+
+`METRICS_REGISTRY.md` now carries the margin-coverage section: `v_pod_margin_coverage_v3` (pod-grain
+ops worklist) and `v_pod_margin_gate_v3` (the one-row verdict, INERT), with the necessary-but-not-
+sufficient argument, the parked half-2 enforcement (fixture 68 seq 18/20), and S-267/S-268 attached.
+A D-47 sub-section records that the resolver is **byte-unchanged** and only its PROOF moved, so no
+reader mistakes it for a metric change.
+
+### ⛔ [leg 145] THE CENSUS RE-ARMED S-262 AND IT WAS CLEARED IN THE SAME LEG
+
+Running the full suite runs **fixture 58**, which mints into `picker_weight_proposals_v3`: pending
+went **0 -> 2**. Per S-262 that would refuse the next weekly miner run with `pending_exists`.
+dr5d's predicate (`status='pending' AND window_start >= miner_fixture_epoch` -> `superseded`) was
+re-run: **2 superseded, real pending 0 before and after, queue back to 0.**
+⚠️ **Fixture 48 did the same to facings: pending 18 -> 20.** Both new rows are 2030-band residue;
+`fac_real` is **0** before and after. ⛔ **A FULL SWEEP HAS QUEUE SIDE-EFFECTS. Budget the S-262
+cleanup into every sweep, not just into fixture-58 runs.**
+
+### [leg 145] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260807170000** · `prd110%` **330** (was 329; **+1 this leg**) · disk **331** ·
+owed md5 **10c0411e1514e61dd650ed218cbcbe4c on BOTH sides**, recomputed not copied (disk side in
+**Python**) · golden **60 fixtures / 2214 enabled assertions** (was 60 / 2199: **+15 assertions, 0
+fixtures**, all fixture 28) · `golden.stress_runs` **14** (unchanged - ⛔ **the census was NOT banked
+as an S7 row; it is one round, not a triple**) · **37 active crons** (unchanged).
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101** (unchanged all leg), `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** ·
+`rank_machines_by_value_at_risk_v3` **754532ac**. 🆕 **NEW SENTINEL FOR THE FIXTURE-54 WORK:
+`swap_v3` ffff8485** - if it still reads `ffff8485` when fixture 54 goes green, the fix was in the
+fixture, which is where S-274 says it belongs.
+⭐ **NO APPLY-TIME VERSION DRIFT** - `/tmp/apply_mig.sh` registers the version it is handed.
+
+**FLAGS AT CLOSE - NOT ONE FLAG OR DIAL CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `pick_urgency_params.w_empty` **0.945** ·
+`substitute_margin_min_coverage_pct` **90.00** · `substitute_margin_weight` **0.000** ·
+`var_money_reserved_slots` **2** · `base_stock_min_gaps` **2** (moved and restored inside fixture 28's
+transaction, MVCC-invisible; read back **2**).
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE:** `picker_weight_proposals_v3` pending **0** (2 census rows superseded) ·
+`feedback_proposals_v3` pending **12** = 8 real + 4 synthetic (S-265) · `rotation_proposals_v3`
+pending **25** · `facing_proposals_v3` pending **20**, of which **0 are real** (S-276).
+
+### RESUME POINTER 2026-08-07 leg 145 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 145
+  left **no process running** (the `leg144post` sweep closed at 16:18:19Z). ⛔ **Leg 144 left one
+  running and did not say so - a background sweep IS part of the handoff.** Then S-270: read the
+  untracked set. Then RISK 104: **expect `prd110%` = 330, `max(version)` = 20260807170000, 331 prd110
+  files on disk, owed md5 `10c0411e1514e61dd650ed218cbcbe4c` both sides.** ⛔ Recipe is
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; the disk
+  side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON** - the `tr`/`sed` version silently re-adds a
+  newline and returns a wrong md5 against a perfectly good DB.
+- ⛔⛔ **NEXT TASK: FIXTURE 54. LAW 8 IS EXPLICIT - on golden failure, HALT phase work, bisect, fix,
+  green, resume.** The bisect is DONE (S-274): green through leg 138, red at 2026-08-07 16:15Z, first
+  failure is the fixture's own premise sensor **seq 2**, `swap_v3` is **not** the defect and its body
+  is pinned at **ffff8485**. ⛔ **The fix is to make fixture 54 SELF-SUPPLY its premise (leg-114/115
+  idiom), not to re-point seq 2 at whatever pod is free today.** Re-run and expect **41/41**.
+  ⛔ **DO NOT START DR-8 BEFORE FIXTURE 54 IS GREEN.**
+- ⛔⛔ **"GOLDEN HAS NO KNOWN RED" IS RETIRED AS A PHRASE UNTIL A SWEEP EARNS IT AGAIN (S-275).** The
+  honest statement today is: **59 of 60 fixtures green in a full census on 2026-08-07 16:18Z;
+  fixture 54 is 33/41.** A per-fixture green is evidence about that fixture and nothing else.
+- ⛔ **THE OWED S7 TRIPLE IS STILL OWED, and it cannot start until fixture 54 is green.** Measured
+  honestly this leg: **60 fixtures in ~25 min** for round 1 (not the ~50 min leg 144 budgeted, and not
+  the ~19.4 min earlier pointers carried). Budget **~30 min/round, ~1.5 h for a triple.**
+  ⛔ Fire PER FIXTURE (`run_all` through the management API banks nothing, S-250); ⛔ never START a
+  fixture in UTC minutes 37-40 (cron 44); ⛔ reconcile the manifest against `golden.fixtures WHERE
+  enabled` first (S-269 - it reconciled exactly at 60 this leg). Runner:
+  `scripts/prd110_s7_golden_determinism_sweep.sh <round> <note_prefix>` (prefix is `$2` since leg 144).
+  Round-1 determinism md5 for reference: **`418ba947fd1f201de4daca45d4196a96`** - ⛔ this will CHANGE,
+  because D-47 added 15 assertions to fixture 28 after the census fired it at 21.
+- ⛔⛔ **A FULL SWEEP HAS QUEUE SIDE-EFFECTS - BUDGET THE CLEANUP INTO IT.** Fixture 58 re-armed S-262
+  (`picker_weight_proposals_v3` 0 -> 2, cleared this leg); fixture 48 pushed facings 18 -> 20. After
+  EVERY sweep, re-run dr5d's predicate or the next weekly miner run is refused `pending_exists`.
+- ⏸️ **DR-8 IS FULLY SCOPED AND NOT STARTED** - see the "[leg 145] DR-8 SCOPED" block above for the
+  three sharp bits (refuse the NULL caller by name because of `chk` on `reviewed_by`; `plan_effect:
+  'none_yet'` as DISCLOSURE not refusal, unlike S-128; never set `applied`/`applied_to_plan_date`).
+  ⛔ **And read S-276 first: the queue it serves holds ZERO real proposals** - all 20 pending rows are
+  fixture-48 residue at `plan_date = 2030-02-18`, and no cron mints facings. Ship the RPC, and put the
+  gap in the DONE-2 report rather than reporting "facing review shipped".
+- ⏸️ **THEN, in goal-command-2 order - the answered-unexecuted list is ELEVEN:** D-19 (⛔ blocked on
+  DR-6, a Stax FE-deploy unit **this loop cannot perform**) · D-27, D-28, D-31 (three CONVERGE units -
+  each wants a before/after diff of what the convergence moves) · D-29, D-33, D-34 (see DR-9) · D-32
+  (⭐ DR-7 shipped its weekly Sunday half at leg 141; what remains is DR-8's approve-RPC) · D-37
+  (⛔ CS overrode the on-file recommendation: `ladder_prefer_own_stock_transfer` DEFAULT **TRUE**; an
+  engine change to `resolve_supply_ladder_v3`, and fixture 6 seq 22/25/26 must be **RESTATED, never
+  deleted**) · D-39 · D-40 (⛔ CS chose option (a): add the `w_intents` dial **and** an `s_intent` term
+  to the LIVE `v_machine_priority`; ship at weight 0, prove byte-identical output via the PRD-074
+  invariance pattern, then the monotonicity probe **before** the miner may map to it).
+  Then Tier 4 (DR-1 cutover unit, **flag-off**). ⭐ **D-47 is now EXECUTED**, joining D-21(half 1),
+  D-43, D-44, D-45, D-46, DR-3, DR-4, DR-5 and DR-7.
+- ⏸️ **D-21 HALF 2 STILL NEEDS A CS VALUE (the margin weight W%)** and cannot be built without
+  inventing it. ⭐ The ask is sharper than the ruling: the `purchasing_cost` bar is necessary but NOT
+  sufficient - `unit_margin` needs RSP too, and live coverage is **cost 62.58 % / margin 53.99 %**.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 (a count assertion reading the object under
+  test proves SELF-CONSISTENCY, never correctness - derive at least one count from the SOURCE) ·
+  S-268 (`REVOKE ALL ... FROM PUBLIC` does NOT remove Supabase's schema default privileges; every
+  `CREATE VIEW` in `public` needs `REVOKE ALL ON <v> FROM anon, authenticated;` before its GRANT) ·
+  S-272 (restating an assertion must move `expect_op`/`expect` with the SHAPE of `check_sql`) ·
+  S-266 (a scenario that RAISEs rolls back its own `golden.scratch` delete, so scratch-reading
+  assertions re-evaluate the PREVIOUS run's snapshot **and pass** - `n_fail` is the only sound verdict).
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Expect
+  `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9** ·
+  `find_substitutes_for_shelf_v3` **6aa6885e** · `rank_machines_by_value_at_risk_v3` **754532ac** ·
+  🆕 `swap_v3` **ffff8485** (added for the fixture-54 work - it must NOT move).
+- ⛔ **`/tmp` IS CLEARED BETWEEN LEGS and the MCP has not connected for five legs.** `/tmp/prd110_sql.sh`
+  and `/tmp/apply_mig.sh` both survived this leg. The apply shim registers the version it is handed in
+  the SAME POST (the management API does not register, and RISK-104's md5 breaks without it).
+  ⭐ **The shim is transactional - USE IT AS A FREE DRY RUN ON EVERY MIGRATION**: append
+  `DO $dry$ BEGIN RAISE EXCEPTION 'DRY'; END $dry$;` and the whole body executes, guards and all, then
+  vanishes. D-47's dry run came back with only `DRY`, which is why the real apply was a non-event.
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (SKU-grain, pod is **Chocolate Bar**). ⛔ If wrong,
+  revert BOTH sides.
+- ⏸️ **S-265 (OPEN):** fixture 57 mints into the LIVE CS review queue (`p_dry_run => false`), so 4
+  synthetic proposals sit beside the 8 real ones in `feedback_proposals_v3`.
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273 and S-275..S-276 are CLOSED
+  (recorded).** ⛔ **S-274 (fixture 54) and S-265, S-266 are OPEN.** New findings resume at **S-277**.
