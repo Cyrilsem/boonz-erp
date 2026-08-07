@@ -33118,11 +33118,11 @@ means the WRONG RECIPE, not a drifted DB. Suspect the recipe before the database
 
 Order per the pointer, and the red-then-green IS the proof:
 
-| step                       | migration                                             | result                                            |
-| -------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
-| fixture 67 BEFORE the code | `20260806224643_prd110_dr3_fixture67_red_baseline`    | **0/32 RED**, `scenario_error`, scratch empty     |
-| the design                 | `20260806224842_prd110_dr3_pod_inventory_write_freeze` | dial + guard + revoke + report                    |
-| re-fire                    | -                                                      | **31/32** - seq 14 red (S-260)                    |
+| step                       | migration                                                  | result                                            |
+| -------------------------- | ---------------------------------------------------------- | ------------------------------------------------- |
+| fixture 67 BEFORE the code | `20260806224643_prd110_dr3_fixture67_red_baseline`         | **0/32 RED**, `scenario_error`, scratch empty     |
+| the design                 | `20260806224842_prd110_dr3_pod_inventory_write_freeze`     | dial + guard + revoke + report                    |
+| re-fire                    | -                                                          | **31/32** - seq 14 red (S-260)                    |
 | S-260 fix                  | `20260806224935_prd110_dr3_fx67_seq14_verb_order_property` | ⭐ **32/32 GREEN**, run `leg140 ... property fix` |
 
 **The red baseline was honest**: `column "pod_inventory_write_freeze" does not exist`, 0 scratch
@@ -33148,11 +33148,11 @@ asserts **strictly more** than the single substring did and cannot rot on server
 ### ⭐ THE DIAL WAS EXECUTED AT EVERY LEVEL, NOT INSPECTED (D-47 / S-173 doctrine)
 
 Measured, inside a force-rolled-back probe: `off` → non-RPC UPDATE **succeeds** (so DR-3 did NOT
-ship armed) · `warn` → **succeeds** · `block` non-RPC UPDATE → **42501** ⭐ *the gap DR-3 exists to
-close: UPDATE and DELETE were guarded by NOTHING, while INSERT has been guarded since PRD-012* ·
-`block` WITH `app.via_rpc` → **succeeds** ⭐ *proves DR-3 guarded production rather than broke it* ·
-`block` DELETE → **42501** · `frozen` WITH `app.via_rpc` → **42501** ⭐ *the only thing separating
-`frozen` from `block`, and precisely what "read-only historical" means*.
+ship armed) · `warn` → **succeeds** · `block` non-RPC UPDATE → **42501** ⭐ _the gap DR-3 exists to
+close: UPDATE and DELETE were guarded by NOTHING, while INSERT has been guarded since PRD-012_ ·
+`block` WITH `app.via_rpc` → **succeeds** ⭐ _proves DR-3 guarded production rather than broke it_ ·
+`block` DELETE → **42501** · `frozen` WITH `app.via_rpc` → **42501** ⭐ _the only thing separating
+`frozen` from `block`, and precisely what "read-only historical" means_.
 **Residue clean:** dial back at `off`, `pod_inventory` **9528 unchanged** (the probe's real DELETE
 was discarded), `app.via_rpc` **UNSET** (no S-197 leak).
 
@@ -33178,7 +33178,7 @@ PREDICATE: every enabled fixture whose scenario or assertions reference `pod_inv
 **All 15 re-fired GREEN: 677 assertions, 0 fail, 0 scenario_errors, 0 skipped, none vacuous.**
 
 ⛔ **`golden.run_all()` REFUSED TO RUN AND WAS RIGHT TO.** `run_all('P5', ...)` raised
-*"matched 0 enabled fixtures - an empty result set must not be mistaken for green"*: its `p_phase`
+_"matched 0 enabled fixtures - an empty result set must not be mistaken for green"_: its `p_phase`
 is an EXACT filter, not a max_phase. ⭐ **The harness has an anti-vacuity guard on its own sweep** -
 had it returned silently, an empty sweep would have read as a green one.
 ⭐ **Per-fixture fires through the management API DO bank** (verified by reading `golden.runs` back
@@ -33270,16 +33270,16 @@ file and writing the other two AT the DB-assigned versions, after which both md5
 
 DR-5 was scoped next (DR-6 needs an FE deploy this loop cannot perform, so D-19 is blocked behind
 it either way). ⛔ **I probed DR-5's stated precondition and did NOT begin its mutations.**
-The ruling says: *"clear the fixture-58 pending `w_empty` residue first, or the live miner is
-refused with `pending_exists` and the flip is a no-op that looks like a decision."* Measured:
+The ruling says: _"clear the fixture-58 pending `w_empty` residue first, or the live miner is
+refused with `pending_exists` and the flip is a no-op that looks like a decision."_ Measured:
 
-| what the DR-5 ruling says is pending | what is ACTUALLY pending right now      |
-| ------------------------------------ | --------------------------------------- |
-| `w_empty` 0.900 → **0.945**          | `w_empty` 0.900 → **0.958**             |
-| **68.57 %** concordance              | **71.43 %**                             |
-| **1318** evaluable / **474** discrim. | **150** pairs                           |
-| **24** days covered                  | **10** days                             |
-| (stable across legs 86-130)          | mined **2026-08-06 22:52:43Z** - ⛔ **THIS LEG** |
+| what the DR-5 ruling says is pending  | what is ACTUALLY pending right now               |
+| ------------------------------------- | ------------------------------------------------ |
+| `w_empty` 0.900 → **0.945**           | `w_empty` 0.900 → **0.958**                      |
+| **68.57 %** concordance               | **71.43 %**                                      |
+| **1318** evaluable / **474** discrim. | **150** pairs                                    |
+| **24** days covered                   | **10** days                                      |
+| (stable across legs 86-130)           | mined **2026-08-06 22:52:43Z** - ⛔ **THIS LEG** |
 
 ⛔ **`picker_weight_proposals_v3` holds EXACTLY 2 ROWS IN TOTAL, both `pending`, both minted inside
 a 4-second window around fixture 58's run** (`started_at 22:52:47Z`), during THIS leg's
@@ -33288,7 +33288,7 @@ blast-radius sweep. The second is `w_stale` 0.130 → 0.122 at **28.57 %** conco
 **not in the database at all**.
 
 ⛔ **THE TRAP THIS WOULD HAVE SPRUNG.** A leg that executes DR-5 literally - "accept the `w_empty`
-0.900 → 0.945 proposal" - finds no such row. If it instead accepts *what is there*, it applies
+0.900 → 0.945 proposal" - finds no such row. If it instead accepts _what is there_, it applies
 **0.958 derived from a 10-day, 150-pair synthetic window** and calls it the CS-ruled decision.
 ⭐ **That is a re-baseline of a production picker weight wearing a ruling's clothes.**
 
@@ -33306,7 +33306,7 @@ why it will exist again after the next sweep.
    protected-shaped entities without per-row approval; and the append-only instinct applies).
    Check the allowed `status` domain first - today the only value present is `pending`.
 3. Only then: accept the real proposal, `UPDATE refill_policy_params SET
-   miner_weekly_pick_dry_run = false;` and `... miner_weekly_edit_dry_run = false;`.
+miner_weekly_pick_dry_run = false;` and `... miner_weekly_edit_dry_run = false;`.
 4. ⛔ **Fixture 60 seq 12 WILL GO RED BY DESIGN** (it asserts the pick dial is still `true`).
    Re-baseline `expect` **AND** `description` together per S-103; never weaken it to `not_null`.
    ⭐ This one IS a sanctioned re-baseline - the ruling names it as the known, intended cost.
@@ -33317,3 +33317,505 @@ remains **0.900**, and the two residue rows were left exactly as found - RELAY: 
 you cannot finish. **The `## RESUME POINTER ... leg 140` block above stands, with its "NEXT TASK"
 line AMENDED by this addendum: DR-5 is the recommended next unit (DR-6 is FE-deploy-blocked), and
 it starts at step 1 above, not at the flip.**
+
+---
+
+## LEG 141 - 2026-08-06/07 - **DR-5 AND DR-7 EXECUTED.** `w_empty` 0.900 -> 0.945 applied from a proposal the PRODUCTION miner minted, both miner dials flipped live, rotation heartbeat scheduled Sunday. ⛔ **AND THE FIRST LIVE PROPOSALS EXPOSED THREE HARNESS FIXTURES THAT ASSUMED THE QUEUES WERE EMPTY - S-262/263/264, ONE OF WHICH DELETES REAL PROPOSALS.** Golden closes **58/59**, fixture 59 RED with a named cause.
+
+### [leg 141] STEP R - POINTER VERIFIED CLEAN
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**. RISK 104:
+`prd110%` **317** · `max(version)` **20260806224935** · disk **318** · owed md5
+**5d417285ccfe9eaa13489393a2eca07e on BOTH sides**, recomputed not copied. Sentinels under `prosrc` (S-109, not `functiondef`):
+`engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091**, both exact. Golden read back, NOT
+re-run: **59/59, 2150/2150, 0 fail**. LAW 12: `2026-08-07` **101**, `2026-08-08` **0**. All flags
+as recorded. S-80 grep of the WHOLE parking lot: **no CS ruling has landed since leg 140**.
+
+⚠️ **MY FIRST DISK-SIDE md5 DISAGREED AND THE DATABASE WAS FINE.** A shell pipeline
+(`tr`/`sed` to strip the trailing newline) returned `74fd38ab...`; recomputed in Python against the
+same file list it returns `5d417285...`, matching the DB exactly. ⭐ **RISK 104's rule held a second
+time: count + max agreeing while the md5 disagrees means the WRONG RECIPE. Suspect the tool before
+the database** - and prefer Python over a `tr`/`sed` newline dance, which silently re-adds one.
+
+### ⭐⭐ DR-5 EXECUTED - IN THREE MIGRATIONS, NOT ONE, AND THE SPLIT IS THE POINT
+
+The leg-140 addendum (S-261) was right and its step 1 mattered. The two rows sitting `pending`
+were **not** the ruled proposal: window `2030-03-05..2030-03-14`, the synthetic universe, minted by
+fixture 58 during leg 140's own sweep.
+
+| step | migration                                                                 | what it did                                                                                                   |
+| ---- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| A    | `20260806231906_prd110_dr5a_clear_synthetic_residue_and_flip_miner_dials` | 2 residue rows -> `superseded`; both dials -> false; fixture 60 seq 12 **and 13** re-baselined in the same tx |
+| -    | `run_weekly_miners_v3('manual')`                                          | the **production path**, warnings **EMPTY**; pick **1** created, edit **9** created                           |
+| B    | `20260806232027_prd110_dr5b_apply_ruled_w_empty_weight`                   | `w_empty` 0.900 -> **0.945**; proposal closed `applied`; fixture 58 seq 33 re-baselined, seq 43 tell minted   |
+| C    | `20260806232302_prd110_dr5c_fx58_seq15_seq28_live_dial_independence`      | S-262 property fixes                                                                                          |
+| D    | `20260806233217_prd110_dr5d_reclear_fixture58_residue_at_leg141_close`    | the treadmill, cleared again                                                                                  |
+
+⭐ **THE PROPOSAL THAT WAS APPLIED WAS MINTED BY THE PRODUCTION RPC, NOT HAND-WRITTEN.** dr5a frees
+the global one-pending-per-dial slot; the miner then mints through the same call the Sunday cron
+makes; dr5b accepts it. A migration that INSERTed its own proposal would have proven nothing about
+the path CS will actually use.
+
+### ⛔ 0.945 vs 0.948 - THE RULED NUMBER SHIPPED, AND THE DIVERGENCE IS RECORDED NOT SMOOTHED
+
+The live re-mine proposes **0.948** (69.31 % concordance, 1363 evaluable / 492 discriminating
+pairs, 25 learnable days, window `2026-05-09..2026-08-06`). The ruling's own figures (68.57 %,
+1318/474, 24 days -> 0.945) are the **same window matured by one day**.
+⭐ **0.945 - the RULED magnitude - is what was applied.** Applying 0.948 would mean the loop
+re-derived a ruled magnitude at execution time and applied a number CS never saw: the same class of
+drift S-261 caught, only with real data instead of synthetic. `applied_weight` is a column distinct
+from `proposed_weight` precisely so this is readable: **proposed 0.948, applied 0.945**, difference
+explained in the row's own `review_note`. ⏸️ **If CS wants the live figure, that is a one-line
+follow-up - not a silent correction.**
+dr5b **refuses** if the ruled weight ever falls outside `(current, proposed]`, so a future re-run
+cannot over-apply the ruling against weaker evidence.
+
+### ⭐ CODY REVIEWED BOTH MIGRATIONS AND REQUIRED ONE REVISION, WHICH SHIPPED
+
+Articles 1/2/3/4/5/8/12/14/16. Findings that mattered:
+
+- ⛔ **REQUIRED REVISION (applied):** fixture 58 seq 33 pinned `max(updated_at)::text`, which renders
+  through the **session** `TimeZone`. It read `+00` only because both sessions happen to run UTC -
+  a coincidence, and exactly the S-260 class. Now rendered `AT TIME ZONE 'UTC'` explicitly, with
+  `expect` computed by the **identical** expression the assertion runs.
+- ⚠️ **Article 5 gap (pre-existing, logged not fixed):** `picker_weight_proposals_v3.status` is a
+  state machine with **no governing RPC** - verified by predicate over `pg_proc`, not memory. Both
+  migrations hand-write it. Tolerable once inside a reviewed migration executing a quoted ruling;
+  **not** tolerable as the standing pattern. **DR-8 is chartered to build exactly this shape of
+  approve-RPC for FACING proposals; the picker-weight sibling does not exist.**
+- ⚠️ **Article 8:** neither table carries the generic audit trigger, so no `write_audit_log` row
+  results. The substitute record is the migration plus `updated_by` + `review_note`. Intent met,
+  mechanism not. Do not let the precedent grow.
+- ⭐ **Verified rather than assumed:** the dial flip does **not** make fixture 60 mint live. Its
+  scenario passes `run_weekly_miners_v3('fixture', true, true)` with EXPLICIT overrides and says why.
+
+### ⭐ DR-7 EXECUTED - ROTATION HEARTBEAT, SUNDAY 05:30 DUBAI
+
+`20260806232911_prd110_dr7_rotation_heartbeat_weekly_sunday` (Cody ✅ class (e), Articles 1/4/11/12).
+`prd110_dr7_rotation_heartbeat_0530_sunday_dubai`, `30 1 * * 0`, command
+`SELECT public.propose_rotations_v3(public.resolve_refill_plan_date());` - **the bare RPC, no
+dry-run override**, per the doctrine fixture 60 seq 16 already pins for the miners cron.
+⭐ Same wall-clock minute as the weekly miners job, one day **earlier**, so CS opens a Sunday review
+to a queue refreshed that morning and Monday's miner batch mines a week that contains it.
+⛔ **NOT FIRED.** DR-7 schedules; it does not run. A manual first fire would have minted 25
+proposals (measured by dry run) CS never asked for today. First real fire **2026-08-09**.
+Fixture 43 gains seq **56-60**; seq 60 pins the idempotency the weekly cadence depends on - BOTH
+`rp_v3_unique_heartbeat` and the `ON CONFLICT ... DO NOTHING` that honours it. **43 re-fired 60/60.**
+
+### ⛔⛔ S-262, S-263, S-264 (NEW) - THE HARNESS WAS BUILT WHILE THE PROPOSAL QUEUES WERE EMPTY, AND DR-5 ENDED THAT
+
+This is ONE finding with three victims. Every one of these fixtures was correct until the day real
+proposals existed; DR-5's whole purpose was to make real proposals exist.
+
+**S-262 - fixture 58 read LIVE production state it did not plant. (CLOSED, dr5c.)**
+Two assertions went red, and neither was DR-5 breaking anything:
+
+- seq 15 pinned `'0.900 -> 0.958'`, read `'0.945 -> 1.005'`. The fixture plants its own pick history
+  but scales the **live** dial. Its own description already said the claim was the FORMULA
+  ("20pct scaled by (21.43-8)/(50-8)"), so the formula is now asserted directly against the live
+  gates - binding `current_weight`, `concordance_pct`, band, max-delta and the 3dp rounding
+  together. **Strictly more than the pair asserted**, and it cannot rot on a ruled dial move.
+- seq 28 pinned the **ABSOLUTE** table count at 2 while its description claimed the row count was
+  "UNCHANGED after the second run" - a **DELTA**. It was only ever true while fixture 58 was the
+  table's sole occupant. Now `after_second = after_main`, in the fixture's OWN seq-24/seq-32 idiom.
+  Mint coverage is not lost: seq 23 already pins 2 rows on the fixture's own window.
+  ⭐ **Neither is a re-baseline in the S-103 sense: in both cases the DESCRIPTION already stated the
+  relative claim and only the `expect` was absolute. The check was made to say what the description
+  always said.** Fixture 58 re-fired **43/43**.
+  ⚠️ **Third part - the residue is a TREADMILL.** dr5a cleared it; this leg's own fixture-58 runs
+  re-minted it; dr5d cleared it again. **Any leg that runs fixture 58 must re-run dr5d's predicate
+  afterwards**, or the next weekly miner run is refused `pending_exists`. The structural fix - scoping
+  `ux_pwp_one_pending_per_param` so synthetic and live stop contending - is a Dara+Cody unit, PARKED
+  and named rather than smuggled into a cleanup (LAW 10).
+
+**S-263 - fixture 59 MEASURES the live population, and can no longer own it. (OPEN - golden's only red.)**
+`scenario_error`: _"FX59: 9 pre-epoch proposal row(s) this fixture did not create."_ The 9 are
+**8 live pending feedback proposals + the 1 applied picker-weight proposal** - all DR-5's, all
+legitimate. The fixture guards this deliberately ("Every assertion below claims an EXACT live
+count") and its error text names the remedy: re-baseline seq 5-9 and 45-47.
+⛔ **THE FIXTURE UNDER-ESTIMATES ITS OWN BLAST RADIUS, AND THIS IS THE PART THE NEXT LEG NEEDS.**
+Diagnosis, done and worth not repeating:
+
+- ⭐ **Only ROW COUNTS moved. Rates and verdicts did NOT** - because all 8 real feedback proposals
+  are `pending`, which maps to `live_undecided` and is **excluded from the decided denominator**.
+  So seq 22 (decided=5), 27 (80.00%), 28 (pass) are all still correct today.
+- Affected: seq **5** (before live_rows 0 -> 8), **10** (after 8 -> 16), **20** (undecided 2 -> 10),
+  **45** (final 0 -> 8) on feedback_pins; seq **14** (5 -> 6), **23** (accepted 1 -> 2),
+  **29** (20.00% -> 33.33%), **46** (0 -> 1) on picker_weights - the applied w_empty proposal is
+  pre-epoch, so the view counts it LIVE and `applied` maps to accepted.
+- ⛔ **A plain re-baseline ships a WEEKLY RED**: the miners now mint every Monday and CS decides on
+  Sundays, so every one of those numbers moves again. **The fix is the S-262 doctrine applied here** -
+  row counts become DELTAS against the fixture's own `before` snapshot, and the two rate assertions
+  become the FORMULA (`pct = round(100.0*accepted/decided, 2)`) rather than a rendered number.
+- ⛔ **It also needs a `scenario_sql` change**: the guard currently RAISEs on any foreign pre-epoch
+  row, so no assertion edit alone can make it run. That is why it was not rushed at the end of this
+  leg - a ~54-assertion fixture redesign deserves a fresh budget, not the last 10% of one.
+
+**S-264 - fixture 57 DELETES REAL PROPOSALS. (OPEN, and the most serious of the three.)**
+`mine_edit_history_v3` reported `proposals_created = 9`; the table holds **8**. Fixture 57 ran
+between the mint and the count, and its reclaim block is:
+
+```sql
+DELETE FROM public.feedback_proposals_v3
+ WHERE machine_id = mA AND trigger_reason LIKE 'WS-H2 recurring%';
+```
+
+⛔ `'WS-H2 recurring%'` is **what the real edit miner writes**. The fixture's own comment says the
+marker is "the fixture-owned MACHINE rather than a string prefix" - but the machine-ownership
+predicate only excludes machines carrying non-FX57 `plan_edits_v3`, `pod_refill_plan_audit`,
+`feedback_ledger_v3` or `planning_pins_v3` rows. **A machine can satisfy every one of those and
+still receive a real miner proposal**, because the miner writes PROPOSALS, not edits or pins.
+⛔⛔ **CONSEQUENCE THE NEXT LEG MUST ACT ON BEFORE ANYTHING ELSE: RUNNING GOLDEN NOW SILENTLY
+DESTROYS CS'S REVIEW QUEUE.** The S7-style triple DONE-2 owes would run fixture 57 three more times.
+**Do not run a sweep until fixture 57's reclaim is scoped** (smallest fix: add
+`AND plan_date >= (SELECT g12_fixture_epoch FROM public.refill_policy_params ORDER BY id LIMIT 1)`,
+or an FX57-owned marker column, so it can only ever delete synthetic rows).
+
+### [leg 141] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260806233217** · `prd110%` **322** (was 317; **+5 this leg**) · disk **323** ·
+owed md5 **78237e8a30b1457fc30895b1803c0fe9 on BOTH sides**, recomputed not copied ·
+golden **59 fixtures / 2156 enabled assertions** (was 59 / 2150: +1 fixture-58 tell, +5 fixture-43
+DR-7 sensors) · latest run per fixture **58 green / 1 red** - ⛔ **fixture 59 RED (S-263,
+`scenario_error`)** · `golden.stress_runs` **14** (unchanged) · **37 active crons** (+1, DR-7).
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101** (unchanged all leg), `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3`
+**a8753091** · `bind_dispatch_fefo` **8ad35ce9** (D-46's tell, still fixed). No engine, stitcher,
+binder, composer, view or RPC body was touched this leg.
+⚠️ **APPLY-TIME VERSION DRIFT hit all five applies**, as every recent leg warned. Realigned by
+writing each disk file AT the DB-assigned version; both md5 sides agree.
+
+**FLAGS AT CLOSE:** `preflight_enforcement` **warn** · `gate0_require_manual_confirm` **true** ·
+`spot_buy_cap_enforcement` **block** / cap **15** · `pod_inventory_write_freeze` **off** ·
+⭐ **`miner_weekly_pick_dry_run` true -> FALSE** · ⭐ **`miner_weekly_edit_dry_run` true -> FALSE**
+(both DR-5, ruled) · ⭐ **`pick_urgency_params.w_empty` 0.900 -> 0.945** (DR-5, ruled).
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE:** `picker_weight_proposals_v3` pending **0** (1 applied, 2 superseded) ·
+`feedback_proposals_v3` live pending **8** (awaiting CS review - this is DR-5 working as ruled) ·
+`rotation_proposals_v3` pending **25** (DR-7 has not fired yet).
+
+### RESUME POINTER 2026-08-07 leg 141 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg
+  141 left **no process running**. Then RISK 104: **expect `prd110%` = 322,
+  `max(version)` = 20260806233217, 323 prd110 files on disk, owed md5
+  `78237e8a30b1457fc30895b1803c0fe9` both sides.** ⛔ Recipe is
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; the
+  disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON, not a `tr`/`sed` newline dance** - the
+  shell version silently re-adds a newline and returns a wrong md5 against a perfectly good DB.
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Expect
+  `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9**.
+- ⛔⛔ **NEXT TASK, AND IT IS NOT A TIER ITEM: FIX FIXTURE 57 (S-264) BEFORE RUNNING ANY SWEEP.**
+  Its reclaim `DELETE FROM feedback_proposals_v3 WHERE machine_id = mA AND trigger_reason LIKE
+'WS-H2 recurring%'` deletes REAL miner proposals - it already ate 1 of 9 this leg. **Golden can
+  no longer be run safely.** Smallest fix: scope the DELETE to `plan_date >= g12_fixture_epoch`.
+- ⏸️ **THEN FIXTURE 59 (S-263) - golden's only red.** The diagnosis is DONE in this leg's body and
+  should not be re-derived: only ROW COUNTS moved (seq 5/10/20/45 feedback, 14/23/29/46 picker),
+  rates and verdicts are still correct because every real proposal is `pending` and pending is
+  excluded from the decided denominator. ⛔ **Do NOT plain-re-baseline - that ships a weekly red.**
+  Convert row counts to DELTAS against `before`, and seq 27/29 to the FORMULA. Needs a
+  `scenario_sql` change too (the guard RAISEs on any foreign pre-epoch row).
+- ⛔ **THE RESIDUE TREADMILL (S-262):** after ANY fixture-58 run, re-run dr5d's predicate
+  (`status='pending' AND window_start >= miner_fixture_epoch` -> `superseded`) or the next weekly
+  miner run is refused `pending_exists`. Structural fix parked: scope
+  `ux_pwp_one_pending_per_param` so synthetic and live stop contending (Dara + Cody unit).
+- ⭐ **DR-5 and DR-7 are DONE.** `w_empty` **0.945**, both miner dials **false**, rotation heartbeat
+  scheduled Sunday 05:30 Dubai (first fire **2026-08-09**). ⏸️ **8 live feedback proposals now sit
+  pending for CS** - that is the ruling working, not a defect.
+- ⏸️ **THEN, in goal-command-2 order:** Tier 2 (DR-6 Stax unit first - **FE-deploy-blocked, this
+  loop cannot perform it** - then D-19) · the other eleven answered decisions (D-21, D-27, D-28,
+  D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40) · Tier 3 remainder (**D-44, D-47, DR-8**) ·
+  Tier 4 (DR-1 cutover unit, **flag-off**).
+  ⭐ **D-44's design still lives only in leg 138's prose:** the picker is
+  `rank_machines_by_value_at_risk_v3`; reserve K=2 by adding a `money_rank` window over
+  `value_at_risk_aed DESC` and sorting `(NOT is_money_reserved)` FIRST, guarded by
+  `value_at_risk_aed > 0` so a slot is never reserved for a 0.00 AED machine.
+  ⭐ **DR-8 now has a sibling worth building with it:** there is NO approve-RPC for
+  `picker_weight_proposals_v3.status` either (Cody, Article 5, this leg).
+- ⛔ **DONE-2 STILL OWES AN S7-STYLE TRIPLE** (the fixture population changed again, 2150 -> 2156).
+  ⚠️ **It CANNOT be run until S-264 is fixed** - three more fixture-57 runs would delete three more
+  real proposals. Budget ~19.4 min of DB time per sweep; fire PER FIXTURE (`run_all` through the
+  management API banks nothing, S-250); never START a fixture in UTC minutes 37-40 (cron 44).
+- ⛔ **S-260 STILL BITES AND IT BIT ME.** `golden.runs.detail` is a JSON **ARRAY**: `detail->0` is
+  the `scenario_error`, `detail->-1` the footer. ⚠️ **A fixture with a scenario_error returns its
+  passing assertion rows normally** - I counted 53 returned rows for fixture 59 and read it as
+  green when `n_fail` was 1. **ADJUDICATE FROM `golden.runs.n_fail`, NEVER from the returned set.**
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (SKU-grain, pod is **Chocolate Bar**). The
+  `2026-08-05 22:33Z` mapping flip behind it is still unattributed. ⛔ If wrong, revert BOTH sides.
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** DR-3 (leg 140), DR-4 (leg 132), DR-5 (leg 141)
+  done. **D-19-after-DR-6 is the only remaining authorised flip. The cutover flag stays untouchable.**
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⚠️ **S-192 IS STILL OPEN** (a repack's own returns block every later repack). In NO tier.
+- ⛔ **S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-261 and S-262 are CLOSED. S-263 and S-264 are
+  OPEN.** New findings resume at **S-265**.
+- ⛔ Per S-80 grep the **WHOLE** PARKING-LOT for `CS DECISION`, never the tail.
+
+---
+
+## LEG 142 - 2026-08-06/07 - **S-264 CLOSED. GOLDEN IS SAFE TO RUN AGAIN.** Fixture 57's reclaim can no longer reach a real row - and the hole was WIDER than S-264 recorded: the ledger DELETE could not be closed by epoch-scoping at all.
+
+### [leg 142] STEP R - POINTER VERIFIED CLEAN, TWO APPARENT DISCREPANCIES RECONCILED
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**. RISK 104:
+`prd110%` **322** · `max(version)` **20260806233217** · disk **323** · owed md5
+**78237e8a30b1457fc30895b1803c0fe9 on BOTH sides**, disk side computed in **Python** per leg 141's
+warning, recomputed not copied. Sentinels under `prosrc` (S-109): `engine_add_pod_v3` **e9f3caff** ·
+`stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9**, all exact. LAW 12: `2026-08-07` **101**,
+`2026-08-08` **0**. All seven flags exactly as leg 141 recorded (`w_empty` **0.945**, both miner dials
+**false**). S-80 grep of the WHOLE parking lot for `CS DECISION`: latest block is still the leg-130-era
+"POST-DONE DR REGISTER CLOSED" - **no CS ruling has landed since leg 141**.
+
+⭐ **TWO NUMBERS DISAGREED WITH THE POINTER AND BOTH RECONCILED TO IT** - recorded so the next leg does
+not re-derive them:
+
+- `feedback_proposals_v3` pending reads **12**, pointer says 8. **Both true.** 8 are the live
+  `2026-08-06` proposals DR-5 minted; the other 4 are synthetic residue (3 fixture-57 rows at
+  `2030-02-27`, 1 fixture-56 row at `2030-02-26`). The pointer said "**live** pending 8" and meant it.
+- Latest-run assertions sum to **2157**, pointer says 2156 enabled. **Both true.** Fixture 59 owns 53
+  enabled assertions but evaluates **54**, because a `scenario_error` adds a synthetic failing row.
+  ⭐ **That is S-254/S-260 visible in the arithmetic**: `sum(n_pass+n_fail)` is NOT the enabled count
+  whenever a fixture is erroring. Compare against `golden.assertions`, not against the run sum.
+
+### ⭐⭐ S-264 CLOSED - AND THE DIAGNOSIS THE POINTER HANDED ME WAS INCOMPLETE IN ONE DECISIVE WAY
+
+`20260806235727_prd110_s264_fixture57_reclaim_scoped_to_fixture_band` (Cody ✅ with one required
+revision, which shipped). The pointer's named smallest fix - scope the proposal `DELETE` to
+`plan_date >= g12_fixture_epoch` - is correct **and insufficient**, for a reason worth not
+re-discovering:
+
+⛔ **`feedback_ledger_v3` HAS NO `plan_date` COLUMN.** The reclaim's second statement,
+`DELETE FROM feedback_ledger_v3 WHERE machine_id = mA AND channel = 'miner'`, therefore **cannot be
+epoch-scoped at all** - and it destroys the ledger rows real proposals cite as their evidence.
+Probed live: **8 of the 11 miner ledger rows are real**, written by DR-5's first live run at
+`23:19:29`; only 3 are fixture 57's, written at `23:23:15`. A fix that closed the proposal hole and
+left this one would have traded a loud failure for a silent one - the S-248 lesson exactly.
+
+⭐ **THE LEDGER IS SCOPED BY CITATION INSTEAD.** `own_fids` is harvested from the fixture's own
+epoch-scoped proposals **before** those proposals are deleted, and the ledger DELETE keys on
+`feedback_id = ANY(own_fids)`. Verified live before writing, not assumed: the fixture's **3**
+proposals cite exactly **3** feedback ids, matching all **3** miner ledger rows on mA, with **0**
+uncited. The citation reclaim is therefore exact AND complete - a real ledger row can only ever be
+cited by a pre-epoch proposal, so it can never enter `own_fids`.
+
+⛔ **THERE WERE TWO COPIES OF THE DEFECT, NOT ONE.** The `mPrev` anchor-move block carried its own
+machine-wide ledger DELETE. Both are gone; the migration RAISEs if either string survives the
+rewrite, and asserts exactly one proposal DELETE and one ledger DELETE remain.
+
+### ⭐ WHY "MARKER *AND* MACHINE" WAS NEVER GOING TO HOLD
+
+The anchor predicate excludes machines carrying foreign `plan_edits_v3`, `pod_refill_plan_audit`,
+`feedback_ledger_v3` or `planning_pins_v3` rows. It does **not** exclude machines that receive real
+miner PROPOSALS - **and it cannot**, because the miner targets precisely the machines with rich edit
+history, which is exactly what makes them good anchors. **mA (`0f698c26`) is a live production
+machine**, and it reads `has_real_proposal = false` today only because the leg-141 run already ate
+its real proposal. ⛔ Do not "fix" this class by tightening the anchor picker: that buys weekly
+anchor churn and still loses the race. **Scope the DELETE, not the anchor.**
+
+### ⭐ CODY: ONE REQUIRED REVISION, PLUS TWO GAPS LOGGED NOT FIXED
+
+Articles 1/2/3/5/7/8/12/14/16.
+
+- ⛔ **REQUIRED REVISION (applied) - GUARD THE GUARD.** Every scope in the fixture now leans on
+  `g12_fixture_epoch`, which is a **mutable column**. Moved earlier, all three reclaims silently
+  widen back onto live data and seq 40 would only notice *after* the damage. New **seq 42** pins the
+  dial above every live `plan_date`, so widening it goes red **before** a reclaim can run.
+- ⚠️ **Article 1 gap (pre-existing, verified by predicate over `pg_proc`, not memory):** **no function
+  anywhere deletes from `feedback_proposals_v3`** - the only writers are
+  `propose_pin_from_feedback_v3` and `approve_feedback_proposal_v3`, both UPDATE-only. The fixture's
+  reclaim is a raw DELETE with no canonical path. Same family as leg 141's `picker_weight_proposals_v3`
+  finding. Tolerable inside a reviewed harness migration; **not** as a standing pattern.
+- ⚠️ **Article 8:** `feedback_proposals_v3` carries **0** non-internal triggers, so none of this
+  produces a `write_audit_log` row. Substitute record is the migration plus the seq-40 sensor.
+
+### ⭐ THE PROOF IS A SENSOR, NOT AN ASSERTION THAT THE CODE CHANGED
+
+New **seq 40** captures the real pre-epoch population *before the first DELETE runs* and compares it
+after both miner runs; **seq 41** is its non-vacuity guard (**8** real rows to protect, so it is not
+comparing zero to zero). Assertions **24/25/29** were absolute counts over a machine the fixture no
+longer exclusively owns - the S-262 class - and are now scoped to the fixture band.
+⭐ **No `expect` value moved. This is not a re-baseline in the S-103 sense**: each description already
+stated the fixture-scoped claim; only the check was machine-wide.
+
+**FIXTURE 57: 42/42, `n_fail` 0, `passed` true**, adjudicated from `golden.runs` and NOT from the
+returned set (S-260 - the returned rows looked green last leg while `n_fail` was 1).
+⭐ **AND THE INDEPENDENT CHECK, WHICH IS THE ONE THAT MATTERS:** real proposals **8 before -> 8 after**,
+miner ledger rows **11 before -> 11 after**. Both counted outside the harness, by hand, either side of
+the run. **The fixture deleted its own 3 and re-minted 3. It destroyed nothing.**
+
+### ⛔ NEW FINDING - S-265: FIXTURE 57 MINTS INTO THE LIVE CS REVIEW QUEUE
+
+Raised by Cody during review, and **outside this migration's scope by LAW 10**. Fixture 57 calls
+`mine_edit_history_v3(..., p_dry_run => false)`, so its 3 synthetic proposals sit in
+`feedback_proposals_v3` **next to the 8 real ones CS is meant to review** (4 synthetic in total today,
+counting fixture 56's). ⭐ **S-244's rule was written for the diff board; it now binds the PROPOSAL
+QUEUE too - any CS-facing read of `feedback_proposals_v3` must filter `plan_date < '2027-01-01'`.**
+Not fixed here; named rather than smuggled into a safety migration.
+
+### [leg 142] STATE AFTER THE S-264 UNIT
+
+`max(version)` **20260806235727** · `prd110%` **323** (+1) · disk **324** · owed md5
+**579c1ff6f6e200e6b8bdee26bdff1b99 on BOTH sides**, recomputed not copied · golden **59 fixtures /
+2159 enabled assertions** (2156 +3 fixture-57 sensors) · **fixture 59 remains golden's only red**
+(S-263, untouched this unit) · **37 active crons** (unchanged) · ⛔ **LIVE plan tables untouched:**
+`2026-08-07` **101**, `2026-08-08` **0** · ⭐ **SENTINELS DID NOT MOVE (`prosrc`):**
+`engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9**.
+No engine, stitcher, binder, composer, view or RPC body was touched. **All flags unchanged** - this
+unit flipped nothing. ⚠️ **Apply-time version drift hit again**; realigned by writing the disk file AT
+the DB-assigned version.
+
+### ⛔⛔ [leg 142] S-266 (NEW, and it changes how every future leg reads a red fixture)
+
+**A FIXTURE WHOSE SCENARIO RAISES DOES NOT ASSERT OVER NOTHING - IT ASSERTS OVER THE PREVIOUS RUN'S
+SNAPSHOT, AND REPORTS GREEN.** Fixture 59's last run banked **n_pass 53 / n_fail 1**. The 1 is the
+`scenario_error`. The 53 are not "stale-but-harmless" - they are **wrong**, and here is the mechanism,
+verified live rather than inferred:
+
+1. Fixture 59's scenario does `DELETE FROM golden.scratch WHERE fixture_id = 59` in its reclaim,
+   **then** computes the foreign-row guard and `RAISE`s.
+2. The RAISE aborts the whole `DO` block, which **rolls the scratch DELETE back**.
+3. Every assertion reads `golden.scratch`. So all 53 re-evaluated the snapshot left by the last
+   **successful** run and passed.
+
+⭐ **Read back live this leg, and this is the proof:** `golden.scratch` for fixture 59 still holds
+`before.live_rows = 0`, `after.live_rows = 8`, `after.total_rows = 16` - the state of the world at the
+last green run (**22:52:47Z**), not at the failed run (**23:23:21Z**), where the live population was
+already 8 real rows.
+
+⛔ **CONSEQUENCE, BINDING ON EVERY LEG:** S-254 said a `scenario_error` makes the assertion list lie.
+S-266 sharpens it: **the list lies GREEN, using data from a run that may be hours old.** A scratch-based
+fixture can therefore report `n_pass = <all of them>` while asserting nothing about the present.
+⭐ **`n_fail` remains the only sound verdict - but "n_pass 53" must now be read as NO EVIDENCE, never as
+partial credit.** Do not use a red fixture's passing rows to narrow down which assertions are affected.
+
+### ⛔ [leg 142] S-263's AFFECTED-SEQ LIST IS INCOMPLETE, BECAUSE IT WAS DERIVED THE ONLY WAY IT COULD BE
+
+Leg 141 named seq **5/10/20/45** (feedback) and **14/23/29/46** (picker). That list was reasoned out,
+not observed - **and by S-266 it could not have been observed.** Re-derived this leg against the live
+view, the true red set adds one and the fragile set adds eight:
+
+- ⛔ **seq 12 IS ALSO RED AND WAS NOT LISTED.** `after.feedback_pins.total_rows` expects **16**;
+  `total_rows = live_rows + fixture_rows` = (8 real + 8 planted) + 8 = **24**.
+- ⚠️ **GREEN TODAY ONLY BY LUCK OF THE REAL ROWS BEING `pending`:** seq **18** (live_accepted 4),
+  **19** (live_rejected 1), **21** (live_withdrawn 1), **22** (live_decided 5), **24** (picker
+  live_rejected 4), **33** (live_decided = g12_min_decided), **27** (80.00%), **28** (verdict pass).
+  The moment CS decides ONE of the 8 real feedback proposals, every one of them moves.
+- ⚠️ **GREEN TODAY ONLY BECAUSE OTHER FIXTURES HAPPEN TO HOLD THEIR COUNTS:** seq **6/11**
+  (fixture_rows 8 = fixture 57's 3 + fixture 55/56's 5), **15** (picker fixture_rows 2 = fixture 58's
+  superseded pair, and **that pair grows every time the S-262 treadmill turns**), **17** (rotation
+  fixture_rows 25 - ⛔ **DR-7 first fires 2026-08-09 and will add REAL rotation proposals**).
+
+⭐ **THE WHOLE FIXTURE IS ONE DEFECT CLASS, NOT EIGHT BUGS**: it was authored when it owned every
+population it measured, and it owns none of them now.
+
+### ⏸️ [leg 142] S-263 NOT STARTED - DELIBERATELY, WITH THE DESIGN BANKED INSTEAD
+
+⛔ **RELAY: never begin a unit you cannot finish.** The redesign touches ~30 of 53 assertions plus a
+`scenario_sql` change, and needs Cody plus a verification run. That does not fit what is left of this
+leg. **NOTHING WAS MUTATED FOR S-263.** The design below is complete and should be EXECUTED, not
+re-derived:
+
+**One rule, applied uniformly:**
+
+| shape today | becomes |
+| --- | --- |
+| absolute `live_*` count | **DELTA**: `after.X - before.X = <the fixture's own contribution>` |
+| absolute `fixture_*` count | **STABILITY**: `after.X = before.X` (several descriptions ALREADY say "UNMOVED") |
+| a rendered rate (`80.00`, `20.00`, `75.00`) | **FORMULA**: `pct = round(100.0 * accepted / decided, 2)` |
+| a literal verdict (`pass`/`fail`/`insufficient_evidence`) | **FORMULA-CONSISTENCY** against `g12_bar_pct` + `g12_min_decided` |
+| `FINAL: ... = 0` (seq 45/46) | **`final.X = before.X`** - strictly STRONGER: proves the fixture RESTORED the baseline, not merely that the queue is empty |
+
+**Per-seq:** deltas -> 10 (=8), 12 (=8), 14 (=5), 16 (=0), 18 (=4), 19 (=1), 20 (=2), 21 (=1),
+22 (=5), 23 (=1), 24 (=4), 33 (delta = `g12_min_decided`) · stability -> 6, 11, 13, 15, 17, 45, 46 ·
+formula -> 8, 9, 27, 29, 32 · verdict-consistency -> 7, 28, 30, 31 · **unchanged: 4, 47, 53**.
+
+**The `scenario_sql` change (mandatory - no assertion edit alone can make this fixture run):**
+
+1. ⛔ **DELETE THE FOREIGN-ROW `RAISE` ENTIRELY.** With deltas it is not merely unnecessary, it is the
+   thing keeping the fixture red, and by S-266 it is what makes the other 53 lie green.
+2. Capture a new scratch key **`before_sentinel`** = rows on `d_live` (`1999-01-01`) in both queues,
+   recorded **immediately after the reclaim**. **seq 5** becomes `before_sentinel = 0` - that is the
+   real, durable claim seq 5 was always making ("nothing of OURS survives the last run"), and it is the
+   one guard the delta design still genuinely needs.
+3. Leave the reclaim and cleanup as they are: `plan_date = DATE '1999-01-01'` can never match a real
+   row, so unlike fixture 57 this fixture's DELETEs were never a live-data hazard.
+
+⚠️ **After it goes green, seq 5 is the ONLY absolute left in the fixture, and that is intentional.**
+
+### [leg 142] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260806235727** · `prd110%` **323** (was 322; **+1 this leg**) · disk **324** ·
+owed md5 **579c1ff6f6e200e6b8bdee26bdff1b99 on BOTH sides**, recomputed not copied (disk side in
+**Python**) · golden **59 fixtures / 2159 enabled assertions** (was 2156: +3 fixture-57 S-264 sensors) ·
+**fixture 57 42/42 green** · ⛔ **fixture 59 still RED (S-263) - golden's only red, untouched** ·
+`golden.stress_runs` **14** (unchanged) · **37 active crons** (unchanged).
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101** (unchanged all leg), `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9**. No engine, stitcher, binder, composer, view or RPC body was touched.
+
+**FLAGS AT CLOSE - NOT ONE CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `pick_urgency_params.w_empty` **0.945**.
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE:** `picker_weight_proposals_v3` pending **0** · `feedback_proposals_v3` **real**
+pending **8** (unchanged across the fixture-57 run - that is S-264's whole point) · `rotation_proposals_v3`
+pending **25** (DR-7 first fires 2026-08-09).
+
+### RESUME POINTER 2026-08-07 leg 142 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 142
+  left **no process running**. Then RISK 104: **expect `prd110%` = 323, `max(version)` =
+  20260806235727, 324 prd110 files on disk, owed md5 `579c1ff6f6e200e6b8bdee26bdff1b99` both sides.**
+  ⛔ Recipe is `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`;
+  the disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON** - the `tr`/`sed` version silently re-adds a
+  newline and returns a wrong md5 against a perfectly good DB.
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Expect
+  `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9**.
+- ⭐⭐ **S-264 IS CLOSED. GOLDEN IS SAFE TO RUN AGAIN.** Fixture 57 reclaims only rows it owns
+  (proposals + pins epoch-scoped; ledger scoped BY CITATION, because `feedback_ledger_v3` has no
+  `plan_date`). Proven twice: 42/42 from `golden.runs`, AND by hand outside the harness - real
+  proposals **8 -> 8**, miner ledger **11 -> 11** across the run. ⛔ **The S7 triple DONE-2 owes is
+  UNBLOCKED** (budget ~19.4 min/sweep; fire PER FIXTURE, `run_all` through the management API banks
+  nothing per S-250; never START a fixture in UTC minutes 37-40, cron 44).
+- ⛔⛔ **NEXT TASK: S-263, fixture 59 - golden's only red. THE DESIGN IS BANKED IN THIS LEG'S BODY;
+  EXECUTE IT, DO NOT RE-DERIVE IT.** One rule (live -> DELTA, fixture -> STABILITY, rate -> FORMULA,
+  verdict -> FORMULA-CONSISTENCY, `FINAL = 0` -> `final = before`), a per-seq map for all ~30, and the
+  three mandatory `scenario_sql` changes are all written out above.
+- ⛔⛔ **READ S-266 BEFORE YOU TRUST ANY RED FIXTURE'S PASSING ROWS.** A scenario that RAISEs rolls back
+  its own `golden.scratch` delete, so every scratch-reading assertion re-evaluates the PREVIOUS run's
+  snapshot **and passes**. Fixture 59's "53 pass" is NOT partial credit - it is **no evidence**.
+  ⭐ This is why leg 141's affected-seq list was incomplete: **seq 12 is also red** (`total_rows` 16 vs
+  24), and seq 6/11/15/17/18/19/21/22/24/27/28/33 are green only by luck. All enumerated above.
+- ⏸️ **S-265 (NEW, not fixed):** fixture 57 mints into the LIVE CS review queue (`p_dry_run => false`),
+  so 4 synthetic proposals sit beside the 8 real ones. ⭐ **S-244's `plan_date < '2027-01-01'` filter now
+  binds `feedback_proposals_v3`, not just the diff board.**
+- ⛔ **THE RESIDUE TREADMILL (S-262) IS UNCHANGED:** after ANY fixture-58 run, re-run dr5d's predicate
+  (`status='pending' AND window_start >= miner_fixture_epoch` -> `superseded`) or the next weekly miner
+  run is refused `pending_exists`. Structural fix parked (scope `ux_pwp_one_pending_per_param`,
+  Dara + Cody). ⚠️ **And note it inflates fixture 59 seq 15's count every turn.**
+- ⏸️ **THEN, in goal-command-2 order:** Tier 2 (DR-6 Stax unit first - **FE-deploy-blocked, this loop
+  cannot perform it** - then D-19) · the other eleven answered decisions (D-21, D-27, D-28, D-29, D-31,
+  D-32, D-33, D-34, D-37, D-39, D-40) · Tier 3 remainder (**D-44, D-47, DR-8**) · Tier 4 (DR-1 cutover
+  unit, **flag-off**).
+  ⭐ **D-44's design still lives only in leg 138's prose:** the picker is
+  `rank_machines_by_value_at_risk_v3`; reserve K=2 by adding a `money_rank` window over
+  `value_at_risk_aed DESC` and sorting `(NOT is_money_reserved)` FIRST, guarded by
+  `value_at_risk_aed > 0` so a slot is never reserved for a 0.00 AED machine.
+  ⭐ **DR-8 has a sibling worth building with it:** there is NO approve-RPC for
+  `picker_weight_proposals_v3.status` (leg 141) and **none for `feedback_proposals_v3` DELETE either**
+  (leg 142, verified over `pg_proc`).
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (SKU-grain, pod is **Chocolate Bar**). ⛔ If wrong,
+  revert BOTH sides.
+- ⛔ **LAW 4 IS UNAMENDED FOR THE CUTOVER FLAG.** DR-3, DR-4, DR-5, DR-7 done. **D-19-after-DR-6 is the
+  only remaining authorised flip.**
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-262 and S-264 are CLOSED. S-263, S-265, S-266 are
+  OPEN.** New findings resume at **S-267**.

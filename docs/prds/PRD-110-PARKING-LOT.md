@@ -10949,3 +10949,113 @@ result as though it were the CS decision. **Establish the real proposal FIRST.**
 ⚠️ Clear residue by STATUS, never by `DELETE`. Fixture 60 seq 12 going red is the sanctioned,
 ruling-named cost (re-baseline `expect` AND `description` together, S-103).
 ⛔ **Nothing was mutated: both dials still `true`, `w_empty` still 0.900.**
+
+---
+
+## ⭐⭐ leg 141 (2026-08-06/07) - DR-5 and DR-7 EXECUTED. S-262 closed; S-263 and S-264 raised OPEN.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every figure below was read back live at close.
+
+### ✅ DR-5 CLOSED BY EXECUTION - `w_empty` 0.900 -> 0.945, both miner dials live
+
+Five migrations (`dr5a` residue+dials · `dr5b` the ruled weight · `dr5c` S-262 property fixes ·
+`dr7` heartbeat · `dr5d` treadmill re-clear). Cody ✅ with one required revision, which shipped.
+⭐ **The applied proposal was minted by the PRODUCTION path** - `run_weekly_miners_v3('manual')`
+between dr5a and dr5b, warnings EMPTY (proving the residue clear was not cosmetic).
+⛔ **0.945 SHIPPED, NOT 0.948.** The live re-mine proposes 0.948 (69.31 %, 1363/492 pairs, 25 days);
+the ruling's figures are the same window one day younger. The RULED magnitude is what was applied;
+the divergence is recorded in the row's `review_note` and in `applied_weight` vs `proposed_weight`.
+⏸️ **If CS prefers the live figure (0.948), that is a one-line follow-up.**
+
+### ✅ DR-7 CLOSED BY EXECUTION - rotation heartbeat, Sunday 05:30 Dubai
+
+`prd110_dr7_rotation_heartbeat_0530_sunday_dubai`, `30 1 * * 0`, bare RPC, no dry-run override.
+⛔ **Scheduled, not fired** - first real fire **2026-08-09**. Fixture 43 seq 56-60, re-fired 60/60.
+
+### ⛔ S-264 (NEW, OPEN) - A GOLDEN FIXTURE DELETES REAL PROPOSALS. **GOLDEN IS UNSAFE TO RUN.**
+
+Fixture 57's reclaim is `DELETE FROM feedback_proposals_v3 WHERE machine_id = mA AND
+trigger_reason LIKE 'WS-H2 recurring%'` - and that prefix is **what the live edit miner writes**.
+It ate 1 of the 9 proposals DR-5's first live run minted. ⛔ **The S7 triple DONE-2 owes would run
+it three more times.** Smallest fix: scope the DELETE to `plan_date >= g12_fixture_epoch`.
+
+### ⛔ S-263 (NEW, OPEN) - fixture 59 measures a live population it can no longer own
+
+`scenario_error` on 9 pre-epoch rows (8 live pending feedback + 1 applied picker-weight, all DR-5's).
+⭐ **Only ROW COUNTS moved**; rates and verdicts are still correct because every real proposal is
+`pending` and pending is excluded from the decided denominator. ⛔ A plain re-baseline ships a
+WEEKLY red. Full diagnosis and the fix shape are in the leg-141 log body.
+
+### ⛔ S-262 (CLOSED) - fixture 58 read live state it did not plant
+
+seq 15 (the pair -> the FORMULA) and seq 28 (an absolute count -> the DELTA its own description
+claimed). Neither weakened; both now say what their descriptions always said. Third part - the
+residue TREADMILL - is permanent until `ux_pwp_one_pending_per_param` is scoped (PARKED, Dara+Cody).
+
+### ⏸️ NEW PARKED UNIT - approve-RPC for `picker_weight_proposals_v3.status` (Cody, Article 5)
+
+There is **no RPC** governing that status column; DR-5 hand-wrote it inside a reviewed migration
+executing a quoted ruling. ⭐ **Build it alongside DR-8**, which is chartered for the identical
+shape on FACING proposals.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; D-44, D-47 and DR-1/6/8 remain as WORK, not asks. Leg 141 raised no new decision. ⚠️ **S-263 and S-264 are DEFECTS, not decisions** - but S-264 blocks every future golden sweep and must be fixed first.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 142 (2026-08-06/07) - S-264 CLOSED, GOLDEN UNBLOCKED. S-265 and S-266 raised OPEN.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every figure below was read back live at close.
+
+### ✅ S-264 CLOSED BY EXECUTION - fixture 57 can no longer reach a real row
+
+`20260806235727_prd110_s264_fixture57_reclaim_scoped_to_fixture_band` (Cody ✅, one required revision,
+which shipped). ⛔ **The pointer's named smallest fix was correct and INSUFFICIENT:**
+`feedback_ledger_v3` has **no `plan_date`**, so its machine-wide DELETE could not be epoch-scoped at
+all - and **8 of the 11 miner ledger rows are real**. It is scoped **by citation** instead
+(`feedback_id = ANY(own_fids)`, harvested from the fixture's own epoch-scoped proposals *before* they
+are deleted; verified exact and complete: 3 proposals cite 3 ids matching 3 rows, 0 uncited).
+⛔ **There were TWO copies of the defect** - the `mPrev` anchor-move block carried its own. Both gone.
+⭐ **PROVEN TWICE:** fixture 57 **42/42** from `golden.runs`, and independently by hand outside the
+harness - real proposals **8 -> 8**, miner ledger **11 -> 11** across the run.
+⭐ **Cody's revision (seq 42):** every scope now leans on the mutable `g12_fixture_epoch` dial, so the
+dial itself is pinned above the live band - widening it goes red BEFORE a reclaim can run.
+⚠️ **Do NOT "fix" this class by tightening the anchor picker.** mA is a live machine and the miner
+targets exactly the machines with rich edit history. **Scope the DELETE, not the anchor.**
+
+### ⛔⛔ S-266 (NEW, OPEN) - A RAISING FIXTURE REPORTS GREEN OFF THE PREVIOUS RUN'S SNAPSHOT
+
+Fixture 59 banked **n_pass 53 / n_fail 1**. The 53 are **wrong, not stale-but-harmless**: its scenario
+deletes `golden.scratch` then RAISEs, the RAISE rolls the delete back, and every scratch-reading
+assertion re-evaluates the last **successful** run's snapshot. Verified live: scratch still holds
+`before.live_rows = 0` / `after.total_rows = 16` from **22:52:47Z**, not the failed **23:23:21Z** run.
+⛔ **S-254 said the assertion list lies. S-266: it lies GREEN.** `n_fail` is the only sound verdict, and
+**"n_pass 53" must be read as NO EVIDENCE** - never as partial credit, never to narrow down which
+assertions are affected.
+
+### ⛔ S-263 (OPEN) - still golden's only red; its affected-seq list was INCOMPLETE
+
+By S-266 leg 141's list could only have been reasoned, not observed. Re-derived live: **seq 12 is also
+red** (`total_rows` expects 16, will read 24), and seq **6/11/15/17/18/19/21/22/24/27/28/33** are green
+only by luck - the real proposals are all `pending`, and the other fixtures happen to hold their counts.
+⛔ **seq 17 breaks on 2026-08-09 when DR-7 first fires.** ⚠️ **seq 15 inflates every time the S-262
+treadmill turns.** ⭐ **The full redesign (one rule, per-seq map, three mandatory `scenario_sql`
+changes) is BANKED IN THE LEG-142 LOG BODY - execute it, do not re-derive it.** Nothing was mutated.
+
+### ⛔ S-265 (NEW, OPEN) - fixture 57 mints into the LIVE CS review queue
+
+It calls `mine_edit_history_v3(..., p_dry_run => false)`, so 4 synthetic proposals sit beside the 8 real
+ones. ⭐ **S-244's `plan_date < '2027-01-01'` filter now binds `feedback_proposals_v3` itself, not just
+the diff board.** Named rather than smuggled into a safety migration (LAW 10).
+
+### ⏸️ PARKED UNIT GREW - no canonical writer for the proposal queues
+
+Leg 141 found no approve-RPC for `picker_weight_proposals_v3.status`. Leg 142 adds, verified over
+`pg_proc`: **no function anywhere DELETEs from `feedback_proposals_v3`** (only
+`propose_pin_from_feedback_v3` / `approve_feedback_proposal_v3`, both UPDATE-only), and the table
+carries **0 non-internal triggers**, so none of this reaches `write_audit_log`. ⭐ **Build alongside DR-8.**
+
+### ⏸️ OPEN CS DECISIONS after this leg - **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation).** The twelve answered-unexecuted are still twelve (D-19, D-21, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40). ⭐ **D-43, D-45, D-46, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; D-44, D-47 and DR-1/6/8 remain as WORK, not asks. Leg 142 raised no new decision. ⚠️ **S-263, S-265 and S-266 are DEFECTS, not decisions.** ⭐ **Leg 142 flipped NO flag and touched NO engine body.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust this line.
