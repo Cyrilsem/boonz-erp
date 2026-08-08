@@ -12779,3 +12779,53 @@ resolves the wrong SKU with full confidence and no refusal.
 (automatic, covers 2 of 163) or from the editor's own selection (covers all, costs a SKU picker on
 the edit dialog - DR-6-class FE work this loop cannot deploy)? The ladder supports both; what CS
 decides is which rung the build waits for.
+
+### ⛔⛔⛔ S-331 (NEW, **CLOSED as a finding, OPEN as work**) - **D-34 IS NOT A CALL SWAP. THE NAIVE VERSION SILENTLY DESTROYS S-112 AND S-304a IN ONE EDIT.**
+
+Read `run_pipeline_v3` before writing the migration, not after. Three facts, all verified live at leg
+164 against `prosrc`, that a one-line swap would walk straight into:
+
+**1. ⛔⛔ THE PIPELINE SWALLOWS THE ENGINE'S EXCEPTION.**
+
+```
+BEGIN  v_engine := public.engine_add_pod_v3(v_pd, p_days_cover); ...
+EXCEPTION WHEN OTHERS THEN v_engine := jsonb_build_object('status', ...); END;
+```
+
+It **never re-raises**. `run_nightly_shadow_v3` STEP 1 classifies its four refusals inside its own
+`EXCEPTION WHEN OTHERS` block - **which would never fire again.** Every `blocked_gate0` night would
+return normally and be logged as a success. **S-112's whole four-way distinction dies in the swap,
+and it dies quietly.** The runner must classify from the RECEIPT (`res->'engine'->>'status'`), not
+from a caught exception.
+
+**2. ⛔⛔ THE PIPELINE'S OWN CLASSIFIER IS COARSER THAN THE RUNNER'S - it knows TWO of the four.**
+
+```
+CASE WHEN SQLERRM LIKE '%Gate 0 not passed%' THEN 'blocked_gate0' ELSE 'error' END
+```
+
+`skipped_calendar` and `no_picks` - the two that both come from `'%no picked/cs_added machines%'` and
+are told apart by `is_refill_planning_day_v3(v_pd)` - **collapse into `error`.** So reading the
+receipt faithfully is still not enough: **the pipeline's engine classifier has to gain the same
+four-way map**, or D-34 turns a deliberate calendar no-op back into a fault. Two function bodies, not
+one.
+
+**3. ⛔ THE S-304a SENSOR GOES BLIND.** The runner reads `v_eng_res->>'lines_written'`. On the
+pipeline's TOP-LEVEL receipt that key does not exist - it is nested at `res->'engine'->>'lines_written'`.
+`COALESCE(NULL::int, 0)` = 0, so **every night would log `ok_no_shadow_rows`**, which is precisely
+the blindness leg 159 shipped a migration to remove.
+
+**4. ⏸️ AND THE PIPELINE HAS FAILURE MODES THE RUNNER HAS NEVER SEEN:** `no_base`, `composed_empty`
+(a composed plan with zero lines, deliberately NOT a fall-back to the base), the stitch/plan mismatch
+`RAISE`, and a `blocked_demand` step error. Each needs its own named status in
+`shadow_runner_log_v3` or they all arrive as `error` and the log stops being read - S-112's original
+complaint, one layer up.
+
+⭐ **Also fix in passing, since the unit restates the function anyway (S-313 class):**
+`run_pipeline_v3`'s return carries `'live_effect', 'none: LAW 4, shadow tables only. The live
+cutover is parked (D-34).'` **The cutover is DR-1/DR-1b, not D-34.** D-34 is this runner wiring. A
+stale attribution inside the function that D-34 is about to change is the one place it will mislead.
+
+⭐ `p_promote_blocked => true` is the easy half and it is now safe: D-29 scoped
+`record_blocked_demand_v3` by cluster authority, so stitch promotion touches only flipped clusters -
+and at 0 flipped clusters it is inert, which is the flag-off proof.
