@@ -35634,3 +35634,13 @@ as a free dry run" - **is only true if the suffix is actually appended.**
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282 and
   S-284 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279 and S-283 are OPEN.** New findings resume
   at **S-285**.
+
+### ⚠️ [leg 150 · ADDENDUM] AN ORPHAN FILE APPEARED MID-LEG AND IS **NOT** THIS LEG'S (S-270)
+
+`git status --porcelain --untracked-files=all` was **empty at STEP R** and, at close, carries
+`docs/prds/PRD-111-field-pack-ahead-date-toggle.md` — untracked, unread, and **not written by this
+leg**. It was therefore created by a CONCURRENT session while leg 150 ran. ⛔ It was deliberately
+**left uncommitted and unopened**: adopting another session's work product sight-unseen is exactly
+what S-270 exists to prevent, and LAW 10 forbids the scope drift.
+⛔ **The next leg must decide what it is before touching it** — and should note that leg 150's commit
+`5b560e0` is scoped to its own seven files precisely so this one stayed out.
