@@ -39621,3 +39621,208 @@ whose verification has been owed since **leg 159, seven legs running**. Leg 167'
 re-affirmed rather than re-litigated: tonight is the first fire in four nights that can bank v3
 evidence at all, and applying an untested runner rewrite ahead of it would risk the accruing night
 AND the owed verification in a single move. **Classify the fire, then apply.**
+
+---
+
+## ⭐⭐ leg 170 (2026-08-08) - **THE GATE OPENED AND THE BATON WAS THERE.** The cron-45 verification owed since leg 159 is **DISCHARGED**, D-34 is **APPLIED**, and the blast radius caught a real defect on the way through. ⛔⛔ **S-338: D-34 made a HEALTHY BLANK NIGHT wear a BROKEN night's word.** Golden is **71/71 GREEN, zero reds** - the first clean harness since leg 165.
+
+**Window:** 21:08Z - 21:36Z · **no flag flipped, no dial turned** · two engine bodies changed, both under Cody, both fixture-first
+
+### STEP R - every pointer claim re-derived, and the baton attended a FOURTH consecutive leg
+
+This leg picked up at **21:08Z, fourteen minutes before the 21:22Z fire** - the second leg in a row to
+arrive with the gate genuinely in front of it, and the first to still be alive when it opened.
+
+- ⭐ **`ps` narrowed (S-241) found THREE inherited watchers alive on the first probe:** leg 166's
+  `prd110_leg165_cron45_watch.sh` (PID 16406), leg 167's `leg167_gate.sh` (PID 17893) and leg 169's
+  `leg169_gate.sh` (PID 19349). Full `ps` (S-294) and `pg_stat_activity` both clean - **zero active
+  backends, nothing half-applied.**
+- ⭐⭐ **THE REAL LESSON OF THE WATCHERS: none of them was what kept the baton.** All three exit on a
+  row appearing or on a count; this leg banked the verification by **blocking in the foreground**
+  through the fire. ⛔ **A relay leg that ends its turn to "await a notification" has dropped the
+  baton** - that is precisely how legs 164-166 lost the gate three nights running.
+- ⭐ **RISK 104 reconciled by SET DIFFERENCE, exactly as owed:** disk **396** vs DB **390**, the six
+  being precisely `20260809050500`..`052600`, **zero db-only rows**. Disk md5
+  `c7e1edab405986041ca8d2ea04622e04` · DB md5 `435a0e8275a17324166ce678d76013d0`.
+- ⭐ **Pre-image reproduced on BOTH recipes, third leg running** (S-336's twin lesson still paying):
+  runner `37f5d8ce…`/`f668347d…` · pipeline `52fc895f…`/`d16df04a…` · health `e81ab850…` ·
+  CHECK `d45ce94d…` · `position('parked (D-34)')` **9373** · `position('warehouse')` **761**.
+- ⭐ **LAW 4:** 10/10 clusters `v19` · `pod_refills` **4,177** · `w_intents` **0**.
+  **LAW 12:** `2026-08-08` 117 · `2026-08-09` 97 · `2026-08-10` absent · **zero `pending`**.
+- ⭐ **S-320 pre-state held, eighth consecutive leg:** 5 `cs_added` + 4 `cs_dropped`, ZERO `picked`.
+- ⭐ **S-80 discharged on the WHOLE file:** last CS-authored ruling is still
+  **`## CS DECISION - POST-DONE DR REGISTER CLOSED (2026-08-04)`**, line 10339. **No new CS ruling.**
+- ⭐ **Blast radius RE-DERIVED, not inherited** (S-336's rule): **1, 37, 51, 53, 60, 61, 76** - seven,
+  matching legs 167 and 169 exactly. All seven baselines re-confirmed present with their numbers.
+
+### ✅⛔ THE GATE - **cron 45 fired at 21:22:00Z, succeeded at 21:22:32Z, and the verification is BANKED**
+
+Owed since leg 159. **Eleven legs.** Acceptance met in full, read from the classified log rather than
+from silence:
+
+| check | required | live | |
+| --- | --- | --- | --- |
+| `step='engine'` status | `ok` | **`ok`** | ✅ |
+| `rows_affected` | `> 0` | **80** | ✅ |
+| `engine_forecast_error_v3` 2026-08-09 | a **v3** series | **v3 64** (+ v19 48) | ✅ |
+| summary / measure | not a refusal | **`ok` / `ok`** | ✅ |
+
+Engine detail: **5 machines in scope, 80 shelves, 0 machines without shelves**, run
+`58d6ab1c-b789-4d5c-bbb7-9dc1f31c109f`, 32.06 s. `pod_refills_shadow` **24,530 → 24,610**.
+⭐ **`pod_refills` UNCHANGED at 4,177 - LAW 4 held through a live fire.**
+⭐ **`pipeline_runs_v3` UNCHANGED at 146**, which is the *correct* pre-D-34 reading: the runner did
+not yet go through the pipeline. That number is the honest before-image of the swap.
+⚠️ `measure` reported **`skipped_no_velocity: {v3: 16, v19: 0}`** - 16 v3 series had no velocity to
+score. Not a defect, but the v3 side is being measured on 64 of 80 shelves; worth a look before WMAPE
+is read as authoritative.
+⛔ **Schema gotcha for the next leg: `engine_forecast_error_v3` keys the engine on `engine_tag`, NOT
+`engine_version`.** The obvious column name does not exist and costs a round trip.
+
+### ✅ D-34 APPLIED - six migrations, in order, after the fire and not before
+
+Pre-image re-verified and `cron.job_run_details` confirmed **zero runs in flight** immediately before
+the first apply. Applied `050500` → `051000` → `051500` → `052000` → `052500` → `052600`, each
+registered by `apply_mig.sh`.
+
+- ⭐ **RISK 104 now reconciles at 396 = 396**, set difference **empty in both directions**, and the DB
+  md5 has become the owed disk md5 **`c7e1edab405986041ca8d2ea04622e04`**. `max(version)`
+  `20260809052600`.
+- ⭐ **Post-image, all four objects moved:** runner `37f5d8ce…` → **`1182177e…`** · pipeline
+  `52fc895f…` → **`90bd01f8…`** · health `e81ab850…` → **`b09ca0bc…`** · CHECK `d45ce94d…` →
+  **`1ec37c03…`**. `prosecdef` **true** on both functions, search_paths unchanged.
+  **`position('run_pipeline_v3' in run_nightly_shadow_v3.prosrc)` went 0 → 2143 - the swap is live.**
+- ⭐ **Fixture 53: 24/10 RED → 36/0 GREEN.** The red-then-fix proof D-34 was held for is complete.
+
+### ⛔⛔ S-338 (NEW, **CLOSED - found, fixed, and proven in this leg**) - **A HEALTHY BLANK NIGHT WORE A BROKEN NIGHT'S WORD**
+
+The six migrations went in clean and fixture 53 went green. **Fixture 37 went 43/0 → 41/2 RED**, and
+it is the fixture the pointer specifically insisted be in the radius: seq 37/38 are the **only
+S-304a positive-case guard** (both of fixture 53's nights are refusals).
+
+**The mechanism, traced rather than guessed.** `run_pipeline_v3` hands the engine's `run_id` to
+`compose_plan_with_edits_v3` as `p_source_run_id`. That function looks the run up in
+`pod_refills_shadow` and **RAISEs** `'source run % has no rows on plan_date %'` when it finds none.
+On a healthy blank night - fixture 37 plants `LVLUP-2015-0000-R0`, Active with **no pod-bearing
+shelf**, so the engine runs clean and writes nothing - the `run_id` is **non-NULL but has zero rows**.
+So compose raises, the pipeline catches it as `status='error'` with compose non-ok, and the D-34
+runner classifies the night **`compose_error`**.
+
+⭐⭐ **THIS IS S-304a INVERTED.** Leg 159 shipped a migration to stop a blank night wearing a *healthy*
+night's word. D-34 made a blank night wear a *broken* one. And it is not cosmetic: `compose_error`
+propagates to the summary row, and **`v_shadow_runner_health_v3` judges the summary (S-113)** - so a
+fleet night where the engine correctly had nothing to do would read **UNHEALTHY**.
+
+⛔ **THE ASSERTION WAS NOT LOOSENED (S-322).** seq 37/38 still demand `ok_no_shadow_rows`; the code
+was moved to meet them. The fix skips compose, stitch and blocked-promotion when the base run exists
+but is empty, stays `'ok'`, and lets the **runner's own S-304a branch** (`lines_written = 0` →
+`ok_no_shadow_rows`) do the naming it was built for. **The signal was already computed and sitting
+unused: `v_lines_b`.**
+
+⛔ **`composed_empty` is NOT this case and is untouched** - it means a base that HAD lines and
+composed down to none (P3.6 refusing to resurrect dropped lines). Conflating the two would hide a
+real silent revert behind a blank night. Both keep their distinct meanings.
+
+⭐ **A near-miss worth naming: `ok_no_shadow_rows` had not merely stopped firing, it had changed
+meaning.** Post-D-34 the only surviving path to it was "engine banked nothing **but a human edit
+added lines**" (D-45 made `add` additive). The word would still have appeared in the log occasionally,
+meaning something entirely different from what leg 159 defined it to mean - a sensor that reads
+plausible while measuring the wrong thing.
+
+**Migration `20260809053000_prd110_leg170_s338_empty_base_is_not_compose_error.sql`**, derived from
+the applied `…051500` by five surgical edits so the diff stays reviewable. Signature, volatility,
+`prosecdef` and `search_path` byte-identical; post-image `90bd01f8…` → **`b0fc3a9f…`**.
+
+### ⚠️ CODY - APPROVE WITH REVISIONS (Articles 1, 4, 8, 12, 14, 16)
+
+All eight knowledge-base documents loaded. Art 12 ✅ forward-only · Art 4 ✅ `app.via_rpc`/`app.rpc_name`
+and both gates untouched · Art 14 / Appendix A ✅ shadow objects only, `pod_refills` untouched ·
+Art 16 ✅ METRICS_REGISTRY line 1277 exempts `run_pipeline_v3`'s explicit-source pass from the D-33
+plan-of-record object, and declining to produce a plan is not re-deriving one.
+⚠️ **Art 1 - the revision, recorded as S-339 rather than widened in this unit.**
+
+### ✅ THE PROOF - all seven radius fixtures re-run, all seven GREEN
+
+| fixture | pre-D-34 | after D-34 | after S-338 fix |
+| --- | --- | --- | --- |
+| 1  | 59/0 | 59/0 | **59/0** |
+| 37 | 43/0 | ⛔ **41/2** | **43/0** |
+| 51 | 53/0 | 53/0 | **53/0** |
+| 53 | ⛔ 24/10 | **36/0** | **36/0** |
+| 60 | 54/0 | 54/0 | **54/0** |
+| 61 | 13/0 | 13/0 | **13/0** |
+| 76 | 29/0 | 29/0 | **29/0** |
+
+`empty_night` now reads **`ok_no_shadow_rows` on all three** of engine, summary and returned status.
+⭐⭐ **WHOLE-HARNESS STANDING: 71 enabled · 71 with a run · 71 GREEN · ZERO reds.** First fully clean
+harness since leg 165, and **there is no unattributed red anywhere going into the S7 triple.**
+
+### ⛔ S-339 (NEW, **OPEN** - Cody's recorded Article 1 debt)
+
+`compose_plan_with_edits_v3` still RAISEs on a **valid-but-empty** source run. S-338 fixed the
+*caller*; the sharp edge remains for **any other caller**. That guard exists to catch a caller passing
+a WRONG `run_id` and **cannot distinguish that from a legitimately empty one**. Deliberately not
+widened in the same unit as the fix. ⛔ The next caller to pass an empty-but-valid run gets an
+exception, not an answer.
+
+### ⛔⛔ S-340 (NEW, **CLOSED as a standing rule**) - **THE SWEEP'S OWN OUTPUT CANNOT TELL GREEN FROM RED**
+
+`golden.run_fixture` returns the **assertion COUNT**, not the pass count. Fixture 37's `.fire` file
+read **`[{"count":43}]`** while it was **41/2 RED** - byte-identical to what it prints when it is
+43/0 green. ⭐ **Every fixture in the D-34 radius "looked" green in `/tmp`; only the `golden.runs`
+adjudication found the red.** This is S-321's rule earning its keep on a case it was not written for.
+⛔ **RULE: never read a verdict from a sweep's stdout. Adjudicate ONLY from `golden.runs`, and require
+the distinct-fixture count to equal the population first.**
+
+
+### RESUME POINTER 2026-08-08 leg 170 · FINAL
+
+- ⭐⭐ **THE GATE IS DISCHARGED. DO NOT WAIT FOR IT AGAIN.** The 21:22Z fire was classified live:
+  `engine ok / rows 80 / v3 series 64`. **Kill any inherited watcher you find** (`ps` narrowed,
+  S-241) - PIDs 16406 / 17893 / 19349 and this leg's `leg170_gate.sh` are all obsolete. **Nothing
+  this leg started needs attending.**
+- ⛔⛔ **NEXT TASK: THE S7 TRIPLE. It is now genuinely THE LAST THING, and its precondition is
+  finally met** - the harness is **71/71 GREEN with zero reds** for the first time since leg 165.
+  Recipe verbatim: `/tmp/prd110_leg162_sweep.sh "<tag>" <suffix>` with **no fixture ids** (all 71),
+  three consecutive passes, sequential, **NULL `p_max_phase` (S-309)**, `SET
+  statement_timeout='1200000'` in the SAME POST (S-310), **never re-fire on a 524**.
+  ⭐⭐ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'` and require the distinct-fixture count
+  to equal 71 BEFORE reading a verdict** - see S-340 below, which is not a theoretical risk.
+- ⛔⛔ **S-340 IS THE FINDING THAT WOULD HAVE COST THIS LEG THE DEFECT.** `golden.run_fixture` returns
+  the **assertion COUNT, not the pass count**. Fixture 37 printed `[{"count":43}]` while it was
+  **41/2 RED** - identical to its green output. **Never read a verdict from sweep stdout.**
+- ⭐ **RISK 104 IS CLEAN FOR THE FIRST TIME IN SIX LEGS: disk 397 = DB 397**, md5 identical on both
+  sides **`0622bf96057d3ee9feb4c6b8598c36e4`**, `max(version)` `20260809053000`. **There is NO staged
+  migration debt.** ⛔ Verify by SET DIFFERENCE, never by count; disk side in **PYTHON, TOP LEVEL
+  ONLY**, minus S-31's retained version prefix `20260730203000` (S-290, by PREFIX).
+- ⭐ **D-34 IS EXECUTED.** The answered-unexecuted list drops from THREE to **TWO: D-19** (blocked on
+  DR-6, FE-deploy work this loop cannot perform) and **D-39** (blocked on the S-330 CS fork).
+  **The DR register is empty. No build work remains for DONE-2 - only the S7 proof.**
+- ⚠️ **TOMORROW'S 21:22Z FIRE IS THE FIRST ONE THROUGH THE D-34 PIPELINE.** It is NOT a blocker and
+  nothing waits on it, but it is the first live exercise of the swap, so classify it if you are
+  alive at the time. Post-image to expect: `pipeline_runs_v3` should MOVE (it did not tonight).
+- ⚠️ **`measure` reported `skipped_no_velocity {v3: 16, v19: 0}`** - the v3 side scored 64 of 80
+  shelves. Not a defect; worth understanding before WMAPE is read as authoritative.
+- ⛔ **S-339 IS OPEN DEBT (Cody, Article 1):** `compose_plan_with_edits_v3` RAISEs on a valid-but-empty
+  source run. S-338 fixed the caller only; any other caller still gets an exception, not an answer.
+- ⛔ **THE LIVE CS ASKS ARE STILL TWELVE; leg 170 raised NONE.** S-251 · D-21 half-2 · D-28 half-2 ·
+  D-27 half-2 · S-285's ask · D-48 · S-312 · S-320 · S-328 · S-330 · S-333 · S-335.
+  ⭐ **When two CS-attributed statements collide, PARK.** ⭐ **Never loosen an assertion to accommodate
+  the code it caught (S-322)** - S-338 is this leg's worked example of obeying it.
+- ⛔ **S-337 still binds every cutover read:** use `n_series_v3` AND `n_series_v19`, never the single
+  `refusal_code` word. GRIT/LVLUP/VML are refused for TWO reasons, not one.
+- ⛔ **STANDING RULES:** S-266 · S-267 · S-268 · S-272 · S-277 · S-280 · S-281 · S-283 · S-284 ·
+  S-285 (OPEN) · S-286..S-337 · 🆕 **S-339 (OPEN)** · 🆕 **S-340 (CLOSED as a rule)**.
+  **S-338 is CLOSED (found, fixed, proven).** New findings resume at **S-341**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.**
+- ⛔ **`/tmp` SURVIVED** (twenty-fifth leg); the Supabase MCP still has not connected.
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg162_sweep.sh` all work.
+  ⛔ **`engine_forecast_error_v3` keys the engine on `engine_tag`, NOT `engine_version`.**
+  ⛔ **`golden.assertions` is `check_sql`/`acceptance_gate_sql`/`description`/`expect`/`expect_op`;
+  the key is `golden.fixtures.fixture_id`, not `id`.** ⛔ **`golden.runs` has NO `scenario_error`
+  column and there is NO `golden.run_assertions` table** - per-assertion detail is a jsonb ARRAY in
+  `golden.runs.detail`; use `jsonb_array_elements(detail)` and filter `(e->>'passed')::boolean=false`.
+  ⛔ **`pg_get_functiondef` has NO trailing semicolon.** ⛔ **A pre-image bank must record its own
+  hash recipe** (S-336's twin) - `md5(functiondef)` and `md5(prosrc)` disagree and that is not drift.
+- ⛔⛔ **A relay leg that ends its turn to await a background notification HAS DROPPED THE BATON.**
+  Block in the foreground through anything time-gated. This is how legs 164-166 lost the gate.
