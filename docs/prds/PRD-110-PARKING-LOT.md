@@ -11437,3 +11437,79 @@ the tracked manifest and fires a sweep would run the stale list, or none at all.
 before every sweep until the runner is fixed.
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 149 (2026-08-08) — **D-28 HALF 1 EXECUTED.** S-280 raised and closed same leg. D-28 half 2 parked as a sharpened CS ask.
+
+### ✅ D-28 HALF 1 CLOSED BY EXECUTION — one predicate, one object, two readers
+
+`20260808090000` (fixture 70, RED **24/34**) then `20260808090500` (the convergence, GREEN **34/34**).
+`public.v_dispatch_open_wh_commitment` now carries the seven-clause "open warehouse commitment"
+predicate that was written **three times** — once inline in `wh_fefo_for_line.committed_elsewhere` and
+**twice** inside `v_dispatch_availability`'s two window partitions. Both objects read it.
+`wh_fefo_for_line` `prosrc` md5 **b3cfeb77 → f79d4265**; all six sentinels unmoved.
+
+⭐⭐ **THE ACCEPTANCE EVIDENCE THE RULING ASKED FOR, AT FULL SCALE:** the live consumer's entire output
+was captured before the apply and diffed after — **37,395 rows, md5
+`72c814d27fc4a3c1c92f219ff6698088` identical on both sides**, zero diffs on `reserved_by_earlier`,
+`available_qty`, `pack_status`, `oversubscribed`, `wh_stock_now`. ⛔ **And not vacuous: 3,542 of those
+rows carry a non-zero `reserved_by_earlier`**, so the rewritten window was genuinely exercised. Cody
+required this (R3) precisely because a fixture proves three rows and the packing path reads all of them.
+
+### ⛔⛔ S-280 (NEW, CLOSED SAME LEG) — A PREVIOUS LEG'S SCOPING ADDENDUM IS A HYPOTHESIS, NOT EVIDENCE
+
+Leg 148 scoped D-28 carefully and got **two** things wrong, both in the direction of making the unit
+look bigger and the divergence look more principled than it is:
+
+1. **"Three inline sites" is ONE.** `resolve_fefo_sku_legs_v3` and `push_plan_to_dispatch` merely
+   CONSUME the output column `f.committed_elsewhere`; neither has a `committed` CTE nor a
+   `SUM(rd.quantity)`. The addendum's grep was `prosrc ILIKE '%committed_elsewhere%'` — **it matched
+   the column NAME and could not tell a producer from a consumer.** ⛔ The "LIVE protected writer" the
+   addendum warned about was never in scope at all.
+2. **"A first-come-first-served queue discipline keyed on `dispatch_id`" is a RANDOM tiebreak.**
+   `refill_dispatching.dispatch_id` is `uuid DEFAULT gen_random_uuid()`. ⛔ **Who wins a contested
+   batch is decided by a random number**, and that inverts the whole framing: converging the
+   arithmetic would not adopt a fairer queue, it would adopt a lottery.
+
+⭐ **The catalogue predicate that settles it in one query** — use this shape, not a name grep, when
+scoping D-27 and D-31:
+
+```sql
+SELECT proname, prosrc ~* 'SUM\s*\(\s*rd\.quantity', prosrc ~* 'committed\s+AS\s*\(' FROM pg_proc …
+```
+
+### ⏸️ D-28 HALF 2 (NEW, PARKED) — SHARE OR QUEUE? AND IF QUEUE, NOT BY A RANDOM UUID
+
+⛔ **The arithmetic CANNOT converge and that is a fact about when the code runs.**
+`v_dispatch_availability.reserved_by_earlier` is a window over rows that already exist;
+`wh_fefo_for_line` runs at PUSH instant, **before its own row is inserted**, so there is no
+`dispatch_id` for it to be earlier than. The CS ask is therefore a choice between two named policies,
+measured rather than argued (fixture 70, 21 units vs three lines of 40/30/25):
+
+| | binder today (symmetric) | canonical view today (asymmetric) |
+| --- | --- | --- |
+| lines charged nothing | **0** | **1** |
+| lines not `blocked_no_wh` | **0** | **1** |
+| ordering key | none — order-independent | **`gen_random_uuid()`** |
+
+⛔ **The status quo is that the two objects disagree in production and nobody could see it**, because
+the competition window has always closed by the time anyone reads the archive (leg 148: `open_wh_lines`
+= 0 on every dispatch_date in 60 days). Fixture 70 seq 27 asserts `formulas_agree = 'no'`
+**deliberately** — the day someone makes them agree it goes red and the change gets its Article-16
+review.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10) — the `anon` EXECUTE on `wh_fefo_for_line`
+
+The function is `SECURITY INVOKER` and carries `anon` **and** `PUBLIC` EXECUTE. Because the canonical
+view is revoked from `anon` (S-268), a direct anon call now raises `permission denied for view` where
+it previously returned `committed_elsewhere = 0` — ⛔ **not because nothing was committed, but because
+`refill_dispatching`'s only SELECT policy is `authenticated_read`, so RLS blinded anon to every
+competitor row and the binder silently over-committed.** A loud refusal replacing a silently wrong
+number is an improvement, and no call site exists (no FE, n8n, script or engine; all three definer
+callers run as postgres). **The D-30-shaped revoke is its own one-line unit — deliberately NOT bundled
+into a convergence migration.** D-27/D-28's own wording: "never a drive-by".
+
+### ⏸️ OPEN CS DECISIONS after this leg — **ONE STANDING ASK: S-251 (Galaxy venue-supply confirmation)**, plus **D-21 half-2** (the margin weight W%, and whether 90 % is still the right bar at 53.99 % computability) and 🆕 **D-28 half-2** (share vs queue on a contested batch; and if queue, it must stop being keyed on a random uuid). The answered-unexecuted list drops from ten to **NINE**: D-19, D-27, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-28 half 1 is now EXECUTED**, joining D-21(half 1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8. DR-1 and DR-10 remain as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. ⚠️ **S-280 is CLOSED (recorded); S-265, S-266 and S-279 remain OPEN.** New findings resume at **S-281**.
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
