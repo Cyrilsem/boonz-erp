@@ -34979,3 +34979,45 @@ enabled` first (S-269 - it must now read **61**, and `/tmp/prd110_s7_fixtures.tx
 - ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-277 and S-278 are CLOSED
   (recorded).** ⛔ **S-265 and S-266 are OPEN.** New findings resume at **S-279**.
+
+### ⏸️ [leg 148 · ADDENDUM] **D-28 SCOPED AND DELIBERATELY NOT STARTED** (RELAY: never begin a unit you cannot finish)
+
+The next leg should start writing rather than probing. Everything measured live this leg:
+
+**THE THREE INLINE SITES.** `committed_elsewhere` is computed inline in exactly three functions -
+`wh_fefo_for_line` (**b3cfeb77**, 2 224 chars), `resolve_fefo_sku_legs_v3` (**229a8970**, 7 651) and
+`push_plan_to_dispatch` (**6372fe60**, 24 052). ⛔ **The third is a LIVE protected writer**, so D-28 is
+not a read-path refactor. No view computes it. The canonical object `v_dispatch_availability` exists
+and has exactly two readers: `find_substitutes_for_shelf_v3` (proc) and `v_dispatch_pickable` (view).
+
+**⛔⛔ THE CONVERGENCE IS NOT A SUBSTITUTION - THE TWO FORMULAS ENCODE DIFFERENT POLICIES.** Read side
+by side:
+
+- `wh_fefo_for_line.committed_elsewhere` = `SUM(quantity)` over **every OTHER machine's** open line for
+  the same `(boonz_product_id, dispatch_date)`. **Symmetric and order-independent** - every competitor
+  discounts itself by the whole rest of the field, so a contested batch makes _everyone_ look short.
+- `v_dispatch_availability.reserved_by_earlier` = a window sum over the same predicate but
+  `ORDER BY dispatch_id ROWS UNBOUNDED PRECEDING … 1 PRECEDING`, minus the same window re-partitioned
+  by `machine_id`. **Asymmetric** - it charges a line only for competitors with a LOWER `dispatch_id`.
+  That is a **first-come-first-served queue discipline keyed on `dispatch_id`**, not a fair share.
+
+⛔ **So "converge D-28" changes WHO WINS a contested batch:** the lowest `dispatch_id` line stops being
+discounted at all, and later lines are discounted more narrowly than today. The Cody review must treat
+it as a **policy change with an Article-16 justification**, not as a de-duplication.
+
+**⭐⭐ AND THE ACCEPTANCE EVIDENCE THE RULING ASKS FOR IS VACUOUS OFF LIVE DATA - MEASURED, NOT
+ARGUED.** The ruling wants "a before/after diff of FEFO-visible availability for the live binder".
+Both formulas were evaluated against every `refill_dispatching` row on `2026-08-07` (117 lines):
+**agree 117, differ 0, both sides sum to 0.** Widening to **every dispatch_date in the last 60 days**:
+`open_wh_lines` - lines that are `action IN (Refill,'Add New')`, `packed=false`, `picked_up=false`,
+`source_origin='warehouse'`, not cancelled/skipped, `pack_outcome <> 'not_filled'` - is **0 on every
+single date**. The competition window is empty in the archive because packing closes inside the same
+session that pushes.
+
+⛔ **DO NOT CONCLUDE THE DIVERGENCE IS HARMLESS.** It is **unobservable retrospectively, not absent at
+runtime**: the binder runs at PUSH instant, when sibling lines for the same date genuinely are still
+unpacked. The archive cannot see the window because the window has always closed by the time anyone
+reads it. ⭐ **That is exactly why the divergence has survived unnoticed, and exactly why the
+before/after diff must be CONSTRUCTED in a fixture** - two machines, one scarce batch, both lines open
+on a synthetic `plan_date` - in the leg-114/115 self-supplied-premise idiom that S-274 has now made
+mandatory. **A diff read off live history would report "0 rows changed" and prove nothing.**
