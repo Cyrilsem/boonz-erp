@@ -39957,3 +39957,26 @@ material difference from S-313, whose fix is pinned by **fixture 74 seq 65/66** 
 `cutover_block_reason_v3`'s `prosrc` byte-for-byte. **S-342 is a one-line string change in its own
 migration with no byte-freeze exposure; re-fire 47/74/75/77 and it is done.** Fix both together and
 S-313's pin becomes the whole risk of the unit.
+
+### ⏳ IN FLIGHT AT THE TIME OF WRITING - **the S7 triple, chained** (recorded NOW, not after, because leg 171 proved that an unrecorded run is invisible)
+
+`/tmp/leg172_chain.sh` **PID 24577** is attending pass A to completion and will then run B and C
+back-to-back, sequential throughout (S-305):
+
+| pass | tag             | output dir          | note                                        |
+| ---- | --------------- | ------------------- | ------------------------------------------- |
+| A    | `leg171 S7 A`   | `/tmp/leg162_s7A`   | **inherited from leg 171**, started 21:46:51Z |
+| B    | `leg172 S7 B`   | `/tmp/leg162_l172B` | fresh dir                                     |
+| C    | `leg172 S7 C`   | `/tmp/leg162_l172C` | fresh dir                                     |
+
+⛔ **Pass A keeps leg 171's tag deliberately.** Re-tagging someone else's run as this leg's would be
+a lie in the one table the verdict is read from. It was launched after the last migration
+(`20260809053000`, 21:36Z) and is therefore a valid member of the triple.
+⛔ **The inherited `/tmp/leg162_s7A` dir still holds STALE `.fire` files from leg 162's own sweep** -
+which is harmless only because of S-340: **the verdict comes from `golden.runs`, never from `/tmp`.**
+⭐ **Verdict recipe is not improvised.** `md5(string_agg(fixture_id||':'||n_eval||':'||n_pass||':'||n_fail
+ORDER BY fixture_id))` was **validated by reproducing the banked `tuple_md5`
+`da378010046d0de43470f13caa96b27c` on all three of leg 127's rounds** in `golden.stress_runs`, the
+recipe the original `## DONE` used. Same comparator, new population.
+⛔ **If a later leg reads this and PID 24577 is gone with no verdict below, the triple died mid-flight:
+re-run all three passes from scratch. Do NOT stitch a partial pass to a fresh one.**
