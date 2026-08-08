@@ -12968,3 +12968,55 @@ with pre- and post-image md5 guards on every apply.**
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 172 (2026-08-08) - **THE S7 TRIPLE ATTENDED.** Two new CS asks raised: **S-341** and **S-342**, both about the cutover instrument CS reads on ~Aug 17.
+
+### ⛔ S-341 (NEW, **OPEN, a CS ask**) - the cutover verdict compares two different populations
+
+`v_cutover_readiness_v3` computes `wmape_v3` over v3's own rows and `wmape_v19` over v19's own rows,
+with **no intersection restriction**, then branches `ready` vs `v3_worse_than_v19` on
+`wmape_v3 > wmape_v19`. On 2026-08-09 the two sides are **64 series / 4 machines /
+`velocity_instock`** versus **48 series / 5 machines / `velocity_30d`**, sharing only **44 grains**.
+Harmless today - every cluster is `is_vacuous` and refuses. **Live from ~2026-08-11**, when the v3
+horizons settle and this becomes the number that authorizes a cutover.
+
+**THE ASK (one line):** should the cutover comparison be restricted to the **shared** (machine,
+product) grain measured on a **common velocity basis** - which changes the decision rule and is
+therefore CS's call, not the operator's - or does CS accept a whole-population comparison and read
+`wmape_delta` as indicative rather than decisive?
+
+### ⛔ S-342 (NEW, **OPEN**) - the flip's success payload states a falsehood
+
+`flip_cluster_to_v3_v3`'s `applied` return carries `warning: "…until DR-1b ships, the nightly builder
+will REFUSE to build while any cluster is on v3"`. **DR-1b shipped in leg 161** - the halt became a
+branch. CS reads this at the instant a flip succeeds; the natural reaction is an unnecessary
+`revert_cluster_to_v19_v3`.
+⭐ **Distinct from S-313**, which is the same staleness in `cutover_block_reason_v3` and is genuinely
+cosmetic because that message is unreachable through the builder. **Smallest unblock:** one-line
+string change, own migration, re-fire fixtures **47 / 74 / 75 / 77**; **zero assertions read
+`flip_cluster_to_v3_v3.prosrc`**, so there is no byte-freeze exposure (unlike S-313, pinned by
+fixture 74 seq 65/66).
+
+### ⏸️ THE REMAINING TIER-2 UNITS - **STILL TWO, both blocked outside this loop**
+
+- **D-39** - Dara design landed, SQL deliberately not started, blocked on the **S-330** fork (CS).
+- **D-19** - blocked behind DR-6, FE-deploy work this loop cannot perform.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FOURTEEN ASKS; leg 172 raised TWO.**
+
+S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** ·
+**D-48** · **S-312** · **S-320** · **S-328** · **S-330** · **S-333** · **S-335** · 🆕 **S-341**
+(cutover WMAPE compares unlike populations) · 🆕 **S-342** (flip warning is stale - though this one
+has an operator fix, it is listed because it changes what CS is told at the cutover).
+⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-29, D-31, D-32, D-33, D-34, D-37, D-40, D-43, D-44,
+D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10.
+⛔ **The DR register is empty. No BUILD work remains for DONE-2.**
+⚠️ **S-339 OPEN** (compose RAISEs on a valid-but-empty run) · **S-313 OPEN** (cosmetic twin of S-342).
+New findings resume at **S-343**.
+⭐ **Leg 172 flipped NO flag, turned NO dial, and applied NO migration** - a determinism triple was in
+flight for the whole leg and **nothing may land inside one**.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.

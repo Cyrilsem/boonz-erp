@@ -39825,3 +39825,135 @@ statement_timeout='1200000'` in the SAME POST (S-310), **never re-fire on a 524*
   hash recipe** (S-336's twin) - `md5(functiondef)` and `md5(prosrc)` disagree and that is not drift.
 - ⛔⛔ **A relay leg that ends its turn to await a background notification HAS DROPPED THE BATON.**
   Block in the foreground through anything time-gated. This is how legs 164-166 lost the gate.
+
+---
+
+## ⭐⭐ leg 172 (2026-08-08) - **THE BATON WAS DROPPED AND CAUGHT MID-AIR.** Leg 171 launched the S7 pass A and ended its turn seven minutes later, writing **nothing**. This leg inherited the sweep **alive**, attended it, and chained B and C behind it. ⛔⛔ **S-341: the cutover decision instrument compares two DIFFERENT populations on two DIFFERENT velocity bases.**
+
+**Window:** 21:53Z - · **no flag flipped, no dial turned, no migration applied** (a determinism triple was in flight the whole leg - see the standing rule below)
+
+### STEP R - every pointer claim re-derived from live state, none inherited
+
+Leg 171 left **no log entry, no parking-lot section and no RESUME POINTER** - `git status` clean,
+`grep 'leg 171'` empty. The governing pointer is therefore still **leg 170 FINAL**, and leg 171's
+only trace anywhere is a **running process**.
+
+- ⛔⛔ **`ps` narrowed (S-241) found leg 171's sweep ALIVE:** PID 23489,
+  `prd110_leg162_sweep.sh "leg171 S7 A" s7A`, started **21:46:51Z**, 12 of 71 fixtures done.
+  ⭐ **This is the inverse of leg 169's finding.** Leg 169 found a watcher script on disk that was
+  never running; this leg found a run in flight that was never written down. **Both are the same
+  failure - the leg ended its turn - and only `ps` catches either.**
+- ⭐ **All three watcher PIDs the pointer ordered killed (16406 / 17893 / 19349) were already dead**,
+  and `leg170_gate.sh` is gone. Nothing obsolete was left attending anything.
+- ⭐ **RISK 104 CLEAN, by SET DIFFERENCE in both directions:** `prd110%` disk **397** = DB **397**,
+  `disk-only []`, `db-only []`, `max(version)` **`20260809053000`**. **No staged migration debt.**
+  ⛔ Recipe recorded (S-336's twin): scope is **`name LIKE 'prd110%'`**, disk side matched on
+  `^(\d{14})_(prd110.*)\.sql$` **top level only**, minus the S-31 retained prefix `20260730203000`.
+  ⛔ **A whole-repo probe returns 1648 DB / 901 disk and is the WRONG instrument** - it cost this leg
+  a round trip. The 397 is the PRD-110 slice, not the migration table.
+- ⭐ **LAW 4 VERIFIED:** all 10 clusters `authoritative_engine='v19'` · `pod_refills` **4,177**
+  (unchanged through the 21:22Z fire) · `pick_urgency_params.w_intents` **0**, `updated_at` still
+  `2026-08-06 23:20:27.984211+00`.
+- ⭐ **LAW 12 VERIFIED:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` absent ·
+  **zero `operator_status='pending'`**, read under the S-244 filter `plan_date < '2027-01-01'`.
+- ⭐ **S-320 pre-state holds, NINTH consecutive leg:** 2026-08-09 carries **5 `cs_added` +
+  4 `cs_dropped`, ZERO `picked`**, all nine `add_source='picker'`.
+- ⭐ **S-80 discharged on the WHOLE file:** 27 level-2 CS headings in PRD-110-PARKING-LOT.md; the
+  last CS-**authored** ruling is still **`## CS DECISION - POST-DONE DR REGISTER CLOSED
+  (2026-08-04)`** at line 10339. **No new CS ruling. The twelve asks stand.**
+
+### ⭐ THE POST-D-34 IMAGE REPRODUCED EXACTLY - and the health-view "drift" was the RECIPE again
+
+| object                       | recipe                | live         | leg 170 banked | verdict |
+| ---------------------------- | --------------------- | ------------ | -------------- | ------- |
+| `run_nightly_shadow_v3`      | `md5(functiondef)`    | `1182177e…`  | `1182177e…`    | ✅      |
+| `run_pipeline_v3`            | `md5(functiondef)`    | `b0fc3a9f…`  | `b0fc3a9f…`    | ✅      |
+| `shadow_runner_log_v3` CHECK | `md5(constraintdef)`  | `1ec37c03…`  | `1ec37c03…`    | ✅      |
+| `v_shadow_runner_health_v3`  | `md5(viewdef RAW)`    | `b09ca0bc…`  | `b09ca0bc…`    | ✅      |
+| `v_shadow_runner_health_v3`  | `md5(viewdef PRETTY)` | `6e04b78b…`  | -              | ⚠️ N/A  |
+
+⛔ **`pg_get_viewdef(oid, true)` and `pg_get_viewdef(oid)` disagree and that is NOT drift** - the raw
+form is the banked recipe, and `pg_views.definition` equals it. **S-336's twin lesson has now caught a
+false alarm on a VIEW as well as on a function.** Both `prosecdef` true, search_paths unchanged.
+⭐ **`position('run_pipeline_v3' in run_nightly_shadow_v3.prosrc)` = 2143 - the D-34 swap is live**,
+and `pipeline_runs_v3` **146 → 174** as the sweep drives fixtures through it, which is the first
+independent confirmation that the swap does what it was built to do.
+
+### ⭐ THE DONE-2 EVIDENCE, READ LIVE RATHER THAN CARRIED
+
+| item   | probe                                                          | live                                    |
+| ------ | -------------------------------------------------------------- | --------------------------------------- |
+| D-46   | `bind_dispatch_fefo` `md5(prosrc)`                             | **`8ad35ce9…`** - moved off `45ec06ab`  |
+| D-45   | `compose_plan_with_edits_v3` additive marker                    | **present**, `'add'` branch at 4278     |
+| D-43   | `push_dispatch_authorized_roles` / `push_plan_to_dispatch`      | **`warehouse` in both**                 |
+| D-43   | `repack_machine` pre-flight                                     | **`warehouse` at 869** - both halves    |
+| DR-4   | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed`           | **`block`** / **15**                    |
+| DR-5   | `w_empty` · both miner dry-run flags                            | **0.945** · **false / false**           |
+| DR-7   | cron **48** `prd110_dr7_rotation_heartbeat_0530_sunday_dubai`   | **`30 1 * * 0`, active** (05:30 Dubai)  |
+| DR-8   | `approve_facing_proposal_v3(uuid, text, text)`                  | **present**                             |
+| DR-1   | `flip_cluster_to_v3_v3` · `cutover_block_reason_v3` · authority | **all present, 10/10 clusters `v19`**   |
+| D-44   | `var_money_reserved_slots`                                      | **2**                                   |
+| D-19   | `preflight_enforcement`                                         | **`warn`** - correctly NOT flipped      |
+| DR-3   | `pod_inventory_write_freeze`                                    | **`off`** - built, freeze parked        |
+| LAW 11 | `gate0_require_manual_confirm`                                  | **true**                                |
+
+⭐ **DR-1 refuses all ten clusters right now**, every one `is_vacuous=true`: four sit at
+`v3_horizon_not_elapsed` (AMAZON 96, INDEPENDENT 16, NOVO 16, OHMYDESK 32 v3 series) and six at
+`no_v3_measurement`. **S-337 re-verified live:** GRIT / LVLUP / VML read `n_series_v3=0` **AND**
+`n_series_v19=0` - refused for **two** reasons, and the single `refusal_code` word says only one.
+
+### ⛔⛔ S-341 (NEW, **OPEN - a new CS ask, the THIRTEENTH**) - **THE CUTOVER VERDICT COMPARES TWO DIFFERENT POPULATIONS**
+
+The pointer asked the next leg to understand `measure`'s `skipped_no_velocity {v3: 16, v19: 0}`
+before WMAPE is read as authoritative. It is not a v3 defect. It is worse: **the two sides are not
+the same measurement.** On 2026-08-09:
+
+| side | series | machines | velocity_basis     |
+| ---- | ------ | -------- | ------------------ |
+| v3   | **64** | **4**    | `velocity_instock` |
+| v19  | **48** | **5**    | `velocity_30d`     |
+
+**Shared grain: 44.** v3-only **20**, v19-only **4**. And `v_cutover_readiness_v3` computes
+`wmape_v3 = sum(abs_error)/sum(actual_units)` over **v3's own rows** and `wmape_v19` over **v19's
+own rows**, with **no intersection restriction** - then decides on `wmape_v3 > wmape_v19`.
+
+⛔ **So the branch that separates `ready` from `v3_worse_than_v19` is a head-to-head between two
+different shelf populations scored on two different velocity bases.** Today this is harmless: every
+cluster is `is_vacuous` and refuses regardless. **On ~2026-08-11, when the v3 horizons settle, this
+becomes the number CS reads to authorize the cutover** - and it will look like an apples-to-apples
+comparison while not being one.
+
+⛔ **DELIBERATELY NOT FIXED IN THIS LEG, for two independent reasons.** (1) A determinism triple was
+in flight and **no migration may land inside one** - it would invalidate every pass already banked.
+(2) Restricting the comparison to the shared grain **changes the cutover decision rule**, which is
+LAW 4 territory and a CS ruling, not an operator fix. ⭐ **Parked as a sharpened ask, per S-322's
+spirit: do not quietly move the bar the instrument measures against.**
+⭐ The view is otherwise correct and **S-244 compliant** - `WHERE e.plan_date < '2027-01-01'` is what
+keeps the 460 synthetic `2030-11-01` v3 rows out of the cutover verdict.
+
+### ⛔⛔ S-342 (NEW, **OPEN**) - **THE FLIP TELLS CS A FALSEHOOD ON THE SUCCESS PATH**
+
+`flip_cluster_to_v3_v3`'s **`applied`** return payload carries a hard-coded `warning`:
+
+> "the ADD engines are whole-plan-date scoped: **until DR-1b ships**, the nightly builder will
+> REFUSE to build while any cluster is on v3"
+
+⛔ **DR-1b shipped in leg 161.** The halt became a branch: `_build_draft_core_v3` still consults
+`cutover_block_reason_v3`, but as a **branch**, and `engine_add_pod`'s plan-date-wide DELETE is now
+the DR-1b **scoped wipe**. The sentence is false.
+
+⭐ **This is NOT a duplicate of S-313, and it is not cosmetic.** S-313 was filed against
+`cutover_block_reason_v3`'s message and was correctly graded cosmetic **because that message is no
+longer reachable through the builder** - only a direct caller sees it. S-342 sits on the **happy
+path of the cutover RPC itself**: it is the literal text CS receives at the instant a flip succeeds,
+on ~Aug 17, telling them their nightly plan is about to stop building. **The most likely reaction to
+it is an unnecessary `revert_cluster_to_v19_v3`** - a stale string that talks a correct cutover back
+out of existence.
+
+⛔ **NOT FIXED IN THIS LEG:** a determinism triple was in flight and no migration may land inside one.
+⭐ **Blast radius pre-computed for whoever fixes it, per S-336's rule:** fixtures **47, 74, 75, 77**
+exercise the flip RPC, and **ZERO assertions read `flip_cluster_to_v3_v3.prosrc`**. That is the
+material difference from S-313, whose fix is pinned by **fixture 74 seq 65/66** reading
+`cutover_block_reason_v3`'s `prosrc` byte-for-byte. **S-342 is a one-line string change in its own
+migration with no byte-freeze exposure; re-fire 47/74/75/77 and it is done.** Fix both together and
+S-313's pin becomes the whole risk of the unit.
