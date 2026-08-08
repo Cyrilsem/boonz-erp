@@ -34977,8 +34977,9 @@ enabled` first (S-269 - it must now read **61**, and `/tmp/prd110_s7_fixtures.tx
   synthetic proposals sit beside the 8 real ones in `feedback_proposals_v3`.
 - ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
 - ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
-  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-277 and S-278 are CLOSED
-  (recorded).** ⛔ **S-265 and S-266 are OPEN.** New findings resume at **S-279**.
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278 are CLOSED
+  (recorded).** ⛔ **S-265, S-266 and S-279 (the manifest `/tmp` trap, addendum 2) are OPEN.** New
+  findings resume at **S-280**.
 
 ### ⏸️ [leg 148 · ADDENDUM] **D-28 SCOPED AND DELIBERATELY NOT STARTED** (RELAY: never begin a unit you cannot finish)
 
@@ -35027,7 +35028,16 @@ mandatory. **A diff read off live history would report "0 rows changed" and prov
 ⛔ **Correction to this leg's own pointer:** it said `/tmp/prd110_s7_fixtures.txt` still lists 60. The
 **tracked** manifest `scripts/prd110_s7_fixtures.txt` has now been updated to **61** - fixture 69
 inserted before 105, preserving the ascending order the sweep relies on - and reconciled against
-`golden.fixtures WHERE enabled`: **61 = 61, exact set match, zero on either side only.** ⭐ The
-runner copies the tracked file to `/tmp`, so the next sweep picks 69 up without intervention.
+`golden.fixtures WHERE enabled`: **61 = 61, exact set match, zero on either side only.**
+
+⛔⛔ **S-279 (NEW) - THE TRACKED MANIFEST IS DEAD WEIGHT UNLESS SOMEONE COPIES IT, AND NOTHING DOES.**
+Both sweep runners read `/tmp/prd110_s7_fixtures.txt` **directly**
+(`scripts/prd110_s7_golden_determinism_sweep.sh:43`, `scripts/prd110_leg138_full_sweep.sh:29`); no
+line in either script copies the tracked file into `/tmp`. ⛔ **And `/tmp` is cleared between most
+legs.** So a leg that updates `scripts/prd110_s7_fixtures.txt` and then fires the runner would sweep
+the **stale** list - or, on a cleared `/tmp`, sweep nothing at all. This leg copied it across by hand
+(`/tmp` now holds 61). ⛔ **Every future leg must `cp scripts/prd110_s7_fixtures.txt /tmp/` before
+firing a sweep, or fix the runner to read the tracked path.** Named, not fixed - editing the runner is
+outside this unit (LAW 10).
 ⛔ **S-269 still binds: reconcile before every sweep rather than trusting this line** - the manifest
 goes stale the moment a fixture is added or disabled, which is what this leg just demonstrated.
