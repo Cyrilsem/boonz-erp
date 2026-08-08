@@ -12927,3 +12927,44 @@ ADDMIND/GRIT/LVLUP/VML/VOX/WPP stay on v19 indefinitely?
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 170 (2026-08-08) - **THE CRON-45 GATE IS DISCHARGED AND D-34 IS EXECUTED.** Golden 71/71 green, zero reds.
+
+### ✅ D-34 - EXECUTED, no longer parked
+
+Six migrations applied in order after the 21:22Z fire was classified (`engine ok`, 80 rows, v3 series
+64). Fixture 53 **24/10 RED → 36/0 GREEN**. RISK 104 reconciled at **397 = 397**, md5 identical both
+sides `0622bf96057d3ee9feb4c6b8598c36e4` - **no staged migration debt remains.**
+
+### ⛔ S-339 (NEW, **OPEN**) - Cody's Article 1 debt from the S-338 fix
+
+`compose_plan_with_edits_v3` RAISEs `'source run % has no rows on plan_date %'` on a **valid-but-empty**
+source run. The guard exists to catch a caller passing a WRONG `run_id` and **cannot distinguish that
+from a legitimately empty one**. S-338 fixed the *caller* (`run_pipeline_v3` now skips compose/stitch
+on an empty base); **the sharp edge remains for every other caller.** Deliberately not widened in the
+same atomic unit as the fix. Smallest unblock: give the function an empty-but-valid return shape
+rather than a raise, behind its own fixture.
+
+### ⏸️ THE REMAINING TIER-2 UNITS - **NOW TWO, DOWN FROM THREE**
+
+- **D-39** - Dara design landed, SQL deliberately not started, blocked on the **S-330** fork (CS).
+- **D-19** - blocked behind DR-6, FE-deploy work this loop cannot perform.
+- ⭐ **D-34 is GONE from this list - executed this leg.**
+
+### ⏸️ OPEN CS DECISIONS after this leg - **TWELVE ASKS, UNCHANGED; leg 170 raised NONE.**
+
+S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** ·
+**D-48** · **S-312** · **S-320** · **S-328** · **S-330** · **S-333** · **S-335**.
+⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-29, D-31, D-32, D-33, **D-34**, D-37, D-40, D-43, D-44,
+D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10.
+⛔ **The DR register is empty and TIER 2 is now down to two blocked items. No BUILD work remains for
+DONE-2 - what is left is PROOF: the S7 triple.**
+⚠️ **S-338 CLOSED (found, fixed, proven this leg); S-339 OPEN; S-340 CLOSED as a standing rule.**
+New findings resume at **S-341**. ⭐ **Leg 170 flipped NO flag and turned NO dial. It DID change two
+engine bodies - `run_pipeline_v3` and `run_nightly_shadow_v3` - both under Cody, both fixture-first,
+with pre- and post-image md5 guards on every apply.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
