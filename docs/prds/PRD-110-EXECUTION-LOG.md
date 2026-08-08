@@ -39529,3 +39529,95 @@ scope, re-read the gate, and be refused a second time for a reason that was true
 **Effect on S-335's ask:** answering "bring the six into scope" fixes ADDMIND/VOX/WPP but leaves
 GRIT/LVLUP/VML refused. Those three (1 + 3 + 2 = **6 machines**) need a v19 baseline accrued too, so
 for them the cutover is **two accrual cycles away, not one** - and no wording of S-335 currently says so.
+
+---
+
+## ⭐⭐ leg 169 (2026-08-08) - **STEP R clean; baton attended a THIRD consecutive leg.** The gate watch is inherited alive and the fire is still ahead - **this leg picked up 22 minutes before the 21:22Z fire, the first leg to arrive with the gate genuinely in front of it.**
+
+**Window:** 21:00Z - · **no flag flipped, no dial turned, nothing applied at STEP R**
+
+### STEP R - every pointer claim re-derived from live state, none inherited
+
+Leg 168 ended with **no RESUME POINTER** (its last block is S-337), so the governing pointer is still
+leg 166's PRELIMINARY as amended by the leg 167 and leg 168 bodies. ⭐ **THE BATON WAS ATTENDED FOR A
+THIRD CONSECUTIVE LEG** - `ps` narrowed (S-241) found BOTH inherited watchers alive on the first
+probe: leg 166's `prd110_leg165_cron45_watch.sh` (PID 16406, deadline **21:55:42Z**) and leg 167's
+`leg167_gate.sh` (PID 17893, deadline **22:05Z**). Both output files were empty and
+`shadow_runner_log_v3 WHERE note='cron' AND run_started_at >= 21:15:00+00` read **0** - concordant:
+**the fire had not happened.** A third, fully-classifying watcher was armed
+(`/tmp/leg169_gate.sh`, PID 19349, deadline ~22:00Z) because leg 166's exits on the first row and
+leg 167's reports only a count; this leg needs the classified `step`/`status`/`rows_affected`.
+
+- ⚠️ **`/tmp/leg168_gate.sh` EXISTS ON DISK BUT WAS NEVER RUNNING.** Leg 168 wrote it at 20:57Z and
+  ended ~3 minutes later without launching it. ⛔ **A watcher script on disk is not a watcher.**
+  The two live watchers were both inherited from OLDER legs, not from the immediately previous one.
+- ⭐ **RISK 104 reconciles by SET DIFFERENCE exactly as owed: disk 396 vs DB 390**, the six being
+  precisely `20260809050500`..`052600` - leg 165's staged D-34 unit - with **zero db-only rows**.
+  Disk md5 `c7e1edab405986041ca8d2ea04622e04` · DB md5 `435a0e8275a17324166ce678d76013d0` ·
+  DB `max(version)` `20260809050000`. Handoff invariant holds: staged whole, not half-applied.
+- ⭐ **LAW 4 VERIFIED:** all 10 clusters `authoritative_engine='v19'` · `pod_refills` **4,177** ·
+  `pick_urgency_params.w_intents` **0**, `updated_at` still `2026-08-06 23:20:27.984211+00`.
+- ⭐ **LAW 12 VERIFIED:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **absent**, and
+  **zero `operator_status='pending'`** on both live dates.
+- ⭐ **S-320 PRE-STATE HOLDS, seventh consecutive leg:** `machines_to_visit` for 2026-08-09 carries
+  **5 `cs_added` + 4 `cs_dropped`, ZERO `picked`** (all nine `add_source='picker'`).
+  `resolve_refill_plan_date()` = **2026-08-09** · `is_refill_planning_day_v3('2026-08-09')` = **true**
+  · cron 45 `22 21 * * *`, **active**, last three fires (08-05/06/07) all pg_cron `succeeded`.
+- ⭐ **S-80 DISCHARGED on the WHOLE file, not the tail:** the CS-authored ruling headings in
+  PRD-110-PARKING-LOT.md are 16 in total and the last is still
+  **`## CS DECISION - POST-DONE DR REGISTER CLOSED (2026-08-04)`** at line 10339. Everything below it
+  is operator-authored leg prose. **No new CS ruling. The twelve asks stand.**
+- ⭐ **Pre-fire bank, identical to leg 168's:** `shadow_runner_log_v3` **564** ·
+  `pipeline_runs_v3` **146** · `pod_refills_shadow` **24,530** · enabled fixture population **71**.
+  Nothing moved between the two legs, as it should not have.
+- ⛔ **`/tmp` SURVIVED** (twenty-fourth leg); the Supabase MCP still has not connected.
+
+### ⭐ THE PRE-IMAGE REPRODUCED WITH ZERO FALSE ALARMS - S-336's twin lesson paid off
+
+Leg 168 banked the pre-image **with both hash recipes side by side**. This leg re-measured live and
+every value matched on **both**: runner `md5(functiondef)` **`37f5d8ce…`** / `md5(prosrc)`
+**`f668347d…`** · pipeline **`52fc895f…`** / **`d16df04a…`** · health view **`e81ab850…`** ·
+CHECK **`d45ce94d…`** · `position('parked (D-34)' in run_pipeline_v3)` = **9373** ·
+`position('warehouse' in run_nightly_shadow_v3)` = **761**. `prosecdef` true on both and
+`search_path` (`public, pg_catalog` / `public, pg_temp`) unchanged.
+⭐⭐ **Two legs running, the recorded recipe has prevented the false drift alarm it was written for.**
+
+### ⭐ THE BLAST RADIUS WAS RE-DERIVED, NOT INHERITED - and it is SEVEN again
+
+Per S-336's rule the radius was recomputed from `golden.fixtures` + `golden.assertions` by object
+name (`check_sql`/`acceptance_gate_sql`/`description`/`scenario_sql`/`notes`/`name` ILIKE each of the
+five objects D-34 rewrites). Result: **1, 37, 51, 53, 60, 61, 76** - **seven**, matching leg 167
+exactly. ⛔ Schema note for the next leg: the key is **`golden.fixtures.fixture_id`**, not `id`, and
+`golden.assertions` has **`check_sql`/`acceptance_gate_sql`/`description`**, not `query`/`name`.
+
+**All seven baselines re-confirmed present in `golden.runs` with their numbers, not assumed:**
+**1 → 59/0** · **60 → 54/0** · **76 → 29/0** (`leg167_pre_baseline`, 20:43Z) · **37 → 43/0** ·
+**51 → 53/0** · **61 → 13/0** (`leg165_pre_baseline`, 20:16-20:18Z) · **53 → 24/10 RED**
+(`leg165_d34_red`, 20:10Z).
+
+### ⭐ THE GOLDEN STANDING IS EXACTLY THE FIXTURE-FIRST SHAPE
+
+Latest run per enabled fixture: **71 enabled · 71 with a run · 70 GREEN · 1 RED**, and the single red
+is **fixture 53 at 24/10** - the D-34 fixture-first RED itself. **Zero never-run fixtures.**
+⭐ There is no unattributed red anywhere in the harness going into the apply.
+
+### ⭐ FLAG / DIAL STATE BANKED (the DONE-2 report's "what flipped" evidence, read live)
+
+| item | key | live value | reading |
+| --- | --- | --- | --- |
+| DR-4 | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed` | **`block`** / **15** | executed as ruled |
+| DR-5 | `w_empty` | **0.945** | executed (from 0.900) |
+| DR-5 | `miner_weekly_edit_dry_run` / `miner_weekly_pick_dry_run` | **false** / **false** | both executed |
+| D-44 | `var_money_reserved_slots` | **2** | K=2 of 6, as ruled |
+| D-19 | `preflight_enforcement` | **`warn`** | ⏸️ correctly NOT flipped - blocked behind DR-6 |
+| DR-3 | `pod_inventory_write_freeze` | **`off`** | built, freeze parked by design |
+| LAW 11 | `gate0_require_manual_confirm` | **true** | manual-only holds |
+| LAW 4 | all 10 clusters | **`v19`** | untouched |
+
+### ⏸️ THE GATE IS STILL SHUT AND THIS LEG WILL NOT PRE-EMPT IT
+
+D-34 rewrites `run_nightly_shadow_v3` - the exact function cron 45 invokes at 21:22Z, and the one
+whose verification has been owed since **leg 159, seven legs running**. Leg 167's reasoning is
+re-affirmed rather than re-litigated: tonight is the first fire in four nights that can bank v3
+evidence at all, and applying an untested runner rewrite ahead of it would risk the accruing night
+AND the owed verification in a single move. **Classify the fire, then apply.**
