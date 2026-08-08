@@ -12829,3 +12829,101 @@ stale attribution inside the function that D-34 is about to change is the one pl
 ⭐ `p_promote_blocked => true` is the easy half and it is now safe: D-29 scoped
 `record_blocked_demand_v3` by cluster authority, so stitch promotion touches only flipped clusters -
 and at 0 flipped clusters it is inert, which is the flag-off proof.
+
+---
+
+## ⭐⭐ leg 165 + leg 166 (2026-08-08) - **D-34 BUILT, CODY-REVIEWED, DRY-PROVEN AND HELD.** Leg 165 wrote no parking-lot section; this one covers both legs. **S-333 and S-335 are new CS asks.**
+
+⛔ **BOOKKEEPING NOTE, and it is the reason this heading spans two legs.** Leg 165 ended without a
+RESUME POINTER and without a parking-lot section. Its CS ask (S-333) therefore existed only in the
+execution log for a full leg. **The parking lot is the register CS reads; an ask that never lands
+here has not been asked.** Leg 166 discharged the debt rather than leaving it to compound.
+
+### ⏸️ D-34 - BUILT WHOLE, APPLIED ONLY AS FAR AS ITS RED. **NOT an open decision; a held execution.**
+
+CS ruling stands: _"YES: nightly shadow runner → `run_pipeline_v3` with `p_promote_blocked => true`
+(per D-29 scoping), after S-112 is fixed."_ Seven migrations, fixture-first, Cody
+⚠️ approve-with-revisions (both revisions landed before any apply), dry-run twice inside
+`BEGIN; … ROLLBACK;` with the rollback re-verified both times.
+
+**Applied: `20260809050000` only** - the RED (fixture 53, `24 pass / 10 fail`, every failure the
+intended defect). **Staged and unapplied: `20260809050500`, `051000`, `051500`, `052000`, `052500`,
+`052600`.** ⛔ **RISK 104 therefore reads disk 396 / DB 390 BY DESIGN.** Verify that delta by set
+difference; a count-only check hides which six.
+
+⛔ **The gate is real, not caution.** D-34 rewrites `run_nightly_shadow_v3` - the exact function the
+cron-45 verification owed since leg 159 is meant to test. Applying first would test the new code and
+retire the question without answering it. The unit is held **whole** because migrations 2..7 are
+inert-but-partial without the runner, and "nothing half-applied" is the handoff invariant.
+
+⭐ Leg 166 proved the unit apply-ready **statically**, against the staged bodies, so the apply is not
+the first time anyone learns whether it goes green: seq 34 (`position('parked (D-34)')` → 0), seq 35
+(`'warehouse'` absent from `run_pipeline_v3`), seq 36 (`'warehouse'` present in the runner at 816),
+seq 29/30 (CHECK gains `no_base` / `composed_empty`). ⛔ **seq 35 is the one that mattered: S-323
+means `prosrc` includes COMMENTS, so one word of the migration's own prose about the role divergence
+would have tripped the guard it ships.** It appears 0 times in the body.
+
+### ⛔⛔ S-333 (leg 165, **OPEN as a CS ask**) - THE TWO ROLE GATES DIVERGE AND D-34 MAKES THE STRICTER ONE WIN
+
+Cody's Article 4 finding. `run_nightly_shadow_v3` admits `operator_admin, superadmin, manager,
+warehouse`; `run_pipeline_v3` admits **only the first two**. `SECURITY DEFINER` does not reset
+`auth.uid()`, so once the runner calls the pipeline a manager or warehouse caller is refused.
+**Verified live, non-destructively, as warehouse `bf32624e`** (`p_days_cover => 999` fails validation
+AFTER each gate, so the error text names which gate fired): the runner answered
+`p_days_cover must be 1..60`, the pipeline answered `lacks operator_admin role`.
+
+⛔ **NOT fixed by widening the pipeline's gate.** That is an authorization EXPANSION on a
+SECURITY DEFINER that plans refills, and it belongs to CS. Fail-closed is the safe direction; what is
+not safe is the reason arriving as a generic `error`. So it gets its own word, `role_refused`, and
+**fixture 53 seq 35/36 pin the divergence from BOTH sides** so the tempting silent "fix" goes red
+(S-322: never loosen an assertion to accommodate the code it caught). ⭐ **Cron is unaffected: it
+passes a NULL uid and skips both gates.**
+
+**THE ASK (one line):** should `manager` / `warehouse` keep the ability to run the nightly shadow
+runner by hand, or should the runner's gate narrow to match the pipeline's?
+
+### ⛔⛔⛔ S-335 (leg 166, **OPEN as a CS ask**) - SIX OF TEN CLUSTERS HAVE **ZERO** v3 EVIDENCE AND CAN NEVER BE FLIPPED
+
+S-320 said "v3 is not accruing evidence." True, and it undersells it. The base was counted but never
+characterised. Measured live with the S-244/S-307 filter (`plan_date < '2027-01-01'`):
+
+```
+engine_forecast_error_v3, engine_tag='v3', real dates
+  -> ONE date: 2026-08-04. 96 series. 6 machines. actuals_settled = FALSE.
+     horizon_end 2026-08-11, wmape NULL, vacuous_reason 'horizon_not_elapsed'.
+  -> there is no second real date.
+```
+
+⛔ **At the grain DR-1 actually flips on:** AMAZON 2 machines / 32 series · OHMYDESK 2 / 32 ·
+INDEPENDENT 1 / 16 · NOVO 1 / 16. **ADDMIND, GRIT, LVLUP, VML, VOX, WPP: zero machines, zero series.**
+
+⭐⭐ **DR-1 refuses to flip a cluster whose v3 WMAPE is vacuous. For those six the WMAPE is not
+unsettled - it does not exist.** The unit is behaving exactly as specced; the evidence is what is
+missing. ~Aug 17 is reachable for at most FOUR clusters, and only if 2026-08-04 settles cleanly.
+
+⚠️ **Tonight does not broaden it:** `v_add_engine_scope_v3` for 2026-08-09 resolves to **AMAZON
+only**. ⚠️ **And the last three scheduled nights banked nothing** - `08-05 blocked_gate0`,
+`08-06 ok/0 rows`, `08-07 skipped_calendar`.
+
+⭐ **The settle arithmetic, so it is not re-derived:** the loop takes `horizon_end <= today(Dubai)`
+and the 21:22Z fire on day D carries Dubai date D+1, so 2026-08-04 is first eligible on the
+**2026-08-10** fire and the first non-vacuous v3 WMAPE in the system's history lands **2026-08-11**,
+over one date and six machines.
+
+**THE ASK (one line):** ~Aug 17 assumed a nightly accrual that is not happening - does CS want the
+six zero-evidence clusters brought into scope deliberately (a picking/scheduling change, S-320's
+territory), or does the cutover proceed cluster-by-cluster as evidence arrives, accepting that
+ADDMIND/GRIT/LVLUP/VML/VOX/WPP stay on v19 indefinitely?
+
+### ⏸️ THE REMAINING TIER-2 UNITS - **STILL THREE**
+
+- **D-34** - built whole, held on the cron-45 gate ONLY. Apply order `050500` → `051000` → `051500`
+  → `052000` → `052500` → `052600`, then fixture 53, then the blast radius **including fixture 37**
+  (its seq 36..40 are the only S-304a positive-case guard; both of fixture 53's nights are refusals).
+- **D-39** - Dara design landed, SQL deliberately not started, blocked on the **S-330** fork.
+- **D-19** - blocked behind DR-6, FE-deploy work this loop cannot perform.
+
+### ⏸️ OPEN CS DECISIONS after these legs - **TWELVE ASKS; legs 165 and 166 raised TWO.** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** · **S-320** · **S-328** · **S-330** · 🆕 **S-333** (manager/warehouse hand-run, or narrow the gate?) · 🆕 **S-335** (six clusters with zero v3 evidence: deliberate scope change, or indefinite v19?). The answered-unexecuted list is **unchanged at THREE**: D-19, D-34, D-39. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-29, D-31, D-32, D-33, D-37, D-40, D-43, D-44, D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **The DR register is empty; TIER 2 IS NOT.** ⚠️ **S-326, S-327, S-329, S-331, S-332, S-334 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320, S-325, S-328, S-330, S-333 and S-335 remain OPEN.** New findings resume at **S-336**. ⭐ **Neither leg flipped a flag or turned a dial. Leg 165 changed no live body at all (only the fixture RED landed); leg 166 had applied nothing at the time of writing.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
