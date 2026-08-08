@@ -39442,3 +39442,90 @@ tidy:** tonight is the first fire in four nights that can bank v3 evidence at al
 (`is_refill_planning_day_v3` true, 5 `cs_added` machines in scope, Gate 0 with nothing unconfirmed
 to find). Applying an untested runner rewrite 37 minutes ahead of it would risk the only accruing
 night AND the verification in one move. **Apply AFTER the fire is classified, not before.**
+
+---
+
+## ⭐⭐ leg 168 (2026-08-08) - **STEP R clean, baton attended a second consecutive leg.** ⛔⛔ **S-337: three clusters are refused for a reason that is not their only reason - satisfying the stated `refusal_code` leaves them still refused.**
+
+**Window:** 20:50Z - · **no flag flipped, no dial turned, nothing applied yet**
+
+### STEP R - every pointer claim re-derived from live state
+
+Leg 167 ended with **no RESUME POINTER** (its last block is the "gate is correctly shut" note), so the
+governing pointer is leg 166's PRELIMINARY, as amended by leg 167's body. ⭐ **THE BATON WAS ATTENDED
+FOR THE SECOND CONSECUTIVE LEG** - `ps` narrowed (S-241) found BOTH watchers alive on the first probe:
+leg 166's `prd110_leg165_cron45_watch.sh` (PID 16406, deadline **21:55:42Z**) and leg 167's
+`leg167_gate.sh` (PID 17893, deadline **22:05Z**). Both genuinely cover the 21:22Z fire; neither
+re-armed, neither output file has content, so the fire has not happened.
+
+- ⭐ **RISK 104 reconciles by SET DIFFERENCE exactly as owed: disk 396 vs DB 390**, and the six are
+  precisely `20260809050500`..`052600` - leg 165's staged D-34 unit - with **zero db-only rows**.
+  Disk md5 `c7e1edab405986041ca8d2ea04622e04` · DB md5 `435a0e8275a17324166ce678d76013d0` ·
+  DB `max(version)` `20260809050000`. The handoff invariant holds: staged whole, not half-applied.
+- ⭐ **LAW 4 VERIFIED:** all 10 clusters `authoritative_engine='v19'` · `pod_refills` **4,177** ·
+  `pick_urgency_params.w_intents` **0**, `updated_at` still `2026-08-06 23:20:27.984211+00`.
+- ⭐ **LAW 12 VERIFIED:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **absent**, and
+  **zero `operator_status='pending'`** on both live dates.
+- ⭐ **S-320 PRE-STATE HOLDS, sixth consecutive leg:** `machines_to_visit` for 2026-08-09 carries
+  **5 `cs_added` + 4 `cs_dropped`, ZERO `picked`** (all `add_source='picker'`).
+  `resolve_refill_plan_date()` = **2026-08-09** · `is_refill_planning_day_v3('2026-08-09')` = **true**
+  · cron 45 `22 21 * * *`, **active**, last three fires (08-05/06/07) all pg_cron `succeeded`.
+- ⭐ **S-80 DISCHARGED on the WHOLE parking lot:** the only CS-authored ruling block in the file is
+  still **`## CS DECISION - POST-DONE DR REGISTER CLOSED (2026-08-04)`** at line 10339. **No new CS
+  ruling.** The twelve asks stand.
+- ⭐ **Pre-fire bank:** `shadow_runner_log_v3` **564** (unchanged) · `pipeline_runs_v3` **146**
+  (leg 167's three baseline fixtures moved it from 144) · `pod_refills_shadow` **24,530** ·
+  enabled fixture population **71**.
+- ⛔ **`/tmp` SURVIVED** (twenty-third leg); the Supabase MCP still has not connected.
+
+### ✅ THE APPLY IS PRE-FLIGHTED - pre-image banked WITH ITS RECIPE, all seven baselines confirmed
+
+- ⭐⭐ **S-336's twin lesson applied: the pre-image records BOTH hash recipes side by side**, so the
+  next leg cannot raise a false drift alarm by hashing differently. Live at pickup
+  (`/tmp/leg168_preimage.json`): runner `md5(functiondef)` **`37f5d8ce…`** / `md5(prosrc)`
+  **`f668347d…`** · pipeline `52fc895f…` / `d16df04a…` · health view `e81ab850…` ·
+  CHECK `d45ce94d…`. Signature, `prosecdef` and `search_path` (runner `public, pg_catalog`,
+  pipeline `public, pg_temp`) re-verified live and unchanged.
+- ⭐ **All SEVEN S-336 baselines confirmed present in `golden.runs`, not assumed:** fixture
+  **1 → 59/0** · **60 → 54/0** · **76 → 29/0** (`leg167_pre_baseline`, 20:43Z) · **37 → 43/0** ·
+  **51 → 53/0** · **61 → 13/0** (`leg165_pre_baseline`) · **53 → 24/10 RED** (`leg165_d34_red`).
+- ⭐ **The ten reds of fixture 53 were ENUMERATED, not inherited:** seqs
+  **24, 25, 27, 28, 29, 30, 31, 32, 33, 34** - exactly leg 167's six-migration mapping, confirming the
+  red is attributable migration-by-migration before the apply.
+  ⛔ Per-assertion detail lives in **`golden.runs.detail` (a jsonb ARRAY)**; there is **no
+  `golden.run_assertions` table** and `jsonb_object_keys` fails on it. Use
+  `jsonb_array_elements(detail)` and filter `(e->>'passed')::boolean = false`.
+- ⭐ All six staged files re-verified on disk (50/133/260/311/30/62 lines), **none contains
+  `$stmt$`** so `apply_mig.sh` will not refuse, and the working tree is clean.
+- ⚠️ **A number that looks like drift and is not:** leg 166 recorded `position('warehouse' in
+  run_nightly_shadow_v3.prosrc)` = **816**; live reads **761**. Leg 166 measured the **staged file**,
+  this leg measured the **live body**. Both non-zero, so seq 36 ("stays") holds either way.
+
+### ⛔⛔ S-337 (NEW, **CLOSED as a finding** - it BINDS S-335's ask rather than adding one)
+
+S-335 counted v3 evidence by cluster. Read instead through `v_cutover_readiness_v3` - the object DR-1b
+actually refuses from - the six zero-evidence clusters are **not one class but two**, and the
+`refusal_code` does not say so:
+
+| refusal_code | clusters | what fixes it |
+| --- | --- | --- |
+| `v3_horizon_not_elapsed` | AMAZON · INDEPENDENT · NOVO · OHMYDESK | **time alone** (2026-08-11) |
+| `no_v3_measurement`, v19 baseline PRESENT | ADDMIND · VOX · WPP | a scoping change, then time |
+| `no_v3_measurement`, **v19 baseline ALSO ABSENT** | **GRIT · LVLUP · VML** | ⛔ **TWO things** |
+
+⭐⭐ **The gate is `is_vacuous = (wmape_v3 IS NULL) OR (wmape_v19 IS NULL)` - it needs BOTH sides.**
+But `refusal_code` is a CASE that returns the FIRST unmet condition, and `WHEN (n_series_v3 = 0)` is
+tested **before** `WHEN (n_series_v19 = 0)`. GRIT, LVLUP and VML have `n_series_v3 = 0` **AND**
+`n_series_v19 = 0`, `wmape` NULL on both sides, `last_v19_plan_date` NULL - **they have never been
+measured by ANY engine.** They report `no_v3_measurement`; satisfying exactly that moves them to
+**`no_v19_baseline`, not to `ready`**.
+
+⛔ **This is not a defect - the view is honest per-check and `no_v19_baseline` is specced.** It is a
+PLANNING TRAP: anyone sequencing the cutover off `refusal_code` alone would bring those three into v3
+scope, re-read the gate, and be refused a second time for a reason that was true all along.
+⛔ **RULE: for cutover readiness, read `n_series_v3` AND `n_series_v19` - never the single
+`refusal_code` word, which names only the first of possibly several unmet conditions.**
+
+**Effect on S-335's ask:** answering "bring the six into scope" fixes ADDMIND/VOX/WPP but leaves
+GRIT/LVLUP/VML refused. Those three (1 + 3 + 2 = **6 machines**) need a v19 baseline accrued too, so
+for them the cutover is **two accrual cycles away, not one** - and no wording of S-335 currently says so.
