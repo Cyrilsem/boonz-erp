@@ -37102,11 +37102,11 @@ the cause was never identified. RISK 104 reconciled **353 = 353**, md5 `d107206e
 
 All three reds were dated from `golden.runs` before a single line of engine SQL was read:
 
-| fx  | last GREEN         | first RED          |
-| --- | ------------------ | ------------------ |
-| 30  | 2026-08-08 09:31Z  | 2026-08-08 12:48Z  |
-| 41  | 2026-08-08 09:56Z  | 2026-08-08 12:52Z  |
-| 42  | 2026-08-08 09:56Z  | 2026-08-08 12:52Z  |
+| fx  | last GREEN        | first RED         |
+| --- | ----------------- | ----------------- |
+| 30  | 2026-08-08 09:31Z | 2026-08-08 12:48Z |
+| 41  | 2026-08-08 09:56Z | 2026-08-08 12:52Z |
+| 42  | 2026-08-08 09:56Z | 2026-08-08 12:52Z |
 
 ⭐ **A three-hour window, and it collapsed each fixture to one probe.** ⛔ **They share a window but
 NOT a cause** — three unrelated mechanisms landed in the same afternoon. The temptation to look for
@@ -37132,7 +37132,7 @@ WRITE can (S-302).**
 
 ### ✅ fx 30 CLOSED — `20260808190000` — **19/1 → GREEN 21/0**
 
-seq 8's own text ends *"Never fix this by weakening the assertion"*, and that is honoured literally:
+seq 8's own text ends _"Never fix this by weakening the assertion"_, and that is honoured literally:
 `eq 77` was a **poor proxy in both directions** — it reds on a mint that flips nothing, and it stays
 GREEN if one edge flips to `boonz_wh` while one is minted, **the exact arithmetic that just
 occurred.** Two assertions replace it, and the pair is strictly stronger:
@@ -37154,11 +37154,11 @@ arbitration between two CS-attributed intents that have just started to contradi
 
 - **(A)** fixture 42 **seq 61**: the breached set is strictly INSIDE the target-due set. Being
   breached is a STRONGER statement than being due — that is what lets it pre-empt money.
-- **(B)** fixture 42 **seq 57**, verbatim: `var_cadence_hard_max_days` = 14 is *"the absolute ceiling
-  nobody exceeds **regardless of their own gap**"*.
+- **(B)** fixture 42 **seq 57**, verbatim: `var_cadence_hard_max_days` = 14 is _"the absolute ceiling
+  nobody exceeds **regardless of their own gap**"_.
 
 They are mutually exclusive exactly when `gap_days > hard_max_days`. D-24's ruling text (parking lot
-line 5047) says only *"a max-days-between-visits floor that forces inclusion when breached"* and
+line 5047) says only _"a max-days-between-visits floor that forces inclusion when breached"_ and
 **never settles the interaction**. `LEAST` encodes (B) and breaks (A); `GREATEST` encodes (A) and
 overrides (B). ⛔ **Swapping it would have overridden one CS statement to satisfy another, silently.**
 
@@ -37194,7 +37194,7 @@ do not collide, so the fixture **asserts nothing D-48 will settle**:
 - **seq 63** → the same structural band is non-empty. **A band that exists by construction
   discharges non-vacuity; a band that happens to be occupied discharges it by luck.**
 - **seq 86 (new)** → an inversion the **ceiling does not explain**: a threshold below `gap_days`
-  while `gap_days` is *within* the ceiling. That is arithmetic, not policy — **no reading under
+  while `gap_days` is _within_ the ceiling. That is arithmetic, not policy — **no reading under
   either side of D-48**. Measured **0**.
 
 ⭐ **The D-48 census is RECORDED, NOT ASSERTED** — `cad_conflict_live` **1** and
@@ -37225,10 +37225,9 @@ Anchor A's designed headroom is **9**, and block (0) `RAISE`s if `a_max < 9`. �
 viable, but only at **headroom 6**, i.e. **exactly** the 6 transfer units.
 ⭐ **That boundary is arguably a STRONGER no-clamp test than headroom 9** (an off-by-one in the clamp
 would now red anchor A) — but it is a change to what anchor A PROVES and must be argued, not slipped
-in. ⛔ **The re-anchor is 8 sites** across a 239-line scenario (lines 12, 43, 55, 104, 140, 222, 230,
-235) plus the source predicate's machine exclusion, which currently excludes only MPMCC-1058 and
+in. ⛔ **The re-anchor is 8 sites** across a 239-line scenario (lines 12, 43, 55, 104, 140, 222, 230, 235) plus the source predicate's machine exclusion, which currently excludes only MPMCC-1058 and
 would have to exclude the new destination machine too.
-⏸️ **Leg 157 did not begin it.** RELAY: *never begin a unit you cannot finish this session.* The next
+⏸️ **Leg 157 did not begin it.** RELAY: _never begin a unit you cannot finish this session._ The next
 leg starts from a finished bisect, not from scratch.
 
 ### ✅ RESIDUE — proven, not declared
@@ -37277,12 +37276,12 @@ unattributed sales. 🆕 **fixture 41's `notes` now misdescribe the source pod**
   `fixture40_anchor_b_by_predicate` precedent**: resolve once into `golden.scratch` (key
   `anchor_dstA`) exactly as `anchor_src` already does, then read it everywhere instead of the UUID.
   ⏸️ Also fix fixture 41's `notes`, which still describe the source as "Krambals & Zigi, 7 SKUs".
-- 🆕⛔⛔ **D-48 IS A NEW CS ASK AND THE LOOP MUST NOT ANSWER IT.** *Does the 14-day absolute ceiling
-  bind a machine whose own measured cadence is longer than 14 days?* **GRIT-1022-0100-W0** (observed
+- 🆕⛔⛔ **D-48 IS A NEW CS ASK AND THE LOOP MUST NOT ANSWER IT.** _Does the 14-day absolute ceiling
+  bind a machine whose own measured cadence is longer than 14 days?_ **GRIT-1022-0100-W0** (observed
   cadence **20.5 d**, `policy_trip_interval_days` **30**, dsv 19) reads **BREACHED** at day 14 and
   therefore **pre-empts money under D-44 while not yet due by its own target**. ⛔ **Cody BLOCKED**
-  the `LEAST`→`GREATEST` fix: it overrides CS statement (B) (seq 57, *"the absolute ceiling nobody
-  exceeds regardless of their own gap"*) to satisfy CS statement (A) (seq 61, breached ⊂ due).
+  the `LEAST`→`GREATEST` fix: it overrides CS statement (B) (seq 57, _"the absolute ceiling nobody
+  exceeds regardless of their own gap"_) to satisfy CS statement (A) (seq 61, breached ⊂ due).
   ⭐ **The general rule, worth keeping: when two CS-attributed statements collide, PARK — do not pick
   the one that makes the fixture green.** If CS answers NO, the engine **and** fixture 42 **seq 62**
   (the independent mirror, deliberately left agreeing with today's `LEAST`) must move in the SAME
@@ -37335,3 +37334,134 @@ unattributed sales. 🆕 **fixture 41's `notes` now misdescribe the source pod**
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
   S-284, S-286..S-302 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
   New findings resume at **S-303**.
+
+## ⭐⭐ leg 158 (2026-08-08) — **LAW 8 FULLY DISCHARGED: fixture 41 RE-ANCHORED, the last standing red is CLOSED.** S-303 raised and CLOSED — the S-300 reformat mystery is solved. No engine body touched.
+
+### ✅ STEP R — CLEAN, EXCEPT THE S-99 DRILL FIRED, AND THIS TIME IT PROVED ITS CAUSE
+
+`ps` narrowed (S-241) and full (S-294): no prd110 job running; leg 157's `prd110_leg157_iso.sh` is
+gone. ⛔ **BUT the leg-157 pointer's claim that the PRD-111 session (PID 66562) "has exited" was
+FALSE — it is alive, started 12:13PM, 4m26s CPU.** Re-read `git log` rather than trusting HEAD, as
+the pointer itself instructed. RISK 104 reconciled **355 = 355**, md5 `c6b479767149ca1e80e15994983e6c8f`
+both sides, `max(version)` `20260808191000`. LAW 12 re-probed: `2026-08-07` **101** · `2026-08-08`
+**117** · `2026-08-09` **97**, **zero pending on all three**. Fixture population **65 = 65**.
+⭐ **Adjudicated the golden state from `golden.runs` directly, not from the log: of all 65 latest
+runs exactly ONE was red — fx 41 at 59/7.** 64 green / 1 red, confirmed independently.
+
+### ⭐⭐ S-303 (NEW, CLOSED) — **THE S-300 REFORMAT IS THE REPO'S OWN PRETTIER HOOK, LANDING AFTER THE COMMIT**
+
+Two legs failed to attribute this. `git diff HEAD` was dirty at STEP R: 31 insertions / 31 deletions
+across the log and the parking lot, **purely `*italic*` → `_italic_`**, proven cosmetic by a
+whitespace-insensitive word diff. The mechanism, proven rather than guessed:
+
+| evidence                                         | value                       |
+| ------------------------------------------------ | --------------------------- |
+| leg 157's commit `014d496`                       | **16:38:06**                |
+| EXECUTION-LOG mtime · PARKING-LOT mtime          | **16:39:16** · **16:39:17** |
+| `prettier --check` on the **HEAD** blobs         | **DIRTY** (both)            |
+| `prettier --check` on the **working-tree** blobs | **CLEAN** (both)            |
+
+⛔ **The files were committed in unformatted form and rewritten 70 seconds LATER.** The repo's
+`PostToolUse` hook (`npx prettier --write "$FILE_PATH"` on `Edit|Write`) does not block the commit
+that follows it, so a leg whose final act is "Edit the log, then `git commit`" **races its own
+formatter and loses**. ⭐ **No external actor, no other session — the leg does it to itself.**
+S-300's suspicion that another session's blast radius reached the log is retired.
+⛔ **The rule: the cosmetic delta belongs in the NEXT leg's commit. Never "revert" it** — reverting
+re-dirties the file and the hook simply redoes it. Leg 158 folds it into its own commit, which is
+also why the files land prettier-clean in git for the first time.
+
+### ⛔ THE FIXTURE-41 DIAGNOSIS WAS COMPLETE AND CORRECT — THIS LEG ONLY HAD TO BUILD IT
+
+Leg 157 handed over a finished bisect and deliberately did not start the repair. Re-verified live
+before writing anything (LAW 13), all seven failures descend from ONE reading:
+
+| seq | got                       | want                  |
+| --- | ------------------------- | --------------------- |
+| 6   | `A06\|Sunbites\|9acce2bf` | `A06\|Zigi\|9acce2bf` |
+| 24  | 0                         | 6                     |
+| 25  | 14                        | 8                     |
+| 28  | 0                         | 3                     |
+| 29  | 7                         | 4                     |
+| 31  | `Sunbites`                | `Zigi`                |
+| 43  | 2                         | 5                     |
+
+Anchor A's hardcoded destination `b2145d8e` (MPMCC-1058-0000-R0 **A06**) was re-podded Zigi →
+**Sunbites** on the physical wall. ⛔ **Nothing in this loop moved it** — `planogram` holds no row
+for that shelf and `write_audit_log` records no planogram write since Aug 6. With a Sunbites
+destination none of the 7 input SKUs is assortable, so 0 transferred, all 14 took a return leg, and
+six seqs fell over behind the first.
+
+### ✅ THE FIX IS THE S-256 IDIOM APPLIED TO THE ANCHOR THAT NEVER GOT IT — `20260808193000`
+
+The SOURCE shelf was already predicate-resolved into `golden.scratch` (`anchor_src`) precisely
+because a hardcoded shelf id is a hostage to the physical wall. **Anchor A's DESTINATION kept its
+literal and became the next hostage.** It now resolves the same way into `anchor_dstA` and is read
+from scratch at all four sites. ⭐ **The POD (Zigi, `da115e6f`) is the premise anchor A needs, not
+the shelf that happens to carry it.**
+⭐ **Resolution ORDER is load-bearing: the destination resolves FIRST**, because the source predicate
+must exclude the destination's machine and that dependency cannot run both ways. The source
+predicate now excludes **both** destination machines (it excluded only `9acce2bf`).
+
+### ⛔⛔ THE ONE THING THAT HAD TO BE ARGUED, NOT SLIPPED IN: HEADROOM **9 → 6**
+
+**Exactly one shelf in the fleet still carries the Zigi pod** — `ALJLT-1015-0200-O1` **A08**
+(`10c1f09f-…`) — and its `max_stock` is **6** against anchor A's designed headroom of **9**.
+`max_stock` is shelf configuration, a protected entity this loop does not write, so 6 is the ceiling.
+⭐ **The re-anchor STRENGTHENS the fixture rather than relaxing it:**
+
+- anchor A transfers **6** units. At headroom 9 there were **3 units of slack**, so a clamp firing on
+  `units >= headroom` where `units > headroom` is meant **stayed invisible**.
+- at headroom 6 the units meet capacity **exactly**, so that off-by-one now **reds seq 30**.
+- the three anchors now bracket the clamp on both sides AND at the boundary:
+  **A = 6 into 6** (at capacity, no clamp) · **B = 8 into 1** (over, clamps 7) · **C = 8 into 0** (clamps 8).
+
+⭐ **Every other anchor-A expectation survives the move UNCHANGED, verified live before writing:**
+3 of the 7 input SKUs are Active in the Zigi pod (Honey Mustard, Sweet Chilli, Teryaki), 4 are
+Krambals → transfer 6 units / 3 SKUs, return 8 units / 4 legs, `dest_skus_any_scope` 5.
+⛔⛔ **The check that could have sunk it: the resolver's eligibility predicate is MACHINE-SCOPED**
+(`pm.machine_id = dst.machine_id OR pm.machine_id IS NULL`), so moving anchor A to a different
+machine could have changed the eligible set. **It did not — scoped 5 = any-scope 5, eligible 3 = 3.**
+⛔ **A pod-level probe would have missed this entirely.**
+
+### ⭐ A LATENT DEFECT FOUND AND FIXED INSIDE THE SAME UNIT — seq 8 WAS ASSERTING THE WRONG PAIR
+
+seq 8 (_"source and destination are genuinely different machines"_) still **hardcoded the source
+shelf `31894963`** long after S-256 made the source predicate-resolved. It was asserting the
+precondition of a pair that need not be the pair handed to the resolver. Both sides now read the
+anchors from scratch, which also makes it the assertion that proves the new machine exclusion works.
+
+### ⭐ IDENTITY IS RECORDED, NOT ASSERTED (S-301 / S-302 applied prospectively)
+
+`anchor_dstA`'s shelf code, machine and SKU count land in `golden.scratch` every run and **no
+assertion pins them**. seq 6 keeps a real drift guard by asserting the resolved shelf's **POD** —
+the actual premise — and block (0a) `RAISE`s with a diagnostic if the fleet ever loses its last Zigi
+shelf, instead of letting six seqs fail obscurely as they just did.
+
+### ✅ fx 41 GREEN — **59/7 → 66/0**, 0 skipped, no `scenario_error`, 3.4 s
+
+⛔ **Residue proven independently of the fixture's own seqs 64/65**: dstA `10c1f09f` back to
+`current_stock` **2** (= `live_pre`), dstB `81820a63` back to **5**, `golden.weimi_pin_backup`
+**0 rows**, and the retired shelf `b2145d8e` **untouched at 9/15 Sunbites** — the fixture no longer
+reads or writes it at all.
+
+### ⭐ HOW THE MIGRATION WAS BUILT — WORTH REUSING
+
+The rewrite was constructed and **diffed OFFLINE first**, then the seven replacements were
+**generated into the migration from the same verified strings**, each with an S-298 exact-once guard.
+⛔ **Three post-image proofs refuse a partial apply**: the retired UUID must be absent, `anchor_dstA`
+must appear exactly 5 times, and **`md5(v_new)` must equal the byte-for-byte image diffed offline**
+(`dd64ee1c59a2415c5648cd4a00f3df02`). A pre-image md5 guard refuses if the scenario drifted at all.
+⭐ The S-287 dry-run idiom returned **`DRYRUN-OK`** — every guard executed, every UPDATE exercised,
+nothing committed.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+Unchanged: `dispatch_pack_confirmation`'s argument-less `audit_log_write()` · the 9 partial-cover
+stranded shelves (28 units) · **S-285 (OPEN)** · the 5,029 phantom units · `wh_fefo_for_line`
+filters no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
+`_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent
+non-assorted `venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
+✅ **CLOSED this leg:** fixture 41's `notes` no longer misdescribe the source pod — they now record
+that pod `098f5c0c` (the input set's provenance, 7 Active SKUs matching the 7 input SKUs exactly) is
+deployed on **ZERO shelves**, while the source SHELF is only a handle whose pod the resolver reads
+for reporting and never for the split.
