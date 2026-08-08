@@ -13126,3 +13126,75 @@ deliberately not bundled). New findings resume at **S-346**.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+## ⭐⭐ leg 174 (2026-08-08) - **THE S7 TRIPLE COMPLETED AND FOUND A REAL DEFECT.** ⛔⛔ **S-348: the measurement writer picks its v3 run by a UUID coin flip.** DONE-2 NOT declared - golden is not green. S-346 / S-347 raised and closed as rules.
+
+### ⛔⛔ S-348 (NEW, **OPEN - loop-side work, NOT a CS ask**) - THE UUID LOTTERY IN `refresh_engine_forecast_error_v3`
+
+```sql
+ORDER BY sh.produced_at DESC, sh.run_id LIMIT 1   -- ties broken by an arbitrary UUID
+```
+
+`produced_at` is the **transaction** clock, so every shadow run written in one transaction ties to
+the microsecond. Fixture 37 runs the nightly runner **twice** for `2030-02-07` in one transaction
+and leaves **four tied runs** - two of **8** measurable series and two of **4**. Which one gets
+measured is decided by UUID sort order, so `fce_before` / `fce_after` is `4`/`8` on a bad draw and
+`4`/`4` on a good one. **Fixture 37 seq 20 is a coin flip: six observations this leg, four green,
+two red** (A 43/0 · B 43/0 · C **42/1** · re-fires **42/1** · 43/0 · 43/0).
+
+⭐ **INERT ON LIVE DATA, and that was probed not assumed:** zero `(plan_date, produced_at)` groups
+carry more than one `run_id` on any date `< 2027-01-01`; 2026-08-09 has **one** run (80 lines / 64
+series), 2026-08-04 **one** (112 / 96). Production calls the runner once per date. **The fix
+therefore changes no number CS reads on ~Aug 17 - it is not LAW-4 territory and needs no ruling.**
+⛔ **It is NOT an explanation of S-341** (that is a single-run population gap between two engines).
+Two separate findings on the same table; do not merge them.
+
+**THE FIX, SPECIFIED:** `pod_refills_shadow` has **no monotonic id column**, so *"the most recent
+run"* is not expressible today. Either (a) tie-break on **line count DESC, then `run_id`** - a
+one-line change, no schema touch, and fixture 37 then reads `8 = 8` on both measurements; or
+(b) **Dara adds an insertion-order column** and the order becomes "last written". **Take (a) to
+Cody first.** Blast radius: `run_nightly_shadow_v3` calls it, `v_cutover_readiness_v3` consumes the
+table - grep `golden.assertions.check_sql` for both names before assuming fixture 37 is alone.
+
+### ⛔ S-347 (CLOSED as a rule) - A 502 IS NOT A 524
+
+| code | elapsed | reached Postgres | `golden.runs` row | correct response     |
+| ---- | ------- | ---------------- | ----------------- | -------------------- |
+| 502  | ~2 s    | **no**           | **absent**        | **safe to re-fire**  |
+| 524  | ~125 s  | **yes**          | **present**       | ⛔ **never re-fire** |
+
+Pass A lost **fixture 22** to a 502 and finished 70/71. Pass B took a 524 on fixture 37 and the row
+is there. **Both wrote the same `done <id>` line** into the sweep `_log`, which logs unconditionally
+after the POST returns - including when it returns an HTML error page. ⛔ **After every sweep:
+assert `count(*) = population` on `golden.runs` AND grep the `.fire` files for a non-JSON first
+byte.**
+
+### ⛔ S-346 (CLOSED as a rule) - A TAG IS NOT A RUN IDENTITY
+
+Leg 173 launched the triple at **22:15:47Z**, killed it after three fixtures to land S-342 first,
+relaunched at **22:21:18Z** under the **same tag**, and recorded none of it. Tag `leg173 S7 A`
+therefore holds **73** rows - fixtures 1/2/3 twice. ⛔ **Adjudicate with a driver-launch floor and
+report the excluded rows.** The orphans are green, carry identical pass counts to their twins, and
+touch nothing S-342 changed - **retained, not deleted** (leg 131 precedent).
+
+### ⏸️ DONE-2 STATUS - **every build item verified live; only the proof is missing**
+
+Tier 1-3 and DR-1 all re-derived live this leg and all still stand (see the log's evidence table).
+**The single blocker to `## DONE-2` is a green S7 triple**, and S-348 is the single blocker to that.
+
+### ⏸️ THE REMAINING TIER-2 UNITS - still two, both CS-side
+
+- **D-39** - blocked on the **S-330** fork (CS ruling).
+- **D-19** - blocked on the **DR-6 deploy**. ⛔ **Sharpened this leg:** `921ee46` is on **no remote
+  branch**; local `main` is **20 commits ahead of `origin/main`** (still at leg 161). The deploy is
+  a `git push` that triggers Vercel production - **an outward-facing action this loop must not take
+  unilaterally.** One CS action unblocks both the deploy and D-19's flip.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FOURTEEN; leg 174 raised NONE and closed none.**
+
+S-251 · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** ·
+**S-320** · **S-328** · **S-330** · **S-333** · **S-335** · **S-341** · **DR-6 deploy**.
+⚠️ **S-339 OPEN** · **S-313 OPEN** · 🆕 **S-348 OPEN (loop-side)**. New findings resume at **S-349**.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
