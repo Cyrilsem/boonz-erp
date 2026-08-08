@@ -38936,3 +38936,80 @@ P1.4 composition estimator or from the editor's own selection? Composition is au
 **2 of 163**. The editor's selection covers all of them and costs a SKU picker on the edit dialog —
 FE work, DR-6 class, which this loop cannot deploy. The ladder supports both and is built so that
 rung 1 arriving later changes no stored row. **What CS decides is which rung the build waits for.**
+
+---
+
+### RESUME POINTER 2026-08-08 leg 164 · PRELIMINARY (cron-45 watch in flight — see FINAL below if present)
+
+Written at 19:4x UTC with a background watcher armed on cron 45's 21:22 fire, so the baton is safe if
+this session dies waiting. **If a FINAL block exists below, read that instead.**
+
+- ⚠️ **FIRST — `ps` narrowed (S-241) ⛔ THEN a FULL `ps` (S-294) ⛔⛔ THEN `pg_stat_activity`.**
+  Leg 164 left **one** thing running: `/tmp/prd110_leg164_cron45_watch.sh`, a poller that queries
+  `shadow_runner_log_v3` every 180 s and **exits on the first row** at/after
+  `2026-08-08 21:15:00+00`. It writes nothing. ⛔ Kill it if you find it after the verification has
+  been done — it is a watcher, not work.
+- ⛔ **RISK 104: expect `prd110%` = 389, `max(version)` = 20260809041500, owed md5
+  `0c68e55f7b39f9a9cd62aba73b4d18c7` both sides — reconciled 389 = 389 at this point.** Recipe
+  unchanged: `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE
+  '%prd110%'`; disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS
+  S-31's retained **version prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side
+  in **PYTHON**, **TOP LEVEL ONLY**. ⛔ Re-derive both sides at pickup.
+- ⛔⛔ **NEXT TASK IS THE cron-45 VERIFICATION — OWED SINCE LEG 159, FIVE LEGS RUNNING.** Acceptance
+  test unchanged: `shadow_runner_log_v3 WHERE note='cron'` for the 2026-08-08 21:22 run must read
+  `step='engine'` → **`status='ok'` with `rows_affected > 0`**, then `engine_forecast_error_v3` for
+  **2026-08-09** must carry a **v3** series (⛔ filter `plan_date < '2027-01-01'`, S-307/S-244).
+  ⭐⭐ **THE PRE-STATE IS PINNED AND IT MAKES TONIGHT DIAGNOSTIC (S-320):** `machines_to_visit` for
+  2026-08-09 carries **5 `cs_added` + 4 `cs_dropped` and ZERO `picked`**, re-probed at 19:3x and
+  unchanged from leg 163's 18:3x read. `cs_added` satisfies the calendar check; with no `picked` rows
+  Gate 0 has nothing to find unconfirmed. **So `skipped_calendar` or `blocked_gate0` tonight is a
+  REAL DEFECT, not a scheduling artefact.**
+  ⚠️ **BUT `ok` IS NOT AUTOMATICALLY A PASS.** The 08-06 fire read `engine ok` with
+  **`rows_affected = 0`**. An `ok`/0 result tonight fails the `rows > 0` clause and means the engine
+  cleared Gate 0 and found no demand for those 5 machines — a different investigation from a refusal,
+  and it must not be reported as a green.
+- ⛔ **D-34 REWRITES `run_nightly_shadow_v3`, THE FUNCTION UNDER VERIFICATION. VERIFY FIRST.** It is
+  the last unblocked Tier-2 unit; its D-29 dependency is discharged.
+- ⛔⛔ **THE S7 TRIPLE IS OWED AND IT IS THE LAST THING, NOT THE NEXT THING (S-321).** Run it only
+  after D-34 lands. Recipe verbatim: `/tmp/prd110_leg162_sweep.sh "<tag>" <suffix>` — sequential,
+  **`NULL` `p_max_phase` (S-309)**, `SET statement_timeout='1200000'` in the SAME POST (S-310),
+  **never re-fire on a 524**. ⭐⭐ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'` and require
+  the distinct-fixture count to equal the enabled population BEFORE reading a verdict.**
+- ⭐⭐ **D-40 IS EXECUTED. The answered-unexecuted list is THREE: D-19 (blocked on DR-6, FE work this
+  loop cannot do), D-34 (blocked on the cron verification), D-39 (Dara design LANDED, SQL not
+  started — blocked on the S-330 fork, a CS decision).** ⛔ **The DR register is empty; TIER 2 IS
+  NOT.**
+- ⚠️ **Enabled fixture population was 70 at pickup and 71 at this point** (S-311 — PRD-111/112/113
+  fire fixtures at this same database). ⛔ **Re-read it; never carry a number forward.** ⭐ Check
+  `pg_stat_activity` for foreign `run_fixture` / `golden.` activity before any sweep.
+- ⛔ **LAW 4 VERIFIED LIVE AFTER EVERY APPLY:** 0 of 10 clusters authoritative · `pod_refills`
+  **4,177** · `w_intents` **0** · `pick_urgency_params.updated_at` still
+  `2026-08-06 23:20:27.984211 UTC` (fixture 58 seq 33's pin, unmoved by the ADD COLUMN).
+- ⚠️ **LAW 12:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**, **zero
+  `operator_status='pending'` on all three.** ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⚠️ **THE LIVE CS ASKS ARE TEN; leg 164 raised TWO:** S-251 · **D-21 half-2** · **D-28 half-2** ·
+  **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** · **S-320** · 🆕 **S-328** (a non-zero
+  start for `w_intents`, or the dial just shipped can never be learned) · 🆕 **S-330** (for a
+  multi-SKU pod, composition or the editor's own selection?).
+  ⭐ **When two CS-attributed statements collide, PARK — never pick the one that makes the fixture
+  green.** ⭐ **And never loosen an assertion to accommodate the code it caught (S-322).**
+- 🆕 ⛔ **S-327 BINDS EVERY FUTURE TERM ADDED TO `urgency`:** the `runout` chip is a RESIDUAL and
+  `check_priority_surface_consistency()` derives its own the same way, so an unwired term is
+  mislabelled **with the guard green**. Wire `get_machine_health` AND the guard in the same unit.
+  Fixture 78 seq 39 pins both bodies.
+- 🆕 ⛔ **S-326 BINDS EVERY SITE-COUNT GUARD:** count by EQUALITY against a sibling term, never
+  against a literal. A `= 5` would bless a view that gained a sixth site without the new term.
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (nineteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg162_sweep.sh` all work.
+  ⛔ **`pg_get_functiondef` output has NO trailing semicolon** — add the `;`.
+  ⛔ **`golden.assertions.expect_op` is `eq`/`ne`/`gt`/`gte`/`lt`/`lte`/`contains`/`is_null`/
+  `not_null` — NOT `=`.** ⛔ **`golden.runs` has NO `scenario_error` COLUMN** — the failure detail
+  lives in `detail` (jsonb array); read it with `jsonb_path_query_array(detail,'$[*] ? (@.passed == false)')`.
+- ⛔ **STANDING RULES:** S-266 · S-267 · S-268 · S-272 · S-277 · S-280 · S-281 · S-283 · S-284 ·
+  S-285 (OPEN) · S-286..S-325 · 🆕 **S-326** · 🆕 **S-327** · 🆕 **S-328 (OPEN)** · 🆕 **S-329** ·
+  🆕 **S-330 (OPEN)**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
+  S-284, S-286..S-310, S-314..S-318, S-321..S-324, S-326, S-327, S-329 are CLOSED (recorded).**
+  ⛔ **S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320, S-325, S-328 and
+  S-330 are OPEN.** New findings resume at **S-331**.
