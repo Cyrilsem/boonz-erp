@@ -752,8 +752,20 @@ behaviour — the `pronargdefaults` trap) → picked-machines check → `_assert
 confirmed).
 
 **Candidate set = the truth layer, NOT `slot_lifecycle`.** `v_shelf_state` (pod-bound) LEFT JOIN
-`v_shelf_availability_v3` on `shelf_id`, scoped to `machines_to_visit` `picked`/`cs_added` minus
-machines with an approved `refill_plan_output` row (LAW 12, the same exclusion v19 applies).
+`v_shelf_availability_v3` on `shelf_id`, scoped to `machines_to_visit` `picked`/`cs_added`.
+⛔ **AMENDED 2026-08-08 (PRD-110 leg 159, S-304b, migration `20260808201000`). The clause that used
+to end that sentence — "minus machines with an approved `refill_plan_output` row (LAW 12, the same
+exclusion v19 applies)" — is GONE, and the attribution in it was wrong.** LAW 12 forbids _touching
+live plan tables_; `engine_add_pod_v3` satisfies it by its write target (its body holds exactly ONE
+write statement, `INSERT INTO public.pod_refills_shadow`, and no UPDATE or DELETE against any live
+plan table), not by that predicate. What the exclusion actually did was let **v19's own output
+delete v3's input**: cron 45 fires 21:22 UTC, and on 2026-08-07 the live plan was approved at
+20:54:13 UTC, so all 7 picked machines were excluded, v3 planned NOTHING, and the runner logged
+`ok`. The single non-vacuous v3 date in DR-1's whole evidence base (2026-08-04) survives only
+because that night's approval landed at 21:59, 37 minutes after the cron. The predicate was carried
+in FOUR places — the scope count, the empty-machine count, the picked CTE that drives the write, and
+the RISK-75 self-proving coverage guard — and all four moved together, or the guard would `RAISE` on
+every night with an approved plan. Golden fixture 37 seq 33/34/35 pin it (seq 35 shipped RED first).
 **R29-D1: this is a free win.** v19 joins `slot_lifecycle … archived=false AND is_current=true`,
 which is exactly why S-35's nightly rotation gap blinds it ~17h/day. Both truth-layer views contain
 the S-35 victim shelf. v3 inherits none of it.

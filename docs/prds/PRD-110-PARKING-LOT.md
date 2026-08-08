@@ -12172,3 +12172,103 @@ migration, never slipped in** — it is recorded in the migration header and in 
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for
 `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 159 (2026-08-08) — S-304 CLOSED BOTH HALVES · the shadow engine had stopped planning and the runner said `ok`
+
+### ⛔⛔ S-304b — v19's OWN OUTPUT WAS DELETING v3's INPUT (migration `20260808201000`)
+
+`engine_add_pod_v3` scoped itself to picked machines **minus any machine carrying an approved
+`refill_plan_output` row**. cron 45 fires **21:22 UTC**. The live plan for **2026-08-07** was approved
+at **20:54:13 UTC**, 28 minutes earlier, so all 7 picked machines were excluded, v3 banked **0** rows,
+and the runner logged `ok`. The **only** real date in `engine_forecast_error_v3` carrying a v3 series
+(2026-08-04) survives because that night's approval landed at **21:59**, 37 minutes LATE.
+
+⭐ **The predicate protected nothing.** `engine_add_pod_v3` holds exactly ONE write statement,
+`INSERT INTO public.pod_refills_shadow`, and no UPDATE or DELETE against any live plan table.
+`RPC_REGISTRY.md` attributed the exclusion to **LAW 12**; LAW 12 is satisfied by the write TARGET,
+not by that predicate. The registry sentence is **amended**, not silently contradicted.
+
+⛔ **FOUR sites carried it**, not three — scope count, empty-machine count, the picked CTE that drives
+the write, **and the RISK-75 self-proving coverage guard**. Had the guard kept the narrow scope it
+would have `RAISE`d on every night with an approved plan. S-280 (re-derive the site list by SHAPE)
+is why the fourth was found.
+
+**LIVE proof, 2026-08-09 (the next real plan_date):** picked machines under the OLD predicate **0**,
+under the shipped predicate **5**.
+
+### ⛔ S-304a — THREE SENSORS ALL SAID `ok` (migrations `20260808202000`, `20260808204000`)
+
+2026-08-07 is on record as `engine ok / rows 0`, `measure ok / v3_series 0`, `summary ok`,
+`is_measuring true`. Now: `shadow_runner_log_v3.status` admits **`ok_no_shadow_rows`** (a CHECK
+**widening**; all 327 existing rows revalidate) at both the engine step and the summary; the runner's
+sensor is the engine's own **`lines_written`** rather than a count of the date's whole shadow history
+(which on a re-run reported the previous run's work as this one's); the health view gains
+`last_v3_measured_date`, `last_scheduled_ok_plan_date`, and the verdicts
+`ok__last_night_planned_nothing` and `ok__running_but_v3_blind`.
+
+⛔⛔ **THE FIRST is_measuring FIX WAS WRONG AND THIS LEG CAUGHT IT ON ITSELF.** "Some real-date v3 row
+within 8 days" is a WINDOW, and read back live it still returned **TRUE** with the last v3 date four
+days old. A window keeps answering yes for a week after the runner goes blind — the exact week CS is
+asked to judge the cutover in. ⭐ **The honest test needs no tunable number:** take the NEWEST
+scheduled summary that said `ok` and ask whether **that** night emitted v3 series for **its own**
+plan_date.
+
+### ⛔⛔ S-305 (NEW, CLOSED) — A SWEEP FIRE CAN FAIL AT THE TRANSPORT LAYER AND BANK NOTHING
+
+Leg 158's sweep logged `done` 65 times and `END`, and read 65 green from `golden.runs`. **It was 64
+fires.** `f61.fire` held `upstream connect error … connection timeout`; no run row was written, so
+fixture 61's _previous_ run was still the newest and `DISTINCT ON … ORDER BY started_at DESC`
+returned a green row for a fixture that sweep never fired.
+
+⛔⛔ **AND THE ERROR STRING DOES NOT TELL YOU WHICH IT WAS.** Leg 159's own blast returned the bare
+`{"message":"Failed to run sql query"}` for fixture **16** — which had in fact run and banked
+**33/0** — while the same string on this leg's fixture-37 fire banked **nothing at all**.
+
+⛔⛔⛔ **THE CAUSE, CAUGHT IN THE ACT: there is a ~100-SECOND CLOUDFLARE EDGE TIMEOUT in front of the
+Supabase management API.** One fire returned the raw HTML — `supabase.com | 524: A timeout occurred`,
+_"The origin web server timed out responding to this request"_, Ray ID `a27f50f04a2fe30b`,
+2026-08-08 14:49:30 UTC. The bare `{"message":"Failed to run sql query"}` is the same 524 after the
+API layer swallows it. ⛔ **Any fixture slower than ~100 s ALWAYS returns an error to the client,
+whether or not it succeeded** — Postgres keeps going under its own `statement_timeout`.
+
+⚠️ **FOUR FIXTURES ARE NOW OVER OR AT THE CAP** (latest-run `duration_ms`): **37 = 123.6 s** ·
+**7 = 122.1 s** · **42 = 110.5 s** · **43 = 106.5 s**; fixture 48 (79.7 s) and 16 (77.0 s) are the
+next in line. ⛔ **Fixture 37 crossed the cap THIS LEG** — it was 71 s at 30 assertions and is 124 s
+at 43. Every future fire of these four will look like a failure at the shell and must be adjudicated
+from the DB.
+
+⭐⭐ **THE RULE, in its correct form: adjudicate a sweep on `golden.runs.note = '<this sweep>'`, never
+on "the latest run per fixture".** The note is the only thing that distinguishes _this sweep fired
+it_ from _some earlier sweep did_. `SELECT count(*) … WHERE note = '<sweep>'` must equal the fixture
+count before any verdict is read. The `.fire` shape check is still worth running — it tells you
+_which_ fixture to re-fire — but it is the diagnostic, not the adjudicator:
+`for f in *.fire; do case "$(cat $f)" in \[\{\"n\":*) ;; *) echo "$f => $(cat $f)";; esac; done`
+⛔ **And never run two fixture fires concurrently** — both bare failures this leg happened while a
+second fire was in flight against the same project.
+
+### ⭐ S-306 (NEW, CLOSED) — A REGISTRY CLAIM THAT WAS NEVER TRUE
+
+`METRICS_REGISTRY.md` stated `v_shadow_runner_health_v3` is `security_invoker=true`. Live
+`pg_class.reloptions` reads **NULL** and always has. The claim is removed. ⭐ It mattered: it would
+have sent a reviewer hunting for a flag `CREATE OR REPLACE VIEW` might drop, when the real question
+was whether GRANTs survive (they do — REPLACE does not DROP; re-proved in the migration's own
+post-image block, with `anon` holding nothing and `authenticated` keeping SELECT).
+
+### ⭐ RULES THIS UNIT ADDS OR RE-PROVES
+
+- ⛔ **A FIXTURE THAT WRITES `refill_plan_output` MUST INSERT, NEVER UPDATE.**
+  `trg_refill_plan_output_approve_to_dispatch` is `AFTER UPDATE OF operator_status`, so a row BORN
+  `'approved'` cannot fire a dispatch while a row UPDATEd into `'approved'` would fire a real one.
+- ⛔ **`pod_refills_shadow` is append-only**, so a fixture can never reset its counts: measure DELTAs.
+- ⭐ **EXERCISE A HEALTH FLAG, DO NOT ASSERT ITS LIVE VALUE (S-301).** Fixture 37 plants a synthetic
+  `cron` summary inside a forced-rollback subtransaction and reads the view through it; a live-state
+  assertion would have flipped the moment tonight's cron ran.
+- ⭐ **EVERY PREMISE ASSERTION MUST PASS IN THE RED RUN.** 37 pass / 3 fail is what makes a red mean
+  something; 3 fails among unproven premises would have meant nothing.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **SIX ASKS, UNCHANGED; leg 159 raised NONE.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular and Fade Fit - Coconut venue-supplied?) · **D-48** (does the 14-day ceiling bind a machine whose own cadence is longer?). The answered-unexecuted list is **unchanged at SIX**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-33, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. **DR-1 (Tier 4 cutover unit, flag-off) remains the only other WORK item — and its blocking dependency, S-304, is now CLOSED.** ⚠️ **S-304, S-305 and S-306 CLOSED; S-265, S-266, S-279, S-283 and S-285 remain OPEN.** New findings resume at **S-307**. ⭐ **Leg 159 flipped NO flag and changed NO dial. It DID change an engine body — `engine_add_pod_v3` — under Cody, fixture-first, with md5 guards on both images.**
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for
+`CS DECISION` rather than trust the line above.

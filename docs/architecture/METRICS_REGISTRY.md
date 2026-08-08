@@ -661,8 +661,27 @@ nightly shadow runner.
 ## `v_shadow_runner_health_v3` — canonical health of the nightly shadow runner (P2.7)
 
 Columns: `log_rows`, `last_run_at`, `last_ok_at`, `gate0_nights` (14 d), `v3_measured_real_dates`,
-`hours_since_last_run`, `is_healthy`, `is_measuring`, `verdict`. `security_invoker=true`, `anon`
-holds nothing.
+`hours_since_last_run`, `is_healthy`, `is_measuring`, `verdict`, `log_is_alive`,
+`last_scheduled_at`, `last_scheduled_status`, `last_scheduled_plan_date`,
+`hours_since_last_scheduled`, `last_scheduled_ok_at`, `last_v3_measured_date` (added leg 159).
+`anon` holds nothing. ⛔ **CORRECTION 2026-08-08 (leg 159): this entry claimed
+`security_invoker=true`. It is NOT set — live `pg_class.reloptions` on the view reads NULL, and has
+throughout. The claim was never true; it is removed rather than left to mislead the next reader into
+thinking a `CREATE OR REPLACE VIEW` would drop it.**
+
+⛔ **AMENDED 2026-08-08 (PRD-110 leg 159, S-304a, migration `20260808202000`): `is_measuring` no
+longer takes the runner's word for it.** It used to be `last_scheduled_ok_at >= now() - 8 days` and
+nothing more, so a summary that said `ok` certified a measurement that never happened — on
+2026-08-07 the engine banked ZERO shadow rows, the log said `ok`, `is_measuring` said `true`, and
+`v3_measured_real_dates` sat at **1** the whole time. `is_measuring` now also requires a real-date
+v3 series in `engine_forecast_error_v3` within 8 days, and `verdict` gains two values:
+`ok__running_but_v3_blind` (the runner is alive and v3 has emitted nothing measurable) and
+`ok__last_night_planned_nothing` (last scheduled summary was `ok_no_shadow_rows`).
+⭐ **A run that banks zero lines now has its own name at both the engine step and the summary**
+(`shadow_runner_log_v3.status = 'ok_no_shadow_rows'`, the CHECK widened by the same migration),
+and the runner's sensor is the engine's **own** `lines_written` — what THIS run banked — rather than
+a count of the date's whole shadow history, which on a re-run reported the previous run's work as
+this one's. Fixture 37 seq 36–40 pin all of it (37/38 shipped RED first).
 
 ⭐ **It fires on ABSENCE, because that is how this component fails.** A dead schedule writes no bad
 row — it writes _nothing at all_, so a detector that inspects rows sees a clean table and reports

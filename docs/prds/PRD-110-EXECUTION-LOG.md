@@ -37465,3 +37465,292 @@ non-assorted `venue_team` triples · **S-265** · the 15-of-720 unattributed sal
 that pod `098f5c0c` (the input set's provenance, 7 Active SKUs matching the 7 input SKUs exactly) is
 deployed on **ZERO shelves**, while the source SHELF is only a handle whose pod the resolver reads
 for reporting and never for the split.
+
+### ⚠️⚠️ S-304 (NEW, OPEN — **NAMED, NOT FIXED**) — **DR-1's FLIP RULE IS DEFINED ON A METRIC v3 HAS STOPPED EMITTING**
+
+Scoped while the sweep ran, so DR-1's next leg starts from evidence. **Probed live, not read from
+the parking lot** — and two of the parking lot's DR-1 facts have drifted:
+
+| DR-1 precondition                       | parking lot            | LIVE at leg 158                           |
+| --------------------------------------- | ---------------------- | ----------------------------------------- |
+| `scoreboard_daily_v3.scope_kind`        | `'fleet'` only (S-175) | ✅ still `['fleet']` only                 |
+| live venue groups                       | **9**                  | ⚠️ **11**                                 |
+| any `%cutover%` / `%authorit%` relation | none                   | ✅ still none — Phase 5 genuinely unbuilt |
+
+⛔⛔ **THE FINDING.** `engine_forecast_error_v3` over real dates since 2026-07-25 holds **exactly two
+dates**, and v3 is present in only one of them:
+
+| plan_date      | v3 series | v19 series | v3 horizon_end |
+| -------------- | --------- | ---------- | -------------- |
+| **2026-08-07** | **0**     | **46**     | —              |
+| **2026-08-04** | **96**    | 49         | **2026-08-11** |
+
+⛔ **This is not a dormant runner.** cron **45** (`prd110_p27_nightly_shadow_runner_v3`, 21:22) and
+cron **47** (`prd110_p45_scoreboard_daily_0245_dubai`, 22:45) are both **active**, and
+`shadow_runner_log_v3` reads **`ok` for 2026-08-07** (2026-08-08 is `skipped_calendar`). The writer is
+`refresh_engine_forecast_error_v3`, and for 2026-08-07 it emitted **v19 series and no v3 series at
+all**. The scoreboard agrees from the other side: v3's `wmape` rows for 08-05/06/07 carry
+`vacuous_reason = 'no_wmape_row_for_date'`, **not** `horizon_not_elapsed`.
+
+⛔ **WHY IT MATTERS AND WHY IT IS TIME-SENSITIVE.** DR-1 ships flag-off and must **refuse to flip a
+cluster while v3's WMAPE is vacuous**. On **2026-08-11** the 2026-08-04 v3 series settles — so unless
+v3 starts emitting again, the cutover's entire evidence base is **ONE real date**, and CS's ~Aug 17-19
+flip target would be met with a single day of settled v3 error. ⛔ **Do NOT "fix" this by making
+WMAPE report 0 (S-176)** — a fabricated zero signs off a cutover on no evidence.
+⏸️ **Deliberately NOT fixed here (LAW 10):** it is DR-1's dependency, not this leg's unit, and the
+cause is not yet established — the honest next step is to read `refresh_engine_forecast_error_v3` and
+determine why it produced v19 rows but no v3 rows for a night the shadow runner logged `ok`.
+
+## ⭐⭐ leg 159 (2026-08-08) — **S-304 CLOSED, BOTH HALVES. v3 had stopped planning at all, and the runner called it `ok`.** The cutover's evidence base was one date by a 37-minute accident. Five migrations, fixture 37 30 → 43 assertions, engine + runner + health view all moved with Cody.
+
+### ✅ STEP R — CLEAN, AND THE HANDOFF ITSELF WAS THE FIRST FINDING
+
+`ps` narrowed (S-241) and full (S-294): **leg 158's sweep `prd110_leg158_sweep.sh` was STILL RUNNING**
+at pickup, on fixture 14 of 65 — the leg handed off mid-sweep with no RESUME POINTER. It was left to
+finish (14:26:37Z) rather than killed, and adjudicated on completion. ⛔ The PRD-111 session
+(PID 66562) is **still alive** — third leg in a row that a pointer's "it has exited" would have been
+wrong. S-99 drill: `git diff HEAD` held leg 158's post-commit S-304 section only, 35 insertions /
+0 deletions — real content, not the S-303 prettier race. RISK 104 reconciled **356 = 356**, md5
+`e92baae1361432d9af4232bf425af3eb` both sides, `max(version)` `20260808193000`. LAW 12 re-probed:
+`2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero pending on all three**.
+
+### ⛔⛔ S-305 (NEW, CLOSED) — **A SWEEP FIRE CAN FAIL AT THE TRANSPORT LAYER AND BANK NOTHING, AND `golden.runs` THEN SHOWS THE PREVIOUS RUN AS "LATEST"**
+
+Leg 158's sweep logged `done` for all 65 fixtures and `END`. Adjudicated from `golden.runs` it read
+65 green / 0 red. ⛔ **It was 64 fires, not 65.** `f61.fire` holds
+`{"message":"upstream connect error or disconnect/reset before headers. reset reason: connection
+timeout"}` — the POST never reached Postgres, no run row was written, and fixture 61's _previous_
+run (leg 156's) was still the newest, so `DISTINCT ON (fixture_id) … ORDER BY started_at DESC`
+happily returned a green row for a fixture this sweep never fired.
+⛔⛔ **AND THE ERROR STRING DOES NOT TELL YOU WHICH CASE YOU ARE IN.** This leg's own blast returned
+the bare `{"message":"Failed to run sql query"}` for fixture **16**, which had in fact run and banked
+**33/0**, while the identical string on its fixture-37 fire banked **nothing**.
+
+⛔⛔⛔ **AND THEN THE CAUSE ANSWERED IN ITS OWN WORDS.** One fire returned raw HTML instead of JSON:
+`supabase.com | 524: A timeout occurred` — _"The origin web server timed out responding to this
+request"_ — Ray ID `a27f50f04a2fe30b`, 2026-08-08 14:49:30 UTC. **There is a ~100-second Cloudflare
+edge timeout in front of the Supabase management API**, and `{"message":"Failed to run sql query"}`
+is that same 524 after the API layer swallows it. Postgres carries on under its own
+`statement_timeout` regardless. ⛔ **Any fixture over ~100 s ALWAYS looks like a failure at the shell.**
+⚠️ **Four fixtures are now at or over the cap** (latest `duration_ms`): **37 = 123.6 s** ·
+**7 = 122.1 s** · **42 = 110.5 s** · **43 = 106.5 s** (next: 48 at 79.7 s, 16 at 77.0 s).
+⛔ **Fixture 37 crossed it THIS LEG** — 71 s at 30 assertions, 124 s at 43. This is not a flake to
+retry; it is the new normal for those four, and the next S7 triple must be adjudicated entirely from
+`golden.runs`, never from the sweep script's stdout.
+⭐⭐ **THE RULE, correctly stated: adjudicate a sweep on `golden.runs.note = '<this sweep>'`, never on
+"the latest run per fixture".** The note is the only thing that separates _this sweep fired it_ from
+_an earlier sweep did_; `count(*) WHERE note = '<sweep>'` must equal the fixture count before any
+verdict is read. The `.fire` shape check tells you WHICH fixture to re-fire — it is the diagnostic,
+not the adjudicator:
+`for f in *.fire; do case "$(cat $f)" in \[\{\"n\":*) ;; *) echo "$f => $(cat $f)";; esac; done`
+⛔ Both bare failures this leg happened while a second fire was in flight. **Never run two fixture
+fires concurrently.** Fixture 61 re-fired alone: **13/13 green**.
+
+### ⛔⛔ S-304b — **THE CAUSE: v19's OWN OUTPUT WAS DELETING v3's INPUT, AND THE WINDOW WAS 28 MINUTES WIDE**
+
+Leg 158 found that `engine_forecast_error_v3` holds v3 series for exactly ONE real date. The cause,
+proven this leg rather than guessed:
+
+`engine_add_pod_v3` scoped itself to picked machines **minus any machine with an approved
+`refill_plan_output` row**. cron 45 fires at **21:22 UTC**. The live plan's own approval times:
+
+| plan_date  | live plan approved (UTC)  | cron 45          | v3 rows banked       |
+| ---------- | ------------------------- | ---------------- | -------------------- |
+| 2026-08-04 | **21:59:14** (37 m LATE)  | 2026-08-03 21:22 | **112** ✅           |
+| 2026-08-05 | 22:31                     | 21:22            | 0 (`blocked_gate0`)  |
+| 2026-08-06 | 22:16                     | 21:22            | 0 (`blocked_gate0`)  |
+| 2026-08-07 | **20:54:13** (28 m EARLY) | 2026-08-06 21:22 | **0** ⛔ logged `ok` |
+| 2026-08-08 | 06:09 (same-day)          | 21:22            | 0 (calendar skip)    |
+| 2026-08-09 | 09:03 (same-day)          | tonight          | would have been 0    |
+
+⛔ **The one non-vacuous v3 date in DR-1's entire evidence base exists because one night's approval
+ran 37 minutes late.** Every night CS approves before 21:22 — which is now most of them, and all of
+the same-day ones — the shadow engine was handed an EMPTY machine set and wrote nothing.
+⭐ **The predicate protected nothing.** `engine_add_pod_v3`'s body holds exactly **one** write
+statement, `INSERT INTO public.pod_refills_shadow`, and no UPDATE or DELETE against any live plan
+table (probed, not assumed). `RPC_REGISTRY.md` attributed the exclusion to **LAW 12**; LAW 12 is
+satisfied by the write TARGET, not by that predicate, and the registry sentence is corrected in this
+commit rather than silently contradicted.
+⛔ **It was carried in FOUR places, not three** — the scope count, the empty-machine count, the
+picked CTE that drives the write, **and the RISK-75 self-proving coverage guard**. S-280 (re-derive
+the site list by SHAPE) earned its keep: had the guard kept the narrower scope it would have `RAISE`d
+on every night with an approved plan. All four moved together; a post-image proof counts exactly 4.
+
+### ⛔ S-304a — **AND THE SENSOR THAT SHOULD HAVE SCREAMED SAID `ok` THREE TIMES OVER**
+
+The 2026-08-07 night is on record as `engine ok / rows_affected 0`, `measure ok / v3_series 0`,
+`summary ok`, with `v_shadow_runner_health_v3.is_measuring = true`. Three independent chances to
+say "nothing was planned", three uses of the word `ok`. Fixed in the same leg:
+
+- `shadow_runner_log_v3.status` CHECK **widened** (nothing removed; all 327 existing rows revalidate)
+  to admit **`ok_no_shadow_rows`**, carried by both the engine step and the summary.
+- the runner's sensor is now the engine's **own** `lines_written` — what THIS run banked — instead of
+  `count(*) … WHERE plan_date = v_pd`, which on any re-run reported the _previous_ run's work as this
+  one's. The engine step's `detail` now carries `machines_in_scope`, `machines_without_shelves`,
+  `shelves_in_scope` and the `run_id`.
+- `v_shadow_runner_health_v3` gains `last_v3_measured_date`, `last_scheduled_ok_plan_date`, and two
+  verdicts: `ok__last_night_planned_nothing` and `ok__running_but_v3_blind`.
+
+### ⛔⛔ THE SECOND HALF OF S-304a, WHICH THE FIRST FIX GOT WRONG AND THIS LEG CAUGHT ON ITSELF
+
+The first `is_measuring` rewrite (`20260808202000`) required "some real-date v3 row within 8 days".
+⛔ **Read back live, it still returned TRUE** — `last_v3_measured_date` is 2026-08-04, four days old,
+inside the window. A WINDOW keeps answering yes for a week after the runner goes blind, and that
+week is exactly the window CS is being asked to judge the cutover in.
+⭐ **The honest test needs no tunable number:** take the NEWEST scheduled summary that said `ok`, and
+ask whether **that** night emitted v3 series for **its own** plan_date. 2026-08-06's run said `ok`
+for 2026-08-07 and emitted 46 v19 series and 0 v3 series, so the answer is no. Shipped as
+`20260808204000`; the 8-day recency clause is kept as a second, independent condition.
+
+### ✅ THE PROOF IS THE RED, THEN THE GREEN — fixture 37, **30 → 43** assertions
+
+LAW 1 held in both directions: every assertion shipped BEFORE its fix and was observed RED.
+
+| stage                                     | fixture 37                                                     |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| leg 158 baseline                          | 30/30                                                          |
+| after `20260808200000` (assertions 31-40) | **37 pass / 3 FAIL** — seq 35 `shadow_delta` 0, seq 37/38 `ok` |
+| after `20260808201000` + `20260808202000` | **40/40**                                                      |
+| after `20260808203000` (assertions 41-43) | **42 pass / 1 FAIL** — seq 43 `is_measuring` still `true`      |
+| after `20260808204000`                    | **43/43** (`leg159 M5 GREEN (is_measuring no-stale)`)          |
+
+⭐ **Every premise assertion passed in the RED run**, which is what makes the red mean something:
+seq 33 proved an approved live row really was present, seq 34 proved the runner returned rather than
+crashed, seq 36 proved the empty night really banked zero, seq 39/40 proved the happy night still
+read `ok` with lines > 0. The defect was isolated to the three assertions aimed at it.
+⭐ **The is_measuring test is EXERCISED, not read off live state (S-301):** a synthetic `cron`
+summary saying `ok` for a plan_date with no v3 series is planted inside a forced-rollback
+subtransaction, the view is read through it, and the row never commits (seq 42 pins zero residue).
+A live-state assertion would have flipped the moment tonight's cron ran.
+
+### ⭐ THE LANDMINE THAT WOULD HAVE FIRED A REAL DISPATCH
+
+Fixture 37 now writes `refill_plan_output` — a protected entity — to supply its own premise.
+⛔ `trg_refill_plan_output_approve_to_dispatch` is **`AFTER UPDATE OF operator_status`**, so a row
+that is **BORN** `'approved'` cannot fire it, while a row UPDATEd into `'approved'` would have
+dispatched. The fixture inserts, never updates, on a synthetic **2030** plan_date, and deletes the
+row at the end. ⛔ **`pod_refills_shadow` is append-only (BEFORE DELETE OR UPDATE guard), so its
+counts can never be reset between runs** — every shadow assertion here measures a DELTA.
+
+### ✅ CODY: ⚠️ APPROVE WITH REVISIONS — and both revisions shipped in this commit
+
+Articles 1, 2, 3, 4, 8, 11, 12, 14, 15, 16 checked. Article 16 required the registries to move with
+the canonical object: `RPC_REGISTRY.md` (the engine's scope sentence and its wrong LAW-12
+attribution) and `METRICS_REGISTRY.md` (the health view's columns and semantics) are both amended.
+⚠️ **A third correction fell out of the review:** `METRICS_REGISTRY.md` claimed the health view is
+`security_invoker=true`. Live `pg_class.reloptions` reads **NULL**, and always has — so there was no
+flag for `CREATE OR REPLACE VIEW` to drop, and the claim is removed rather than left to mislead.
+`anon` holds nothing (that half was true) and `authenticated` keeps SELECT; both re-proved in the
+migration's own post-image block.
+
+### ⭐ WHAT TONIGHT LOOKS LIKE — the decisive number, measured on LIVE data
+
+For **2026-08-09**, the next real plan_date, `machines_to_visit` holds **5** picked machines and all
+5 carry an approved `refill_plan_output` row.
+
+| the engine's picked set for 2026-08-09 | count |
+| -------------------------------------- | ----- |
+| under the old predicate                | **0** |
+| under the shipped predicate            | **5** |
+
+⛔ **This is proof of the scoping change, NOT proof that tonight banked rows** — cron 45 has not run
+yet (21:22 UTC). The next leg MUST read `shadow_runner_log_v3` for the 2026-08-08 21:22 run and
+confirm `engine` = `ok` with a positive `lines_written`, and `engine_forecast_error_v3` for
+2026-08-09 carrying a v3 series. If it reads `ok_no_shadow_rows`, the cause is something else and
+the new status is what will say so.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+⚠️ **DR-1's evidence base is still ONE settled date and no leg can change that retroactively.**
+2026-08-04's v3 horizon settles **2026-08-11**; every night from tonight forward can now add one, so
+a ~Aug 17 flip would be judged on roughly **one settled date plus a week of fresh ones** — which is
+a fact for CS to weigh, not a defect to fix. ⛔ **Do NOT "fix" it by making WMAPE report 0 (S-176).**
+Unchanged: `dispatch_pack_confirmation`'s argument-less `audit_log_write()` · the 9 partial-cover
+stranded shelves (28 units) · **S-285 (OPEN)** · the 5,029 phantom units · `wh_fefo_for_line` filters
+no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
+`_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent non-assorted
+`venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
+
+### RESUME POINTER 2026-08-08 leg 159 · FINAL
+
+- ⚠️ **FIRST — `ps` narrowed (S-241, `prd110|golden|stress_s|psql`) ⛔ THEN a FULL `ps` (S-294).**
+  Leg 159 left **NOTHING** running (`pg_stat_activity` read `[]` at handoff, verified). ⭐ Leg 158 by
+  contrast handed off **mid-sweep** — always check before trusting a pointer. ⛔ The PRD-111 session
+  (PID 66562) is alive; a pointer claiming it exited has now been wrong three legs running.
+  ⭐ Re-run the **S-99 drill** (`git diff HEAD`) — S-303's prettier race lands the cosmetic delta in
+  the NEXT leg's commit. **Never "revert" it.**
+- ⛔ **RISK 104: expect `prd110%` = 361, `max(version)` = 20260808204000, owed md5
+  `329cff01f01feaf7a26640e8300706be` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained **version
+  prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side in **PYTHON**, **TOP LEVEL
+  ONLY**.
+- ✅ **GOLDEN IS 65 / 65 GREEN, 0 RED** — re-read from `golden.runs` at handoff, not from this log.
+  Fixture population **65**, unchanged (leg 159 added **13 assertions to fixture 37**, 30 → 43, and no
+  fixture). **The S7 triple is therefore still required in its TRIPLE form.**
+- ⛔⛔ **READ THIS BEFORE FIRING ANYTHING: there is a ~100-SECOND CLOUDFLARE 524 AT THE EDGE of the
+  Supabase management API.** Caught red-handed (Ray `a27f50f04a2fe30b`, 14:49:30Z). **Any fixture over
+  ~100 s ALWAYS returns an error to the shell whether or not it succeeded** — Postgres finishes under
+  its own `statement_timeout`. ⚠️ **Four fixtures are now at or over it: 37 (123.6 s), 7 (122.1 s),
+  42 (110.5 s), 43 (106.5 s)**; next are 48 (79.7 s) and 16 (77.0 s). ⛔ **Fixture 37 crossed the cap
+  THIS LEG** (71 s → 124 s).
+  ⭐⭐ **THEREFORE (S-305): adjudicate a sweep on `golden.runs.note = '<this sweep>'` and require
+  `count(*) = 65` BEFORE reading any verdict.** "Latest run per fixture" silently returns a PREVIOUS
+  sweep's green row for a fixture this sweep never fired — that is exactly how leg 158's 64-fire sweep
+  read as 65. The `.fire` shape check tells you WHICH to re-fire; it is the diagnostic, not the judge.
+  ⛔ **NEVER run two fixture fires concurrently** — every bare failure this leg had a second fire in
+  flight.
+- ⭐⭐ **S-304 IS CLOSED, BOTH HALVES, AND IT WAS THE BLOCKING DEPENDENCY OF DR-1.** `engine_add_pod_v3`
+  had excluded every picked machine whose LIVE plan was already approved; cron 45 fires 21:22 UTC and
+  the plan is now approved earlier on most nights, so **v3 planned NOTHING** and the runner logged
+  `ok`. Migrations `20260808200000` (fixture, RED first) · `20260808201000` (engine, 4 sites) ·
+  `20260808202000` (CHECK widen + runner honesty) · `20260808203000` (fixture, RED first) ·
+  `20260808204000` (is_measuring). Cody: ⚠️ approve-with-revisions; both revisions shipped.
+- ⛔⛔ **NEXT TASK — VERIFY TONIGHT'S RUN FIRST, BEFORE ANY NEW UNIT.** cron 45 fires **21:22 UTC**
+  for plan_date **2026-08-09**. Read `shadow_runner_log_v3 WHERE note='cron'` for that run and require
+  `step='engine'` → **`status='ok'` with `rows_affected > 0`**, then `engine_forecast_error_v3` for
+  2026-08-09 carrying a **v3** series. ⭐ Measured pre-flight on live data: the engine's picked set for
+  2026-08-09 is **0 under the old predicate, 5 under the shipped one**. ⛔ If it reads
+  **`ok_no_shadow_rows`**, the scoping was not the whole cause — and that new status is the thing that
+  will say so instead of hiding it. `v_shadow_runner_health_v3.is_measuring` reads **false** today,
+  correctly, with `last_v3_measured_date` **2026-08-04**.
+- ⏸️ **THEN: Tier 4, DR-1** (the per-cluster cutover unit, flag-off) — now unblocked. ⛔ LAW 4 stands:
+  this loop NEVER flips the cutover flag. The unit must refuse to flip while WMAPE is vacuous.
+  ⚠️ **DR-1's evidence base is ONE settled date and no leg can change that retroactively** —
+  2026-08-04's v3 horizon settles **2026-08-11**; nights from tonight forward each add one. ⛔ Do NOT
+  "fix" the thinness by making WMAPE report 0 (S-176). ⛔ Two parking-lot DR-1 facts have drifted:
+  live venue groups are **11**, not 9; `scoreboard_daily_v3.scope_kind` is still `['fleet']` only.
+- ⏸️ **THE ANSWERED-UNEXECUTED LIST IS STILL SIX** — D-19 (⛔ blocked on DR-6, a Stax FE-deploy unit
+  this loop cannot perform) · D-29 (⛔ its own ruling says "YES **AT CUTOVER**", so it rides with
+  DR-1) · D-33 · D-34 (both see DR-9) · D-39 · D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1),
+  D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10.
+- ⚠️ **THE LIVE CS ASKS ARE SIX, UNCHANGED; leg 159 raised NONE:** S-251 (Galaxy venue-supply) ·
+  **D-21 half-2** (margin weight W%) · **D-28 half-2** (share vs queue on a contested batch) ·
+  **D-27 half-2** (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular
+  and Fade Fit - Coconut venue-supplied?) · **D-48** (does the 14-day ceiling bind a machine whose own
+  cadence is longer?). ⭐ **When two CS-attributed statements collide, PARK — never pick the one that
+  makes the fixture green.**
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero pending on
+  all three**. ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⛔ **A FIXTURE THAT WRITES `refill_plan_output` MUST INSERT, NEVER UPDATE** —
+  `trg_refill_plan_output_approve_to_dispatch` is `AFTER UPDATE OF operator_status`, so a row UPDATEd
+  into `'approved'` fires a REAL dispatch while a row born `'approved'` cannot.
+  ⛔ **`pod_refills_shadow` is append-only** (BEFORE DELETE OR UPDATE): measure DELTAs, never absolutes.
+- ⭐ **THE IDIOMS THAT CARRIED THIS LEG, ALL REUSABLE:** build the rewrite OFFLINE, diff it, generate
+  the migration from the verified strings, and make the **post-image md5 a guard** that refuses a
+  partial apply (S-298) · the S-287 `DRYRUN-OK` block · **exercise a health flag inside a
+  forced-rollback subtransaction rather than asserting its live value (S-301)** · **every premise
+  assertion must PASS in the red run**, or the red means nothing.
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (fifteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg159_blast.sh` all work; the apply shim
+  registers the version it is handed in the SAME POST. ⛔ **`pg_get_functiondef` output has NO trailing
+  semicolon** — a migration that pastes it and then continues will fail with `syntax error at or near
+"DO"`. Add the `;`.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 · S-268 (name `anon` explicitly) · S-272 ·
+  S-266 · S-277 · S-280 (re-derive a site list by SHAPE — it found the 4th copy this leg) · S-281 ·
+  S-283 · S-284 · S-285 (OPEN) · S-286 · S-287 · S-288 · S-289 · S-290 · S-291 · S-292 · S-294 ·
+  S-295 · S-296 · S-297 · S-298 · S-299 · S-300 · S-301 · S-302 · 🆕 **S-305** · 🆕 **S-306**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
+  S-284, S-286..S-306 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
+  New findings resume at **S-307**.
