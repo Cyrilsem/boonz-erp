@@ -11630,7 +11630,7 @@ venue sibling — `boonz_wh` is probably right for them and minting would **orig
 Leg 150 quarantined an untracked `PRD-111-*.md` unread. Classified this leg: an **FE-only, CS-approved**
 field-PWA pack-ahead toggle, another session's work, **not adopted**. ⭐ Its context paragraph named the
 production event behind this leg's LAW-12 reading of **97 rows on 2026-08-09**. The orphan was the
-*explanation*, not noise.
+_explanation_, not noise.
 
 ### ⛔ S-287 (CLOSED, recorded) — DRY-RUN THE RESULT, NOT JUST THE EDIT
 
@@ -11647,3 +11647,87 @@ write (each becomes an orphan the moment its pod is assorted) · `wh_fefo_for_li
 EXECUTE (from leg 149).
 
 ### ⏸️ OPEN CS DECISIONS after this leg — **FIVE ASKS.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object — policy AND a ~20 s/evaluation perf decision) · 🆕 **S-285's ask: confirm 7Up - Regular (Soft Drinks Mix, 3 machines) and Fade Fit - Coconut (Fade Fit pod, 3 machines) really are venue-supplied.** ⛔ Six edges were minted mirroring intent **CS's own writes recorded**; this leg did not originate it. **If a flip was wrong, the MAPPING is what is wrong and BOTH sides must be reverted together.** The answered-unexecuted list is **unchanged at EIGHT**: D-19, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ EXECUTED: D-21(h1), D-27(a), D-28(h1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8. DR-1 and DR-10 remain WORK; **DR-6 is FE-deploy work this loop cannot perform** and D-19 stays blocked behind it. ⚠️ **S-286 and S-287 CLOSED; S-265, S-266, S-279, S-283 and 🆕 S-285 remain OPEN.** New findings resume at **S-288**. ⭐ **Leg 151 flipped NO flag, changed NO dial, and touched NO engine body.**
+
+---
+
+## ⭐⭐ leg 152 (2026-08-08) — **D-31 EXECUTED — the LAST of the three CONVERGE units.** S-288..S-292 raised, all closed same leg. No new CS ask.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every number was read back live at leg-152 close.
+
+### ✅ D-31 CLOSED BY EXECUTION — one canonical definition of what a unit is worth
+
+`20260808150000` (fixture 72, RED **10/14**) → `20260808150200` (restated, RED **11/16**) →
+`20260808150500` (the convergence, GREEN **27/27**). `public.pod_unit_value_v3(integer)` owns the
+three-tier price cascade; `rank_machines_by_value_at_risk_v3` (`prosrc` md5 **754532ac → df7831e3**)
+and `v_facing_performance_v3` both read it. **All nine other sentinels unmoved. No flag, no dial.**
+
+⭐⭐ **THE ACCEPTANCE EVIDENCE THE RULING ASKED FOR — AND THE EVIDENCE THAT WAS REFUSED.** At the
+consumer layer, `v_facing_performance_v3` was compared row-for-row against the pre-image cascade
+recomputed **inside the same query**: **522/522 rows, 0 price mismatches, 0 basis mismatches**, with
+all four `price_basis` rungs exercised (462 / 39 / 2 / 19) and `sum(unit_price)` identical at
+**6225.4119**. ⛔ **The before/after md5 of BOTH consumers moved and neither movement was the change**
+— see S-292 below.
+
+### ⛔⛔ S-288 (NEW, CLOSED) — THE RECORDED REASON FOR TOLERATING THE DUPLICATE WAS ITSELF FALSE
+
+D-31 and `METRICS_REGISTRY.md` line 751 both justified the second inline copy as
+**"copied verbatim so the two objects cannot disagree about what a unit is worth (S-94)"**.
+⛔ **Not verbatim.** `rank_machines_by_value_at_risk_v3` read `var_price_lookback_days`;
+`v_facing_performance_v3` read `fac_price_lookback_days`. **Both read 90 — so the two copies agreed by
+coincidence of two dial values, not by construction**, and the day CS turned either one they would
+price the same unit differently with nothing to say so.
+⭐ **This is why the canonical object takes the window as an ARGUMENT.** An object reading one dial
+would have closed the hole by **silently retiring a policy dial CS owns** — a policy change wearing a
+refactor's clothes, exactly what D-27(b) and D-28 half-2 were PARKED for. Fixture 72 **seqs 13/14**
+pin which consumer passes which dial, and red the day someone collapses them.
+⭐ **The registry claim was CORRECTED in place, not marked superseded** (Cody's finding): a registry
+that records a wrong reason for tolerating a duplicate will license the next duplicate.
+
+### ⛔⛔ S-289 (NEW, CLOSED) — NULL MAKES A `NOT IN` OR `FULL JOIN` ASSERTION VACUOUSLY GREEN
+
+The convergence dry run came back **22/2**, red on two fixture assertions **that were themselves the
+defect**. One cause: `v_sales_history_resolved` leaves **15 of 720** `(machine, pod)` sales groups in
+the live window with `pod_product_id IS NULL` (**110 units, AED 1,904/90d**).
+⛔ A premise counting `DISTINCT pod_product_id` **including NULL** read "1 orphan pod" when the true
+count is **ZERO**. ⛔ The coverage assertion built on `NOT IN` over that NULL evaluated over an
+**empty set** — discriminating nothing in either direction. ⛔ A `FULL JOIN` keyed on the same column
+showed the NULL group unmatched on **both** sides and called it 2 mismatches.
+⭐ **Restated without weakening (S-272):** the premise now STATES that no orphan pod exists (so the
+union grid's third arm is a **latent** guard), and the coverage assertion asks the load-bearing
+question over the **full realized population** — **705 pairs**, with a companion assertion pinning
+that it is 705 and not 0.
+
+### ⛔ S-290 / S-291 / S-292 (NEW, CLOSED) — three operational rules the next leg inherits
+
+- **S-290:** RISK 104's S-31 exclusion is keyed on the **VERSION PREFIX**, not the whole filename
+  (`20260730203000_prd110_golden_arrange_shelf_d08_fleetwide_immunity`). An equality test against the
+  bare timestamp matches nothing and reads one migration too many.
+- **S-291 (substitution-guard hardening, all three earned in anger):** count occurrences with
+  **substring arithmetic**, not `regexp_matches` (escaping multi-line SQL is a second thing to get
+  wrong, and getting it wrong reads as "0 occurrences"); **measure** the neighbour counts rather than
+  guessing (leg 152 guessed 2/1/1, the body read **3/3/1**); and ⛔ **your own explanatory comment
+  counts as an occurrence** — the post-guard refused twice, both times because a comment inside a
+  replacement block named the token whose count it was asserting. **Reword the comment; never relax
+  the guard.**
+- **S-292:** ⛔ **A before/after capture of a live-data object is not proof that a refactor was
+  neutral.** Both D-31 consumer md5s moved; `pod_inventory` was written at **10:34:19Z inside the
+  10:31→10:48 capture window** while sales were static, moving `lost_units` and therefore
+  `value_at_risk_aed` (1183.18 → 1181.11) through terms with **no price factor**. The picker's own
+  price-classification measure, `no_price_basis_shelves`, read **132 before, after, and on repeat**.
+  ⭐ **The admissible evidence is an IN-SNAPSHOT comparison** — compute the object under test and the
+  pre-image formula in the SAME query and diff row for row. ⛔ **D-37 needs this too: its ladder reads
+  live stock.**
+
+### ⏸️ NAMED, NOT FIXED (LAW 10) — the unattributed sales
+
+**15 of 720** `(machine, pod)` sales groups resolve to no pod at all — **110 units, AED 1,904** over
+90 days. A resolver question, not a price-cascade question; closing it inside a convergence unit would
+be scope drift. ⭐ Fixture 72 **seq 27** watches it as a **drift sensor** (`lte 30`, deliberately not
+`eq`/`gte` — a fixed resolver is good news and must not red golden).
+⭐ **The convergence retired 16 UNREACHABLE rows** those NULLs produced: 15 machine-pod groups plus a
+15-into-1 NULL "fleet pod" — **which is exactly why the legacy fleet tier read 111 pods and not 110**.
+Both consumers join the price tiers on `pod_product_id`, so none of them could ever be selected.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **FIVE ASKS, UNCHANGED; leg 152 raised none.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object — policy AND a ~20 s/evaluation perf decision) · **S-285's ask** (confirm 7Up - Regular and Fade Fit - Coconut really are venue-supplied). The answered-unexecuted list drops from eight to **SEVEN**: D-19, D-29, D-33, D-34, D-37, D-39, D-40. ⭐ **D-31 is now EXECUTED**, joining D-21(h1), D-27(a), D-28(h1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8 — and it was the **LAST of the three CONVERGE units** (D-27a, D-28h1, D-31 all done). DR-1 and DR-10 remain WORK; **DR-6 is FE-deploy work this loop cannot perform** and D-19 stays blocked behind it. ⚠️ **S-288..S-292 CLOSED (recorded); S-265, S-266, S-279, S-283 and S-285 remain OPEN.** New findings resume at **S-293**. ⭐ **Leg 152 flipped NO flag, changed NO dial, and touched NO engine body except the one D-31 authorises.**
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust the line above.

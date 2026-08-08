@@ -2711,3 +2711,15 @@ triggers, so no `write_audit_log` row is minted. Measured across all four `*_pro
 (`facing`, `feedback`, `rotation`, `picker_weight`): **all zero**, including `feedback_proposals_v3`
 whose approve-RPC shipped at P4.1 and set the precedent. Fixing it here alone would diverge DR-8 from
 its three siblings — it is a family unit. Parked as **DR-10**.
+
+---
+
+## PRD-110 D-31 (2026-08-08, leg 152) — new read-only helper: `pod_unit_value_v3`
+
+- `pod_unit_value_v3(p_lookback_days integer)` → **read-only helper (sql STABLE, SECURITY INVOKER, `ROWS 20000`, `SET search_path = public, pg_catalog`; EXECUTE to `authenticated` + `service_role` ONLY).** ✅ 2026-08-08 (`prd110_d31_converge_pod_unit_value`, `20260808150500`, PRD-110 D-31, CS ruling 2026-08-01). **The canonical unit-value object (Article 16, registered in `METRICS_REGISTRY.md`).** Returns `(machine_id, pod_product_id, unit_price, price_basis)` over a grid of `machines × pods-known-to-either-source` UNION the realized `(machine, pod)` pairs — 16.7k rows live. `price_basis` ∈ `realized_machine_pod` | `realized_fleet_pod` | `recommended_price` | `none`, and it names which of the three rungs the cascade landed on. **Replaces two inline copies**, both wired on the same migration: `rank_machines_by_value_at_risk_v3` (`prosrc` md5 `754532ac` → `df7831e3`) and `v_facing_performance_v3`.
+  - ⛔ **The lookback is an ARGUMENT, not a dial read inside the object.** The two consumers own DIFFERENT dials — `var_price_lookback_days` and `fac_price_lookback_days` — which read 90 today by coincidence, **not** by construction, contrary to what the parking lot and `METRICS_REGISTRY.md` recorded ("copied verbatim so the two cannot disagree", S-94 — measured false at leg 152). Reading one dial here would have retired a policy dial CS owns under cover of a refactor. Fixture 72 seqs 13/14 pin which consumer passes which and go red if anyone collapses them.
+  - ⭐ Scans the sales window **once**, not twice: the fleet tier is a rollup of the machine-pod sums (`SUM(sum_paid)/SUM(sum_qty)`), exact by associativity, with the `HAVING` applied independently at each grain so a non-positive machine-pod group still counts toward the fleet total.
+  - ⛔ Excludes `pod_product_id IS NULL` — 15 unattributed sales groups (110 units, AED 1,904/90d) that the inline copies carried and **no consumer could ever join to**. Equivalence-preserving; the resolver gap itself is NAMED, NOT FIXED (LAW 10).
+  - **No writes.** `proacl` read back whole after apply (S-140): `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}` — **no `anon`, no `PUBLIC`**, with `anon` revoked by name because a bare `REVOKE … FROM PUBLIC` does not remove Supabase's schema defaults (S-268, the D-30 exposure).
+  - Proof: golden fixture **72, 11/16 → 27/0**, `scenario_error` null; plus 522/522 consumer rows compared in-snapshot against the pre-image cascade — **0 price mismatches, 0 basis mismatches**.
+  - Cody ⚠️→ approved with revisions (Articles 1, 2, 3, 4, 6, 7, 12, 14, 16); the revisions were the registry rows in this file and in `METRICS_REGISTRY.md`, both landed on this unit.

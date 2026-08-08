@@ -35824,13 +35824,13 @@ assertions mention sourcing/venue, the touched pod/product, or the three touched
 `scenario_error`.** Both reds were re-fired **alone** (S-283) and the population split the familiar
 two ways:
 
-| class                  | fixture       | verdict                                                                                                                       |
-| ---------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **SWEEP INTERFERENCE** | **43 seq 32** | RED in the sweep, **GREEN alone at 60/60**. Third consecutive leg fixture 43 has landed in this class. Not a defect.          |
-| **GENUINE, AND NEW**   | **5 seq 11**  | RED in the sweep **and** RED alone. Caused by a live write that landed **during this leg**.                                    |
+| class                  | fixture       | verdict                                                                                                              |
+| ---------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **SWEEP INTERFERENCE** | **43 seq 32** | RED in the sweep, **GREEN alone at 60/60**. Third consecutive leg fixture 43 has landed in this class. Not a defect. |
+| **GENUINE, AND NEW**   | **5 seq 11**  | RED in the sweep **and** RED alone. Caused by a live write that landed **during this leg**.                          |
 
-⛔⛔ **S-285's SECOND INSTANCE, AND IT IS THE WORSE ONE.** Fixture 5 is named *"Venue-sourced never
-blocks (Fade Fit)"* — Fade Fit is the exact product from the leg-56 incident (7,992 phantom sentinel
+⛔⛔ **S-285's SECOND INSTANCE, AND IT IS THE WORSE ONE.** Fixture 5 is named _"Venue-sourced never
+blocks (Fade Fit)"_ — Fade Fit is the exact product from the leg-56 incident (7,992 phantom sentinel
 units). seq 11 requires every Active Fade Fit mapping row on ACTIVATEMCC-1037 to resolve to `venue`.
 One did not: **`Fade Fit - Coconut`**, an Active `product_mapping` row created at
 **2026-08-08T09:21:42Z** inside the **105-row direct-write burst from the `warehouse` role**, with no
@@ -36038,3 +36038,308 @@ docs untracked** — PRD-111's doc is still untracked after that session shipped
 untracked PRD doc as "unstarted work".
 ⚠️ **`main` now reads `[origin/main: ahead 1, behind 1]`.** The relay does not push; that divergence is
 CS's to resolve, and it is **not** a leg-151 artifact.
+
+---
+
+## ⭐⭐ leg 152 (2026-08-08) — **D-31 EXECUTED: the last CONVERGE unit.** S-288 and S-289 raised, both closed same leg. The answered-unexecuted list drops from EIGHT to SEVEN.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every number below was read back live at close.
+
+### [leg 152] STEP R — the pointer verified against reality, one probe per claim
+
+`ps` (S-241) narrowed to `prd110|golden|stress_s|psql`: **no process running**, as leg 151 promised.
+⭐ **RISK 104 matched on every field:** `prd110%` **341**, `max(version)` **20260808143000**, owed md5
+**`76039b68f1f8179b42b1b5be85589125`** on BOTH sides — the disk side recomputed in Python with the
+S-31 exclusion applied. ⛔ **And the S-31 exclusion is keyed on the VERSION PREFIX, not the whole
+filename**: a first attempt filtered `f != '20260730203000'` against full filenames, matched nothing,
+and read **342**. The retained file is `20260730203000_prd110_golden_arrange_shelf_d08_fleetwide_immunity`.
+Golden **63 / 2328**, `stress_runs` **14**, **37** active crons, all ten sentinels at their recorded
+md5s, every flag at its recorded value, LAW 12 **101 / 117 / 97** — all identical to the pointer.
+Git: on `main` at `b6f7548`, `git diff HEAD` empty, the two untracked orphan PRD docs still untracked.
+⚠️ **ONE RECONCILIATION, AND IT IS A LABEL NOT A DRIFT:** the pointer records
+`feedback_proposals_v3` **12**. The table holds **16**; **12 is the PENDING count** (8 real WS-H2 +
+3 fixture-57 synthetic + 1 FX56 synthetic), 4 more are approved/rejected. Every row predates leg 151,
+so nothing moved — the figure was ambiguous, not wrong. Recorded so the next leg reads 16/12 and does
+not chase a phantom.
+
+### ✅✅ [leg 152] **D-31 CLOSED BY EXECUTION** — one canonical definition of what a unit is worth
+
+`20260808150000` (fixture 72 RED **10/14**) → `20260808150200` (restated, RED **11/16**) →
+`20260808150500` (the convergence, GREEN **27/27**). `public.pod_unit_value_v3(integer)` now owns the
+three-tier price cascade and both consumers read it:
+`rank_machines_by_value_at_risk_v3` **`754532ac` → `df7831e3`** and `v_facing_performance_v3`.
+⭐ **All nine other sentinels unmoved.**
+
+### ⛔⛔ [leg 152] S-288 (NEW, CLOSED) — **THE REASON D-31 WAS TOLERATED FOR A YEAR WAS FALSE**
+
+D-31, and `METRICS_REGISTRY.md` line 751, both recorded the second inline copy as harmless because it
+was **"copied verbatim so the two objects cannot disagree about what a unit is worth (S-94)"**.
+⛔ **It was not verbatim.** The two copies read **different dials**:
+
+| consumer                              | dial                       | live value |
+| ------------------------------------- | -------------------------- | ---------- |
+| `rank_machines_by_value_at_risk_v3`   | `var_price_lookback_days`  | **90**     |
+| `v_facing_performance_v3`             | `fac_price_lookback_days`  | **90**     |
+
+⭐ **They agreed by coincidence of two dial values, not by construction.** The day CS turned either
+one, the picker and the facing proposer would have priced the same unit differently, and nothing
+anywhere would have said so.
+⭐⭐ **THAT IS WHY THE CANONICAL OBJECT TAKES THE WINDOW AS AN ARGUMENT.** An object that read ONE
+dial would have closed the hole by **silently retiring a policy dial CS owns** — a policy change
+wearing a refactor's clothes, which is exactly what D-27(b) and D-28 half-2 were PARKED rather than
+committed for. Fixture 72 **seqs 13/14** pin which consumer passes which dial and go red the day
+someone "simplifies" them to a shared one, forcing that change to get its own Article 16 review —
+the role fixture 70 seq 27 plays for D-28 and fixture 71 seq 21 for D-27.
+⭐ **The registry claim was CORRECTED, not marked superseded** (Cody's finding): a registry that
+records a wrong reason for tolerating a duplicate will license the next duplicate.
+
+### ⭐ [leg 152] THE SITE LIST WAS RE-DERIVED FROM THE CATALOGUE, AND THE GREP WOULD HAVE SAID FIVE (S-280)
+
+`prosrc ILIKE '%recommended_selling_price%'` returns **five** objects and cannot tell a three-tier
+cascade from a single-tier read. The S-280-shaped predicate — *a COALESCE reaching
+`recommended_selling_price` **AND** a `realized_fleet_pod` tier* — returns **two**, exactly the two
+the ruling names. `v_pod_margin_coverage_v3` and `v_shelf_audit_prompts` COALESCE onto the same column
+and are **NOT** sites; `find_substitutes_for_shelf_v3` names the column only.
+⭐ **The predicate did not stay a scoping query — it shipped as fixture 72 seq 9**, reading **2**
+before the convergence and **0** after. It is now the standing sensor that stops a third copy, and it
+matches by SHAPE rather than by name.
+
+### ⛔⛔ [leg 152] S-289 (NEW, CLOSED) — **A PREMISE THAT WAS MEASURING A NULL AND CALLING IT A POD**
+
+The convergence dry run came back **22/2, `scenario_error` null**, red on seq 19 (`no_orphan`) and
+seq 20 (`2`). ⛔ **Both reds were in the FIXTURE, not in the convergence**, and both had one cause:
+
+> `v_sales_history_resolved` leaves **15 of the 720** `(machine, pod)` sales groups in the live
+> 90-day window **unattributed** — `pod_product_id IS NULL`, carrying **110 units and AED 1,904**.
+
+- **seq 4** counted `DISTINCT pod_product_id` **including NULL** and read 1. It was written to mean
+  "one pod carries realized sales and is missing from `pod_products`". ⛔ **That pod does not exist** —
+  the true count of non-NULL orphan pods is **ZERO**. The premise was reading the NULL group.
+- **seq 19** then asked "is the orphan covered?" using `NOT IN` over that NULL. `NOT IN` against a
+  NULL yields NULL, never true, so the set was **empty** and it answered `'no_orphan'`. ⛔ **It was
+  not discriminating anything, in either direction.**
+- **seq 20**'s FULL JOIN is keyed on `pod_product_id`, and `NULL = NULL` is never true, so the NULL
+  group appeared unmatched on **both** sides and read as 2 mismatches. **An artefact of the join key.
+  The rollup arithmetic never disagreed.**
+
+⭐ **THE RESTATEMENT WEAKENED NOTHING (S-272 — the SHAPE moves with the expect):** seq 4 flips
+`gte 1 → eq 0` and now STATES that there is no orphan pod, so the union grid's third arm is a
+**latent** guard — saying so out loud beats a premise that was accidentally green. seq 19 stops asking
+about an empty set and asks the load-bearing question over the **full realized population**: is every
+`(machine, pod)` pair with a realized price inside the canonical object's domain? **705 pairs**, with
+**seq 26** pinning that it is 705 and not 0. seq 20 **keeps its FULL JOIN** — a pod on one side only
+must still be a mismatch — and restricts both sides to non-NULL pods so it measures the rollup rather
+than the join key.
+
+### ✅ [leg 152] THE THREE THINGS THE CONVERGENCE BOUGHT, EACH MEASURED
+
+1. ⭐ **ONE SCAN INSTEAD OF TWO, AND IT IS EXACT.** Each consumer scanned the window **twice** (once
+   by `(machine, pod)`, once by `pod`), ~9 s of the query. The canonical object groups **once** and
+   derives the fleet tier by summing those sums — `SUM(sum_paid)/SUM(sum_qty) == SUM(paid)/SUM(qty)`
+   **by associativity, not by luck** — proven on every pod with a FULL JOIN (**seq 20**).
+   ⛔ The `HAVING` is applied **independently at each grain and never before the rollup**: a
+   `(machine, pod)` group with `sum(qty) <= 0` must be excluded from the machine tier yet still count
+   toward the fleet total. That population is **0 rows** live (**seq 6**), so the care is **INERT and
+   deliberate** — written so it cannot rot into a defect the first time a refund lands.
+2. ⭐ **16 UNREACHABLE ROWS RETIRED (seq 25).** The inline copies carried the 15 NULL-pod machine-pod
+   groups **plus** a 15-into-1 NULL "fleet pod" — **which is exactly why the legacy fleet tier reads
+   111 pods and not 110**. Every one was unreachable: both consumers join the tiers on
+   `pod_product_id`. Excluding them is equivalence-preserving **by construction**.
+3. ⭐ **A STANDING ANTI-REGRESSION SENSOR** (seq 9, above) plus the two dial pins (seqs 13/14).
+
+### ⭐⭐ [leg 152] THE ACCEPTANCE EVIDENCE — AND WHAT WAS REFUSED AS EVIDENCE
+
+**Fixture 72: 11/16 → 27/0**, `scenario_error` null, 27 evaluated, 0 skipped, 10.7 s. Every
+equivalence is measured against the **pre-image formula transcribed literally from both live bodies**
+(S-267), on the **full live population**: 720 machine-pod prices, 111 fleet prices, 705 realized
+pairs, a 16.7k-row cascade domain.
+
+⭐⭐ **At the CONSUMER layer, in one snapshot (Cody's R3-shaped gate):** `v_facing_performance_v3`
+compared row-for-row against the pre-image cascade recomputed **inside the same query** —
+**522/522 rows, 0 price mismatches, 0 basis mismatches.** `price_basis` distribution identical
+(**462** machine-pod / **39** fleet / **2** recommended / **19** none — all four rungs exercised) and
+`sum(unit_price)` identical at **6225.4119**.
+
+⛔⛔ **A BEFORE/AFTER CAPTURE OF EITHER CONSUMER IS NOT ADMISSIBLE PROOF HERE, AND WAS NOT TREATED AS
+SUCH.** Both md5s moved. Both consumers read **live stock**, and the cause was located rather than
+assumed: **`pod_inventory` was written at 10:34:19Z — inside the 10:31 → 10:48 capture window — while
+sales were static (zero rows since 10:30Z).** That moved `lost_units` (165.9931 → 165.5893) and
+therefore `value_at_risk_aed` (**1183.18 → 1181.11**) through terms that contain **no price factor at
+all**. ⭐ **The picker's own price-classification measure, `no_price_basis_shelves`, read 132 before,
+132 after, and 132 on a repeat run.** The drift-immune in-snapshot comparison is the evidence; the
+md5 delta is a measurement of a trading Saturday.
+
+### ⭐ [leg 152] S-287 EARNED ITS KEEP TWICE IN ONE LEG — AND BOTH CATCHES WERE IN THINGS THAT "OBVIOUSLY WORKED"
+
+1. The fixture-72 dry run returned `scenario_error = **invalid regular expression: invalid repetition
+   count(s)**`. ⛔ Postgres caps a POSIX repetition count at **255** (`RE_DUP_MAX`); seq 9's predicate
+   was written `[^;]{0,400}`. **The migration applied cleanly — the SCENARIO was what failed**, which
+   is precisely the distinction S-287 exists to draw.
+2. The convergence dry run found the S-289 premise defect above, **before a byte was committed**.
+
+⭐ **The substitution guard REFUSED TWICE, both times correctly, and both times on my own comment
+text:** the post-guard asserts `pod_unit_value_v3` appears **exactly once** in the picker's body and
+`pod_products` **exactly once** — and the explanatory comments I wrote into the replacement blocks
+each named their token a second time. Both were reworded so the call site and the join remain the
+sole occurrences. ⛔ **A guard that only ever passes is not a guard.**
+⭐ **AND THE NEIGHBOUR COUNTS WERE MEASURED, NOT GUESSED:** the first three written into the
+post-guard were 2 / 1 / 1 and the live body reads **3 / 3 / 1** (`var_money_reserved_slots`,
+`v_machine_health_signals`, `pod_products`). ⛔ Occurrence counting was also switched from
+`regexp_matches` to **substring arithmetic** — escaping multi-line SQL full of `(`, `)`, `*`, `.` and
+`|` into a regex is a second thing to get wrong, and getting it wrong reads as "0 occurrences" and
+refuses for the wrong reason.
+
+### ⭐ [leg 152] CODY — ⚠️ APPROVED WITH REVISIONS, AND THE REVISIONS LANDED ON THIS UNIT
+
+Articles checked **1, 2, 3, 4, 6, 7, 12, 14, 16**. No `SECURITY DEFINER` anywhere; the object is
+**STABLE / SECURITY INVOKER**, which is what the class-(c) playbook asks for and what preserves
+fixture 42 seq 51's LAW-4 pin. **Zero DML in the convergence migration**; the restatement writes only
+to `golden.*`. Cody's blocking-shaped finding was Article 16's enforcement clause — *"adding a metric
+= adding a row to `METRICS_REGISTRY.md` + the canonical object in the same PR"* — and that
+`METRICS_REGISTRY.md` lines 651 and 751 both carried claims this unit falsifies. **All three landed
+here:** the new canonical row, the corrected line 751 reason, the corrected line 651 byte-unchanged
+claim, plus the `RPC_REGISTRY.md` read-only-helper entry.
+⚠️ **Process slip recorded rather than smoothed:** `20260808150000` was applied **before** the review.
+It touches only `golden.*` so nothing constitutional turns on it, but LAW 3 says *every* migration.
+
+⭐ **`proacl` READ BACK WHOLE after apply (S-140), not inferred from the REVOKE:**
+`{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}` — **no `anon`, no `PUBLIC`**,
+with `anon` revoked **by name** because a bare `REVOKE … FROM PUBLIC` does not remove Supabase's
+schema defaults (S-268 — the D-30 exposure). `provolatile` **s**, `prosecdef` **false**,
+`prorows` **20000**, `search_path` pinned.
+
+### [leg 152] STATE AT CLOSE — every figure re-derived live
+
+`max(version)` **20260808150500** · `prd110%` **344** (was 341; **+3 this leg**) · disk owed-set **344**
+· ⭐ **owed md5 `4c159ae9963d59ceaec3e20e0339032c` on BOTH sides**, disk side recomputed in Python with
+the S-31 exclusion · golden **64 fixtures / 2355 enabled assertions** (was 63 / 2328: **+1 fixture,
++27 assertions, all fixture 72**) · `golden.stress_runs` **14** (unchanged) · **37 active crons**
+(unchanged).
+⛔ **THE FIXTURE POPULATION MOVED THIS LEG (63 → 64), SO DONE-2'S "run_all ×1 suffices" NO LONGER
+APPLIES — THE S7 TRIPLE IS NOW REQUIRED IN ITS TRIPLE FORM.**
+⭐ `scripts/prd110_s7_fixtures.txt` reconciled against `golden.fixtures WHERE enabled` (S-269):
+**64 = 64, IDENTICAL**, with 72 inserted in ascending order ahead of the trailing 105.
+⛔ **LIVE plan tables untouched by this leg:** `2026-08-07` **101** · `2026-08-08` **117** ·
+`2026-08-09` **97** — all three identical to the open reading.
+⭐ **SENTINELS:** `rank_machines_by_value_at_risk_v3` **754532ac → df7831e3 (this unit, intended)**.
+The other nine UNMOVED: `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** · `swap_v3`
+**ffff8485** · `approve_facing_proposal_v3` **9435ab69** · `wh_fefo_for_line` **f79d4265** ·
+`list_m2m_donors_v3` **5ecb9a2d** · `resolve_supply_ladder_v3` **056cca45**.
+
+**FLAGS AT CLOSE — NOT ONE FLAG OR DIAL CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `base_stock_min_gaps` **2** · `var_money_reserved_slots` **2**.
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE (all unchanged):** `picker_weight_proposals_v3` pending **0** ·
+`feedback_proposals_v3` **16 total / 12 pending** (the STEP-R reconciliation above) ·
+`rotation_proposals_v3` **25** · `facing_proposals_v3` **20**, of which **0 are real** (S-276).
+⭐ **S-262 was NOT re-armed:** no sweep ran this leg; pending measured **0** at open and close.
+
+### RESUME POINTER 2026-08-08 leg 152 · FINAL
+
+- ⚠️ **FIRST — `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 152
+  launched **no** background process and leaves none running. Then S-270: read the untracked set —
+  still the two orphan PRD docs (`PRD-111`, `PRD-112`), both classified and **not adopted** (LAW 10).
+- ⛔ **RISK 104: expect `prd110%` = 344, `max(version)` = 20260808150500, owed-set 344 on disk, owed
+  md5 `4c159ae9963d59ceaec3e20e0339032c` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON.** 🆕 ⛔ **AND FILTER S-31 BY VERSION PREFIX,
+  NOT BY WHOLE FILENAME** — the retained file is `20260730203000_prd110_golden_arrange_shelf_d08_fleetwide_immunity`;
+  an equality test against the bare timestamp matches nothing and reads **342**, not 341/344 (S-290).
+- ⛔⛔ **THE FIXTURE POPULATION MOVED (63 → 64), SO THE S7 TRIPLE IS NOW REQUIRED IN ITS TRIPLE FORM.**
+  DONE-2's "run_all ×1 suffices; S7-style triple only if the fixture population changed" — it changed.
+  ⭐ `scripts/prd110_s7_fixtures.txt` is already reconciled: **64 = 64 IDENTICAL** vs
+  `golden.fixtures WHERE enabled` (S-269). ⛔ Still: fire **PER FIXTURE** (`run_all` through the
+  management API banks nothing, S-250); ⛔ never START a fixture in UTC minutes **37-40** (cron 44);
+  ⛔ **`cp scripts/prd110_s7_fixtures.txt /tmp/` before firing** (S-279). ⛔ Budget generously:
+  fixture 43 alone took 110 s at leg 151; fixture 72 takes ~11 s.
+- ✅⭐ **GOLDEN HAS NO KNOWN RED — AND READ S-275 BEFORE REPEATING THAT SENTENCE.** Banked green this
+  leg: **fixture 72 at 27/27**. ⛔ **That is ONE of 64 fixtures.** The honest claim is: no red is
+  known, leg 151 banked 28 fixtures, and **36 have not been fired since leg 148's sweep**.
+- ⏸️ **NEXT TASK: the answered-unexecuted list is now SEVEN** — D-19 (⛔ blocked on DR-6, a Stax
+  FE-deploy unit **this loop cannot perform**) · D-29 · D-33 · D-34 (all three see DR-9) · **D-37** ·
+  D-39 · D-40. Then DR-10, then Tier 4 (DR-1 cutover unit, **flag-off**). ⭐ **EXECUTED so far:**
+  D-21(h1), D-27(a), D-28(h1), **D-31**, D-32, D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8.
+  ⭐ **D-31 was the LAST of the three CONVERGE units** (D-27a, D-28h1, D-31 — all now executed).
+- ⛔⛔ **D-37 MUST RESTATE TWO SENTINELS AND RE-DERIVE THEM, NOT GUESS THEM.** `resolve_supply_ladder_v3`
+  is D-37's target and it sits at **056cca45**; fixture **6 seq 50** and fixture **44 seq 28** both pin
+  that md5 exactly and D-37 will red them. Fixture 6 seq 22/25/26 must be **RESTATED, never deleted**.
+  ⭐ Copy the substitution guard whole — and note what leg 152 adds to it below.
+- ⭐⭐ **THE SUBSTITUTION GUARD, AS LEG 152 LEAVES IT — THREE ADDITIONS, ALL EARNED IN ANGER (S-291):**
+  (a) ⛔ **Count occurrences with SUBSTRING ARITHMETIC**, `(length(s) - length(replace(s,tok,'')))/length(tok)`,
+  **not `regexp_matches`** — escaping multi-line SQL full of `(`, `)`, `*`, `.`, `|` into a regex is a
+  second thing to get wrong, and getting it wrong reads as "0 occurrences" and refuses for the wrong
+  reason. (b) ⛔ **MEASURE the neighbour counts before writing them.** Leg 152's first three guesses
+  were 2/1/1; the live body read **3/3/1**. (c) ⛔ **YOUR OWN EXPLANATORY COMMENT COUNTS AS AN
+  OCCURRENCE.** The post-guard refused twice — both times because a comment inside the replacement
+  block named the very token whose count it was asserting. Reword the comment; do not relax the guard.
+- ⭐⭐ **S-287 IS NOW THE HIGHEST-YIELD HABIT IN THIS RELAY — IT CAUGHT TWO DEFECTS IN ONE LEG.** A dry
+  run that applies the migration **AND fires the fixture in the same doomed transaction**, carrying the
+  verdict out through `RAISE EXCEPTION 'DRY VERDICT pass=% fail=% scenario_error=% ...'`, found (1) a
+  regex that Postgres rejects at runtime and (2) a fixture premise that was measuring a NULL. ⛔ **Note
+  what it proves that a plain apply does not: the migration applied CLEANLY both times — the SCENARIO
+  was what failed.** Use it for any scenario_sql or engine-body edit.
+- ⛔⛔ **A `NOT IN` OR A `FULL JOIN` OVER A COLUMN THAT CAN BE NULL IS A SILENTLY VACUOUS ASSERTION
+  (S-289, NEW).** `NOT IN (…)` against a NULL yields NULL, never true — leg 152 shipped a premise that
+  read "1 orphan pod" when the real count was **0** and the 1 was an unresolved NULL, and a coverage
+  assertion that answered over an **empty set** while looking green-adjacent. ⛔ **Before writing an
+  assertion over any id column, ask whether it can be NULL and measure it.** Live: **15 of 720**
+  `(machine, pod)` sales groups have `pod_product_id IS NULL`.
+- ⏸️ **NAMED, NOT FIXED (LAW 10) — 🆕 THE UNATTRIBUTED SALES.** `v_sales_history_resolved` leaves **15
+  of 720** `(machine, pod)` groups in the live 90-day window with **no pod at all** — **110 units, AED
+  1,904**. That is a resolver question, not a price-cascade question, and closing it inside a
+  convergence unit would be scope drift. ⭐ Fixture 72 **seq 27** watches it as a **drift sensor**
+  (`lte 30`, deliberately not `eq`/`gte`: a fixed resolver is good news and must not red golden).
+- ⛔⛔ **S-285 IS STILL OPEN AND STILL THE BEST UNPICKED UNIT.** `product_mapping` has **no write gate**;
+  it took 72 direct writes at 08:42Z from `operator_admin` and 105 more at 09:21Z from the `warehouse`
+  role on 2026-08-08, all `via_rpc = false`. Articles 1 and 3 say a protected entity has exactly one
+  canonical write path. **S-53 has now recurred three times.** Dara + Cody unit: a canonical
+  `product_mapping` writer, or a trigger that refuses an Active mapping row whose pod already carries
+  venue edges and which has none of its own. ⛔ **Leg 152 did not touch it.**
+- ⛔ **NEVER ADJUDICATE A SWEEP RED WITHOUT AN ISOLATION RE-FIRE (S-283).** Unchanged and still open.
+  `/tmp/prd110_fire.sh <fixture_id> "<note>"` is the ready-made tool. Budget isolation re-fires into
+  the S7 triple.
+- ⚠️⚠️ **A BEFORE/AFTER CAPTURE OF A LIVE-DATA OBJECT IS NOT PROOF THAT A REFACTOR WAS NEUTRAL, AND
+  THIS LEG PROVED IT (S-292).** Both consumer md5s moved across D-31 and **neither movement was
+  attributable to the change**: `pod_inventory` was written at **10:34:19Z inside the 10:31→10:48
+  capture window** while sales were static, moving `lost_units` and therefore `value_at_risk_aed`
+  through terms with **no price factor**. ⭐ **The admissible evidence is an IN-SNAPSHOT comparison** —
+  compute the object under test and the pre-image formula in the SAME query and diff row for row
+  (522/522, 0 mismatches). Do this for D-37, whose ladder reads live stock too.
+- ⚠️ **THE LIVE CS ASKS, STILL FIVE (leg 152 added none):** S-251 (Galaxy - Milk Chocolate venue-supply
+  confirmation) · **D-21 half-2** (the margin weight W%, and whether 90 % is still the right bar at
+  53.99 % computability) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on
+  a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object — policy AND a
+  ~20 s/evaluation perf decision) · **S-285's ask** (confirm 7Up - Regular and Fade Fit - Coconut
+  really are venue-supplied).
+- ⏸️ **ALSO NAMED, NOT FIXED:** 18 orphan sourcing triples with no venue sibling · the 26 latent
+  non-assorted `venue_team` triples · `wh_fefo_for_line` still carries `anon` + `PUBLIC` EXECUTE (the
+  D-30-shaped revoke, from leg 149) · **S-265 (OPEN):** fixture 57 mints into the LIVE CS review queue.
+- ⚠️ **`feedback_proposals_v3` READS 16 TOTAL / 12 PENDING.** Leg 151's pointer said "12" and meant
+  PENDING. Not a drift — a label. Probe both numbers.
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**. ⛔ Re-probe every
+  leg. ⭐ The 97 on 08-09 is **not** the nightly cron: CS pushed Sunday's AMZ plan so the team could
+  pack Saturday (PRD-111's own context paragraph names it).
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109)** — but ⭐ **`pg_get_functiondef`
+  IS the right input when you are REBUILDING a function by substitution**, because it carries the
+  signature, volatility, security and `SET` clauses that `prosrc` does not. Leg 152 used both, for
+  their two different jobs.
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (eleventh leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh` and `/tmp/prd110_fire.sh` all work; the apply shim
+  registers the version it is handed in the SAME POST.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 · S-268 (name `anon` explicitly) · S-272
+  (restating an assertion must move `expect_op`/`expect` with the SHAPE) · S-266 · S-277 · S-280
+  (re-derive a site list from the catalogue by SHAPE — a name grep returned 5 objects for D-31 where
+  the truth was 2) · S-281 · S-283 · S-284 · S-285 (OPEN) · S-286 · S-287 · 🆕 **S-288** (a recorded
+  reason for tolerating a duplicate can itself be false — measure it) · 🆕 **S-289** (NULL makes
+  `NOT IN` / `FULL JOIN` assertions vacuously green) · 🆕 **S-290** (the S-31 exclusion is a VERSION
+  PREFIX) · 🆕 **S-291** (substitution-guard hardening) · 🆕 **S-292** (in-snapshot diff, not
+  before/after, for live-data objects).
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282, S-284,
+  S-286..S-292 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
+  New findings resume at **S-293**.
