@@ -39860,17 +39860,17 @@ only trace anywhere is a **running process**.
   4 `cs_dropped`, ZERO `picked`**, all nine `add_source='picker'`.
 - ⭐ **S-80 discharged on the WHOLE file:** 27 level-2 CS headings in PRD-110-PARKING-LOT.md; the
   last CS-**authored** ruling is still **`## CS DECISION - POST-DONE DR REGISTER CLOSED
-  (2026-08-04)`** at line 10339. **No new CS ruling. The twelve asks stand.**
+(2026-08-04)`** at line 10339. **No new CS ruling. The twelve asks stand.**
 
 ### ⭐ THE POST-D-34 IMAGE REPRODUCED EXACTLY - and the health-view "drift" was the RECIPE again
 
-| object                       | recipe                | live         | leg 170 banked | verdict |
-| ---------------------------- | --------------------- | ------------ | -------------- | ------- |
-| `run_nightly_shadow_v3`      | `md5(functiondef)`    | `1182177e…`  | `1182177e…`    | ✅      |
-| `run_pipeline_v3`            | `md5(functiondef)`    | `b0fc3a9f…`  | `b0fc3a9f…`    | ✅      |
-| `shadow_runner_log_v3` CHECK | `md5(constraintdef)`  | `1ec37c03…`  | `1ec37c03…`    | ✅      |
-| `v_shadow_runner_health_v3`  | `md5(viewdef RAW)`    | `b09ca0bc…`  | `b09ca0bc…`    | ✅      |
-| `v_shadow_runner_health_v3`  | `md5(viewdef PRETTY)` | `6e04b78b…`  | -              | ⚠️ N/A  |
+| object                       | recipe                | live        | leg 170 banked | verdict |
+| ---------------------------- | --------------------- | ----------- | -------------- | ------- |
+| `run_nightly_shadow_v3`      | `md5(functiondef)`    | `1182177e…` | `1182177e…`    | ✅      |
+| `run_pipeline_v3`            | `md5(functiondef)`    | `b0fc3a9f…` | `b0fc3a9f…`    | ✅      |
+| `shadow_runner_log_v3` CHECK | `md5(constraintdef)`  | `1ec37c03…` | `1ec37c03…`    | ✅      |
+| `v_shadow_runner_health_v3`  | `md5(viewdef RAW)`    | `b09ca0bc…` | `b09ca0bc…`    | ✅      |
+| `v_shadow_runner_health_v3`  | `md5(viewdef PRETTY)` | `6e04b78b…` | -              | ⚠️ N/A  |
 
 ⛔ **`pg_get_viewdef(oid, true)` and `pg_get_viewdef(oid)` disagree and that is NOT drift** - the raw
 form is the banked recipe, and `pg_views.definition` equals it. **S-336's twin lesson has now caught a
@@ -39881,21 +39881,21 @@ independent confirmation that the swap does what it was built to do.
 
 ### ⭐ THE DONE-2 EVIDENCE, READ LIVE RATHER THAN CARRIED
 
-| item   | probe                                                          | live                                    |
-| ------ | -------------------------------------------------------------- | --------------------------------------- |
-| D-46   | `bind_dispatch_fefo` `md5(prosrc)`                             | **`8ad35ce9…`** - moved off `45ec06ab`  |
-| D-45   | `compose_plan_with_edits_v3` additive marker                    | **present**, `'add'` branch at 4278     |
-| D-43   | `push_dispatch_authorized_roles` / `push_plan_to_dispatch`      | **`warehouse` in both**                 |
-| D-43   | `repack_machine` pre-flight                                     | **`warehouse` at 869** - both halves    |
-| DR-4   | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed`           | **`block`** / **15**                    |
-| DR-5   | `w_empty` · both miner dry-run flags                            | **0.945** · **false / false**           |
-| DR-7   | cron **48** `prd110_dr7_rotation_heartbeat_0530_sunday_dubai`   | **`30 1 * * 0`, active** (05:30 Dubai)  |
-| DR-8   | `approve_facing_proposal_v3(uuid, text, text)`                  | **present**                             |
-| DR-1   | `flip_cluster_to_v3_v3` · `cutover_block_reason_v3` · authority | **all present, 10/10 clusters `v19`**   |
-| D-44   | `var_money_reserved_slots`                                      | **2**                                   |
-| D-19   | `preflight_enforcement`                                         | **`warn`** - correctly NOT flipped      |
-| DR-3   | `pod_inventory_write_freeze`                                    | **`off`** - built, freeze parked        |
-| LAW 11 | `gate0_require_manual_confirm`                                  | **true**                                |
+| item   | probe                                                           | live                                   |
+| ------ | --------------------------------------------------------------- | -------------------------------------- |
+| D-46   | `bind_dispatch_fefo` `md5(prosrc)`                              | **`8ad35ce9…`** - moved off `45ec06ab` |
+| D-45   | `compose_plan_with_edits_v3` additive marker                    | **present**, `'add'` branch at 4278    |
+| D-43   | `push_dispatch_authorized_roles` / `push_plan_to_dispatch`      | **`warehouse` in both**                |
+| D-43   | `repack_machine` pre-flight                                     | **`warehouse` at 869** - both halves   |
+| DR-4   | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed`           | **`block`** / **15**                   |
+| DR-5   | `w_empty` · both miner dry-run flags                            | **0.945** · **false / false**          |
+| DR-7   | cron **48** `prd110_dr7_rotation_heartbeat_0530_sunday_dubai`   | **`30 1 * * 0`, active** (05:30 Dubai) |
+| DR-8   | `approve_facing_proposal_v3(uuid, text, text)`                  | **present**                            |
+| DR-1   | `flip_cluster_to_v3_v3` · `cutover_block_reason_v3` · authority | **all present, 10/10 clusters `v19`**  |
+| D-44   | `var_money_reserved_slots`                                      | **2**                                  |
+| D-19   | `preflight_enforcement`                                         | **`warn`** - correctly NOT flipped     |
+| DR-3   | `pod_inventory_write_freeze`                                    | **`off`** - built, freeze parked       |
+| LAW 11 | `gate0_require_manual_confirm`                                  | **true**                               |
 
 ⭐ **DR-1 refuses all ten clusters right now**, every one `is_vacuous=true`: four sit at
 `v3_horizon_not_elapsed` (AMAZON 96, INDEPENDENT 16, NOVO 16, OHMYDESK 32 v3 series) and six at
@@ -39963,11 +39963,11 @@ S-313's pin becomes the whole risk of the unit.
 `/tmp/leg172_chain.sh` **PID 24577** is attending pass A to completion and will then run B and C
 back-to-back, sequential throughout (S-305):
 
-| pass | tag             | output dir          | note                                        |
-| ---- | --------------- | ------------------- | ------------------------------------------- |
-| A    | `leg171 S7 A`   | `/tmp/leg162_s7A`   | **inherited from leg 171**, started 21:46:51Z |
-| B    | `leg172 S7 B`   | `/tmp/leg162_l172B` | fresh dir                                     |
-| C    | `leg172 S7 C`   | `/tmp/leg162_l172C` | fresh dir                                     |
+| pass | tag           | output dir          | note                                          |
+| ---- | ------------- | ------------------- | --------------------------------------------- |
+| A    | `leg171 S7 A` | `/tmp/leg162_s7A`   | **inherited from leg 171**, started 21:46:51Z |
+| B    | `leg172 S7 B` | `/tmp/leg162_l172B` | fresh dir                                     |
+| C    | `leg172 S7 C` | `/tmp/leg162_l172C` | fresh dir                                     |
 
 ⛔ **Pass A keeps leg 171's tag deliberately.** Re-tagging someone else's run as this leg's would be
 a lie in the one table the verdict is read from. It was launched after the last migration

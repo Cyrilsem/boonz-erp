@@ -55,6 +55,22 @@ type PlanAlert = {
   reason?: string;
 };
 
+// PRD-110 DR-6: one pre-flight violation as preflight_refill_plan builds it.
+// Every field is optional on purpose - the invariants each populate a different
+// subset (INV-01 carries product names, the shelf-level ones do not), and a
+// missing key must render as an absent line, never as "undefined".
+type PreflightViolation = {
+  invariant_id?: string;
+  severity?: string;
+  machine?: string;
+  shelf_code?: string;
+  pod_product_name?: string;
+  boonz_product_name?: string;
+  expected?: string;
+  found?: string;
+  fix_path?: string;
+};
+
 // F4 (Refill v2): action-first add-row form. machine_name + shelf_id +
 // pod_product_id all resolve to real identifiers, so the row is persisted via
 // add_pod_refill_row (no more identifier-less local-only rows that the commit
@@ -253,6 +269,22 @@ export function RefillPlanningTab({
     ok: boolean;
     msg: string;
   } | null>(null);
+
+  // PRD-110 DR-6: the pre-flight refusal affordance.
+  // refill_policy_params.preflight_enforcement ships as 'warn', so today a FAIL
+  // is reported and the commit proceeds. When D-19 flips it to 'block',
+  // stitch_pod_to_boonz stops stitching and returns status='preflight_failed'
+  // with the violations and their fix paths. Without an override path that
+  // refusal strands the operator mid-reopen: the rows are already reopened and
+  // nothing will re-close them. So the refusal is held here rather than thrown,
+  // and can be re-submitted with p_force plus an audited reason.
+  const [preflightRefusal, setPreflightRefusal] = useState<{
+    count: number;
+    message: string;
+    violations: PreflightViolation[];
+  } | null>(null);
+  const [forceReason, setForceReason] = useState("");
+  const [forceBusy, setForceBusy] = useState(false);
 
   // PRD-011 Bug 1: the plan_date the loaded draft was generated for. Distinct
   // from `selectedDate` (the date-picker value), which can drift from the
@@ -631,6 +663,7 @@ export function RefillPlanningTab({
     if (reopenSel.size === 0 || reopenReason.trim().length < 10) return;
     setReopenBusy(true);
     setReopenResult(null);
+    setPreflightRefusal(null);
     try {
       const names = [...reopenSel];
       // Resolve machine_name -> machine_id (the enriched pending reader returns
@@ -692,13 +725,28 @@ export function RefillPlanningTab({
         status?: string;
         preflight_verdict?: string;
         preflight_violation_count?: number;
+        // ⛔ DR-6: the REFUSAL path returns `violation_count` / `violations`.
+        // `preflight_violation_count` is the SUCCESS path's key and is
+        // undefined on a refusal - reading it there reported "0 violation(s)"
+        // for every refusal. The two paths do not share a vocabulary.
+        violation_count?: number;
+        violations?: PreflightViolation[];
         message?: string;
       } | null;
       if (stitchResult?.status === "preflight_failed") {
-        throw new Error(
-          stitchResult.message ??
-            `Commit refused by pre-flight: ${stitchResult.preflight_violation_count ?? 0} invariant violation(s).`,
-        );
+        // A refusal is a decision point, not an error. Hold the violations so
+        // the operator can fix them or override with an audited reason.
+        setPreflightRefusal({
+          count: stitchResult.violation_count ?? 0,
+          message:
+            stitchResult.message ?? "Commit refused by the pre-flight gate.",
+          violations: stitchResult.violations ?? [],
+        });
+        setReopenResult({
+          ok: false,
+          msg: `Reopened ${res?.reopened ?? 0} row(s), but the commit was refused by pre-flight: ${stitchResult.violation_count ?? 0} invariant violation(s). Resolve them below, or override with a reason.`,
+        });
+        return;
       }
       if (stitchResult?.preflight_verdict === "FAIL") {
         console.warn(
@@ -722,6 +770,55 @@ export function RefillPlanningTab({
       setReopenBusy(false);
     }
   }, [reopenSel, reopenReason, selectedDate, supabase, loadPendingPlan]);
+
+  // ── PRD-110 DR-6: audited override of a pre-flight refusal ────────────────
+  // Re-runs the COMMIT only. The reopen already happened and its rows are
+  // sitting open; re-running reopen_stitched_rows here would reopen a second
+  // time against rows that are already open.
+  // stitch_pod_to_boonz RAISEs if p_force_reason trims to under 10 characters,
+  // so the same bar is enforced here - the operator sees a disabled button
+  // rather than a server exception. The override lands in
+  // preflight_override_log with the caller, the reason and the full verdict.
+  const forceCommitPreflight = useCallback(async () => {
+    if (!preflightRefusal || forceReason.trim().length < 10) return;
+    setForceBusy(true);
+    try {
+      const { data, error } = await supabase.rpc("stitch_pod_to_boonz", {
+        p_plan_date: selectedDate,
+        p_dry_run: false,
+        p_force: true,
+        p_force_reason: forceReason.trim(),
+      });
+      if (error) throw new Error(error.message);
+      const forced = data as {
+        status?: string;
+        violation_count?: number;
+        message?: string;
+      } | null;
+      // Defensive: a second refusal here would mean p_force did not take.
+      if (forced?.status === "preflight_failed") {
+        throw new Error(
+          forced.message ?? "The override was not accepted by the gate.",
+        );
+      }
+      setPreflightRefusal(null);
+      setForceReason("");
+      setReopenResult({
+        ok: true,
+        msg: `Committed with an audited pre-flight override (${preflightRefusal.count} violation(s) accepted). Reloading the plan…`,
+      });
+      setReopenSel(new Set());
+      setReopenReason("");
+      await loadPendingPlan();
+    } catch (err) {
+      setReopenResult({
+        ok: false,
+        msg: err instanceof Error ? err.message : "Override failed",
+      });
+    } finally {
+      setForceBusy(false);
+    }
+  }, [preflightRefusal, forceReason, selectedDate, supabase, loadPendingPlan]);
 
   // ── PRD-033 / Track C C2: open the convert_shelf modal for a draft row ────
   const openConvert = useCallback(
@@ -1727,6 +1824,72 @@ export function RefillPlanningTab({
               >
                 {reopenResult.ok ? "✓ " : "✗ "}
                 {reopenResult.msg}
+              </div>
+            )}
+
+            {/* PRD-110 DR-6: pre-flight refusal affordance. Only reachable once
+                preflight_enforcement is flipped to 'block' (D-19); in 'warn'
+                mode the gate reports and the commit proceeds, so this never
+                renders. Every violation carries the fix path the invariant
+                itself supplies - the operator should be able to resolve it
+                without reading SQL, and override only when they cannot. */}
+            {preflightRefusal && (
+              <div className="mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
+                <div className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                  Pre-flight refused the commit — {preflightRefusal.count}{" "}
+                  invariant violation(s)
+                </div>
+                <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                  {preflightRefusal.message}
+                </div>
+
+                {preflightRefusal.violations.length > 0 && (
+                  <ul className="mt-2 space-y-1.5">
+                    {preflightRefusal.violations.map((v, i) => (
+                      <li
+                        key={`${v.invariant_id ?? "inv"}-${i}`}
+                        className="rounded bg-white/70 px-2 py-1 text-xs dark:bg-neutral-900/60"
+                      >
+                        <div className="font-medium text-neutral-800 dark:text-neutral-100">
+                          {v.invariant_id ? `${v.invariant_id} · ` : ""}
+                          {[v.machine, v.shelf_code, v.pod_product_name]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                        {(v.expected || v.found) && (
+                          <div className="text-neutral-600 dark:text-neutral-400">
+                            {v.expected ? `expected ${v.expected}` : ""}
+                            {v.expected && v.found ? " — " : ""}
+                            {v.found ? `found ${v.found}` : ""}
+                          </div>
+                        )}
+                        {v.fix_path && (
+                          <div className="mt-0.5 text-neutral-700 dark:text-neutral-300">
+                            <span className="font-medium">Fix:</span>{" "}
+                            {v.fix_path}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    value={forceReason}
+                    onChange={(e) => setForceReason(e.target.value)}
+                    placeholder="Override reason (min 10 chars) — this is audited"
+                    className="min-w-[280px] flex-1 rounded border border-amber-300 px-2 py-1 text-xs dark:border-amber-800 dark:bg-neutral-950"
+                  />
+                  <button
+                    onClick={forceCommitPreflight}
+                    disabled={forceBusy || forceReason.trim().length < 10}
+                    className="rounded bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {forceBusy ? "Overriding…" : "Override & commit"}
+                  </button>
+                </div>
               </div>
             )}
           </details>
