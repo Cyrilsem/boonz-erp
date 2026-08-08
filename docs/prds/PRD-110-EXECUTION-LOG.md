@@ -36343,3 +36343,19 @@ The other nine UNMOVED: `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a87530
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282, S-284,
   S-286..S-292 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
   New findings resume at **S-293**.
+
+### ⭐ [leg 152 · ADDENDUM] THE COMMIT, AND THE GIT STATE THE NEXT LEG WILL SEE
+
+⛔ **Append-only (LAW 9), not an edit of the pointer above.** Leg 152's work is committed on `main` as
+**`ecabaaf`** — three migrations, `METRICS_REGISTRY.md`, `RPC_REGISTRY.md`, the two PRD-110 docs and
+`scripts/prd110_s7_fixtures.txt`. ⭐ **`git diff HEAD` is empty at close**; verify with
+`git log main --oneline -2`, never with `git status` alone (S-288, leg 151).
+⭐ **No temp-index technique was needed this leg** — the worktree was on `main`, HEAD's own branch, and
+no concurrent session held it. Committed normally.
+⚠️ **`main` reads `[ahead 2, behind 1]` of `origin/main`.** That divergence predates leg 152 (leg 151
+recorded it) and is **CS's to resolve** — the relay does not push.
+⏸️ **The two orphan PRD docs are STILL untracked and were NOT committed** (`PRD-111`, `PRD-112`) —
+another session's work products, classified and not adopted (LAW 10, S-286).
+⛔ **The single most consequential line in the pointer above, repeated because it changes the next
+leg's plan: the fixture population moved 63 → 64, so DONE-2's "run_all ×1 suffices" no longer applies
+and the S7 TRIPLE is now required in its triple form.**
