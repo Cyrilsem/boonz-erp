@@ -37754,3 +37754,252 @@ no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
   S-284, S-286..S-306 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
   New findings resume at **S-307**.
+
+## ⭐⭐ leg 160 (2026-08-08) — **DR-1 BUILT, FLAG-OFF. Tier 4 is done.** The gate refuses all 10 clusters and refuses for two different reasons. S-307 and S-308 raised and closed; the cutover's real blocker turned out to be an engine SIGNATURE, not evidence.
+
+### ✅ STEP R — CLEAN, and every claim in leg 159's pointer verified TRUE
+
+`ps` narrowed (S-241) then full (S-294): **leg 159 left nothing running**, exactly as its pointer
+promised — the first pointer in four legs whose process claim held. ⛔ The PRD-111 session
+(PID 66562) is **still alive** at 5h44m, fourth leg running. S-99 drill: `git diff HEAD` **empty**,
+no S-303 prettier residue. RISK 104 reconciled **361 = 361**, md5
+`329cff01f01feaf7a26640e8300706be` on both sides, `max(version)` `20260808204000` — all three exactly
+as owed. LAW 12 re-probed: `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero
+pending on all three**. Golden read from `golden.runs`, not from this log: **65/65 green, 0 red**.
+
+### ⏸️ THE POINTER'S "NEXT TASK" IS TIME-GATED AND THIS LEG COULD NOT DO IT
+
+Leg 159 required tonight's cron-45 run be verified **before any new unit**. ⛔ **cron 45 fires 21:22
+UTC and this leg ran 14:57-16:0x UTC** — the run does not exist yet. Nothing was faked and nothing
+was skipped: the verification is re-stated in this leg's pointer as the next leg's first act, with
+the same acceptance test. Tier 4 was taken up instead because the pointer's own ordering makes DR-1
+the next item once the time-gated check cannot proceed.
+
+### ⛔⛔ THE REAL FINDING — DR-1's BLOCKER WAS NEVER THE EVIDENCE, IT IS AN ENGINE SIGNATURE
+
+Both ADD engines are **whole-plan-date scoped**:
+`engine_add_pod(p_plan_date date, p_days_cover integer)` and
+`engine_add_pod_v3(p_plan_date date, p_days_cover integer)`. Only `engine_finalize_pod` carries a
+machine-scoped overload. ⛔ **There is no argument that says "only these machines", so a per-cluster
+cutover cannot be implemented as a branch in `_build_draft_core_v3` at all** — the three-call v19
+pipeline at the bottom of that function has nowhere to put a cluster.
+
+⭐ This reframes the whole item. The parking lot recorded DR-1 as gated on WMAPE settling
+(2026-08-11) and on the S-175 venue-group scoreboard pass. **Neither is the binding constraint.** The
+binding constraint is that the write path physically cannot be split today, and no amount of waiting
+fixes it. **DR-1b is now the real cutover unit** and is parked with that name.
+
+### ✅ WHAT SHIPPED — authority + gate + a guard that stops loudly
+
+Dara design (`docs/prds/PRD-110-DR1-DARA-cutover-design.md`) → Cody ⚠️ approve-with-revisions →
+fixture-first, per LAW 1 and LAW 3. Six migrations, `20260808210000`..`20260808217000`.
+
+| object                                                    | posture                                             |
+| --------------------------------------------------------- | --------------------------------------------------- |
+| `engine_cutover_authority_v3`                             | 10 rows, **all `v19`**. Appendix A (Amendment 010). |
+| `engine_cutover_audit_v3`                                 | append-only; **refusals logged, not just applies**  |
+| `v_cutover_readiness_v3`                                  | canonical gate (Article 16), 10 rows, **0 ready**   |
+| `flip_cluster_to_v3_v3` / `revert_cluster_to_v19_v3`      | canonical writers, DEFINER, role-gated              |
+| `is_cluster_authoritative_v3` / `cutover_block_reason_v3` | read-only, **INVOKER** per Cody                     |
+| `_build_draft_core_v3`                                    | ⛔ MODIFIED — the guard, placed after Gate 0        |
+
+**Cody's three revisions all shipped in the same commit:** (1) the guard **fails OPEN** — a guard that
+can halt the live nightly plan _because the guard itself broke_ is worse than no guard; (2) the
+refusal is placed AFTER the calendar check, the LAW-12 live-plan guard, the repick and the Gate-0
+advisory block, so a flipped cluster costs the PLAN and never the `awaiting_confirmation` pick list;
+(3) `app.via_rpc` on both writers and SECURITY INVOKER on the read predicate.
+
+⭐ **WHY IT STOPS RATHER THAN WARNS (Article 5).** Given the signature problem above, the builder's
+only options were to plan v3-believed machines with v19 — a silent lie, and **precisely the S-304a
+failure this loop closed yesterday, where three sensors said `ok` over a night that planned nothing**
+— or to stop with a named reason. It stops, returning `refused_cutover_not_implemented` and naming
+the cluster. ⛔ **The blast radius is stated rather than buried: flipping one cluster halts the ENTIRE
+nightly plan**, because the plan cannot be split. `revert_cluster_to_v19_v3` restores it immediately
+and is never evidence-gated.
+
+### ⛔⛔ S-307 (NEW, CLOSED) — **529 SYNTHETIC FIXTURE ROWS WERE ABOUT TO BECOME CUTOVER EVIDENCE**
+
+`engine_forecast_error_v3` holds **529 rows on 2030 plan_dates**, written by golden fixtures over
+many legs, and they span **all 10 clusters** — VOX **119**, INDEPENDENT **137**, WPP **47**,
+ADDMIND **32**, VML **30**, GRIT **7**. Six of those clusters have **never** had a single REAL v3
+series.
+
+⛔ A readiness view without the S-244 window filter would have told CS that **VOX — the largest
+cluster in the fleet at 11 machines — has v3 evidence**, sourced entirely from fixture residue, and
+would have refused it as _"wait for the horizon"_ instead of _"v3 has never planned this cluster"_.
+Those are completely different answers, and the second one is the true one. ⭐ Closed by
+`plan_date < '2027-01-01'` in the gate's `real` CTE, asserted by fixture 74 seq 26/27 **and** by a
+post-image `RAISE` in the migration itself, so it cannot regress quietly.
+
+### ⛔⛔ S-308 (NEW, CLOSED) — **EVERY NEW TABLE IN `public` IS BORN WRITABLE BY `authenticated`**
+
+Fixture 74 seq 8/9 went red against a migration that had **already** stripped `anon` and granted
+`authenticated` nothing but SELECT. The cause: **a Supabase DEFAULT PRIVILEGE grants `authenticated`
+DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE on every new table in `public`.**
+
+- a migration that only **adds** `GRANT SELECT … TO authenticated` is a **no-op**;
+- `REVOKE ALL … FROM anon, PUBLIC` — the S-268 idiom — **does not touch** a grant held by
+  `authenticated`. ⭐ **S-268 and S-308 are different holes and closing one does not close the other.**
+
+⭐ It was never a live hole here: the registry's `FOR UPDATE/DELETE USING (false)` policies refused
+the writes anyway. **But that means the only thing between `authenticated` and a direct cutover flip
+was a policy that happened to be written.** Closed in `20260808217000`; the grant level is now
+asserted by the fixture so it cannot regress. ⚠️ **Every table this project has added since the
+Supabase defaults were set is worth auditing on the same query** — recorded in Amendment 010 and in
+Cody's own SKILL.md so the next review asks for the REVOKE by name.
+
+### ⛔ S-309 (NEW, CLOSED) — **A SWEEP THAT PINS `p_max_phase` MANUFACTURES ITS OWN REGRESSION**
+
+The first sweep fired `golden.run_fixture(id, note, 'P1')`. Fixture 1 (`phase_required` **P3**) came
+back **0 pass / 0 fail / passed = false** and looked exactly like a regression from the builder
+change. It was not: assertions above the cap are **skipped**, and Guard 3 (`passed = v_fail = 0 AND
+NOT v_vacuous`) correctly refuses to call a run that evaluated nothing a pass.
+⭐ **The rule: pass `NULL` and let `run_fixture` fall back to `golden.config.current_phase` (P4).**
+The sweep was killed and restarted whole rather than patched forward, because three fixtures had
+already banked under the wrong cap.
+
+### ✅ THE PROOF IS THE RED, THEN THE GREEN — fixture 74, **0/54 → 53/53**
+
+LAW 1 held: the fixture shipped and was observed RED **before** any object existed.
+
+| stage                                          | fixture 74                                            |
+| ---------------------------------------------- | ----------------------------------------------------- |
+| `20260808210000` (fixture only)                | **0 pass / 54 fail**, 22 ms — every object missing    |
+| after tables + view + RPCs + builder guard     | **2 / 52** — `scenario_error`: GENERATED column       |
+| `20260808215000` (generated cols)              | **2 / 52** — `scenario_error`: `velocity_basis` CHECK |
+| `20260808216000` (basis + marker)              | **51 / 2** — the two S-308 grant assertions           |
+| `20260808217000` (REVOKE from `authenticated`) | ✅ **53 / 53, 0 fail, 72 ms**, `scenario_error` null  |
+
+⭐ **The accept path is EXERCISED, not assumed (S-301).** Live data cannot reach `ready` today, so the
+fixture plants a settled v3 series strictly better than its v19 counterpart inside a forced-rollback
+subtransaction, drives the flip to `applied`, reads the registry, reads the builder's guard, then
+reverts. ⛔ **Without seq 35/36 the whole unit could have been a gate that refuses unconditionally,
+and every refusal assertion would still have passed.**
+
+⛔ **Two schema traps cost two migrations and both are worth carrying forward:**
+`engine_forecast_error_v3.abs_error` and `.signed_error` are **GENERATED ALWAYS** from
+`(forecast_units - actual_units)` — the same class as PRD-098's `quarantined` — so error magnitudes
+must be **engineered through the forecast** (v3 110-vs-100 → wmape 0.10; v19 140-vs-100 → 0.40).
+And `velocity_basis` is CHECK-constrained to `{velocity_30d, velocity_instock}`, which refused the
+fixture's own row-marker. ⭐ **The marker and its residue proof had to move together** — changing only
+the INSERT would have left seq 62 hunting for rows that can never exist, i.e. **passing vacuously
+forever**.
+
+### ⭐ THE GATE'S LIVE VERDICT — the number CS actually needs before ~Aug 17
+
+**0 of 10 clusters are ready, and they fail two different ways.**
+
+| refusal_code             | n     | clusters                            |
+| ------------------------ | ----- | ----------------------------------- |
+| `no_v3_measurement`      | **6** | ADDMIND, GRIT, LVLUP, VML, VOX, WPP |
+| `v3_horizon_not_elapsed` | **4** | AMAZON, INDEPENDENT, NOVO, OHMYDESK |
+
+⚠️ **v3 has ZERO settled series anywhere**, so `wmape_v3` is NULL for all ten. The v19 baselines ARE
+measurable and deserve CS's eye on their own: ADDMIND **0.3564** · AMAZON **0.3628** ·
+INDEPENDENT **0.4243** · OHMYDESK **0.4974** · VOX **1.1466** · **WPP 13.952**.
+⛔ WPP is not a typo — a **1395 %** weighted error is what the incumbent engine scores there today.
+
+### ✅ LAW 4 HELD, RE-READ FROM THE LIVE SYSTEM AFTER EVERY FIXTURE FIRE
+
+All 10 clusters `v19`, all `flipped_at` NULL, `engine_cutover_audit_v3` **0 rows**, planted series
+**0 rows**, `cutover_block_reason_v3()` → `{"blocked": false, "clusters": [], "degraded": false}`,
+and **0 Active machines authoritative**. The fixture drives a real cluster to v3 and back on every
+sweep; seq 60 exists so that can never survive.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+⛔ **DR-1b (machine-scope the ADD engine + branch the write path) is the real cutover and is PARKED**
+— its own Dara design, Cody review and fixture. ⏸️ The Dara-designed shadow-runner consumer (logging
+the authority state nightly) was **not built this leg** and is parked with DR-1b; the builder guard
+is the consumer that makes the unit non-theatre, and it shipped.
+Unchanged: `dispatch_pack_confirmation`'s argument-less `audit_log_write()` · the 9 partial-cover
+stranded shelves (28 units) · **S-285 (OPEN)** · the 5,029 phantom units · `wh_fefo_for_line` filters
+no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
+`_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent non-assorted
+`venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
+
+### RESUME POINTER 2026-08-08 leg 160 · PRELIMINARY (sweep in flight — see FINAL below if present)
+
+- ⚠️ **FIRST — `ps` narrowed (S-241, `prd110|golden|stress_s|psql`) ⛔ THEN a FULL `ps` (S-294).**
+  ⛔⛔ **LEG 160 HANDED OFF WITH `prd110_leg160_sweep.sh` POSSIBLY STILL RUNNING** (tag
+  `leg160 sweep A`, output `/tmp/leg160_sweep_s1r/`). If it is alive, LET IT FINISH and adjudicate on
+  completion — do not kill it, and do not fire anything else while it runs (S-305). ⛔ The PRD-111
+  session (PID 66562) is alive; a pointer claiming it exited has now been wrong four legs running.
+  ⭐ Re-run the **S-99 drill** (`git diff HEAD`) — S-303's prettier race lands the cosmetic delta in
+  the NEXT leg's commit. **Never "revert" it.**
+- ⛔ **RISK 104: expect `prd110%` = 369, `max(version)` = 20260808217000, owed md5
+  `07568f67e83c86b00668344c066baed9` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained **version
+  prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side in **PYTHON**, **TOP LEVEL
+  ONLY**.
+- ⛔⛔ **THE S7 TRIPLE IS OWED AND WAS NOT RUN.** Fixture population moved **65 → 66** (fixture 74 is
+  new), so DONE-2 requires the triple in its TRIPLE form, not `run_all ×1`. Leg 160 started sweep A
+  only. **The next leg owes sweeps B and C** (and A's verdict if it did not finish).
+  ⭐⭐ **S-305 adjudication is mandatory: `golden.runs WHERE note = '<sweep tag>'`, and
+  `count(*) = 66` BEFORE reading any verdict.** "Latest run per fixture" silently returns a PREVIOUS
+  sweep's green row for a fixture this sweep never fired.
+- 🆕 ⛔ **S-309 — DO NOT PIN `p_max_phase` IN A SWEEP.** `golden.run_fixture(id, note, 'P1')` SKIPS
+  every assertion above the cap and Guard 3 then reports **0 pass / 0 fail / passed=false**, which
+  looks exactly like a regression (fixture 1, `phase_required` P3, read precisely this way this leg).
+  ⭐ **Pass `NULL`** and let it fall back to `golden.config.current_phase` (**P4**). The corrected
+  script is `/tmp/prd110_leg160_sweep.sh "<tag>" <outdir-suffix>`.
+- ⛔⛔ **STILL OWED FROM LEG 159 AND STILL TIME-GATED — VERIFY THE cron-45 RUN.** Leg 159 required it
+  "before any new unit"; **cron 45 fires 21:22 UTC and leg 160 ran 14:57-16:0x UTC**, so the run did
+  not exist. Acceptance test unchanged: `shadow_runner_log_v3 WHERE note='cron'` for the
+  2026-08-08 21:22 run must read `step='engine'` → **`status='ok'` with `rows_affected > 0`**, then
+  `engine_forecast_error_v3` for **2026-08-09** must carry a **v3** series. ⛔ If it reads
+  **`ok_no_shadow_rows`**, S-304b's scoping was not the whole cause.
+- ⭐⭐ **DR-1 IS EXECUTED, FLAG-OFF, AND TIER 4 IS CLOSED.** Fixture **74: 0/54 RED → 53/53 GREEN**.
+  Six migrations `20260808210000`..`20260808217000`. Cody ⚠️ approve-with-revisions; all three
+  revisions shipped. **LAW 4 verified live after the fire: 10/10 clusters `v19`, 0 audit rows, 0
+  planted residue, guard `{"blocked":false,"degraded":false}`, 0 machines authoritative.**
+- ⛔⛔ **THE PARKING LOT HAD DR-1's BLOCKER WRONG, AND THE NEXT LEG MUST NOT RE-INHERIT IT.** It was
+  never WMAPE settling or the S-175 scoreboard pass. **Both ADD engines are whole-plan-date scoped**
+  (`engine_add_pod(date,int)`, `engine_add_pod_v3(date,int)`), so the nightly plan **cannot be split
+  per cluster at all**. 🆕 **DR-1b — machine-scope the ADD engine + branch the write path — is the
+  real cutover and is now the only remaining WORK item.** ⛔ Until it ships, a flip **HALTS THE ENTIRE
+  NIGHTLY PLAN**, loudly and by design; `revert_cluster_to_v19_v3` restores it instantly and is never
+  evidence-gated. ⭐ S-175 turned out to be unnecessary: `engine_forecast_error_v3` has `machine_id`
+  and joins clean, so the gate aggregates it directly.
+- ⚠️ **THE GATE'S LIVE VERDICT — 0 of 10 clusters ready, failing TWO ways.** `no_v3_measurement` = **6**
+  (ADDMIND, GRIT, LVLUP, VML, VOX, WPP — VOX is the biggest cluster at 11 machines and has NEVER had
+  a real v3 series) · `v3_horizon_not_elapsed` = **4** (AMAZON, INDEPENDENT, NOVO, OHMYDESK).
+  **v3 has ZERO settled series anywhere**, so `wmape_v3` is NULL for all ten. v19 baselines:
+  ADDMIND 0.3564 · AMAZON 0.3628 · INDEPENDENT 0.4243 · OHMYDESK 0.4974 · VOX 1.1466 · **WPP 13.952**.
+- 🆕 ⛔⛔ **S-308 BINDS EVERY FUTURE TABLE: a new table in `public` is BORN with `authenticated`
+  holding INSERT/UPDATE/DELETE/TRUNCATE** via a Supabase default privilege. `GRANT SELECT` adds
+  nothing and `REVOKE … FROM anon, PUBLIC` (S-268) does not touch it. **Always REVOKE from
+  `authenticated` explicitly and ASSERT the grant.** ⚠️ Every table added since the defaults were set
+  is worth the same audit — this is a standing worklist item, not a closed one.
+- 🆕 ⛔ **S-307 BINDS ANY FUTURE READ OF `engine_forecast_error_v3`:** it holds **529 rows on 2030
+  dates** across all 10 clusters, from golden fixtures. **Filter `plan_date < '2027-01-01'` (S-244)
+  or fixture residue becomes evidence.**
+- ⛔ **TWO SCHEMA TRAPS COST TWO MIGRATIONS THIS LEG:** `engine_forecast_error_v3.abs_error` and
+  `.signed_error` are **GENERATED ALWAYS** from `(forecast_units - actual_units)` — engineer the
+  error through the forecast. `velocity_basis` is CHECK-constrained to
+  `{velocity_30d, velocity_instock}`. ⭐ **A fixture's row-marker and its residue proof must move
+  TOGETHER**, or the residue assertion hunts rows that cannot exist and passes vacuously forever.
+- ⏸️ **PARKED WITH DR-1b:** the Dara-designed shadow-runner consumer (log the authority state nightly
+  in `run_nightly_shadow_v3`'s detail). Not built; the builder guard is the consumer that makes the
+  unit non-theatre and it shipped.
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero pending on
+  all three**. ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⚠️ **THE LIVE CS ASKS ARE SIX, UNCHANGED; leg 160 raised NONE:** S-251 · **D-21 half-2** ·
+  **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48**. ⭐ **When two CS-attributed
+  statements collide, PARK — never pick the one that makes the fixture green.**
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (sixteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg160_sweep.sh` all work; the apply shim
+  registers the version it is handed in the SAME POST. ⛔ **`pg_get_functiondef` output has NO
+  trailing semicolon** — add the `;` (used again this leg in `20260808214000`).
+- ⛔ **RAISE takes `%` as its placeholder; `%%` is a LITERAL percent.** `20260808212000` failed to
+  apply first time with `too many parameters specified for RAISE` for exactly this. It rolled back
+  whole — nothing half-applied.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 · S-268 (name `anon` explicitly) · S-272 ·
+  S-266 · S-277 · S-280 · S-281 · S-283 · S-284 · S-285 (OPEN) · S-286 · S-287 · S-288 · S-289 ·
+  S-290 · S-291 · S-292 · S-294 · S-295 · S-296 · S-297 · S-298 · S-299 · S-300 · S-301 · S-302 ·
+  S-305 · S-306 · 🆕 **S-307** · 🆕 **S-308** · 🆕 **S-309**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
+  S-284, S-286..S-309 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
+  New findings resume at **S-310**.

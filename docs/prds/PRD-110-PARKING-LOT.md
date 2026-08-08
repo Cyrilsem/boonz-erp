@@ -12272,3 +12272,59 @@ post-image block, with `anon` holding nothing and `authenticated` keeping SELECT
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for
 `CS DECISION` rather than trust the line above.
+
+## ⭐⭐ leg 160 (2026-08-08) — **DR-1 BUILT FLAG-OFF. Tier 4 closed; DR-1b opened in its place.** S-307, S-308, S-309 raised and closed. No flag flipped, no dial changed.
+
+### ✅ DR-1 CLOSED BY EXECUTION — authority + gate + a guard that stops loudly
+
+Dara design → Cody ⚠️ approve-with-revisions (3, all shipped) → fixture 74 **0/54 RED → 53/53 GREEN**.
+Migrations `20260808210000`..`20260808217000`. `engine_cutover_authority_v3` (10 clusters, all `v19`)
+· `engine_cutover_audit_v3` (append-only, **refusals logged too**) · `v_cutover_readiness_v3`
+(Article 16 canonical, **0 of 10 ready**) · `flip_cluster_to_v3_v3` / `revert_cluster_to_v19_v3` ·
+`is_cluster_authoritative_v3` / `cutover_block_reason_v3` · `_build_draft_core_v3` guarded.
+
+### ⛔⛔ DR-1b (NEW, PARKED) — **THE REAL CUTOVER, AND THE PARKING LOT HAD THE BLOCKER WRONG**
+
+DR-1 was recorded here as gated on WMAPE settling (2026-08-11) and on the S-175 venue-group
+scoreboard pass. ⛔ **Neither is the binding constraint.** Both ADD engines are **whole-plan-date
+scoped** — `engine_add_pod(date,int)` and `engine_add_pod_v3(date,int)` — so there is no argument
+that says "only these machines" and **the nightly plan physically cannot be split per cluster
+today**. No amount of waiting fixes that.
+
+⭐ And the S-175 half was answerable without the scoreboard at all: `engine_forecast_error_v3` carries
+`machine_id` and joins to `machines` with **zero unjoined rows**, so the gate aggregates the error
+table directly at machine grain. The scoreboard stays `scope_kind='fleet'` and S-175 remains
+genuinely unbuilt — it was simply never needed for this.
+
+**DR-1b = machine-scope the ADD engine + branch the write path.** Its own Dara design + Cody review +
+fixture. **THE ASK (one line):** authorise DR-1b as the unit that makes a flip actually plan a
+cluster with v3 — until it ships, a flip HALTS the entire nightly plan rather than that cluster's
+share of it, by design and loudly.
+
+### ⛔⛔ S-307 (NEW, CLOSED) — 529 synthetic fixture rows were about to become cutover evidence
+
+`engine_forecast_error_v3` holds **529 rows on 2030 plan_dates** spanning **all 10 clusters** (VOX
+119, INDEPENDENT 137, WPP 47, ADDMIND 32, VML 30, GRIT 7). Six of those clusters have never had a
+REAL v3 series. Without the S-244 filter `plan_date < '2027-01-01'`, the gate would have told CS the
+**largest cluster in the fleet has v3 evidence** — all of it fixture residue — and refused it as
+"wait for the horizon" rather than "v3 has never planned this cluster". Closed in the gate's `real`
+CTE, asserted by fixture 74 seq 26/27 and by a post-image `RAISE` in the migration.
+
+### ⛔⛔ S-308 (NEW, CLOSED) — every new table in `public` is BORN writable by `authenticated`
+
+A Supabase DEFAULT PRIVILEGE grants `authenticated` DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/
+UPDATE on **every** new table in `public`. A migration that only ADDS `GRANT SELECT` is a **no-op**,
+and `REVOKE ALL … FROM anon, PUBLIC` (S-268) **does not touch** it. ⭐ **S-268 and S-308 are different
+holes.** Not a live hole here — the `USING (false)` policies refused the writes — but the only thing
+between `authenticated` and a direct cutover flip was a policy that happened to be written. Closed in
+`20260808217000`, asserted by fixture 74 seq 8/9, and written into Amendment 010 + Cody's SKILL.md.
+⚠️ **Every table added to this project since the Supabase defaults were set is worth the same audit.**
+
+### ⛔ S-309 (NEW, CLOSED) — a sweep that pins `p_max_phase` manufactures its own regression
+
+`golden.run_fixture(id, note, 'P1')` SKIPS every assertion above the cap, and Guard 3 then reports
+the fixture as `passed=false` with **0 pass / 0 fail** — indistinguishable at a glance from a real
+regression (fixture 1, `phase_required` P3, read exactly this way). ⭐ **Pass `NULL` and let it fall
+back to `golden.config.current_phase` (P4).** Kill and restart the sweep whole; do not patch forward.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **SIX ASKS, UNCHANGED; leg 160 raised NONE.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular and Fade Fit - Coconut venue-supplied?) · **D-48** (does the 14-day ceiling bind a machine whose own cadence is longer?). The answered-unexecuted list is **unchanged at SIX**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-33, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **DR-1 is now EXECUTED and 🆕 DR-1b replaces it as the only remaining WORK item.** ⚠️ **S-307, S-308 and S-309 CLOSED; S-265, S-266, S-279, S-283 and S-285 remain OPEN.** New findings resume at **S-310**. ⭐ **Leg 160 flipped NO flag and changed NO dial. It DID change an engine body — `_build_draft_core_v3` — under Cody, fixture-first, with pre- and post-image guards.**

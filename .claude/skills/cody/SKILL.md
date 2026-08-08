@@ -94,7 +94,15 @@ and its `blocked_demand` ledger - both of which the real article permits.
 
 ## Protected entity list (Appendix A of the Constitution)
 
-`machines`, `shelf_configurations`, `planogram`, `sim_cards`, `slots`, `slot_lifecycle`, `pod_inventory`, `pod_inventory_audit_log`, `warehouse_inventory`, `warehouse_inventory_audit_log`, `daily_sales`, `sales_lines`, `sales_aggregated`, `settlements`, `refill_plan_output`, `dispatch_plan`, `dispatch_lines`, `write_audit_log`, `inventory_control_session` (Amendment 007), `inventory_control_attempt` (Amendment 007, FE INSERT exception for `result='network_error'`).
+`machines`, `shelf_configurations`, `planogram`, `sim_cards`, `slots`, `slot_lifecycle`, `pod_inventory`, `pod_inventory_audit_log`, `warehouse_inventory`, `warehouse_inventory_audit_log`, `daily_sales`, `sales_lines`, `sales_aggregated`, `settlements`, `refill_plan_output`, `dispatch_plan`, `dispatch_lines`, `write_audit_log`, `inventory_control_session` (Amendment 007), `inventory_control_attempt` (Amendment 007, FE INSERT exception for `result='network_error'`), `engine_cutover_authority_v3` (Amendment 010 — decides WHICH refill brain plans a cluster; 10 rows, canonical writers `flip_cluster_to_v3_v3` / `revert_cluster_to_v19_v3`).
+
+### ⛔⛔ S-308 — every NEW table in `public` is BORN writable by `authenticated`
+
+A Supabase DEFAULT PRIVILEGE grants `authenticated` DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE on every table created in `public`. Therefore:
+
+- A migration that only **adds** `GRANT SELECT ... TO authenticated` is a **no-op** — the write verbs were already there.
+- `REVOKE ALL ... FROM anon, PUBLIC` (the S-268 idiom) **does not touch** a grant held by `authenticated`. S-268 and S-308 are different holes.
+- **Article 3 compliance for any new table requires an explicit `REVOKE INSERT, UPDATE, DELETE, TRUNCATE ... FROM authenticated`, plus a post-image proof.** Ask for it by name in review; do not accept "RLS covers it" — RLS covering it is luck, not posture.
 
 If a proposed change touches any of these, Cody runs the full review. Otherwise it's a fast-path approve.
 

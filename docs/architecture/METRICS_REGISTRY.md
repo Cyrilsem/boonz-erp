@@ -1173,3 +1173,57 @@ measurement of the trading day.
 costs ~5 s of the ~9 s the two separate scans cost. It does **not** relieve the ~20 s
 `v_facing_performance_v3` inherits from `v_shelf_instock_velocity_split_v3` (S-26 / RISK 88) - that
 constraint is unchanged and still applies to every consumer.
+
+---
+
+## PRD-110 DR-1 (2026-08-08, leg 160) — "is a cluster ready for v3 cutover"
+
+**Canonical object: `public.v_cutover_readiness_v3`** (Article 16). One row per **ACTIVE** cluster
+(`machines.venue_group`, 10 live). Migration `20260808212000`. `anon`/`PUBLIC` revoked by name;
+SELECT to `authenticated`.
+
+Columns: `cluster_key`, `n_machines_active`, `is_registered`, `authoritative_engine`,
+`n_series_v3`, `n_settled_v3`, `n_series_v19`, `n_settled_v19`, `last_v3_plan_date`,
+`last_v19_plan_date`, `n_v3_dates`, `actual_units_v3`, `actual_units_v19`, `wmape_v3`, `wmape_v19`,
+`bias_v3`, `bias_v19`, `wmape_delta`, `is_vacuous`, `refusal_code`.
+
+WMAPE is `sum(abs_error)/sum(actual_units)` over **settled series only**, computed exactly as
+`v_engine_wmape_v3` computes it at fleet grain. ⛔ **S-176: it is NULL where uncomputable and is
+NEVER coerced to 0** — a fabricated zero reads as a perfect forecast and would sign off a cutover on
+no evidence. Fixture 74 seq 29 pins this.
+
+⭐ **WHY THIS DOES NOT NEED THE S-175 SCOREBOARD PASS.** The parking lot and
+`ADR-shadow-plan-tables.md` (line 430-433) record that per-cluster comparison "cannot be made"
+because `scoreboard_daily_v3.scope_kind` is `'fleet'` only. **That is true of the scoreboard and
+irrelevant here.** `engine_forecast_error_v3` carries `machine_id` and joins to `machines` with
+**zero unjoined rows** (probed live), so this gate aggregates the error table directly. The
+scoreboard stays fleet-grain and the S-175 writer pass remains genuinely unbuilt.
+
+⛔⛔ **S-307 — THE FILTER THAT IS THE POINT OF THE `real` CTE.** `engine_forecast_error_v3` holds
+**529 rows on synthetic 2030 plan_dates**, written by golden fixtures, spanning **all 10 clusters**
+(VOX 119, INDEPENDENT 137, WPP 47, ADDMIND 32, VML 30, GRIT 7). Six of those clusters have never had
+a single REAL v3 series. Without `plan_date < '2027-01-01'` (S-244) this gate would tell CS that the
+largest cluster in the fleet has v3 evidence — sourced entirely from fixture residue — and would
+refuse it as _"wait for the horizon"_ instead of _"v3 has never planned this cluster"_. Fixture 74
+seq 26/27 pin VOX at `no_v3_measurement` / `n_series_v3 = 0`, and the migration carries a post-image
+`RAISE` on the same claim.
+
+### Refusal taxonomy (first match wins; `ready` is the only accept)
+
+`cluster_not_registered` · `cluster_not_live` · `already_v3` · `no_v3_measurement` ·
+`no_v19_baseline` · `v3_horizon_not_elapsed` · `v3_zero_actuals` · `v19_horizon_not_elapsed` ·
+`v19_zero_actuals` · `v3_worse_than_v19` · `ready`
+
+### Live verdict at leg 160 — **0 of 10 clusters ready**
+
+| refusal_code             | n   | clusters                            |
+| ------------------------ | --- | ----------------------------------- |
+| `no_v3_measurement`      | 6   | ADDMIND, GRIT, LVLUP, VML, VOX, WPP |
+| `v3_horizon_not_elapsed` | 4   | AMAZON, INDEPENDENT, NOVO, OHMYDESK |
+| `ready`                  | 0   | —                                   |
+
+⚠️ **v3 has ZERO settled series anywhere**, so `wmape_v3` is NULL for all 10. The v19 baselines are
+measurable and worth CS's attention on their own: ADDMIND **0.3564**, AMAZON **0.3628**,
+INDEPENDENT **0.4243**, OHMYDESK **0.4974**, VOX **1.1466**, WPP **13.952**.
+⛔ WPP's v19 WMAPE is not a typo — a 1395% weighted error is what the incumbent engine is scoring on
+that cluster today, and it is the bar v3 has to clear there.

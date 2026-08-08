@@ -2790,3 +2790,49 @@ its three siblings — it is a family unit. Parked as **DR-10**.
   - **No writes.** `proacl` read back whole after apply (S-140): `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}` - **no `anon`, no `PUBLIC`**, with `anon` revoked by name because a bare `REVOKE … FROM PUBLIC` does not remove Supabase's schema defaults (S-268, the D-30 exposure).
   - Proof: golden fixture **72, 11/16 → 27/0**, `scenario_error` null; plus 522/522 consumer rows compared in-snapshot against the pre-image cascade - **0 price mismatches, 0 basis mismatches**.
   - Cody ⚠️→ approved with revisions (Articles 1, 2, 3, 4, 6, 7, 12, 14, 16); the revisions were the registry rows in this file and in `METRICS_REGISTRY.md`, both landed on this unit.
+
+---
+
+## PRD-110 DR-1 (2026-08-08, leg 160) — the per-cluster cutover unit, FLAG-OFF
+
+Four new functions, migrations `20260808211000` / `20260808212000` / `20260808213000` /
+`20260808214000` / `20260808217000`. Cody ⚠️ approve-with-revisions (Articles 2, 3, 4, 5, 7, 8, 11,
+12, 14, 15, 16 + PRD-110 LAW 4 / LAW 12); all three revisions shipped in the same commit.
+Proof: golden fixture **74, 0/54 RED → 53/53 GREEN**, `scenario_error` null.
+
+- `flip_cluster_to_v3_v3(p_cluster_key text, p_reason text)` → **canonical writer** of
+  `engine_cutover_authority_v3` (SECURITY DEFINER, `search_path=public`, sets `app.via_rpc` +
+  `app.rpc_name`, role-gated to `operator_admin`/`superadmin`, EXECUTE to `authenticated` only —
+  **`anon` and `PUBLIC` revoked by name**, S-268). Reads `v_cutover_readiness_v3` and refuses on
+  anything but `refusal_code='ready'`. ⭐ **Writes an audit row on BOTH paths** — a refused flip is
+  recorded as loudly as an applied one. Requires a reason of ≥10 characters.
+- `revert_cluster_to_v19_v3(p_cluster_key text, p_reason text)` → **canonical writer**, same posture.
+  ⭐⭐ **NEVER EVIDENCE-GATED, deliberately and permanently.** A rollback blocked by the same gate
+  that blocks the forward path is not a rollback, it is a trap. Fixture 74 seq 43 pins this.
+- `is_cluster_authoritative_v3(p_machine_id uuid) → boolean` — **read-only helper** (sql STABLE,
+  **SECURITY INVOKER** per Cody: read-only + the registry's SELECT policy already admits
+  `authenticated`, so DEFINER would be privilege for no reason). The predicate Phase 5's write path
+  (DR-1b) will branch on. Returns **false for every machine** while the unit ships flag-off.
+- `cutover_block_reason_v3() → jsonb` — **read-only helper** (plpgsql STABLE, SECURITY INVOKER).
+  Asked once per nightly build by `_build_draft_core_v3`. ⛔⛔ **FAILS OPEN**: its `EXCEPTION WHEN
+OTHERS` handler returns `blocked=false, degraded=true`, because a guard that can halt the live
+  nightly plan _because the guard itself broke_ is worse than no guard. Cody made this blocking.
+
+⛔ **`_build_draft_core_v3` MODIFIED** (`20260808214000`, pre-image `prosrc` md5
+`fef941d502ecf64c1b73d2bb20887b84`, exact-once anchor, four post-image string proofs). It now returns
+`status='refused_cutover_not_implemented'` when any cluster is authoritative for v3.
+**Placement is load-bearing and Cody required it:** the refusal sits AFTER the WS-E calendar check,
+AFTER the LAW-12 live-plan guard, AFTER the repick and AFTER the Gate-0 advisory block — immediately
+before the three engine calls. LAW 12 requires the nightly advisory keep working, and it does: a
+flipped cluster costs the PLAN, never the `awaiting_confirmation` pick list.
+
+⭐ **WHY IT STOPS RATHER THAN WARNS.** Both ADD engines are whole-plan-date scoped —
+`engine_add_pod(date,int)` and `engine_add_pod_v3(date,int)` — so **no argument exists that says
+"only these machines"** and a partial cutover physically cannot be honoured. The builder's only
+options were to plan v3-believed machines with v19 (a silent lie — precisely the S-304a failure where
+three sensors said `ok` over a night that planned nothing) or to stop with a named reason.
+
+⏸️ **DR-1b PARKED, and it is the real cutover:** machine-scope the ADD engine and branch the write
+path. Its own Dara design + Cody review + fixture. Until it ships, a flip halts the whole nightly
+plan rather than that cluster's share of it — **CS must know this before ~Aug 17**, and
+`revert_cluster_to_v19_v3` restores the plan immediately with no evidence requirement.
