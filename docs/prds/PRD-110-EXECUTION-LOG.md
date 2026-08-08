@@ -40070,3 +40070,210 @@ sweeps through the **payload-isolated** `/tmp/prd110_leg173_sweep.sh`:
 is new, and it is what detects an S-343 duplicate that `n_fail = 0` would otherwise hide.
 ⛔ **If a later leg finds PID 26466 gone with no verdict below, the triple died mid-flight: re-run
 all three passes from scratch, and `ps` for the DRIVER as well as the sweep first (S-344).**
+
+---
+
+## ⭐⭐ leg 174 (2026-08-08) - **THE TRIPLE COMPLETED AND IT CAUGHT A REAL ONE.** Pass C is RED on fixture 37 seq 20, and the mechanism is a **UUID lottery inside the measurement writer**. ⛔ **DONE-2 NOT DECLARED - golden is not green.** S-346, S-347, S-348 raised.
+
+**Window:** 22:35Z - 00:0xZ · **no migration applied · no flag flipped · no dial turned** (a
+determinism triple was in flight for the first 58 minutes, and nothing may land inside one)
+
+### STEP R - the inherited triple was alive and was attended to completion
+
+- ⭐ **PID 26466 / 26470 found ALIVE** by the widened probe (S-344's recipe, driver AND worker),
+  pass A at fixture 37 of 71. **Attended in the foreground for 72 minutes** through all three
+  passes - no turn was ended to await a notification. Driver exited clean at **23:33:23Z**.
+- ⭐ **RISK 104 CLEAN by SET DIFFERENCE both ways:** `prd110%` disk **398** = DB **398**,
+  `disk-only []`, `db-only []`, `max(version)` **`20260809060000`** (leg 173's S-342 migration).
+  Python, top level only, minus the S-31 retained prefix `20260730203000`.
+- ⭐ **LAW 4 VERIFIED:** 10/10 clusters `authoritative_engine='v19'` · `w_intents` **0**,
+  `updated_at` still `2026-08-06 23:20:27.984211+00` · `gate0_require_manual_confirm` **true**.
+- ⭐ **LAW 12 VERIFIED** in leg 173's corrected wording: 2026-08-08 **117**, 2026-08-09 **97**,
+  2026-08-10 absent, **zero pending on the planned dates**; the **108** fleet-wide pending rows are
+  still only 2026-06-26 (95) + 2026-06-28 (13), untouched. Read under the S-244 filter.
+- ⭐ **S-320 pre-state holds, TENTH consecutive leg:** 2026-08-09 carries **5 `cs_added` +
+  4 `cs_dropped`, ZERO `picked`**.
+- ⭐ **S-80 discharged on the WHOLE file:** 205 level-2 headings; the last CS-**authored** ruling is
+  still **`## CS DECISION - POST-DONE DR REGISTER CLOSED (2026-08-04)`** at line 10339.
+  **No new CS ruling. The fourteen asks stand.**
+- ⛔ **DR-6 IS NOT DEPLOYED AND CANNOT BE BY THIS LOOP.** `git branch -r --contains 921ee46` is
+  **empty**: local `main` is **20 commits ahead of `origin/main`** (which still sits at leg 161).
+  A push is a Vercel production deploy - an outward-facing action, and CS's call, not the loop's.
+  **D-19 therefore stays blocked, correctly.**
+
+### ⛔⛔ S-348 (NEW, **OPEN - THE FINDING OF THIS LEG**) - `refresh_engine_forecast_error_v3` PICKS THE v3 RUN BY A UUID COIN FLIP
+
+Fixture 37 seq 20 - *"IDEMPOTENCE: a second run on the same date does not duplicate measurement
+rows"* - went **43/0 · 43/0 · 42/1** across passes A · B · C. It is not a one-off. Re-fired three
+more times this leg: **42/1 · 43/0 · 43/0**. **Six observations, four green, two red.** A coin flip.
+
+**The mechanism, read off the code and confirmed in the data:**
+
+```sql
+SELECT sh.run_id INTO v_run FROM public.pod_refills_shadow sh
+ WHERE sh.plan_date = p_plan_date
+ ORDER BY sh.produced_at DESC, sh.run_id      -- <= ties broken by UUID sort order
+ LIMIT 1;
+```
+
+`produced_at` is the **transaction** clock, so every shadow run written inside one transaction
+carries the **identical** timestamp. Fixture 37 calls `run_nightly_shadow_v3` twice for
+`2030-02-07` in one transaction, and the date ends up carrying **four runs tied to the microsecond**:
+
+| run_id (tied at max `produced_at`) | lines | measurable series |
+| ---------------------------------- | ----- | ----------------- |
+| `155f35a0…`                        | 32    | **8**             |
+| `64da6416…`                        | 32    | **8**             |
+| `cb06a339…`                        | 6     | **4**             |
+| `f62cbfc8…`                        | 6     | **4**             |
+
+The tie is then broken by `run_id` ASC - **an arbitrary UUID**. Whether the date is measured at
+**8 series or 4** is decided by which random uuid happens to sort first. That is the whole defect:
+`fce_before` **4** vs `fce_after` **8** in pass C, `4` vs `4` in the greens.
+⛔ **`pod_refills_shadow` has NO monotonic id / insertion-order column** (verified against
+`information_schema.columns`), so *"the most recent run"* is **not expressible in this schema
+today**. Any fix must either define a deterministic total order or add the column - that is a Dara
+question, and the migration is Cody's.
+
+### ⭐ SEVERITY, PROBED RATHER THAN ASSUMED - **it is INERT on live data today**
+
+The first read of this finding is that it corrupts the cutover instrument CS reads on ~Aug 17.
+**It does not, and the probe that settles it is one query:**
+
+```
+ties_on_real_dates  (plan_date < '2027-01-01', >1 run_id at the same produced_at)  ->  NULL
+2026-08-09: ONE run, 80 lines, 64 series   ·   2026-08-04: ONE run, 112 lines, 96 series
+```
+
+⭐ **Every live date carries exactly ONE shadow run, so there is no tie and no lottery in
+production.** The nightly cron calls the runner once per date; the fixture calls it twice. The
+defect fires the moment a date is **re-run** - a manual re-run, a catch-up after a failed night,
+a backfill - which is precisely what the idempotence assertion was written to catch.
+⛔ **Because it is inert on live dates, the fix changes NO number CS reads on Aug 17, so it is
+NOT LAW-4 territory and NOT a CS ruling.** It is ordinary loop work under LAW 8, and it is the
+next leg's first task.
+⛔ **It is also NOT an explanation of S-341.** S-341's 64-vs-48 gap is a single-run population
+difference between two engines; this is a multi-run selection defect. Two separate findings on the
+same table - do not merge them.
+
+### ⛔ THE S7 TRIPLE IS **VOID**. Verdict read from `golden.runs` only (S-340), never from stdout.
+
+| pass | rows | distinct | pass | fail | minutes | tuple_md5   | verdict            |
+| ---- | ---- | -------- | ---- | ---- | ------- | ----------- | ------------------ |
+| A    | 70   | 70       | 2640 | 0    | 24.7    | `9ba62791…` | ⛔ **incomplete**  |
+| B    | 71   | 71       | 2660 | 0    | 23.5    | `1a9353b8…` | ✅ complete green  |
+| C    | 71   | 71       | 2659 | **1**| 23.6    | `dc873758…` | ⛔ **RED** (fx 37) |
+
+`ASSERT_1_three_rounds` ✅ · `ASSERT_2_every_round_complete` ⛔ · `ASSERT_3_determinism_identical`
+⛔ · `ASSERT_4_zero_fail` ⛔. ⭐ **A-vs-B differed in exactly ONE place - fixture 22's absence.**
+Every other fixture matched assertion-for-assertion across A and B, which is why the C red stands
+out as signal rather than noise.
+⭐ **S-340 earned its keep again, on a case it was not written for:** flake-probe 1 printed
+`[{"count":43}]` to stdout **while it was 42/1 RED** - byte-identical to a green run's output.
+
+### ⛔⛔ S-347 (NEW, **CLOSED as a rule**) - A **502 IS NOT A 524**, AND `_log`'s "done N" IS NOT EVIDENCE
+
+Pass A lost fixture 22 to a **Cloudflare 502 that returned in 2 seconds**; no `golden.runs` row was
+ever written. Pass B hit fixture 37 with a **524 after 126 seconds** and the row **is** there
+(43/0). Both wrote the identical `done <id> <time>` line into the sweep's `_log`, because the sweep
+logs unconditionally after the POST returns - **whatever it returns, including an HTML error page.**
+
+| code | elapsed | reached Postgres | row in `golden.runs` | correct response      |
+| ---- | ------- | ---------------- | -------------------- | --------------------- |
+| 502  | ~2 s    | **no**           | **absent**           | **safe to re-fire**   |
+| 524  | ~125 s  | **yes**          | **present**          | ⛔ **never re-fire**  |
+
+⛔ **RULE: after every sweep, assert `count(*) = population` on `golden.runs` and grep the `.fire`
+files for a non-JSON first byte.** The standing "never re-fire on a 524" rule is correct and stays;
+it needed the 502 half added, because the two are indistinguishable in the `_log` and opposite in
+the correct response.
+
+### ⛔ S-346 (NEW, **CLOSED as a rule**) - A TAG IS NOT A RUN IDENTITY
+
+`golden.runs` tag `leg173 S7 A` carries **73** rows, not 70: fixtures **1, 2, 3** appear twice.
+The extra three started **22:15:54 / 22:16:01 / 22:17:21Z** - **before** the driver launched at
+22:21:18Z and **before** the S-342 migration was applied at ~22:20:26Z. Leg 173 launched the triple
+at **22:15:47Z**, killed it after three fixtures to land S-342 first, and relaunched under the
+**same tag** - and recorded none of it. The status file and `_log` were both overwritten, so the
+only surviving trace was three rows in the evidence table.
+⛔ **RULE: adjudicate with a driver-launch floor (`started_at >= <driver start>`), and report the
+excluded rows rather than dropping them silently.** ⭐ The three orphans are green and carry the
+identical pass counts (59/54/25) to their in-triple twins, and fixtures 1/2/3 do not touch
+`flip_cluster_to_v3_v3`, so they changed no verdict - but the leg-173 rule "`count(*)` must equal
+`count(DISTINCT fixture_id)`" would have failed on them for the wrong reason.
+⭐ **Retained, not deleted** - leg 131's precedent on superseded S7 rows.
+
+### ✅ THE DONE-2 EVIDENCE, RE-DERIVED LIVE THIS LEG (all of Tier 1-3 still stands)
+
+| item   | probe                                                          | live                              |
+| ------ | -------------------------------------------------------------- | --------------------------------- |
+| D-46   | `bind_dispatch_fefo` `md5(prosrc)`                             | `8ad35ce9…` - off `45ec06ab`      |
+| D-45   | `compose_plan_with_edits_v3` `'add'` branch                    | `base_qty + edit_qty` at **4278** |
+| D-43   | `push_plan_to_dispatch` / `repack_machine`                     | **`warehouse` in both halves**    |
+| DR-4   | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed`          | **`block`** / **15**              |
+| DR-5   | `w_empty` · `miner_weekly_edit_dry_run` · `..._pick_dry_run`   | **0.945** · **false** · **false** |
+| DR-7   | cron **48** `prd110_dr7_rotation_heartbeat_0530_sunday_dubai`  | **`30 1 * * 0`, active**          |
+| DR-8   | `approve_facing_proposal_v3`                                   | **present**                       |
+| DR-1   | flip / revert / block-reason RPCs · 10 clusters                | **all present, 10/10 `v19`**      |
+| D-44   | `var_money_reserved_slots`                                     | **2**                             |
+| D-19   | `preflight_enforcement`                                        | **`warn`** - correctly NOT flipped|
+| DR-3   | `pod_inventory_write_freeze`                                   | **`off`** - built, freeze parked  |
+| S-342  | `flip_cluster_to_v3_v3` stale DR-1b warning                    | **gone**, `c75dde76…`             |
+| LAW 11 | `gate0_require_manual_confirm`                                 | **true**                          |
+
+⭐ **DR-1 still refuses all ten clusters**, every one `is_vacuous=true`. **No build work is missing
+for DONE-2. The only thing standing between this sprint and `## DONE-2` is a green S7 triple**, and
+S-348 is what stands between the loop and that.
+
+### ⛔⛔ WHY `## DONE-2` WAS **NOT** APPENDED
+
+DEFINITION OF DONE-2 requires *"golden fully green"*. It is not: fixture 37 is a coin flip. LAW 8 is
+explicit - **HALT, bisect, fix, green, resume**. The bisect is complete and the fix is specified
+below; shipping it plus a fresh triple is one clean unit and it did not fit in this leg's remaining
+budget. **A leg that ships a perfect handoff beats one that appends a marker it cannot defend.**
+
+### RESUME POINTER 2026-08-09 leg 174 · FINAL
+
+- ⛔⛔ **NEXT TASK: FIX S-348, THEN RE-RUN THE TRIPLE FROM SCRATCH.** Nothing else is in the way -
+  every other DONE-2 item is verified live in the table above and needs no further work.
+- ⭐ **The fix is specified, not open-ended.** `refresh_engine_forecast_error_v3`'s
+  `ORDER BY sh.produced_at DESC, sh.run_id LIMIT 1` must become a **deterministic total order that
+  is stable when a date is re-run**. `pod_refills_shadow` has **no insertion-order column**, so the
+  two candidates are: (a) tie-break on **line count DESC** then `run_id` - minimal, no schema
+  change, and it makes fixture 37 read `8 = 8` on both measurements; (b) **Dara adds a monotonic
+  column** and the order becomes "last written". ⛔ **(a) is a one-line change to one SELECT; (b) is
+  a schema change to an append-only shadow table. Take (a) to Cody first.**
+- ⭐ **The fix is PROVABLY INERT on live data** - zero ties on any live date, one run per date - so
+  it changes no CS-facing number and needs no CS ruling. Say so in the Cody review.
+- ⛔ **Blast radius before you touch it (S-336's rule):** `refresh_engine_forecast_error_v3` is
+  called by `run_nightly_shadow_v3`; `engine_forecast_error_v3` feeds `v_cutover_readiness_v3`.
+  Grep `golden.assertions.check_sql` for both names before assuming fixture 37 is the only reader.
+- ⛔⛤ **THEN THE TRIPLE, FROM SCRATCH, ALL THREE PASSES.** Do not stitch a repaired pass to a fresh
+  one. Recipe: `/tmp/prd110_leg173_sweep.sh "<tag>" <suffix>` (the **payload-isolated** shim -
+  never the leg-162 pair), no fixture ids, sequential, NULL `p_max_phase` (S-309),
+  `statement_timeout` in the SAME POST (S-310). **~24 minutes per pass, ~75 for the triple** -
+  block in the foreground through all of it.
+- ⛔⛔ **ADJUDICATE ONLY FROM `golden.runs`** (S-340), requiring **`count(*) = 71` AND
+  `count(DISTINCT fixture_id) = 71` AND a driver-launch floor** (S-346). Then grep the `.fire`
+  files for a non-JSON first byte and classify every one: **502 = re-fire, 524 = never** (S-347).
+  `/tmp/leg174_s7_verdict.sql` is the adjudicator and already carries the floor.
+- ⛔ **DO NOT PUSH TO `origin/main`.** Local is **20 commits ahead**; a push is a Vercel production
+  deploy and it is CS's call. **DR-6's deploy - and therefore D-19 - waits on that one action.**
+- ⛔ **The live CS asks are FOURTEEN and leg 174 raised none of them** (S-348 is loop-side work, not
+  an ask): S-251 · D-21 h2 · D-28 h2 · D-27 h2 · S-285 · D-48 · S-312 · S-320 · S-328 · S-330 ·
+  S-333 · S-335 · S-341 · DR-6 deploy. ⭐ **When two CS-attributed statements collide, PARK.**
+  ⭐ **Never loosen an assertion to accommodate the code it caught (S-322)** - fixture 37 seq 20 is
+  this leg's worked example: the assertion is right and the writer is wrong.
+- ⛔ **S-339 OPEN** (`compose_plan_with_edits_v3` RAISEs on a valid-but-empty source run) ·
+  **S-313 OPEN** (cosmetic twin of S-342, byte-pinned by fixture 74 seq 65/66).
+  **STANDING RULES:** S-266..S-345 unchanged · 🆕 **S-346 / S-347 (CLOSED as rules)** ·
+  🆕 **S-348 (OPEN)**. New findings resume at **S-349**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.**
+- ⛔ **`/tmp` SURVIVED** (twenty-sixth leg); the Supabase MCP still has not connected.
+  `/tmp/prd110_sql_leg173.sh` (per-PID payload) and `/tmp/prd110_leg173_sweep.sh` both work.
+  ⛔ **`golden.fixtures` has NO `description` column** - it is `name` / `notes` / `scenario_sql`.
+  ⛔ **`plan_edits` does not exist**; the S-320 sensor is `public.machines_to_visit.status`.
+  ⛔ **`pod_refills_shadow` is append-only and has no id column.**
+- ⛔⛔ **NOTHING IS RUNNING.** `ps` widened is clean - no driver, no sweep, no watcher. The next leg
+  inherits an idle machine and starts by fixing S-348.
