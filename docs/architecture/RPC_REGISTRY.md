@@ -1420,6 +1420,22 @@ variants, so the oldest stock in the pod leaves first regardless of which SKU it
 Fixture 46 assertion 15 **pins** the convergence (`canonical_walker = 'public.wh_fefo_for_line'`),
 so a future leg that quietly re-implements the walk turns the fixture red instead of drifting.
 
+⭐ **D-28 (PRD-110 leg 149, 2026-08-08): `wh_fefo_for_line` no longer names `refill_dispatching`.**
+"Units committed elsewhere on the same date" used to be a seven-clause predicate written inline in
+its `committed` CTE and repeated twice more inside `v_dispatch_availability`. It now reads the
+canonical `public.v_dispatch_open_wh_commitment`, and so does the view. ⛔ **Grant consequence worth
+knowing before touching it:** `wh_fefo_for_line` is `SECURITY INVOKER`, so its invoker-rights callers
+(`resolve_fefo_sku_legs_v3`, `find_substitutes_for_shelf_v3`, both granted to `authenticated`) need
+`SELECT` on that view - it is granted to `authenticated, service_role` and **revoked from `anon` and
+`PUBLIC` by name** (S-268). ⚠️ `wh_fefo_for_line` itself still carries `anon` **and** `PUBLIC`
+EXECUTE, so a direct anon call now raises `permission denied for view` where it previously returned
+`committed_elsewhere = 0` - not because there was nothing committed, but because `refill_dispatching`'s
+only SELECT policy is `authenticated_read` and RLS blinded anon to every competitor row. A loud
+refusal replacing a silently wrong number is an improvement; **revoking that anon/PUBLIC EXECUTE is
+the D-30-shaped close and is parked, deliberately not bundled.** Golden fixture 70 seq 15/16 assert
+both halves of the grant. What the convergence did NOT change: `committed_elsewhere` is still the
+symmetric whole-rest-of-the-field discount, byte-identical on live data (fixture 70 seq 18-22).
+
 ### ⛔ The authority split, stated so it stays inspectable
 
 `resolve_supply_ladder_v3` decides **how many** units are placeable. This seam decides **which SKU**

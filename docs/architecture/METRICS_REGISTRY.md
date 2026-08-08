@@ -171,12 +171,31 @@ unnecessary: it returns the same answer whether or not they exist.
 ⚠️ **DELIBERATELY DISJOINT — do not consolidate.** Four availability objects exist and each answers a
 different question:
 
-| Object                    | Grain     | Question                                              |
-| ------------------------- | --------- | ----------------------------------------------------- |
-| `v_wh_pickable`           | batch     | what can be picked at all (no machine, no sourcing)   |
-| `v_dispatch_availability` | batch     | what is uncommitted on a dispatch date (PACKING)      |
-| `v_dispatch_pickable`     | batch     | packing truth incl. stock stranded in non-serving WHs |
-| `v_shelf_availability_v3` | **shelf** | can this shelf be PLANNED, given who supplies it      |
+| Object                          | Grain        | Question                                              |
+| ------------------------------- | ------------ | ----------------------------------------------------- |
+| `v_wh_pickable`                 | batch        | what can be picked at all (no machine, no sourcing)   |
+| `v_dispatch_open_wh_commitment` | dispatch row | WHICH lines count as an open warehouse claim at all   |
+| `v_dispatch_availability`       | batch        | what is uncommitted on a dispatch date (PACKING)      |
+| `v_dispatch_pickable`           | batch        | packing truth incl. stock stranded in non-serving WHs |
+| `v_shelf_availability_v3`       | **shelf**    | can this shelf be PLANNED, given who supplies it      |
+
+⭐ **`v_dispatch_open_wh_commitment` (PRD-110 D-28, 2026-08-08, `prd110_d28_converge_open_wh_commitment`)
+is the canonical DEFINITION, not a second availability object.** The seven-clause predicate - action
+in (Refill, Add New), not packed, not picked up, `source_origin = 'warehouse'`, not cancelled, not
+skipped, `pack_outcome <> 'not_filled'` - was written three times: once inline in
+`wh_fefo_for_line.committed_elsewhere` and twice inside `v_dispatch_availability`'s own window sums.
+It is now written once and both read it. ⛔ **The two consumers AGGREGATE it differently and that is
+NOT converged:** `wh_fefo_for_line` discounts a line by the whole rest of the field (symmetric,
+order-independent); `v_dispatch_availability.reserved_by_earlier` charges a row only for competitors
+with a lower `dispatch_id`. The arithmetic **cannot** converge - the binder runs at PUSH instant,
+before its own row exists, so there is no `dispatch_id` for it to be earlier than. ⛔⛔ And
+`refill_dispatching.dispatch_id` is `uuid DEFAULT gen_random_uuid()`, so the canonical object's queue
+discipline is a **RANDOM tiebreak, not first-come-first-served**. Which of the two policies should
+govern a contested batch is a live CS question (D-28 half 2), and golden fixture 70 pins all of it:
+seq 18-22 prove the convergence moved no number, seq 23-27 are the constructed before/after diff,
+seq 28-29 pin the random-uuid finding. Whole-table proof at ship: **37,395 live rows, md5
+`72c814d27fc4a3c1c92f219ff6698088` identical before and after**, 3,542 of them carrying a non-zero
+`reserved_by_earlier` so the window was genuinely exercised.
 
 A venue-sourced shelf is _unconstrained_ here and simply **absent** from the dispatch views, because
 nothing is picked for it. Folding this into the dispatch family would lose the sourcing dimension,
