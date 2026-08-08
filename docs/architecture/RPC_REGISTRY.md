@@ -2836,3 +2836,56 @@ three sensors said `ok` over a night that planned nothing) or to stop with a nam
 path. Its own Dara design + Cody review + fixture. Until it ships, a flip halts the whole nightly
 plan rather than that cluster's share of it — **CS must know this before ~Aug 17**, and
 `revert_cluster_to_v19_v3` restores the plan immediately with no evidence requirement.
+
+## PRD-110 DR-1b (2026-08-08, leg 161) — the halt becomes a branch, FLAG-OFF
+
+Migrations `20260809010000` / `20260809010500` / `20260809011000` / `20260809011500`.
+Cody ⚠️ approve-with-revisions (Articles 1 + Amendment 005, 2, 4, 7, 8, 12, 14, 16 + LAW 4 / LAW 12);
+all three revisions shipped before apply. Proof: golden fixture **75**.
+
+- ⛔⛔ **`promote_v3_shadow_to_live_v3(p_plan_date date) → jsonb` is a SECOND canonical writer of
+  `public.pod_refills`,** joining `engine_add_pod`. **Amendment 005 §78 classifies `pod_refills` as
+  "single-purpose" (one canonical writer), and this contradicts that classification** — declared
+  here under Article 15 rather than absorbed silently. It qualifies under the Amendment-005
+  six-criteria test: SECURITY DEFINER · role-gated against `user_profiles`
+  (`operator_admin`/`superadmin`) · sets `app.via_rpc` + `app.rpc_name` · validates `p_plan_date`
+  and re-asserts LAW 12 via `_assert_refill_plan_writable` · **narrow concern** (it publishes one
+  engine's plan for the authoritative clusters and does nothing else) · listed here.
+  ⭐ The correct reclassification is not "high-traffic" but **parallel-run**: `pod_refills` has two
+  writers for exactly as long as two engines exist, and returns to one when v19 is retired.
+- ⛔ **It pins ONE `run_id`.** `pod_refills_shadow` PK carries `run_id`, `pod_refills` PK does not,
+  so promoting "all shadow rows for the date" collides on the live PK the moment a second shadow
+  run exists — and cron 45 plus any manual re-run guarantee that. Latest run by `produced_at` wins.
+- ⛔ **It REFUSES rather than publishing empty.** Authoritative cluster + no v3 shadow run for the
+  date = `RAISE`, not a plan with that cluster's machines silently missing.
+- ⚠️ **The one non-identity column mapping:** `pod_refills_shadow.velocity_instock` →
+  `pod_refills.velocity_30d`. **This does NOT decide D-27 half-2** (an open CS ask); it records the
+  number v3 actually sized with, in the column the live table reserves for that.
+- ⛔⛔ **THE DIFF TRAP:** after a flip, `engine_add_pod_v3` runs **twice daily** — inside the 16:00
+  builder AND via cron 45 at 21:22. The promotion pins `MAX(produced_at)` **at 16:00**, so cron 45's
+  later run is NEWER than what is live. Any shadow-vs-live diff must key on
+  `reasoning->>'shadow_run_id'`, **never** on the latest shadow run.
+- `v_add_engine_scope_v3` — **Article 16 canonical** per-machine ADD-engine assignment.
+  ⭐ `LEFT JOIN` + `CASE`, never an inner join: a machine whose `venue_group` has no authority row
+  falls back to **v19**. An inner join would drop it from BOTH engines and it would go silently
+  unplanned — the LAW 5 silent-qty-0 class at machine grain.
+
+⛔ **`engine_add_pod` MODIFIED** — two scope predicates, both reading `is_cluster_authoritative_v3`.
+The second one is the real fix: its `DELETE FROM public.pod_refills WHERE plan_date = p_plan_date`
+was **unscoped**, so v19 wiped the whole date. ⭐ **That, not the SELECT scope, is what actually made
+a partial cutover impossible** — the DR-1 note above records the blocker as the whole-plan-date READ,
+which is true but is not the binding constraint. `pronargdefaults` asserted still 2; exactly one
+signature asserted; `#variable_conflict use_column` asserted preserved.
+
+⛔ **`_build_draft_core_v3` MODIFIED** — the halt is gone, replaced by the branch (v19 first, now
+scoped; then v3 shadow over the WHOLE fleet; then promotion of the flipped clusters only).
+⭐ **`cutover_block_reason_v3` is byte-untouched and still called** — fixture 74 seq 13 pins the
+call and seq 65/66 pin its fail-open handler. Only the builder's _response_ to `blocked` changed.
+⚠️ Its message still reads "or ship DR-1b" and is now stale, but is no longer reachable through the
+builder. Left untouched deliberately rather than risk a 53-assertion fixture banked one leg earlier
+(**S-313**).
+
+⭐ **v3's SHADOW scope is the FLEET; v3's LIVE scope is the flipped clusters.** Scoping the v3 read
+to authoritative machines would be the obvious symmetry and would deadlock the cutover on its own
+evidence: with 0 clusters flipped, v3 would plan nothing, `engine_forecast_error_v3` would stop
+accruing, and no cluster could ever clear the readiness gate.

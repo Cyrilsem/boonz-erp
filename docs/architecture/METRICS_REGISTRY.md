@@ -1227,3 +1227,22 @@ measurable and worth CS's attention on their own: ADDMIND **0.3564**, AMAZON **0
 INDEPENDENT **0.4243**, OHMYDESK **0.4974**, VOX **1.1466**, WPP **13.952**.
 ⛔ WPP's v19 WMAPE is not a typo — a 1395% weighted error is what the incumbent engine is scoring on
 that cluster today, and it is the bar v3 has to clear there.
+
+## PRD-110 DR-1b (2026-08-08, leg 161) — "which ADD engine owns this machine tonight"
+
+**Canonical object: `public.v_add_engine_scope_v3`** (Article 16). One row per picked/cs_added
+machine per `plan_date`, carrying `cluster_key` and `assigned_engine ∈ {v3, v19}`.
+
+Read by `promote_v3_shadow_to_live_v3` for its scope and machine count. `engine_add_pod` reads the
+same rule through its machine-grain sibling `is_cluster_authoritative_v3(uuid)`. ⛔ **No engine may
+restate the rule as `venue_group = cluster_key`** — the day a second place spells it is the day the
+two can disagree about who planned VOX, and the symptom is a machine planned twice or not at all.
+
+⭐ **`LEFT JOIN` + `CASE`, never `JOIN` + `=`.** A machine whose `venue_group` carries no row in
+`engine_cutover_authority_v3` — a venue group added between flips — must FALL BACK to `v19`. An
+inner join drops it from BOTH engines and it goes silently unplanned: the LAW 5 silent-qty-0 class,
+at machine grain, on a real machine on a real night. The absence of an authority row is a **state**,
+and that state is spelled `v19`.
+
+⚠️ **This is a scope assignment, not a quality measure.** It says nothing about whether v3 _should_
+own a cluster — that is `v_cutover_readiness_v3` (above), and it remains the only gate.

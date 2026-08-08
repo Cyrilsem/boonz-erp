@@ -38177,3 +38177,161 @@ do not debug it as a regression.
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
   S-284, S-286..S-310 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283, S-285 and 🆕 S-311
   are OPEN.** New findings resume at **S-312**.
+
+---
+
+## ⭐⭐ LEG 161 - 2026-08-08 - **DR-1b IS EXECUTED AND THE CUTOVER IS REAL: THE HALT BECAME A BRANCH.** Fixture 75 RED 0/51 → GREEN 50/50. Two defects were found by DRIVING the branch that no review or flag-off guard could reach - and one of them proves **S-308 applies to VIEWS**, which DR-1's own finding said it did not.
+
+**Window:** 17:0x - 17:5x UTC · **STEP R clean** · no CS ask raised · **no flag flipped, no dial changed**
+
+### STEP R - the pointer verified against reality before anything was trusted
+
+- `ps` narrowed (S-241) → full `ps` (S-294) → `pg_stat_activity`. **Leg 160 left nothing running.**
+  ⛔ **S-311 was LIVE at pickup:** the PRD-112 session (PID 93876) was still alive and had taken
+  `golden.fixtures WHERE enabled` from 66 to 67 by adding fixture 112. **It EXITED during this leg**
+  (confirmed by `ps -p`), so the sweep this leg fires is uncontended. `pg_stat_activity` showed zero
+  foreign `run_fixture`/`golden.` activity at pickup.
+- ✅ **RISK 104 reconciled 370 = 370**, `md5 62db30f3db94f76903719fe2102a60b3` **both sides**,
+  re-derived rather than trusted: DB via `md5(string_agg(version||'_'||name …))` over
+  `name LIKE '%prd110%'`; disk in **Python, top level only**, 371 files minus the one S-31 retained
+  **version prefix** `20260730203000` (S-290, by PREFIX) = 370. `max(version)` `20260808220000`.
+- ✅ **LAW 12 re-probed:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**,
+  **zero `operator_status='pending'` on all three**.
+- ✅ **cron 13 CONFIRMED FROM `cron.job_run_details`, not assumed** (leg 160 left this owed):
+  ran **16:00:00.66 UTC, `succeeded`, "1 row"** — the first production pass of the live nightly
+  builder through the DR-1-guarded `_build_draft_core_v3`. cron 44 also green at 16:40 (16 rows).
+- ⛔ **cron 45 STILL OWED AND STILL TIME-GATED.** It fires **21:22 UTC**; this leg ran 17:0x-17:5x.
+  Its last run is **2026-08-07 21:22** (`succeeded`). Unchanged acceptance test in the pointer.
+- ✅ S-99 drill: `git diff HEAD` carried only PRD-112's files. **`git add` by PATH only (S-300).**
+
+### ⭐⭐ DR-1b EXECUTED - the unit DR-1 could not be
+
+DR-1 (leg 160) shipped a cutover guard whose only move was to **stop**: while any cluster was
+authoritative for v3, the **whole fleet** went unplanned. Correct, loud, and useless as a cutover.
+
+**Dara design** (`docs/prds/PRD-110-DR1b-DARA-design.md`) → **Cody ⚠️ approve-with-revisions (3, all
+shipped BEFORE apply)** → **fixture 75 RED before, GREEN after**. Seven migrations,
+`20260809010000`..`20260809013000`.
+
+⛔⛔ **THE PARKING LOT AND DR-1's OWN REGISTRY ENTRY BOTH NAMED THE WRONG BLOCKER.** Both recorded it
+as "the ADD engines are whole-plan-date scoped", i.e. the **READ**. That is true and it is not the
+binding constraint. The binding constraint was one statement in `engine_add_pod`:
+
+```
+DELETE FROM public.pod_refills WHERE plan_date = p_plan_date;
+```
+
+**unscoped.** v3 could have written perfect rows for a flipped cluster and v19's next run would
+delete them. No amount of argument-passing fixes a wipe.
+
+**What shipped:**
+
+- `v_add_engine_scope_v3` — **Article 16 canonical** per-machine engine assignment.
+  ⭐ **`LEFT JOIN` + `CASE`, never an inner join:** a machine whose `venue_group` carries no
+  authority row falls back to **v19**. An inner join drops it from BOTH engines and it goes
+  silently unplanned — **LAW 5's silent-qty-0 class, at machine grain**. Fixture 75 seq 35/36 pin
+  totality by counting the view against `machines_to_visit`.
+- `engine_add_pod` — two scope predicates reading `is_cluster_authoritative_v3`: the DELETE above,
+  and the `picked` CTE. `pronargdefaults` **asserted still 2**, exactly one signature asserted,
+  `#variable_conflict use_column` asserted preserved.
+- `promote_v3_shadow_to_live_v3(date)` — the ONLY path from `pod_refills_shadow` into
+  `pod_refills`, for authoritative clusters only. Pins **ONE `run_id`** (shadow PK carries
+  `run_id`, live PK does not, so "promote the date" collides the moment a second run exists — and
+  cron 45 guarantees one). **Refuses rather than publishing empty.** Stamps provenance
+  (`authored_by`, `shadow_run_id`) into `reasoning`.
+- `_build_draft_core_v3` — the halt became the branch. ⭐ **`cutover_block_reason_v3` is BYTE-
+  UNTOUCHED** (`prosrc` md5 `2006f1c8db739375bc4795b7a6cdfc9a` **identical across the change**) and
+  still called; only the builder's *response* to `blocked` changed. Fixture 74 seq 13/65/66 safe.
+
+⭐ **THE ASYMMETRY IS THE DESIGN: v3's SHADOW scope is the FLEET; v3's LIVE scope is the flipped
+clusters.** Scoping the v3 *read* to authoritative machines is the obvious symmetry and it would
+**deadlock the cutover on its own evidence** — with 0 clusters flipped v3 would plan nothing,
+`engine_forecast_error_v3` would stop accruing, and no cluster could ever clear the gate.
+
+### ✅ FLAG-OFF PROVEN BY md5, NOT BY ASSERTION
+
+`public.pod_refills` whole-table md5 **`5b2c72478c5af076a6f3f774a186bd14`, 4,177 rows — IDENTICAL
+before and after all seven migrations.** 0 of 10 clusters authoritative · gate `blocked=false` ·
+`v_add_engine_scope_v3` assigns **0** machines to v3. LAW 4 intact.
+
+### ⛔⛔ S-314 (NEW, CLOSED) - **S-308 APPLIES TO VIEWS, AND DR-1's FINDING SAID IT DID NOT**
+
+The Dara design and Cody's review BOTH stated that S-308's Supabase default privilege "targets
+TABLES", so a view needed no `REVOKE`. **False.** The migration's own guard refused the apply:
+
+```
+DR-1b: v_add_engine_scope_v3 grants authenticated more than SELECT:
+INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER
+```
+
+The default privilege is `GRANT ALL ON TABLES`, and Postgres's **TABLES object class covers views**.
+`GRANT SELECT` adds nothing already present and S-268's `REVOKE … FROM anon, PUBLIC` does not touch
+a grant held by `authenticated`. ⭐ **The assertion that caught it was written to be redundant and
+was not.** ⚠️ **S-308's open worklist item (audit every table added since the defaults were set)
+is now strictly larger: it covers every VIEW too.**
+
+### ⛔ S-315 (NEW, CLOSED) - a widened CHECK that the flag-off path could never reach
+
+`engine_cutover_audit_v3.action` was CHECK-constrained by DR-1 to `{flip_to_v3, revert_to_v19}`;
+the promotion writes `action='promote'`. ⛔ **The migration's own executed flag-off guard could not
+find this** — the no-op path returns BEFORE the audit insert. Only a fixture that actually flips a
+cluster and promotes could. Closed in `20260809012500`, which also **proves the widened CHECK still
+refuses a junk verb** — a CHECK relaxed into uselessness reads identically in a migration diff.
+
+### ⛔ S-316 (NEW, CLOSED) - the fixture's own refusal probe violated an append-only guard
+
+Fixture 75 proved "refuses rather than publishing empty" by DELETEing the shadow run.
+`pod_refills_shadow` is append-only (ADR-shadow-plan-tables §5.1) and its trigger refused, which
+**aborted the whole scenario and made all 51 assertions return NULL** (the S-253b/S-254 shape).
+⭐ **The guard was right and the probe was wrong:** deleting shadow evidence cannot happen in
+production, so proving the refusal that way proved nothing anyone will hit. Re-shaped to a second
+synthetic date carrying an authoritative machine and no v3 run — **the shape that actually occurs
+when a flip lands between cron 45 and the next nightly build.**
+
+### ⛔ S-312 (NEW, OPEN) - the swap engine is still fleet-wide v19, and `swaps_enabled` is TRUE
+
+`engine_swap_pod` writes `pod_swaps` — a different table, so it cannot corrupt DR-1b's partition —
+but `engine_finalize_pod` merges both into the live plan. **A flipped cluster therefore gets v3
+refill lines and v19 swap lines.** ⚠️ **`swaps_enabled` is `true` globally (verified live); the
+memory note claiming `false` is STALE.** Scoping the SWAP engine is a separate unit against a
+separate engine and PRD-110's Wave-2 SWAP items are parked under the engine freeze — widening DR-1b
+to cover it would be LAW 10 drift. DR-1b instead makes it **visible**: every promotion payload
+carries `residual_swap_engine: v19_fleetwide`, pinned by fixture 75 seq 48.
+
+### ⛔ S-313 (NEW, OPEN, cosmetic) - a now-stale message inside a byte-frozen function
+
+`cutover_block_reason_v3`'s message still reads "…or ship DR-1b". DR-1b has shipped. It is no longer
+reachable through the builder (the halt that returned it is gone) and is visible only to a direct
+caller. **Left byte-untouched deliberately** rather than risk fixture 74's 53 assertions (seq 65/66
+read this function's `prosrc`) one leg after it was banked. One-line fix, own migration, own re-fire.
+
+### Article 1 declared, not absorbed
+
+⛔ `promote_v3_shadow_to_live_v3` is a **SECOND canonical writer of `pod_refills`**, and
+**Amendment 005 §78 classifies `pod_refills` as "single-purpose" (one canonical writer)**. Declared
+under Article 15 in `RPC_REGISTRY.md` rather than absorbed silently. It meets all six Amendment-005
+criteria. ⭐ The correct reclassification is not "high-traffic" but **parallel-run**: two writers for
+exactly as long as two engines exist, back to one when v19 retires.
+`v_add_engine_scope_v3` registered in `METRICS_REGISTRY.md`.
+⚠️ **A Cody finding this leg was WRONG and is corrected here:** `v_cutover_readiness_v3` **is**
+registered (METRICS_REGISTRY line 1179). The grep that "found" it missing tested the wrong strings.
+
+### Fixture 75 - what the green actually says
+
+**RED 0/51** (`scenario_error`: view does not exist) → **GREEN 50/50, zero fail, scenario_error
+null.** Every observed value is real, none vacuous:
+
+| seq   | claim                                        | observed          |
+| ----- | -------------------------------------------- | ----------------- |
+| 12/18 | unscoped wipe GONE · builder halt GONE       | `0` · `0`         |
+| 33/34 | ⭐⭐ **THE PARTITION on ONE plan_date**       | `v3` · `v19`      |
+| 35/36 | totality — neither machine dropped           | `2` · `2`         |
+| 38    | only the flipped cluster promoted            | `1` (of 2 in run) |
+| 41/42 | flipped row is v3-authored, carrying v3's qty | `engine_add_pod_v3` · `3` (was 7) |
+| 43/44 | ⭐⭐ **control byte-untouched at v19's qty**  | `V19_UNTOUCHED` · `5` |
+| 45/46 | idempotent · refuses on no shadow run        | `1` · `RAISED`    |
+| 47    | revert makes it inert again                  | `noop`            |
+| 60-64 | residue: registry, live, shadow, mtv, evidence | all `0`         |
+
+⭐ **seq 38 is the one that matters most:** the shadow run deliberately contained the CONTROL
+machine too. Promoting 2 there would mean v3 had silently taken over a cluster CS never flipped.
