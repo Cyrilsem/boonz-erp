@@ -12024,3 +12024,90 @@ one fixture.
 - ⚠️ **`supabase/migrations/parked/README.md` was STALE** - it still listed the D-37 file leg 155 had
   already `git mv`-d up and applied. Row removed, rule retained.
 - ⭐ **DR-10 proven on live traffic:** family `write_audit_log` **0 → 150** across the sweep.
+
+## ⭐⭐ leg 157 (2026-08-08) — **LAW 8: three standing reds bisected, two CLOSED.** S-302 raised and closed. 🆕 **D-48 raised — a SIXTH live CS ask.** No engine body touched.
+
+### ⛔⛔ D-48 (NEW, **OPEN CS ASK**) — TWO CS-ATTRIBUTED INTENTS HAVE STARTED TO CONTRADICT
+
+**THE ASK, in one line:** *does the 14-day absolute visit ceiling bind a machine whose own measured
+cadence is LONGER than 14 days?*
+
+Two statements, both attributed to CS, both encoded in fixture 42, mutually exclusive exactly when
+`gap_days > hard_max_days`:
+
+- **(A) seq 61** — the breached set is strictly INSIDE the target-due set. Being *breached* is a
+  STRONGER statement than being *due*; that is what earns it the right to pre-empt money.
+- **(B) seq 57**, verbatim — `var_cadence_hard_max_days` = 14 is *"the absolute ceiling nobody
+  exceeds **regardless of their own gap**"*.
+
+⛔ **D-24's ruling text (line 5047 above) settles neither.** It says only *"a max-days-between-visits
+floor that forces inclusion when breached"*. The live encoding
+`LEAST(gap_days × floor_multiple, hard_max_days)` implements **(B)** and breaks **(A)**.
+
+**WHY IT IS NOT A DEFECT THE LOOP MAY FIX.** The obvious repair —
+`GREATEST(gap_days, LEAST(gap_days × mult, hard_max))` — was drafted, taken to Cody, and **BLOCKED**:
+it overrides CS statement (B) in order to satisfy CS statement (A). Choosing between them is CS's
+call. ⭐ Cody's read is recorded because it is the general rule: **when two CS-attributed statements
+collide, the loop parks; it does not pick the one that makes the fixture green.**
+
+**IT HAS TEETH — this is not academic.** Under **D-44** a breached machine outranks money outside the
+K reserved slots. So today:
+
+| machine                | cadence                                  | dsv | threshold                  | reads       | actually due? |
+| ---------------------- | ---------------------------------------- | --- | -------------------------- | ----------- | ------------- |
+| **GRIT-1022-0100-W0**  | **20.5 d** (`observed`, median of 4 gaps) | 19  | `LEAST(41, 14)` = **14**   | **BREACHED** | **NO** (19 < 20.5) |
+
+⛔ Its **`policy_trip_interval_days` is 30** — CS's own service policy puts it on a monthly cadence.
+**A machine CS services roughly monthly is pre-empting money today.** Population: **1 of 31**. Zero
+machines had a cadence over 14 days before this week, which is why both readings held vacuously
+until now.
+
+**WHAT EACH ANSWER COSTS.**
+- **YES, the ceiling binds regardless** → today's behaviour is correct, nothing ships, and **(A) must
+  be retired as a general law** — fixture 42 seq 61 can never again be stated fleet-wide.
+- **NO, a machine gets its own cadence** → threshold becomes
+  `GREATEST(gap_days, LEAST(gap_days × mult, hard_max))`, GRIT gets its 20.5 days, and the ceiling
+  becomes *"twice your cadence, capped at 14, but never before your own target"*. ⛔ **The engine and
+  fixture 42's independent mirror (seq 62) must move in the SAME migration** or seq 62 reds.
+
+⭐ **THE CONFLICT CANNOT GO SILENT WHILE THIS IS PARKED.** Every fixture-42 run now writes
+`cad_conflict_live` and `cad_conflict_names` (today: **1**, `GRIT-1022-0100-W0@20.5`) to
+`golden.scratch`, and **seq 86** reds on any inversion the ceiling does NOT explain. ⛔ **Neither is
+a pinned count** — recording and asserting are different jobs (S-301 / S-302).
+
+### ⭐ S-302 (NEW, CLOSED) — **THE AUTHORISED-WRITE DIRECTION OF S-301**
+
+S-301: an absolute count of live rows can be moved by a **sibling fixture**. S-302: it can equally be
+moved by **this loop's own authorised writes**. Fixture 30 seq 8 pinned 77 VOX venue edges; leg 151
+minted three `Fade Fit - Coconut` edges through the canonical writer, mirroring a CS decision, and
+logged it — **nothing was done wrong** — and the tripwire went red five legs later over a write that
+flipped nothing. ⛔ **Before pinning a count, ask which SIBLING can move it (S-301) AND which
+AUTHORISED WRITE can (S-302).** Third member of the family with S-272.
+
+⭐ **A COROLLARY WORTH REUSING: prefer a CLOSED-HISTORY cohort to a live population.** fx 30 seq 8 is
+now pinned on edges with `valid_from < 2026-08-01` — a set no future mint can enlarge and any
+supersede shrinks. **Exact AND drift-proof at the same time**, which the bucketing trick (S-301) is
+not.
+
+### ⭐ MAGNITUDE IS NOT A MECHANISM (correction to the leg-156 pointer)
+
+Leg 156 flagged fx 30's `+3` as *"the same magnitude as the facing-proposal minting — check that
+coupling first."* **It is not that coupling.** The three rows are `Fade Fit - Coconut`, `valid_from`
+2026-08-08 10:06:34Z, from leg 151's S-285 mirror mint. Two unrelated things moved by 3 in the same
+window. ⛔ **Date the rows; do not match the delta.**
+
+### ⏸️ fx 41 — DIAGNOSED IN FULL, DELIBERATELY NOT STARTED
+
+Live WEIMI drift on **both** anchors: destination `b2145d8e` (MPMCC-1058 **A06**) is now **Sunbites**,
+not Zigi; the by-predicate source now resolves to a **G&H Popped Chips** pod. Nothing in this loop
+moved either (`planogram` holds no row for that shelf; no planogram write in `write_audit_log` since
+Aug 6). ⛔ **The blocker for the re-anchor: exactly ONE Zigi shelf remains fleet-wide** —
+`ALJLT-1015-0200-O1` A08 (`10c1f09f-…`), **max_stock 6** against anchor A's designed headroom of **9**
+(block (0) `RAISE`s below 9). Its pod carries **5 SKUs**, matching seq 43 exactly, so the re-anchor
+works — but only at headroom **6**, i.e. exactly the 6 transfer units. ⭐ **That boundary is a
+stronger no-clamp test than headroom 9, not a weaker one** — but it changes what anchor A proves and
+must be argued in the migration, not slipped in. **8 edit sites** (scenario lines 12, 43, 55, 104,
+140, 222, 230, 235) plus the source predicate's machine exclusion, which excludes only MPMCC-1058
+today and must also exclude the new destination machine.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **SIX ASKS; leg 157 added ONE.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular and Fade Fit - Coconut venue-supplied?) · 🆕 **D-48** (does the 14-day ceiling bind a machine whose own cadence is longer?). The answered-unexecuted list is **unchanged at SIX**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-33, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. **DR-1 (Tier 4 cutover unit, flag-off) remains the only other WORK item.** ⚠️ **S-302 CLOSED; S-265, S-266, S-279, S-283 and S-285 remain OPEN.** New findings resume at **S-303**. ⭐ **Leg 157 flipped NO flag, changed NO dial, and touched NO engine body.**

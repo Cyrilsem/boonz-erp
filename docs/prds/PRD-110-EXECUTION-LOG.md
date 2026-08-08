@@ -36945,11 +36945,11 @@ Every one was re-fired alone before being called a red. **All three reproduce by
 none is a sweep-ordering artifact. ⛔ **These were standing before leg 156 and are not its work** —
 the ~48-fixture backlog is what hid them, which is S-296 exactly.
 
-| fx  | run        | failures                                                                        | first read |
-| --- | ---------- | ------------------------------------------------------------------------------- | ---------- |
-| 30  | `10c45d80` | `8:80` (expect 77) — a live count drifted +3                                     | leg 156    |
+| fx  | run        | failures                                                                                      | first read |
+| --- | ---------- | --------------------------------------------------------------------------------------------- | ---------- |
+| 30  | `10c45d80` | `8:80` (expect 77) — a live count drifted +3                                                  | leg 156    |
 | 41  | `e0b30290` | `6:A06\|Sunbites` (expect Zigi) · `24:0` · `25:14` · `28:0` · `29:7` · `31:Sunbites` · `43:2` | leg 156    |
-| 42  | `ab24d49a` | `61:false` (expect true) · `63:0` (expect >0)                                     | leg 156    |
+| 42  | `ab24d49a` | `61:false` (expect true) · `63:0` (expect >0)                                                 | leg 156    |
 
 ⭐ **fx 41 reads like live shelf drift, not an engine regression** — shelf `A06` now carries Sunbites
 where the fixture pins Zigi, and six of its seven failures follow from that one premise. **Bisect the
@@ -37086,3 +37086,252 @@ The table now reads empty and the rule is retained verbatim.
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282, S-284,
   S-286..S-301 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
   New findings resume at **S-302**.
+
+## ⭐⭐ leg 157 (2026-08-08) — **LAW 8 DISCHARGED: ALL THREE STANDING REDS BISECTED, TWO CLOSED.** S-302 raised and closed. **D-48 raised as a NEW CS ask.** No engine body touched.
+
+### ✅ STEP R CLEAN, AND THE S-99 DRILL CAME BACK EMPTY THIS TIME
+
+`ps` narrowed (S-241) and full (S-294): **nothing running**; leg 156's two background jobs are gone
+and the PRD-111 session (PID 66562) has exited. ⭐ **`git diff HEAD` was empty and STAYED empty** —
+leg 156's mid-leg reformat did not recur, which is consistent with its own corrected verdict that
+the cause was never identified. RISK 104 reconciled **353 = 353**, md5 `d107206e…903` both sides,
+`max(version)` `20260808182000`. LAW 12 re-probed: `2026-08-07` **101** · `2026-08-08` **117** ·
+`2026-08-09` **97**, **zero pending on all three**. Fixture population **65 = 65**.
+
+### ⭐⭐ THE BISECT THAT MADE ALL THREE CHEAP — RUN HISTORY, NOT CODE READING
+
+All three reds were dated from `golden.runs` before a single line of engine SQL was read:
+
+| fx  | last GREEN         | first RED          |
+| --- | ------------------ | ------------------ |
+| 30  | 2026-08-08 09:31Z  | 2026-08-08 12:48Z  |
+| 41  | 2026-08-08 09:56Z  | 2026-08-08 12:52Z  |
+| 42  | 2026-08-08 09:56Z  | 2026-08-08 12:52Z  |
+
+⭐ **A three-hour window, and it collapsed each fixture to one probe.** ⛔ **They share a window but
+NOT a cause** — three unrelated mechanisms landed in the same afternoon. The temptation to look for
+one root cause because three fixtures moved together is exactly what the window disproves.
+
+### ⛔ THE LEG-156 POINTER'S fx 30 HYPOTHESIS WAS WRONG — **MAGNITUDE IS NOT A MECHANISM**
+
+It read the `+3` as "the same magnitude as the facing-proposal minting — check that coupling first."
+It is not that coupling. fx 30's three extra rows are **Fade Fit - Coconut**, three Active venue
+edges, `valid_from` **2026-08-08 10:06:34Z** — **leg 151's own S-285 mirror mint**, three of the six
+edges it wrote to mirror CS's `product_mapping` decision. The other three were 7Up, which sit on
+Soft Drinks Mix and match no arm of the tripwire's `LIKE` — **which is exactly why the counter moved
+by 3 and not 6.** Two unrelated things moved by 3 in the same window.
+
+### ⭐ S-302 (NEW, CLOSED) — **THE AUTHORISED-WRITE DIRECTION OF S-301**
+
+S-301 found that an absolute count of live rows can be moved by a **sibling fixture**. fx 30 is the
+same defect with a different mover: **an absolute count can also be moved by THIS LOOP'S OWN
+AUTHORISED WRITES.** Leg 151 did nothing wrong — canonical writer, logged, mirroring a CS decision —
+and a tripwire aimed at a different failure went red five legs later over it.
+⛔ **Before pinning a count, ask not only which SIBLING can move it (S-301) but which AUTHORISED
+WRITE can (S-302).**
+
+### ✅ fx 30 CLOSED — `20260808190000` — **19/1 → GREEN 21/0**
+
+seq 8's own text ends *"Never fix this by weakening the assertion"*, and that is honoured literally:
+`eq 77` was a **poor proxy in both directions** — it reds on a mint that flips nothing, and it stays
+GREEN if one edge flips to `boonz_wh` while one is minted, **the exact arithmetic that just
+occurred.** Two assertions replace it, and the pair is strictly stronger:
+
+- **seq 8** → `vox_venue_pre_aug` **eq 77** — the S-10 exposure cohort as it stood before
+  `2026-08-01`. **Closed history: no mint can enlarge it, superseding a member shrinks it.** Exact
+  AND drift-proof.
+- **seq 21 (new)** → `vox_boonz_wh` **eq 0** — the failure mode stated DIRECTLY. Measured 0.
+  ⭐ Cannot be masked by a simultaneous mint.
+
+The live count (**80**) is still computed and written to `golden.scratch`. **Recording and asserting
+are different jobs.** ⏸️ The three Coconut edges stay behind S-285's OPEN ask; this ratifies nothing.
+
+### ⛔⛔ fx 42 — **CODY BLOCKED THE ENGINE FIX, AND CODY WAS RIGHT**
+
+The drafted fix was `LEAST(gap*mult, hard_max)` → `GREATEST(gap, LEAST(gap*mult, hard_max))` in
+`rank_machines_by_value_at_risk_v3`. **Blocked.** It is not a defect fix — it is **CS policy
+arbitration between two CS-attributed intents that have just started to contradict**:
+
+- **(A)** fixture 42 **seq 61**: the breached set is strictly INSIDE the target-due set. Being
+  breached is a STRONGER statement than being due — that is what lets it pre-empt money.
+- **(B)** fixture 42 **seq 57**, verbatim: `var_cadence_hard_max_days` = 14 is *"the absolute ceiling
+  nobody exceeds **regardless of their own gap**"*.
+
+They are mutually exclusive exactly when `gap_days > hard_max_days`. D-24's ruling text (parking lot
+line 5047) says only *"a max-days-between-visits floor that forces inclusion when breached"* and
+**never settles the interaction**. `LEAST` encodes (B) and breaks (A); `GREATEST` encodes (A) and
+overrides (B). ⛔ **Swapping it would have overridden one CS statement to satisfy another, silently.**
+
+### ⛔ THE COLLISION IS REAL, IT IS ONE MACHINE, AND IT HAS TEETH
+
+**GRIT-1022-0100-W0** — `interval_source='observed'`, `visit_interval_days` **20.5** (median of 4
+gaps), and its **`policy_trip_interval_days` is 30**. Threshold `LEAST(20.5 × 2.0, 14)` = **14**, so
+at `days_since_visit` 19 it reads **BREACHED while not yet due by its own service target**.
+⛔ **Under D-44 a breached machine outranks money outside the reserved slots — so a machine CS
+services roughly monthly is pre-empting money today.** Zero machines had a cadence over 14 days
+before this week; both readings held vacuously until GRIT crossed the line. **1 of 31.**
+
+### ✅ fx 42 CLOSED WITHOUT DECIDING IT — `20260808191000` — **83/2 → GREEN 86/0**
+
+⛔ **Two seqs, two DIFFERENT causes** — and the fixture had hidden that from itself, because seq 61
+reads `pop` (computed under the **LIVE** params, mult 2.0 / hard 14) while seq 63 reads `out`
+(computed under the **D-44 PLANTED** params, mult 5.75 / hard 24, which raises the ceiling to 24 and
+**hides GRIT entirely**). The two assertions were describing different worlds.
+
+- **seq 61** failed on the GRIT inversion under live params (`breached` 2 > `due` 1).
+- **seq 63** failed for the dullest possible reason: `target_due AND NOT floor_due` was **empty
+  because the only target-due machine that week (NOVO-1023, gap 4, dsv 23) was also breached.**
+  ⭐ **Nothing structural failed and no engine changed — a driver turning up on the right day would
+  have made it green again.**
+
+Both are moved off visit-timing luck and onto STRUCTURE, scoped to the population where (A) and (B)
+do not collide, so the fixture **asserts nothing D-48 will settle**:
+
+- **seq 61** → across all 30 machines with `gap_days <= hard_max_days`, the hard floor lands
+  **strictly later** than the soft target, and that population is non-empty. **30 of 30.**
+  ⭐ Still dies on `mult = 1.0` (the band collapses to zero on all 30) — the failure mode it was
+  built for is intact, and it can no longer be emptied by a driver.
+- **seq 63** → the same structural band is non-empty. **A band that exists by construction
+  discharges non-vacuity; a band that happens to be occupied discharges it by luck.**
+- **seq 86 (new)** → an inversion the **ceiling does not explain**: a threshold below `gap_days`
+  while `gap_days` is *within* the ceiling. That is arithmetic, not policy — **no reading under
+  either side of D-48**. Measured **0**.
+
+⭐ **The D-48 census is RECORDED, NOT ASSERTED** — `cad_conflict_live` **1** and
+`cad_conflict_names` **`GRIT-1022-0100-W0@20.5`** land in `golden.scratch` every run and no assertion
+pins them. Pinning a live population count is the very defect S-301 and S-302 were raised for.
+⛔ **seq 62 is deliberately left agreeing with today's `LEAST`**: the day CS answers D-48, fixture 42
+goes red until the independent mirror is moved together with the engine. **That is the point.**
+
+### ⏸️ fx 41 — **BISECTED, NOT FIXED. THE DIAGNOSIS IS COMPLETE; THE UNIT IS NOT STARTED (RELAY)**
+
+⭐ **The leg-156 pointer's read was RIGHT here: live drift, not an engine regression.** And it is
+**TWO** drifts, not one:
+
+1. **Anchor A's destination was re-podded.** Shelf `b2145d8e` (MPMCC-1058-0000-R0 **A06**) is now
+   **Sunbites** (2 SKUs), not Zigi. The pod comes from `v_shelf_slot_identity` — i.e. **WEIMI**, the
+   physical wall. ⛔ **`planogram` holds NO row for this shelf and `write_audit_log` shows no
+   planogram write since Aug 6 — nothing in this loop moved it.** Real-world drift.
+   Six of the seven failures follow from that one reading: `intersection` 0 → transfer 0, return 14.
+2. **The source shelf's pod also drifted.** The by-predicate resolver still lands on
+   `31894963` (VML-1004-0500-O1 A07) but its pod is now **"G&H Popped Chips"** (3 SKUs), not the
+   Krambals & Zigi mix the fixture's notes describe. Harmless today — the 7-SKU / 14-unit input set
+   is caller-supplied, not read from the source pod — but the notes are now false.
+
+⛔⛔ **THE HARD PART, AND WHY IT IS NOT A ONE-LINE RE-ANCHOR: THERE IS EXACTLY ONE ZIGI SHELF LEFT IN
+THE FLEET** — `ALJLT-1015-0200-O1` **A08**, `10c1f09f-a784-49cd-a286-47b9aee9d119`, **max_stock 6**.
+Anchor A's designed headroom is **9**, and block (0) `RAISE`s if `a_max < 9`. ⭐ Its Zigi pod carries
+**5 SKUs**, which matches seq 43's expected `dest_skus_any_scope = 5` exactly — so the re-anchor is
+viable, but only at **headroom 6**, i.e. **exactly** the 6 transfer units.
+⭐ **That boundary is arguably a STRONGER no-clamp test than headroom 9** (an off-by-one in the clamp
+would now red anchor A) — but it is a change to what anchor A PROVES and must be argued, not slipped
+in. ⛔ **The re-anchor is 8 sites** across a 239-line scenario (lines 12, 43, 55, 104, 140, 222, 230,
+235) plus the source predicate's machine exclusion, which currently excludes only MPMCC-1058 and
+would have to exclude the new destination machine too.
+⏸️ **Leg 157 did not begin it.** RELAY: *never begin a unit you cannot finish this session.* The next
+leg starts from a finished bisect, not from scratch.
+
+### ✅ RESIDUE — proven, not declared
+
+`refill_policy_params` **restored to mult 2.0 / hard_max 14** after fixture 42's D-44 plant
+(`d44.restored = true`, re-probed independently of the fixture's own seqs). LAW 12 **zero pending**
+on all three live dates, unchanged. RISK 104 after both migrations: **355 = 355**, md5
+`c6b479767149ca1e80e15994983e6c8f` **both sides**, `max(version)` `20260808191000`.
+⭐ **No engine body was touched this leg. No flag was flipped. No dial was changed.**
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+Unchanged from leg 156: `dispatch_pack_confirmation`'s argument-less `audit_log_write()` · the 9
+partial-cover stranded shelves (28 units) · **S-285 (OPEN)**, `product_mapping` still has no write
+gate · the 5,029 phantom units · `wh_fefo_for_line` filters no sentinels and three writers call it
+unguarded · `anon` + `PUBLIC` EXECUTE on `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan
+sourcing triples · 26 latent non-assorted `venue_team` triples · **S-265** · the 15-of-720
+unattributed sales. 🆕 **fixture 41's `notes` now misdescribe the source pod** (fix with the re-anchor).
+
+### RESUME POINTER 2026-08-08 leg 157 · FINAL
+
+- ⚠️ **FIRST — `ps` (S-241) narrowed to `prd110|golden|stress_s|psql`, ⛔ THEN a FULL `ps` (S-294).**
+  Leg 157 ran ONE background job (`prd110_leg157_iso.sh`); it **COMPLETED** — verify, do not assume.
+  ⭐ Also re-run the **S-99 drill** (`git diff HEAD`): leg 156's mid-leg reformat had **no cause ever
+  proven**, and leg 157 saw none. **Never "revert" such a reformat** — it only fights the formatter.
+- ⛔ **RISK 104: expect `prd110%` = 355, `max(version)` = 20260808191000, owed md5
+  `c6b479767149ca1e80e15994983e6c8f` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk
+  side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  **version prefix** `20260730203000` (S-290 — by PREFIX, not whole filename). ⭐ Compute the disk
+  side in **PYTHON**, **TOP LEVEL ONLY** (`supabase/migrations/parked/` holds only a README).
+- ✅⭐ **LAW 8 IS DISCHARGED — 64 GREEN / 1 RED, and the one red is fully bisected.** fx 30
+  (**GREEN 21/0**, `20260808190000`) and fx 42 (**GREEN 86/0**, `20260808191000`) are CLOSED.
+  ⛔ **"No known red" is STILL FALSE**: **fixture 41 is red 59/7** and must stay named until fixed.
+- ⛔⛔ **NEXT TASK: the fx 41 RE-ANCHOR. It is fully diagnosed — do NOT re-bisect it.** Live WEIMI
+  drift on BOTH anchors: dest `b2145d8e` (MPMCC-1058 **A06**) is **Sunbites** not Zigi; the source
+  resolves to a **G&H Popped Chips** pod. Nothing in this loop moved either (no `planogram` row for
+  that shelf; no planogram write since Aug 6). ⛔ **THE BLOCKER: exactly ONE Zigi shelf remains
+  fleet-wide** — `ALJLT-1015-0200-O1` A08 `10c1f09f-a784-49cd-a286-47b9aee9d119`, **max_stock 6** vs
+  anchor A's designed headroom **9** (block (0) `RAISE`s under 9). ⭐ Its pod has **5 SKUs**, matching
+  seq 43's `dest_skus_any_scope=5` exactly, so the re-anchor works at **headroom 6 = exactly the 6
+  transfer units**. ⭐ **Argue that boundary explicitly** — it is a STRONGER no-clamp test than 9, not
+  a weaker one, but it changes what anchor A proves. **8 edit sites** (scenario lines 12, 43, 55,
+  104, 140, 222, 230, 235) + the source predicate's machine exclusion (excludes only MPMCC-1058
+  today; must also exclude the new destination machine). ⭐ **Follow the leg-151
+  `fixture40_anchor_b_by_predicate` precedent**: resolve once into `golden.scratch` (key
+  `anchor_dstA`) exactly as `anchor_src` already does, then read it everywhere instead of the UUID.
+  ⏸️ Also fix fixture 41's `notes`, which still describe the source as "Krambals & Zigi, 7 SKUs".
+- 🆕⛔⛔ **D-48 IS A NEW CS ASK AND THE LOOP MUST NOT ANSWER IT.** *Does the 14-day absolute ceiling
+  bind a machine whose own measured cadence is longer than 14 days?* **GRIT-1022-0100-W0** (observed
+  cadence **20.5 d**, `policy_trip_interval_days` **30**, dsv 19) reads **BREACHED** at day 14 and
+  therefore **pre-empts money under D-44 while not yet due by its own target**. ⛔ **Cody BLOCKED**
+  the `LEAST`→`GREATEST` fix: it overrides CS statement (B) (seq 57, *"the absolute ceiling nobody
+  exceeds regardless of their own gap"*) to satisfy CS statement (A) (seq 61, breached ⊂ due).
+  ⭐ **The general rule, worth keeping: when two CS-attributed statements collide, PARK — do not pick
+  the one that makes the fixture green.** If CS answers NO, the engine **and** fixture 42 **seq 62**
+  (the independent mirror, deliberately left agreeing with today's `LEAST`) must move in the SAME
+  migration.
+- ⭐⭐ **S-302 (NEW, CLOSED): the AUTHORISED-WRITE direction of S-301.** An absolute count of live rows
+  can be moved by a sibling fixture (S-301) **and by this loop's own authorised writes** (S-302) —
+  leg 151's canonical, logged, CS-mirroring mint of three `Fade Fit - Coconut` edges reddened a
+  tripwire aimed at something else, five legs later. ⭐ **COROLLARY WORTH REUSING: prefer a
+  CLOSED-HISTORY cohort to a live population** — fx 30 seq 8 now pins `valid_from < 2026-08-01`,
+  which no mint can enlarge and any supersede shrinks: **exact AND drift-proof**, which bucketing is
+  not.
+- ⭐ **MAGNITUDE IS NOT A MECHANISM.** Leg 156's pointer blamed fx 30's `+3` on the facing-proposal
+  minting; it was leg 151's S-285 sourcing mint. **Date the rows; do not match the delta.**
+- ⭐ **BISECT FROM `golden.runs` BEFORE READING ANY SQL.** All three reds were dated to a three-hour
+  window (green 09:31–09:56Z, red 12:48–12:52Z) in one query, which collapsed each to a single probe.
+  ⛔ **They shared a window but NOT a cause** — do not hunt one root cause because fixtures move
+  together.
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero pending on
+  all three**. ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⚠️ **THE LIVE CS ASKS ARE NOW SIX (leg 157 added D-48):** S-251 (Galaxy venue-supply) · **D-21
+  half-2** (margin weight W%) · **D-28 half-2** (share vs queue on a contested batch) · **D-27
+  half-2** (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular and
+  Fade Fit - Coconut venue-supplied?) · 🆕 **D-48**.
+- ⏸️ **AFTER fx 41: the answered-unexecuted list is STILL SIX** — D-19 (⛔ blocked on DR-6, a Stax
+  FE-deploy unit **this loop cannot perform**) · D-29 · D-33 · D-34 (all three see DR-9) · D-39 ·
+  D-40. Then **Tier 4 (DR-1 cutover unit, flag-off)**. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1),
+  D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10.
+- ⛔ **THE S7 TRIPLE IS STILL REQUIRED IN ITS TRIPLE FORM** (population **65**, unchanged this leg —
+  leg 157 added assertions, not fixtures). ⭐ `scripts/prd110_s7_fixtures.txt` is reconciled 65 = 65
+  and regenerated FROM the DB. ⛔ Fire **PER FIXTURE** (`run_all` banks nothing, S-250) · never START
+  in UTC minutes **37–40** (cron 44) · `cp scripts/prd110_s7_fixtures.txt /tmp/` first (S-279) ·
+  `mkdir -p` the output dir BEFORE `nohup`, then **VERIFY the launch**. ⭐ Budget ~30 min per sweep
+  (fx 42 alone is ~120 s).
+- ⛔ **NEVER ADJUDICATE A SWEEP RED WITHOUT AN ISOLATION RE-FIRE (S-283)**, and never certify a
+  live-count assertion from isolation alone (S-301). `/tmp/prd110_leg157_fire.sh <fx> "<note>"` is
+  the ready-made single-fixture tool this leg left behind.
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (fourteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_fire.sh` and `/tmp/prd110_leg157_fire.sh`
+  all work; the apply shim registers the version it is handed in the SAME POST.
+- ⭐ **THE S-287 DRY-RUN IDIOM THAT CAUGHT NOTHING BUT COST 20 SECONDS**, reused twice this leg:
+  extract the `DO $do$` block **programmatically from the shipped file**, inject
+  `RAISE EXCEPTION 'DRYRUN-OK'` immediately before its final `END`, POST it. Every guard runs, the
+  edit is exercised, nothing commits. ⭐ Then **dry-run the RESULT too** — the four new fixture-42
+  expressions were run standalone against a stand-in `f42_shelf` before they ever reached the DB.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 · S-268 (name `anon` explicitly) · S-272 ·
+  S-266 · S-277 · S-280 (re-derive a site list by SHAPE) · S-281 · S-283 · S-284 · S-285 (OPEN) ·
+  S-286 · S-287 · S-288 · S-289 · S-290 · S-291 · S-292 · S-294 · S-295 · S-296 · S-297 · S-298 ·
+  S-299 · S-300 · S-301 · 🆕 **S-302**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
+  S-284, S-286..S-302 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
+  New findings resume at **S-303**.
