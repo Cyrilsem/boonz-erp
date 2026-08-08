@@ -39172,3 +39172,180 @@ staged and held rather than applied in pieces — **the handoff invariant is "no
 and migrations 2..7 are inert-but-partial without the runner.** Watcher re-armed and tracked; it
 emits on **all three** terminal outcomes (runner logged / pg_cron ran but nothing logged / timeout),
 because silence is not success.
+
+---
+
+## ⭐⭐ leg 166 (2026-08-08) - **STEP R found the baton unattended AGAIN and re-armed it in three minutes.** D-34 verified apply-ready by static predicate check. ⛔⛔ **S-335: v3's ENTIRE real-date evidence base is ONE date over SIX machines in FOUR of ten clusters. Six clusters are structurally unflippable and no amount of waiting fixes them.**
+
+**Window:** 20:2x - 2x:xx UTC · **no flag flipped, no dial turned, nothing applied yet**
+
+### STEP R - every pointer claim re-derived, not trusted
+
+Leg 165 ended with **no RESUME POINTER of any kind** (its last block is the cron-45 hold note), so the
+governing pointer is leg 164's PRELIMINARY. ⛔ **The watcher it armed was dead again** - narrowed `ps`
+(S-241), full `ps` (S-294), `pg_stat_activity`: nothing running, foreign or otherwise. **Re-armed
+within three minutes of session start, before any other work.** This is the second consecutive leg to
+find the cron-45 baton dropped.
+
+- ⛔⛔ **RISK 104 does NOT reconcile, and that is CORRECT: disk 396 vs DB 390.** The delta was
+  enumerated by set difference rather than inferred from the count, and it is **exactly** leg 165's
+  six staged D-34 migrations (`20260809050500`..`052600`), zero db-only rows. Disk md5
+  `c7e1edab405986041ca8d2ea04622e04` · DB md5 `435a0e8275a17324166ce678d76013d0` ·
+  DB `max(version)` `20260809050000`. ⭐ **A count-only check would have read "6 behind" and said
+  nothing about WHICH six.** The handoff invariant holds: the unit is staged whole, not half-applied.
+- ⭐ **LAW 4 VERIFIED:** all 10 clusters `authoritative_engine='v19'` · `pod_refills` **4,177** ·
+  `pick_urgency_params.w_intents` **0** · `updated_at` still `2026-08-06 23:20:27.984211+00`.
+- ⭐ **LAW 12 VERIFIED:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0 rows**, and
+  **zero `operator_status='pending'`** on all three.
+- ⭐ **S-320 PRE-STATE HOLDS, re-probed 20:3xZ:** `machines_to_visit` for 2026-08-09 carries
+  **5 `cs_added` + 4 `cs_dropped`, ZERO `picked`**, unchanged across four legs' reads.
+  ⛔ The columns are `plan_date` / `add_source` / `status`, NOT `visit_date` / `source` - the
+  pointer's shorthand cost two probes.
+- ⭐ **S-80 DISCHARGED on the WHOLE parking lot, independently:** the last top-level `CS DECISION`
+  block is **POST-DONE DR REGISTER CLOSED (2026-08-04)** at line 10339. **No new CS ruling since.**
+  The ten open asks stand; leg 165's parking-lot section was never written (its last is leg 164).
+- ⚠️ **Enabled fixture population is 71.** No foreign `run_fixture` / `golden.` activity.
+- ⛔ **`/tmp` SURVIVED** (twenty-first leg) and **the Supabase MCP still has not connected.**
+
+### ✅ D-34 VERIFIED APPLY-READY WITHOUT APPLYING IT - the static predicate check
+
+The unit is still held behind the cron-45 gate (D-34 rewrites `run_nightly_shadow_v3`, the function
+under verification). Rather than idle, every fixture-53 predicate was checked **statically against
+the staged bodies**, so the apply is not the first time anyone learns whether it goes green.
+
+| pin | probe | staged body | verdict |
+| --- | --- | --- | --- |
+| seq 34 | `position('parked (D-34)' in run_pipeline_v3.prosrc)` | **0** | flips ✅ |
+| seq 35 | `position('warehouse' in run_pipeline_v3.prosrc)` | **0** | stays ✅ |
+| seq 36 | `'warehouse' in run_nightly_shadow_v3.prosrc` | **816** | stays ✅ |
+| seq 29/30 | CHECK contains `no_base` / `composed_empty` | both present | flips ✅ |
+
+⭐⭐ **seq 35 was the one worth checking and S-323 is why.** `prosrc` includes COMMENTS, and the
+classifier migration carries a long comment header about the role divergence. Had one line of that
+prose said "warehouse", the migration would have **tripped its own guard** and read as an
+authorization expansion that never happened. The word appears **0 times** in the function body
+(it lives only in the migration's leading comment, which is not `prosrc`). ⛔ The check is cheap and
+the failure mode is a mystery red at apply time; do it for every bare-name guard.
+
+- ⭐ Signature/security/`search_path` re-verified byte-identical live: runner
+  `public, pg_catalog`, pipeline `public, pg_temp`. Both staged files preserve them.
+- ⭐ **Own pre-image banked** (`/tmp/leg166_preimage.json`), because the staged migrations carry
+  **no md5 pre-image guards** of their own - unlike every engine-body change since leg 159. Live at
+  pickup: runner `37f5d8ced6f6885809df62d912df7523` · pipeline `52fc895fcd6b0d7b37cd437f84a422d4` ·
+  health view `e81ab85052d8b95ee812637ab75bda21` · CHECK `d45ce94d9ab421e9e6a5a812fb230b70`.
+- ⭐ Banked RED re-confirmed from `golden.runs`, not from memory: fixture 53 `leg165_d34_red`
+  **24 pass / 10 fail**; `leg165_pre_baseline` fixture 37 `43/0` · 51 `53/0` · 61 `13/0`.
+
+### ⛔⛔⛔ S-335 (NEW, **OPEN as a CS ask**) - **SIX OF TEN CLUSTERS CAN NEVER BE FLIPPED, AND THE CUTOVER UNIT IS RIGHT TO REFUSE THEM**
+
+S-320 said "v3 is not accruing evidence". That is true and it undersells the problem. The evidence
+base was counted rather than characterised, and the shape is worse than the trend:
+
+```
+engine_forecast_error_v3, engine_tag='v3', plan_date < 2027-01-01   (S-244/S-307 filter)
+  -> ONE date: 2026-08-04.  96 series.  6 machines.  actuals_settled = FALSE.
+     horizon_end 2026-08-11, wmape NULL, vacuous_reason 'horizon_not_elapsed'.
+  -> and that is the WHOLE of it. There is no second real date.
+```
+
+⛔ **Broken out by the grain DR-1 actually flips on - the cluster:**
+
+| cluster | v3 machines | v3 series |
+| --- | --- | --- |
+| AMAZON · INDEPENDENT · NOVO · OHMYDESK | 2 · 1 · 1 · 2 | 32 · 16 · 16 · 32 |
+| **ADDMIND · GRIT · LVLUP · VML · VOX · WPP** | **0** | **0** |
+
+⭐⭐ **DR-1 refuses to flip a cluster whose v3 WMAPE is vacuous. Six clusters have no v3 row at all,
+so their WMAPE is not merely unsettled - it does not exist.** The ~Aug 17 date in the goal command
+is reachable for AT MOST four clusters, and only if 2026-08-04 settles cleanly. **For the other six
+the refusal is permanent until a night banks shadow rows for machines inside them.** ⛔ This is not a
+defect in DR-1; the unit is behaving exactly as specced. It is the evidence that is missing.
+
+⚠️ **And tonight does not broaden it.** `v_add_engine_scope_v3` for 2026-08-09 resolves to
+**AMAZON only** (the 5 `cs_added` machines are all AMZ-*). A green night tonight adds a second date
+to a cluster that already has one and leaves the other six at zero.
+
+⚠️ **The last four scheduled nights, read from the log rather than assumed:**
+`08-05 -> blocked_gate0` · `08-06 -> ok, rows_affected 0` · `08-07 -> skipped_calendar` ·
+`08-08 -> pending`. **Three consecutive nights banked nothing.** The single date v3 owns,
+2026-08-04, predates all of them.
+
+**THE ASK (one line):** ~Aug 17 assumed nightly accrual that is not happening - does CS want the six
+zero-evidence clusters brought into scope deliberately (a picking/scheduling change, S-320's
+territory), or does the cutover proceed cluster-by-cluster as evidence arrives, accepting that
+ADDMIND/GRIT/LVLUP/VML/VOX/WPP stay on v19 indefinitely?
+
+⭐ **Arithmetic worth writing down rather than re-deriving:** the settle loop takes dates with
+`horizon_end <= today(Dubai)`, and the 21:22Z fire on day D runs with Dubai date D+1. So
+2026-08-04 (`horizon_end` 2026-08-11) is first eligible on the **2026-08-10** fire, and the first
+non-vacuous v3 WMAPE in the system's history lands **2026-08-11** - over one date, six machines.
+
+---
+
+### RESUME POINTER 2026-08-08 leg 166 · PRELIMINARY (cron-45 watch in flight - read the FINAL below if one exists)
+
+Written at 20:3xZ with a watcher armed on cron 45's 21:22Z fire. **Two consecutive legs found this
+baton dropped; assume nothing about the watcher and check it FIRST.**
+
+- ⚠️ **FIRST - `ps` narrowed (S-241) ⛔ THEN a FULL `ps` (S-294) ⛔⛔ THEN `pg_stat_activity`.**
+  Leg 166 left **one** thing running: `/tmp/prd110_leg165_cron45_watch.sh` (PID 16406, output to
+  `/tmp/prd110_leg166_cron45.out`), polling `shadow_runner_log_v3` every 120 s, exiting on the first
+  row at/after `2026-08-08 21:15:00+00`. **Deadline 21:57Z**, then it prints TIMEOUT and dies. It
+  writes nothing to the DB. ⛔ Kill it once the verification is banked; re-arm it if the fire has not
+  happened and it is gone.
+- ⛔⛔ **RISK 104 IS DELIBERATELY UNRECONCILED AND MUST NOT BE "FIXED": disk 396 vs DB 390.** The six
+  are exactly `20260809050500`..`052600`, leg 165's staged D-34 unit, held whole behind the gate.
+  ⭐ **Verify by SET DIFFERENCE, never by count** - a count says "6 behind" and hides which six.
+  Recipe unchanged: `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over
+  `name LIKE '%prd110%'`; disk side in **PYTHON, TOP LEVEL ONLY**, minus S-31's retained **version
+  prefix** `20260730203000` (S-290, by PREFIX). After the D-34 apply both sides must read **396** and
+  the disk md5 becomes the owed one: **`c7e1edab405986041ca8d2ea04622e04`**.
+- ⛔⛔ **NEXT TASK IS THE cron-45 VERIFICATION - OWED SINCE LEG 159, SIX LEGS RUNNING.** Acceptance:
+  `shadow_runner_log_v3 WHERE note='cron'` for the 21:22Z fire must read `step='engine'` ->
+  **`status='ok'` with `rows_affected > 0`**, then `engine_forecast_error_v3` for **2026-08-09** must
+  carry a **v3** series (⛔ filter `plan_date < '2027-01-01'`, S-307/S-244).
+  ⭐ **THE PLAN DATE IS CONFIRMED 2026-08-09, not assumed:** `resolve_refill_plan_date()` reads
+  `2026-08-09` live, and the fire-on-day-D -> `plan_date` D+1 relation is confirmed by the 08-07
+  fire's own row (`pd 2026-08-08`). 21:22Z = 01:22 Dubai next day.
+  ⭐⭐ **TONIGHT IS DIAGNOSTIC (S-320):** 5 `cs_added` + 4 `cs_dropped`, ZERO `picked`;
+  `is_refill_planning_day_v3('2026-08-09')` = **true**. So the calendar check passes, Gate 0 has
+  nothing unconfirmed to find, and 5 machines are in scope. ⛔ **`skipped_calendar` or
+  `blocked_gate0` tonight is a REAL DEFECT.**
+  ⚠️ **Read the STATUS WORD, not the row count.** Post-S-304a `ok` implies `rows > 0` by
+  construction; a blank night arrives as **`ok_no_shadow_rows`** (what the 08-06 fire would say
+  today). Refusals: `blocked_gate0`, `skipped_calendar`, `no_picks`, `error`.
+- ⭐ **D-34 IS APPLY-READY AND PROVEN SO STATICALLY** (see the table in the leg-166 body): seq 34/35/36
+  and the CHECK pins all check out against the staged bodies. Apply `20260809050500`, `051000`,
+  `051500`, `052000`, `052500`, `052600` **in that order** via `/tmp/apply_mig.sh`, then re-run
+  fixture 53 (expect 24/10 -> green), then the blast radius **including fixture 37** (its seq 36..40
+  are the ONLY S-304a positive-case guard; fixture 53's nights are both refusals).
+  ⛔ Pre-image md5s to diff against are in `/tmp/leg166_preimage.json`.
+- ⛔⛔ **THE S7 TRIPLE IS OWED AND IT IS THE LAST THING, NOT THE NEXT THING (S-321).** Only after
+  D-34 lands. Recipe verbatim: `/tmp/prd110_leg162_sweep.sh "<tag>" <suffix>` - sequential,
+  **`NULL` `p_max_phase` (S-309)**, `SET statement_timeout='1200000'` in the SAME POST (S-310),
+  **never re-fire on a 524**. ⭐⭐ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'` and require
+  the distinct-fixture count to equal the enabled population BEFORE reading a verdict.**
+- ⭐⭐ **The answered-unexecuted list is THREE: D-19** (blocked on DR-6, FE work this loop cannot do),
+  **D-34** (built, Cody-reviewed, dry-proven twice, held on the cron gate only), **D-39** (Dara design
+  landed, SQL not started, blocked on the S-330 fork - a CS decision). **The DR register is empty.**
+- ⚠️ **THE LIVE CS ASKS ARE TWELVE; leg 166 raised ONE.** S-251 · **D-21 half-2** · **D-28 half-2** ·
+  **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** · **S-320** · **S-328** · **S-330** ·
+  **S-333** (should manager/warehouse keep the ability to run the nightly runner by hand?) · 🆕
+  **S-335** (six of ten clusters have ZERO v3 evidence and can never be flipped; deliberate scope
+  change, or indefinite v19 for those six?).
+  ⭐ **When two CS-attributed statements collide, PARK - never pick the one that makes the fixture
+  green.** ⭐ **And never loosen an assertion to accommodate the code it caught (S-322).**
+- 🆕 ⛔ **S-335 BINDS EVERY READ OF THE CUTOVER READINESS:** count v3 evidence **by cluster**, not in
+  total. Four clusters have it, six have none, and a fleet-wide "96 series" reads as progress.
+- ⛔ **STANDING RULES:** S-266 · S-267 · S-268 · S-272 · S-277 · S-280 · S-281 · S-283 · S-284 ·
+  S-285 (OPEN) · S-286..S-334 · 🆕 **S-335 (OPEN)**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-326, S-327, S-329, S-331, S-332, S-334 are CLOSED.**
+  ⛔ **S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320, S-325, S-328, S-330,
+  S-333 and S-335 are OPEN.** New findings resume at **S-336**.
+- ⛔ **`/tmp` SURVIVED** (twenty-first leg); the Supabase MCP still has not connected.
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg162_sweep.sh` all work.
+  ⛔ **`pg_get_functiondef` has NO trailing semicolon.** ⛔ **`golden.assertions.expect_op` is
+  `eq`/`ne`/`gt`/`gte`/`lt`/`lte`/`contains`/`is_null`/`not_null`, NOT `=`.** ⛔ **`golden.runs` has
+  NO `scenario_error` column** - detail lives in `detail` (jsonb).
+  ⛔ **`machines_to_visit` keys on `plan_date`/`add_source`/`status`, NOT `visit_date`/`source`.**
