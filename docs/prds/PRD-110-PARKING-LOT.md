@@ -12328,3 +12328,40 @@ regression (fixture 1, `phase_required` P3, read exactly this way). ⭐ **Pass `
 back to `golden.config.current_phase` (P4).** Kill and restart the sweep whole; do not patch forward.
 
 ### ⏸️ OPEN CS DECISIONS after this leg — **SIX ASKS, UNCHANGED; leg 160 raised NONE.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular and Fade Fit - Coconut venue-supplied?) · **D-48** (does the 14-day ceiling bind a machine whose own cadence is longer?). The answered-unexecuted list is **unchanged at SIX**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-33, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **DR-1 is now EXECUTED and 🆕 DR-1b replaces it as the only remaining WORK item.** ⚠️ **S-307, S-308 and S-309 CLOSED; S-265, S-266, S-279, S-283 and S-285 remain OPEN.** New findings resume at **S-310**. ⭐ **Leg 160 flipped NO flag and changed NO dial. It DID change an engine body — `_build_draft_core_v3` — under Cody, fixture-first, with pre- and post-image guards.**
+
+### ⛔⛔ S-310 (NEW, CLOSED) — a 524 does not mean the fire stopped, and re-firing on one causes the collision S-305 forbids
+
+Fixture 37's fire returned the Cloudflare 524 HTML; believing it dead, this leg re-fired it **while
+the first was still running**. The first banked **43/0 green at 189 s**; the second aborted at 18 s on
+`duplicate key value violates unique constraint "scratch_pkey"`. ⭐ **The 524 cuts the HTTP leg, not
+the query. After a transport error: WAIT and poll `golden.runs`.** `golden.run_fixture` INSERTs its
+run row inside its own transaction, so nothing is visible until it commits — an absent row means
+"still running" as often as "never started", and only `pg_stat_activity` distinguishes them.
+
+⛔ **AMENDMENT TO LEG 159's NOTE:** "Postgres carries on under its own `statement_timeout` regardless"
+is not always true. On re-fire, 37/42/43 returned `57014: canceling statement due to statement
+timeout` — a **server-side cancel** that banked nothing. ⭐ **Prepend `SET
+statement_timeout='1200000';` in the SAME POST** (the cron 13 / cron 45 idiom); 42 then banked at
+153 s and 43 at 133 s, both well past the ~100 s edge cut.
+
+### ⛔⛔ S-311 (NEW, **OPEN**) — a second Claude session is firing golden fixtures at the same database
+
+`pg_stat_activity` caught `DO $$ … FOREACH v IN ARRAY ARRAY[36] LOOP` running while this leg's
+fixture-37 fire was in flight — fixture 36, which this leg never fired. It is the **PRD-112 session**,
+which also created **fixture 112 at 15:53Z mid-sweep**, taking `golden.fixtures WHERE enabled` from
+**66 to 67** underneath a sweep whose id list was captured at start. ⛔ **S-300 was recorded as "the
+relay's log is inside another session's blast radius"; it is now the DATABASE too**, and it is the
+most likely cause of the `Connection terminated due to connection timeout` responses.
+⏸️ **Not solvable from inside this loop.** **THE RULE:** check `pg_stat_activity` for foreign
+`run_fixture` / `golden.` activity **before** starting an S7 triple, or the triple measures contention
+rather than the engine. ⛔ And `git add` by PATH, never `-A` — PRD-112's migrations landed in
+`supabase/migrations/` and had to be unstaged from this leg's commit.
+
+### ⭐ SWEEP A — 65 of 66 GREEN, zero genuine reds, 2,416 assertions
+
+The single red was **fixture 64 seq 18**, the `md5(prosrc)` pin on `_build_draft_core_v3`, moved
+`fef941d5 → 9200830a` by this leg's own Cody-approved builder guard. ⭐ **Re-baselined, not softened**
+(`20260808220000`): the new expectation carries a description naming the unit that moved it and
+stating that any further movement is an unexplained edit to the 16:00 UTC plan builder. The migration
+refuses to re-baseline unless the builder still carries the guard, the LAW-12 guard, the Gate-0
+advisory and the calendar check. ⛔ **S-309 also belongs to this sweep:** never pin `p_max_phase`.

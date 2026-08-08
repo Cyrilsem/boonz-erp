@@ -38003,3 +38003,158 @@ no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
   S-284, S-286..S-309 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
   New findings resume at **S-310**.
+
+### ✅ SWEEP A VERDICT — **65 of 66 fixtures GREEN, ZERO genuine reds, 2,416 assertions**
+
+Adjudicated per S-305 from `golden.runs WHERE note = 'leg160 sweep A'`, never from the script's
+stdout. ⭐ **The rule earned its keep three times over this sweep:**
+
+- **fixtures 42 and 43 BANKED GREEN (86/0 in 153 s, 60/0 in 133 s) while the shell showed a raw
+  Cloudflare 524 HTML page.** Reading the shell would have called them failures.
+- **fixture 37 banked GREEN 43/0 in 189 s** on a fire whose HTTP leg was also cut.
+- nine fires did not bank on the first pass (8, 16, 17, 19, 37, 42, 43, 51, 105) and were re-fired
+  sequentially; all nine then banked.
+
+⛔ **`57014` IS A DIFFERENT ANIMAL FROM THE 524, AND LEG 159's NOTE NEEDS AMENDING.** Leg 159 recorded
+that "Postgres carries on under its own `statement_timeout` regardless". On the re-fire, 37/42/43
+returned `ERROR: 57014: canceling statement due to statement timeout` — a **server-side cancel**, so
+Postgres did **not** carry on and nothing banked. ⭐ **The fix is the crons' own idiom:** prepend
+`SET statement_timeout='1200000';` in the SAME POST (cron 13 and cron 45 both do exactly this). With
+it, 42 and 43 completed at 153 s and 133 s — well past the ~100 s edge cut — and banked.
+
+### ⭐ THE ONE RED WAS FIXTURE 64, IT WAS MINE, AND THE SENSOR WAS RIGHT
+
+Fixture 64 seq 18 pins `left(md5(prosrc),8)` of `_build_draft_core_v3` and went red
+**`fef941d5` → `9200830a`** — the exact pre-image value `20260808214000` guards on. ⭐ **This is the
+D-46 / S-237 idiom firing as designed: the md5 MUST move when the body legitimately moves.**
+Re-baselined in `20260808220000` to the new image, **not** softened to `not_null`: the description
+now names which unit moved it and states that any FURTHER movement is an unexplained edit to the
+16:00 UTC plan builder and must be treated as a red. The migration refuses to re-baseline unless the
+builder still carries the guard, the LAW-12 guard, the Gate-0 advisory and the calendar check.
+Fixture 64 re-fired **24/0 GREEN**.
+
+### ⛔⛔ S-310 (NEW, CLOSED) — **A 524 DOES NOT MEAN THE FIRE STOPPED, AND RE-FIRING ON ONE CREATES THE COLLISION S-305 FORBIDS**
+
+Fixture 37's first fire returned the 524 HTML. Believing it dead, this leg re-fired it — **while the
+first was still running**. The first completed **43/0 green at 189 s**; the second aborted at 18 s
+with `duplicate key value violates unique constraint "scratch_pkey"`. ⛔ **The red was self-inflicted
+concurrency, not a regression.**
+⭐⭐ **THE RULE: the 524 cuts the HTTP leg, not the query. After a 524, WAIT and poll `golden.runs`;
+never re-fire on the strength of a transport error.** `golden.run_fixture` INSERTs its run row inside
+its own transaction, so **nothing is visible until it commits** — an absent row means "still running"
+just as often as it means "never started", and only `pg_stat_activity` distinguishes them.
+
+### ⛔⛔ S-311 (NEW, OPEN) — **A SECOND CLAUDE SESSION IS FIRING GOLDEN FIXTURES AT THE SAME DATABASE**
+
+`pg_stat_activity` caught `DO $$ ... FOREACH v IN ARRAY ARRAY[36] LOOP` running **while this leg's
+fixture-37 fire was in flight** — fixture 36, which this leg never fired. It is the **PRD-112
+session** (PID 66562's descendant), which also created **fixture 112 at 15:53Z**, mid-sweep, raising
+`golden.fixtures WHERE enabled` from 66 to 67 underneath a sweep whose id list was captured at start.
+⛔ **S-300 was recorded as "the relay's log is inside another session's blast radius"; it is now the
+DATABASE too.** This invalidates the assumption that fixture fires are serialized, and it is the most
+likely explanation for the `Connection terminated due to connection timeout` responses.
+⏸️ **Deliberately not "solved" here** — this loop does not control the other session. The next leg
+must check `pg_stat_activity` for foreign `run_fixture` / `golden.` activity **before** starting the
+S7 triple, or the triple will measure contention rather than the engine.
+
+### ⏸️ FIXTURE 37 — LATEST ROW IS THE COLLISION RED; ITS SWEEP-A RUN IS GREEN
+
+⚠️ Stated precisely so the next leg does not inherit a false red: fixture 37's **sweep-A run is
+43/0 GREEN (189 s)**; its **latest** run is the 18 s `scratch_pkey` collision described in S-310. A
+"latest run per fixture" read therefore shows a RED that no defect produced. ⛔ **Re-fire 37 ALONE,
+with `SET statement_timeout='1200000'`, once `pg_stat_activity` is clear of the other session** —
+do not debug it as a regression.
+
+### RESUME POINTER 2026-08-08 leg 160 · FINAL (supersedes the PRELIMINARY block above)
+
+- ⚠️ **FIRST — `ps` narrowed (S-241) ⛔ THEN a FULL `ps` (S-294) ⛔⛔ THEN `pg_stat_activity`.**
+  Leg 160 left **nothing of its own running** (sweep, re-fires and waits all exited).
+  ⛔⛔ **BUT SEE S-311: THE PRD-112 SESSION IS FIRING GOLDEN FIXTURES AT THE SAME DATABASE.** It was
+  caught running fixture 36 mid-sweep and it created **fixture 112 at 15:53Z**, taking
+  `golden.fixtures WHERE enabled` from **66 to 67** underneath a running sweep. ⭐ **Before starting
+  the S7 triple, check `pg_stat_activity` for foreign `run_fixture`/`golden.` activity** — otherwise
+  the triple measures contention, not the engine. PID 66562 is still alive (fifth leg running).
+  ⭐ Re-run the **S-99 drill** (`git diff HEAD`) — S-303's prettier race lands the cosmetic delta in
+  the NEXT leg's commit. **Never "revert" it.** ⛔ **`git add` by PATH, never `-A`:** PRD-112's
+  migrations landed in `supabase/migrations/` this leg and had to be unstaged (S-300).
+- ⛔ **RISK 104: expect `prd110%` = 370, `max(version)` = 20260808220000, owed md5
+  `62db30f3db94f76903719fe2102a60b3` both sides — reconciled 370 = 370 at handoff.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained **version
+  prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side in **PYTHON**, **TOP LEVEL
+  ONLY**. ⛔ Re-derive the owed md5 from both sides at pickup rather than trusting a number here.
+- ✅ **SWEEP A: 65 of 66 GREEN, ZERO genuine reds, 2,416 assertions.** The single red (fixture 64,
+  builder md5) was **caused by this leg's own authorized change and re-baselined** in
+  `20260808220000`; it re-fired **24/0 green**.
+- ⛔⛔ **THE S7 TRIPLE IS STILL OWED — sweeps B and C.** Fixture population moved **65 → 66** (fixture
+  74), and PRD-112 has since added **112**, so confirm the population before starting.
+  ⭐⭐ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'`, and require the distinct-fixture count
+  to equal the enabled population BEFORE reading any verdict.**
+- ⛔ **THE SWEEP RECIPE THAT ACTUALLY WORKS, use it verbatim:** `/tmp/prd110_leg160_sweep.sh "<tag>"
+<suffix>` fires sequentially and passes **`NULL`** for `p_max_phase` (**S-309** — pinning it to
+  'P1' SKIPS higher-phase assertions and Guard 3 then reports `0 pass / 0 fail / passed=false`, which
+  is indistinguishable from a regression). ⛔ **Long fixtures need
+  `SET statement_timeout='1200000';` in the SAME POST** (the cron 13 / cron 45 idiom) or they die on
+  `57014` server-side and bank NOTHING — this **amends leg 159's claim** that Postgres always carries
+  on. With it, 42 banked at 153 s and 43 at 133 s despite the ~100 s Cloudflare 524.
+- 🆕 ⛔⛔ **S-310 — NEVER RE-FIRE ON A 524.** It cuts the HTTP leg, not the query. This leg re-fired
+  fixture 37 while its first fire was still running; the first banked **43/0 green at 189 s**, the
+  second died on `scratch_pkey`. ⭐ **After a transport error: WAIT and poll `golden.runs`**, and use
+  `pg_stat_activity` to tell "still running" from "never started" — `run_fixture` INSERTs its run row
+  inside its own transaction, so nothing is visible until it commits.
+- ⏸️ **FIXTURE 37's LATEST ROW IS THAT COLLISION RED (18 s); its sweep-A run is 43/0 GREEN (189 s).**
+  ⛔ **A "latest run per fixture" read shows a RED that no defect produced.** Re-fire 37 ALONE with
+  the raised statement_timeout once `pg_stat_activity` is clear. **Do not debug it as a regression.**
+- ⛔⛔ **STILL OWED FROM LEG 159 AND STILL TIME-GATED — VERIFY THE cron-45 RUN.** cron 45 fires
+  **21:22 UTC**; leg 160 ran 14:57-17:0x UTC so it never existed. Acceptance test unchanged:
+  `shadow_runner_log_v3 WHERE note='cron'` for the 2026-08-08 21:22 run must read `step='engine'` →
+  **`status='ok'` with `rows_affected > 0`**, then `engine_forecast_error_v3` for **2026-08-09** must
+  carry a **v3** series. ⛔ If it reads **`ok_no_shadow_rows`**, S-304b's scoping was not the whole
+  cause. ⚠️ **ALSO NOW WORTH CHECKING: cron 13 (16:00 UTC) ran for the first time through the
+  DR-1-guarded `_build_draft_core_v3`.** The guard reads `blocked=false, degraded=false`, so it must
+  have been a no-op — **confirm from `cron.job_run_details WHERE jobid=13`**, do not assume.
+- ⭐⭐ **DR-1 IS EXECUTED, FLAG-OFF, TIER 4 CLOSED.** Fixture **74: 0/54 RED → 53/53 GREEN**. Seven
+  migrations `20260808210000`..`20260808220000`. LAW 4 verified live after every fire: **10/10
+  clusters `v19`, 0 audit rows, 0 planted residue, guard `{"blocked":false,"degraded":false}`, 0
+  machines authoritative.**
+- ⛔⛔ **DR-1b IS THE ONLY REMAINING WORK ITEM AND THE PARKING LOT HAD ITS BLOCKER WRONG.** Not WMAPE
+  settling, not the S-175 scoreboard pass: **both ADD engines are whole-plan-date scoped**
+  (`engine_add_pod(date,int)`, `engine_add_pod_v3(date,int)`), so the nightly plan **cannot be split
+  per cluster at all**. DR-1b = machine-scope the ADD engine + branch the write path (own Dara design
+  - Cody review + fixture). ⛔ Until it ships a flip **HALTS THE ENTIRE NIGHTLY PLAN**, loudly and by
+    design; `revert_cluster_to_v19_v3` restores it instantly and is never evidence-gated.
+- ⚠️ **THE GATE'S LIVE VERDICT — 0 of 10 clusters ready, failing TWO ways.** `no_v3_measurement` = **6**
+  (ADDMIND, GRIT, LVLUP, VML, VOX, WPP) · `v3_horizon_not_elapsed` = **4** (AMAZON, INDEPENDENT,
+  NOVO, OHMYDESK). **v3 has ZERO settled series anywhere.** v19 baselines: ADDMIND 0.3564 ·
+  AMAZON 0.3628 · INDEPENDENT 0.4243 · OHMYDESK 0.4974 · VOX 1.1466 · **WPP 13.952**.
+- 🆕 ⛔⛔ **S-308 BINDS EVERY FUTURE TABLE:** a new table in `public` is **BORN** with `authenticated`
+  holding INSERT/UPDATE/DELETE/TRUNCATE via a Supabase default privilege. `GRANT SELECT` adds nothing
+  and `REVOKE … FROM anon, PUBLIC` (S-268) does not touch it. **REVOKE from `authenticated`
+  explicitly and ASSERT the grant.** ⚠️ Auditing every table added since the defaults were set is an
+  OPEN worklist item.
+- 🆕 ⛔ **S-307 BINDS ANY READ OF `engine_forecast_error_v3`:** **529 rows on 2030 dates** across all
+  10 clusters, from golden fixtures. **Filter `plan_date < '2027-01-01'` (S-244)** or fixture residue
+  becomes evidence.
+- ⛔ **SCHEMA TRAPS THAT COST MIGRATIONS THIS LEG:** `engine_forecast_error_v3.abs_error` /
+  `.signed_error` are **GENERATED ALWAYS** — engineer the error through the forecast.
+  `velocity_basis` is CHECK-constrained to `{velocity_30d, velocity_instock}`. ⭐ **A fixture's
+  row-marker and its residue proof must move TOGETHER**, or the residue assertion hunts rows that
+  cannot exist and passes vacuously forever. ⛔ **RAISE uses `%`; `%%` is a LITERAL percent** —
+  `20260808212000` failed to apply once on exactly this and rolled back whole.
+- ⏸️ **PARKED WITH DR-1b:** the Dara-designed shadow-runner consumer (log the authority state nightly
+  in `run_nightly_shadow_v3`'s detail).
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero pending on
+  all three**. ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⚠️ **THE LIVE CS ASKS ARE SIX, UNCHANGED; leg 160 raised NONE:** S-251 · **D-21 half-2** ·
+  **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48**. ⭐ **When two CS-attributed
+  statements collide, PARK — never pick the one that makes the fixture green.**
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (sixteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg160_sweep.sh` all work.
+  ⛔ **`pg_get_functiondef` output has NO trailing semicolon** — add the `;`.
+- ⛔ **STANDING RULES:** S-266 · S-267 · S-268 · S-272 · S-277 · S-280 · S-281 · S-283 · S-284 ·
+  S-285 (OPEN) · S-286..S-306 · 🆕 **S-307** · 🆕 **S-308** · 🆕 **S-309** · 🆕 **S-310** ·
+  🆕 **S-311 (OPEN)**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
+  S-284, S-286..S-310 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283, S-285 and 🆕 S-311
+  are OPEN.** New findings resume at **S-312**.
