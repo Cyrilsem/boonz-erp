@@ -11,6 +11,12 @@ top level, so a subdirectory is inert to the runner too.
 ⭐ **Park here, do not delete.** When the owning unit runs, `git mv` the file back up one level and
 apply it with `/tmp/apply_mig.sh`, which registers the version in the same POST.
 
-| file                                                        | owner | why parked                                                                                                     |
-| ----------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------- |
-| `20260808160000_prd110_d37_ladder_prefer_own_stock_transfer_param.sql` | D-37  | Authored by the orphaned leg 153. Behaviour-neutral (nothing reads the column yet), but it is D-37 half 1 of 2 and LAW 8 preempted D-37 at leg 154. Its engine half does not exist. See S-293: D-37 must also absorb the ladder's inline name-only sentinel filter. |
+| file     | owner | why parked |
+| -------- | ----- | ---------- |
+| _(none)_ | —     | —          |
+
+⭐ **Empty is the correct steady state, and the directory still earns its keep.** Leg 155 `git mv`-d
+`20260808160000_prd110_d37_ladder_prefer_own_stock_transfer_param.sql` back up and applied it as D-37
+half 1; leg 156 removed the row that still claimed it was parked. ⛔ **A stale row here is worse than
+no table** - it tells the next leg a file is unapplied when it is live, which is the mirror image of
+the drift this directory exists to prevent.

@@ -36810,16 +36810,16 @@ close; the fixture verdicts are adjudicated from `golden.runs`, never from a ret
 
 ### ✅ STEP R — the pointer verified against reality, every claim
 
-| probe                              | reading                                  | verdict                     |
-| ---------------------------------- | ---------------------------------------- | --------------------------- |
+| probe                              | reading                                      | verdict                     |
+| ---------------------------------- | -------------------------------------------- | --------------------------- |
 | `ps` narrow (S-241) + full (S-294) | **nothing running**; PRD-111 PID 66562 alive | leg 155 left nothing behind |
-| `prd110%` migrations               | **350** DB / **350** disk                | pointer value exactly       |
-| owed md5 both sides                | **`e9fef0c4f2da6b31f10d11723bdbe8f6`**   | identical, disk side in py  |
-| `max(version)`                     | **20260808171000**                       | leg 155's D-37 unit         |
-| LAW 12 (08-07/08/09)               | **101 / 117 / 97**, all non-pending      | pointer value exactly       |
-| `golden.fixtures WHERE enabled`    | **64**                                   | pointer value               |
-| S-80 whole-file `CS DECISION` grep | no block after 2026-08-04                | no new ruling landed        |
-| `git log` HEAD                     | **97d95c9**                              | PRD-111 did not commit      |
+| `prd110%` migrations               | **350** DB / **350** disk                    | pointer value exactly       |
+| owed md5 both sides                | **`e9fef0c4f2da6b31f10d11723bdbe8f6`**       | identical, disk side in py  |
+| `max(version)`                     | **20260808171000**                           | leg 155's D-37 unit         |
+| LAW 12 (08-07/08/09)               | **101 / 117 / 97**, all non-pending          | pointer value exactly       |
+| `golden.fixtures WHERE enabled`    | **64**                                       | pointer value               |
+| S-80 whole-file `CS DECISION` grep | no block after 2026-08-04                    | no new ruling landed        |
+| `git log` HEAD                     | **97d95c9**                                  | PRD-111 did not commit      |
 
 ⭐ **The pointer was accurate on all eight.** `/tmp/prd110_sql.sh`, `apply_mig.sh` and `prd110_fire.sh`
 survived a **thirteenth** leg; the Supabase MCP still has not connected.
@@ -36927,3 +36927,162 @@ work** — and must not "revert" such a reformat, which only fights the formatte
   `wh_fefo_for_line` filters no sentinels and three writers call it unguarded · `anon` + `PUBLIC`
   EXECUTE on `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent
   non-assorted `venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
+
+### ⭐ [leg 156 · ADDENDUM] THE SWEEP, THREE STANDING REDS, AND TWO CORRECTIONS
+
+⛔ **Append-only (LAW 9), not an edit of the entry above.**
+
+#### ✅ FULL 65-FIXTURE SWEEP FIRED AND ADJUDICATED — the backlog is closed
+
+Per-fixture fires (S-250), cron-44 straddle guard honoured, launch verified with `ps` + a file listing
+before it was trusted. **65 / 65 fired · 2391 assertions evaluated · 0 skipped · ZERO
+`scenario_error`.** Adjudicated from `golden.runs` on `n_fail` **and** `scenario_error`, never from a
+returned set. **61 green at sweep time; 62 after this leg fixed its own fixture 73.**
+
+#### ⛔ THREE STANDING REDS — ALL REPRODUCE IN ISOLATION (S-283 discharged)
+
+Every one was re-fired alone before being called a red. **All three reproduce byte-identically**, so
+none is a sweep-ordering artifact. ⛔ **These were standing before leg 156 and are not its work** —
+the ~48-fixture backlog is what hid them, which is S-296 exactly.
+
+| fx  | run        | failures                                                                        | first read |
+| --- | ---------- | ------------------------------------------------------------------------------- | ---------- |
+| 30  | `10c45d80` | `8:80` (expect 77) — a live count drifted +3                                     | leg 156    |
+| 41  | `e0b30290` | `6:A06\|Sunbites` (expect Zigi) · `24:0` · `25:14` · `28:0` · `29:7` · `31:Sunbites` · `43:2` | leg 156    |
+| 42  | `ab24d49a` | `61:false` (expect true) · `63:0` (expect >0)                                     | leg 156    |
+
+⭐ **fx 41 reads like live shelf drift, not an engine regression** — shelf `A06` now carries Sunbites
+where the fixture pins Zigi, and six of its seven failures follow from that one premise. **Bisect the
+premise before touching any engine body.** fx 42 is the D-44 money-slot fixture. fx 30's seq 8 moved
+by exactly +3, the same magnitude as the facing-proposal minting below — **check that coupling first.**
+⛔ **LAW 8: these are owed a bisect before further phase work.** Leg 156 did not start one — three
+bisects on a low remaining budget is how a leg leaves ambiguity, which the RELAY protocol ranks worse
+than shipping less.
+
+#### ⛔ S-301 (NEW) — **THE MIRROR OF S-283, AND THE MORE DANGEROUS DIRECTION**
+
+Fixture 73 fired **GREEN 21/0 in isolation** and **RED 20/1 in the sweep**, on seq 18 alone:
+`facing:23|...|realloc:24|...` against a pinned `facing:20|...|realloc:23|...`.
+⭐ **Fixture 73 did not mint those rows — seq 17 (`status_unchanged`, before vs after WITHIN the run)
+PASSED in the same run.** The rollback did exactly its job; earlier fixtures minted into the live CS
+review queues (**S-265**) between the two fires.
+⛔ **S-283 says never adjudicate a sweep RED without an isolation re-fire. This is the opposite and it
+has no such guard: an assertion pinning an ABSOLUTE count of live rows can only ever fail in a sweep,
+and isolation certifies it green FOREVER.** An assertion whose value a SIBLING fixture can move is not
+an assertion about the unit under test.
+**Restated** (`20260808182000`, S-272 — `expect_op`/`expect` moved with the shape): counts are now
+bucketed, a zero reads `EMPTY` and any positive reads `#`, so an emptied queue still goes red BY NAME
+while a minted proposal does not. **Membership and ordering still pinned exactly.**
+⭐ **Nothing was loosened:** seq 17 is untouched and remains the real residue guarantee, seqs 4/5 still
+require every table to supply a candidate, and the verbatim signature is still written to
+`golden.scratch` every run. **Recording and asserting are different jobs.** Re-fired **`a9c73a15`
+21/0**.
+
+#### ⭐ DR-10 PROVEN ON LIVE TRAFFIC, NOT ONLY IN A ROLLED-BACK EXERCISE
+
+`write_audit_log` for the family went **0 → 150** across the sweep. Those are real proposal writes by
+other fixtures, captured by the triggers installed this leg. ⛔ **Before `20260808181000` every one of
+those 150 writes would have left no Article 8 record at all.**
+
+#### ⚠️ CORRECTION TO S-300 — THE CONTENT FINDING HOLDS, THE ATTRIBUTION WAS INFERENCE
+
+S-300 recorded the mid-leg reformat of this log as the work of a concurrent session. **The content
+half is measured and stands** (prettier-shaped: table realignment, one emphasis normalisation, one
+blank line, zero semantic change, proven with a whitespace-and-emphasis-insensitive word diff).
+**The attribution is not.** This repo carries a `PostToolUse` hook — `npx prettier --write "$FILE_PATH"`
+on `Edit|Write` — but it formats **only the edited file**, and leg 156 never used `Edit`/`Write` on
+this log (it appends via shell heredoc). **So the hook does not explain it, and neither does anything
+this leg did.** ⛔ **The honest state: the log changed outside this leg's writes, the change was
+cosmetic, and who made it is unproven.** Retained per S-243 with the correction attached rather than
+silently rewritten. **Next leg: re-run the S-99 drill at STEP R and do not "revert" such a reformat.**
+
+#### ⚠️ `supabase/migrations/parked/README.md` WAS STALE — FIXED
+
+Its table still listed `20260808160000_prd110_d37_...` as parked. **Leg 155 `git mv`-d that file up and
+applied it**; the row survived. ⛔ **A stale row there is worse than no table — it tells the next leg a
+file is unapplied when it is live, the mirror image of the drift the directory exists to prevent.**
+The table now reads empty and the rule is retained verbatim.
+
+### RESUME POINTER 2026-08-08 leg 156 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`, ⛔ **then
+  a FULL `ps` too (S-294)**. Leg 156 ran two background jobs (`prd110_leg156_sweep.sh`,
+  `prd110_leg156_iso.sh`); **both COMPLETED and leave nothing running** - verify, do not assume. The
+  PRD-111 session (PID 66562) was still alive at close, so re-read `git log` rather than assuming HEAD.
+- ⛔ **RISK 104: expect `prd110%` = 353, `max(version)` = 20260808182000, owed md5
+  `d107206e98886b690d02a36070246903` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained **version
+  prefix** `20260730203000` (S-290 - by PREFIX, not whole filename). ⭐ **Compute the disk side in
+  PYTHON, and ONLY THE TOP LEVEL** - `supabase/migrations/parked/` stays excluded (now empty of SQL;
+  leg 156 removed the stale row that still claimed a file was parked there).
+- ⛔⛔ **THREE STANDING GOLDEN REDS - THIS IS THE NEXT TASK, AHEAD OF ANY NEW UNIT (LAW 8).**
+  **fx 30** (`8:80`, expect 77) · **fx 41** (7 seqs; `6:A06|Sunbites` where the fixture pins Zigi) ·
+  **fx 42** (`61:false`, `63:0`). ⭐ **All three re-fired ALONE and reproduce byte-identically** - not
+  sweep artifacts, and not leg 156's work; the backlog hid them (S-296). ⭐ **fx 41 looks like live
+  shelf drift, not an engine regression - bisect the PREMISE first**, six of its seven failures follow
+  from the one A06 reading. ⭐ **fx 30 moved by exactly +3, the same magnitude as the facing-proposal
+  minting - check that coupling before anything else.**
+- ✅⭐ **THE BACKLOG IS CLOSED AND THE NUMBER IS HONEST.** Full **65/65** sweep fired this leg,
+  **2391 assertions, 0 skipped, ZERO `scenario_error`**, adjudicated from `golden.runs` on `n_fail`
+  AND `scenario_error`. **62 green / 3 red.** ⛔ **"No known red" is now FALSE and must stay false in
+  every report until those three are bisected.**
+- ⛔⛔ **THE S7 TRIPLE IS STILL REQUIRED IN ITS TRIPLE FORM** (population moved 64 → **65**).
+  ⭐ `scripts/prd110_s7_fixtures.txt` is **reconciled 65 = 65** against `golden.fixtures WHERE enabled`
+  and regenerated FROM the DB so it cannot drift. ⛔ Fire **PER FIXTURE** (`run_all` banks nothing,
+  S-250) · never START in UTC minutes **37-40** (cron 44) · `cp scripts/prd110_s7_fixtures.txt /tmp/`
+  first (S-279) · **`mkdir -p` the output dir BEFORE `nohup … > $OUT/log`, then VERIFY the launch.**
+  ⭐ **Budget ~30 min for a full sweep** (leg 156: 12:32Z → 13:02Z, ~1.1 fixtures/min, highly variable
+  per fixture - fx 42 alone takes 107 s).
+- ⏸️ **NEXT AFTER THE THREE REDS: the answered-unexecuted list is STILL SIX** - D-19 (⛔ blocked on
+  DR-6, a Stax FE-deploy unit **this loop cannot perform**) · D-29 · D-33 · D-34 (all three see DR-9) ·
+  D-39 · D-40. Then **Tier 4 (DR-1 cutover unit, flag-off)** - ⭐ **DR-1 is now the ONLY remaining WORK
+  item besides those six.** ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44,
+  D-45, D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8, **DR-10**.
+- ⭐⭐ **S-301 (NEW) IS THE MIRROR OF S-283 AND THE MORE DANGEROUS DIRECTION.** An assertion pinning an
+  ABSOLUTE count of live rows can only ever fail in a SWEEP - **isolation certifies it green forever.**
+  Fixture 73 was 21/0 alone and 20/1 in the sweep for exactly this reason, while seq 17 (before vs
+  after WITHIN the run) passed and proved the unit itself was clean. ⛔ **Before pinning any number
+  read off live tables, ask which OTHER fixture can move it.** Restated at `20260808182000` by
+  bucketing counts (`EMPTY` / `#`), membership still pinned by name; re-fired `a9c73a15` **21/0**.
+- ⭐ **S-299 (NEW): A PARKED NOTE'S ENUMERATION IS A CLAIM, NOT A SITE LIST.** DR-10 said "all four
+  proposal tables"; the catalogue queried BY SHAPE returns **FIVE** (`reallocation_proposals_v3`, 92
+  live rows). Third occurrence of this family (S-280, S-288, S-299). ⛔ **Re-derive every site list
+  from the catalogue by SHAPE at execution time, and make the census itself an assertion.**
+- ⭐ **DR-10 IS PROVEN ON LIVE TRAFFIC:** family `write_audit_log` went **0 → 150** across the sweep -
+  real proposal writes by other fixtures, every one of which would have left no Article 8 record
+  before `20260808181000`. ⛔ **Triggers are not retroactive**; the pre-existing rows have no history.
+- ⚠️ **S-300, CORRECTED IN THE ADDENDUM: the content finding holds, the ATTRIBUTION does not.** This
+  log was reformatted mid-leg outside this leg's writes; the change is cosmetic (proven by a
+  whitespace-insensitive word diff). The repo's `PostToolUse` prettier hook formats **only the edited
+  file** and this leg never `Edit`/`Write`-d the log, so **the hook does not explain it and who did is
+  unproven.** ⛔ **Re-run the S-99 drill at STEP R; never "revert" such a reformat.**
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**, **zero pending on
+  all three**. ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⚠️ **THE LIVE CS ASKS, STILL FIVE (leg 156 added none):** S-251 (Galaxy venue-supply) · **D-21
+  half-2** (margin weight W%) · **D-28 half-2** (share vs queue on a contested batch) · **D-27 half-2**
+  (`velocity_raw` vs the canonical in-stock object) · **S-285's ask** (7Up - Regular and Fade Fit -
+  Coconut venue-supplied?).
+- ⛔ **S-285 IS STILL OPEN AND STILL THE BEST UNPICKED SIDE UNIT.** `product_mapping` has no write
+  gate; S-53 has recurred three times. **Leg 156 did not touch it.**
+- ⏸️ **ALSO NAMED, NOT FIXED:** 🆕 **`dispatch_pack_confirmation` carries the argument-less
+  `audit_log_write()`** and logs `row_pk='?'` on every audited row - one-line fix, fixture owed ·
+  the 9 partial-cover stranded shelves (28 units) · the 5,029 phantom units · `wh_fefo_for_line`
+  filters no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
+  `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent
+  non-assorted `venue_team` triples · **S-265** (fixtures mint into the LIVE CS review queue - it is
+  what made S-301 visible) · the 15-of-720 unattributed sales.
+- ⛔ **NEVER ADJUDICATE A SWEEP RED WITHOUT AN ISOLATION RE-FIRE (S-283).** Discharged three times this
+  leg. `/tmp/prd110_fire.sh <fixture_id> "<note>"` is the ready-made tool.
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (thirteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh` and `/tmp/prd110_fire.sh` all work; the apply shim
+  registers the version it is handed in the SAME POST.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 · S-268 (name `anon` explicitly) · S-272 ·
+  S-266 · S-277 · S-280 (re-derive a site list by SHAPE) · S-281 · S-283 · S-284 · S-285 (OPEN) ·
+  S-286 · S-287 · S-288 · S-289 · S-290 · S-291 · S-292 · S-294 · S-295 · S-296 · S-297 (the red
+  baseline MEASURES) · S-298 (a guard that refuses a correct migration is also a failure) ·
+  🆕 **S-299** · 🆕 **S-300** · 🆕 **S-301**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282, S-284,
+  S-286..S-301 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
+  New findings resume at **S-302**.

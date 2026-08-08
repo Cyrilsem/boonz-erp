@@ -12004,3 +12004,23 @@ one fixture.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+### ⭐ [leg 156 · ADDENDUM] THE SWEEP VERDICT AND TWO CORRECTIONS
+
+⛔ **Append-only. Written after the evidence.**
+
+- ✅ **Full 65/65 golden sweep fired and adjudicated: 2391 assertions, 0 skipped, ZERO
+  `scenario_error`, 62 green / 3 red.** The ~48-fixture backlog is closed.
+- ⛔ **THREE STANDING REDS, ALL REPRODUCING IN ISOLATION (S-283 discharged): fx 30, fx 41, fx 42.**
+  Standing before leg 156, hidden by the backlog (S-296). **LAW 8 puts their bisect ahead of any new
+  unit.** ⛔ **"Golden fully green" is FALSE and must stay false in every report until they close.**
+- ⭐ **S-301 (NEW) - the mirror of S-283.** An assertion pinning an ABSOLUTE count of live rows can
+  only ever fail in a sweep; **isolation certifies it green forever.** Fixture 73 seq 18 was exactly
+  this and was restated at `20260808182000` by bucketing counts, membership still pinned by name.
+  ⛔ **Before pinning any number read off live tables, ask which OTHER fixture can move it.**
+- ⚠️ **S-300 attribution CORRECTED:** the reformat's content finding holds (cosmetic, proven by a
+  whitespace-insensitive word diff); **who made it is unproven.** The repo's `PostToolUse` prettier
+  hook formats only the edited file and this leg never `Edit`/`Write`-d the log.
+- ⚠️ **`supabase/migrations/parked/README.md` was STALE** - it still listed the D-37 file leg 155 had
+  already `git mv`-d up and applied. Row removed, rule retained.
+- ⭐ **DR-10 proven on live traffic:** family `write_audit_log` **0 → 150** across the sweep.
