@@ -12623,7 +12623,7 @@ written-to-be-redundant assertion was not (cf. S-314).
 
 ### ⛔ S-323 (NEW, CLOSED) - `prosrc` contains COMMENTS, so a bare-name guard forbids the name in prose too
 
-The rider's own post-image guard refused it: the Article-16 explanation *inside the function body*
+The rider's own post-image guard refused it: the Article-16 explanation _inside the function body_
 named the table. ⭐ **The comment was reworded and the guard left blunt** - a bare-table-name check
 is the one form no alias, join shape or CTE can slip past, and the price is that the table may not be
 named even in a comment. Variant, one apply later: the fixture-side check had to narrow to
@@ -12678,6 +12678,78 @@ GUCs. Real improvement, out of D-29's scope, **named rather than silently accept
 - **D-19** remains blocked behind DR-6, which is FE-deploy work this loop cannot perform.
 
 ### ⏸️ OPEN CS DECISIONS after this leg - **EIGHT ASKS, UNCHANGED; leg 163 raised NONE.** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** (v19 swap lines on a v3-flipped cluster) · **S-320** (v3 is not accruing evidence; ~Aug 17 unreachable without a scheduling change). The answered-unexecuted list drops from five to **FOUR**: D-19 (blocked on DR-6), D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), **D-29**, D-31, D-32, D-33, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **The DR register is empty; TIER 2 IS NOT.** ⚠️ **S-321, S-322, S-323, S-324 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320 and 🆕 S-325 remain OPEN.** New findings resume at **S-326**. ⭐ **Leg 163 flipped NO flag and changed NO dial. It DID change an engine body - `record_blocked_demand_v3` - under Cody, fixture-first, with pre- and post-image guards on both applies.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
+
+## ⭐⭐ leg 164 (2026-08-08) - **D-40 EXECUTED.** S-326..S-329 raised; S-326, S-327, S-329 closed same leg, S-328 OPEN. No flag flipped, no dial turned.
+
+### ✅ D-40 CLOSED BY EXECUTION - the eighth picker dial, shipped at zero
+
+`w_intents` + `intents_norm` on `pick_urgency_params`; `s_intents` (intent headroom: 100 when nothing
+is open on the machine, 0 at `intents_norm` open intents) added to `v_machine_priority` at all five
+weighted-sum sites and exposed as a column. ⭐ **The measured direction lives in the TERM, not in a
+sign** - `CHECK (w_intents >= 0)` keeps the dial the same species as its seven siblings, and the map
+carries the inversion as `param_rewards = 'low'` exactly as `fill_pct → w_capacity` does.
+
+Probe results: `corr(s_intents, active_intent_count) = -1.000` · zero machines off
+`p_score(w) = p_score(0) + w*s_intents` · 31 machines actually moved at `w = 0.25` · zero differences
+on the round trip back to 0. Fixture 78 **RED 10/28 → GREEN 41/0**; blast 42/58/59/60/73/78 **6 of 6,
+301 assertions**. Migrations `20260809040000`/`040500`/`041000`/`041500`.
+
+### ⛔⛔ S-326 (NEW, CLOSED) - the parking lot said SIX sites; it is FIVE, and the fix was to stop counting
+
+Leg 162's D-40 spec said the weighted sum occurs **six** times in `v_machine_priority`.
+`pg_get_viewdef` says **five** - the `high_urgency` reason branch was counted twice. S-299 again: an
+enumeration is a claim, not a site list. ⭐ **The lesson is not the miscount.** A guard asserting
+`= 5` would have passed and would have blessed a future view that gained a sixth site without the new
+term. Both guards instead assert
+`count('w_intents * ms.s_intents') = count('w_runout * ms.s_runout')`, with a separate non-zero
+check so an equality of two zeroes cannot satisfy it.
+
+### ⛔⛔⛔ S-327 (NEW, CLOSED - CODY'S BLOCKING REVISION) - a guard that was blind by construction, hidden by the inert dial
+
+`urgency_breakdown`'s `runout` chip is a RESIDUAL (`urgency` minus the explicit terms), so an eighth
+term in `urgency` lands inside the chip **labelled runout**. And `check_priority_surface_consistency()`
+derives ITS `chip_runout` by subtracting the **same six** - both sides move together, the guard stays
+green, and the FE mislabels the points. ⭐⭐ **It is inert only while `w_intents = 0`: it would have
+armed itself on the exact day CS turned the dial.** The precedent was already on file - PRD-100 wired
+the holes chip in the same unit that added `s_holes`. Both functions now carry the intents term;
+byte-identical at 0, proven per machine on `urgency_breakdown` **as jsonb, not as a sum** (a sum is
+preserved by a chip that moves points between labels, which is the whole defect).
+
+### ⛔⛔ S-328 (NEW, **OPEN**) - shipping the dial at zero is what freezes it
+
+`mine_pick_history_v3` proposes multiplicatively: `v_prop := v_cur * (1 ± delta/100)`. At `v_cur = 0`
+that is 0 for every delta, so the proposal rounds back onto itself and is refused as
+`round_to_equal` - **a refusal naming the wrong cause.** The map row for `active_intent_count` is
+therefore filled in (target `w_intents`, s_term `s_intents`, `param_rewards='low'`, monotonicity
+`-1.000` written from a live `corr()`) and left **`is_active = false`**, with the blocker in its note
+and fixture 78 seq 32 pinning the arithmetic. ⚠️ The feature has **two levels on the live fleet**
+(28 machines at 0, 3 at 1): `corr` is defined and reads `-1.000`, the strongest in the table, resting
+on three machines. Fixture 78 seq 1 is a PREMISE on the level count so it can never go vacuous.
+
+**THE ASK (one line):** a non-zero starting value for `w_intents`. At `0.30` a machine with nothing
+open on it gains a flat **+30** on a scale whose P1 gate is **50**.
+
+### ⛔ S-329 (NEW, CLOSED) - the only dependent of `v_machine_priority` lives in `graveyard`
+
+A `pg_depend` probe reading `relname` without `nspname` reported `public.v_machine_service_priority`
+and the migration died on `42P01`. It is a retired view in the **`graveyard`** schema. ⭐ The live
+priority view has **no `public` consumer view at all** - and `CREATE OR REPLACE` still had to
+preserve every existing column's name, type and POSITION for the graveyard view, which is why
+`s_intents` is appended last rather than sitting beside `s_holes`.
+
+### ⏸️ THE REMAINING TIER-2 UNITS - **THREE**
+
+- **D-34** ⛔⛔ **STILL BLOCKED ON THE cron-45 VERIFICATION, STILL TIME-GATED.** cron 45 fires
+  **21:22 UTC**; leg 164 ran 19:0x-19:3x. D-34 rewrites `run_nightly_shadow_v3`, the function under
+  verification. **Order: verify cron 45 first, then D-34.**
+- **D-39** (capture edits at SKU grain, option a) - the largest, needs a **Dara design document**
+  before any SQL. Until it lands the miner's refusal stands: **never invent a SKU.**
+- **D-19** remains blocked behind DR-6, FE-deploy work this loop cannot perform.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **NINE ASKS; leg 164 raised ONE (S-328).** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** (v19 swap lines on a v3-flipped cluster) · **S-320** (v3 is not accruing evidence; ~Aug 17 unreachable without a scheduling change) · 🆕 **S-328** (a non-zero starting value for `w_intents`, or the dial the build just shipped can never be learned). The answered-unexecuted list drops from four to **THREE**: D-19 (blocked on DR-6), D-34, D-39. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-29, D-31, D-32, D-33, D-37, **D-40**, D-43, D-44, D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **The DR register is empty; TIER 2 IS NOT.** ⚠️ **S-326, S-327, S-329 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320, S-325 and 🆕 S-328 remain OPEN.** New findings resume at **S-330**. ⭐ **Leg 164 flipped NO flag and turned NO dial - it SHIPPED one at 0. It DID change the canonical priority view and two DEFINER functions, under Cody, fixture-first, with pre- and post-image identity pins on every apply.**
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.

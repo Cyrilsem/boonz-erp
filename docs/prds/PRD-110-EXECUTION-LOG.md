@@ -38520,8 +38520,7 @@ acceptance test worth waiting for.
 
 - `ps` narrowed (S-241) → full `ps` (S-294) → `pg_stat_activity`. ⛔⛔ **LEG 162 LEFT AN S7 TRIPLE
   RUNNING AND ORPHANED** (`/tmp/prd110_leg162_triple.sh`, PID 7774 reparented to init, 10 min in,
-  sweep A on fixture 17). There is **no leg-162 RESUME POINTER**; the log ends mid-report at line
-  38511. Its PARKING-LOT entry, by contrast, is complete - **that is where the baton actually was.**
+  sweep A on fixture 17). There is **no leg-162 RESUME POINTER**; the log ends mid-report at line 38511. Its PARKING-LOT entry, by contrast, is complete - **that is where the baton actually was.**
 - ✅ **RISK 104 reconciled at pickup 381 = 381**, md5 `94c413766109f81cda801525de309291` both sides,
   `max(version)` `20260809021000`. Leg 162 applied all four of its files. Re-derived, not trusted.
 - ✅ **LAW 12:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**, **zero
@@ -38535,7 +38534,7 @@ acceptance test worth waiting for.
 
 Leg 162 launched the S7 triple - three consecutive full sweeps - **with four Tier-2 units still
 unbuilt**, four sentences after its own S-319 corrected "the queue is empty" to "the answered-
-unexecuted list is SIX". S7's question is *"are three consecutive sweeps identical?"*, i.e. **is the
+unexecuted list is SIX". S7's question is _"are three consecutive sweeps identical?"_, i.e. **is the
 suite flaky**. If an engine body changes between sweep A and sweep B the results differ for a reason
 that is not flakiness, and **the verdict stops meaning anything** - it cannot distinguish the change
 from the flake it was built to detect.
@@ -38594,7 +38593,7 @@ flag-state witnesses moved into the SCENARIO, which may read the registry freely
 
 ### ⛔ S-323 (NEW, CLOSED) - `prosrc` CONTAINS COMMENTS, SO A BLUNT NAME-GUARD FORBIDS THE NAME IN PROSE TOO
 
-The rider's own post-image guard refused it: the Article-16 explanation *inside the function body*
+The rider's own post-image guard refused it: the Article-16 explanation _inside the function body_
 named `engine_cutover_authority_v3`. Two ways out - narrow the guard to `FROM public.<table>`, or
 reword the comment. ⭐ **The comment was reworded and the guard left blunt**, and the body now says
 so in place: a bare-table-name check is the one form no alias, join shape or CTE can slip past, and
@@ -38671,7 +38670,7 @@ named failure mode with a fixture behind it.
 - ⛔ **RISK 104: expect `prd110%` = 385, `max(version)` = 20260809032000, owed md5
   `ba0997018e5856743d3f6841cb8d19ba` both sides — reconciled 385 = 385 at handoff.** Recipe
   unchanged: `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE
-  '%prd110%'`; disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS
+'%prd110%'`; disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS
   S-31's retained **version prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side
   in **PYTHON**, **TOP LEVEL ONLY**. ⛔ Re-derive from both sides at pickup rather than trusting it.
 - ⛔⛔ **NEXT TASK IS TIME-GATED AND IT IS THE cron-45 VERIFICATION — OWED SINCE LEG 159, FOUR LEGS
@@ -38727,3 +38726,158 @@ named failure mode with a fixture behind it.
   S-284, S-286..S-310, S-314..S-318, S-321..S-324 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279,
   S-283, S-285, S-311, S-312, S-313, S-319, S-320 and 🆕 S-325 are OPEN.** New findings resume at
   **S-326**.
+
+---
+
+## ⭐⭐ LEG 164 - 2026-08-08 - **D-40 EXECUTED: the second-strongest signal CS gives the picker finally has a dial, shipped at zero.** Fixture 78 RED 10/28 → GREEN 41/0. ⛔ Cody BLOCKED the first cut over a chip surface whose guard was **blind by construction** - and the same unit found that shipping the dial at 0, which the parking lot required, is exactly what makes the miner **structurally unable to ever move it.**
+
+**Window:** 19:0x - 19:3x UTC · **STEP R clean** · **no flag flipped, no dial turned** · one new CS ask
+
+### STEP R
+
+- ⛔ `ps` narrowed (S-241) → full `ps` (S-294) → `pg_stat_activity`: **nothing running, foreign or
+  otherwise.** Leg 163 left the machine clean, as its pointer said.
+- ✅ **RISK 104 reconciled at pickup 385 = 385**, md5 `ba0997018e5856743d3f6841cb8d19ba` both sides,
+  `max(version)` `20260809032000`. Re-derived from both sides, not trusted.
+- ✅ **LAW 12:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**, **zero
+  `operator_status='pending'` on all three.** ✅ **LAW 4:** 0 clusters on v3, `pod_refills` **4,177**.
+- ⚠️ **Enabled fixture population is 70 at pickup and 71 at handoff** (S-311: PRD-111/112/113
+  sessions keep adding). It was 66 four legs ago. ⛔ **Re-read it; never carry the number forward.**
+- ⛔ **S-80 discharged on the WHOLE parking lot**, not its tail: the D-40 ruling was read at line
+  7297 where CS wrote it, not from the leg-163 summary line.
+
+### ✅ D-40 EXECUTED - `w_intents`, the eighth dial
+
+CS ruling: _"ADD THE `w_intents` DIAL as its own Dara/Cody-reviewed unit, with a monotonicity probe
+proving dial-controls-feature before the miner may map to it."_
+
+Dara design: `docs/prds/PRD-110-D40-DARA-w-intents-design.md`.
+**Cody ⚠️ approve-with-revisions (1, blocking, landed before apply)** → fixture 78 **RED 10/28 →
+GREEN 41/0**. Migrations `20260809040000` (fixture) · `040500` (dial + view) · `041000` (chip
+surface) · `041500` (map row + the coupling assertions).
+
+`s_intents` is **intent headroom**: 100 when nothing is open on the machine, falling to 0 at
+`intents_norm` (3) open intents.
+
+```
+100 * (1 - LEAST(1, COALESCE(GREATEST(0, COALESCE(active_intent_count,0)) / NULLIF(intents_norm,0), 1)))
+```
+
+⭐ **THE DIRECTION LIVES IN THE TERM, NOT IN A SIGN.** The measured signal is inverse - CS DROPS
+machines carrying more open intents, 38.2% concordance over 1653 pairs. That could be encoded as a
+negative weight on a plain term or a positive weight on an inverted one. The second was chosen and
+`CHECK (w_intents >= 0)` enforces it: every sibling `s_*` is an urgency term with a non-negative
+weight, the map already has the idiom for an inverse feature (`fill_pct → w_capacity`,
+`param_rewards='low'`, `-0.458`), and a signed dial would be the only one in the set whose sign is
+load-bearing - **a direction CS could reverse with a typo instead of with a ruling.**
+
+**The monotonicity probe CS asked for, in two halves, both inside rolled-back subtransactions:**
+
+| half                  | measured                                                       | result   |
+| --------------------- | -------------------------------------------------------------- | -------- |
+| dial controls FEATURE | `corr(s_intents, active_intent_count)` over the live fleet      | `-1.000` |
+| dial controls SCORE   | machines where `p_score(w) <> p_score(0) + w * s_intents`       | **0**    |
+| not decoration        | machines actually moved at `w = 0.25`                           | 31       |
+| inertness, round trip | machines whose `p_score`/`urgency`/`p_tier` differ back at `w=0`| **0**    |
+
+### ⛔⛔ S-326 (NEW, CLOSED) - **THE PARKING LOT SAID THE WEIGHTED SUM OCCURS SIX TIMES. IT IS FIVE - AND THE FIX WAS TO STOP COUNTING AT ALL**
+
+Leg 162's spec: _"the weighted-sum expression occurs **SIX times** in `v_machine_priority`... Adding
+a term means editing all six or the view disagrees with itself."_ `pg_get_viewdef` returns **five**.
+The sixth in that enumeration is the `high_urgency` reason branch counted twice, once on its own and
+once inside "the reason cascade". S-299 again, exactly: **a parked note's enumeration is a claim, not
+a site list.**
+
+⭐ **The interesting part is not the miscount, it is what the guard was almost written as.** A guard
+asserting `= 5` would have been true, would have passed, and would have **blessed a future view that
+gained a sixth site without the new term** - the precise drift the guard exists to catch. Both the
+migration's post-image block and fixture 78 seq 7 instead assert
+
+```
+count('p.w_intents * ms.s_intents') = count('p.w_runout * ms.s_runout')   -- and neither is 0
+```
+
+which stays true as the view grows. Seq 8 pins the non-zero half separately, because an equality of
+two zeroes would satisfy seq 7 over a view that had lost the weighted sum entirely.
+
+### ⛔⛔⛔ S-327 (NEW, CLOSED - **CODY'S BLOCKING REVISION**) - **THE CHIP SURFACE'S GUARD WAS BLIND BY CONSTRUCTION, AND ONLY THE INERT DIAL WAS HIDING IT**
+
+`get_machine_health.urgency_breakdown` is a registered surface whose invariant is
+_"pts sum == `v_machine_priority.urgency`"_, and its `runout` chip is a **residual**:
+
+```
+('runout', urgency - w_capacity*s_capacity - w_expiry*s_expiry - w_stale*s_stale
+                   - w_empty*s_empty - w_lowfill*s_lowfill - w_holes*s_holes)
+```
+
+⛔ **An eighth term in `urgency` therefore lands inside the chip LABELLED RUNOUT.** And
+`check_priority_surface_consistency()` - the standing guard built by PRD-074 to catch exactly this -
+derives **its own** `chip_runout` by subtracting the **same six**. Both sides move together, the
+guard stays green, and the FE renders intents points under a runout label. ⭐ **S-315's shape in a
+new organ: a constraint the guard could never reach.**
+
+⭐⭐ **AND IT WOULD HAVE ARMED ITSELF ON THE ONE DAY NOBODY WAS LOOKING.** At `w_intents = 0` the
+term is 0, the residual is unchanged, the guard is green and a reviewer sees nothing. The defect
+would have surfaced the moment CS turned the dial - **the same moment the chips stop being
+decoration.** The precedent was already written down: METRICS_REGISTRY records that when PRD-100
+added `s_holes`, _"the chip surface (get_machine_health + consistency guard) gains the holes chip"_ -
+in the same unit. Both functions now carry the intents term; at 0 the output is **byte-identical**
+(the residual loses a zero, and the pre-existing `WHERE t.pts <> 0` filters the new chip out), proven
+by a per-machine identity check on `urgency_breakdown` **as jsonb, not as a sum** - a sum would be
+preserved by a chip that moved points from one label to another, which is the whole defect.
+
+### ⛔⛔ S-328 (NEW, **OPEN**) - **SHIPPING THE DIAL AT ZERO IS WHAT MAKES THE MINER UNABLE TO EVER MOVE IT**
+
+The parking lot required `w_intents = 0` - correctly, it is the only way to touch the canonical
+priority view under LAW 4. The consequence was not noticed: `mine_pick_history_v3` proposes
+**multiplicatively**.
+
+```
+v_prop := v_cur * (1 ± v_delta/100)      -- at v_cur = 0 this is 0 for EVERY delta
+IF v_prop = round(v_cur, 3) THEN v_refused := 'round_to_equal';
+```
+
+⛔ **So activating the map row would buy a `round_to_equal` refusal, forever, naming the wrong
+cause.** A reader would take it to mean the evidence was too thin. The evidence is the strongest in
+the table. **The map row is therefore filled in and left `is_active = false`**, with the blocker in
+its note in the words a future leg will grep for, and fixture 78 seq 32 pins the arithmetic
+(`round(w * 1.05, 3) = round(w, 3)`) so nobody flips it without meeting the number first.
+
+⚠️ **And the correlation is thinner than it reads.** `active_intent_count` has **two levels on the
+live fleet** - 28 machines at 0, 3 at 1. `corr` is defined and lands at exactly `-1.000`, the
+strongest value in the table, **resting on three machines.** Fixture 78 seq 1 is a PREMISE assertion
+on the level count: at one level `corr` is NULL and every monotonicity claim goes vacuously green
+(S-289). Recorded on the face of the evidence rather than behind it.
+
+### ⛔ S-329 (NEW, CLOSED) - `v_machine_priority`'s ONLY DEPENDENT LIVES IN `graveyard`, AND A `pg_depend` PROBE THAT READS `relname` SAYS `public`
+
+The first cut of the migration pinned `md5(pg_get_viewdef('public.v_machine_service_priority'))` and
+died on `42P01`. The dependent is real - a retired view still holding a rewrite dependency - but it
+sits in the **`graveyard`** schema. The probe that found it selected `dep.relname` **without
+`nspname`**, and the answer read like a `public` object. ⭐ Consequence worth keeping: the live
+priority view has **no `public` consumer view at all**, and `CREATE OR REPLACE` still had to preserve
+every existing column's name, type and **position** for the graveyard view's sake - which is why
+`s_intents` is appended last rather than sitting next to `s_holes` where it reads better.
+
+### ✅ FLAG-OFF, PROVEN BY IDENTITY RATHER THAN BY COUNT
+
+Both engine-touching migrations pin the pre/post **identity set** `(machine_id, p_score, urgency,
+p_tier)` with a `FULL OUTER JOIN`, so an appearing or vanishing machine counts as a difference rather
+than as an empty join. **31 machines, 0 differences.** Also pinned across the apply: `relacl` and
+`relrowsecurity` on `pick_urgency_params`, `proacl` + `prosecdef` + `proconfig` on both DEFINER
+functions, `refill_plan_output` row count, and **`max(updated_at)` to the microsecond** - because
+fixture 58 seq 33 pins that stamp and `ADD COLUMN ... DEFAULT` must not restamp it. Fixture 58 came
+back **43/43**, which is that proof rather than a claim about it.
+
+**Blast radius 42/58/59/60/73/78: 6 of 6 GREEN, 301 assertions, zero fail, zero vacuous, zero
+scenario_error.**
+
+### Article 15 - the registry revisions
+
+`METRICS_REGISTRY.md`: the `v_machine_priority` row records the eighth dial, the `0 * NULL` trap and
+the five-not-six correction; the `urgency_breakdown` row records the intents chip **and why wiring it
+could not wait**. `RPC_REGISTRY.md`: a D-40 section under `mine_pick_history_v3` stating that the
+mapping exists, that `is_active` is false, that the blocker is a number rather than evidence, and
+that the `-1.000` was **written from a live `corr()` rather than typed** - `fill_pct` sits on that
+table at `-0.458` because somebody measured it.
+
