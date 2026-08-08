@@ -36004,3 +36004,37 @@ and leg 150's measurements of the same effect.
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282, S-284,
   S-286 and S-287 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and 🆕 S-285 are OPEN.**
   New findings resume at **S-288**.
+
+### ⚠️ [leg 151 · ADDENDUM] THE GIT NARRATIVE ABOVE IS **SUPERSEDED** — THE CONCURRENT SESSION LANDED MID-LEG
+
+⛔ **Append-only correction (LAW 9), not an edit.** The section "THE WORKING TREE IS SHARED WITH A LIVE
+CONCURRENT SESSION" and the matching pointer bullet were written **while** the repo sat on
+`prd-111-field-date-toggle`. Between then and the commit — during the 22-minute blast-radius sweep —
+the other session **finished PRD-111, committed it (`f146331`), merged `origin/main` (`9f8eb0f`), and
+switched the worktree back to `main`.**
+
+⭐ **The temp-index technique still did the right thing, for a better reason than planned:**
+`git read-tree main` read main **as it stood at that moment**, which already contained their work, so
+leg 151's commit `caf8f0d` sits **on top of** the merge with `f146331` as a verified ancestor. Their
+three FE files (`field/_lib/pack-date-controls.tsx`, `field/_lib/use-field-pack-date.ts`,
+`field/packing/page.tsx`) are all present in `caf8f0d`. **Nothing of theirs was clobbered** — checked
+by `git ls-tree` and `git merge-base --is-ancestor`, not assumed.
+
+⛔⛔ **BUT MOVING A CHECKED-OUT BRANCH REF LEAVES THE REAL INDEX STALE, AND `git status` LIES ABOUT IT.**
+Because `main` was now the checked-out branch, `update-ref` moved **HEAD's branch** without refreshing
+the index, so `git status` reported both migrations as **`D ` (staged deletion)** while they sat on
+disk at 7,066 and 12,775 bytes. ⭐ **Diagnosed by `cmp` against `git show caf8f0d:<path>` — all four
+files byte-IDENTICAL to the commit — and repaired with a bare `git reset` (mixed, no paths), which
+re-syncs the index and never touches the working tree.** Final state: `git diff HEAD` **empty**,
+`git status` carries **only** two untracked docs.
+⭐ **RULE FOR THE NEXT LEG: `update-ref` on a branch that is or becomes HEAD must be followed by a bare
+`git reset`, and the repair must be verified with `git diff HEAD`, never with `git status` alone**
+(S-288).
+
+⏸️ **A SECOND ORPHAN APPEARED, AND PER S-286 IT IS NAMED RATHER THAN QUARANTINED:**
+`docs/prds/PRD-112-driver-substitution-and-day-close.md`, untracked, **not written by this leg**, not
+opened, **not adopted** (LAW 10). ⛔ Note the other session commits its **code** but leaves its **PRD
+docs untracked** — PRD-111's doc is still untracked after that session shipped. Do not read an
+untracked PRD doc as "unstarted work".
+⚠️ **`main` now reads `[origin/main: ahead 1, behind 1]`.** The relay does not push; that divergence is
+CS's to resolve, and it is **not** a leg-151 artifact.
