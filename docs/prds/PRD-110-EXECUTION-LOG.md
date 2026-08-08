@@ -36527,3 +36527,179 @@ The 64-fixture sweep was launched with `nohup … > $OUT/sweep.log` where `$OUT`
 command, and `ps | grep -c` returned **1 - which was the grep's own command line**. ⭐ **The launch
 was verified instead of assumed, and that is the only reason this leg did not report a sweep that
 never ran.** Relaunched after an explicit `mkdir -p`, with `RESULTS.txt` existence as the proof.
+
+---
+
+## ⭐⭐ leg 155 (2026-08-08) - **D-37 EXECUTED AND S-293 CLOSED IN THE SAME UNIT.** Fixture 6 RED 55/66 → GREEN 66/66. The stranded pool the ruling was raised about is now reachable: 32 of 41 shelves. No CS ask.
+
+### ⛔ [leg 155] STEP R - LEG 154 LEFT NO RESUME POINTER, SO THE POINTER WAS RECONSTRUCTED FROM EVIDENCE
+
+`ps` (S-241) first, narrowed to `prd110|golden|stress_s|psql`: **nothing running.** Then the FULL `ps`
+that S-294 made standing practice - and it mattered again: **PID 66562 is still alive on PRD-111**
+(started 12:13 local, still running at 11:44Z), and **no PRD-110 session** other than this one.
+⛔ **Leg 154's log ends mid-sentence at "A LAUNCH THAT SILENTLY DID NOT HAPPEN" with no
+`### RESUME POINTER` block.** It committed (`1cb2ba6`) and then died. ⭐ **The commit is what saved
+it**: `git diff HEAD` was empty, so the log on disk WAS the log leg 154 wrote.
+
+⭐ **RECONCILIATION, against OBJECTS and not just the registry (S-295):**
+
+| probe                          | reading                            | verdict                     |
+| ------------------------------ | ---------------------------------- | --------------------------- |
+| `prd110%` migrations           | **347** DB / **347** disk          | leg 154's three registered  |
+| owed md5 both sides            | **`3e81da7ef7ea462f464402f6d0ac89fd`** | identical              |
+| `max(version)`                 | **20260808162000**                 | leg 154's revoke            |
+| `md5(resolve_fefo_sku_legs_v3)`| **95301156**                       | leg 154's fixed binder      |
+| `md5(resolve_supply_ladder_v3)`| **056cca45**                       | D-37's untouched target     |
+| fixtures / assertions          | **64 / 2361**                      | +6 sensors from leg 154     |
+| LAW 12 (08-07/08/09)           | **101 / 117 / 97**, all non-pending| unchanged from leg 152      |
+| S-80 whole-file `CS DECISION` grep | no block after 2026-08-04      | no new ruling landed        |
+
+⭐ **Leg 154's 64-fixture sweep died with its session after 5 fixtures** (`/tmp/prd110_leg154_sweep`):
+**fx1 59/59 · fx2 54/54 · fx3 25/25 · fx5 17/17 · fx6 57/57**, all green, `f7.fire` empty. Those five
+are banked as evidence; the other 59 remain unfired since leg 148 and that backlog is still the
+standing liability S-296 named.
+
+### ⛔⛔ [leg 155] THE UNIT: D-37 AND ITS BINDING RIDER, SHIPPED TOGETHER BECAUSE THEY ARE ONE BODY
+
+`20260808160000` (the dial, adopted from `parked/`) · `20260808170000` (the red baseline) ·
+`20260808171000` (the engine).
+
+**CS ruling:** _"D-37 → BUILD PARAM `ladder_prefer_own_stock_transfer` AND DEFAULT TRUE: full-pod
+own-stock transfer outranks substitution."_
+**Binding rider (S-293, leg 154):** the ladder classified sentinels with an inline, name-only filter
+and called neither canonical helper. The parking lot said D-37 "must not restate the function without
+absorbing it". It absorbed it.
+
+- ⭐ **(a) D-37 moves the TERMINAL choice ONLY.** When the dial is on and rung 3 covers the WHOLE
+  need, `alt_wh` outranks `substitute`. A **partial** transfer does not qualify and still falls to
+  rung 2 - half a transfer plus a driver leg is not what CS ruled for. All six rungs are still logged
+  1..6 in BUILD-SPEC order, so the ladder still shows what it passed over.
+- ⭐ **Rung 2's expensive selector is now short-circuited when preempted**, using the BUILD SPEC's own
+  idiom (the one rung permitted to skip, and only when it says so explicitly). Fleet-wide that is
+  **32 of 41** calls that no longer pay for `find_substitutes_for_shelf_v3` at all.
+- ⭐ **(b) S-293.** `NULL NOT LIKE …` is NULL and `NULL LIKE …` is NULL, so a NULL-batch row was
+  excluded from the real sums **AND** from the phantom sum: it landed in **no bucket**. All three
+  buckets now ask `public._is_phantom_wh_row_v3`, which makes them a true partition.
+  ⛔ **The BINDER's predicate, never the destructive RPC's sibling** - converging those is still a
+  refusal (leg 154, recorded in both registries).
+
+⭐ **THE SUBSTITUTION WAS PROVEN MINIMAL BY DIFF (S-291), not asserted:** the proposed body was
+diffed line-for-line against live `pg_get_functiondef` output before anything was applied, and every
+occurrence count in the migration's own guard was **measured on the produced text** rather than
+guessed. ⛔ **One of those guesses would have been wrong:** `'rung_no', ` occurs **7** times, not the
+six the first draft asserted - six logged rungs plus the terminal key in the returned object. A
+migration that refuses a correct body is still a failed migration.
+
+### ⭐⭐ [leg 155] S-287 CAUGHT TWO DEFECTS, AND NEITHER WAS IN THE MIGRATION
+
+The dry run applies all three migrations **and fires the fixture** inside one doomed transaction.
+
+1. ⛔ **`column "sentinel" does not exist`** - the premise CTE's output column was renamed to
+   `phantom` and the `jsonb_build_object` that reads it was not. ⭐ **The three migrations applied
+   perfectly clean; the SCENARIO threw.** A plain apply would have shipped a fixture that fails
+   whole-scenario for a typo, and the failure would have been read as a D-37 regression.
+2. ⛔ **S-291(c) in anger, again:** the red-baseline's own read-back guard searched for the retired
+   token and REFUSED - because the new sensor block **quotes that very token** in order to ask
+   whether the ENGINE still carries it. ⭐ **Reworded, not relaxed:** the guard now tests the ALIASED
+   filter form (`w.batch_id NOT LIKE`), and both counts were measured (0 and 0) before being written.
+
+⭐ Final dry verdict, before a byte was applied: **`DRY VERDICT fx6 pass=66 fail=0 scenario_error=<NULL>`**.
+
+### ✅✅ [leg 155] THE RED WAS BANKED BEFORE THE GREEN, AND IT NAMED A DEFECT NOBODY HAD COUNTED
+
+Red baseline applied ALONE, fixture 6 fired in isolation (S-283): **55 pass / 11 fail,
+`scenario_error` null**, failures `22:substitute ~ 23:DIFFERENT_POD ~ 25:MISMATCH ~ 27:1 ~
+50:056cca45… ~ 58:0 ~ 59:NULL ~ 60:true ~ 62:ABSENT ~ 63:INLINE_NAME_FILTER ~ 66:NULL`.
+
+⛔⛔ **`27:1` WAS NOT PREDICTED AND IT IS THE SHARPEST EVIDENCE IN THE LEG.** Seq 27 asserts
+`rung3_invisible = 0` - not one stranded shelf may hide its rung-3 stock. With the fixture restated to
+the NULL-safe rule and the engine still on the name-only one, **one live shelf** reported its own
+transferable stock as unsatisfiable. ⭐ **That is S-293's harm, measured on production data by a
+disagreement between two classifiers rather than argued from first principles.** It returns to 0 the
+moment the engine lands.
+
+⭐ Then the dial and the engine: fixture 6 **66/66, zero fail, scenario_error null.**
+`md5(resolve_supply_ladder_v3)` **056cca45 → 011f83d8**, the value the fixture pins and the value the
+dry run produced - so the pin was proven live, not trusted.
+
+### ⭐ [leg 155] THE ACCEPTANCE EVIDENCE THE RULING ASKED FOR, RE-MEASURED
+
+The ruling named "the 3,017-unit stranded pool" (a leg-63 number). Live at execution:
+
+| measure                                     | reading                        |
+| ------------------------------------------- | ------------------------------ |
+| stranded shelves (NULL-safe rule)           | **41** (46 under the old rule) |
+| stranded units                              | **3,487**                      |
+| → shelves that now terminate at `alt_wh`    | **32**                         |
+| → stranded pool that unlocks                | **3,459 units**                |
+| → machines / pods affected                  | **5** / **14**                 |
+| shelves still substituting (partial cover)  | **9**, holding **28** units    |
+
+⛔ **The 9 are not a failure, they are the ruling working:** their transfer would not cover the need,
+and CS ruled that only a full-cover move outranks substitution.
+
+### ⚠️ [leg 155] CODY - APPROVED WITH REVISIONS, AND THE REVISION WAS AN ARTICLE 15 ONE
+
+Articles **1, 2, 3, 4, 6, 7, 12, 13, 14, 15, 16**. No DEFINER added or touched; the ladder stays
+STABLE / SECURITY INVOKER (the migration refuses if either moves); no DML on any protected entity;
+the fixture migration writes only to `golden.*`; `refill_policy_params` is not an Appendix-A entity.
+
+⭐⭐ **ARTICLE 16 IS WHAT THIS UNIT IS FOR** - it deletes an inline re-derivation rather than adding
+one, and it binds the correct one of two deliberately-disjoint objects.
+
+⭐⭐ **LAW 4 WAS THE REAL QUESTION, AND IT WAS PROBED RATHER THAN ASSUMED.** `DEFAULT TRUE` means the
+behaviour changes the instant both halves land, so: who consumes the ladder? Live answer -
+`list_m2m_donors_v3` (read-only) and `stitch_v3`; and `stitch_v3` carries **no INSERT or UPDATE
+against the live `refill_plan_output`**, only `refill_plan_output_shadow` / `pod_refills_shadow`.
+⛔ **Had a live writer been in that call graph, DEFAULT TRUE would have been a LAW 4 violation and the
+unit would have shipped flag-off instead.**
+
+⛔ **Article 15 revision landed:** `METRICS_REGISTRY.md` still carried _"A THIRD, UNCONVERGED SITE IS
+LIVE AND NAMED, NOT FIXED"_ naming this exact filter, and `RPC_REGISTRY.md` said the ladder _"carries
+its own inline, name-only copy to this day"_. Both were true when written and false after this unit.
+**CORRECTED, not superseded** (S-288), plus a new D-37 entry recording the rung order, the LAW 4
+finding and the md5 movement.
+
+### ✅ [leg 155] THE BLAST RADIUS WAS DERIVED BY SHAPE, NOT BY NAME (S-280)
+
+Every enabled fixture whose `scenario_sql` calls the ladder, reads `v_wh_pickable`, names `VOXSOURCE`,
+or runs `stitch_v3` / `run_pipeline_v3`: **13 fixtures** (6, 40, 44, 45, 71 call the ladder; 1, 12, 24,
+26, 46, 47, 51, 70 reach it or its inputs). Fired one at a time, never through `run_all` (S-250).
+
+⭐⭐ **ALL 13 GREEN, ZERO FAILURES, ZERO `scenario_error`, ZERO SKIPS - 593 assertions:**
+
+| fx  | result    | fx  | result    | fx  | result    | fx  | result    |
+| --- | --------- | --- | --------- | --- | --------- | --- | --------- |
+| 1   | **59/59** | 24  | **44/44** | 44  | **30/30** | 47  | **50/50** |
+| 6   | **66/66** | 26  | **89/89** | 45  | **22/22** | 51  | **53/53** |
+| 12  | **26/26** | 40  | **60/60** | 46  | **29/29** | 70  | **34/34** |
+| 71  | **31/31** |     |           |     |           |     |           |
+
+⭐ **Fixture 40 is the one that mattered most and it was the quietest: 60/60.** It is the ladder's own
+contract fixture, and its SENTINEL TRAP anchors (seq 24/25/26) exist precisely to catch a phantom row
+being promoted to supply. Widening the phantom test could only ever have made that trap fire harder,
+and the `gte 999` on reported exclusions could only grow - but "could only" is a prediction, and 60/60
+is a measurement.
+
+### ⭐ [leg 155] POST-STATE, FOR THE NEXT LEG'S RISK 104
+
+`prd110%` **350** DB / **350** disk · `max(version)` **20260808171000** · owed md5
+**`e9fef0c4f2da6b31f10d11723bdbe8f6`** both sides · fixtures **64** · assertions **2370** ·
+`golden.stress_runs` **14** · `md5(resolve_supply_ladder_v3)` **011f83d81c46b8fc6a7b668bbc426b91** ·
+`ladder_prefer_own_stock_transfer` **true** · ladder ACL `{postgres,authenticated,service_role}` -
+no `anon`, no `PUBLIC`, read back WHOLE (S-140).
+
+### ⏸️ [leg 155] NAMED, NOT FIXED (LAW 10)
+
+- ⭐ **The 9 partial-cover stranded shelves (28 units).** D-37 correctly leaves them substituting.
+  Whether a partial transfer PLUS a substitution for the remainder is worth a driver leg is a
+  business question the ruling did not answer, and inventing an answer inside D-37 would be scope
+  drift. Fixture 6 seq 25 pins the current split exactly, so a future ruling has a red waiting for it.
+- ⛔ **S-285 is still OPEN and still the best unpicked unit** - `product_mapping` has no write gate.
+  Leg 155 did not touch it.
+- Unchanged from leg 154: the 5,029 phantom units are a DATA question (the receive path credits real
+  returns into a phantom row) · `wh_fefo_for_line` filters no sentinels at all and three writers call
+  it with no guard · `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` still carry `anon` + `PUBLIC`
+  EXECUTE · 18 orphan sourcing triples · 26 latent non-assorted `venue_team` triples · **S-265**
+  (fixture 57 mints into the LIVE CS review queue) · the 15-of-720 unattributed sales.
+

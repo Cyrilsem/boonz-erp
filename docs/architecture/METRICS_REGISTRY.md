@@ -222,13 +222,20 @@ table rather than inspecting it, and seq 55/56 are the **over-classification gua
 named batch, and a NULL batch_id with a REAL expiry (11 live rows, 91 units of genuine stock at
 CENTRAL), must both stay bindable. A "fix" that refuses everything would otherwise pass.
 
-⛔⛔ **A THIRD, UNCONVERGED SITE IS LIVE AND NAMED, NOT FIXED (LAW 10).**
-`resolve_supply_ladder_v3` builds its supply base with an **inline, name-only** filter,
-`SUM(warehouse_stock) FILTER (WHERE batch_id NOT LIKE 'VOXSOURCE-%')`, and never calls either helper.
-⭐ **Its failure mode is the OPPOSITE one and it is worse:** `NULL NOT LIKE …` yields NULL, so a
-NULL-batch row is excluded from the real sums **and** from the sentinel sum - it lands in **no bucket
-at all**, which silently hides the 91 units of genuine stock above. This is a **binding rider on
-D-37**, which restates that function anyway; it must not be closed as a drive-by.
+✅✅ **THE THIRD SITE IS CLOSED (2026-08-08, leg 155, `20260808171000`).**
+`resolve_supply_ladder_v3` built its supply base with an **inline, name-only** filter and called
+neither helper. ⭐ **Its failure mode was the OPPOSITE one and it was worse:** `NULL NOT LIKE …`
+yields NULL, so a NULL-batch row was excluded from the real sums **and** from the sentinel sum - it
+landed in **no bucket at all**, silently hiding genuine stock. It rode on **D-37**, which restated
+that function anyway, and was closed there rather than as a drive-by.
+⭐ **The ladder now calls `_is_phantom_wh_row_v3` in all three buckets**, so real and phantom are a
+true partition: every pickable row is counted exactly once. ⛔ It binds the **binder's** predicate,
+NOT the destructive RPC's - the disjointness above is intact and converging the two is still a
+refusal. Golden fixture **6** carries the proof: seq **63** pins the delegation by SHAPE (the body
+must contain no inline name test at all, so no lucky day of data can satisfy it), seq **65** states
+the partition over the exact population that broke it, and seq **64** keeps counting the live rows a
+revert would lose. Fixture 6 went **RED 55/66 → GREEN 66/66** across the unit, and seq 27 measured
+the harm in passing: **one** live shelf whose genuine stock the old filter hid from the ladder.
 
 ---
 

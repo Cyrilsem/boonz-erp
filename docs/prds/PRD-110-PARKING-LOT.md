@@ -11843,3 +11843,90 @@ single line LAW 8 required.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 155 (2026-08-08) - **D-37 EXECUTED, S-293 CLOSED WITH IT.** S-297/S-298 raised and closed same leg. No new CS ask.
+
+### ✅ D-37 CLOSED BY EXECUTION - the rung order is a CS dial, and the ruled default is live
+
+`20260808160000` (dial, adopted from `parked/`) · `20260808170000` (red baseline) · `20260808171000`
+(engine). Fixture 6 **RED 55/66 → GREEN 66/66**; the full 13-fixture blast radius **13/13, 593
+assertions, zero failures**. `md5(resolve_supply_ladder_v3)` **056cca45 → 011f83d8**.
+
+⭐ **Only the TERMINAL choice moved.** All six rungs are still logged 1..6 in BUILD-SPEC order, so the
+ladder still shows what it passed over. A **partial** transfer does not qualify and still falls to
+rung 2 - CS ruled for a **full-pod** move, and half a transfer plus a driver leg is not that.
+⭐ **Measured acceptance:** **32 of 41** stranded shelves move from `substitute` to `alt_wh`,
+unlocking a **3,459-unit** pool across **5** machines and **14** pods. The remaining **9** hold 28
+units between them and are partial-cover, which is the ruling working rather than failing.
+⭐ **Rung 2's expensive selector is now short-circuited on those 32 calls** - the BUILD SPEC's own
+idiom (the one rung permitted to skip, and only when it says so explicitly), extended to the second
+case where the answer cannot change the outcome.
+
+### ✅ S-293 CLOSED - as a rider, in the unit that restated the function, exactly as the parking lot required
+
+The three supply buckets now ask `public._is_phantom_wh_row_v3` instead of an inline name test, so
+real and phantom are a true **partition**: every pickable row is counted exactly once.
+⛔ **The BINDER's predicate, never `_is_sentinel_wh_row_v3`** - that one is the authorisation scope of
+a destructive SECURITY DEFINER RPC and converging them is still a refusal. Both registries were
+corrected rather than superseded (S-288).
+
+### ⛔⛔ S-297 (NEW, CLOSED) - THE RED BASELINE FOUND A DEFECT NOBODY HAD COUNTED, AND IT WAS IN THE DATA
+
+With the fixture restated to the NULL-safe rule and the engine still on the name-only one, fixture 6
+seq 27 (`rung3_invisible = 0`) read **1**. ⭐ **One live shelf was reporting its own transferable
+stock as unsatisfiable**, because the ladder could not see a NULL-batch row the census could.
+⭐⭐ **That is S-293's harm measured by a DISAGREEMENT BETWEEN TWO CLASSIFIERS on production data,
+not argued from first principles** - and it only became visible because the fixture was restated in
+its own migration BEFORE the engine moved. A single combined migration would have shown 66/66 and
+this number would never have existed. ⛔ **The red baseline is not a formality; it is a measuring
+instrument, and it should be read as one.**
+
+### ⛔ S-298 (NEW, CLOSED) - AN OCCURRENCE-COUNT GUARD THAT REFUSES A CORRECT MIGRATION IS ALSO A FAILURE
+
+S-291 hardened these guards after leg 152. Leg 155 tripped the OTHER edge of the same rule twice.
+(a) `'rung_no', ` occurs **7** times in the ladder, not the six the first draft asserted - six logged
+rungs plus the terminal key in the returned object. (b) The red baseline's read-back searched for the
+retired token and refused, because the new **sensor block quotes that very token** in order to ask
+whether the ENGINE still carries it (S-291c, second occurrence in four legs).
+⭐ **RULE: measure the count on the produced text, and when a guard refuses, first ask whether the
+guard is wrong** - then reword it rather than relax it. Both were reworded; neither was relaxed.
+
+### ⭐ LAW 4 WAS THE REAL CONSTITUTIONAL QUESTION, AND IT WAS PROBED
+
+`DEFAULT TRUE` changes behaviour the instant both halves land, so the question is who consumes the
+ladder. Live: `list_m2m_donors_v3` (read-only) and `stitch_v3` - and `stitch_v3` carries **no INSERT
+or UPDATE against the live `refill_plan_output`**, only the shadow tables. The ruled default reaches
+the shadow pipeline alone. ⛔ **Had a live writer been in that call graph, DEFAULT TRUE would have
+been a LAW 4 violation and the unit would have shipped flag-off instead of executing the ruling.**
+⭐ **A "default" in a CS ruling is not automatically exempt from LAW 4; the call graph is what decides.**
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+- 🆕 **The 9 partial-cover stranded shelves (28 units).** Whether a partial transfer plus a
+  substitution for the remainder earns its driver leg is a business question D-37 did not answer.
+  Fixture 6 seq 25 pins the current split exactly, so a future ruling has a red waiting for it.
+- **S-285 (OPEN)** - `product_mapping` still has no write gate. Leg 155 did not touch it.
+- Unchanged from leg 154: the 5,029 phantom units as a DATA question · `wh_fefo_for_line` filters no
+  sentinels and three writers call it unguarded · the `anon` + `PUBLIC` EXECUTE on
+  `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent
+  non-assorted `venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FIVE ASKS, UNCHANGED; leg 155 raised none.**
+
+S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue
+on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the
+canonical in-stock object) · **S-285's ask** (confirm 7Up - Regular and Fade Fit - Coconut really are
+venue-supplied).
+The answered-unexecuted list drops from seven to **SIX**: D-19, D-29, D-33, D-34, D-39, D-40.
+⭐ **D-37 is now EXECUTED**, joining D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-43..D-47, DR-3, DR-4,
+DR-5, DR-7, DR-8. DR-1 and DR-10 remain WORK; **DR-6 is FE-deploy work this loop cannot perform** and
+D-19 stays blocked behind it.
+⚠️ **S-293, S-297, S-298 CLOSED (recorded); S-265, S-266, S-279, S-283 and S-285 remain OPEN.**
+New findings resume at **S-299**.
+⭐ **Leg 155 flipped no flag. It set ONE dial, to the value CS ruled, and touched one engine body -
+the one D-37 authorises, by the two edits D-37 and its binding rider required.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.

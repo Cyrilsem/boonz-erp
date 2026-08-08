@@ -654,14 +654,17 @@ class (c): INVOKER is sufficient, DEFINER would have been an unnecessary privile
   `NULL AND true = NULL → COALESCE false`, i.e. **classified as REAL stock**. Five such rows holding
   **5,029 units** were being bound into live dispatch legs by `resolve_fefo_sku_legs_v3`; golden
   fixture 6 went red 48/51 and that is how it surfaced. (ii) "and nothing else" was never true:
-  `resolve_supply_ladder_v3` carries its own **inline, name-only** copy to this day. See the two
+  `resolve_supply_ladder_v3` carried its own **inline, name-only** copy. ⭐ **That half is CLOSED at
+  leg 155** (`20260808171000`, D-37's unit, which restated the same function): the ladder now calls
+  `_is_phantom_wh_row_v3` for all three of its supply buckets and re-derives nothing. See the two
   entries below.
 - `_is_phantom_wh_row_v3(p_batch_id text, p_expiration_date date)` → boolean, IMMUTABLE,
   SECURITY INVOKER. **PRD-110 leg 154**, migration `20260808161000`. The **BINDER'S** question:
   _may this warehouse row be bound into a dispatch leg at all._ NULL-safe on **both** limbs and a
   strict **superset** of `_is_sentinel_wh_row_v3` - either the 2099-12-31 marker **or** the
   `VOXSOURCE-` name is sufficient evidence on its own. Catches **45** rows where the narrow
-  predicate catches 40. Sole consumer: `resolve_fefo_sku_legs_v3`.
+  predicate catches 40. Consumers: `resolve_fefo_sku_legs_v3` (leg 154) and
+  **`resolve_supply_ladder_v3` (leg 155, S-293)**.
   ⛔ **DO NOT MERGE THE TWO, and do not "converge" them under Article 16.** They answer different
   questions: _may the binder pick this_ vs _may a SECURITY DEFINER RPC destroy this_. Widening the
   second is destructive-reach creep. Golden fixture 6 seqs 53–57 are the executed truth table
@@ -1122,6 +1125,32 @@ still anon-executable; v3 ships tight). Proven by golden fixture 39 (37 assertio
   NULL-initialised scalars, so the failure mode is removed by construction rather than guarded.
   Signature, volatility, security mode, `search_path` and `pronargdefaults` (1) all byte-identical
   — a true Article-12 `CREATE OR REPLACE`. `prosrc` md5 `ec8dffa2…` → **`920b32d0…`**.
+- ✅ **D-37 + S-293 (leg 155, `20260808160000` + `20260808171000`) - the rung ORDER became a CS dial,
+  and the supply base stopped re-deriving the sentinel test.** Two changes, one reviewed unit,
+  because they are two edits to one body.
+  (a) **D-37.** CS ruled `refill_policy_params.ladder_prefer_own_stock_transfer` **DEFAULT TRUE**:
+  when the dial is on and rung 3 covers the **whole** need, `alt_wh` outranks `substitute` - moving
+  your own stock beats rewriting the customer's shelf. A **partial** transfer does not qualify and
+  still falls through to rung 2. ⛔ **Only the TERMINAL choice moves**: all six rungs are still
+  logged 1..6 in BUILD-SPEC order, so the ladder still shows what it passed over, and rung 2's
+  expensive selector is short-circuited (with an explicit reason) exactly when the preference
+  preempts it. The terminal payload carries `preferred_over_substitute` and names the ruling in `rule`.
+  ⭐ **LAW 4 holds and was verified, not assumed:** the only callers are `list_m2m_donors_v3`
+  (read-only) and `stitch_v3`, and `stitch_v3` writes `refill_plan_output_shadow` /
+  `pod_refills_shadow` only - never the live plan table. The ruled default reaches the shadow
+  pipeline alone.
+  ⭐ Measured live at execution: **32 of 41** stranded shelves move from `substitute` to `alt_wh`,
+  unlocking a **3,459-unit** stranded pool across 5 machines and 14 pods; the remaining **9** are
+  partial-cover and correctly still substitute.
+  (b) **S-293.** The supply base's three buckets used an inline name-only pair. `NULL NOT LIKE …`
+  and `NULL LIKE …` are both NULL, so a NULL-batch row landed in **no bucket at all** - genuine
+  stock vanished from the supply base and phantom stock was excluded by accident rather than by
+  rule. The buckets are now a true partition over `_is_phantom_wh_row_v3`. ⛔ It binds the
+  **binder's** predicate, deliberately not the destructive RPC's `_is_sentinel_wh_row_v3`;
+  converging those two remains a refusal.
+  `prosrc` md5 **`056cca45…` → `011f83d8…`**, pinned by golden fixture **6 seq 50** and fixture
+  **44 seq 28**. Fixture 6 **RED 55/66 → GREEN 66/66**, and its seq 27 caught the harm on the way
+  through: one live shelf whose real stock the old filter could not see.
 - 📌 **S-86 (leg 63) — the ladder does NOT cascade after a partial fill.** The terminal rung is the
   first **satisfiable** rung at ANY quantity, so a rung-1 fill of 1 unit against a need of 2 stops
   there and rung 2 reads `attempted: false`. The stranded unit is a **LAW 5 obligation on the
