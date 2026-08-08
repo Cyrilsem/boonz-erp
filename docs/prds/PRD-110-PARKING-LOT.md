@@ -12365,3 +12365,72 @@ The single red was **fixture 64 seq 18**, the `md5(prosrc)` pin on `_build_draft
 stating that any further movement is an unexplained edit to the 16:00 UTC plan builder. The migration
 refuses to re-baseline unless the builder still carries the guard, the LAW-12 guard, the Gate-0
 advisory and the calendar check. ⛔ **S-309 also belongs to this sweep:** never pin `p_max_phase`.
+
+## ⭐⭐ leg 161 (2026-08-08) — **DR-1b EXECUTED. The cutover is now a real per-cluster operation.** S-314, S-315, S-316 raised and closed. S-312, S-313 raised OPEN. No flag flipped, no dial changed.
+
+### ✅ DR-1b CLOSED BY EXECUTION — the halt became a branch
+
+Dara design → Cody ⚠️ approve-with-revisions (3, all shipped BEFORE apply) → fixture 75
+**0/51 RED → 50/50 GREEN**. Seven migrations `20260809010000`..`20260809013000`.
+`v_add_engine_scope_v3` (Article 16 canonical) · `engine_add_pod` machine-scoped ·
+`promote_v3_shadow_to_live_v3` (second canonical writer of `pod_refills`, declared under
+Article 15) · `_build_draft_core_v3` branched.
+
+⛔⛔ **THE PARKING LOT HAD THE BLOCKER WRONG — twice over.** Leg 160 corrected "WMAPE settling" to
+"the ADD engines are whole-plan-date scoped". That second answer is **also not the binding
+constraint**. It describes the READ. The thing that actually made two engines unable to share a
+plan_date was one unscoped statement in `engine_add_pod`:
+`DELETE FROM public.pod_refills WHERE plan_date = p_plan_date`. ⭐ **A wipe cannot be fixed by
+passing an argument.**
+
+✅ **FLAG-OFF PROVEN BY md5, NOT ASSERTED:** `pod_refills` whole-table
+`5b2c72478c5af076a6f3f774a186bd14` over **4,177 rows, identical before and after all seven
+migrations**. `cutover_block_reason_v3` `prosrc` md5 `2006f1c8db739375bc4795b7a6cdfc9a` identical,
+so fixture 74's seq 13/65/66 are safe. 0 of 10 clusters authoritative. LAW 4 intact.
+
+### ⛔⛔ S-314 (NEW, CLOSED) — **S-308 APPLIES TO VIEWS, and DR-1's own finding said it did not**
+
+The Dara design AND Cody's review both asserted that the Supabase default privilege "targets
+TABLES", so a view needs no `REVOKE`. **False.** The default is `GRANT ALL ON TABLES` and
+Postgres's TABLES object class **covers views**. The migration's own guard refused the apply:
+`authenticated` held `INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER` on the new view.
+⚠️ **S-308's open audit worklist is now strictly larger — it covers every VIEW added since the
+defaults were set, not just every table.**
+
+### ⛔ S-315 (NEW, CLOSED) — a constraint the flag-off guard could never reach
+
+`engine_cutover_audit_v3.action` was CHECK-constrained to `{flip_to_v3, revert_to_v19}`; the
+promotion writes `'promote'`. ⛔ **The migration's own EXECUTED flag-off guard could not find it** —
+the no-op path returns before the audit insert. Only a fixture that genuinely flips a cluster and
+promotes could. ⭐ **This is the argument for driving a branch rather than inspecting it.**
+The widening migration also proves the CHECK **still refuses a junk verb**.
+
+### ⛔ S-316 (NEW, CLOSED) — the fixture's own probe violated an append-only guard
+
+Fixture 75 proved the refusal path by DELETEing the shadow run; `pod_refills_shadow` is append-only
+(ADR §5.1), the trigger refused, and the scenario aborted with all 51 assertions NULL.
+⭐ **The guard was right and the probe was wrong** — deleting shadow evidence cannot happen in
+production. Re-shaped to a second synthetic date with an authoritative machine and no v3 run: the
+shape that actually occurs **when a flip lands between cron 45 and the next nightly build**.
+
+### ⛔⛔ S-312 (NEW, **OPEN**) — the swap engine is still fleet-wide v19 and swaps IS enabled
+
+`engine_swap_pod` writes `pod_swaps` (a different table, so DR-1b's partition is safe) but
+`engine_finalize_pod` merges both into the live plan. **A flipped cluster gets v3 refill lines and
+v19 swap lines.** ⚠️ **`swaps_enabled` is `true` globally — verified live; any memory or note saying
+`false` is STALE.** Not fixed here: scoping the SWAP engine is a separate unit against a separate
+engine, PRD-110's Wave-2 SWAP items are parked under the engine freeze, and widening DR-1b would be
+LAW 10 drift. Made **visible** instead — every promotion payload carries
+`residual_swap_engine: v19_fleetwide` (fixture 75 seq 48).
+**THE ASK (one line):** before the ~Aug 17 flip, does CS accept a flipped cluster receiving v19 swap
+lines alongside v3 refill lines, or must SWAP be scoped (or `swaps_enabled` set false for that
+cluster) first?
+
+### ⛔ S-313 (NEW, **OPEN**, cosmetic) — a stale message inside a byte-frozen function
+
+`cutover_block_reason_v3`'s message still says "…or ship DR-1b". Unreachable through the builder
+now; visible only to a direct caller. **Left byte-untouched deliberately** — fixture 74 seq 65/66
+read this function's `prosrc` and it was banked one leg earlier. One-line fix, own migration,
+own re-fire.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **SEVEN ASKS.** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · 🆕 **S-312** (v19 swap lines on a v3-flipped cluster). The answered-unexecuted list is **unchanged at SIX**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-33, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, **DR-1b**, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **DR-1b is now EXECUTED and NO work item replaces it — the queue is empty.** What remains for DONE-2 is PROOF, not build: the S7 triple over the post-DR-1b engine, and the time-gated cron-45 verification. ⚠️ **S-314, S-315, S-316 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, 🆕 S-312 and 🆕 S-313 remain OPEN.** New findings resume at **S-317**.
