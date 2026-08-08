@@ -5275,3 +5275,60 @@ tolerated **explicitly** rather than absorbed into a number. Assertions **44 →
 `golden.runs`, never from the returned set (S-260/S-266). Actuals: `2=0 · 7=yes · 8=0 · 9=restored ·
 20=ok · 21=2 · 54=preserved · 56=4 · 57=inert · 60=ok · 61=2 · 62=swap_v3 · 63=true`.
 ⭐ `swap_v3` **ffff8485 unmoved** — the fix landed in the fixture, which is where S-274 says it belongs.
+
+---
+
+## `20260808180000_prd110_dr10_fixture73_red_baseline` + `20260808181000_prd110_dr10_proposals_family_audit_triggers` (leg 156) — DR-10, Article 8 across the `*_proposals_v3` family
+
+**The defect, measured.** A decision on a proposal minted no `write_audit_log` row on ANY table in
+the family. Not a theoretical gap: `write_audit_log` held **0** rows for all five tables, and the RED
+baseline fired before the fix (`f8664987`, **12 / 9**) recorded `no_trigger=5`, `wrong_fn=5`,
+`wrong_shape=5` with five real decisions producing zero audit rows.
+
+**⛔ THE PARKING LOT SAID FOUR. THE CATALOGUE SAYS FIVE (S-299).** DR-10's note enumerated `facing`,
+`feedback`, `rotation`, `picker_weight`. Re-deriving the site list BY SHAPE (S-280) — a `public` table
+carrying all four of `proposal_id` / `status` / `reviewed_by` / `reviewed_at` — returns
+`reallocation_proposals_v3` as well, **92 live rows, also zero triggers**. A migration that pasted the
+note's four names would have left the family one table divergent, which is precisely the rot DR-10 was
+raised to prevent, committed by the fix for it. The predicate does NOT pull in
+`warehouse_inventory_status_proposal` (which already has `tg_audit_wisp`).
+
+**The install loops the shape predicate at apply time** rather than naming tables, then re-derives all
+three counters and RAISEs unless `no_trigger = wrong_fn = wrong_shape = 0` — a partial install cannot
+commit. Idempotent: a table already correctly wired is skipped, not churned. Per S-298 the only hard
+guard refuses an **empty** family, never an unexpected count — a hardcoded "must equal 5" would refuse
+the correct migration the day a sixth proposal table lands.
+
+**⭐ `audit_log_write('proposal_id')`, never `audit_log_write()`.** The helper COALESCEs a missing
+`TG_ARGV[0]` to `'id'` — a column NONE of these five has — so the argument-less form would not error.
+It would log `row_pk = '?'` on every decision forever while every existence check still passed.
+`dispatch_pack_confirmation` carries exactly that argument-less form live today; it was not copied.
+Fixture 73 seq 9 makes the argument mandatory rather than conventional.
+
+**Fixture 73 (21 assertions, id 73, plan_date 2030-06-20)** decides a REAL pending proposal on each of
+the five inside a PL/pgSQL subtransaction rolled back by a sentinel RAISE, counting the audit row
+INSIDE the block. PL/pgSQL variables survive a subtransaction rollback; rows do not — an `INSERT` into
+the results temp table placed before the RAISE would be discarded by the very rollback it measures,
+and the fixture would report "no candidate" on both sides of the fix. It plants nothing: planting into
+these five means satisfying `fp_v3_direction_math`, `chk_fpr_v3_value`, `rp_v3_qty_le_headroom`,
+`realloc_v3_unclaimed_is_empty`, `pwp_pairs_coherent` and eleven FKs, then deleting synthetic rows from
+tables CS reviews by hand.
+
+⛔ Two live traps found by the S-149 dry run, not by reading: `picker_weight_proposals_v3` has **no
+pending row at all** (1 applied, 2 superseded), so its predicate accepts `superseded` and excludes
+`applied` (`pwp_applied_shape` would raise 23514); and `reallocation_proposals_v3` uses `status =
+'proposed'` because `realloc_v3_unclaimed_is_empty` ties `'unclaimed'` to `target_shelf_id IS NULL`.
+Seq 6 is the standing sensor that keeps a 23514 from being misread as an Article 8 gap.
+
+**Cody:** ✅ Approve. Articles 1, 2, 3, 7, 8, 12, 14, 16. Sink verified append-only
+(`wal_no_update` / `wal_no_delete` both `USING (false)`) BEFORE adding five write sources to it; all
+five family tables already `relrowsecurity = true`. Named but not blocking: the `ILIKE` shape patterns
+treat `_` as a single-char wildcard and are sound only because `tgfoid = 'public.audit_log_write'::regproc`
+pins function identity exactly — do not reuse that pattern without the `regproc` pin.
+
+**Verified: fixture 73 `21 / 0`, `passed` true, zero `scenario_error`, 30773 ms** (`8cd19e87`),
+adjudicated from `golden.runs`. Independent post-run probe: all five status populations unchanged
+(`facing:20 | feedback:12 | picker:2 | realloc:23 | rotation:25`), zero stray review notes, family
+`write_audit_log` count still 0 — the exercise leaves nothing behind.
+⛔ **Triggers are not retroactive.** The 83 existing proposal rows have no audit history and never
+will; Article 8 coverage for this family begins here.

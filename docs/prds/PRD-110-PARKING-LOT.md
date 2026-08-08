@@ -11930,3 +11930,77 @@ the one D-37 authorises, by the two edits D-37 and its binding rider required.**
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 156 (2026-08-08) — **DR-10 EXECUTED.** The family was FIVE, not four. S-299, S-300 raised.
+
+### ✅ DR-10 CLOSED BY EXECUTION — Article 8 across the whole `*_proposals_v3` family
+
+`20260808180000_prd110_dr10_fixture73_red_baseline` (fixture **73**, 21 assertions) then
+`20260808181000_prd110_dr10_proposals_family_audit_triggers` (Cody ✅, Articles 1/2/3/7/8/12/14/16).
+**RED `f8664987` 12/9 → GREEN `8cd19e87` 21/0**, zero `scenario_error` on both.
+⭐ Shipped in the S-297 order: the red baseline in its OWN migration, ahead of the engine. That order
+is what produced the `no_trigger=5 · wrong_fn=5 · wrong_shape=5` reading — a single combined migration
+would have read 21/21 and the number **5** would never have existed.
+
+### ⛔ S-299 (NEW) — **A PARKED NOTE'S ENUMERATION IS A CLAIM, NOT A SITE LIST**
+
+DR-10's own text says "Measured across all four proposal tables — `facing`, `feedback`, `rotation`,
+`picker_weight` — **all zero**". The catalogue, queried BY SHAPE (S-280), returns **FIVE**: the note
+never mentions **`reallocation_proposals_v3`**, 92 live rows, also carrying zero triggers.
+⛔ **Shipping "the four the note names" would have left the family one table divergent — precisely the
+rot DR-10 was raised to prevent, committed by the fix for it.**
+⭐ **The general rule, and it now has three occurrences (S-280 D-31, S-288, this):** a parked note's
+enumeration is evidence about the day it was written. Re-derive the site list from the catalogue by
+SHAPE at execution time, and make the census itself an assertion — fixture 73 seq 1 pins the count and
+seq 2 pins the membership BY NAME, so a sixth sibling cannot land silently and a simultaneous
+drop-plus-add cannot cancel out inside a count.
+
+### ⭐ THE UNIT'S OWN DESIGN RULES, WORTH REUSING
+
+- **The install loops the shape predicate at APPLY TIME** and re-derives its three counters in the
+  same transaction, RAISEing unless all are 0 — a partial install cannot commit.
+- **S-298 honoured:** the only hard guard refuses an **empty** family, never an unexpected count. A
+  hardcoded "must equal 5" would refuse the correct migration the day a sixth proposal table lands.
+- **`audit_log_write('proposal_id')`, never the argument-less form** — the helper COALESCEs a missing
+  `TG_ARGV[0]` to `'id'`, a column none of the five has, so the bare form logs `row_pk='?'` forever
+  while every existence check passes.
+- **A decision is EXECUTED, not inspected** (D-47 / S-173), inside a rolled-back subtransaction:
+  variables survive a subtransaction rollback, rows do not. Zero residue on live proposals AND on
+  `write_audit_log`, re-probed independently after the green run.
+
+### ⛔ S-300 (NEW) — THE RELAY'S LOG IS INSIDE ANOTHER SESSION'S BLAST RADIUS
+
+`git diff HEAD` was empty at STEP R; `PRD-110-EXECUTION-LOG.md` was dirty 29/30 lines later in the leg
+with no write from this leg. The S-99 drill resolved it as prettier (table realignment, one emphasis
+normalisation, one blank line — zero semantic change, proven with a whitespace-insensitive word diff).
+⛔ **Do not assume a dirty log is your predecessor's work, and do not "revert" such a reformat.**
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+- 🆕 **`dispatch_pack_confirmation` carries the argument-less `audit_log_write()`** — it logs
+  `row_pk='?'` on every audited row. One-line fix, fixture owed, out of DR-10's scope. Not touched.
+- Unchanged from leg 155: the 9 partial-cover stranded shelves (28 units) · **S-285 (OPEN)** ·
+  the 5,029 phantom units · `wh_fefo_for_line` unguarded in three writers · `anon` + `PUBLIC` EXECUTE
+  on `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent
+  non-assorted `venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FIVE ASKS, UNCHANGED; leg 156 raised none.**
+
+S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue
+on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the
+canonical in-stock object) · **S-285's ask** (confirm 7Up - Regular and Fade Fit - Coconut really are
+venue-supplied).
+The answered-unexecuted list is **UNCHANGED at SIX**: D-19, D-29, D-33, D-34, D-39, D-40 — DR-10 was
+never one of them, it was WORK.
+⭐ **DR-10 is now EXECUTED**, joining D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43..D-47, DR-3,
+DR-4, DR-5, DR-7, DR-8. **DR-1 is the only remaining WORK item besides the six**; **DR-6 is FE-deploy
+work this loop cannot perform** and D-19 stays blocked behind it.
+⚠️ **S-299 and S-300 are FINDINGS, not decisions. S-265, S-266, S-279, S-283 and S-285 remain OPEN.**
+New findings resume at **S-301**.
+⭐ **Leg 156 flipped NO flag, changed NO dial, and touched NO engine body.** It added five triggers and
+one fixture.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.

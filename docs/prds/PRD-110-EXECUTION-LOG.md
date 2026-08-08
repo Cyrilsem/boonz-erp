@@ -36388,15 +36388,15 @@ without a commit**. ⛔ **The relay had lost a leg silently.** Its migration fil
 its scenario fails, and an object can move without a registry row). Every object leg 153's files
 would have touched was probed directly:
 
-| probe                                       | reading            | verdict            |
-| ------------------------------------------- | ------------------ | ------------------ |
-| `refill_policy_params.ladder_prefer_own_...` | **absent**         | dial never applied |
-| `public._is_phantom_wh_row_v3`               | **absent**         | never created      |
-| `md5(resolve_fefo_sku_legs_v3.prosrc)`       | **229a8970**       | pre-leg-153 body   |
-| `md5(resolve_supply_ladder_v3.prosrc)`       | **056cca45**       | pointer value      |
-| golden fixtures / assertions                 | **64 / 2355**      | pointer values     |
-| fixture 6 assertions / max seq               | **51 / 51**        | no sensors added   |
-| `golden.stress_runs`                         | **14**             | pointer value      |
+| probe                                        | reading       | verdict            |
+| -------------------------------------------- | ------------- | ------------------ |
+| `refill_policy_params.ladder_prefer_own_...` | **absent**    | dial never applied |
+| `public._is_phantom_wh_row_v3`               | **absent**    | never created      |
+| `md5(resolve_fefo_sku_legs_v3.prosrc)`       | **229a8970**  | pre-leg-153 body   |
+| `md5(resolve_supply_ladder_v3.prosrc)`       | **056cca45**  | pointer value      |
+| golden fixtures / assertions                 | **64 / 2355** | pointer values     |
+| fixture 6 assertions / max seq               | **51 / 51**   | no sensors added   |
+| `golden.stress_runs`                         | **14**        | pointer value      |
 
 ⛔⛔ **CONCLUSION: leg 153 authored three files, dry-ran them, and died before applying a byte. The
 handoff invariant HELD even though the handoff itself did not happen** - "nothing half-applied" was
@@ -36424,7 +36424,7 @@ first time the gap it warns about has actually bitten.
 COALESCE(p_batch_id LIKE 'VOXSOURCE-%' AND p_expiration_date = DATE '2099-12-31', false)
 ```
 
-⛔ **It requires the NAME *and* the expiry.** A warehouse row with `batch_id IS NULL` on the
+⛔ **It requires the NAME _and_ the expiry.** A warehouse row with `batch_id IS NULL` on the
 2099-12-31 phantom marker evaluates `NULL AND true = NULL`, which COALESCEs to **false**: the row is
 classified **REAL** and `resolve_fefo_sku_legs_v3` binds it into a dispatch leg.
 ⭐ **This is S-289's family (leg 152) landing on the sentinel guard itself, one leg later.**
@@ -36543,16 +36543,16 @@ it**: `git diff HEAD` was empty, so the log on disk WAS the log leg 154 wrote.
 
 ⭐ **RECONCILIATION, against OBJECTS and not just the registry (S-295):**
 
-| probe                          | reading                            | verdict                     |
-| ------------------------------ | ---------------------------------- | --------------------------- |
-| `prd110%` migrations           | **347** DB / **347** disk          | leg 154's three registered  |
-| owed md5 both sides            | **`3e81da7ef7ea462f464402f6d0ac89fd`** | identical              |
-| `max(version)`                 | **20260808162000**                 | leg 154's revoke            |
-| `md5(resolve_fefo_sku_legs_v3)`| **95301156**                       | leg 154's fixed binder      |
-| `md5(resolve_supply_ladder_v3)`| **056cca45**                       | D-37's untouched target     |
-| fixtures / assertions          | **64 / 2361**                      | +6 sensors from leg 154     |
-| LAW 12 (08-07/08/09)           | **101 / 117 / 97**, all non-pending| unchanged from leg 152      |
-| S-80 whole-file `CS DECISION` grep | no block after 2026-08-04      | no new ruling landed        |
+| probe                              | reading                                | verdict                    |
+| ---------------------------------- | -------------------------------------- | -------------------------- |
+| `prd110%` migrations               | **347** DB / **347** disk              | leg 154's three registered |
+| owed md5 both sides                | **`3e81da7ef7ea462f464402f6d0ac89fd`** | identical                  |
+| `max(version)`                     | **20260808162000**                     | leg 154's revoke           |
+| `md5(resolve_fefo_sku_legs_v3)`    | **95301156**                           | leg 154's fixed binder     |
+| `md5(resolve_supply_ladder_v3)`    | **056cca45**                           | D-37's untouched target    |
+| fixtures / assertions              | **64 / 2361**                          | +6 sensors from leg 154    |
+| LAW 12 (08-07/08/09)               | **101 / 117 / 97**, all non-pending    | unchanged from leg 152     |
+| S-80 whole-file `CS DECISION` grep | no block after 2026-08-04              | no new ruling landed       |
 
 ⭐ **Leg 154's 64-fixture sweep died with its session after 5 fixtures** (`/tmp/prd110_leg154_sweep`):
 **fx1 59/59 · fx2 54/54 · fx3 25/25 · fx5 17/17 · fx6 57/57**, all green, `f7.fire` empty. Those five
@@ -36626,14 +36626,14 @@ dry run produced - so the pin was proven live, not trusted.
 
 The ruling named "the 3,017-unit stranded pool" (a leg-63 number). Live at execution:
 
-| measure                                     | reading                        |
-| ------------------------------------------- | ------------------------------ |
-| stranded shelves (NULL-safe rule)           | **41** (46 under the old rule) |
-| stranded units                              | **3,487**                      |
-| → shelves that now terminate at `alt_wh`    | **32**                         |
-| → stranded pool that unlocks                | **3,459 units**                |
-| → machines / pods affected                  | **5** / **14**                 |
-| shelves still substituting (partial cover)  | **9**, holding **28** units    |
+| measure                                    | reading                        |
+| ------------------------------------------ | ------------------------------ |
+| stranded shelves (NULL-safe rule)          | **41** (46 under the old rule) |
+| stranded units                             | **3,487**                      |
+| → shelves that now terminate at `alt_wh`   | **32**                         |
+| → stranded pool that unlocks               | **3,459 units**                |
+| → machines / pods affected                 | **5** / **14**                 |
+| shelves still substituting (partial cover) | **9**, holding **28** units    |
 
 ⛔ **The 9 are not a failure, they are the ruling working:** their transfer would not cover the need,
 and CS ruled that only a full-cover move outranks substitution.
@@ -36703,7 +36703,6 @@ no `anon`, no `PUBLIC`, read back WHOLE (S-140).
   EXECUTE · 18 orphan sourcing triples · 26 latent non-assorted `venue_team` triples · **S-265**
   (fixture 57 mints into the LIVE CS review queue) · the 15-of-720 unattributed sales.
 
-
 ### RESUME POINTER 2026-08-08 leg 155 · FINAL
 
 - ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 155
@@ -36745,7 +36744,7 @@ no `anon`, no `PUBLIC`, read back WHOLE (S-140).
   guard refuses, first ask whether the guard is wrong - then reword it, never relax it.**
 - ⭐⭐ **S-287 REMAINS THE HIGHEST-YIELD HABIT AND CAUGHT TWO MORE, NEITHER IN THE MIGRATION SQL:** a
   CTE column renamed in one place and read by its old name in another (`scenario_error=column
-  "sentinel" does not exist`), and the guard above. ⛔ **Both times all three migrations applied
+"sentinel" does not exist`), and the guard above. ⛔ **Both times all three migrations applied
   CLEANLY and the SCENARIO was what failed.** Use it for any scenario_sql or engine-body edit.
 - ⭐ **A "DEFAULT" IN A CS RULING IS NOT AUTOMATICALLY EXEMPT FROM LAW 4 - THE CALL GRAPH DECIDES.**
   D-37's DEFAULT TRUE was safe only because `stitch_v3`, the ladder's sole writing consumer, touches
@@ -36801,3 +36800,130 @@ was still RUNNING at close**, so it may commit to `main` between legs; re-read `
 rather than assuming HEAD is `e25c6f4`.
 ⛔ **`supabase/migrations/parked/` now holds only its README.** Keep the directory and its rule: it is
 what stops an unapplied file from making RISK 104's disk side read one high forever.
+
+---
+
+## ⭐⭐ leg 156 (2026-08-08) — **DR-10 SHIPPED.** The family was FIVE, not four. S-299, S-300 raised.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every number below was read back live at leg-156
+close; the fixture verdicts are adjudicated from `golden.runs`, never from a returned set.
+
+### ✅ STEP R — the pointer verified against reality, every claim
+
+| probe                              | reading                                  | verdict                     |
+| ---------------------------------- | ---------------------------------------- | --------------------------- |
+| `ps` narrow (S-241) + full (S-294) | **nothing running**; PRD-111 PID 66562 alive | leg 155 left nothing behind |
+| `prd110%` migrations               | **350** DB / **350** disk                | pointer value exactly       |
+| owed md5 both sides                | **`e9fef0c4f2da6b31f10d11723bdbe8f6`**   | identical, disk side in py  |
+| `max(version)`                     | **20260808171000**                       | leg 155's D-37 unit         |
+| LAW 12 (08-07/08/09)               | **101 / 117 / 97**, all non-pending      | pointer value exactly       |
+| `golden.fixtures WHERE enabled`    | **64**                                   | pointer value               |
+| S-80 whole-file `CS DECISION` grep | no block after 2026-08-04                | no new ruling landed        |
+| `git log` HEAD                     | **97d95c9**                              | PRD-111 did not commit      |
+
+⭐ **The pointer was accurate on all eight.** `/tmp/prd110_sql.sh`, `apply_mig.sh` and `prd110_fire.sh`
+survived a **thirteenth** leg; the Supabase MCP still has not connected.
+
+### ✅ DR-10 EXECUTED — Article 8 closed across the whole `*_proposals_v3` family
+
+Two migrations, in the S-297 order (red baseline first, in its OWN migration, ahead of the engine):
+
+- `20260808180000_prd110_dr10_fixture73_red_baseline` — fixture **73**, 21 assertions.
+- `20260808181000_prd110_dr10_proposals_family_audit_triggers` — the five triggers. **Cody ✅**
+  (Articles 1, 2, 3, 7, 8, 12, 14, 16).
+
+**RED baseline `f8664987`: 12 pass / 9 fail**, zero `scenario_error`, 21 evaluated, 0 skipped.
+Failures exactly the nine designed: `7:5 · 8:5 · 9:5 · 10:0 · 11:0 · 12:0 · 13:0 · 14:0 · 15:bad`.
+**GREEN after `8cd19e87`: 21 / 0**, zero `scenario_error`, 30773 ms.
+
+### ⛔ S-299 (NEW) — **THE PARKING LOT SAID FOUR. THE CATALOGUE SAYS FIVE.**
+
+DR-10's note enumerated `facing`, `feedback`, `rotation`, `picker_weight` and said "all four".
+Re-deriving the site list BY SHAPE (S-280) — a `public` table carrying all four of `proposal_id` /
+`status` / `reviewed_by` / `reviewed_at` — returns **`reallocation_proposals_v3` as well: 92 live
+rows, also zero triggers.** ⛔ **A migration that pasted the note's four names would have left the
+family one table divergent — which is the exact rot DR-10 was raised to prevent, committed by the fix
+for it.** The predicate correctly does NOT pull in `warehouse_inventory_status_proposal` (already
+carries `tg_audit_wisp`).
+⭐ **The install therefore loops the shape predicate AT APPLY TIME rather than naming tables**, and
+re-derives all three counters in the same transaction, RAISEing unless
+`no_trigger = wrong_fn = wrong_shape = 0`. A partial install cannot commit. Fixture 73 seq 1 pins the
+census at 5 and seq 2 pins the membership BY NAME, so a sixth sibling cannot be added silently and a
+drop-plus-add on the same day cannot cancel out in a count.
+
+### ⭐ THE ARGUMENT IS THE WHOLE DEFECT — `audit_log_write('proposal_id')`, never `audit_log_write()`
+
+`audit_log_write` COALESCEs a missing `TG_ARGV[0]` to `'id'` — **a column NONE of these five has**.
+The argument-less form would not error. It would log `row_pk = '?'` on every decision forever while
+every "is the trigger installed" check passed. `dispatch_pack_confirmation` carries exactly that
+argument-less form live today; it was not copied. **Fixture 73 seq 9 is what makes the argument
+mandatory rather than conventional**, and it is deliberately a THIRD counter — seq 7 (no trigger at
+all) and seq 8 (not bound to the canonical writer) are different defects and one boolean would blur
+all three.
+
+### ⭐ THE EXERCISE WRITES NOTHING, AND THAT IS WHY IT MAY RUN ON LIVE PROPOSALS
+
+Structural assertions prove a catalogue row, not an audit row (D-47 / S-173: **a guard passed by
+inspection is not a guard passed**). So the fixture DECIDES a real pending proposal on each of the
+five — inside a PL/pgSQL subtransaction rolled back by a sentinel RAISE, counting the audit row
+INSIDE the block.
+⛔ **The trap, and it was caught before shipping:** PL/pgSQL **variables** survive a subtransaction
+rollback; **rows do not**. The first draft wrote each measurement straight into the results temp
+table before the RAISE — the rollback would have discarded the very measurement it was there to take,
+and the fixture would have reported "no candidate" on BOTH sides of the fix and looked like a premise
+failure rather than a bug.
+⭐ **It plants nothing on purpose.** Planting into these five means satisfying
+`fp_v3_direction_math`, `chk_fpr_v3_value`, `rp_v3_qty_le_headroom`, `realloc_v3_unclaimed_is_empty`,
+`pwp_pairs_coherent` and eleven FKs — then deleting synthetic rows from tables CS reviews by hand.
+
+### ⛔ TWO LIVE TRAPS FOUND BY THE S-149 DRY RUN, NEITHER BY READING
+
+- **`picker_weight_proposals_v3` has NO pending row at all** (1 applied, 2 superseded). Its predicate
+  accepts `superseded` and **excludes `applied`** — `pwp_applied_shape` ties `status='applied'` to
+  `applied_at`/`applied_weight`, so moving an applied row to `rejected` raises 23514.
+- **`reallocation_proposals_v3` uses `status='proposed'`, not `'pending'`** —
+  `realloc_v3_unclaimed_is_empty` ties `'unclaimed'` to `target_shelf_id IS NULL`, so deciding an
+  unclaimed row raises 23514.
+
+⭐ **Seq 6 is the standing sensor for both**: it asserts the exercise raised NO constraint error.
+Without it a 23514 and an Article 8 gap are indistinguishable at seqs 10–14 — both leave the audit
+count wrong. ⛔ **S-149 keeps earning its keep: ~90 seconds of dry run, two traps that would have read
+as "the fixture is broken".** The scenario body was then dry-run whole (S-287) with only the final
+`golden.scratch` write stubbed, extracted programmatically from the migration so the dry run could not
+drift from the shipped text.
+
+### ✅ RESIDUE — proven, not declared
+
+Independently re-probed AFTER the green run, not trusted from the fixture's own seqs: all five status
+populations byte-unchanged (**facing 20 · feedback 12 · rotation 25 · realloc 23 · picker 2**), **zero**
+stray review notes, and the family's `write_audit_log` count still **0**. `wal_delta` 0, LAW 12 0, both
+GUCs `<unset>`.
+⛔ **The 20 facing and 23 reallocation proposals queued for CS Sunday review are real work product.**
+Fixture 73 seq 17 is what stands between them and a fixture that rejects one per run forever.
+
+⛔ **TRIGGERS ARE NOT RETROACTIVE.** The 83 pre-existing proposal rows have no `write_audit_log`
+history and never will. Article 8 coverage for this family begins at `20260808181000`. Recorded so a
+future reader does not read the empty history as evidence that no decision was ever made.
+
+### ⛔ S-300 (NEW) — **THE RELAY NO LONGER OWNS ITS OWN LOG EXCLUSIVELY**
+
+`git diff HEAD` was **empty** at STEP R. By 15:22 local `PRD-110-EXECUTION-LOG.md` was dirty with
+**29 insertions / 30 deletions** — and this leg had not written a byte to it. The S-99 drill (read the
+diff, never conclude "prettier" from the hash alone) resolved it: markdown table column realignment,
+one `*and*` → `_and_` emphasis normalisation, one blank line. **Zero semantic change**, verified by a
+whitespace-and-emphasis-insensitive word diff, not by eyeballing.
+⭐ **The lesson is ownership, not formatting.** A second session (PRD-111, PID 66562) has been live on
+this repo since 12:13 local, and the relay's append-only log is inside its blast radius. ⛔ **The next
+leg must re-run the S-99 drill at STEP R rather than assume a dirty log is its own predecessor's
+work** — and must not "revert" such a reformat, which only fights the formatter.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+- 🆕 **`dispatch_pack_confirmation` carries the argument-less `audit_log_write()`** and therefore logs
+  `row_pk = '?'` on every row it audits. Out of DR-10's scope (not a proposal table); it is a real
+  Article 8 quality defect with a one-line fix and a fixture owed. **Not touched.**
+- Unchanged from leg 155: the 9 partial-cover stranded shelves (28 units) · **S-285 (OPEN)**,
+  `product_mapping` still has no write gate · the 5,029 phantom units as a DATA question ·
+  `wh_fefo_for_line` filters no sentinels and three writers call it unguarded · `anon` + `PUBLIC`
+  EXECUTE on `_is_sentinel_wh_row_v3` and `wh_fefo_for_line` · 18 orphan sourcing triples · 26 latent
+  non-assorted `venue_team` triples · **S-265** · the 15-of-720 unattributed sales.
