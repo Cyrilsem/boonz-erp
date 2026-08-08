@@ -38890,11 +38890,11 @@ design is the deliverable; what follows is why no migration followed it this leg
 Re-measured live over the **same 90-day window and the same cluster rule `mine_edit_history_v3`
 actually runs** — not carried forward:
 
-| leg 85 recorded            | measured 2026-08-08                                    |
-| -------------------------- | ------------------------------------------------------ |
-| 100 recurring clusters     | **197**                                                |
-| 9 pinnable (12%)           | **34** (17.3%)                                         |
-| **88 blocked**             | **163** (159 multi-SKU pods, 4 unmapped)               |
+| leg 85 recorded        | measured 2026-08-08                      |
+| ---------------------- | ---------------------------------------- |
+| 100 recurring clusters | **197**                                  |
+| 9 pinnable (12%)       | **34** (17.3%)                           |
+| **88 blocked**         | **163** (159 multi-SKU pods, 4 unmapped) |
 
 And then the number that decides the design:
 
@@ -38922,13 +38922,13 @@ record edits made after it ships. They argue against the acceptance measure, and
 resolver on the assumption that composition will answer. The design therefore ships a **four-rung
 ladder** (author-supplied → composition → sole mapping → named refusal) in which the author rung sits
 ABOVE composition: composition knows what is physically on the shelf, only the editor knows which SKU
-they *meant*, and a shelf holding one SKU today does not mean the editor meant that one — they may be
+they _meant_, and a shelf holding one SKU today does not mean the editor meant that one — they may be
 adding the one that ran out. ⛔ And rung 1 is **validated against the pod's mapping, never trusted**,
 or the FE becomes a way to pin an arbitrary product to a shelf.
 
 ⭐ **The alternative that looks cheaper is wrong, not merely cheaper:** resolving at MINE time needs
 no schema change at all, and reads **today's** composition against a decision made up to 90 days ago.
-On a shelf whose mix rotated — which is what a multi-SKU pod is *for* — that resolves the wrong SKU
+On a shelf whose mix rotated — which is what a multi-SKU pod is _for_ — that resolves the wrong SKU
 with full confidence and no refusal.
 
 **THE FORK, AND THE LOOP MUST NOT PICK IT (S-330):** for a multi-SKU pod, does the SKU come from the
@@ -38952,7 +38952,7 @@ this session dies waiting. **If a FINAL block exists below, read that instead.**
 - ⛔ **RISK 104: expect `prd110%` = 389, `max(version)` = 20260809041500, owed md5
   `0c68e55f7b39f9a9cd62aba73b4d18c7` both sides — reconciled 389 = 389 at this point.** Recipe
   unchanged: `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE
-  '%prd110%'`; disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS
+'%prd110%'`; disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS
   S-31's retained **version prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side
   in **PYTHON**, **TOP LEVEL ONLY**. ⛔ Re-derive both sides at pickup.
 - ⛔⛔ **NEXT TASK IS THE cron-45 VERIFICATION — OWED SINCE LEG 159, FIVE LEGS RUNNING.** Acceptance
@@ -38964,10 +38964,13 @@ this session dies waiting. **If a FINAL block exists below, read that instead.**
   unchanged from leg 163's 18:3x read. `cs_added` satisfies the calendar check; with no `picked` rows
   Gate 0 has nothing to find unconfirmed. **So `skipped_calendar` or `blocked_gate0` tonight is a
   REAL DEFECT, not a scheduling artefact.**
-  ⚠️ **BUT `ok` IS NOT AUTOMATICALLY A PASS.** The 08-06 fire read `engine ok` with
-  **`rows_affected = 0`**. An `ok`/0 result tonight fails the `rows > 0` clause and means the engine
-  cleared Gate 0 and found no demand for those 5 machines — a different investigation from a refusal,
-  and it must not be reported as a green.
+  ⚠️ **THE THIRD OUTCOME HAS A NAME NOW, AND THE ACCEPTANCE TEST PREDATES IT.** The 08-06 fire read
+  `engine ok` with **`rows_affected = 0`** — but that was BEFORE leg 159's S-304a fix. The runner now
+  reads `v_status := CASE WHEN v_rows > 0 THEN 'ok' ELSE 'ok_no_shadow_rows' END`, so **tonight `ok`
+  implies `rows > 0` by construction** and a night that banks nothing arrives as
+  **`ok_no_shadow_rows`** — not a refusal, not a pass, and a different investigation from either.
+  ⛔ Read the status word, not just the row count; the four refusals are `blocked_gate0`,
+  `skipped_calendar`, `no_picks`, `error`.
 - ⛔ **D-34 REWRITES `run_nightly_shadow_v3`, THE FUNCTION UNDER VERIFICATION. VERIFY FIRST.** It is
   the last unblocked Tier-2 unit; its D-29 dependency is discharged.
 - ⛔⛔ **THE S7 TRIPLE IS OWED AND IT IS THE LAST THING, NOT THE NEXT THING (S-321).** Run it only
