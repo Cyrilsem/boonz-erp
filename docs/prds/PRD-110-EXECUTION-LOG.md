@@ -39016,3 +39016,159 @@ this session dies waiting. **If a FINAL block exists below, read that instead.**
   S-284, S-286..S-310, S-314..S-318, S-321..S-324, S-326, S-327, S-329 are CLOSED (recorded).**
   ⛔ **S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320, S-325, S-328 and
   S-330 are OPEN.** New findings resume at **S-331**.
+
+---
+
+## ⭐⭐ leg 165 (2026-08-08) — **D-34 BUILT, CODY-REVIEWED, DRY-PROVEN, HELD BEHIND THE cron-45 GATE.** S-331 confirmed live; S-332, S-333, S-334 raised. No flag flipped, no dial turned.
+
+### STEP R — the pointer verified against reality, every claim
+
+Leg 164's PRELIMINARY pointer was the last block in this file; **no leg-164 FINAL exists**, and the
+watcher it armed (`/tmp/prd110_leg164_cron45_watch.sh`) **was NOT running at pickup** — narrowed `ps`
+(S-241) then a full `ps` (S-294) then `pg_stat_activity`, all clean. **The baton was unattended.**
+Re-armed within four minutes of session start, before any other work.
+
+- ⭐ **RISK 104 RECONCILED 389 = 389.** `prd110%` = **389** · `max(version)` = **20260809041500** ·
+  md5 **`0c68e55f7b39f9a9cd62aba73b4d18c7`** on BOTH sides. Disk side computed in Python, top level
+  only, minus the S-31 retained prefix `20260730203000` (S-290, by PREFIX). Exactly as owed.
+- ⭐ **LAW 4 VERIFIED:** 0 of 10 clusters authoritative (all `v19`) · `pod_refills` **4,177** ·
+  `w_intents` **0** · `pick_urgency_params.updated_at` still `2026-08-06 23:20:27.984211+00`.
+  ⛔ `w_intents` is a COLUMN on `pick_urgency_params`, not a table — the pointer's shorthand cost a
+  probe. The cutover table is **`engine_cutover_authority_v3`** and its column is
+  **`authoritative_engine`** (text, `'v19'`), NOT a boolean `is_authoritative`.
+- ⭐ **LAW 12 VERIFIED:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0 rows**, and
+  **zero `operator_status='pending'`** on all three.
+- ⭐ **S-320 PRE-STATE HOLDS, RE-PROBED at 20:0xZ:** `machines_to_visit` for 2026-08-09 carries
+  **5 `cs_added` + 4 `cs_dropped`, ZERO `picked`** — unchanged from leg 163's 18:3x and leg 164's
+  19:3x reads. **Tonight stays diagnostic:** `skipped_calendar` or `blocked_gate0` is a REAL defect.
+- ⭐ **S-80 DISCHARGED on the WHOLE file:** the last top-level `CS DECISION` block is
+  **POST-DONE DR REGISTER CLOSED (2026-08-04)**. **No new CS ruling since.** The ten open asks stand.
+- ⚠️ **Enabled fixture population is 71 of 71** (was 70 at leg 164's pickup, 71 at its close).
+  No foreign `run_fixture` / `golden.` activity in `pg_stat_activity`.
+- ⛔ **`/tmp` SURVIVED AGAIN** (twentieth leg) and **the Supabase MCP still has not connected**.
+
+### ⛔⛔ S-331 CONFIRMED LIVE — all four traps are real, and a fifth was hiding behind them
+
+Read both bodies before writing a line. Every S-331 claim reproduced against live `prosrc`:
+
+1. `run_pipeline_v3` catches the engine's exception and **never re-raises** — confirmed.
+2. Its classifier is `CASE WHEN SQLERRM LIKE '%Gate 0 not passed%' THEN 'blocked_gate0' ELSE 'error'`
+   — **two of four**, confirmed.
+3. `lines_written` is nested at `res->'engine'->>'lines_written'` — confirmed.
+4. `no_base` / `composed_empty` / the stitch-mismatch RAISE / a `blocked_demand` error all exist and
+   none has a word in the log — confirmed.
+5. ⭐ **AND THE SHAPE IS SUBTLER THAN THE FINDING SAID.** On a Gate-0 or no-picks refusal the engine
+   throws inside the pipeline, so `v_base_run` stays NULL and the pipeline's **TOP-LEVEL status is
+   `no_base`** while ONLY the nested `engine` receipt carries the real refusal. A runner reading the
+   top level for the reason finds the wrong word. Fixture 53 seq 26 now pins both layers.
+
+⚠️ **One S-331 sub-claim did NOT reproduce as written:** `engine_add_pod_v3.prosrc` does not contain
+the literal `'Gate 0 not passed'` — `_assert_gate_zero` raises it and the engine calls it, so the
+`LIKE` match works at runtime. The classifier is sound; the probe was aimed one function too low.
+
+### ⛔⛔ S-332 (NEW, **CLOSED by this unit**) — the health guard was a blacklist of exactly ONE word
+
+`v_shadow_runner_health_v3.is_healthy` was `last_scheduled_status <> 'error'`, and the verdict CASE
+named five statuses and fell through to `'ok'` for anything else. **So every status D-34 introduces —
+`no_base`, `composed_empty`, `compose_error`, `stitch_error`, `blocked_demand_error` — would have
+made a failed night read HEALTHY with verdict `ok`.** The runner would have broken in a brand-new way
+and the one object built to notice would have said it was fine.
+
+⭐ **This is S-327 one layer up** (an unwired term is mislabelled WITH the guard green) and **S-326's
+remedy applied** (classify by EQUALITY against a named set, never by a single excluded literal). The
+view now **whitelists the good words** and carries a catch-all so a status added to the CHECK without
+being classified here surfaces as `unknown_scheduled_status__<word>` — it fails LOUDLY. **The guard
+is no longer silently extensible.**
+
+### ⛔⛔ S-333 (NEW, **OPEN as a CS ask**) — the two role gates DIVERGE, and D-34 makes the stricter one win
+
+Cody's Article 4 finding. `run_nightly_shadow_v3` admits `operator_admin, superadmin, manager,
+warehouse`; `run_pipeline_v3` admits **only the first two**. `SECURITY DEFINER` does not reset
+`auth.uid()`, so once the runner calls the pipeline a manager/warehouse caller is refused.
+**Verified live, non-destructively, as warehouse `bf32624e`** (`p_days_cover => 999` fails validation
+AFTER each gate, so the error text names which gate fired): the runner answered
+`p_days_cover must be 1..60`, the pipeline answered `lacks operator_admin role`.
+
+⛔ **NOT fixed by widening the pipeline's gate — that is an authorization EXPANSION on a SECURITY
+DEFINER that plans refills, and it belongs to CS.** Fail-closed is the safe direction; what is not
+safe is the reason arriving as a generic `error`. So it gets its own word, `role_refused`, and
+**fixture 53 seq 35/36 pin the divergence from both sides** so the tempting silent "fix" goes red.
+⭐ **Cron is unaffected: it passes a NULL uid and skips both gates.**
+
+**THE ASK (one line):** should `manager` / `warehouse` keep the ability to run the nightly shadow
+runner by hand, or should the runner's gate narrow to match the pipeline's?
+
+### ⛔ S-334 (NEW, **CLOSED same leg**) — my own non-vacuity probe was anchored to a MOMENT
+
+The first draft proved the swap by counting `pipeline_runs_v3` rows carrying the runner's note.
+**That count is cumulative and the table is never cleaned, so the first green run would have pinned it
+green forever** — a later revert to calling `engine_add_pod_v3` directly would keep passing on
+receipts written today. ⭐ **The S-204 class, the exact class that makes the S7 triple unachievable.**
+Caught before the fix landed, so it never banked a false green. Seq 27/28 now compare against the
+runner's own `ran_at`, so the proof expires with the run that earned it (fixture 37 seq 13's idiom).
+
+### ⭐ THE UNIT — 7 migrations, fixture-first, Cody-reviewed, dry-proven, ONE APPLIED
+
+| version | what | state |
+| --- | --- | --- |
+| `20260809050000` | fixture 53 +11 assertions (seq 24..34) | **APPLIED — the RED** |
+| `20260809050500` | status CHECK += 6 words | drafted, dry-proven |
+| `20260809051000` | health view whitelist (S-332) | drafted, dry-proven |
+| `20260809051500` | `run_pipeline_v3` four-way classifier + `live_effect` fix | drafted, dry-proven |
+| `20260809052000` | `run_nightly_shadow_v3` → the pipeline, `p_promote_blocked => true` | drafted, dry-proven |
+| `20260809052500` | fixture 53 seq 35/36 — S-333 role-divergence pins | drafted, dry-proven |
+| `20260809052600` | fixture 53 seq 27/28 → per-run (S-334) | drafted, dry-proven |
+
+⭐ **THE RED IS BANKED AND IT IS THE RIGHT RED: fixture 53 `24 pass / 10 fail`** (`leg165_d34_red`).
+Every one of the ten is the intended defect, and the 23 pre-existing assertions all still pass:
+seq 24/25 the pipeline says **`error`** for both refusals (S-331 #2, live) · seq 27/28 **zero**
+pipeline receipts (the runner does not go through it yet) · seq 29/30 the CHECK lacks the words ·
+seq 31 **`refused_by_check`** — the constraint rejects `no_base` outright, so S-332's probe cannot
+even plant · seq 32/33 `not_measured` in consequence · seq 34 `position = 9373`, the stale `D-34`
+cutover attribution really is in `prosrc`. ⭐ **seq 26 passed on arrival**, confirming the pipeline
+top level already says `no_base`.
+
+### ⭐ CODY — ⚠️ APPROVE WITH REVISIONS, both applied before any apply
+
+Articles checked 1, 4, 8, 12, 14, 16 + Amendment 010.
+
+- ⛔⛔ **Article 4/8 — `app.rpc_name` LEAKS, and D-36 already ruled on exactly this.**
+  `run_pipeline_v3` sets `app.rpc_name` with `is_local => true`, which is **TRANSACTION**-local, not
+  call-local. Without a re-assert the name stays `'run_pipeline_v3'` for the rest of the runner's
+  transaction and **every `measure`/`settle`/`summary` write is attributed to the wrong RPC in
+  `write_audit_log`.** CS's D-36 ruling — _"RE-ASSERT `app.rpc_name` after each inner call in
+  `swap_v3`"_ — is the same defect and the same remedy. Re-assert added immediately after the call.
+- ⛔ **Article 4 — the role divergence (S-333).** Classified as `role_refused`, gates untouched.
+- ✅ Article 12 forward-only (DROP+ADD CHECK inside one new migration, landing together) · Article 1
+  no new write path · Article 14 no new table · Article 16 no metric re-derived (WMAPE still from
+  `refresh_engine_forecast_error_v3`) · Amendment 010 / LAW 4 `engine_cutover_authority_v3`
+  untouched, `p_promote_blocked => true` inert at 0 authoritative clusters via D-29's scoping.
+- ✅ **S-308 checked and CLEAN, not assumed:** `anon` holds **0** privileges on the health view;
+  `authenticated` holds **0 write** privileges on `shadow_runner_log_v3`. `authenticated` does carry
+  default-privilege write verbs on the health VIEW, but `information_schema.views` reports
+  `is_updatable=NO, is_insertable_into=NO` (aggregates + CTEs) — **inert residue, not a live hole.**
+
+### ⭐ DRY-PROVEN TWICE, AND THE ROLLBACK VERIFIED BOTH TIMES
+
+The whole unit was run inside `BEGIN; … ROLLBACK;` — **it parsed and applied cleanly end to end** —
+and then the four objects were re-probed to prove the rollback actually held (the management API
+could have autocommitted). Constraint, `run_pipeline_v3` body, `run_nightly_shadow_v3` body and the
+health view all byte-unchanged after each dry run. ⛔ **Nothing is applied except the fixture.**
+
+### ⭐ PRE-APPLY BASELINE GREEN, so any post-apply red is attributable
+
+`leg165_pre_baseline`, adjudicated from `golden.runs` (never from the fire output):
+**fixture 37 `43/0` · fixture 51 `53/0` · fixture 61 `13/0`** — 3 distinct fixtures, the full
+requested population. ⭐ Fixture **37 is part of D-34's acceptance, not decoration**: its seq 36..40
+are the only S-304a positive-case guard (a night that banks rows still reads `ok`), which fixture 53
+cannot prove because both of its nights are deliberate refusals.
+
+### ⏸️ WHY THE UNIT IS HELD — the cron-45 gate
+
+**D-34 rewrites `run_nightly_shadow_v3`, the function under verification.** Cron 45
+(`22 21 * * *` = **21:22 UTC**, active, last five fires all `succeeded`) must fire on the SHIPPED
+code first, or the verification owed since leg 159 tests the wrong function. The unit is therefore
+staged and held rather than applied in pieces — **the handoff invariant is "nothing half-applied",
+and migrations 2..7 are inert-but-partial without the runner.** Watcher re-armed and tracked; it
+emits on **all three** terminal outcomes (runner logged / pg_cron ran but nothing logged / timeout),
+because silence is not success.
