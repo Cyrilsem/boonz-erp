@@ -38004,7 +38004,13 @@ no sentinels and three writers call it unguarded · `anon` + `PUBLIC` EXECUTE on
   S-284, S-286..S-309 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and S-285 are OPEN.**
   New findings resume at **S-310**.
 
-### ✅ SWEEP A VERDICT — **65 of 66 fixtures GREEN, ZERO genuine reds, 2,416 assertions**
+### ✅ SWEEP A VERDICT — **66 of 66 fixtures GREEN, ZERO reds, 2,459 assertions**
+
+⭐ **FINAL, after fixture 37 was re-fired in a clear window: 66 distinct fixtures under
+`note='leg160 sweep A'` against an enabled population of 66 (excluding fixture 112, which the PRD-112
+session added mid-sweep — S-311). Zero reds. And on a global latest-run-per-fixture read, the ENTIRE
+golden suite carries zero reds.** The intermediate "65 of 66" written earlier in this section was
+true at the time and is superseded here rather than edited away.
 
 Adjudicated per S-305 from `golden.runs WHERE note = 'leg160 sweep A'`, never from the script's
 stdout. ⭐ **The rule earned its keep three times over this sweep:**
@@ -38057,7 +38063,15 @@ likely explanation for the `Connection terminated due to connection timeout` res
 must check `pg_stat_activity` for foreign `run_fixture` / `golden.` activity **before** starting the
 S7 triple, or the triple will measure contention rather than the engine.
 
-### ⏸️ FIXTURE 37 — LATEST ROW IS THE COLLISION RED; ITS SWEEP-A RUN IS GREEN
+### ✅ FIXTURE 37 — RESOLVED IN A CLEAR WINDOW, AND S-310 CONFIRMED A THIRD TIME
+
+⭐ Re-fired ALONE at 16:46:16Z after `pg_stat_activity` was checked clear of the other session:
+**43/0 GREEN in 312.9 s** — and the shell returned `{"message":"Failed to run sql query"}` yet again.
+⛔ **313 s is 2.5× the 125 s leg 159 measured for the same fixture**, so its cost is load-dependent,
+not fixed; the next leg should expect it to need the raised `statement_timeout` every time.
+The paragraph below records the state that existed before this re-fire.
+
+#### (superseded) FIXTURE 37 — LATEST ROW WAS THE COLLISION RED; ITS SWEEP-A RUN WAS GREEN
 
 ⚠️ Stated precisely so the next leg does not inherit a false red: fixture 37's **sweep-A run is
 43/0 GREEN (189 s)**; its **latest** run is the 18 s `scratch_pkey` collision described in S-310. A
@@ -38083,7 +38097,8 @@ do not debug it as a regression.
   is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained **version
   prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side in **PYTHON**, **TOP LEVEL
   ONLY**. ⛔ Re-derive the owed md5 from both sides at pickup rather than trusting a number here.
-- ✅ **SWEEP A: 65 of 66 GREEN, ZERO genuine reds, 2,416 assertions.** The single red (fixture 64,
+- ✅ **SWEEP A: 66 of 66 GREEN, ZERO reds, 2,459 assertions — and a global latest-run-per-fixture read
+  of the WHOLE golden suite is also zero reds.** The single red seen mid-sweep (fixture 64,
   builder md5) was **caused by this leg's own authorized change and re-baselined** in
   `20260808220000`; it re-fired **24/0 green**.
 - ⛔⛔ **THE S7 TRIPLE IS STILL OWED — sweeps B and C.** Fixture population moved **65 → 66** (fixture
@@ -38102,9 +38117,13 @@ do not debug it as a regression.
   second died on `scratch_pkey`. ⭐ **After a transport error: WAIT and poll `golden.runs`**, and use
   `pg_stat_activity` to tell "still running" from "never started" — `run_fixture` INSERTs its run row
   inside its own transaction, so nothing is visible until it commits.
-- ⏸️ **FIXTURE 37's LATEST ROW IS THAT COLLISION RED (18 s); its sweep-A run is 43/0 GREEN (189 s).**
-  ⛔ **A "latest run per fixture" read shows a RED that no defect produced.** Re-fire 37 ALONE with
-  the raised statement_timeout once `pg_stat_activity` is clear. **Do not debug it as a regression.**
+- ✅ **FIXTURE 37 IS RESOLVED — re-fired alone at 16:46Z in a verified-clear window: 43/0 GREEN in
+  312.9 s.** ⛔ **That is 2.5× the 125 s leg 159 measured**, so its cost is load-dependent: expect to
+  need `SET statement_timeout='1200000'` on it every time, and expect the shell to show a bare
+  failure regardless.
+- ✅ **cron 13 RAN AT 16:00:00 UTC AND SUCCEEDED** — the FIRST production pass of the live nightly
+  plan builder through the DR-1-guarded `_build_draft_core_v3`. **LAW 12 held in practice, not just
+  in theory.** ⛔ Still verify cron 45 (21:22 UTC) separately; that one has not run yet.
 - ⛔⛔ **STILL OWED FROM LEG 159 AND STILL TIME-GATED — VERIFY THE cron-45 RUN.** cron 45 fires
   **21:22 UTC**; leg 160 ran 14:57-17:0x UTC so it never existed. Acceptance test unchanged:
   `shadow_runner_log_v3 WHERE note='cron'` for the 2026-08-08 21:22 run must read `step='engine'` →
