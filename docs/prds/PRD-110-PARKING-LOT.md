@@ -12942,7 +12942,7 @@ sides `0622bf96057d3ee9feb4c6b8598c36e4` - **no staged migration debt remains.**
 
 `compose_plan_with_edits_v3` RAISEs `'source run % has no rows on plan_date %'` on a **valid-but-empty**
 source run. The guard exists to catch a caller passing a WRONG `run_id` and **cannot distinguish that
-from a legitimately empty one**. S-338 fixed the *caller* (`run_pipeline_v3` now skips compose/stitch
+from a legitimately empty one**. S-338 fixed the _caller_ (`run_pipeline_v3` now skips compose/stitch
 on an empty base); **the sharp edge remains for every other caller.** Deliberately not widened in the
 same atomic unit as the fix. Smallest unblock: give the function an empty-but-valid return shape
 rather than a raise, behind its own fixture.

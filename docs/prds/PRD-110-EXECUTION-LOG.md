@@ -39109,15 +39109,15 @@ runner's own `ran_at`, so the proof expires with the run that earned it (fixture
 
 ### ⭐ THE UNIT — 7 migrations, fixture-first, Cody-reviewed, dry-proven, ONE APPLIED
 
-| version | what | state |
-| --- | --- | --- |
-| `20260809050000` | fixture 53 +11 assertions (seq 24..34) | **APPLIED — the RED** |
-| `20260809050500` | status CHECK += 6 words | drafted, dry-proven |
-| `20260809051000` | health view whitelist (S-332) | drafted, dry-proven |
-| `20260809051500` | `run_pipeline_v3` four-way classifier + `live_effect` fix | drafted, dry-proven |
-| `20260809052000` | `run_nightly_shadow_v3` → the pipeline, `p_promote_blocked => true` | drafted, dry-proven |
-| `20260809052500` | fixture 53 seq 35/36 — S-333 role-divergence pins | drafted, dry-proven |
-| `20260809052600` | fixture 53 seq 27/28 → per-run (S-334) | drafted, dry-proven |
+| version          | what                                                                | state                 |
+| ---------------- | ------------------------------------------------------------------- | --------------------- |
+| `20260809050000` | fixture 53 +11 assertions (seq 24..34)                              | **APPLIED — the RED** |
+| `20260809050500` | status CHECK += 6 words                                             | drafted, dry-proven   |
+| `20260809051000` | health view whitelist (S-332)                                       | drafted, dry-proven   |
+| `20260809051500` | `run_pipeline_v3` four-way classifier + `live_effect` fix           | drafted, dry-proven   |
+| `20260809052000` | `run_nightly_shadow_v3` → the pipeline, `p_promote_blocked => true` | drafted, dry-proven   |
+| `20260809052500` | fixture 53 seq 35/36 — S-333 role-divergence pins                   | drafted, dry-proven   |
+| `20260809052600` | fixture 53 seq 27/28 → per-run (S-334)                              | drafted, dry-proven   |
 
 ⭐ **THE RED IS BANKED AND IT IS THE RIGHT RED: fixture 53 `24 pass / 10 fail`** (`leg165_d34_red`).
 Every one of the ten is the intended defect, and the 23 pre-existing assertions all still pass:
@@ -39213,12 +39213,12 @@ The unit is still held behind the cron-45 gate (D-34 rewrites `run_nightly_shado
 under verification). Rather than idle, every fixture-53 predicate was checked **statically against
 the staged bodies**, so the apply is not the first time anyone learns whether it goes green.
 
-| pin | probe | staged body | verdict |
-| --- | --- | --- | --- |
-| seq 34 | `position('parked (D-34)' in run_pipeline_v3.prosrc)` | **0** | flips ✅ |
-| seq 35 | `position('warehouse' in run_pipeline_v3.prosrc)` | **0** | stays ✅ |
-| seq 36 | `'warehouse' in run_nightly_shadow_v3.prosrc` | **816** | stays ✅ |
-| seq 29/30 | CHECK contains `no_base` / `composed_empty` | both present | flips ✅ |
+| pin       | probe                                                 | staged body  | verdict  |
+| --------- | ----------------------------------------------------- | ------------ | -------- |
+| seq 34    | `position('parked (D-34)' in run_pipeline_v3.prosrc)` | **0**        | flips ✅ |
+| seq 35    | `position('warehouse' in run_pipeline_v3.prosrc)`     | **0**        | stays ✅ |
+| seq 36    | `'warehouse' in run_nightly_shadow_v3.prosrc`         | **816**      | stays ✅ |
+| seq 29/30 | CHECK contains `no_base` / `composed_empty`           | both present | flips ✅ |
 
 ⭐⭐ **seq 35 was the one worth checking and S-323 is why.** `prosrc` includes COMMENTS, and the
 classifier migration carries a long comment header about the role divergence. Had one line of that
@@ -39250,10 +39250,10 @@ engine_forecast_error_v3, engine_tag='v3', plan_date < 2027-01-01   (S-244/S-307
 
 ⛔ **Broken out by the grain DR-1 actually flips on - the cluster:**
 
-| cluster | v3 machines | v3 series |
-| --- | --- | --- |
-| AMAZON · INDEPENDENT · NOVO · OHMYDESK | 2 · 1 · 1 · 2 | 32 · 16 · 16 · 32 |
-| **ADDMIND · GRIT · LVLUP · VML · VOX · WPP** | **0** | **0** |
+| cluster                                      | v3 machines   | v3 series         |
+| -------------------------------------------- | ------------- | ----------------- |
+| AMAZON · INDEPENDENT · NOVO · OHMYDESK       | 2 · 1 · 1 · 2 | 32 · 16 · 16 · 32 |
+| **ADDMIND · GRIT · LVLUP · VML · VOX · WPP** | **0**         | **0**             |
 
 ⭐⭐ **DR-1 refuses to flip a cluster whose v3 WMAPE is vacuous. Six clusters have no v3 row at all,
 so their WMAPE is not merely unsettled - it does not exist.** The ~Aug 17 date in the goal command
@@ -39395,15 +39395,15 @@ The pointer named four fixtures for the D-34 apply: **53, 37, 51, 61**. Derived 
 (`run_nightly_shadow_v3`, `run_pipeline_v3`, `shadow_runner_log_v3`, `v_shadow_runner_health_v3`,
 `pipeline_runs_v3`), the answer is **SEVEN**:
 
-| fixture | runner | pipeline | log | health | pipeline_runs | in pointer? |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1  |   | ✓ |   |   | ✓ | ⛔ **MISSED** |
-| 37 | ✓ |   | ✓ | ✓ |   | ✓ |
-| 51 |   | ✓ |   |   | ✓ | ✓ |
-| 53 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| 60 |   |   |   |   | ✓ | ⛔ **MISSED** |
-| 61 | ✓ |   |   |   |   | ✓ |
-| 76 |   | ✓ |   |   |   | ⛔ **MISSED** |
+| fixture | runner | pipeline | log | health | pipeline_runs | in pointer?   |
+| ------- | ------ | -------- | --- | ------ | ------------- | ------------- |
+| 1       |        | ✓        |     |        | ✓             | ⛔ **MISSED** |
+| 37      | ✓      |          | ✓   | ✓      |               | ✓             |
+| 51      |        | ✓        |     |        | ✓             | ✓             |
+| 53      | ✓      | ✓        | ✓   | ✓      | ✓             | ✓             |
+| 60      |        |          |     |        | ✓             | ⛔ **MISSED** |
+| 61      | ✓      |          |     |        |               | ✓             |
+| 76      |        | ✓        |     |        |               | ⛔ **MISSED** |
 
 ⭐⭐ **Migration 3 of 4 rewrites `run_pipeline_v3`'s body, so every pipeline fixture is in radius -
 and the hand-list only carried the ones whose NAMES sound like runner tests.** ⛔ The missed three
@@ -39498,7 +39498,7 @@ re-armed, neither output file has content, so the fire has not happened.
 - ⭐ All six staged files re-verified on disk (50/133/260/311/30/62 lines), **none contains
   `$stmt$`** so `apply_mig.sh` will not refuse, and the working tree is clean.
 - ⚠️ **A number that looks like drift and is not:** leg 166 recorded `position('warehouse' in
-  run_nightly_shadow_v3.prosrc)` = **816**; live reads **761**. Leg 166 measured the **staged file**,
+run_nightly_shadow_v3.prosrc)` = **816**; live reads **761**. Leg 166 measured the **staged file**,
   this leg measured the **live body**. Both non-zero, so seq 36 ("stays") holds either way.
 
 ### ⛔⛔ S-337 (NEW, **CLOSED as a finding** - it BINDS S-335's ask rather than adding one)
@@ -39507,11 +39507,11 @@ S-335 counted v3 evidence by cluster. Read instead through `v_cutover_readiness_
 actually refuses from - the six zero-evidence clusters are **not one class but two**, and the
 `refusal_code` does not say so:
 
-| refusal_code | clusters | what fixes it |
-| --- | --- | --- |
-| `v3_horizon_not_elapsed` | AMAZON · INDEPENDENT · NOVO · OHMYDESK | **time alone** (2026-08-11) |
-| `no_v3_measurement`, v19 baseline PRESENT | ADDMIND · VOX · WPP | a scoping change, then time |
-| `no_v3_measurement`, **v19 baseline ALSO ABSENT** | **GRIT · LVLUP · VML** | ⛔ **TWO things** |
+| refusal_code                                      | clusters                               | what fixes it               |
+| ------------------------------------------------- | -------------------------------------- | --------------------------- |
+| `v3_horizon_not_elapsed`                          | AMAZON · INDEPENDENT · NOVO · OHMYDESK | **time alone** (2026-08-11) |
+| `no_v3_measurement`, v19 baseline PRESENT         | ADDMIND · VOX · WPP                    | a scoping change, then time |
+| `no_v3_measurement`, **v19 baseline ALSO ABSENT** | **GRIT · LVLUP · VML**                 | ⛔ **TWO things**           |
 
 ⭐⭐ **The gate is `is_vacuous = (wmape_v3 IS NULL) OR (wmape_v19 IS NULL)` - it needs BOTH sides.**
 But `refusal_code` is a CASE that returns the FIRST unmet condition, and `WHEN (n_series_v3 = 0)` is
@@ -39603,16 +39603,16 @@ is **fixture 53 at 24/10** - the D-34 fixture-first RED itself. **Zero never-run
 
 ### ⭐ FLAG / DIAL STATE BANKED (the DONE-2 report's "what flipped" evidence, read live)
 
-| item | key | live value | reading |
-| --- | --- | --- | --- |
-| DR-4 | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed` | **`block`** / **15** | executed as ruled |
-| DR-5 | `w_empty` | **0.945** | executed (from 0.900) |
-| DR-5 | `miner_weekly_edit_dry_run` / `miner_weekly_pick_dry_run` | **false** / **false** | both executed |
-| D-44 | `var_money_reserved_slots` | **2** | K=2 of 6, as ruled |
-| D-19 | `preflight_enforcement` | **`warn`** | ⏸️ correctly NOT flipped - blocked behind DR-6 |
-| DR-3 | `pod_inventory_write_freeze` | **`off`** | built, freeze parked by design |
-| LAW 11 | `gate0_require_manual_confirm` | **true** | manual-only holds |
-| LAW 4 | all 10 clusters | **`v19`** | untouched |
+| item   | key                                                       | live value            | reading                                        |
+| ------ | --------------------------------------------------------- | --------------------- | ---------------------------------------------- |
+| DR-4   | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed`     | **`block`** / **15**  | executed as ruled                              |
+| DR-5   | `w_empty`                                                 | **0.945**             | executed (from 0.900)                          |
+| DR-5   | `miner_weekly_edit_dry_run` / `miner_weekly_pick_dry_run` | **false** / **false** | both executed                                  |
+| D-44   | `var_money_reserved_slots`                                | **2**                 | K=2 of 6, as ruled                             |
+| D-19   | `preflight_enforcement`                                   | **`warn`**            | ⏸️ correctly NOT flipped - blocked behind DR-6 |
+| DR-3   | `pod_inventory_write_freeze`                              | **`off`**             | built, freeze parked by design                 |
+| LAW 11 | `gate0_require_manual_confirm`                            | **true**              | manual-only holds                              |
+| LAW 4  | all 10 clusters                                           | **`v19`**             | untouched                                      |
 
 ### ⏸️ THE GATE IS STILL SHUT AND THIS LEG WILL NOT PRE-EMPT IT
 
@@ -39660,17 +39660,17 @@ arrive with the gate genuinely in front of it, and the first to still be alive w
 Owed since leg 159. **Eleven legs.** Acceptance met in full, read from the classified log rather than
 from silence:
 
-| check | required | live | |
-| --- | --- | --- | --- |
-| `step='engine'` status | `ok` | **`ok`** | ✅ |
-| `rows_affected` | `> 0` | **80** | ✅ |
-| `engine_forecast_error_v3` 2026-08-09 | a **v3** series | **v3 64** (+ v19 48) | ✅ |
-| summary / measure | not a refusal | **`ok` / `ok`** | ✅ |
+| check                                 | required        | live                 |     |
+| ------------------------------------- | --------------- | -------------------- | --- |
+| `step='engine'` status                | `ok`            | **`ok`**             | ✅  |
+| `rows_affected`                       | `> 0`           | **80**               | ✅  |
+| `engine_forecast_error_v3` 2026-08-09 | a **v3** series | **v3 64** (+ v19 48) | ✅  |
+| summary / measure                     | not a refusal   | **`ok` / `ok`**      | ✅  |
 
 Engine detail: **5 machines in scope, 80 shelves, 0 machines without shelves**, run
 `58d6ab1c-b789-4d5c-bbb7-9dc1f31c109f`, 32.06 s. `pod_refills_shadow` **24,530 → 24,610**.
 ⭐ **`pod_refills` UNCHANGED at 4,177 - LAW 4 held through a live fire.**
-⭐ **`pipeline_runs_v3` UNCHANGED at 146**, which is the *correct* pre-D-34 reading: the runner did
+⭐ **`pipeline_runs_v3` UNCHANGED at 146**, which is the _correct_ pre-D-34 reading: the runner did
 not yet go through the pipeline. That number is the honest before-image of the swap.
 ⚠️ `measure` reported **`skipped_no_velocity: {v3: 16, v19: 0}`** - 16 v3 series had no velocity to
 score. Not a defect, but the v3 side is being measured on 64 of 80 shelves; worth a look before WMAPE
@@ -39707,8 +39707,8 @@ shelf**, so the engine runs clean and writes nothing - the `run_id` is **non-NUL
 So compose raises, the pipeline catches it as `status='error'` with compose non-ok, and the D-34
 runner classifies the night **`compose_error`**.
 
-⭐⭐ **THIS IS S-304a INVERTED.** Leg 159 shipped a migration to stop a blank night wearing a *healthy*
-night's word. D-34 made a blank night wear a *broken* one. And it is not cosmetic: `compose_error`
+⭐⭐ **THIS IS S-304a INVERTED.** Leg 159 shipped a migration to stop a blank night wearing a _healthy_
+night's word. D-34 made a blank night wear a _broken_ one. And it is not cosmetic: `compose_error`
 propagates to the summary row, and **`v_shadow_runner_health_v3` judges the summary (S-113)** - so a
 fleet night where the engine correctly had nothing to do would read **UNHEALTHY**.
 
@@ -39742,15 +39742,15 @@ plan-of-record object, and declining to produce a plan is not re-deriving one.
 
 ### ✅ THE PROOF - all seven radius fixtures re-run, all seven GREEN
 
-| fixture | pre-D-34 | after D-34 | after S-338 fix |
-| --- | --- | --- | --- |
-| 1  | 59/0 | 59/0 | **59/0** |
-| 37 | 43/0 | ⛔ **41/2** | **43/0** |
-| 51 | 53/0 | 53/0 | **53/0** |
-| 53 | ⛔ 24/10 | **36/0** | **36/0** |
-| 60 | 54/0 | 54/0 | **54/0** |
-| 61 | 13/0 | 13/0 | **13/0** |
-| 76 | 29/0 | 29/0 | **29/0** |
+| fixture | pre-D-34 | after D-34  | after S-338 fix |
+| ------- | -------- | ----------- | --------------- |
+| 1       | 59/0     | 59/0        | **59/0**        |
+| 37      | 43/0     | ⛔ **41/2** | **43/0**        |
+| 51      | 53/0     | 53/0        | **53/0**        |
+| 53      | ⛔ 24/10 | **36/0**    | **36/0**        |
+| 60      | 54/0     | 54/0        | **54/0**        |
+| 61      | 13/0     | 13/0        | **13/0**        |
+| 76      | 29/0     | 29/0        | **29/0**        |
 
 `empty_night` now reads **`ok_no_shadow_rows` on all three** of engine, summary and returned status.
 ⭐⭐ **WHOLE-HARNESS STANDING: 71 enabled · 71 with a run · 71 GREEN · ZERO reds.** First fully clean
@@ -39759,7 +39759,7 @@ harness since leg 165, and **there is no unattributed red anywhere going into th
 ### ⛔ S-339 (NEW, **OPEN** - Cody's recorded Article 1 debt)
 
 `compose_plan_with_edits_v3` still RAISEs on a **valid-but-empty** source run. S-338 fixed the
-*caller*; the sharp edge remains for **any other caller**. That guard exists to catch a caller passing
+_caller_; the sharp edge remains for **any other caller**. That guard exists to catch a caller passing
 a WRONG `run_id` and **cannot distinguish that from a legitimately empty one**. Deliberately not
 widened in the same unit as the fix. ⛔ The next caller to pass an empty-but-valid run gets an
 exception, not an answer.
@@ -39773,7 +39773,6 @@ adjudication found the red.** This is S-321's rule earning its keep on a case it
 ⛔ **RULE: never read a verdict from a sweep's stdout. Adjudicate ONLY from `golden.runs`, and require
 the distinct-fixture count to equal the population first.**
 
-
 ### RESUME POINTER 2026-08-08 leg 170 · FINAL
 
 - ⭐⭐ **THE GATE IS DISCHARGED. DO NOT WAIT FOR IT AGAIN.** The 21:22Z fire was classified live:
@@ -39784,7 +39783,7 @@ the distinct-fixture count to equal the population first.**
   finally met** - the harness is **71/71 GREEN with zero reds** for the first time since leg 165.
   Recipe verbatim: `/tmp/prd110_leg162_sweep.sh "<tag>" <suffix>` with **no fixture ids** (all 71),
   three consecutive passes, sequential, **NULL `p_max_phase` (S-309)**, `SET
-  statement_timeout='1200000'` in the SAME POST (S-310), **never re-fire on a 524**.
+statement_timeout='1200000'` in the SAME POST (S-310), **never re-fire on a 524**.
   ⭐⭐ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'` and require the distinct-fixture count
   to equal 71 BEFORE reading a verdict** - see S-340 below, which is not a theoretical risk.
 - ⛔⛔ **S-340 IS THE FINDING THAT WOULD HAVE COST THIS LEG THE DEFECT.** `golden.run_fixture` returns
