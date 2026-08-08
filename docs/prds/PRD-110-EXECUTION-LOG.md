@@ -38773,12 +38773,12 @@ load-bearing - **a direction CS could reverse with a typo instead of with a ruli
 
 **The monotonicity probe CS asked for, in two halves, both inside rolled-back subtransactions:**
 
-| half                  | measured                                                       | result   |
-| --------------------- | -------------------------------------------------------------- | -------- |
-| dial controls FEATURE | `corr(s_intents, active_intent_count)` over the live fleet      | `-1.000` |
-| dial controls SCORE   | machines where `p_score(w) <> p_score(0) + w * s_intents`       | **0**    |
-| not decoration        | machines actually moved at `w = 0.25`                           | 31       |
-| inertness, round trip | machines whose `p_score`/`urgency`/`p_tier` differ back at `w=0`| **0**    |
+| half                  | measured                                                         | result   |
+| --------------------- | ---------------------------------------------------------------- | -------- |
+| dial controls FEATURE | `corr(s_intents, active_intent_count)` over the live fleet       | `-1.000` |
+| dial controls SCORE   | machines where `p_score(w) <> p_score(0) + w * s_intents`        | **0**    |
+| not decoration        | machines actually moved at `w = 0.25`                            | 31       |
+| inertness, round trip | machines whose `p_score`/`urgency`/`p_tier` differ back at `w=0` | **0**    |
 
 ### ⛔⛔ S-326 (NEW, CLOSED) - **THE PARKING LOT SAID THE WEIGHTED SUM OCCURS SIX TIMES. IT IS FIVE - AND THE FIX WAS TO STOP COUNTING AT ALL**
 
@@ -38881,3 +38881,58 @@ mapping exists, that `is_active` is false, that the blocker is a number rather t
 that the `-1.000` was **written from a live `corr()` rather than typed** - `fill_pct` sits on that
 table at `-0.458` because somebody measured it.
 
+### ⏸️ D-39 — DARA DESIGN LANDED, SQL DELIBERATELY NOT STARTED. **S-330: the acceptance measure CS named cannot be met, and the reason is not the design.**
+
+`docs/prds/PRD-110-D39-DARA-sku-grain-edit-capture-design.md`. CS's ruling names Dara first, and the
+design is the deliverable; what follows is why no migration followed it this leg.
+
+⛔⛔ **EVERY NUMBER IN THE PARKED SPEC WAS THREE LEGS STALE, AND ONE OF THEM WAS LOad-BEARING.**
+Re-measured live over the **same 90-day window and the same cluster rule `mine_edit_history_v3`
+actually runs** — not carried forward:
+
+| leg 85 recorded            | measured 2026-08-08                                    |
+| -------------------------- | ------------------------------------------------------ |
+| 100 recurring clusters     | **197**                                                |
+| 9 pinnable (12%)           | **34** (17.3%)                                         |
+| **88 blocked**             | **163** (159 multi-SKU pods, 4 unmapped)               |
+
+And then the number that decides the design:
+
+```
+of the 163 blocked clusters:
+    2  have a shelf_composition row resolving to exactly ONE SKU   ← what D-39(a) unblocks
+    3  have a composition that is itself multi-SKU                 ← still ambiguous
+  158  have NO shelf_composition row at all
+```
+
+⛔ **`shelf_composition` = 33 rows over 16 shelves on ONE machine. The fleet has 3,072 shelves.**
+`inventory_events`, its feeder, holds **70 rows** over the same 16. ⭐ **So option (a), built exactly
+as ruled, unblocks 2 of 163 clusters — 1.2%.** The design is sound; the truth it is told to read does
+not exist for 99.5% of the fleet. **S-320's shape in a second organ: the blocker is evidence, not
+capability.**
+
+⛔ **A second premise, and it is the one nobody had checked:** `plan_edits_v3` holds **1,096 rows and
+every single one is on a synthetic 2030 fixture date. ZERO real-date v3 edits exist.** CS's actual
+edits arrive on the v19 path into `pod_refill_plan_audit` — that is where all 1,481 real edit rows
+and all 197 clusters come from. **`record_plan_edit_v3`, the function option (a) says to change, is
+not on the path CS uses**, and will not be until cutover.
+
+⭐ **Neither fact argues for skipping the work** — capture is forward-looking by nature and can only
+record edits made after it ships. They argue against the acceptance measure, and against building a
+resolver on the assumption that composition will answer. The design therefore ships a **four-rung
+ladder** (author-supplied → composition → sole mapping → named refusal) in which the author rung sits
+ABOVE composition: composition knows what is physically on the shelf, only the editor knows which SKU
+they *meant*, and a shelf holding one SKU today does not mean the editor meant that one — they may be
+adding the one that ran out. ⛔ And rung 1 is **validated against the pod's mapping, never trusted**,
+or the FE becomes a way to pin an arbitrary product to a shelf.
+
+⭐ **The alternative that looks cheaper is wrong, not merely cheaper:** resolving at MINE time needs
+no schema change at all, and reads **today's** composition against a decision made up to 90 days ago.
+On a shelf whose mix rotated — which is what a multi-SKU pod is *for* — that resolves the wrong SKU
+with full confidence and no refusal.
+
+**THE FORK, AND THE LOOP MUST NOT PICK IT (S-330):** for a multi-SKU pod, does the SKU come from the
+P1.4 composition estimator or from the editor's own selection? Composition is automatic and covers
+**2 of 163**. The editor's selection covers all of them and costs a SKU picker on the edit dialog —
+FE work, DR-6 class, which this loop cannot deploy. The ladder supports both and is built so that
+rung 1 arriving later changes no stored row. **What CS decides is which rung the build waits for.**

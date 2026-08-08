@@ -12753,3 +12753,29 @@ preserve every existing column's name, type and POSITION for the graveyard view,
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+### ⛔⛔ S-330 (NEW, **OPEN**, rider on D-39) - THE ACCEPTANCE MEASURE CS NAMED CANNOT BE MET, AND THE SPEC'S NUMBERS WERE ALL STALE
+
+Dara design landed: `docs/prds/PRD-110-D39-DARA-sku-grain-edit-capture-design.md`. **No SQL written -
+deliberately.** Re-measured live over the same 90-day window and the same cluster rule the miner
+runs: **197 clusters** (leg 85 said 100), **34 pinnable** (said 9), **163 blocked** (said 88).
+
+⛔ **Of the 163 blocked, exactly TWO have a `shelf_composition` row resolving to one SKU. 158 have no
+composition row at all.** `shelf_composition` is **33 rows over 16 shelves on ONE machine**; the
+fleet has **3,072** shelves. **Option (a) as ruled unblocks 1.2%.** S-320's shape again - the blocker
+is evidence, not capability.
+
+⛔ **And `plan_edits_v3` holds 1,096 rows, ALL on synthetic 2030 fixture dates - zero real-date v3
+edits.** The 197 clusters come from `pod_refill_plan_audit`, the v19 path. `record_plan_edit_v3` -
+the function option (a) changes - **is not on the path CS uses** and will not be until cutover.
+
+⭐ The design ships a four-rung ladder (author → composition → sole mapping → named refusal) with the
+author rung ABOVE composition, because composition knows what is on the shelf and only the editor
+knows what they MEANT. Rung 1 is validated against the pod's mapping, never trusted. ⭐ Resolving at
+MINE time - the cheaper-looking option - reads TODAY's composition against a 90-day-old decision and
+resolves the wrong SKU with full confidence and no refusal.
+
+**THE ASK (one line):** for a multi-SKU pod, does the SKU come from the P1.4 composition estimator
+(automatic, covers 2 of 163) or from the editor's own selection (covers all, costs a SKU picker on
+the edit dialog - DR-6-class FE work this loop cannot deploy)? The ladder supports both; what CS
+decides is which rung the build waits for.
