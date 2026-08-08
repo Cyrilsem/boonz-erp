@@ -1582,7 +1582,74 @@ engine_add rows. But a row that _vanishes_ must never be read as "solved": it me
 no longer reproducible from the current gap set. Inherited unchanged; changing it would alter live
 cron-43 behaviour.
 
-### `stitch_v3` — marker corrected (md5 `a8753091`, was `5d9c8a38`; `pronargdefaults` still 1)
+#### ⭐⭐ D-29 (PRD-110 leg 163, `20260809030500` + `20260809031000`) — ONE OWNER PER CLUSTER
+
+md5 **`9a1c38c3`** (was `f950b17f`). `pronargs` **2** / `pronargdefaults` **1** still — cron 43's
+single-argument call is unmoved, and both migrations assert it.
+
+CS ruling: _"YES AT CUTOVER. Nightly runner promotes stitch blocked demand for v3-authoritative
+clusters; engine_add rows suppressed there. No double counting."_ The whole rule is **one predicate**,
+read at the **three** sites that call `_blocked_demand_gaps_for_source_v3` — the counters, the INSERT,
+and the DELETE's `NOT EXISTS`:
+
+```
+public.is_cluster_authoritative_v3(g.machine_id) = (p_source = 'stitch')
+```
+
+⭐ **Article 16 holds because the rule is READ, not restated.** `is_cluster_authoritative_v3` is the
+machine-grain canonical sibling; the post-image guard **refuses the migration** if the string
+`engine_cutover_authority_v3` appears anywhere in the body — including in a comment. That bluntness is
+deliberate: it is the one form of the check no alias, join shape or CTE can slip past.
+
+⛔ **THE DELETE IS THE DESIGN DECISION.** Scoping it means a flip **deletes that cluster's open
+`engine_add` rows from a live procurement worklist**. That is the dedup CS asked for, and a worklist
+that shrinks for an unstated reason is LAW 5's silent-qty-0 failure one layer up. The receipt is
+therefore **split, not widened**:
+
+| key                          | meaning                                              |
+| ---------------------------- | ---------------------------------------------------- |
+| `rows_closed_stale`          | the gap genuinely went away (**unchanged meaning**)  |
+| `rows_closed_by_cutover`     | the gap is still there; the OTHER engine owns it now |
+| `gaps_suppressed_by_cutover` | what the READ dropped, before any row was written    |
+
+`gaps_found = 0` with `gaps_suppressed_by_cutover = 0` means "no gaps". `gaps_found = 0` with
+`gaps_suppressed_by_cutover = N` means "another engine owns them". Those call for **opposite
+actions** and are indistinguishable without the counter.
+
+⛔ **ARTICLE 8, STATED RATHER THAN GLOSSED.** `tg_audit_blocked_demand` mints a `write_audit_log` row
+for every DELETE, so Article 8 is satisfied **at row grain**. It is **not** satisfied at **reason
+grain**: the audit row for a cutover close and for a stale close are identical, both reading
+`rpc_name='record_blocked_demand_v3'`. **Only the receipt splits them, and receipts are not
+persisted.** A reader must correlate against `engine_cutover_audit_v3` by timestamp. Carrying the
+reason into the audit row itself means two separate DELETE statements with distinct GUCs — a real
+improvement, deliberately out of this unit's scope (LAW 10). **Parked and named, not silently
+accepted.**
+
+⛔ **A RECEIPT FIELD WAS REMOVED BY ITS OWN FIXTURE.** `20260809030500` shipped a fourth key,
+`clusters_on_v3`, computed by reading the cutover registry directly. **Fixture 77 seq 12 refused it
+one fire later.** The tempting fix was to loosen the assertion — "it is only a witness, not the rule".
+`20260809031000` dropped the field instead: the flag state already has a canonical home, and routing
+the witness through `v_cutover_readiness_v3` would have cost a WMAPE computation on every nightly
+cron-43 call to populate a field nothing consumes. **The receipt owns what the call DID, not what the
+world looked like.**
+
+⭐ **FLAG-OFF, PER ARM.** `engine_add` (cron 43, 16:15 UTC nightly): at 0 authoritative clusters
+`keep` evaluates `(false = false) = true` for every machine, so the arm is byte-identical to today —
+driven by fixture 77 seq 31/32/33, and by a whole-migration identity check on the **22 open real-date
+rows**, which were unmoved. `stitch`: at 0 authoritative clusters this arm records **nothing**, which
+is correct and is a real change. Inert in production — all 48 live `stitch` rows sit on 2030 fixture
+dates, no cron calls it with `'stitch'`, and D-34 has not shipped.
+
+Proof: **fixture 77 RED 27/14 → GREEN 41/0** · **fixture 47 RED 44/6 → GREEN 56/0** · blast radius
+1/5/11/44/46/50/51/54/64/74/75/76/77/105 **14 of 14 green, 534 assertions**.
+
+### `stitch_v3` - marker corrected (md5 `be1df694`, was `a8753091`, was `5d9c8a38`; `pronargdefaults` still 1)
+
+⛔ **The md5 moved again at PRD-110 leg 162 (D-33, `20260809020500`).** `a8753091` is the pre-image
+this file previously pinned and is the value that migration's own pre-image guard demanded; the
+post-D-33 body is **`be1df6945b20085b6fa4afbd1e2a620f`**. `SECURITY DEFINER`, `search_path`, the
+`postgres/authenticated/service_role` EXECUTE triple and `pronargdefaults = 1` were all asserted
+unchanged by the migration's post-image guard. See the D-33 section below.
 
 The `Blocked`-row payload key `blocked_demand_promotion` promised a writer that now exists. It now
 reads `record_blocked_demand_v3(plan_date, 'stitch') promotes this row; not called automatically
@@ -1675,9 +1742,19 @@ vacuous. Fixtures 1/11/50/51/54/57 re-run green (59/39/49/53/41/39, 0 skipped).
 two rows for one `(shelf, pod)` makes the accounting assertion RAISE instead of being silently
 absorbed by an in-loop counter.
 
-⚠️ Not wired to any cron. `stitch_v3` picks the latest shadow run for a date by
+⚠️ Not wired to any cron. ⛔⛔ **THIS PARAGRAPH WAS FALSE AND IS CORRECTED - PRD-110 leg 162, D-33.**
+It previously read: _"`stitch_v3` picks the latest shadow run for a date by
 `(produced_at DESC, run_id DESC)`, so a composed run is picked up naturally on the next stitch —
-that coupling is **implicit and untested end-to-end**; P3.7 (one pipeline) is where it gets pinned.
+that coupling is implicit and untested end-to-end; P3.7 (one pipeline) is where it gets pinned."_
+
+The pick was **not** "naturally" the composed run. A composition and the base it was composed from
+are written in one transaction, so they share `produced_at` exactly and the tiebreak fell to a
+**random v4 uuid**: a coin flip that dropped every human edit when it lost, while the receipt still
+said `ok`. Since `20260809020500` the NULL-source branch is tag-aware and names its choice in a
+`source_selection` field: `composed_latest` · `stale_composition` (REFUSE) · `uncomposed_edits`
+(REFUSE) · `uncomposed_fallback`. The coupling is now explicit and pinned end-to-end by golden
+fixture **76** (RED 20/9 → GREEN 29/0). P3.7's `run_pipeline_v3` pin below is unchanged and remains
+the belt to this braces.
 
 ---
 

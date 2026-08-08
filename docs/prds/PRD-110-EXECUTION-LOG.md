@@ -38241,10 +38241,10 @@ delete them. No amount of argument-passing fixes a wipe.
   (`authored_by`, `shadow_run_id`) into `reasoning`.
 - `_build_draft_core_v3` — the halt became the branch. ⭐ **`cutover_block_reason_v3` is BYTE-
   UNTOUCHED** (`prosrc` md5 `2006f1c8db739375bc4795b7a6cdfc9a` **identical across the change**) and
-  still called; only the builder's *response* to `blocked` changed. Fixture 74 seq 13/65/66 safe.
+  still called; only the builder's _response_ to `blocked` changed. Fixture 74 seq 13/65/66 safe.
 
 ⭐ **THE ASYMMETRY IS THE DESIGN: v3's SHADOW scope is the FLEET; v3's LIVE scope is the flipped
-clusters.** Scoping the v3 *read* to authoritative machines is the obvious symmetry and it would
+clusters.** Scoping the v3 _read_ to authoritative machines is the obvious symmetry and it would
 **deadlock the cutover on its own evidence** — with 0 clusters flipped v3 would plan nothing,
 `engine_forecast_error_v3` would stop accruing, and no cluster could ever clear the gate.
 
@@ -38321,17 +38321,409 @@ registered (METRICS_REGISTRY line 1179). The grep that "found" it missing tested
 **RED 0/51** (`scenario_error`: view does not exist) → **GREEN 50/50, zero fail, scenario_error
 null.** Every observed value is real, none vacuous:
 
-| seq   | claim                                        | observed          |
-| ----- | -------------------------------------------- | ----------------- |
-| 12/18 | unscoped wipe GONE · builder halt GONE       | `0` · `0`         |
-| 33/34 | ⭐⭐ **THE PARTITION on ONE plan_date**       | `v3` · `v19`      |
-| 35/36 | totality — neither machine dropped           | `2` · `2`         |
-| 38    | only the flipped cluster promoted            | `1` (of 2 in run) |
-| 41/42 | flipped row is v3-authored, carrying v3's qty | `engine_add_pod_v3` · `3` (was 7) |
-| 43/44 | ⭐⭐ **control byte-untouched at v19's qty**  | `V19_UNTOUCHED` · `5` |
-| 45/46 | idempotent · refuses on no shadow run        | `1` · `RAISED`    |
-| 47    | revert makes it inert again                  | `noop`            |
-| 60-64 | residue: registry, live, shadow, mtv, evidence | all `0`         |
+| seq   | claim                                          | observed                          |
+| ----- | ---------------------------------------------- | --------------------------------- |
+| 12/18 | unscoped wipe GONE · builder halt GONE         | `0` · `0`                         |
+| 33/34 | ⭐⭐ **THE PARTITION on ONE plan_date**        | `v3` · `v19`                      |
+| 35/36 | totality — neither machine dropped             | `2` · `2`                         |
+| 38    | only the flipped cluster promoted              | `1` (of 2 in run)                 |
+| 41/42 | flipped row is v3-authored, carrying v3's qty  | `engine_add_pod_v3` · `3` (was 7) |
+| 43/44 | ⭐⭐ **control byte-untouched at v19's qty**   | `V19_UNTOUCHED` · `5`             |
+| 45/46 | idempotent · refuses on no shadow run          | `1` · `RAISED`                    |
+| 47    | revert makes it inert again                    | `noop`                            |
+| 60-64 | residue: registry, live, shadow, mtv, evidence | all `0`                           |
 
 ⭐ **seq 38 is the one that matters most:** the shadow run deliberately contained the CONTROL
 machine too. Promoting 2 there would mean v3 had silently taken over a cluster CS never flipped.
+
+---
+
+## ⭐⭐ LEG 162 - 2026-08-08 - **D-33 EXECUTED, AND THE "EMPTY QUEUE" WAS NOT EMPTY.** STEP R's RISK-104 count found three migrations a crashed leg-162 session wrote and never applied. Fixture 76 RED 20/9 → GREEN 29/0. The default source pick was a **coin flip on a random uuid**, diagnosed in writing months ago and worked around instead of fixed.
+
+**Window:** 18:0x - 1x:xx UTC · **STEP R clean** · no CS ask raised · **no flag flipped, no dial changed**
+
+### STEP R - the pointer verified against reality, and reality had three files the log did not
+
+- ⚠️ **THERE IS NO LEG-161 RESUME POINTER.** The log ends mid-report at line 38337. Leg 161 committed
+  its parking-lot entry and stopped. Pickup therefore reconciled from the **parking lot tail + the DB**,
+  not from a pointer.
+- `ps` narrowed (S-241) → full `ps` (S-294) → `pg_stat_activity`: **zero** foreign `run_fixture` /
+  `golden.` activity, **zero** active backends. PRD-112's session (S-311) has exited. PID 66562 is
+  alive but is the **PRD-111 FE session** and touches no fixtures.
+- ⛔⛔ **RISK 104 DID NOT RECONCILE, AND THAT WAS THE MOST USEFUL THING THAT HAPPENED THIS LEG.**
+  Disk **380** prd110 files (381 minus S-31's retained version prefix `20260730203000`, by PREFIX per
+  S-290) vs DB **377**. `max(version)` DB `20260809013000`, disk `20260809020500`. The three extras,
+  written **17:50-17:56 UTC** by a leg-162 session that died before applying anything and left no log
+  entry:
+  `20260809015000_prd110_leg162_fixture64_rebaseline_dr1b` ·
+  `20260809020000_prd110_d33_golden_fixture_76` ·
+  `20260809020500_prd110_d33_stitch_prefers_composed_run`.
+  ⭐ Verified **fully unapplied**, not half-applied: fixture 76 absent from `golden.fixtures`,
+  `stitch_v3` still at its pre-image md5 `a8753091f33dcac4255892a71b481146`, fixture 64 seq 18 still
+  expecting leg 160's `9200830a`. The handoff invariant held by luck, not by design.
+- ✅ **LAW 12 re-probed:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**, **zero
+  `operator_status='pending'` on all three.**
+- ✅ **LAW 4 re-probed:** `v_add_engine_scope_v3` assigns **0** machines to v3; `pod_refills` 4,177 rows.
+- ✅ S-99 drill (`git diff HEAD`): only S-303's prettier reflow of leg 161's own table, plus PRD-112's
+  files. **Not reverted** (the pointer's standing instruction). `git add` by PATH only (S-300).
+
+### ⛔⛔ S-319 - **"THE QUEUE IS EMPTY" WAS A CLAIM; RISK 104 WAS A MEASUREMENT**
+
+Leg 161 closed with _"NO work item replaces it - the queue is empty. What remains for DONE-2 is
+PROOF, not build."_ That is true of the **DR register** and false of the sprint. Four sentences
+earlier in the same paragraph: the answered-unexecuted list is **SIX** (D-19, D-29, D-33, D-34,
+D-39, D-40), and GOAL COMMAND 2 ranks those in **Tier 2**, ABOVE the DR items. The dead leg-162
+session had already read the queue correctly and started D-33; only its files survived to say so.
+⭐ **When a leg-closing tally and a file count disagree, the file count wins.**
+
+### ✅ D-33 EXECUTED - `stitch_v3`'s default source, and why "latest run" was never a preference
+
+`compose_plan_with_edits_v3` has always refused to compose over a `compose_v3` run, with a comment
+explaining why. `stitch_v3` picked its default source with **no tag awareness at all**:
+`ORDER BY produced_at DESC, run_id DESC` over every tag. A composition and its base are written in
+**one transaction**, so `produced_at` ties exactly and the tiebreak falls to a **random v4 uuid**.
+When the coin landed on the base, every human edit was dropped **and the receipt still said `ok`.**
+
+⭐ **Fixture 51 section (2) wrote the diagnosis down long ago** - _"that is the coin flip, forced to
+its wrong face"_ - and steered around it with a crafted `run_id` rather than fixing it. Two halves of
+one seam, built with opposite levels of care.
+
+**Cody ⚠️ approve-with-revisions (3, all landed) → fixture 76 RED 20/9 → GREEN 29/0.**
+Migrations `20260809020000` (fixture) · `20260809021000` (S-317 date fix) · `20260809020500` (engine).
+
+The NULL-source branch now names its choice on the receipt as `source_selection`:
+
+| outcome               | behaviour                                               |
+| --------------------- | ------------------------------------------------------- |
+| `composed_latest`     | the composition is the plan of record, consume it       |
+| `stale_composition`   | a base is NEWER than the composition: REFUSE, name both |
+| `uncomposed_edits`    | active edits, nothing composed them: REFUSE, count them |
+| `uncomposed_fallback` | no edits, no composition: proceed, and say so           |
+| `explicit`            | the caller passed a run and is allowed to mean it       |
+
+⛔ **On a tie the TAG decides, never `(produced_at, run_id)`.** Reintroducing the uuid as a "total
+ordering" would put the coin flip straight back, because a composition and its base tie by
+construction.
+
+`stitch_v3` md5 `a8753091` → `be1df694`. `pronargdefaults` **1**, `SECURITY DEFINER`,
+`search_path=public, pg_temp` and the `postgres/authenticated/service_role` EXECUTE triple all
+asserted unchanged by the migration's own post-image guard, alongside named survivor checks for the
+FEFO seam, the m2m seam, the ladder call, the conservation assertion, the LAW-5 blocked path and the
+role gate.
+
+### ⛔ THE INHERITED BLAST-RADIUS CLAIM WAS WRONG, AND CHECKING IT WAS CHEAP
+
+The dead leg's file stated `run_pipeline_v3` is "the only in-DB caller". `pg_proc` returns **two**.
+The second, `_blocked_demand_gaps_for_source_v3`, is a **substring false positive** on
+`_blocked_demand_gaps_stitch_v3(p_plan_date)`. Independently verified before apply: fixtures 44/46/47
+all pass an explicit source · **no** cron calls stitch · **no** FE or edge-function caller exists ·
+all **57** rows in `v_plan_edits_active_v3` sit on 2030 fixture dates with **zero** on real dates, so
+the new `uncomposed_edits` refusal cannot fire in production today.
+**Blast fire 1/11/44/46/47/50/51/54/64: 9 of 9 GREEN.** Fixture 64 is **24/0** (was 23/1).
+
+### ⛔⛔ S-317 (NEW, CLOSED) - **`golden.fixtures.plan_date` IS NOT THE DATE THE SCENARIO RUNS ON**
+
+```
+golden.render: replace(p_sql,'{{plan_date}}', quote_literal((DATE '2030-01-01' + p_fixture_id)) || '::date')
+```
+
+The scenario date is **allocated from the fixture id**. The `plan_date` COLUMN is never read by the
+harness, and **22 of the enabled fixtures already carry one that disagrees** with the date they use.
+Fixture 76 declared `2030-03-11`, rendered `2030-03-18`, and mixed the two: its base run and probe
+B's late base landed on 03-18 while `compose_plan_with_edits_v3` and every stitch probe looked at
+03-11 and found nothing. The first RED came back **15/14 with FIVE of the failures being PREMISE
+assertions** - which, per the standing rule that every premise must pass in the red run, makes the
+red meaningless rather than merely noisy.
+
+⭐ **The fix was to stop hand-writing the primary date at all**: `{{plan_date}}` everywhere, so the
+allocator is its single source and the two can never diverge again. ⛔ The three auxiliary dates
+cannot use the allocator (one fixture, one allocated date), so they moved **off its range entirely**:
+`2030-01-01 + 112` = `2030-04-23` is the furthest any fixture id reaches today, and 03-12/13/14 sat
+one slot from a future fixture 77/78/79. They are now **2030-07-02/03/04**, each verified free of
+every `pod_refills_shadow`, `refill_plan_output_shadow`, `plan_edits_v3` and fixture-scenario
+reference. Second RED: **20/9, every premise green**, seq 21 reading `RAW_BASE`.
+
+### ⛔ S-318 (NEW, CLOSED) - `baseline_status` is CHECK-constrained and `red_before_fix` is not a member
+
+`{failing_expected, passing, unknown}`. `red_before_fix` reads like the obvious value for a LAW-1 red
+baseline and **aborts the whole INSERT**. The red-first state is spelled `failing_expected`.
+
+### Article 15 - the three registry revisions Cody required
+
+- `RPC_REGISTRY.md` **corrected a paragraph that was false**, not merely stale: it claimed a composed
+  run "is picked up naturally on the next stitch" and that the coupling was "implicit and untested
+  end-to-end". It was picked up by coin flip. The old text is quoted in place so the correction is
+  legible.
+- `RPC_REGISTRY.md` md5 marker `a8753091` → `be1df694`.
+- `METRICS_REGISTRY.md` registers **"plan of record for a `plan_date`"** against `stitch_v3`'s
+  `source_selection`. ⭐ Deliberately **not** extracted to a new canonical object: compose's guard and
+  stitch's preference are **complements, not duplicates**, so Article 16 does not demand one object -
+  it demands that a change to either be checked against the other, and fixture 76 is that pin.
+
+### ⛔⛔⛔ S-320 (NEW, **OPEN**) - **THE CUTOVER'S REAL BLOCKER IS NOT THE HORIZON. v3 HAS PLANNED EXACTLY ONE REAL DATE, EVER.**
+
+The parking lot has recorded DR-1's blocker wrong **three times now**: first "WMAPE settles
+2026-08-11" (leg 160 corrected it), then "the ADD engines are whole-plan-date scoped" (leg 161
+corrected it to the unscoped DELETE). Both corrections were about **capability**. This one is about
+**evidence**, and it is the one that decides whether ~Aug 17 is a real date.
+
+```
+SELECT plan_date, engine_tag, count(*), count(DISTINCT run_id)
+  FROM public.pod_refills_shadow WHERE plan_date BETWEEN '2026-07-28' AND '2026-08-10';
+→ 2026-08-04 · engine_add_pod_v3 · 112 rows · 1 run        ← the ONLY row in the result
+```
+
+**Six consecutive nights of cron 45, and the engine step produced a plan once:**
+
+| cron fired | plan_date  | engine step        | rows  |
+| ---------- | ---------- | ------------------ | ----- |
+| 08-02      | 2026-08-03 | `blocked_gate0`    | -     |
+| 08-03      | 2026-08-04 | **`ok`**           | 112   |
+| 08-04      | 2026-08-05 | `blocked_gate0`    | -     |
+| 08-05      | 2026-08-06 | `blocked_gate0`    | -     |
+| 08-06      | 2026-08-07 | `ok`               | **0** |
+| 08-07      | 2026-08-08 | `skipped_calendar` | -     |
+
+⭐ **Every refusal is CORRECT.** `blocked_gate0` fires on "N machine(s) picked but unconfirmed" and
+LAW 11 says Gate 0 is manual-only in wave 1 with **no auto-fallback**; `skipped_calendar` fires when
+no picked/cs_added machines exist for the date at 21:22. The runner is not broken. **It is starving,
+because it depends on a live human picking workflow that completes after it fires on most nights.**
+
+⛔ **THIS IS WHY THE GATE READS 0 OF 10, AND THE REFUSAL CODES HAVE BEEN MISREAD.** Live
+`v_cutover_readiness_v3`: **6 clusters `no_v3_measurement`** (ADDMIND, GRIT, LVLUP, VML, VOX, WPP)
+and **4 `v3_horizon_not_elapsed`** (AMAZON, INDEPENDENT, NOVO, OHMYDESK). The four are not "nearly
+ready": all four carry `n_v3_dates = 1` and `n_settled_v3 = 0`, and that single date is 2026-08-04
+for every one of them. ⛔ **`v3_horizon_not_elapsed` has been read as "wait until 2026-08-11". It
+actually means "one date's worth of evidence, not yet settled".** Six clusters, including **VOX
+(11 machines, the largest in the fleet)**, have never been planned by v3 at all and cannot clear on
+any date.
+
+⭐⭐ **THE CHAIN, STATED ONCE:** cron 45 must clear Gate 0 → v3 writes `pod_refills_shadow` →
+`engine_forecast_error_v3` accrues a v3 series → the 7-day horizon elapses → the gate clears → CS
+flips. **At one v3 date in six nights, the arithmetic does not reach ~Aug 17 for most of the fleet.**
+This is a scheduling/ops problem, not an engine problem, and no migration fixes it.
+
+⚠️ **TONIGHT'S RUN HAS A GENUINE CHANCE AND ITS PRECONDITIONS WERE PROBED AT 18:3x UTC, THREE HOURS
+EARLY:** `machines_to_visit` for **2026-08-09** already carries **5 `cs_added` + 4 `cs_dropped` and
+ZERO `picked`**. `cs_added` satisfies the calendar check, and with no `picked` rows there is nothing
+for Gate 0 to find unconfirmed. ⭐ **So a `skipped_calendar` or `blocked_gate0` tonight would be a
+real defect rather than a scheduling artefact** - which is exactly what makes tonight's owed
+acceptance test worth waiting for.
+
+---
+
+## ⭐⭐ LEG 163 - 2026-08-08 - **D-29 EXECUTED, AND THE PREMATURE S7 TRIPLE WAS STOPPED.** Fixture 77 RED 27/14 → GREEN 41/0. Fixture 47 RED 44/6 → GREEN 56/0 - and **six was the wrong number to be comforted by**: three more of its assertions had gone vacuously green over an empty ledger. A receipt field this leg shipped was **refused by its own fixture one fire later**, and dropped rather than argued for.
+
+**Window:** 18:2x - 19:0x UTC · **STEP R clean** · no CS ask raised · **no flag flipped, no dial changed**
+
+### STEP R - and `ps` found a running sweep, not a dead one
+
+- `ps` narrowed (S-241) → full `ps` (S-294) → `pg_stat_activity`. ⛔⛔ **LEG 162 LEFT AN S7 TRIPLE
+  RUNNING AND ORPHANED** (`/tmp/prd110_leg162_triple.sh`, PID 7774 reparented to init, 10 min in,
+  sweep A on fixture 17). There is **no leg-162 RESUME POINTER**; the log ends mid-report at line
+  38511. Its PARKING-LOT entry, by contrast, is complete - **that is where the baton actually was.**
+- ✅ **RISK 104 reconciled at pickup 381 = 381**, md5 `94c413766109f81cda801525de309291` both sides,
+  `max(version)` `20260809021000`. Leg 162 applied all four of its files. Re-derived, not trusted.
+- ✅ **LAW 12:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**, **zero
+  `operator_status='pending'` on all three.**
+- ✅ **LAW 4:** `v_add_engine_scope_v3` assigns **0** machines to v3, `engine_cutover_audit_v3`
+  **0 rows**, `pod_refills` **4,177**.
+- ⚠️ **Enabled fixture population is 69**, not 66 (leg 160) or 67 (leg 161's pickup): +74, +76, +105,
+  +112 from three sessions. Sweep A had read the list at 18:19 and was covering all 69.
+
+### ⛔⛔ S-321 (NEW, CLOSED) - **THE FINAL PROOF WAS RUNNING BEFORE THE WORK IT WAS PROVING**
+
+Leg 162 launched the S7 triple - three consecutive full sweeps - **with four Tier-2 units still
+unbuilt**, four sentences after its own S-319 corrected "the queue is empty" to "the answered-
+unexecuted list is SIX". S7's question is *"are three consecutive sweeps identical?"*, i.e. **is the
+suite flaky**. If an engine body changes between sweep A and sweep B the results differ for a reason
+that is not flakiness, and **the verdict stops meaning anything** - it cannot distinguish the change
+from the flake it was built to detect.
+
+⭐ **The triple LOOP was killed (PID 7774) and sweep A was deliberately left alive** (PID 7777,
+reparented to init; killing a bash `for` loop does not kill the child it already spawned). Sweeps B
+and C would have been thrown away by this leg's own migrations; sweep A was 25 minutes from a
+complete full-population baseline over the post-D-33 engine, and that baseline is worth having.
+⛔ **No migration was applied until sweep A finished**, so it measures exactly one engine image.
+
+✅ **SWEEP A: 69 of 69 fixtures GREEN, 2,559 assertions, ZERO fail, ZERO vacuous, ZERO
+scenario_error** - and the distinct-fixture count equals the enabled population (69), which is the
+precondition for reading the verdict at all.
+
+⛔⛔ **THE S7 TRIPLE IS STILL OWED AND IS NOW THE LAST THING, NOT THE NEXT THING.** Run it after the
+final Tier-2 unit lands, never before.
+
+### ✅ D-29 EXECUTED - one owner per cluster, and the DELETE was the design decision
+
+CS ruling: _"YES AT CUTOVER. Nightly runner promotes stitch blocked demand for v3-authoritative
+clusters; engine_add rows suppressed there. No double counting."_
+
+**Cody ⚠️ approve-with-revisions (3, all landed BEFORE apply)** → fixture 77 **RED 27/14 → GREEN
+41/0**. Migrations `20260809030000` (fixture) · `20260809030500` (engine) · `20260809031000`
+(Article-16 rider) · `20260809032000` (fixture 47).
+
+One predicate at the three sites calling `_blocked_demand_gaps_for_source_v3` - the counters, the
+INSERT, the DELETE's `NOT EXISTS`:
+
+```
+public.is_cluster_authoritative_v3(g.machine_id) = (p_source = 'stitch')
+```
+
+⛔ **THE DELETE IS WHERE THE DESIGN LIVES, NOT THE READ.** Scoping it means a flip **deletes that
+cluster's open `engine_add` rows from a live procurement worklist**. That is the dedup CS asked for,
+and a worklist that shrinks for an unstated reason is LAW 5's silent-qty-0 failure one layer up. So
+the receipt was **split rather than widened**: `rows_closed_stale` keeps its meaning, and
+`rows_closed_by_cutover` and `gaps_suppressed_by_cutover` are new. ⭐ `gaps_found = 0` with
+suppression 0 means "no gaps"; with suppression N it means "another engine owns them" - **opposite
+actions, indistinguishable without the counter.**
+
+### ⛔⛔ S-322 (NEW, CLOSED) - **A RECEIPT FIELD THIS LEG SHIPPED WAS REFUSED BY ITS OWN FIXTURE, ONE FIRE LATER**
+
+`20260809030500` also added `clusters_on_v3`, a flag-state witness computed by reading the cutover
+registry directly. **Fixture 77 seq 12 - written in the same hour, to be redundant - returned
+41 pass / 1 fail on exactly it.**
+
+⭐ **The tempting fix was to loosen the assertion**: "it is only a witness, not the rule; the guard
+is over-broad." That is precisely how a guard becomes decoration (S-315), and it is the second time
+in three legs that an assertion written to be redundant was not (S-314). **The field was dropped
+instead.** The flag state already has a canonical home; routing the witness through
+`v_cutover_readiness_v3` would have satisfied the letter at the cost of a WMAPE computation over
+`engine_forecast_error_v3` on **every nightly cron-43 call**, to populate a field nothing consumes.
+⭐ **The receipt owns what the CALL did, not what the world looked like.** Fixture 77's three
+flag-state witnesses moved into the SCENARIO, which may read the registry freely.
+
+### ⛔ S-323 (NEW, CLOSED) - `prosrc` CONTAINS COMMENTS, SO A BLUNT NAME-GUARD FORBIDS THE NAME IN PROSE TOO
+
+The rider's own post-image guard refused it: the Article-16 explanation *inside the function body*
+named `engine_cutover_authority_v3`. Two ways out - narrow the guard to `FROM public.<table>`, or
+reword the comment. ⭐ **The comment was reworded and the guard left blunt**, and the body now says
+so in place: a bare-table-name check is the one form no alias, join shape or CTE can slip past, and
+the price is that the table cannot be named even in prose. A second, subtler variant cost another
+apply: the fixture-side check had to become `->>'clusters_on_v3'`, because the fixture's static half
+legitimately keeps a scratch key of that name for seq 30's LAW-4 read.
+
+### ⛔⛔ S-324 (NEW, CLOSED) - **FIXTURE 47's PREMISE HAD BEEN SUPPLIED BY THE OLD WORLD, AND "ONLY SIX RED" HID THREE VACUOUS GREENS**
+
+D-29 landed and fixture 47 went **RED 44/6**. Every failure was "the stitch promotion recorded
+nothing", because **both of its anchors are VOX and VOX is on v19** - under D-29 stitch owns only
+flipped clusters. The fixture was not broken; **its premise had been free, and stopped being free.**
+
+⛔ **Six was the wrong number to be reassured by.** seq 13/19/24 are `NOT EXISTS (...)` shapes and
+kept **passing over an empty ledger** (S-289). A re-baseline that "fixed the six" would have banked
+three vacuous greens - strictly worse than the red. Fixture 47 was instead **given the premise**: it
+plants settled v3 evidence, flips VOX, promotes, captures, reverts, and cleans up. **All fifty
+original assertions get their meaning back** and six new ones pin the premise and the residue.
+**GREEN 56/0.**
+
+⭐⭐ **WHY A PERSISTED FLIP IS SAFE IN 47 AND NOT USED IN 77:** `golden.run_fixture` EXECUTEs the
+whole scenario **inside one transaction**, so the window in which VOX is authoritative **never
+commits and no other session can observe it** - MVCC, not timing luck. cron 13 and cron 45 cannot see
+it. Fixture 77 discards its entire probe because nothing of it must be read after; fixture 47 has
+**thirty-seven** assertions that read committed rows, so discarding was not available without
+rewriting them.
+
+⛔ **S-316's lesson APPLIED, not repeated:** `engine_cutover_audit_v3` carries Article-7
+no-update/no-delete policies. **Fixture 47 does NOT delete the two audit rows it mints.** Deleting
+audit evidence to keep a fixture tidy is the probe being wrong, not the guard. 🆕 **Consequence for
+every future reader: filter `reason NOT LIKE 'golden fixture%'`** - the S-307/S-244 discipline, now
+extended to the cutover audit log. Fixture 77 seq 64 was re-scoped from a global emptiness check to
+its own reason string in the same migration, because that global check was already coupling fixture
+77 to every other fixture.
+
+⛔ **S-307 obeyed for the planted gate evidence:** the flip needs settled v3 measurement on a REAL
+2026 date. Fixture 47 **refuses to plant unless that exact `(plan_date, machine_id)` slot is empty**,
+deletes precisely what it planted, and asserts the slot empty again. Verified live: 0 residue.
+
+### ✅ FLAG-OFF PROVEN AGAINST THE NUMBER CS ACTUALLY READS
+
+Cody's second revision: proving inertness on a synthetic 2030 date proves nothing about the live
+worklist. Both engine migrations pin the **identity set** (not merely the count) of
+`blocked_demand WHERE plan_date < '2027-01-01' AND resolved_at IS NULL` across the whole migration.
+**22 open real-date rows before, 22 after, same ids.** Live after everything: **0 clusters on v3 · 0
+machines assigned to v3 · `pod_refills` 4,177 · 2 audit rows, both fixture-labelled.**
+
+**Blast radius 1/5/11/44/46/50/51/54/64/74/75/76/77/105: 14 of 14 GREEN, 534 assertions, zero fail,
+zero vacuous, zero scenario_error.**
+
+### Article 15 - the registry revisions Cody required
+
+`RPC_REGISTRY.md` records the D-29 contract change, the split receipt, the dropped field and **the
+Article-8 limitation stated rather than glossed**: `tg_audit_blocked_demand` mints a row for every
+DELETE, so Article 8 holds **at row grain and not at reason grain** - the audit rows for a cutover
+close and a stale close are identical, and only the unpersisted receipt distinguishes them. Carrying
+the reason into the audit row means two DELETE statements with distinct GUCs; **parked and named,
+not silently accepted** (LAW 10). md5 marker `f950b17f` → `9a1c38c3`. `METRICS_REGISTRY.md` registers
+`record_blocked_demand_v3` as the **third consumer** of the cutover-authority rule, so the coupling
+is checked in both directions: a cluster planned by v3 while v19 still buys its shortfalls is now a
+named failure mode with a fixture behind it.
+
+---
+
+### RESUME POINTER 2026-08-08 leg 163 · FINAL
+
+- ⚠️ **FIRST — `ps` narrowed (S-241) ⛔ THEN a FULL `ps` (S-294) ⛔⛔ THEN `pg_stat_activity`.**
+  Leg 163 left **nothing running**: it killed leg 162's orphaned triple loop (PID 7774) and let
+  sweep A (PID 7777) finish, which it did at 18:43:20. Both are gone. ⛔ **S-311 stands:** other
+  Claude sessions (PRD-111/112/113) fire golden fixtures at this same database and have taken the
+  enabled population from 66 to **69** across three legs. ⭐ **Check `pg_stat_activity` for foreign
+  `run_fixture`/`golden.` activity before any sweep**, and **re-read the population** rather than
+  trusting a number here.
+- ⛔ **RISK 104: expect `prd110%` = 385, `max(version)` = 20260809032000, owed md5
+  `ba0997018e5856743d3f6841cb8d19ba` both sides — reconciled 385 = 385 at handoff.** Recipe
+  unchanged: `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE
+  '%prd110%'`; disk side is the sorted filename list (minus `.sql`, no trailing newline) MINUS
+  S-31's retained **version prefix** `20260730203000` (S-290 — by PREFIX). ⭐ Compute the disk side
+  in **PYTHON**, **TOP LEVEL ONLY**. ⛔ Re-derive from both sides at pickup rather than trusting it.
+- ⛔⛔ **NEXT TASK IS TIME-GATED AND IT IS THE cron-45 VERIFICATION — OWED SINCE LEG 159, FOUR LEGS
+  RUNNING.** cron 45 fires **21:22 UTC**; legs 160-163 all ran before it. Acceptance test unchanged:
+  `shadow_runner_log_v3 WHERE note='cron'` for the 2026-08-08 21:22 run must read `step='engine'` →
+  **`status='ok'` with `rows_affected > 0`**, then `engine_forecast_error_v3` for **2026-08-09** must
+  carry a **v3** series (⛔ filter `plan_date < '2027-01-01'`, S-307/S-244).
+  ⭐⭐ **S-320 MAKES TONIGHT DIAGNOSTIC, NOT ROUTINE:** `machines_to_visit` for 2026-08-09 was probed
+  at 18:3x carrying **5 `cs_added` + 4 `cs_dropped` and ZERO `picked`**. `cs_added` satisfies the
+  calendar check and with no `picked` rows Gate 0 has nothing to find unconfirmed — **so a
+  `skipped_calendar` or `blocked_gate0` tonight is a REAL DEFECT, not a scheduling artefact.**
+  ⛔ **D-34 rewrites `run_nightly_shadow_v3`, the very function under verification. VERIFY FIRST.**
+- ⛔⛔ **THE S7 TRIPLE IS OWED AND IT IS THE LAST THING, NOT THE NEXT THING (S-321).** Leg 162
+  launched it with four Tier-2 units unbuilt; an engine change between sweeps makes them differ for a
+  reason that is not flakiness, which is the one thing S7 exists to measure. ⭐ Run it only after the
+  final Tier-2 unit lands. Recipe that works, verbatim: `/tmp/prd110_leg162_sweep.sh "<tag>" <suffix>`
+  — sequential, **`NULL` `p_max_phase` (S-309)**, `SET statement_timeout='1200000'` in the SAME POST
+  (S-310), **never re-fire on a 524**. ⭐⭐ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'`
+  and require the distinct-fixture count to equal the enabled population BEFORE reading a verdict.**
+- ✅ **SWEEP A BANKED THIS LEG: 69 of 69 GREEN, 2,559 assertions, zero fail / vacuous /
+  scenario_error**, over the post-D-33 engine, uncontended. ⛔ It predates D-29 — it is a baseline,
+  **not** a substitute for the triple.
+- ⭐⭐ **D-29 IS EXECUTED. The answered-unexecuted list is now FOUR: D-19 (blocked on DR-6, FE work
+  this loop cannot do), D-34, D-39, D-40.** ⛔ **The DR register is empty; TIER 2 IS NOT (S-319).**
+  Leg-162's specs for D-39/D-40 still stand verbatim in the parking lot; D-34's D-29 dependency is
+  now **discharged** and only the cron-45 gate remains.
+- ⛔ **LAW 4 VERIFIED LIVE AFTER EVERY APPLY:** 0 of 10 clusters authoritative · `v_add_engine_scope_v3`
+  assigns **0** machines to v3 · `pod_refills` **4,177** · `blocked_demand` live worklist **22 open
+  real-date rows, SAME IDS before and after** (both engine migrations pin the identity set, not just
+  the count). 🆕 `engine_cutover_audit_v3` now holds **2 rows, both minted by fixture 47 and both
+  labelled** — see S-325.
+- 🆕 ⛔ **S-325 BINDS EVERY READ OF `engine_cutover_audit_v3`:** fixture 47 mints two honest rows per
+  run and **they are deliberately never deleted** (Article 7; S-316's lesson). **Filter
+  `reason NOT LIKE 'golden fixture%'`** when reading it as cutover evidence.
+- 🆕 ⛔ **S-323 BINDS EVERY BARE-NAME GUARD:** `prosrc` includes COMMENTS. A guard that forbids a
+  table name forbids it in prose too. That bluntness is the point — keep it and reword the comment.
+- ⚠️ **LAW 12:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **0**, **zero pending on
+  all three**. ⛔ Re-probe every leg. ⛔ The column is `operator_status`.
+- ⚠️ **THE LIVE CS ASKS ARE EIGHT, UNCHANGED; leg 163 raised NONE:** S-251 · **D-21 half-2** ·
+  **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** · **S-320**.
+  ⭐ **When two CS-attributed statements collide, PARK — never pick the one that makes the fixture
+  green.** ⭐ **And never loosen an assertion to accommodate the code it caught (S-322).**
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (eighteenth leg).
+  `/tmp/prd110_sql.sh`, `/tmp/apply_mig.sh`, `/tmp/prd110_leg162_sweep.sh` all work.
+  ⛔ **`pg_get_functiondef` output has NO trailing semicolon** — add the `;`.
+  ⛔ **`golden.assertions.expect_op` is `eq`/`ne`/`gt`/`gte`/`lt`/`lte`/`contains`/`is_null`/
+  `not_null` — NOT `=`.** Writing `'='` costs a whole apply.
+- ⛔ **STANDING RULES:** S-266 · S-267 · S-268 · S-272 · S-277 · S-280 · S-281 · S-283 · S-284 ·
+  S-285 (OPEN) · S-286..S-320 · 🆕 **S-321** · 🆕 **S-322** · 🆕 **S-323** · 🆕 **S-324** ·
+  🆕 **S-325 (OPEN)**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282,
+  S-284, S-286..S-310, S-314..S-318, S-321..S-324 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279,
+  S-283, S-285, S-311, S-312, S-313, S-319, S-320 and 🆕 S-325 are OPEN.** New findings resume at
+  **S-326**.
