@@ -206,6 +206,30 @@ warehouse math into the shelf-truth view.
 retirement (D-09) is a decision about production data; a materialised impact report would go stale
 between review and apply. It reads 0 fleet-wide today.
 
+### ⛔⛔ "Is this warehouse row phantom?" is TWO metrics, not one (2026-08-08, leg 154, S-293)
+
+| Question                                               | Canonical object                        | Scope                                                  |
+| ------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------ |
+| May the FEFO binder pick this row into a dispatch leg? | **`_is_phantom_wh_row_v3(text,date)`**  | NULL-safe, **either** limb sufficient. Catches **45**. |
+| May a SECURITY DEFINER RPC destroy the stock on it?    | **`_is_sentinel_wh_row_v3(text,date)`** | NULL-blind, **name AND expiry**. Catches **40**.       |
+
+⛔ **These are DELIBERATELY DISJOINT and converging them is a REFUSAL, not a cleanup** - the same
+ruling the four availability objects above carry. The narrow predicate is the authorisation scope of
+`drain_consumer_stock_phantom_v3`, which zeroes stock on `warehouse_inventory`; widening it to the
+binder's shape silently extends a destructive RPC's reach over 5 more rows holding 5,029 units.
+⭐ **A superset relationship is the invariant, not equality.** Fixture 6 seqs 53–57 execute the truth
+table rather than inspecting it, and seq 55/56 are the **over-classification guards**: an ordinary
+named batch, and a NULL batch_id with a REAL expiry (11 live rows, 91 units of genuine stock at
+CENTRAL), must both stay bindable. A "fix" that refuses everything would otherwise pass.
+
+⛔⛔ **A THIRD, UNCONVERGED SITE IS LIVE AND NAMED, NOT FIXED (LAW 10).**
+`resolve_supply_ladder_v3` builds its supply base with an **inline, name-only** filter,
+`SUM(warehouse_stock) FILTER (WHERE batch_id NOT LIKE 'VOXSOURCE-%')`, and never calls either helper.
+⭐ **Its failure mode is the OPPOSITE one and it is worse:** `NULL NOT LIKE …` yields NULL, so a
+NULL-batch row is excluded from the real sums **and** from the sentinel sum - it lands in **no bucket
+at all**, which silently hides the 91 units of genuine stock above. This is a **binding rider on
+D-37**, which restates that function anyway; it must not be closed as a drive-by.
+
 ---
 
 ## PRD-110 Phase 2 (2026-07-30, leg 14) — v3 proposed plan (shadow) and the v3-vs-v19 diff
@@ -1061,8 +1085,8 @@ change with a perf constraint, and it needs the before/after donor-set diff the 
 
 ## PRD-110 D-31 (2026-08-08, relay leg 152) - what one unit is worth
 
-| Metric                                                                                             | Canonical object                | Status                                                                                                                                                                                                                                                                                                | Notes |
-| -------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| Metric                                                                                                                                              | Canonical object                 | Status                                                                                                                                                                                                                                                                                                                         | Notes      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
 | Realized unit value of a pod at a machine (the three-tier price cascade: realized machine-pod -> realized fleet-pod -> `recommended_selling_price`) | **`pod_unit_value_v3(integer)`** | 🟢 **CANONICAL from 2026-08-08 leg 152** (`prd110_d31_converge_pod_unit_value`, `20260808150500`). Both consumers wired ON THE SAME MIGRATION: `rank_machines_by_value_at_risk_v3` (md5 `754532ac` -> `df7831e3`) and `v_facing_performance_v3`. Read-only: **STABLE / SECURITY INVOKER**, `ROWS 20000`, `search_path` pinned. | See below. |
 
 ⛔ **THE LOOKBACK IS AN ARGUMENT, NOT A DIAL READ INSIDE THE OBJECT - AND THAT IS THE WHOLE

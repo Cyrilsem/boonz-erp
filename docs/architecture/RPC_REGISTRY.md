@@ -641,11 +641,37 @@ class (c): INVOKER is sufficient, DEFINER would have been an unnecessary privile
 ### PRD-110 P1.3 — availability contract (read-only helpers, 2026-07-30)
 
 - `_is_sentinel_wh_row_v3(p_batch_id text, p_expiration_date date)` → boolean, IMMUTABLE.
-  THE single definition of a VOX fake-stock sentinel row.
-  ⚠️ **The conjunction is load-bearing.** 9 REAL PO-batch rows (202 units, WH_CENTRAL) carry
-  `wh_location = 'VOX_SOURCED'`; keying a retirement on `wh_location` destroys real stock. Any
-  sentinel query — the availability view, fixture 24, the parked D-09 script — must call this and
-  nothing else. Verified live: selects exactly 40, rejects all 9.
+  The **NARROW, name-AND-expiry** definition of a VOX fake-stock sentinel row. It is the
+  **authorisation scope** of `drain_consumer_stock_phantom_v3` (SECURITY DEFINER, zeroes stock on
+  `warehouse_inventory`), and Cody narrowed it there deliberately in that RPC's revision 1.
+  ⚠️ **The conjunction is load-bearing FOR THAT JOB.** 9 REAL PO-batch rows (202 units, WH_CENTRAL)
+  carry `wh_location = 'VOX_SOURCED'`; keying a retirement on `wh_location` destroys real stock.
+  Verified live: selects exactly 40, rejects all 9.
+  ⛔⛔ **CORRECTED 2026-08-08 (leg 154, S-293).** This entry previously read _"THE single definition
+  of a VOX fake-stock sentinel row … any sentinel query must call this and nothing else."_ **Both
+  halves were false when written, and the false claim is what let the defect live.** (i) The
+  conjunction is NULL-blind: a row with `batch_id IS NULL` on the 2099-12-31 marker evaluates
+  `NULL AND true = NULL → COALESCE false`, i.e. **classified as REAL stock**. Five such rows holding
+  **5,029 units** were being bound into live dispatch legs by `resolve_fefo_sku_legs_v3`; golden
+  fixture 6 went red 48/51 and that is how it surfaced. (ii) "and nothing else" was never true:
+  `resolve_supply_ladder_v3` carries its own **inline, name-only** copy to this day. See the two
+  entries below.
+- `_is_phantom_wh_row_v3(p_batch_id text, p_expiration_date date)` → boolean, IMMUTABLE,
+  SECURITY INVOKER. **PRD-110 leg 154**, migration `20260808161000`. The **BINDER'S** question:
+  _may this warehouse row be bound into a dispatch leg at all._ NULL-safe on **both** limbs and a
+  strict **superset** of `_is_sentinel_wh_row_v3` - either the 2099-12-31 marker **or** the
+  `VOXSOURCE-` name is sufficient evidence on its own. Catches **45** rows where the narrow
+  predicate catches 40. Sole consumer: `resolve_fefo_sku_legs_v3`.
+  ⛔ **DO NOT MERGE THE TWO, and do not "converge" them under Article 16.** They answer different
+  questions: _may the binder pick this_ vs _may a SECURITY DEFINER RPC destroy this_. Widening the
+  second is destructive-reach creep. Golden fixture 6 seqs 53–57 are the executed truth table
+  (including the over-classification guard: **11 NULL-batch rows with a REAL expiry hold 91 units of
+  genuine stock** and must stay bindable).
+  ⚠️ Grants tightened in `20260808162000`: `{postgres, authenticated, service_role}` - no `PUBLIC`,
+  no `anon` (S-268: `anon` holds its grant BY NAME, so a bare `REVOKE … FROM PUBLIC` misses it).
+  `authenticated` is retained deliberately - the binder is SECURITY INVOKER and is granted to
+  `authenticated`, so its callers must hold EXECUTE on this helper.
+  ⛔ **The sibling still carries `anon` + `PUBLIC`** and was deliberately NOT touched by leg 154.
 - `resolve_shelf_availability_v3(p_shelf_id uuid)` → jsonb, STABLE, SECURITY **INVOKER**.
   Per-shelf point lookup of `v_shelf_availability_v3`. Deliberately a wrapper and not a second
   implementation: the engine asks per machine (set-based, reads the view) and stitch/pack ask per

@@ -36076,10 +36076,10 @@ D-31, and `METRICS_REGISTRY.md` line 751, both recorded the second inline copy a
 was **"copied verbatim so the two objects cannot disagree about what a unit is worth (S-94)"**.
 ⛔ **It was not verbatim.** The two copies read **different dials**:
 
-| consumer                              | dial                       | live value |
-| ------------------------------------- | -------------------------- | ---------- |
-| `rank_machines_by_value_at_risk_v3`   | `var_price_lookback_days`  | **90**     |
-| `v_facing_performance_v3`             | `fac_price_lookback_days`  | **90**     |
+| consumer                            | dial                      | live value |
+| ----------------------------------- | ------------------------- | ---------- |
+| `rank_machines_by_value_at_risk_v3` | `var_price_lookback_days` | **90**     |
+| `v_facing_performance_v3`           | `fac_price_lookback_days` | **90**     |
 
 ⭐ **They agreed by coincidence of two dial values, not by construction.** The day CS turned either
 one, the picker and the facing proposer would have priced the same unit differently, and nothing
@@ -36096,8 +36096,8 @@ records a wrong reason for tolerating a duplicate will license the next duplicat
 ### ⭐ [leg 152] THE SITE LIST WAS RE-DERIVED FROM THE CATALOGUE, AND THE GREP WOULD HAVE SAID FIVE (S-280)
 
 `prosrc ILIKE '%recommended_selling_price%'` returns **five** objects and cannot tell a three-tier
-cascade from a single-tier read. The S-280-shaped predicate - *a COALESCE reaching
-`recommended_selling_price` **AND** a `realized_fleet_pod` tier* - returns **two**, exactly the two
+cascade from a single-tier read. The S-280-shaped predicate - _a COALESCE reaching
+`recommended_selling_price` **AND** a `realized_fleet_pod` tier_ - returns **two**, exactly the two
 the ruling names. `v_pod_margin_coverage_v3` and `v_shelf_audit_prompts` COALESCE onto the same column
 and are **NOT** sites; `find_substitutes_for_shelf_v3` names the column only.
 ⭐ **The predicate did not stay a scoping query - it shipped as fixture 72 seq 9**, reading **2**
@@ -36172,7 +36172,7 @@ md5 delta is a measurement of a trading Saturday.
 ### ⭐ [leg 152] S-287 EARNED ITS KEEP TWICE IN ONE LEG - AND BOTH CATCHES WERE IN THINGS THAT "OBVIOUSLY WORKED"
 
 1. The fixture-72 dry run returned `scenario_error = **invalid regular expression: invalid repetition
-   count(s)**`. ⛔ Postgres caps a POSIX repetition count at **255** (`RE_DUP_MAX`); seq 9's predicate
+count(s)**`. ⛔ Postgres caps a POSIX repetition count at **255** (`RE_DUP_MAX`); seq 9's predicate
    was written `[^;]{0,400}`. **The migration applied cleanly - the SCENARIO was what failed**, which
    is precisely the distinction S-287 exists to draw.
 2. The convergence dry run found the S-289 premise defect above, **before a byte was committed**.
@@ -36194,13 +36194,13 @@ refuses for the wrong reason.
 Articles checked **1, 2, 3, 4, 6, 7, 12, 14, 16**. No `SECURITY DEFINER` anywhere; the object is
 **STABLE / SECURITY INVOKER**, which is what the class-(c) playbook asks for and what preserves
 fixture 42 seq 51's LAW-4 pin. **Zero DML in the convergence migration**; the restatement writes only
-to `golden.*`. Cody's blocking-shaped finding was Article 16's enforcement clause - *"adding a metric
-= adding a row to `METRICS_REGISTRY.md` + the canonical object in the same PR"* - and that
+to `golden.*`. Cody's blocking-shaped finding was Article 16's enforcement clause - _"adding a metric
+= adding a row to `METRICS_REGISTRY.md` + the canonical object in the same PR"_ - and that
 `METRICS_REGISTRY.md` lines 651 and 751 both carried claims this unit falsifies. **All three landed
 here:** the new canonical row, the corrected line 751 reason, the corrected line 651 byte-unchanged
 claim, plus the `RPC_REGISTRY.md` read-only-helper entry.
 ⚠️ **Process slip recorded rather than smoothed:** `20260808150000` was applied **before** the review.
-It touches only `golden.*` so nothing constitutional turns on it, but LAW 3 says *every* migration.
+It touches only `golden.*` so nothing constitutional turns on it, but LAW 3 says _every_ migration.
 
 ⭐ **`proacl` READ BACK WHOLE after apply (S-140), not inferred from the REVOKE:**
 `{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}` - **no `anon`, no `PUBLIC`**,
@@ -36359,3 +36359,171 @@ another session's work products, classified and not adopted (LAW 10, S-286).
 ⛔ **The single most consequential line in the pointer above, repeated because it changes the next
 leg's plan: the fixture population moved 63 → 64, so DONE-2's "run_all ×1 suffices" no longer applies
 and the S7 TRIPLE is now required in its triple form.**
+
+---
+
+## ⭐⭐ leg 154 (2026-08-08) - **A DEAD LEG 153 WAS RECONCILED, THEN ITS LAW-8 FIND WAS VERIFIED AND SHIPPED.** UNIT A closed a red that had been live since before leg 149. S-293 raised. No CS ask.
+
+### ⛔⛔ [leg 154] STEP R FOUND AN ORPHANED LEG, AND THE FIRST JOB WAS PROVING NOTHING WAS HALF-APPLIED
+
+`ps` (S-241) first, narrowed to `prd110|golden|stress_s|psql`: **nothing running.** Then S-270 on the
+untracked set - and it had **grown by three migration files** since leg 152's pointer wrote it:
+`20260808160000_prd110_d37_ladder_prefer_own_stock_transfer_param`,
+`20260808161000_prd110_leg153_phantom_wh_row_null_safe_classifier`,
+`20260808161500_prd110_leg153_fixture6_phantom_bind_sensors`.
+⛔ **Their mtimes were 11:07Z, 11:17Z and 11:19Z. This leg started at 11:22Z.** They were minutes old.
+
+⭐ **THE PROCESS TABLE, NOT THE FILE NAMES, IS WHAT SETTLED IT.** A full `ps` (not the S-241 narrow
+grep, which matches no `claude` process) showed **two** live sessions: this one, and PID 66562 running
+**PRD-111** since 12:13 local. **No PRD-110 session was running.** So a leg 153 launched by the outer
+loop after leg 152's commit (10:58Z), worked for ~14 minutes, and **died without a log entry and
+without a commit**. ⛔ **The relay had lost a leg silently.** Its migration files call themselves
+"leg 153", so that number is retired to it and this leg is **154**.
+
+### ✅ [leg 154] THE RECONCILIATION CAME BACK CLEAN, AND THAT IS A RESULT, NOT A FORMALITY
+
+⭐ **RISK 104 matched leg 152's pointer on every field:** `prd110%` **344**, `max(version)`
+**20260808150500**, owed md5 **`4c159ae9963d59ceaec3e20e0339032c`**. Leg 153 registered **nothing**.
+⭐ **And the registry was not trusted on its own** (S-287's distinction: a migration can apply while
+its scenario fails, and an object can move without a registry row). Every object leg 153's files
+would have touched was probed directly:
+
+| probe                                       | reading            | verdict            |
+| ------------------------------------------- | ------------------ | ------------------ |
+| `refill_policy_params.ladder_prefer_own_...` | **absent**         | dial never applied |
+| `public._is_phantom_wh_row_v3`               | **absent**         | never created      |
+| `md5(resolve_fefo_sku_legs_v3.prosrc)`       | **229a8970**       | pre-leg-153 body   |
+| `md5(resolve_supply_ladder_v3.prosrc)`       | **056cca45**       | pointer value      |
+| golden fixtures / assertions                 | **64 / 2355**      | pointer values     |
+| fixture 6 assertions / max seq               | **51 / 51**        | no sensors added   |
+| `golden.stress_runs`                         | **14**             | pointer value      |
+
+⛔⛔ **CONCLUSION: leg 153 authored three files, dry-ran them, and died before applying a byte. The
+handoff invariant HELD even though the handoff itself did not happen** - "nothing half-applied" was
+true by luck of ordering (S-287 dry runs roll back), not by design. The three doc diffs on disk were
+**pure prettier reformatting** (table padding, `*emph*` to `_emph_`), verified by reading the diff
+rather than inferring from the mtime (S-99).
+
+### ⛔⛔ [leg 154] LAW 8 PREEMPTED THE AUTHORISED UNIT - FIXTURE 6 WAS RED AND HAD BEEN FOR DAYS
+
+Leg 153's file **claimed** fixture 6 read 48/51. ⛔ **A claim from a session that left no log is not
+evidence.** Fired in isolation (S-283): **48 pass / 3 fail, `scenario_error` null, 0 skipped**,
+failures `30:NULL ~ 31:0 ~ 38:ok`. ⭐ **Independently confirmed, and the null `scenario_error` is what
+makes the three reds real rather than assertions lying off a stale snapshot.**
+
+⭐⭐ **THIS RED WAS INVISIBLE FOR FOUR LEGS.** Fixture 6 had not been fired since leg **148**'s sweep;
+legs 149, 150, 151 and 152 all closed reporting "no known red". **All four statements were true and
+all four were uninformative** - which is precisely the honesty S-275 exists to force, and this is the
+first time the gap it warns about has actually bitten.
+
+### ⛔⛔ [leg 154] THE DEFECT: THE SENTINEL CLASSIFIER WAS NULL-BLIND, SO THE BINDER WAS BINDING PHANTOM STOCK
+
+`public._is_sentinel_wh_row_v3` reads:
+
+```
+COALESCE(p_batch_id LIKE 'VOXSOURCE-%' AND p_expiration_date = DATE '2099-12-31', false)
+```
+
+⛔ **It requires the NAME *and* the expiry.** A warehouse row with `batch_id IS NULL` on the
+2099-12-31 phantom marker evaluates `NULL AND true = NULL`, which COALESCEs to **false**: the row is
+classified **REAL** and `resolve_fefo_sku_legs_v3` binds it into a dispatch leg.
+⭐ **This is S-289's family (leg 152) landing on the sentinel guard itself, one leg later.**
+
+⭐ **MEASURED LIVE, and every one of leg 153's figures reproduced exactly** (`v_wh_pickable`):
+**45** rows carry `expiration_date = 2099-12-31`; only **40** are VOXSOURCE-named; the **5** unnamed
+ones hold **5,029 units**. `named_other_expiry = **0**` - all 40 named rows carry that expiry - so
+**widening the shape test cannot lose a row the name test used to catch.**
+
+⭐⭐ **THE RAW ROWS NAME THEIR OWN ORIGIN.** Quantities **999 / 1001 / 1002 / 1003 / 1021** at WH_MM
+and WH_MCC, `consumer_stock = 0`, `status Active`: the venue-supply sentinel signature with
+`dispatch_receive` and `dispatch_partial_remainder` deltas layered **on top of** the 999 base. ⛔ The
+receive path is crediting real returns into a phantom row. ⭐⭐ **And two of the products are `7Up -
+Regular` and `Fade Fit - Coconut` - the exact pair in S-285's open CS ask.** That ask now has
+corroborating evidence attached to it.
+
+### ✅✅ [leg 154] UNIT A - TWO PREDICATES, BECAUSE THEY ARE TWO QUESTIONS
+
+`20260808161000` · `20260808161500` · `20260808162000`.
+
+- ⛔ **`_is_sentinel_wh_row_v3` is BYTE-UNTOUCHED** (`fdfcb0f2`, unmoved). It is the **authorisation
+  scope** of `drain_consumer_stock_phantom_v3`, a SECURITY DEFINER RPC that zeroes stock on
+  `warehouse_inventory`, and Cody narrowed it there deliberately. ⭐ **Widening a destructive RPC's
+  reach is not a bug fix, and the fix was shaped so it cannot be mistaken for one.**
+- ⭐ **`_is_phantom_wh_row_v3` is NEW** and is the **binder's** question: may this row be bound at
+  all. NULL-safe on both limbs, COALESCE wrapped **per limb** so an unknown name cannot poison a
+  known expiry. A strict **superset**: 45 where the sibling catches 40.
+- `resolve_fefo_sku_legs_v3` switches to it. **229a8970 → 95301156.**
+
+⭐⭐ **THE SUBSTITUTION WAS PROVEN MINIMAL BY DIFF, NOT ASSERTED (S-291).** The proposed body was
+diffed against live `pg_get_functiondef` output: **one changed line out of 7,933 bytes**, the
+classifier call and nothing else. That is a stronger statement than any occurrence-count guard, and
+it cost one command.
+
+### ⭐⭐ [leg 154] THE S-287 DRY RUN PROVED THE RESTATEMENT'S PREMISE INSTEAD OF ASSUMING IT
+
+Both migrations applied **and** fixture 6 fired inside one doomed transaction, verdict carried out
+through `RAISE EXCEPTION`:
+
+> `DRY VERDICT pass=57 fail=0 scenario_error=<null> bind_far_reason=all_batches_sentinel binder_md5=95301156c2f16a1446b424feab433c85`
+
+⭐ **Two things that would otherwise have been guesses:** (1) `bind_far` really does report
+`all_batches_sentinel` after the fix - the entire basis for restating seq 30 - measured, not reasoned;
+(2) the md5 the fixture migration hardcodes in its REFUSE guard **matched the body this leg actually
+produced**, so the guard was proven live rather than trusted.
+
+### ⚠️ [leg 154] CODY - APPROVED WITH REVISIONS, AND ONE REVISION FOUND A THIRD SITE
+
+Articles **1, 2, 3, 4, 6, 7, 12, 13, 14, 16**. No DEFINER added; the binder stays STABLE / SECURITY
+INVOKER; no DML on any protected entity; `warehouse_inventory.status` untouched; the fixture
+migration writes only to `golden.*`. ⭐ **Article 16 does NOT bite on the two-predicate split** - the
+registry's own four-disjoint-availability-objects ruling is the precedent, and the disjointness is
+now recorded so a future leg cannot "converge" them and re-widen a destructive RPC.
+
+⛔ **Article 15 revision landed:** `RPC_REGISTRY.md` line 644 read _"THE single definition of a VOX
+fake-stock sentinel row … any sentinel query must call this and nothing else."_ ⛔⛔ **Both halves
+were false when written.** It was **CORRECTED, not superseded** (leg 152's S-288 rule: a registry that
+records a false reason licenses the next defect).
+
+### ⛔⛔ [leg 154] S-293 (NEW, **OPEN**) - A THIRD CLASSIFICATION SITE, FAILING THE OPPOSITE WAY
+
+The site list was re-derived from the catalogue **by SHAPE, not by name** (S-280): every `pg_proc`
+body and `pg_get_viewdef` matching `VOXSOURCE-` or `2099-12-31`. **Four** objects.
+⭐ Two are **false positives and were checked rather than counted**: `receive_dispatch_line_sourced_v3`
+and `receive_spot_fill_po_v3` name the literal only to **REFUSE** it (P0.4). They are guards, not
+classifiers.
+
+⛔⛔ **The fourth is real: `resolve_supply_ladder_v3` builds its supply base with an inline,
+name-only filter** and calls neither helper:
+
+```
+SUM(warehouse_stock) FILTER (WHERE batch_id NOT LIKE 'VOXSOURCE-%')
+```
+
+⭐ **Its failure mode is the OPPOSITE one, and it is worse than the one just fixed.**
+`NULL NOT LIKE …` yields NULL, and `NULL LIKE …` yields NULL, so a NULL-batch row is excluded from
+the real sums **AND** from the sentinel sum: **it lands in no bucket at all.** The 11 live NULL-batch
+rows carrying **91 units of genuine stock** are silently invisible to the ladder's supply base.
+⛔ **NAMED, NOT FIXED (LAW 10). It is a BINDING RIDER on D-37**, which restates that exact function
+as its next unit. It must not be closed as a drive-by, and D-37 must not restate that function
+without absorbing it.
+
+### ⭐ [leg 154] THE UNIT DID NOT LEAVE BEHIND MORE EXPOSURE THAN IT FOUND
+
+`20260808161000` created the helper carrying Supabase's schema defaults: **`anon` AND `PUBLIC`
+EXECUTE** - the D-30 shape. ⛔ **`proacl` was read back WHOLE (S-140) rather than inferred**, which is
+the only reason it was caught: the migration itself contained no GRANT and looked clean.
+`20260808162000` revokes both **by name** (S-268: `anon` holds its grant by name, so a bare
+`REVOKE … FROM PUBLIC` misses it), asserts the end state in-transaction, and **retains
+`authenticated`** deliberately - the binder is SECURITY INVOKER and granted to `authenticated`, so
+revoking it there would break every FE caller.
+⭐ Final: `{postgres=X,authenticated=X,service_role=X}`.
+⏸️ **The sibling still carries `anon` + `PUBLIC` and was NOT touched** - its grants are a question
+about a SECURITY DEFINER writer's helper and belong with the standing `wh_fefo_for_line` revoke.
+
+### ⭐ [leg 154] A LAUNCH THAT SILENTLY DID NOT HAPPEN
+
+The 64-fixture sweep was launched with `nohup … > $OUT/sweep.log` where `$OUT` is created by
+**`mkdir -p` inside the script**. ⛔ The redirect target did not exist, the shell never ran the
+command, and `ps | grep -c` returned **1 - which was the grep's own command line**. ⭐ **The launch
+was verified instead of assumed, and that is the only reason this leg did not report a sweep that
+never ran.** Relaunched after an explicit `mkdir -p`, with `RESULTS.txt` existence as the proof.

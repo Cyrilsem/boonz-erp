@@ -11666,6 +11666,7 @@ consumer layer, `v_facing_performance_v3` was compared row-for-row against the p
 recomputed **inside the same query**: **522/522 rows, 0 price mismatches, 0 basis mismatches**, with
 all four `price_basis` rungs exercised (462 / 39 / 2 / 19) and `sum(unit_price)` identical at
 **6225.4119**. ⛔ **The before/after md5 of BOTH consumers moved and neither movement was the change**
+
 - see S-292 below.
 
 ### ⛔⛔ S-288 (NEW, CLOSED) - THE RECORDED REASON FOR TOLERATING THE DUPLICATE WAS ITSELF FALSE
@@ -11731,3 +11732,114 @@ Both consumers join the price tiers on `pod_product_id`, so none of them could e
 ### ⏸️ OPEN CS DECISIONS after this leg - **FIVE ASKS, UNCHANGED; leg 152 raised none.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object - policy AND a ~20 s/evaluation perf decision) · **S-285's ask** (confirm 7Up - Regular and Fade Fit - Coconut really are venue-supplied). The answered-unexecuted list drops from eight to **SEVEN**: D-19, D-29, D-33, D-34, D-37, D-39, D-40. ⭐ **D-31 is now EXECUTED**, joining D-21(h1), D-27(a), D-28(h1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8 - and it was the **LAST of the three CONVERGE units** (D-27a, D-28h1, D-31 all done). DR-1 and DR-10 remain WORK; **DR-6 is FE-deploy work this loop cannot perform** and D-19 stays blocked behind it. ⚠️ **S-288..S-292 CLOSED (recorded); S-265, S-266, S-279, S-283 and S-285 remain OPEN.** New findings resume at **S-293**. ⭐ **Leg 152 flipped NO flag, changed NO dial, and touched NO engine body except the one D-31 authorises.**
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 154 (2026-08-08) - **AN ORPHANED LEG 153 RECONCILED; ITS LAW-8 FIND VERIFIED AND SHIPPED.** S-293 raised **OPEN**. No new CS ask.
+
+### ⛔⛔ S-294 (NEW, CLOSED) - A RELAY LEG CAN DIE WITHOUT LEAVING A LOG ENTRY, AND ONLY `ps` TELLS YOU
+
+Leg 152 committed at 10:58Z. This leg started at 11:22Z. In between, **an unlogged leg 153 ran for
+~14 minutes and died**: three migration files on disk with mtimes 11:07Z / 11:17Z / 11:19Z, no log
+append, no commit, no `RESUME POINTER`.
+⛔ **The S-241 `ps` grep (`prd110|golden|stress_s|psql`) CANNOT see this** - a relay leg is a `claude`
+process, and it matches none of those tokens. ⭐ **A FULL `ps` is what distinguished "a concurrent
+session is mid-flight, do not touch its work" from "a session died, adopt its work."** Here it showed
+PID 66562 alive on **PRD-111** and **no** PRD-110 session, which is what made adoption correct.
+⭐ **RULE: when the untracked set has grown since the pointer wrote it, run a FULL `ps` before
+adopting or discarding anything.** File mtimes tell you when; only the process table tells you whether
+the author is still writing.
+
+### ⭐ S-295 (NEW, CLOSED) - RECONCILE AGAINST OBJECTS, NOT AGAINST THE MIGRATION REGISTRY
+
+RISK 104 came back **identical** to leg 152's pointer (344 / 20260808150500 / `4c159ae9`), which
+proves only that leg 153 **registered** nothing. ⛔ **It does not prove leg 153 CHANGED nothing** - the
+shim registers and applies in one POST, but a raw `execute_sql` DDL would move an object with no
+registry row at all. Every object the three files would have touched was probed directly (dial absent,
+helper absent, binder md5 `229a8970`, fixtures 64 / 2355, fixture 6 at 51 assertions) before a single
+byte was adopted. ⭐ **Only then was "nothing half-applied" a finding rather than a hope.**
+
+### ⛔⛔ S-296 (NEW, CLOSED) - FOUR CONSECUTIVE LEGS REPORTED "NO KNOWN RED" OVER A LIVE RED
+
+Fixture 6 was red at **48/51** and had been since before leg 149. It had not been fired since leg
+**148**'s sweep, so legs 149-152 each closed on a true-but-uninformative "no red is known".
+⭐ **S-275 predicted exactly this and leg 152's pointer even quantified it** ("36 have not been fired
+since leg 148's sweep"). ⛔ **This is the first time the gap actually bit, and the red it hid was a
+binder defect putting phantom stock into real dispatch legs.** The lesson is not "word the claim more
+carefully" - leg 152 worded it perfectly - it is that **an unfired fixture is an unknown, and a
+backlog of 36 unknowns is a standing liability that only a sweep retires.**
+
+### ⛔⛔ S-293 (NEW, **OPEN**) - THE THIRD SENTINEL SITE, FAILING THE OPPOSITE WAY (RIDER ON D-37)
+
+`resolve_supply_ladder_v3` classifies sentinel stock with an **inline, name-only** filter and calls
+neither canonical helper:
+
+```
+SUM(warehouse_stock) FILTER (WHERE batch_id NOT LIKE 'VOXSOURCE-%')
+```
+
+⛔ **`NULL NOT LIKE …` is NULL and `NULL LIKE …` is NULL**, so a NULL-batch row is excluded from the
+real sums **AND** from the sentinel sum - it lands in **no bucket at all**. Live that silently hides
+**11 rows carrying 91 units of genuine stock** from the ladder's supply base, and it also means the
+5,029 phantom units are excluded **by accident rather than by rule**.
+⭐ **This is a BINDING RIDER on D-37**, whose whole unit is a restatement of this function. D-37 must
+absorb it; it must not be closed as a drive-by, and D-37 must not restate the function without it.
+⛔ **Leg 154 did not touch it (LAW 10).**
+
+### ⭐ THE TWO PREDICATES ARE DELIBERATELY DISJOINT - DO NOT CONVERGE THEM
+
+`_is_phantom_wh_row_v3` (binder: may this be picked, NULL-safe, either limb, catches **45**) vs
+`_is_sentinel_wh_row_v3` (authorisation scope of the SECURITY DEFINER `drain_consumer_stock_phantom_v3`:
+may this be destroyed, name AND expiry, catches **40**).
+⛔ **Converging them is a REFUSAL, not a cleanup** - it would silently extend a destructive RPC's
+reach over 5 rows holding 5,029 units. Recorded in `METRICS_REGISTRY.md` **and** `RPC_REGISTRY.md`
+precisely so a future Article 16 tidy-up cannot do it by accident. ⭐ **The invariant is SUPERSET, not
+equality**, and fixture 6 seqs 55/56 are the over-classification guards that stop a "fix" which
+refuses everything from passing.
+
+### ⛔ THE REGISTRY CLAIM WAS CORRECTED, NOT SUPERSEDED (S-288 applied)
+
+`RPC_REGISTRY.md` line 644 read _"THE single definition of a VOX fake-stock sentinel row … any
+sentinel query must call this and nothing else."_ ⛔⛔ **Both halves were false when written**: the
+predicate is NULL-blind, and `resolve_supply_ladder_v3` has always carried its own copy. Leg 152's
+rule applies verbatim - a registry that records a false reason licenses the next defect.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+- 🆕 **S-293**, above - the ladder's inline name-only sentinel filter (rider on D-37).
+- 🆕 **The 5,029 phantom units themselves are a DATA question, and nothing was deleted.** They carry
+  `dispatch_receive` / `dispatch_partial_remainder` provenance layered on a 999 sentinel base, i.e.
+  **the receive path is crediting real returns into a phantom row.** That is wider than PRD-110.
+- 🆕 **`wh_fefo_for_line` filters no sentinels at all**, and `push_plan_to_dispatch`,
+  `receive_dispatch_line` and `record_actual_refill` call it with **no guard of any kind**. A LIVE
+  exposure, wider than this fixture, needing CS and its own fixture.
+- `_is_sentinel_wh_row_v3` still carries `anon` + `PUBLIC` EXECUTE, as does `wh_fefo_for_line` (the
+  standing D-30-shaped revoke from leg 149). The NEW helper was tightened; the siblings were not.
+- Unchanged from leg 152: 18 orphan sourcing triples · 26 latent non-assorted `venue_team` triples ·
+  **S-265** (fixture 57 mints into the LIVE CS review queue) · the 15-of-720 unattributed sales.
+
+### ⭐ EVIDENCE ATTACHED TO AN OPEN CS ASK (S-285)
+
+Two of the five NULL-batch phantom rows are **`7Up - Regular`** and **`Fade Fit - Coconut`** - the
+exact pair S-285 asks CS to confirm as venue-supplied. ⭐ **Their 999-base quantities at WH_MM and
+WH_MCC are the venue-supply sentinel signature**, which is corroboration for the "yes, venue-supplied"
+answer. ⛔ It is evidence, **not** an answer: the ask stands.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FIVE ASKS, UNCHANGED; leg 154 raised none.**
+
+S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue
+on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the
+canonical in-stock object) · **S-285's ask** (confirm 7Up - Regular and Fade Fit - Coconut really are
+venue-supplied - now with the corroboration above).
+The answered-unexecuted list is **UNCHANGED at SEVEN**: D-19, D-29, D-33, D-34, **D-37**, D-39, D-40.
+⛔ **Leg 154 executed no D-item.** It spent itself on a LAW 8 red that preempted D-37, which is what
+LAW 8 requires. ⭐ EXECUTED to date: D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-43..D-47, DR-3, DR-4,
+DR-5, DR-7, DR-8. DR-1 and DR-10 remain WORK; **DR-6 is FE-deploy work this loop cannot perform** and
+D-19 stays blocked behind it.
+⚠️ **S-294, S-295, S-296 CLOSED (recorded); S-265, S-266, S-279, S-283, S-285 and 🆕 S-293 remain
+OPEN.** New findings resume at **S-297**.
+⭐ **Leg 154 flipped NO flag and changed NO dial.** It touched one engine body - the binder - by the
+single line LAW 8 required.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
