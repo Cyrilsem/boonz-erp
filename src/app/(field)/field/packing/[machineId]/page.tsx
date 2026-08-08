@@ -4,9 +4,10 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { getDubaiDate } from "@/lib/utils/date";
 import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../../components/field-header";
+import { useFieldPackDate } from "../../_lib/use-field-pack-date";
+import { PackAheadBanner } from "../../_lib/pack-date-controls";
 import type { DispatchAction, ExpiryWarning } from "@/lib/dispatch-types";
 import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
@@ -189,6 +190,11 @@ export default function PackingDetailPage() {
   // live per-SKU field tool is never bricked by this new path.
   const searchParams = useSearchParams();
   const groupedLayout = searchParams?.get("layout") === "grouped";
+  // PRD-111: ?d=tomorrow arrives from the packing list. selectedDate is the ONLY
+  // dispatch date this screen may use — every filter and every *_date RPC arg
+  // below reads it. A stray getDubaiDate() here would silently confirm the wrong
+  // day's pack.
+  const { selectedDate, isTomorrow, dateQuery } = useFieldPackDate();
   const [collapsedShelves, setCollapsedShelves] = useState<Set<string>>(
     new Set(),
   );
@@ -342,7 +348,6 @@ export default function PackingDetailPage() {
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
-    const today = getDubaiDate();
 
     const { data: machineData } = await supabase
       .from("machines")
@@ -407,7 +412,7 @@ export default function PackingDetailPage() {
         pod_products!inner(pod_product_name)
       `,
       )
-      .eq("dispatch_date", today)
+      .eq("dispatch_date", selectedDate)
       .eq("include", true)
       // PRD-028 dispatch-state-integrity 3c: skipped/cancelled lines must never
       // appear packable (Incident A: skipped OMDBB swap lines were packed).
@@ -433,7 +438,7 @@ export default function PackingDetailPage() {
         pod_products(pod_product_name)
       `,
       )
-      .eq("dispatch_date", today)
+      .eq("dispatch_date", selectedDate)
       .or("include.eq.false,skipped.eq.true,cancelled.eq.true")
       .eq("packed", false)
       .eq("machine_id", machineId)
@@ -1080,7 +1085,7 @@ export default function PackingDetailPage() {
       .select(
         "boonz_product_id, expiry_date, filled_quantity, quantity, machines(official_name)",
       )
-      .eq("dispatch_date", today)
+      .eq("dispatch_date", selectedDate)
       .eq("packed", false)
       .eq("picked_up", false)
       .eq("dispatched", false)
@@ -1232,7 +1237,7 @@ export default function PackingDetailPage() {
     }
 
     setLoading(false);
-  }, [machineId]);
+  }, [machineId, selectedDate]);
 
   useEffect(() => {
     fetchData();
@@ -1537,7 +1542,7 @@ export default function PackingDetailPage() {
         "confirm_machine_packed",
         {
           p_machine_name: machine.official_name,
-          p_dispatch_date: getDubaiDate(),
+          p_dispatch_date: selectedDate,
           p_reason: p_final
             ? "Packing finished by warehouse via packing screen"
             : "Partial packing saved via packing screen (come back to finish)",
@@ -1718,7 +1723,7 @@ export default function PackingDetailPage() {
     setSwapMsg(null);
     const supabase = createClient();
     const { error } = await supabase.rpc("swap_shelf_pod", {
-      p_plan_date: getDubaiDate(),
+      p_plan_date: selectedDate,
       p_machine_id: machineId,
       p_shelf_id: swapShelfId,
       p_new_pod_product_id: swapNewPodId,
@@ -1747,7 +1752,7 @@ export default function PackingDetailPage() {
     setDeclineMsg(null);
     const supabase = createClient();
     const { error } = await supabase.rpc("decline_swap_pair", {
-      p_plan_date: getDubaiDate(),
+      p_plan_date: selectedDate,
       p_machine_id: machineId,
       p_shelf_id: declineTarget.shelfId,
       p_dispatch_ids: declineTarget.dispatchIds,
@@ -1903,7 +1908,10 @@ export default function PackingDetailPage() {
   if (loading) {
     return (
       <>
-        <FieldHeader title="Machine Detail" />
+        <FieldHeader
+          title="Machine Detail"
+          backHref={`/field/packing${dateQuery}`}
+        />
         <div className="flex items-center justify-center p-8">
           <p className="text-neutral-500">Loading packing details…</p>
         </div>
@@ -2128,6 +2136,7 @@ export default function PackingDetailPage() {
     <div className="px-4 py-4 pb-40">
       <FieldHeader
         title="Machine Detail"
+        backHref={`/field/packing${dateQuery}`}
         rightAction={
           <Link
             href={`/field/shelf-view/${machineId}`}
@@ -2137,6 +2146,13 @@ export default function PackingDetailPage() {
           </Link>
         }
       />
+
+      {/* PRD-111: pack-ahead warning, same banner as the list screen. */}
+      {isTomorrow && (
+        <div className="mt-4">
+          <PackAheadBanner selectedDate={selectedDate} />
+        </div>
+      )}
 
       {machine && (
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -2182,8 +2198,8 @@ export default function PackingDetailPage() {
         <div className="mb-4 rounded-lg border border-neutral-300 bg-neutral-50 p-3 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
           <p className="font-medium">Already dispatched — repack disabled</p>
           <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-            One or more items for this machine have been dispatched today. Use
-            the Inventory tools to correct any errors.
+            One or more items for this machine have been dispatched on{" "}
+            {selectedDate}. Use the Inventory tools to correct any errors.
           </p>
         </div>
       )}
@@ -2192,7 +2208,9 @@ export default function PackingDetailPage() {
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="font-medium">Machine already packed today</p>
+              <p className="font-medium">
+                Machine already packed for {selectedDate}
+              </p>
               <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
                 Override clears the existing pack (returns stock to warehouse)
                 and starts fresh.
@@ -2207,10 +2225,9 @@ export default function PackingDetailPage() {
                 )
                   return;
                 const supabase = createClient();
-                const today = getDubaiDate();
                 const { data, error } = await supabase.rpc("repack_machine", {
                   p_machine_name: machine.official_name,
-                  p_dispatch_date: today,
+                  p_dispatch_date: selectedDate,
                   p_reason: "user_override_repack",
                 });
                 if (error) {
@@ -4421,7 +4438,7 @@ export default function PackingDetailPage() {
           machineId={machineId}
           machineName={machine?.official_name ?? "—"}
           initialShelfCode={addingToShelf}
-          dispatchDate={getDubaiDate()}
+          dispatchDate={selectedDate}
           editRole="warehouse_manager"
           flagAsDriverAddition
           revalidate={`/field/packing/${machineId}`}

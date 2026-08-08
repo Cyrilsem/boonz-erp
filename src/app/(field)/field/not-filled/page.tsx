@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../components/field-header";
+import { useFieldPackDate } from "../_lib/use-field-pack-date";
+import { PackAheadBanner, PackDateToggle } from "../_lib/pack-date-controls";
 
 // PRD-030 partial-pack / no-dark-stage: read-only fleet view of today's
 // not-filled lines from the canonical v_not_filled_lines view (Article 16).
@@ -28,20 +29,41 @@ interface MachineGroup {
   rows: NotFilledRow[];
 }
 
+// PRD-111: <Suspense> wrapper is mandatory once the page reads useSearchParams
+// (via useFieldPackDate) — the App Router fails the build without it.
 export default function NotFilledPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <FieldHeader title="Not Filled" />
+          <div className="flex items-center justify-center p-8">
+            <p className="text-neutral-500">Loading not-filled lines…</p>
+          </div>
+        </>
+      }
+    >
+      <NotFilledPageInner />
+    </Suspense>
+  );
+}
+
+function NotFilledPageInner() {
   const [groups, setGroups] = useState<MachineGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  // PRD-111: packers resolve not-filled lines here, so it follows the same date.
+  const { selectedDate, isTomorrow, setTomorrow } = useFieldPackDate();
 
   const fetchRows = useCallback(async () => {
+    setLoading(true);
     const supabase = createClient();
-    const today = getDubaiDate();
 
     const { data: rows } = await supabase
       .from("v_not_filled_lines")
       .select(
         "machine_id, machine_name, shelf_code, pod_product_name, boonz_product_name, planned_quantity, filled_quantity, shortfall, kind",
       )
-      .eq("dispatch_date", today)
+      .eq("dispatch_date", selectedDate)
       .limit(10000);
 
     if (!rows || rows.length === 0) {
@@ -75,7 +97,7 @@ export default function NotFilledPage() {
 
     setGroups(sorted);
     setLoading(false);
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     fetchRows();
@@ -93,36 +115,52 @@ export default function NotFilledPage() {
     };
   }, [fetchRows]);
 
+  const dateControls = (
+    <>
+      <PackDateToggle
+        isTomorrow={isTomorrow}
+        setTomorrow={setTomorrow}
+        selectedDate={selectedDate}
+      />
+      {isTomorrow && <PackAheadBanner selectedDate={selectedDate} />}
+    </>
+  );
+
   if (loading) {
     return (
-      <>
+      <div className="px-4 py-4">
         <FieldHeader title="Not Filled" />
+        {dateControls}
         <div className="flex items-center justify-center p-8">
           <p className="text-neutral-500">Loading not-filled lines…</p>
         </div>
-      </>
+      </div>
     );
   }
 
   if (groups.length === 0) {
     return (
-      <>
+      <div className="px-4 py-4">
         <FieldHeader title="Not Filled" />
+        {dateControls}
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-            Nothing unfilled today
+            {isTomorrow
+              ? "Nothing unfilled tomorrow"
+              : "Nothing unfilled today"}
           </p>
           <p className="mt-1 text-sm text-neutral-500">
-            Every planned line was packed in full.
+            Every planned line for {selectedDate} was packed in full.
           </p>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
     <div className="px-4 py-4">
       <FieldHeader title="Not Filled" />
+      {dateControls}
       <div className="space-y-4">
         {groups.map((g) => (
           <div

@@ -7,6 +7,12 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 interface FieldHeaderProps {
   title: string;
   rightAction?: React.ReactNode;
+  /**
+   * PRD-111: overrides the computed parent path. Used by the pack detail screen
+   * to carry ?d=tomorrow back to the packing list. Omit everywhere else — the
+   * pathname-derived default stays the rule.
+   */
+  backHref?: string;
 }
 
 function getBackPath(pathname: string): string | null {
@@ -41,9 +47,15 @@ function getBackPath(pathname: string): string | null {
   return "/field";
 }
 
-export function FieldHeader({ title, rightAction }: FieldHeaderProps) {
+export function FieldHeader({
+  title,
+  rightAction,
+  backHref,
+}: FieldHeaderProps) {
   const pathname = usePathname();
-  const backPath = getBackPath(pathname);
+  const computed = getBackPath(pathname);
+  // Never resurrect a back button on a page that has none (e.g. /field home).
+  const backPath = computed === null ? null : (backHref ?? computed);
 
   return (
     <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">

@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { getDubaiDate } from "@/lib/utils/date";
 import { machineShortId } from "@/lib/utils/machine-id";
 import { FieldHeader } from "../../components/field-header";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
 import Tour from "../../components/onboarding/tour";
+import { useFieldPackDate } from "../_lib/use-field-pack-date";
+import { PackAheadBanner, PackDateToggle } from "../_lib/pack-date-controls";
 
 interface PackingMachine {
   machine_id: string;
@@ -30,21 +31,44 @@ interface PackingMachine {
   is_partial: boolean;
 }
 
+// PRD-111: default export wraps the inner component in <Suspense> — required by
+// the App Router as soon as a client page reads useSearchParams (the pack-date
+// hook does), otherwise the static-render bailout check fails the build.
 export default function PackingPage() {
+  return (
+    <Suspense
+      fallback={
+        <>
+          <FieldHeader title="Packing" />
+          <div className="flex items-center justify-center p-8">
+            <p className="text-neutral-500">Loading packing list…</p>
+          </div>
+        </>
+      }
+    >
+      <PackingPageInner />
+    </Suspense>
+  );
+}
+
+function PackingPageInner() {
   const [machines, setMachines] = useState<PackingMachine[]>([]);
   const [loading, setLoading] = useState(true);
   const { showTour, tourSteps, completeTour } = usePageTour("packing");
+  // PRD-111: the packer-selected dispatch date (today by default, ?d=tomorrow).
+  const { selectedDate, isTomorrow, setTomorrow, dateQuery } =
+    useFieldPackDate();
 
   const fetchMachines = useCallback(async () => {
+    setLoading(true);
     const supabase = createClient();
-    const today = getDubaiDate();
 
     const { data: lines } = await supabase
       .from("refill_dispatching")
       .select(
         "dispatch_id, machine_id, packed, dispatched, skipped, cancelled, pack_outcome, not_filled_reason, machines!refill_dispatching_machine_id_fkey!inner(official_name, adyen_store_code)",
       )
-      .eq("dispatch_date", today)
+      .eq("dispatch_date", selectedDate)
       .eq("include", true);
 
     if (!lines || lines.length === 0) {
@@ -64,12 +88,12 @@ export default function PackingPage() {
         .select(
           "machine_id, packable_n, resolved_n, driver_action_n, not_filled_n, skipped_n, ready_to_pack_close",
         )
-        .eq("dispatch_date", today)
+        .eq("dispatch_date", selectedDate)
         .limit(10000),
       supabase
         .from("v_machine_pack_status")
         .select("machine_id, pack_confirmed")
-        .eq("dispatch_date", today)
+        .eq("dispatch_date", selectedDate)
         .limit(10000),
     ]);
     const confirmedByMachine = new Map<string, boolean>(
@@ -166,7 +190,7 @@ export default function PackingPage() {
     );
     setMachines(sorted);
     setLoading(false);
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => {
     fetchMachines();
@@ -188,33 +212,55 @@ export default function PackingPage() {
     };
   }, [fetchMachines]);
 
+  // PRD-111: the date control stays mounted in every state — a packer who lands
+  // on an empty Tomorrow must be able to flip back without hitting the back button.
+  const dateControls = (
+    <>
+      <PackDateToggle
+        isTomorrow={isTomorrow}
+        setTomorrow={setTomorrow}
+        selectedDate={selectedDate}
+      />
+      {isTomorrow && <PackAheadBanner selectedDate={selectedDate} />}
+    </>
+  );
+
   if (loading) {
     return (
-      <>
+      <div className="px-4 py-4">
         <FieldHeader title="Packing" />
+        {dateControls}
         <div className="flex items-center justify-center p-8">
           <p className="text-neutral-500">Loading packing list…</p>
         </div>
-      </>
+      </div>
     );
   }
 
   if (machines.length === 0) {
     return (
-      <>
+      <div className="px-4 py-4">
         <FieldHeader title="Packing" />
+        {dateControls}
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <p className="text-lg font-medium text-neutral-600 dark:text-neutral-400">
-            No machines to pack today
+            {isTomorrow
+              ? "No machines to pack tomorrow"
+              : "No machines to pack today"}
+          </p>
+          {/* PRD-111 guardrail: never silently fall back to today's data. */}
+          <p className="mt-1 text-sm text-neutral-500">
+            No plan pushed for {selectedDate} yet
           </p>
         </div>
-      </>
+      </div>
     );
   }
 
   return (
     <div className="px-4 py-4">
       <FieldHeader title="Packing" />
+      {dateControls}
       {showTour && tourSteps.length > 0 && (
         <Tour
           steps={tourSteps}
@@ -230,7 +276,7 @@ export default function PackingPage() {
           return (
             <li key={machine.machine_id}>
               <Link
-                href={`/field/packing/${machine.machine_id}`}
+                href={`/field/packing/${machine.machine_id}${dateQuery}`}
                 className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
               >
                 <div className="flex-1 min-w-0">
