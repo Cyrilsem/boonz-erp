@@ -35302,3 +35302,41 @@ under test; its movement IS the proof).
 - ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
   ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278 and S-280 are CLOSED
   (recorded).** ⛔ **S-265, S-266 and S-279 are OPEN.** New findings resume at **S-281**.
+
+### ⏸️ [leg 149 · ADDENDUM] **D-27 SCOPED FROM THE CATALOGUE AND DELIBERATELY NOT STARTED** (RELAY: never begin a unit you cannot finish)
+
+The S-280 lesson applied immediately to the next CONVERGE unit: the site list is **derived**, not read.
+`prosrc ~* 'COALESCE\s*\(\s*[a-z_.]*velocity_instock\s*,\s*[a-z_.]*velocity_raw'` over every proc and
+view in `public` returns **exactly two objects** — `list_m2m_donors_v3` (**42198fee**, 1 061 chars) and
+`resolve_supply_ladder_v3` (**920b32d0**, 16 996). Twelve further objects merely mention
+`velocity_instock` and are **not** sites. ⭐ The whole donor rule is 1 061 characters; D-27 is a far
+smaller unit than D-28 was.
+
+**⛔⛔ AND THE RULING'S PREMISE NEEDS SPLITTING — THE TWO SITES DO NOT DISAGREE.** Read side by side,
+both compute the donor surplus **identically**:
+`GREATEST(s.current_stock - GREATEST(COALESCE(s.velocity_instock, s.velocity_raw, 0) * 7, 5), 0)`
+over `public.v_shelf_state`, with the same qualifying predicate. `list_m2m_donors_v3` is a **verbatim**
+mirror of the ladder's rung-4 block, not a divergent one — which is exactly why Cody tolerated it while
+fixture 45 assertions 4–5 pinned them together. **So D-27 is two separable moves, and only the second
+is the one the ruling warns about:**
+
+- **(a) DE-DUPLICATE** the donor-surplus rule into one object both read. **Behaviour-invariant by
+  construction** — provable with this leg's md5 pattern (capture the whole donor set before, diff
+  after), no policy content at all.
+- **(b) CONVERGE THE VELOCITY TERM** from `COALESCE(velocity_instock, velocity_raw, 0)` onto the
+  registered canonical object. ⛔ **This one really does change which machines qualify as donors**,
+  because per S-73 that COALESCE resolves to `velocity_raw` in practice. This is where the ruling's
+  "before/after diff of donor-set changes logged" belongs, and it needs the Article-16 justification.
+
+**⛔ SEQUENCING LANDMINE THE NEXT LEG MUST NOT WALK INTO:** `resolve_supply_ladder_v3` is **also
+D-37's target** ("build param `ladder_prefer_own_stock_transfer` and DEFAULT TRUE" is an engine change
+to this exact body). Two answered decisions rewrite the same 16 996-character function. ⛔ **Do them in
+one order or the other, never concurrently, and re-read `md5(prosrc)` between them** — leg 145's
+`swap_v3`/engine collision is the precedent. Recommended: **D-27(a) first** (small, invariant, and it
+shrinks the body D-37 has to edit), then D-37, then D-27(b) with its donor-set diff.
+
+⚠️ **ONE THING TO VERIFY, NOT ASSUME:** `v_shelf_state` itself exposes `velocity_instock`, so the
+canonical velocity object may already sit upstream of both sites. Establish what
+`v_shelf_state.velocity_instock` is derived from **before** designing (b) — if it is already the
+canonical object, (b) collapses to deleting a defensive `COALESCE` and the "donor-set change" may be
+smaller than the ruling assumes. ⛔ Measure it; do not reason about it from this paragraph.
