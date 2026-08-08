@@ -64,6 +64,8 @@ interface PackLine {
   /** PRD-030/056 canonical pack outcome: 'packed' | 'partial' | 'not_filled' | 'packed_transferred' | null (pending) */
   pack_outcome:
     "packed" | "partial" | "not_filled" | "packed_transferred" | null;
+  /** PRD-112: original_boonz_product_id is set, i.e. the driver changed the product on this line */
+  substituted: boolean;
   /** DB dispatched boolean — true once driver has dispatched. Hard lock on Override & re-pack. */
   dispatched: boolean;
   fifo_expiry: string | null;
@@ -405,6 +407,7 @@ export default function PackingDetailPage() {
         from_warehouse_id,
         action,
         comment,
+        original_boonz_product_id,
         is_m2m,
         m2m_transfer_id,
         m2m_partner_id,
@@ -854,6 +857,10 @@ export default function PackingDetailPage() {
                 : null,
         packed: isPacked,
         pack_outcome: packOutcome,
+        // PRD-112: the line carries a different product than the plan wrote.
+        substituted:
+          ((line as Record<string, unknown>).original_boonz_product_id as
+            string | null) != null,
         dispatched: !!line.dispatched,
         fifo_expiry: fifo.primary_expiry,
         expiry_date: (line.expiry_date as string | null) ?? null,

@@ -2276,6 +2276,33 @@ writer stamps correctly, so the trigger works the day it is installed. Eighth of
 **Evidence: fixture 58 = 42/42, ~350 ms, green across four consecutive committed runs.**
 **Not scheduled.** Neither miner has a cron job yet.
 
+### ⏸️ D-40 (2026-08-08, leg 164) — `active_intent_count` FINALLY HAS A DIAL, AND THE MINER STILL MAY NOT USE IT
+
+`picker_feature_param_map_v3.active_intent_count` no longer reads `target_param NULL / refused for
+want of a dial`. It maps to the new **eighth** picker dial `w_intents` through `s_intents`, with
+`param_rewards = 'low'` and the measured `monotonicity = -1.000` **written from a live `corr()`, not
+typed** — `fill_pct` sits on this table at `-0.458` because somebody measured it, and a hand-entered
+`-1.000` would have been the one number on the row nobody had checked.
+
+⛔⛔ **`is_active` STAYS FALSE, AND THE BLOCKER IS A NUMBER RATHER THAN EVIDENCE.** CS ruled the
+monotonicity probe must pass "before the miner may map to it". It passes on both halves — the s_term
+tracks the feature at `corr = -1.000`, and turning the dial moves `p_score` by exactly
+`w * s_intents` (golden fixture 78, both probes inside rolled-back subtransactions). The miner is
+still refused, because **this function proposes MULTIPLICATIVELY**: `v_prop := v_cur * (1 ± delta/100)`
+is `0` for every delta at `v_cur = 0`, so activation buys a `round_to_equal` refusal — a refusal
+naming the wrong cause, which a reader would take to mean "the evidence was too thin". Fixture 78
+seq 32 pins that arithmetic so nobody flips `is_active` without meeting it first.
+
+⚠️ **The evidence is thin in a way the correlation hides, and it is recorded rather than smoothed:**
+`active_intent_count` has **two levels on the live fleet** (28 machines at 0, 3 at 1). `corr` is
+defined and lands at exactly `-1.000`, which reads as the strongest mapping in the table while
+resting on three machines. Fixture 78 seq 1 is a PREMISE assertion on the level count — at one level
+`corr` is NULL and every monotonicity claim in that fixture goes vacuously green (S-289).
+
+**THE CS ASK (one line):** a non-zero starting value for `w_intents`. At `0.30` a machine with
+nothing open on it gains a flat **+30** on a scale whose P1 gate is **50** — that is the size of the
+decision, and it is why it is a ruling and not a default.
+
 ### `g12_verdict_v3(p_accepted int, p_decided int, p_min_decided int, p_bar_pct numeric) -> text`
 
 **Read-only helper** (PRD-110 P4.3c, leg 88, `20260801042730`). `IMMUTABLE`, **SECURITY INVOKER**
