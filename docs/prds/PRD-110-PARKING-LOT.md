@@ -13020,3 +13020,109 @@ flight for the whole leg and **nothing may land inside one**.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 173 (2026-08-08) - **THE TRIPLE WAS RUNNING TWICE.** S-342 EXECUTED and DR-6 BUILT. ⛔⛔ **S-343/S-344: leg 171 left a whole chain alive that leg 172's `ps` recipe could not see, and two sweeps corrupted each other through one shared temp file.**
+
+### ⛔⛔ S-343 (NEW, **CLOSED as a rule + fixed in the tooling**) - `/tmp/prd110_sql.sh` HAS A FIXED PAYLOAD PATH
+
+Every caller of the shim writes `/tmp/prd110_payload.json` and then `curl --data-binary @` that
+same path. **Two concurrent callers therefore send each other's SQL.** The observable signatures:
+
+- a fixture that never runs (its POST carried someone else's query) → **missing row** in `golden.runs`
+- a fixture that runs **twice concurrently** (both POSTs carried the same query) → **duplicate row**
+- a probe that returns `{"message":"query: Invalid input: expected string, received undefined"}`
+  → it read the file mid-write
+
+⭐ **The S-340 guard catches every one of these**, which is why it is worth more than it looked:
+requiring `count(DISTINCT fixture_id) = 71` **AND** `count(*) = 71` detects both the gap and the
+duplicate. A pass with `rows > fixtures` is contaminated even if `n_fail = 0`.
+⛔ **FIX SHIPPED:** `/tmp/prd110_sql_leg173.sh` is the shim with a **per-PID payload path**
+(`/tmp/prd110_payload_leg173_$$.json`), and `/tmp/prd110_leg173_sweep.sh` uses it. **Use these, not
+the leg-162 pair, for anything that may overlap another run.**
+
+### ⛔⛔ S-344 (NEW, **CLOSED as a rule**) - S-241's NARROWED `ps` MATCHES THE SWEEP, NOT THE DRIVER
+
+Leg 172 ran `ps` narrowed to `prd110_leg162_sweep`, found leg 171's pass A, and correctly attended
+it - but **leg 171 had also left `/tmp/leg171_s7_triple.sh` (PID 23481) alive**, a driver looping
+`for R in A B C`. That name contains neither `sweep` nor `leg162`, so the narrowed probe could not
+see it. Leg 172 then chained **its own** B and C behind the same pass A.
+
+**Result: at 22:11:12Z two pass-B sweeps started two seconds apart** over the identical 71 ids -
+`leg171 S7 B` (PID 25674) and `leg172 S7 B` - both POSTing through the one payload file. Fixture 2
+ran **twice, 0.8 s apart, overlapping**; one copy came back `54/0` and the other `54/1`.
+
+⛔ **RULE: before adopting an inherited run, `ps` for the DRIVER as well as the worker.** A bare
+`ps -eo pid,ppid,args | grep -Ei 'prd110|leg1[0-9][0-9]|sweep|chain|triple'` finds both, and the
+`ppid` column is what reveals the topology - 25674's parent **was** 23481. ⭐ **The generalisation:
+a narrowed probe is only as good as the names it was narrowed to, and the process that matters most
+is usually the one that spawns, not the one that works.**
+
+### ⛔ VOID RUNS - do not read these as evidence, do not delete them
+
+`golden.runs` tags **`leg171 S7 B`** and **`leg172 S7 B`** are the two overlapping sweeps and are
+**VOID**. Per leg 131's precedent on the superseded S7 rows: retained, not deleted, not read as a
+standing red. **`leg171 S7 A`** completed **71 rows / 71 distinct / 2660 pass / 0 fail** and is
+provably uncontaminated by the S-343 signatures - but it was **not** re-used, because a triple
+should be produced by one driver, one script and one topology. All three passes were re-run.
+
+### ✅ S-342 - EXECUTED AND CLOSED (the only migration this leg)
+
+`20260809060000_prd110_leg173_s342_flip_warning_stale_dr1b`. `md5(prosrc)` **`ba5dc8a5…` →
+`c75dde76…`**, pre-image guard + post-image verify in the same migration. Fixtures **47/74/75/77**
+re-fired **green** (56/0, 53/0, 50/0, 41/0). RISK 104 reconciled **398 = 398**, both set
+differences empty.
+⭐ **Cody caught a defect in review that the fixtures could not have:** the body ended `$function$`
+with **no terminator**, because `pg_get_functiondef` emits none - the post-image `DO` block would
+have been parsed into the `CREATE`. ⛔ **Any migration built by round-tripping `pg_get_functiondef`
+needs the semicolon added by hand.**
+⭐ **The truth of the new string was verified, not assumed:** `_build_draft_core_v3` calls
+`cutover_block_reason_v3` at 4720 with **no `RAISE` in the following 600 chars**.
+
+### ✅ DR-6 - BUILT (commit `921ee46`). **D-19's blocker is now a deploy, not a build.**
+
+⛔ **DR-6 was deferred for ~15 legs as "FE-deploy work this loop cannot perform" - a conflation of
+BUILDING with DEPLOYING.** CS closed it as "STAX FE UNIT AUTHORIZED (p_force passthrough + refusal
+affordance). **On deploy**, execute D-19." Building it was always this loop's work.
+⛔ **A live latent defect fell out of verifying the contract:** the FE read
+`preflight_violation_count` on the **refusal** path, but that key belongs to the **success** path -
+the refusal returns `violation_count`. **Every refusal would have reported "0 invariant
+violation(s)".** Dormant only because the refusal branch is unreachable in `warn` mode; **it goes
+live the instant D-19 flips.** The two return paths of one RPC do not share a vocabulary.
+⭐ **D-19 deliberately NOT flipped** - `preflight_enforcement` stays `warn`. Flipping before this FE
+is deployed is exactly the stranding the ruling guards against.
+
+### ⚠️ S-345 (NEW) - `pod_refills` IS NOT A LAW-4 SENSOR WHILE A SWEEP RUNS
+
+The pointer banks `pod_refills 4,177` as an "engine wrote nothing live" invariant. It read **4,178**
+this leg. **Not a violation:** the new row is `plan_date` **2030-04-16**, written by a fixture at
+22:10:16Z. ⛔ **Use a `plan_date < '2027-01-01'` filter (S-244) before reading this count as
+evidence, or read it only when no sweep is in flight.**
+
+### ⚠️ LAW 12 - a precision correction to the inherited pointer
+
+Leg 170/172 recorded "**zero** `operator_status='pending'`". Fleet-wide under the S-244 filter there
+are **108 pending rows** - **95 on 2026-06-26 and 13 on 2026-06-28**, generated in June and never
+touched. The claim is true for the dates this sprint plans (2026-08-08 **117**, 2026-08-09 **97**,
+2026-08-10 absent, all `approved`) and false as stated globally. **Nothing this leg or the sweeps
+created them.** LAW 12 is satisfied; the wording was not.
+
+### ⏸️ THE REMAINING TIER-2 UNITS - **STILL TWO, and BOTH are now CS-side, not loop-side**
+
+- **D-39** - blocked on the **S-330** fork (CS ruling).
+- **D-19** - ⭐ **no longer blocked on a build.** DR-6 ships in `921ee46`; it needs a **Vercel deploy**
+  (CS), and D-19's flip follows the deploy per the ruling.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FOURTEEN; leg 173 raised NONE and CLOSED one (S-342).**
+
+S-251 · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** ·
+**S-320** · **S-328** · **S-330** · **S-333** · **S-335** · **S-341** · 🆕 **DR-6 deploy** (replaces
+S-342 on the list: the falsehood is fixed, the deploy is the remaining CS action).
+⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-29, D-31, D-32, D-33, D-34, D-37, D-40, D-43, D-44,
+D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, **DR-6 (built)**, DR-7, DR-8, DR-10.
+⚠️ **S-339 OPEN** · **S-313 OPEN** (cosmetic twin of S-342, byte-pinned by fixture 74 seq 65/66 -
+deliberately not bundled). New findings resume at **S-346**.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
