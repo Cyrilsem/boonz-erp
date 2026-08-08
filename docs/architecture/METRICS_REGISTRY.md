@@ -1238,6 +1238,16 @@ same rule through its machine-grain sibling `is_cluster_authoritative_v3(uuid)`.
 restate the rule as `venue_group = cluster_key`** — the day a second place spells it is the day the
 two can disagree about who planned VOX, and the symptom is a machine planned twice or not at all.
 
+⭐ **THIRD CONSUMER, added by D-29 (leg 163): `record_blocked_demand_v3`.** The rule now decides
+which engine's gaps reach the procurement ledger, at the same machine grain and through the same
+sibling — `is_cluster_authoritative_v3(g.machine_id) = (p_source = 'stitch')`, at three sites.
+⛔ **This is registered here so the coupling is checked in BOTH directions.** A change to the
+authority rule now moves who plans a machine _and_ who buys for it; a change to the ledger's
+ownership predicate must be checked against `v_add_engine_scope_v3`, or a cluster can end up planned
+by v3 while v19 is still buying its shortfalls. Fixture 77 is the pin, and the function's own
+post-image guard **refuses any body that names `engine_cutover_authority_v3` directly** — including
+in a comment, which is the one form of the check no alias or CTE can slip past.
+
 ⭐ **`LEFT JOIN` + `CASE`, never `JOIN` + `=`.** A machine whose `venue_group` carries no row in
 `engine_cutover_authority_v3` — a venue group added between flips — must FALL BACK to `v19`. An
 inner join drops it from BOTH engines and it goes silently unplanned: the LAW 5 silent-qty-0 class,
@@ -1246,3 +1256,24 @@ and that state is spelled `v19`.
 
 ⚠️ **This is a scope assignment, not a quality measure.** It says nothing about whether v3 _should_
 own a cluster — that is `v_cutover_readiness_v3` (above), and it remains the only gate.
+
+---
+
+## PRD-110 D-33 (2026-08-08, relay leg 162) - which shadow run is the plan of record
+
+| Metric                                                                                        | Canonical object                                                                | Status                                                            | Notes                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Plan of record for a `plan_date`** (which `pod_refills_shadow` run a consumer must consume) | `stitch_v3`'s NULL-source branch, reported as `source_selection` on the receipt | ✅ LIVE (`20260809020500_prd110_d33_stitch_prefers_composed_run`) | Four named outcomes: `composed_latest` · `stale_composition` (REFUSE, names both runs) · `uncomposed_edits` (REFUSE, counts them) · `uncomposed_fallback` · plus `explicit` when the caller passed a run. Pinned by golden fixture **76** (RED 20/9 → GREEN 29/0). |
+
+⛔ **THE RULE NOW LIVES IN TWO BODIES AND THAT IS THE THING TO WATCH.** `compose_plan_with_edits_v3`
+carries the mirror image - it refuses to compose over a `compose_v3` run - and `stitch_v3` carries
+the preference for one. They are complements, not duplicates, so Article 16 does not demand a single
+object today. It does demand that a change to either be checked against the other: the two halves of
+this seam were built with **opposite levels of care** for four months (compose had the guard from day
+one; stitch resolved by `(produced_at DESC, run_id DESC)` across every tag, which on a same-
+transaction tie collapses onto a random v4 uuid), and nobody noticed because no fixture drove the
+default path. Fixture 76 is the pin that makes a future divergence visible.
+
+⭐ **The explicit-source branch is deliberately exempt.** `run_pipeline_v3` passes the run it planned
+and re-asserts that stitch consumed it; a caller naming a raw base still gets the raw base. The
+canonicalisation is of the DEFAULT, which is the path a human invokes by hand.

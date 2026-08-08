@@ -12434,3 +12434,250 @@ read this function's `prosrc` and it was banked one leg earlier. One-line fix, o
 own re-fire.
 
 ### ⏸️ OPEN CS DECISIONS after this leg — **SEVEN ASKS.** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · 🆕 **S-312** (v19 swap lines on a v3-flipped cluster). The answered-unexecuted list is **unchanged at SIX**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-33, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, **DR-1b**, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **DR-1b is now EXECUTED and NO work item replaces it — the queue is empty.** What remains for DONE-2 is PROOF, not build: the S7 triple over the post-DR-1b engine, and the time-gated cron-45 verification. ⚠️ **S-314, S-315, S-316 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, 🆕 S-312 and 🆕 S-313 remain OPEN.** New findings resume at **S-317**.
+
+## ⭐⭐ leg 162 (2026-08-08) - **D-33 EXECUTED, and STEP R found a crashed leg's three unapplied migrations.** S-317, S-318 raised and closed. S-319 raised OPEN. No flag flipped, no dial changed.
+
+### ⛔⛔ S-319 (NEW, **OPEN**) - **"THE QUEUE IS EMPTY" WAS WRONG, AND IT IS THE SECOND TIME A LEG-CLOSING LINE HAS OVERSTATED**
+
+Leg 161's closing line reads: _"DR-1b is now EXECUTED and NO work item replaces it - the queue is
+empty. What remains for DONE-2 is PROOF, not build."_ ⛔ **False.** It is true of the **DR register**
+only. The very same paragraph, four sentences earlier, states the answered-unexecuted list is
+**SIX: D-19, D-29, D-33, D-34, D-39, D-40** - and GOAL COMMAND 2 puts those in **Tier 2**, above the
+DR items in priority, as "one unit each, per their parking-lot rulings". Five of the six are build
+work this loop can perform.
+
+⭐ **The tell was on disk, not in the prose.** RISK 104 reconciled **380 files vs 377 DB rows**. The
+three extras were `20260809015000_prd110_leg162_fixture64_rebaseline_dr1b`,
+`20260809020000_prd110_d33_golden_fixture_76` and `20260809020500_prd110_d33_stitch_prefers_composed_run`,
+written at 17:50-17:56 UTC by a **leg-162 session that died before applying any of them** and left no
+log entry. That session had already read the queue correctly and started D-33. ⛔ **A leg-closing
+tally is a claim; RISK 104 is a measurement. When they disagree, the measurement wins.**
+
+### ✅ D-33 EXECUTED - the default source pick was a coin flip, not a preference
+
+`compose_plan_with_edits_v3` has always refused to compose over a `compose_v3` run. `stitch_v3`
+picked its default source with **no tag preference at all**: `ORDER BY produced_at DESC, run_id DESC`
+across every tag. A composition and the base it was composed from are written in **one transaction**,
+so they share `produced_at` exactly and the tiebreak falls to a **random v4 uuid**. When the coin
+landed on the base, every human edit was dropped and the receipt still said `ok`. ⭐ **Fixture 51
+section (2) diagnosed this in writing months ago** ("that is the coin flip, forced to its wrong
+face") and steered around it with a crafted `run_id` instead of fixing it.
+
+Cody ⚠️ approve-with-revisions (3 registry corrections, all landed) → fixture 76 **RED 20/9 →
+GREEN 29/0**. Four named outcomes on the receipt's new `source_selection` field: `composed_latest` ·
+`stale_composition` (REFUSE, names both runs) · `uncomposed_edits` (REFUSE, counts them) ·
+`uncomposed_fallback`. The explicit branch is byte-untouched: **a caller is allowed to mean what
+they said.** `stitch_v3` md5 `a8753091` → `be1df694`; `pronargdefaults`, `SECURITY DEFINER`,
+`search_path` and the ACL triple all asserted unchanged.
+
+⛔ **BLAST RADIUS WAS SURVEYED, NOT ASSUMED, AND ONE CLAIM IN THE INHERITED FILE WAS WRONG.** The file
+said `run_pipeline_v3` is "the only in-DB caller". `pg_proc` returns **two** matches; the second,
+`_blocked_demand_gaps_for_source_v3`, is a **substring false positive**
+(`_blocked_demand_gaps_stitch_v3(p_plan_date)`). Verified: fixtures 44/46/47 all pass an explicit
+source, no cron calls stitch at all, no FE or edge-function caller exists, and all **57** rows in
+`v_plan_edits_active_v3` sit on 2030 fixture dates with **zero** on real dates - so the new
+`uncomposed_edits` refusal cannot fire in production today. Blast fire 1/11/44/46/47/50/51/54/64:
+**9 of 9 green.**
+
+### ⛔⛔ S-317 (NEW, CLOSED) - **`golden.fixtures.plan_date` IS NOT THE DATE THE SCENARIO RUNS ON**
+
+`golden.render` substitutes `{{plan_date}}` with `quote_literal((DATE '2030-01-01' + p_fixture_id))`.
+The date is **allocated from the fixture id**; the `plan_date` COLUMN is never read by the harness.
+**22 of the enabled fixtures already carry a `plan_date` column that disagrees with the date their
+scenario actually uses.** Fixture 76 declared `2030-03-11`, rendered `2030-03-18`, and mixed the two:
+its base run landed on 03-18 while `compose_plan_with_edits_v3` and every stitch probe looked at
+03-11 and found nothing. First RED came back 15/14 with **five of the failures being PREMISE
+assertions**, which makes a red mean nothing. ⭐ **The fix was to stop hand-writing the primary date
+at all** (`{{plan_date}}` everywhere, so the allocator is its single source) and to move the three
+auxiliary dates **off the allocator's range entirely** - `2030-01-01 + 112` = `2030-04-23` is the
+furthest any fixture id reaches today, and `2030-03-12/13/14` sat one slot from a future fixture
+77/78/79. They are now `2030-07-02/03/04`. Second RED: **20/9, every premise green.**
+
+### ⛔ S-318 (NEW, CLOSED) - `golden.fixtures.baseline_status` has a CHECK and `red_before_fix` is not in it
+
+The allowed set is `{failing_expected, passing, unknown}`. `red_before_fix` reads like the obvious
+value for a LAW-1 red baseline and **aborts the whole INSERT**. The red-first state is spelled
+`failing_expected`. (15 enabled fixtures carry NULL here, so the column is not load-bearing - but the
+CHECK is.)
+
+### ⏸️ THE FOUR REMAINING TIER-2 UNITS - **SPECIFIED THIS LEG, NOT BUILT.** Each starts from an answer, not a question.
+
+- **D-29** (_"YES AT CUTOVER. Nightly runner promotes stitch blocked demand for v3-authoritative
+  clusters; engine_add rows suppressed there. No double counting."_) ⭐ **DR-1b unblocked this and the
+  parking lot has not caught up.** The whole rule is **one predicate**, added at the **three** sites in
+  `record_blocked_demand_v3` that call `_blocked_demand_gaps_for_source_v3` (the counters, the
+  INSERT, the DELETE):
+  `AND public.is_cluster_authoritative_v3(g.machine_id) = (p_source = 'stitch')`
+  ⭐ It reads the **machine-grain canonical sibling** rather than restating the rule, so Article 16
+  holds. ⛔ **The DELETE needs care and is where the design decision lives:** scoping it means a flip
+  DELETES a flipped cluster's open `engine_add` rows from a **live procurement worklist**. That is the
+  dedup CS asked for, but it must not be silent. Split the receipt counter -
+  `was_cutover := (is_cluster_authoritative_v3(bd.machine_id) <> (p_source='stitch'))` - into
+  `rows_closed_stale` and a new `rows_closed_by_cutover`, so a flip's effect on procurement is
+  auditable. **Inert at 0 authoritative clusters, which is the flag-off proof.** The fixture must
+  flip a cluster: **copy fixture 75's device verbatim** (plant `engine_forecast_error_v3` rows on a
+  2026 date to satisfy the gate, `flip_cluster_to_v3_v3('NOVO', ...)`, revert, then prove 0
+  authoritative and 0 residue). Write on a 2030 `plan_date`: `v_blocked_demand_open` filters
+  `plan_date < '2030-01-01'`, which is what keeps the live worklist untouched (fixture 47 seq 25).
+- **D-34** (_"nightly shadow runner → `run_pipeline_v3` with `p_promote_blocked=>true`, after S-112 is
+  fixed"_) ⛔⛔ **DO NOT DO THIS BEFORE THE cron-45 VERIFICATION LANDS.** Cron 45 (`21:22 UTC`,
+  `run_nightly_shadow_v3`) has an **owed acceptance test** carried since leg 159, and D-34 rewrites
+  exactly that function. Changing the runner the same evening its owed verification runs would make a
+  green unattributable and a red unbisectable. **Order: verify cron 45 first, then D-34.** It is also
+  a production cron behaviour change, so LAW 12 wants it deliberate. D-34 depends on D-29 for its
+  scoping, so D-29 first regardless.
+- **D-39** (_"CAPTURE EDITS AT SKU GRAIN (option a); Dara designs; the 88 blocked clusters are the
+  acceptance measure"_) The largest of the four and the only one that genuinely needs a **Dara design
+  document** before any SQL. Until it lands the miner's refusal behaviour stands: **never invent a SKU.**
+- **D-40** (_"ADD THE `w_intents` DIAL as its own Dara/Cody-reviewed unit, with a monotonicity probe
+  proving dial-controls-feature before the miner may map to it"_) ⛔ **The CS ruling overrides the
+  recommendation on file** (the leg-86 entry recommends (b) then (c); CS chose (a)). Two facts the
+  next leg should not have to rediscover: `pick_urgency_params` has **no** `w_intents` column today
+  (the seven dials are `w_runout`, `w_capacity`, `w_expiry`, `w_stale`, `w_empty`, `w_lowfill`,
+  `w_holes`), and the weighted-sum expression
+  `(p.w_runout * ms.s_runout + ... + p.w_holes * ms.s_holes)` occurs **SIX times** in
+  `v_machine_priority` - P1 gate, P2 gate, `p_score`, the `high_urgency` reason branch, `urgency`, and
+  the reason cascade. **Adding a term means editing all six or the view disagrees with itself.**
+  ⭐ **Ship the dial at `0`.** `w_intents = 0` makes the new term arithmetically inert and the live
+  score byte-identical, which is the only way to touch the canonical priority view inside PRD-110's
+  shadow discipline. The monotonicity probe then varies the dial inside a rolled-back subtransaction
+  and proves correlation, exactly as the `fill_pct → w_lowfill` probe did when it caught **corr
+  -0.042** and refused the mapping.
+
+### ⛔⛔⛔ S-320 (NEW, **OPEN**, and it outranks everything else on this list) - **v3 HAS PLANNED EXACTLY ONE REAL DATE, EVER**
+
+`pod_refills_shadow` across 2026-07-28..2026-08-10 returns **one** group:
+`2026-08-04 · engine_add_pod_v3 · 112 rows · 1 run`. Six consecutive cron-45 nights produced a plan
+**once**: `blocked_gate0` (×3, "N machines picked but unconfirmed"), `skipped_calendar` (×1, no
+picked/cs_added at 21:22), `ok` with **0 rows** (×1), `ok` with 112 rows (×1).
+
+⭐ **Every refusal is CORRECT** - LAW 11 makes Gate 0 manual-only with no auto-fallback. The runner
+is not broken; **it is starving**, because it fires at 21:22 UTC and depends on a human picking
+workflow that on most nights completes afterwards.
+
+⛔ **AND THE GATE'S REFUSAL CODES HAVE BEEN MISREAD.** `v3_horizon_not_elapsed` (AMAZON, INDEPENDENT,
+NOVO, OHMYDESK) has been taken to mean "wait until 2026-08-11". It means **one date's evidence, not
+yet settled**: all four carry `n_v3_dates = 1`, `n_settled_v3 = 0`, and that date is 2026-08-04 for
+every one of them. The other six - including **VOX, 11 machines, the largest cluster in the fleet** -
+read `no_v3_measurement` and have never been planned by v3 at all.
+
+⭐⭐ **THE CHAIN:** cron 45 clears Gate 0 → v3 writes shadow rows → `engine_forecast_error_v3` accrues
+a v3 series → the 7-day horizon elapses → the gate clears → CS flips. **At one v3 date in six
+nights, ~Aug 17 is not reachable for most of the fleet.** ⛔ **This is the third time DR-1's blocker
+has been recorded wrong** (leg 160: "WMAPE settles 08-11"; leg 161: "the ADD engines are
+whole-plan-date scoped"). Both earlier corrections were about CAPABILITY. This one is about
+EVIDENCE, and no migration fixes it.
+
+**THE ASK (one line):** does CS want cron 45 moved later (or Gate 0 confirmation moved earlier) so
+v3 accrues a series nightly - because without that change the per-cluster cutover DR-1/DR-1b built
+has nothing to authorise a flip with.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **EIGHT ASKS; leg 162 raised ONE (S-320).** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** (v19 swap lines on a v3-flipped cluster) · 🆕 **S-320** (v3 is not accruing evidence; ~Aug 17 is not reachable without a scheduling change). The answered-unexecuted list drops from six to **FIVE**: D-19 (blocked on DR-6, FE-deploy work this loop cannot perform), D-29, D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), D-31, D-32, **D-33**, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **The DR register is empty; TIER 2 IS NOT (S-319).** ⚠️ **S-317 and S-318 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, 🆕 S-319 and 🆕 S-320 remain OPEN.** New findings resume at **S-321**. ⭐ **Leg 162 flipped NO flag and changed NO dial. It DID change an engine body - `stitch_v3` - under Cody, fixture-first, with pre- and post-image md5 guards.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
+
+## ⭐⭐ leg 163 (2026-08-08) - **D-29 EXECUTED.** S-321..S-325 raised; S-321..S-324 closed same leg, S-325 OPEN. No flag flipped, no dial changed.
+
+### ✅ D-29 CLOSED BY EXECUTION - one owner per cluster, and the DELETE was the design decision
+
+One predicate at the three sites calling `_blocked_demand_gaps_for_source_v3` -
+`is_cluster_authoritative_v3(g.machine_id) = (p_source = 'stitch')` - so `engine_add` owns the
+clusters still on v19 and `stitch` owns the clusters flipped to v3. Read from the machine-grain
+canonical sibling, never restated (Article 16).
+
+⛔ **The DELETE, not the read, is where the decision lived.** Scoping it means a flip **deletes that
+cluster's open `engine_add` rows from a live procurement worklist**. The receipt was split rather
+than widened: `rows_closed_stale` keeps its meaning, `rows_closed_by_cutover` and
+`gaps_suppressed_by_cutover` are new. `gaps_found = 0` with suppression 0 means "no gaps"; with
+suppression N it means "another engine owns them" - **opposite actions, and indistinguishable
+without the counter.**
+
+Fixture 77 **RED 27/14 → GREEN 41/0** · fixture 47 **RED 44/6 → GREEN 56/0** · blast
+1/5/11/44/46/50/51/54/64/74/75/76/77/105 **14 of 14 green, 534 assertions**.
+Migrations `20260809030000`/`030500`/`031000`/`032000`. md5 `f950b17f` → `9a1c38c3`.
+
+### ⛔⛔ S-321 (NEW, CLOSED) - **THE FINAL PROOF WAS RUNNING BEFORE THE WORK IT PROVES**
+
+Leg 162 left an **orphaned S7 triple** running (PID 7774, reparented to init, no RESUME POINTER in
+the log) with **four Tier-2 units still unbuilt**. S7 asks "are three consecutive sweeps identical",
+i.e. **is the suite flaky**. An engine change between sweeps makes them differ for a reason that is
+not flakiness, and the verdict then cannot distinguish the change from the flake it exists to catch.
+
+⭐ **The triple LOOP was killed and sweep A was deliberately left alive** - killing a bash `for` loop
+does not kill the child it already spawned, so B and C never fired and A ran to completion. **No
+migration was applied until it finished**, so it measures exactly one engine image:
+✅ **69 of 69 GREEN, 2,559 assertions, zero fail / vacuous / scenario_error**, distinct-fixture count
+= enabled population (69).
+⛔⛔ **THE TRIPLE IS STILL OWED. It is the LAST thing, never the next thing.**
+
+### ⛔⛔ S-322 (NEW, CLOSED) - a receipt field this leg shipped was refused by its own fixture, one fire later
+
+`20260809030500` added `clusters_on_v3`, computed by reading the cutover registry directly.
+**Fixture 77 seq 12 - written the same hour, to be redundant - failed on exactly it (41/1).**
+⭐ The tempting fix was to loosen the assertion ("only a witness, not the rule"). **The field was
+dropped instead.** Routing it through `v_cutover_readiness_v3` would satisfy the letter and cost a
+WMAPE computation on **every nightly cron-43 call** for a field nothing consumes. **A receipt owns
+what the call DID, not what the world looked like.** Second time in three legs that a
+written-to-be-redundant assertion was not (cf. S-314).
+
+### ⛔ S-323 (NEW, CLOSED) - `prosrc` contains COMMENTS, so a bare-name guard forbids the name in prose too
+
+The rider's own post-image guard refused it: the Article-16 explanation *inside the function body*
+named the table. ⭐ **The comment was reworded and the guard left blunt** - a bare-table-name check
+is the one form no alias, join shape or CTE can slip past, and the price is that the table may not be
+named even in a comment. Variant, one apply later: the fixture-side check had to narrow to
+`->>'clusters_on_v3'`, because the fixture's static half legitimately keeps a scratch key of that
+name for its own LAW-4 read.
+
+### ⛔⛔ S-324 (NEW, CLOSED) - **A FIXTURE'S PREMISE HAD BEEN SUPPLIED BY THE OLD WORLD, AND "ONLY SIX RED" HID THREE VACUOUS GREENS**
+
+Fixture 47 went RED 44/6 under D-29 because **both its anchors are VOX and VOX is on v19**. The
+fixture was not broken - **its premise had been free, and stopped being free.**
+⛔ **Six was the wrong number to be reassured by:** seq 13/19/24 are `NOT EXISTS` shapes that kept
+**passing over an empty ledger** (S-289). Fixing only the six would have banked three vacuous greens,
+strictly worse than the red. The fixture was **given the premise** instead - plant, flip VOX,
+promote, capture, revert, clean up - so all fifty original assertions regained meaning, plus six new.
+
+⭐⭐ **WHY A PERSISTED FLIP IS SAFE THERE AND NOT IN FIXTURE 77:** `golden.run_fixture` EXECUTEs the
+whole scenario **inside one transaction**, so the authoritative window **never commits and no other
+session observes it** - MVCC, not timing luck. Fixture 77 discards its whole probe (nothing must be
+read after); fixture 47 has **37** assertions reading committed rows.
+
+### ⛔ S-325 (NEW, **OPEN**) - the cutover audit log now accrues fixture rows, and they must not be deleted
+
+`engine_cutover_audit_v3` is Article-7 append-only by policy. Fixture 47 mints **two honest rows per
+run** (a flip and a revert, both labelled `golden fixture 47 ...`) and **deliberately does not delete
+them** - deleting audit evidence to keep a fixture tidy is the probe being wrong, not the guard
+(S-316). ⛔ **Every future reader must filter `reason NOT LIKE 'golden fixture%'`** when reading that
+table as cutover evidence - the S-307/S-244 discipline, extended. Fixture 77 seq 64 was re-scoped
+from a global emptiness check to its own reason string in the same migration, because that global
+check was already coupling fixture 77 to every other fixture that legitimately flips.
+
+### ⏸️ NAMED, NOT FIXED (LAW 10) - Article 8 holds at ROW grain, not at REASON grain
+
+`tg_audit_blocked_demand` mints a `write_audit_log` row for every DELETE `record_blocked_demand_v3`
+performs, so Article 8 is satisfied. It is **not** satisfied at reason grain: the audit row for a
+cutover close and for a stale close are **identical**, both reading
+`rpc_name='record_blocked_demand_v3'`. **Only the receipt splits them, and receipts are not
+persisted** - a reader asking "why did this procurement row vanish" must correlate against
+`engine_cutover_audit_v3` by timestamp. The fix is two separate DELETE statements with distinct
+GUCs. Real improvement, out of D-29's scope, **named rather than silently accepted.**
+
+### ⏸️ THE THREE REMAINING TIER-2 UNITS - unchanged from leg 162's specs except where D-29 settled them
+
+- **D-34** ⛔⛔ **STILL BLOCKED ON THE cron-45 VERIFICATION, which is STILL TIME-GATED.** cron 45
+  fires **21:22 UTC**; leg 163 ran 18:2x-19:0x. D-34 rewrites `run_nightly_shadow_v3`, the very
+  function under verification. **Order: verify cron 45 first, then D-34.** ⭐ Its D-29 dependency is
+  now DISCHARGED - the scoping D-34 needs exists and is proven by fixtures 47 and 77.
+- **D-39** (capture edits at SKU grain, option a) - the largest, and the only one needing a **Dara
+  design document** before any SQL. Until it lands the miner's refusal stands: **never invent a SKU.**
+- **D-40** (`w_intents` dial, own Dara/Cody unit, monotonicity probe before the miner may map to it)
+  ⭐ **Ship it at `0`** so the live score is byte-identical; the weighted sum occurs **SIX times** in
+  `v_machine_priority` and adding a term means editing all six or the view disagrees with itself.
+- **D-19** remains blocked behind DR-6, which is FE-deploy work this loop cannot perform.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **EIGHT ASKS, UNCHANGED; leg 163 raised NONE.** S-251 (Galaxy venue-supply) · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** (v19 swap lines on a v3-flipped cluster) · **S-320** (v3 is not accruing evidence; ~Aug 17 unreachable without a scheduling change). The answered-unexecuted list drops from five to **FOUR**: D-19 (blocked on DR-6), D-34, D-39, D-40. ⭐ **EXECUTED:** D-21(h1), D-27(a), D-28(h1), **D-29**, D-31, D-32, D-33, D-37, D-43, D-44, D-45, D-46, D-47, DR-1, DR-1b, DR-3, DR-4, DR-5, DR-7, DR-8, DR-10. ⛔ **The DR register is empty; TIER 2 IS NOT.** ⚠️ **S-321, S-322, S-323, S-324 CLOSED; S-265, S-266, S-279, S-283, S-285, S-311, S-312, S-313, S-319, S-320 and 🆕 S-325 remain OPEN.** New findings resume at **S-326**. ⭐ **Leg 163 flipped NO flag and changed NO dial. It DID change an engine body - `record_blocked_demand_v3` - under Cody, fixture-first, with pre- and post-image guards on both applies.**
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
