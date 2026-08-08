@@ -35021,3 +35021,13 @@ reads it. ⭐ **That is exactly why the divergence has survived unnoticed, and e
 before/after diff must be CONSTRUCTED in a fixture** - two machines, one scarce batch, both lines open
 on a synthetic `plan_date` - in the leg-114/115 self-supplied-premise idiom that S-274 has now made
 mandatory. **A diff read off live history would report "0 rows changed" and prove nothing.**
+
+### ✅ [leg 148 · ADDENDUM 2] S-269 MANIFEST RECONCILED AT **61** - AND THE POINTER LINE ABOVE IS SUPERSEDED
+
+⛔ **Correction to this leg's own pointer:** it said `/tmp/prd110_s7_fixtures.txt` still lists 60. The
+**tracked** manifest `scripts/prd110_s7_fixtures.txt` has now been updated to **61** - fixture 69
+inserted before 105, preserving the ascending order the sweep relies on - and reconciled against
+`golden.fixtures WHERE enabled`: **61 = 61, exact set match, zero on either side only.** ⭐ The
+runner copies the tracked file to `/tmp`, so the next sweep picks 69 up without intervention.
+⛔ **S-269 still binds: reconcile before every sweep rather than trusting this line** - the manifest
+goes stale the moment a fixture is added or disabled, which is what this leg just demonstrated.
