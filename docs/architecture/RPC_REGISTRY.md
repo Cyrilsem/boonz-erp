@@ -2644,3 +2644,54 @@ push's set became **identical**, so the pre-flight is a branch **no role can rea
 pointless — it is the guard that fires the day the two diverge — but it **cannot be proven by a role
 replay**. Fixture 9 seq 78 asserts `repack_roles ⊆ push_roles` as data; seq 79 asserts the
 pre-flight precedes the first destructive act.
+
+---
+
+## `approve_facing_proposal_v3(p_proposal_id uuid, p_decision text, p_review_note text)` — **DR-8** (leg 148)
+
+`SECURITY DEFINER`, owner `postgres`, `search_path = public, pg_temp`, migration `20260807180500`,
+`prosrc` md5 **`9435ab69`**. ACL `{postgres=X, authenticated=X, service_role=X}` — **no `anon`**.
+**The only writer of `facing_proposals_v3.status`** (`authenticated` holds neither INSERT nor UPDATE,
+measured `false`/`false`). Proven by **golden fixture 69: RED 16/42 before, 42/42 after**, every
+baseline failure a bare `42883` — an honest LAW-1 red, not a `scenario_error`.
+
+⛔ **IT IS NOT A COPY OF `approve_feedback_proposal_v3`, AND THE DIFFERENCE IS THE WHOLE UNIT.**
+`facing_proposals_v3` carries `CHECK fp_v3_review_named` — `status NOT IN ('approved','rejected',
+'applied') OR reviewed_by IS NOT NULL`. Its sibling tolerates `auth.uid() IS NULL` because
+`feedback_proposals_v3` has no such CHECK, so a transliteration would reach that CHECK and surface to
+CS as a **bare 23514 naming a constraint** instead of the missing identity. The `v_uid IS NULL`
+refusal is therefore the **FIRST** statement after the GUCs — ahead of the role check and every
+argument guard. ⛔ **Order is load-bearing; fixture 69 seq 20 asserts `P0001` and NOT `23514`, and
+seq 22 asserts the message names `fp_v3_review_named` so the next engineer cannot delete the guard as
+redundant.**
+
+⭐ **S-128 APPLIED AS DISCLOSURE, NOT REFUSAL — the opposite call to its sibling, on purpose.**
+`approve_feedback_proposal_v3` REFUSES `never_stock` because approving it would MINT a pin the engine
+ignores (a live rule that lies). Approving a facing proposal **mints nothing**; it records a decision.
+Refusing would leave CS unable to clear the queue at all. So the return payload carries
+`plan_effect: 'none_yet'` plus a `plan_effect_detail` naming the gap in words. Measured from the
+SOURCE side (S-267): **zero** functions consume the approved status; the one reader is
+`v_proposal_acceptance_v3`, the **G12 acceptance scoreboard — a scoreboard, not a planner**.
+
+⛔ **`'applied'` IS DELIBERATELY NOT AN ACCEPTED DECISION AND `applied_to_plan_date` IS NEVER
+WRITTEN.** Both are real (`facing_proposals_v3_status_check` admits `applied`; `fp_v3_applied_dated`
+ties the date to it) and both belong to a **future applier**. Writing either here would claim a facing
+change had reached a machine when nothing did. Fixture 69 seq 33/34.
+
+⛔ **THE OVERLOAD GUARD RUNS BEFORE THE `CREATE`.** `CREATE OR REPLACE` does not replace across a
+differing signature — it silently overloads, which is the `repurpose_machine` foot-gun (CLAUDE.md)
+pointed at CS review. A `DO $guard$` block raises if any other signature of the name exists. Fixture
+69 seq 1 catches it after the fact; the guard refuses it before the fact.
+
+⛔⛔ **THE HONEST HEADLINE, AND IT MUST NOT BE SOFTENED (S-276): THE QUEUE THIS RPC SERVES IS EMPTY.**
+All 20 pending rows are fixture-48 residue at `plan_date = 2030-02-18`; under S-244 a CS-facing read
+filters `plan_date < '2027-01-01'`, so the **reviewable** queue is **0**, and **no cron mints facings**
+(`propose_facing_changes_v3` is unwired). Contrast DR-7, which shipped a real weekly Sunday cron at
+leg 141. Fixture 69 seq 44/45 measure both halves and will go red the day a filler legitimately ships
+— re-baseline them THEN, naming the filler, and restate seq 31/32/42 in the same unit.
+
+⚠️ **ARTICLE 8 GAP, FAMILY-WIDE, PARKED NOT PATCHED:** `facing_proposals_v3` carries **zero** user
+triggers, so no `write_audit_log` row is minted. Measured across all four `*_proposals_v3` tables
+(`facing`, `feedback`, `rotation`, `picker_weight`): **all zero**, including `feedback_proposals_v3`
+whose approve-RPC shipped at P4.1 and set the precedent. Fixing it here alone would diverge DR-8 from
+its three siblings — it is a family unit. Parked as **DR-10**.

@@ -34737,7 +34737,7 @@ Restated per S-103/S-272: **one assertion becomes three, each STRICTER than the 
 seq **54** compares c2's applied **edit_id SET** to c1's - the old form could not tell "applied the
 same four" from "applied four different ones". seq **56** requires all four of the fixture's OWN legs
 in `c2.applied`, matched by (shelf_id, pod_product_id, kind) - the absolute count never checked
-*which*. seq **57** requires every non-fixture applied edit to be **inert**, so a genuinely live extra
+_which_. seq **57** requires every non-fixture applied edit to be **inert**, so a genuinely live extra
 edit goes red while the unretirable historical no-op is tolerated **explicitly** rather than absorbed
 into a number. **44 → 46 assertions.**
 
@@ -34758,3 +34758,224 @@ so **46/46 on fixture 54 does NOT re-earn the phrase.** Round 1 of the owed S7 t
 **16:49:17Z** as `prd110_s7_golden_determinism_sweep.sh 1 leg146`, manifest reconciled against
 `golden.fixtures WHERE enabled` first and matching **exactly 60** (S-269). ⛔ **A background sweep IS
 part of the handoff and is named in the pointer.**
+
+---
+
+## LEG 148 - 2026-08-08 - **DR-8 SHIPPED: fixture 69 RED 16/42 → GREEN 42/42, D-32 CLOSED.** Leg 147 died with two authored-but-unapplied migrations (S-278) and leg 146's sweep closed unadjudicated - **it was 60/60**.
+
+### ⛔ [leg 148] STEP R - TWO THINGS THE POINTER COULD NOT HAVE SAID, BECAUSE THEY HAPPENED AFTER IT
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**. Then S-270:
+`git status --porcelain --untracked-files=all` was **NOT empty** - and that is the whole story of this
+STEP R.
+
+**(1) S-278 - AN UNLOGGED LEG 147 EXISTED.** Two migration files sat on disk, untracked:
+`20260807180000_prd110_dr8_fixture69_red_baseline.sql` and
+`20260807180500_prd110_dr8_facing_approve_rpc.sql`. `/tmp` had survived and carried its fingerprints -
+`_leg147_probe0..6.sql`, `leg147_cody.sql`, `_leg147_cody1.sql`, and **completed dry runs of both
+files**. The registry disagreed with the disk: `prd110%` **332**, neither version present,
+`approve_facing_proposal_v3` absent from `pg_proc`, fixture 69 absent from `golden.fixtures`.
+⭐ **THE HANDOFF INVARIANT HELD, AND THE REASON IS WORTH NAMING:** files-on-disk-without-a-registry-row
+is the **SAFE** side of "nothing half-applied" - this leg re-derived everything from the file text and
+applied from scratch. ⛔ **The mirror image is the dangerous one** (applied, unregistered, unlogged),
+and RISK-104's md5 is precisely what would have caught it. ⭐ Leg 147's Cody findings survived **as
+comments inside the migration text** (`CODY R1 - THE OVERLOAD GUARD`, `CODY R2` on the `cron.job`
+privilege check). **The file comments outlived the leg; the log entry never existed.**
+
+**(2) LEG 146's BACKGROUND SWEEP HAD FINISHED, AND NOBODY HAD READ IT.** RISK 104 reconciled to
+`max(version)` **20260807171500** / `prd110%` **332** / disk **335** (= 332 applied + S-31's retained
+`20260730203000` + the two unapplied DR-8 files) - **exactly the expected arithmetic**, and 2219
+enabled assertions confirmed leg 146's `+5` on fixture 54. Sentinels under `prosrc` (S-109) all
+unmoved: `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo`
+**8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** · `rank_machines_by_value_at_risk_v3`
+**754532ac** · `swap_v3` **ffff8485**. LAW 12: `2026-08-07` **101**, `2026-08-08` **0**. 37 active
+crons. S-80 grep of the WHOLE parking lot for `CS DECISION`: latest ruling block is still **"POST-DONE
+DR REGISTER CLOSED" (2026-08-04)** - **no CS ruling since leg 141.**
+
+### ✅✅ [leg 148] **S-275's PHRASE IS RE-EARNED: THE LEG-146 SWEEP WAS 60/60, ZERO FAILURES**
+
+`/tmp/prd110_leg146_out/progress.log`: `SWEEPSTART … floor=2026-08-07T16:49:17Z` →
+`SWEEPDONE round=1 close=2026-08-07T17:13:41Z`. **24 min 24 s for 60 fixtures** (the ~30 min/round
+budget leg 145 measured holds). **60 of 60** read-backs present and **every one carries `"n_fail":0`**;
+zero lines fail the `n_fail":0` grep. Fixture 54 inside that sweep: **46/46 in 4791 ms** - S-274's
+repair confirmed in a whole-suite run, not merely in isolation.
+⛔ **THE LESSON IS PROCEDURAL, NOT TECHNICAL.** Leg 146 launched the sweep and named it in its pointer,
+then wrote its final block and ended - so a 60/60 result sat unread for a leg. **Naming a background
+sweep in the pointer is necessary but NOT sufficient: the next leg must ADJUDICATE it**, and that duty
+is now written into the pointer as a numbered step rather than left as an implication.
+⚠️ **That green is a green over 60 fixtures / 2219 assertions.** This leg added fixture 69, so the
+population is now **61 / 2261** and the standing claim is, once again, one fixture short of the suite.
+
+### ⛔ [leg 148] S-262 RE-ARMED BY THAT SWEEP AND CLEARED - THIRD CONSECUTIVE OCCURRENCE
+
+Fixture 58 pushed `picker_weight_proposals_v3` pending **0 → 2**; per S-262 that refuses the next
+weekly miner run with `pending_exists`. dr5d's predicate (`status='pending' AND window_start >=
+miner_fixture_epoch` → `superseded`) re-run: **2 superseded, real pending 0 before and after, queue
+back to 0.** Facings held at **20** - fixture 48's plants collide with `fp_v3_unique_batch` and dedupe
+rather than accumulate; `fac_real` **0** throughout. ⛔ **Three sweeps, three re-arms: this is a
+standing chore, not an incident. Budget it into every sweep.**
+
+### ✅✅ [leg 148] **DR-8 EXECUTED - `20260807180000` then `20260807180500`** (Cody ✅ Approve)
+
+**LAW 1 honoured in the strict order:** fixture applied first, fired first, and **RED at 16 / 42**.
+⭐ **The red was HONEST:** all 26 failures were bare `42883` (`function public.approve_facing_
+proposal_v3(uuid, unknown, unknown) does not exist`) with **zero `scenario_error`** - the probes are
+individually trapped, so the scenario ran to completion and the **S-266 trap could not fire** (a
+scenario that RAISEs rolls back its own `golden.scratch` DELETE and re-reads the PREVIOUS snapshot,
+which is how a red can report green). Adjudicated from `golden.runs`, never from the returned set.
+
+Every premise the fixture asserts was measured live **before** applying it, so a red would have meant
+the RPC and nothing else: `proc_readers` **1** (`propose_facing_changes_v3`) · `proc_consumers_of_
+approved` **0** · `view_consumers_of_approved` **v_proposal_acceptance_v3** · `crons_minting_facings`
+**0** · `fac_real_pending` **0** · `fp_v3_review_named` present and worded as the fixture expects ·
+`authenticated` INSERT/UPDATE **false/false** · one policy, RLS on · admin `operator_admin`, probe
+identity `field_staff`.
+
+Then the RPC: **fixture 69 GREEN 42 / 42, 254 ms, zero `scenario_error`.** `prosrc` md5 **9435ab69**,
+ACL `{postgres=X, authenticated=X, service_role=X}` - **no `anon`** (S-268 needs `anon` named
+explicitly; `REVOKE … FROM PUBLIC` alone leaves Supabase's schema default grant in place).
+
+**The three claims that ARE the unit** (full doctrine now in `RPC_REGISTRY.md`):
+
+1. ⛔⛔ **The anonymous caller is refused FIRST, BY NAME - `P0001`, not `23514`.** `facing_proposals_v3`
+   carries `CHECK fp_v3_review_named`; its sibling `approve_feedback_proposal_v3` tolerates
+   `auth.uid() IS NULL` because `feedback_proposals_v3` has no such CHECK. **A transliteration would
+   have reached that CHECK and shown CS a constraint name instead of "you are not identified."** The
+   guard sits ahead of the role check and every argument guard; seq 20 asserts P0001-and-not-23514 and
+   seq 22 asserts the message names the constraint, so it cannot be deleted later as redundant.
+2. ⭐⭐ **S-128 applied as DISCLOSURE, not refusal - the OPPOSITE call to the sibling, on purpose.**
+   `approve_feedback_proposal_v3` REFUSES `never_stock` because approving it MINTS a pin the engine
+   ignores - a live rule that lies. Approving a facing proposal **mints nothing**, so refusing would
+   leave CS unable to clear the queue at all. The RPC records the decision and returns
+   `plan_effect: 'none_yet'` with a detail naming the gap.
+3. ⛔ **`'applied'` is not an accepted decision and `applied_to_plan_date` is never written.** Both are
+   real (`facing_proposals_v3_status_check` admits `applied`; `fp_v3_applied_dated` ties them), and
+   both belong to a **future applier**. Writing either would claim a facing change had reached a
+   machine when nothing did.
+
+⭐ **CODY R1 IS THE ONE WORTH KEEPING:** the `DO $guard$` block runs **before** the `CREATE`, because
+`CREATE OR REPLACE` does not replace across a differing signature - it silently **overloads**, which is
+the `repurpose_machine` foot-gun (CLAUDE.md) pointed at CS review. Fixture 69 seq 1 catches it after
+the fact; the guard refuses it before the fact.
+
+**Residue disproven off live data, not argued:** `facing_proposals_v3` pending **20 → 20** · rows at
+the fixture's own `2030-06-09/10` **0** · rows ever decided **0** · `app.via_rpc` does not leak ·
+caller identity restored. ⛔ The fixture plants into a **live CS review table**; it must never join
+S-265.
+
+### ⛔⛔ [leg 148] THE SENTENCE THE DONE-2 REPORT MUST CARRY, UNSOFTENED (S-276)
+
+**DR-8 shipped a decision writer for a queue nothing fills.** All 20 pending rows are fixture-48
+residue at `plan_date = 2030-02-18`; under S-244 a CS-facing read filters `plan_date < '2027-01-01'`,
+so the **reviewable queue is 0**, and **no cron mints facings** (`propose_facing_changes_v3` is
+unwired). Contrast DR-7, which shipped a REAL weekly Sunday cron at leg 141. Fixture 69 seq 44/45
+measure both halves live and will go red the day a filler legitimately ships - re-baseline them THEN,
+naming the filler, and restate seq 31/32/42 in the same unit. ⛔ **"Facing review shipped" is not a
+true sentence.** The true one: _the writer exists and is proven; the proposer is still unwired._
+
+### ⏸️ [leg 148] DR-10 RAISED AND PARKED - ARTICLE 8 ACROSS THE WHOLE `*_proposals_v3` FAMILY
+
+`facing_proposals_v3` carries **zero** user triggers, so a decision mints no `write_audit_log` row.
+Measured across all four - `facing`, `feedback`, `rotation`, `picker_weight` - **all zero**, including
+`feedback_proposals_v3` whose approve-RPC shipped at P4.1 and set the precedent. ⛔ **Patching it
+inside DR-8 would have diverged one table from its three siblings, which is how families rot.** One
+family-wide unit: the generic trigger on all four, one fixture asserting a `write_audit_log` row per
+decision. Cody agreed and approved DR-8 without it.
+
+### [leg 148] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260807180500** · `prd110%` **334** (was 332; **+2 this leg**) · disk owed-set
+**334** · **owed md5 `939a9a3a69a81df057fa88774473c352` on BOTH sides**, recomputed not copied (disk
+side in **Python** - the `tr`/`sed` recipe silently re-adds a newline) · golden **61 fixtures / 2261
+enabled assertions** (was 60 / 2219: **+1 fixture, +42 assertions**, all fixture 69) ·
+`golden.stress_runs` **14** (unchanged - ⛔ leg 146's round 1 was **one round**, not a triple, and was
+not banked) · **37 active crons** (unchanged).
+⛔ **LIVE plan tables untouched:** `2026-08-07` **101**, `2026-08-08` **0**.
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** ·
+`rank_machines_by_value_at_risk_v3` **754532ac** · `swap_v3` **ffff8485**. 🆕
+`approve_facing_proposal_v3` **9435ab69** (new object, no prior value to move).
+
+**FLAGS AT CLOSE - NOT ONE FLAG OR DIAL CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `pick_urgency_params.w_empty` **0.945** ·
+`substitute_margin_min_coverage_pct` **90.00** · `substitute_margin_weight` **0.000** ·
+`var_money_reserved_slots` **2** · `base_stock_min_gaps` **2**.
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE:** `picker_weight_proposals_v3` pending **0** (2 sweep rows superseded) ·
+`feedback_proposals_v3` pending **12** = 8 real + 4 synthetic (S-265) · `rotation_proposals_v3`
+pending **25** · `facing_proposals_v3` pending **20**, of which **0 are real** (S-276).
+
+### RESUME POINTER 2026-08-08 leg 148 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 148
+  left **no process running** and launched **no background sweep**. Then S-270: read the untracked set
+  — ⛔ **leg 148 found two orphaned migrations there (S-278); do not assume it is empty.** Then
+  RISK 104: **expect `prd110%` = 334, `max(version)` = 20260807180500, owed-set 334 on disk, owed md5
+  `939a9a3a69a81df057fa88774473c352` both sides.** ⛔ Recipe is
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; the disk
+  side is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON.**
+- ⭐ **NEW STEP-R DUTY, EARNED THIS LEG: ADJUDICATE ANY SWEEP THE PREVIOUS LEG LAUNCHED.** Leg 146's
+  60/60 sat unread for a whole leg because the pointer named it but did not require anyone to read it.
+  Read `/tmp/prd110_<prefix>_out/progress.log`: `SWEEPDONE` present? `grep -c '"n_fail":0'` equal to
+  the fixture count? Only then may the result be used.
+- ⛔ **"GOLDEN HAS NO KNOWN RED" - THE PRECISE STANDING TRUTH:** a full sweep closed
+  **2026-08-07 17:13:41Z at 60/60, zero failures**, which re-earned the phrase per S-275 **for a
+  60-fixture / 2219-assertion population.** This leg added fixture 69 (**61 / 2261**), proven green in
+  isolation at 42/42. ⛔ **So the phrase is again one fixture short of the suite and may not be written
+  unqualified until the next full sweep.**
+- ⏸️ **NEXT TASK: the answered-unexecuted list, now TEN.** ⭐ **D-32 is CLOSED by DR-8 this leg** (its
+  first half was DR-7's weekly cron at leg 141). Remaining: D-19 (⛔ blocked on DR-6, a Stax FE-deploy
+  unit **this loop cannot perform**) · D-27, D-28, D-31 (three CONVERGE units - each wants a
+  before/after diff of what the convergence moves) · D-29, D-33, D-34 (see DR-9) · D-37 (⛔ CS
+  OVERRODE the on-file recommendation: `ladder_prefer_own_stock_transfer` DEFAULT **TRUE**; an engine
+  change to `resolve_supply_ladder_v3`, and fixture 6 seq 22/25/26 must be **RESTATED, never
+  deleted**) · D-39 · D-40 (⛔ CS chose option (a): add the `w_intents` dial **and** an `s_intent` term
+  to the LIVE `v_machine_priority`; ship at weight 0, prove byte-identical output via the PRD-074
+  invariance pattern, then the monotonicity probe **before** the miner may map to it). Then Tier 4
+  (DR-1 cutover unit, **flag-off**). ⭐ **EXECUTED so far:** D-21(half 1), D-32, D-43, D-44, D-45,
+  D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8.
+- ⏸️ **DR-10 IS NEW WORK, NOT AN ASK** - the Article-8 `write_audit_log` gap on all four
+  `*_proposals_v3` tables. One family-wide migration + one fixture. ⛔ Do **not** do it on one table.
+- ⏸️ **THE S7 TRIPLE IS STILL OWED AND THE POPULATION JUST CHANGED AGAIN.** Leg 146's round 1 is a
+  **single** round over a **now-stale** population (60, pre-fixture-69). ⛔ **Do not bank it as a
+  triple and do not start a triple until the fixture population stops moving** - every unit in the
+  remaining ten adds or restates assertions. Budget **~25-30 min/round, ~1.5 h for a triple**.
+  ⛔ Fire PER FIXTURE (`run_all` through the management API banks nothing, S-250); ⛔ never START a
+  fixture in UTC minutes 37-40 (cron 44); ⛔ reconcile the manifest against `golden.fixtures WHERE
+enabled` first (S-269 - it must now read **61**, and `/tmp/prd110_s7_fixtures.txt` still lists 60).
+  Runner: `scripts/prd110_s7_golden_determinism_sweep.sh <round> <note_prefix>`.
+- ⛔⛔ **EVERY FULL SWEEP RE-ARMS S-262 - BUDGET THE CLEANUP INTO IT.** Three sweeps, three re-arms.
+  After each: re-run dr5d's predicate (`/tmp/leg145_s262.sql`) or the next weekly miner run is refused
+  `pending_exists`.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 (a count assertion reading the object under
+  test proves SELF-CONSISTENCY, never correctness) · S-268 (`REVOKE ALL … FROM PUBLIC` does NOT remove
+  Supabase's schema default privileges; name `anon` explicitly - and for every `CREATE VIEW` in
+  `public`, `REVOKE ALL ON <v> FROM anon, authenticated;` before its GRANT) · S-272 (restating an
+  assertion must move `expect_op`/`expect` with the SHAPE of `check_sql`) · S-266 (a scenario that
+  RAISEs rolls back its own `golden.scratch` DELETE, so scratch-reading assertions re-evaluate the
+  PREVIOUS run's snapshot **and pass** - `n_fail` is the only sound verdict) · S-277 (an absolute count
+  over an append-only ledger cannot state a relative property).
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Expect
+  `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9** ·
+  `find_substitutes_for_shelf_v3` **6aa6885e** · `rank_machines_by_value_at_risk_v3` **754532ac** ·
+  `swap_v3` **ffff8485** · `approve_facing_proposal_v3` **9435ab69**.
+- ⛔ **`/tmp` SURVIVED THIS TIME (it did not between earlier legs) and the Supabase MCP still has not
+  connected** (seventh leg). `/tmp/prd110_sql.sh` and `/tmp/apply_mig.sh` both work; the apply shim
+  registers the version it is handed in the SAME POST. ⭐ **The shim is transactional - USE IT AS A
+  FREE DRY RUN ON EVERY MIGRATION**: append `DO $dry$ BEGIN RAISE EXCEPTION 'DRY'; END $dry$;` and the
+  whole body executes, guards and all, then vanishes. Both DR-8 files came back with only `DRY`, which
+  is why both real applies were non-events.
+- ⚠️ **S-251 STILL CARRIES THE ONLY LIVE CS ASK:** confirm "Galaxy - Milk Chocolate" really is
+  venue-supplied on the ten co_managed machines (SKU-grain, pod is **Chocolate Bar**). ⛔ If wrong,
+  revert BOTH sides. Plus the sharpened **D-21 half-2** ask: a VALUE (the margin weight W%), and
+  whether 90 % is still the right bar now the binding number is margin-computability at **53.99 %**.
+- ⏸️ **S-265 (OPEN):** fixture 57 mints into the LIVE CS review queue (`p_dry_run => false`), so 4
+  synthetic proposals sit beside the 8 real ones in `feedback_proposals_v3`.
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` is **0**. ⛔ Re-probe every leg.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-277 and S-278 are CLOSED
+  (recorded).** ⛔ **S-265 and S-266 are OPEN.** New findings resume at **S-279**.

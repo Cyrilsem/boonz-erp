@@ -11352,3 +11352,82 @@ newest-per-`device_name` then newest-overall — so on such a machine `plant_she
 ### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (a value: the margin weight W%, and whether 90 % is still the right bar now the binding number is margin-computability at 53.99 %). The answered-unexecuted list stays at **ELEVEN**: D-19, D-27, D-28, D-29, D-31, D-32, D-33, D-34, D-37, D-39, D-40. ⭐ **D-21(half 1), D-43, D-44, D-45, D-46, D-47, DR-3, DR-4, DR-5 and DR-7 are EXECUTED**; DR-1/6/8 remain as WORK, not asks. Leg 146 raised no new decision. ⚠️ **S-274 and S-277 are CLOSED; S-265 and S-266 remain OPEN.**
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 148 (2026-08-08) — **DR-8 SHIPPED (D-32 CLOSED)**. Leg 147's orphan adopted. Leg 146's sweep adjudicated: **60/60**. DR-10 raised.
+
+### ⛔ S-278 (NEW) — **A LEG DIED AFTER AUTHORING TWO MIGRATIONS AND BEFORE APPLYING OR LOGGING EITHER**
+
+STEP R found `20260807180000` and `20260807180500` **on disk, untracked, and absent from the
+registry** — an unlogged leg 147 authored DR-8 in full, dry-ran both files (`/tmp/_dry_*`), ran two
+Cody probes, and stopped. **The handoff invariant held anyway, and it is worth naming why:** nothing
+was half-applied. Files on disk with no registry row is the SAFE side of the invariant — the next leg
+re-derives everything from the file text and applies from scratch. ⛔ **The failure mode to fear is the
+mirror image** (applied, unregistered, unlogged), which RISK-104's md5 is what detects.
+⭐ **Leg 147 left its Cody findings embedded as comments in the migration text** (`CODY R1 — THE
+OVERLOAD GUARD`, `CODY R2` on the `cron.job` privilege check), which is why this leg could re-review
+rather than re-design. **File comments survived a leg death; the log entry did not.**
+
+### ✅ **LEG 146's SWEEP: 60/60, ZERO FAILURES — S-275's PHRASE IS RE-EARNED**
+
+Round 1 opened 16:49:17Z and closed **17:13:41Z** (24 min 24 s, 60 fixtures). Every line of
+`progress.log` carries `"n_fail":0`; **60 of 60** JSON read-backs present. Fixture 54 in that sweep:
+**46/46, 4791 ms** — its repair confirmed inside a whole-suite run rather than in isolation.
+⛔ **The sweep completed AFTER leg 146's final log block was written, so nobody adjudicated it.** A
+background sweep is part of the handoff; **naming it in the pointer is necessary but not sufficient —
+the NEXT leg must adjudicate it, and that duty now sits in the pointer explicitly.**
+⚠️ The phrase is re-earned **as of 17:13:41Z, at 60 fixtures / 2219 assertions**. This leg then added
+fixture 69, so the population is **61 / 2261** and the standing claim is again one fixture short.
+
+### ⛔ S-262 RE-ARMED BY THAT SWEEP AND CLEARED (third consecutive occurrence)
+
+Fixture 58 pushed `picker_weight_proposals_v3` pending **0 → 2**. dr5d's predicate re-run:
+**2 superseded, real pending 0 before and after.** Facings held at **20** (fixture 48's plants
+collide with `fp_v3_unique_batch` and dedupe rather than accumulate) — `fac_real` **0** throughout.
+⛔ **This is now a standing chore, not an incident: every full sweep needs the cleanup budgeted into it.**
+
+### ✅ DR-8 EXECUTED — `approve_facing_proposal_v3`, fixture 69 **RED 16/42 → GREEN 42/42**
+
+Migrations `20260807180000` (fixture, LAW 1, authored **before** the RPC) and `20260807180500` (the
+RPC). ⭐ **The red baseline was honest:** all 26 failures were bare `42883`
+(`function … does not exist`), **zero `scenario_error`** — the probes are individually trapped, so the
+scenario completed and the S-266 trap (a raising scenario re-reading the previous snapshot and
+reporting green) could not fire. Cody: **✅ Approve**, Articles 1/2/3/4/5/8/12/13/16, with the
+Article-8 gap raised as **DR-10** rather than patched into this migration.
+
+Full doctrine is in `RPC_REGISTRY.md`. The three claims that are the unit:
+
+1. **The anonymous caller is refused FIRST, by name** — `P0001` and **not** `23514`. Its sibling
+   `approve_feedback_proposal_v3` tolerates `auth.uid() IS NULL`; a copy would have reached
+   `CHECK fp_v3_review_named` and shown CS a constraint name instead of "you are not identified".
+2. **S-128 as DISCLOSURE, not refusal** — the opposite call to the sibling, deliberately. Approving a
+   facing proposal mints nothing, so refusing would leave the queue unclearable; the RPC records the
+   decision and returns `plan_effect: 'none_yet'`.
+3. **`'applied'` and `applied_to_plan_date` are never written** — they belong to a future applier.
+
+**Residue disproven off live data:** `facing_proposals_v3` pending **20 → 20**, rows at the fixture's
+own `2030-06-09/10` **0**, rows ever decided **0**. The fixture plants into a **live CS table** and
+leaves nothing — it must never join S-265.
+
+### ⛔⛔ THE HEADLINE THE DONE-2 REPORT MUST CARRY, UNSOFTENED (S-276)
+
+**DR-8 shipped a writer for a queue nothing fills.** All 20 pending rows are fixture-48 residue at
+`plan_date = 2030-02-18`; under S-244 the CS-facing read filters `plan_date < '2027-01-01'`, so the
+**reviewable queue is 0**, and **no cron mints facings**. Contrast DR-7, which shipped a real weekly
+Sunday cron at leg 141. Fixture 69 seq 44/45 measure both halves live. ⛔ **Nobody may report "facing
+review shipped."** The correct sentence is: _the decision writer exists and is proven; the proposer
+that would give CS something to decide is still unwired._
+
+### ⏸️ DR-10 (NEW, PARKED) — **ARTICLE 8 GAP ACROSS THE WHOLE `*_proposals_v3` FAMILY**
+
+`facing_proposals_v3` carries **zero** user triggers, so a decision mints no `write_audit_log` row.
+Measured across all four proposal tables — `facing`, `feedback`, `rotation`, `picker_weight` —
+**all zero**, including `feedback_proposals_v3` whose approve-RPC shipped at P4.1 and set the
+precedent. ⛔ **Fixing it inside DR-8 would have diverged one table from its three siblings**, which is
+how families rot. It is a single family-wide unit: install the generic trigger on all four, one
+migration, one fixture asserting a `write_audit_log` row per decision on each. Not an ask — work.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (the margin weight W%). The answered-unexecuted list drops to **TEN**: D-19, D-27, D-28, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-32 is now EXECUTED** (DR-7's weekly cron at leg 141 was its first half; DR-8's approve-RPC this leg is its second), joining D-21(half 1), D-43..D-47, DR-3, DR-4, DR-5, DR-7. DR-1 remains as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. **DR-10 is new work, not an ask.** ⚠️ **S-278 is CLOSED (recorded); S-265 and S-266 remain OPEN.** New findings resume at **S-279**.
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
