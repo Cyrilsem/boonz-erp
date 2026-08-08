@@ -39980,3 +39980,93 @@ ORDER BY fixture_id))` was **validated by reproducing the banked `tuple_md5`
 recipe the original `## DONE` used. Same comparator, new population.
 ⛔ **If a later leg reads this and PID 24577 is gone with no verdict below, the triple died mid-flight:
 re-run all three passes from scratch. Do NOT stitch a partial pass to a fresh one.**
+
+---
+
+## ⭐⭐ leg 173 (2026-08-08) - **THE S7 TRIPLE WAS RUNNING TWICE AND NOBODY COULD SEE IT.** S-342 executed · DR-6 built · the triple restarted clean on the final code. **S-343, S-344, S-345 raised.**
+
+**Window:** 22:09Z - · **one migration applied** (S-342, before the triple was launched) · **no flag
+flipped, no dial turned**
+
+### STEP R - the pointer's claims re-derived, and one of them was false
+
+- ⛔⛔ **THE FINDING OF THE LEG.** `ps` narrowed to `prd110_leg162_sweep` (S-241) showed leg 172's
+  chain plus one sweep - the tidy picture the pointer described. A **widened** probe
+  (`grep -Ei 'prd110|leg1[0-9][0-9]|sweep|chain|triple'`, with `ppid`) showed the truth:
+  **`/tmp/leg171_s7_triple.sh` PID 23481 was still alive**, a `for R in A B C` driver leg 172 never
+  saw. Both drivers were blocked on the same pass A; when it ended at 22:11:12Z **both fired a pass
+  B two seconds apart** over the identical 71 ids. **S-344.**
+- ⛔⛔ Both sweeps POSTed through **one shared temp file**, `/tmp/prd110_payload.json` - so they sent
+  each other's SQL. **Fixture 2 ran twice, overlapping, 0.8 s apart: one copy `54/0`, the other
+  `54/1`.** The "red" was an artifact of the collision, not a defect in the engine. **S-343.**
+- ⭐ **`golden.runs` tags `leg171 S7 B` and `leg172 S7 B` are VOID.** Retained, not deleted, per
+  leg 131's precedent on superseded S7 rows.
+- ⭐ **`leg171 S7 A` finished 71 rows / 71 distinct / 2660 pass / 0 fail** and carries none of the
+  S-343 signatures. **It was still discarded** - a determinism triple should come from one driver,
+  one script, one topology. All three passes re-run.
+- ⭐ **RISK 104 CLEAN by SET DIFFERENCE both ways:** `prd110%` disk **397** = DB **397**,
+  `disk-only []`, `db-only []`, `max(version)` `20260809053000`. Disk side in **Python, top level
+  only**, minus the S-31 retained prefix `20260730203000`.
+- ⭐ **LAW 4 VERIFIED:** 10/10 clusters `authoritative_engine='v19'` · `w_intents` **0**, `updated_at`
+  still `2026-08-06 23:20:27.984211+00` · `gate0_require_manual_confirm` **true**.
+- ⚠️ **LAW 12 - the pointer's wording corrected.** "Zero `operator_status='pending'`" is true for the
+  planned dates (2026-08-08 **117**, 2026-08-09 **97**, 2026-08-10 absent, all `approved`) but
+  **false fleet-wide**: **108 pending rows** sit on **2026-06-26 (95)** and **2026-06-28 (13)**,
+  generated in June, untouched since. LAW 12 holds; the claim did not.
+- ⚠️ **`pod_refills` 4,177 → 4,178 is NOT a LAW-4 breach (S-345).** The new row is `plan_date`
+  **2030-04-16**, written by a fixture mid-sweep. The count is not an invariant sensor while a
+  sweep runs unless filtered by S-244.
+- ⭐ **S-80 discharged on the WHOLE file:** 204 level-2 headings in the parking lot; the last
+  CS-**authored** ruling is still **`## CS DECISION - POST-DONE DR REGISTER CLOSED (2026-08-04)`**
+  at line 10339. **No new CS ruling.**
+
+### ✅ S-342 EXECUTED - the flip no longer lies on its success path
+
+`20260809060000_prd110_leg173_s342_flip_warning_stale_dr1b`, the leg's only migration, applied
+**before** the triple was launched so the determinism proof covers the code that actually ships.
+
+| check                     | before                      | after                     |
+| ------------------------- | --------------------------- | ------------------------- |
+| `flip_cluster_to_v3_v3`   | `ba5dc8a5…`                 | **`c75dde76…`**           |
+| stale warning present     | yes (offset 3778)           | **no**                    |
+| fixtures 47 / 74 / 75 / 77| -                           | **56/0 · 53/0 · 50/0 · 41/0** |
+| RISK 104                  | 397 = 397                   | **398 = 398**             |
+
+⭐ **Cody's review caught what no fixture could:** `pg_get_functiondef` emits **no trailing
+semicolon**, so the post-image `DO` block would have been parsed into the `CREATE`. Terminator added
+by hand. ⭐ **The replacement string was verified true before it was written** -
+`_build_draft_core_v3` calls `cutover_block_reason_v3` at 4720 with **no `RAISE` within 600 chars**.
+⛔ **S-313 deliberately NOT bundled** - it is byte-pinned by fixture 74 seq 65/66, and bundling it
+would import that pin as the whole risk of a one-string unit.
+
+### ✅ DR-6 BUILT - D-19's blocker is now a deploy, not a build (commit `921ee46`)
+
+⛔ **DR-6 sat unbuilt for ~15 legs behind the phrase "FE-deploy work this loop cannot perform".**
+CS authorised the **build**; only the **deploy** is CS's. Both halves shipped: `p_force` +
+`p_force_reason` passthrough (commit-only re-run - the reopen already happened), and the refusal
+affordance that renders each violation with the `fix_path` the invariant supplies, instead of
+throwing an Error that strands the operator with rows reopened and nothing to re-close them.
+⛔ **A latent defect fell out of verifying the contract:** the FE read `preflight_violation_count`
+on the **refusal** path; that key belongs to the **success** path, and the refusal returns
+`violation_count`. **Every refusal would have said "0 invariant violation(s)."** Unreachable in
+`warn` mode - **live the instant D-19 flips.**
+⭐ **D-19 NOT flipped.** `preflight_enforcement` stays `warn` until the FE is deployed.
+⭐ Verified: `npx tsc --noEmit` clean · `npm run build` succeeds · eslint on the touched file
+**5 warnings / 0 errors, identical to HEAD** - no new lint debt.
+
+### ⏳ IN FLIGHT AT THE TIME OF WRITING - the S7 triple, restarted clean (recorded NOW, per leg 172's own lesson)
+
+`/tmp/leg173_s7_triple.sh` **PID 26466**, launched **22:21:18Z**, driving three sequential full
+sweeps through the **payload-isolated** `/tmp/prd110_leg173_sweep.sh`:
+
+| pass | tag             | output dir        |
+| ---- | --------------- | ----------------- |
+| A    | `leg173 S7 A`   | `/tmp/leg173_s7A` |
+| B    | `leg173 S7 B`   | `/tmp/leg173_s7B` |
+| C    | `leg173 S7 C`   | `/tmp/leg173_s7C` |
+
+⛔ **Adjudicate ONLY from `golden.runs WHERE note='<tag>'`, and require BOTH
+`count(DISTINCT fixture_id) = 71` AND `count(*) = 71`** before reading a verdict - the second half
+is new, and it is what detects an S-343 duplicate that `n_fail = 0` would otherwise hide.
+⛔ **If a later leg finds PID 26466 gone with no verdict below, the triple died mid-flight: re-run
+all three passes from scratch, and `ps` for the DRIVER as well as the sweep first (S-344).**
