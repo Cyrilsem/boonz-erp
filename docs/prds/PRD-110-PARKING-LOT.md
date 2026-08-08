@@ -11428,6 +11428,12 @@ precedent. ⛔ **Fixing it inside DR-8 would have diverged one table from its th
 how families rot. It is a single family-wide unit: install the generic trigger on all four, one
 migration, one fixture asserting a `write_audit_log` row per decision on each. Not an ask — work.
 
-### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (the margin weight W%). The answered-unexecuted list drops to **TEN**: D-19, D-27, D-28, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-32 is now EXECUTED** (DR-7's weekly cron at leg 141 was its first half; DR-8's approve-RPC this leg is its second), joining D-21(half 1), D-43..D-47, DR-3, DR-4, DR-5, DR-7. DR-1 remains as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. **DR-10 is new work, not an ask.** ⚠️ **S-278 is CLOSED (recorded); S-265 and S-266 remain OPEN.** New findings resume at **S-279**.
+### ⏸️ OPEN CS DECISIONS after this leg — **ONE ASK, UNCHANGED: S-251 (Galaxy venue-supply confirmation)**, plus the SHARPENED D-21 half-2 ask (the margin weight W%). The answered-unexecuted list drops to **TEN**: D-19, D-27, D-28, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-32 is now EXECUTED** (DR-7's weekly cron at leg 141 was its first half; DR-8's approve-RPC this leg is its second), joining D-21(half 1), D-43..D-47, DR-3, DR-4, DR-5, DR-7. DR-1 remains as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. **DR-10 is new work, not an ask.** ⚠️ **S-278 is CLOSED (recorded); S-265, S-266 and S-279 remain OPEN.** New findings resume at **S-280**.
+
+⛔ **S-279 (raised at leg 148, addendum 2) - THE S7 MANIFEST TRAP.** Both sweep runners read
+`/tmp/prd110_s7_fixtures.txt` directly and **nothing copies the tracked
+`scripts/prd110_s7_fixtures.txt` into `/tmp`**, which is cleared between most legs. A leg that updates
+the tracked manifest and fires a sweep would run the stale list, or none at all. `cp` it by hand
+before every sweep until the runner is fixed.
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
