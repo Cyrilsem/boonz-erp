@@ -11591,3 +11591,59 @@ back**, so switching makes donors **far more conservative** and could empty rung
 ### ⏸️ OPEN CS DECISIONS after this leg — **ONE STANDING ASK: S-251 (Galaxy venue-supply confirmation)**, plus **D-21 half-2** (the margin weight W%), **D-28 half-2** (share vs queue on a contested batch; and if queue, it must stop being keyed on a random uuid) and 🆕 **D-27 half-2** (velocity_raw vs the canonical in-stock object — a policy AND perf decision). The answered-unexecuted list drops from nine to **EIGHT**: D-19, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-27(a) is now EXECUTED**, joining D-21(half 1), D-28(half 1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8. DR-1 and DR-10 remain as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. ⚠️ **S-281, S-282 and S-284 are CLOSED (recorded); S-265, S-266, S-279 and S-283 remain OPEN.** New findings resume at **S-285**.
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust the line above.
+
+## ⭐⭐ leg 151 (2026-08-08) — **ALL THREE S-283 DECAY REDS CLOSED (LAW 8) + a fourth found and closed.** S-285 raised **OPEN**; S-286/S-287 raised and closed same leg.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every run id below is a **banked** `golden.runs`
+row with `scenario_error` null, re-read at leg close.
+
+### ✅ THE FOUR REDS, CLOSED BY EXECUTION — 30 · 46 · 40 · 5
+
+- **fixture 30 seq 3** — 19/1 → **20/0**. Three `venue` edges minted through the canonical
+  `set_product_sourcing_v3` for 7Up - Regular on the Soft Drinks Mix pod. Cody ⚠️ Approve-with-revisions,
+  all four revisions executed.
+- **fixture 46 seq 26** — 26/1 → **29/0** (`20260808140000`). The assertion was counting a LAW-5
+  Blocked row as SKU-leg inflation. Restated over `refill_plan_output_shadow` (S-272 + S-267) and
+  given two sensors (seq 28 `sku_legs = 0`, seq 29 the S-274 premise sensor).
+- **fixture 40 seq 8** — 59/1 → **60/0** (`20260808143000`). Anchor B is now resolved **by predicate**,
+  not by a uuid that decays. The sensor was **not** weakened.
+- **fixture 5 seq 11** — 16/1 → **17/0**. Found by this leg's own blast radius; three more `venue`
+  edges for Fade Fit - Coconut.
+
+### ⛔⛔ S-285 (NEW, **OPEN**) — `product_mapping` HAS NO WRITE GATE, AND THAT IS WHY S-53 KEEPS COMING BACK
+
+On one ordinary Friday `product_mapping` took **72 direct writes at 08:42Z from `operator_admin`** and
+**105 more at 09:21Z from the `warehouse` role** — all `via_rpc = false`. Articles 1 and 3 say a
+protected entity has exactly one canonical write path and `authenticated` may not write it directly.
+**S-53 has now recurred three times** (leg 47 · leg 136/S-251 · **twice inside leg 151**), always the
+same shape: a mapping row appears, its `product_sourcing` edge does not, and a venue-supplied SKU
+silently becomes Boonz-WH-sized and blockable by the absence of stock Boonz never owned.
+⭐ **Six edges were minted this leg. The gate was not built — LAW 10.** Next-leg unit (Dara + Cody):
+a canonical `product_mapping` writer, or a trigger refusing an Active mapping row whose pod already
+carries `venue` edges while it carries none.
+⭐ **Measured, not feared:** **21 orphan triples / 1,402 assorted (1.5 %)**; the discriminator
+`orphan_whose_pod_already_has_a_venue_edge` was **3** and is now **0**. The remaining **18** have no
+venue sibling — `boonz_wh` is probably right for them and minting would **originate** intent.
+
+### ⛔ S-286 (CLOSED, recorded) — classify an orphan file; do not merely quarantine it
+
+Leg 150 quarantined an untracked `PRD-111-*.md` unread. Classified this leg: an **FE-only, CS-approved**
+field-PWA pack-ahead toggle, another session's work, **not adopted**. ⭐ Its context paragraph named the
+production event behind this leg's LAW-12 reading of **97 rows on 2026-08-09**. The orphan was the
+*explanation*, not noise.
+
+### ⛔ S-287 (CLOSED, recorded) — DRY-RUN THE RESULT, NOT JUST THE EDIT
+
+A dry run proving the **edit applies** proves nothing about whether the **result runs**. Leg 151 edited
+a 12,304-character `scenario_sql` by five regex substitutions, then dry-ran the migration **AND fired
+the patched fixture in the same doomed transaction**, carrying the verdict out through the exception
+message: **`DRY VERDICT pass=60 fail=0 scenario_error=<null>`** before a byte was committed.
+⛔ **Every future scenario_sql or engine-body substitution should use this, not the plain suffix.**
+
+### ⏸️ NAMED, NOT FIXED (LAW 10)
+
+The 18 no-venue-sibling orphans · the **26 latent** non-assorted venue_team triples from CS's 08:42Z
+write (each becomes an orphan the moment its pod is assorted) · `wh_fefo_for_line`'s `anon` + `PUBLIC`
+EXECUTE (from leg 149).
+
+### ⏸️ OPEN CS DECISIONS after this leg — **FIVE ASKS.** S-251 (Galaxy venue-supply) · **D-21 half-2** (the margin weight W%) · **D-28 half-2** (share vs queue on a contested batch; if queue, not keyed on a random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object — policy AND a ~20 s/evaluation perf decision) · 🆕 **S-285's ask: confirm 7Up - Regular (Soft Drinks Mix, 3 machines) and Fade Fit - Coconut (Fade Fit pod, 3 machines) really are venue-supplied.** ⛔ Six edges were minted mirroring intent **CS's own writes recorded**; this leg did not originate it. **If a flip was wrong, the MAPPING is what is wrong and BOTH sides must be reverted together.** The answered-unexecuted list is **unchanged at EIGHT**: D-19, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ EXECUTED: D-21(h1), D-27(a), D-28(h1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8. DR-1 and DR-10 remain WORK; **DR-6 is FE-deploy work this loop cannot perform** and D-19 stays blocked behind it. ⚠️ **S-286 and S-287 CLOSED; S-265, S-266, S-279, S-283 and 🆕 S-285 remain OPEN.** New findings resume at **S-288**. ⭐ **Leg 151 flipped NO flag, changed NO dial, and touched NO engine body.**

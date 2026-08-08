@@ -35362,7 +35362,7 @@ D-27's premise is that `list_m2m_donors_v3` mirrors the ladder's rung-4 rule. It
 sites round differently, and always have:**
 
 - `list_m2m_donors_v3` casts **each row** to `::int` (its `RETURNS TABLE` declares `excess_units
-  integer`); callers sum the rounded values.
+integer`); callers sum the rounded values.
 - `resolve_supply_ladder_v3` sums the **numeric** excess into `v_donor_units` (declared numeric) and
   rounds **once**, at `v_av4 := LEAST(p_qty_needed, v_donor_units)::int`.
 
@@ -35389,7 +35389,7 @@ arm is dead code.
 (shelf grain, 🟢 canonical since leg 34) and it costs **~20 s per evaluation**, while `v_shelf_state`
 costs 113 ms and is read four times per engine run plus once per FE machine-page load. Fixture 3
 seq 15 already asserts the NULL.
-⛔ **So D-27(b) is a policy change WITH A PERF CONSTRAINT**: it moves the donor set *and* imports
+⛔ **So D-27(b) is a policy change WITH A PERF CONSTRAINT**: it moves the donor set _and_ imports
 ~20 s onto the rung-4 path. It is not a one-line COALESCE deletion. Fixture 71 seq 3 pins the fact.
 
 ### ✅✅ [leg 150] **FIXTURE 71 APPLIED AND FIRED FIRST - RED 16 / 31, AND THE RED WAS EXACT**
@@ -35449,7 +35449,7 @@ one md5 - which additionally establishes that rung-4 donor arithmetic is plan_da
 ⭐ **CODY'S THREE REVISIONS, ALL EXECUTED:** **R1** the object is REGISTERED in
 `METRICS_REGISTRY.md` (an unregistered canonical object gives Article 16 nothing to point at, so the
 next inline copy would not be blockable). **R2** `COMMENT ON FUNCTION list_m2m_donors_v3` still read
-*"Predicate is a byte-for-byte replica of resolve_supply_ladder_v3 rung 4"* - `CREATE OR REPLACE`
+_"Predicate is a byte-for-byte replica of resolve_supply_ladder_v3 rung 4"_ - `CREATE OR REPLACE`
 **preserves comments**, so that stale claim would have shipped intact; both comments restated.
 **R3** the ladder ships by **named substitution**, so `schema_migrations.statements` does not contain
 the body that shipped - the post-block now refuses if the md5 did not move and RAISEs a NOTICE
@@ -35471,16 +35471,16 @@ the changed objects, `v_shelf_state`, or the words donor/rung-4/ladder. Fired **
 with the cron-44 minute-37-40 window respected. Result: **889 pass / 8 fail across 25 fixtures.**
 Every red was then re-fired **alone**, and the population split three ways:
 
-| class | fixtures | verdict |
-| ----- | -------- | ------- |
-| **MINE, authorised** | **6 seq 50 · 44 seq 28** | the same `resolve_supply_ladder_v3` md5 sentinel, in two fixtures. **The sentinels did their job** - the change could not land silently. RESTATED (S-272), both now GREEN. |
-| **SWEEP INTERFERENCE** | **16 · 42 · 43** | RED in the sweep, **GREEN alone** (16: 33/33 · 42: 85/85 · 43: 60/60). Not caused by this unit and not a real regression. |
-| **GENUINE LIVE DECAY** | **30 · 40 · 46** | RED in the sweep **and** RED alone. Pre-existing, predates this leg. |
+| class                  | fixtures                 | verdict                                                                                                                                                                    |
+| ---------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **MINE, authorised**   | **6 seq 50 · 44 seq 28** | the same `resolve_supply_ladder_v3` md5 sentinel, in two fixtures. **The sentinels did their job** - the change could not land silently. RESTATED (S-272), both now GREEN. |
+| **SWEEP INTERFERENCE** | **16 · 42 · 43**         | RED in the sweep, **GREEN alone** (16: 33/33 · 42: 85/85 · 43: 60/60). Not caused by this unit and not a real regression.                                                  |
+| **GENUINE LIVE DECAY** | **30 · 40 · 46**         | RED in the sweep **and** RED alone. Pre-existing, predates this leg.                                                                                                       |
 
 ⛔⛔ **THE INTERFERENCE CLASS IS THE FINDING.** Fixture 16 seq 30 reported `prp_delta` = **48**, and
 `pod_refill_plan` gained **exactly 48 rows in the preceding 2 hours** - the two numbers are the same
 number. **These assertions measure a plan-table delta over a WINDOW, not over their own
-transaction**, so they count what *other fixtures in the same sweep* wrote. This is the S-204 class
+transaction**, so they count what _other fixtures in the same sweep_ wrote. This is the S-204 class
 ("a fixture can rot another fixture's assertion") and it means **a red in a full sweep is not
 evidence of a defect until it has been re-fired alone.** ⛔ It also means the S7 triple is exposed:
 three consecutive sweeps could disagree with each other for reasons that have nothing to do with
@@ -35644,3 +35644,363 @@ leg**. It was therefore created by a CONCURRENT session while leg 150 ran. ⛔ I
 what S-270 exists to prevent, and LAW 10 forbids the scope drift.
 ⛔ **The next leg must decide what it is before touching it** — and should note that leg 150's commit
 `5b560e0` is scoped to its own seven files precisely so this one stayed out.
+
+## ⭐⭐ [leg 151] 2026-08-08 — **ALL THREE S-283 DECAY REDS CLOSED (LAW 8).** S-285 raised. No flag, no dial, no engine body touched.
+
+⛔ **Written AFTER the evidence it cites (S-243).** Every number below was re-read live at close.
+
+### [leg 151] STEP R — the pointer VERIFIED, every claim, before anything was trusted
+
+⚠️ **S-241 `ps` FIRST**, narrowed to `prd110|golden|stress_s|psql`: **no process running**, exactly as
+leg 150 promised. The STEP-R adjudication duty had nothing to adjudicate; recording it satisfied
+rather than skipping it silently.
+⭐ **RISK 104 reconciled on both sides at open:** `prd110%` **339** · `max(version)` **20260808130000** ·
+disk owed-set **339** · owed md5 **`2c26071b4279e87175b01cc97279cecf` on BOTH sides** (disk side
+computed in Python per the pointer's warning). Golden **63 fixtures / 2326 enabled assertions** ·
+`stress_runs` **14** · **37 active crons** · all **ten** sentinels byte-identical to the pointer's list ·
+**not one flag or dial off its recorded value.** The pointer was accurate in every particular.
+🆕 **LAW 12 moved and the pointer told me to re-probe it:** `2026-08-07` **101**, `2026-08-08` **117**,
+and 🆕 **`2026-08-09` now holds 97 rows** — a date the pointer did not mention because it did not yet
+exist. See S-286 below: that number has a name, and it is not the nightly cron.
+
+### ⛔⛔ [leg 151] S-285 (NEW) — **S-53 HAS NOW RECURRED A THIRD TIME, AND THIS TIME THE WRITER IS NAMED**
+
+Fixture 30 seq 3 (`gap_no_edge`) was RED at **3**, expected 0, confirmed by isolation re-fire twice
+(S-283) with zero `scenario_error`. The three orphans were **exactly** identified, not estimated:
+**7Up - Regular** (`bc4edf46`) on the **Soft Drinks Mix** pod (`cc6cc9ca`) on IFLYMCC-1024-0000-W0,
+ACTIVATE-2005-0000-W0 and MPMCC-1058-0000-R0 — **zero `product_sourcing` rows of ANY status.**
+
+⭐ **THE CAUSE IS DATABLE, ATTRIBUTED, AND IT IS NOT AMBIENT DRIFT.** `write_audit_log` shows **72
+direct writes to `product_mapping` at 2026-08-08T08:42:41Z** — actor **`82bba4ee` (operator_admin,
+i.e. CS), `via_rpc = false`** — minting **29 new `venue_team` mapping rows** for 7Up - Regular and
+7Up - Diet across the Coca Cola Mix and Soft Drinks Mix pods on **11 co_managed VOX machines**. The
+S-53 loop obligation (supersede the matching `product_sourcing` edges) was not executed. A **second**
+burst of **105 direct `product_mapping` writes at 09:21Z** landed from the **`warehouse` role**
+(40 DELETE + 51 INSERT + 14 UPDATE, `via_rpc = false`) **while this leg was running.**
+
+⛔⛔ **THE EDGES THIS LEG MINTED ARE THE SYMPTOM. THE DEFECT IS THAT `product_mapping` HAS NO WRITE
+GATE.** Article 1 names one canonical write path per protected entity and Article 3 forbids direct
+writes from `authenticated`; `product_mapping` is taking bulk direct writes from two different roles
+on the same day. S-53 recurred at leg 47, again at leg 136 (S-251, Galaxy - Milk Chocolate, the flip
+**unattributed**), and now a third time with the flip **attributed**. ⛔ **NAMED, NOT FIXED — LAW 10
+forbids this leg chasing it.** It is a Cody-shaped unit for a future leg.
+
+⭐ **Only 3 of the 29 were owed an edge**, and the fixture is right to say so: the other 26 sit on
+pods those machines do not currently carry, and fixture 30 excludes non-assorted triples on purpose
+(477 intent triples vs 70 assorted — demanding edges for the rest is a permanent false red). ⛔ **The
+26 are LATENT: each becomes an orphan the moment its pod is assorted.** Cody ruled minting them
+speculatively is scope drift under Article 15. They are recorded here, not fixed.
+
+### ✅✅ [leg 151] **FIXTURE 30 — 19/1 → 20/0**, via the canonical writer, nothing destroyed
+
+Three calls to **`set_product_sourcing_v3`** under impersonation of `82bba4ee`, all
+**`changed:true`**, all **`superseded_id: null`, `from: null`** — clean mints, not overwrites.
+`product_sourcing` **Active 4022 → 4025**, ⭐ **`Superseded` 40 → 40: nothing was superseded and
+nothing was destroyed.** Article 8 verified live: three `write_audit_log` rows,
+`via_rpc = true`, `rpc_name = set_product_sourcing_v3`, `actor_role = operator_admin`.
+
+⭐⭐ **CODY'S R1 — THE INVARIANT WAS DEMONSTRATED, NOT ARGUED.** The pod-grain rollup that the
+engines actually read was captured before and after:
+
+> `v_product_sourcing_current` pod rollup: **`mixed` → `mixed`** on all three machines ·
+> `v_shelf_state.sourcing`: **`mixed` → `mixed`** on all **four** shelves (IFLYMCC A05,
+> ACTIVATE B06, MPMCC A03 **and** A04) · pod-level edges 21 → 24.
+
+⛔ **This is why the live-day hazard was small and it is a measurement, not a reassurance:** the pod
+already carried both `boonz_wh` edges (Coca-Cola family, Mountain Dew) and `venue` edges (Pepsi
+Regular/Black, 7Up - Diet), so `count(DISTINCT source)` was already 2. One more `venue` row cannot
+move `mixed`. **The change is SKU-grain only and the pod-grain path the engine reads did not move.**
+⭐ **CODY'S R2 mattered in practice:** MPMCC-1058 carries the pod on **two** shelves, and
+`set_product_sourcing_v3` is keyed `(machine, pod_product, boonz_product)` — **3 calls, not 4.** The
+four-row shelf-state read is exactly the trap that would have produced a wrong count in this log.
+
+### ✅✅ [leg 151] **FIXTURE 46 — 26/1 → 29/0** · `20260808140000` · seq 26 RESTATED (S-272) + two sensors
+
+⛔ **THE ASSERTION WAS MEASURING TOTAL ROWS AND CALLING IT INFLATION.** seq 26 read
+`rows_out = lines_in` and went false at **2 vs 1**. The cause is not a defect: live WH stock for pod
+`abc20f95` decayed, so the ladder resolved **11 of the fixture's 12 planted units** and stitch emitted
+one placed row **plus one Blocked row** — **LAW 5 working exactly as specified.** ⭐ **`sku_legs` was
+**0** throughout**, so the P3.1d SKU-leg inflation the assertion's own description claims to guard
+**never happened**. Left alone, any partial ladder resolution reds it forever, for a correct engine.
+
+**The restatement moved the SHAPE, not just the numbers (S-272):** `eq 'true'` over a stitch-contract
+boolean → **`eq '0'` over a COUNT re-derived from `refill_plan_output_shadow`**, an object independent
+of `stitch_v3`'s own return contract (**S-267**), using the same source-line grouping seq 27 already
+uses. It now states what it always meant: **no source line yields more than one non-Blocked row.**
+
+⛔ **A count-eq-0 passes vacuously on an empty set, so it does not travel alone.** Two sensors ship
+with it: **seq 28** pins `sku_legs = 0` — the split mechanism reading zero _directly_, non-vacuous by
+construction — and **seq 29** is the S-274 premise sensor: the fixture plants **exactly one** source
+line and stitch must return at least one row for it. ⭐ **seq 29 is deliberately stated over
+`lines_in`/`rows_out`, never over placed rows**, so it stays true when the ladder resolves nothing and
+the only output is a Blocked row. It senses the fixture's **own plant**, not live warehouse stock —
+which is precisely the mistake that put fixture 40 in this leg's queue.
+
+### ✅✅ [leg 151] **FIXTURE 40 — 59/1 → 60/0** · `20260808143000` · **ANCHOR B IS NOW RESOLVED BY PREDICATE**
+
+seq 8 (`B_real_primary + B_real_other >= 1`) read **0**. ⛔ **THE SENSOR WAS RIGHT AND WAS NOT
+WEAKENED.** Anchor B was pinned to shelf `cfed8e4f` (VOXMCC-1005, the Vitamin Well pod) and that pod
+now holds **zero real non-sentinel stock anywhere in the network** — 0 primary, 0 other, 0 sentinel.
+Its rung-1 failure had stopped proving what the fixture claims: B exists to be **blocked while
+genuinely supplied**, which is what makes walking rungs 2-6 meaningful. **Blocked by ABSENCE proves
+nothing anchor A does not already prove** (A is starved by the sentinel exclusion — 8010 phantom
+VOXSOURCE units). ⛔ **The fixture had quietly lost one of its two distinct cases while reading green
+on 59 other assertions.**
+
+⭐ The fix is **leg 136's own prescription for this very fixture** ("anchor by PREDICATE, or plant the
+precondition") and it copies the S-255 idiom fixture 40 already uses for anchor D. B is now selected
+by the property it must have: `real_primary + real_other >= 1` (**this IS seq 8**) **AND**
+`GREATEST(real_primary - claimed, 0) = 0` (starved at rung 1) **AND** `sourcing IS DISTINCT FROM
+'venue'` (so rung 1 fails on **supply**, never on **policy**). ⭐⭐ **seq 8 stops being a fact the
+fixture INHERITS and becomes a property it MAKES** — the fixture-54 doctrine (S-274). The selector
+**RAISEs by name** if the fleet ever stops supplying the case, so the fixture can go red loudly but
+**can never go vacuously green**.
+
+⛔ **ORDERING WAS A REAL HAZARD, NOT A TIDINESS POINT.** `anchor_B` must resolve **before** `anchor_D`,
+because D's candidate set excludes the other anchors' shelves **by id** and must now exclude whichever
+shelf B picked. B (net = 0) and D (net ≥ 1) are mutually exclusive by predicate, so today it is
+belt-and-braces — but a future edit to either predicate would collide **silently**. The post-guard
+asserts the block positions, not just their presence.
+
+⭐ **WHY B COULD BE RE-ANCHORED WITHOUT RESTATING ANYTHING ELSE — READ, NOT ASSUMED.** All **eleven**
+assertions that read `ladder_B` (seqs 9, 14, 16, 18, 20, 22, 28, 29, 30, 31 plus seq 8) were pulled
+and read **before** the migration was written. Ten are **structural** — six rungs logged, every rung
+carries a reason, terminal rung named, no silent qty-0, net never exceeds gross, net never negative,
+allocation model named. **Not one pins a B-specific product, machine or number.** That is the fact
+that licensed the re-anchor.
+
+⭐⭐ **THE SUBSTITUTION GUARD, EXTENDED AGAIN.** A **12,304-character** scenario edited by **five**
+string substitutions must refuse rather than guess, so: the **pre-image md5** is pinned as a hard
+`RAISE EXCEPTION` (`146e3968d3f9ac9e2f5f8e3f3467d58d`); every substitution's **occurrence count is
+asserted exactly** (B shelf ×3, B pod ×2, both B machine-row patterns ×1, `DO $fx40d$` ×1); an
+idempotence guard refuses if `anchor_B` already exists; and the post-block proves **anchor A still
+names its machine exactly twice**, i.e. the substitution did not over-reach onto the anchor that
+shares B's machine literal.
+
+⭐⭐ **THE DRY RUN DID THE THING A DRY RUN IS FOR.** Editing 12 KB by regex and only checking that the
+_edit_ applies proves nothing about whether the result **runs**. So the dry run applied the migration
+**and fired the patched fixture in the same doomed transaction**, carrying the verdict out through the
+exception message: **`DRY VERDICT pass=60 fail=0 scenario_error=<null>`**, with `anchor_B` resolved to
+ACTIVATE-2005-0000-W0 / B06 / Soft Drinks Mix (`real_primary` 0, `real_other` 382, `claimed` 2,
+8 variants). The real apply then reproduced it exactly. **42 shelves satisfy the predicate; the
+historical anchor is NOT among them**, which is the whole point.
+⚠️ **A coincidence recorded rather than hidden:** the predicate landed anchor B on the _same_
+(machine, pod) this leg minted a sourcing edge for. Its rollup is `mixed`, so it passed the non-venue
+filter honestly, and the anchor is re-selected on every run — but a reader comparing the two units
+should know they touch the same shelf.
+
+### ⛔ [leg 151] S-286 (NEW, recorded) — **THE 97 ROWS ON 2026-08-09 ARE NOT A CRON, AND THE ORPHAN FILE EXPLAINS THEM**
+
+Leg 150's addendum ordered this leg to **decide what the untracked `PRD-111-field-pack-ahead-date-toggle.md`
+is before touching it**. It was classified, not adopted: **PRD-111 is an FE-only, CS-APPROVED
+(2026-08-08) Stax unit** — a Today/Tomorrow pack-ahead toggle for the field PWA, explicitly
+"zero backend, zero migrations, zero RPC changes, zero protected-entity writers", in flight on branch
+`prd-111-field-date-toggle` with two new `_lib` files and a 59-line edit to `field/packing/page.tsx`.
+⭐ **Its own context paragraph names the incident that produced this leg's LAW-12 reading:** _"CS pushed
+the AMZ plan dated Sunday 08-09 so the team could pack Saturday."_ **That is the 97 rows.** A LAW-12
+probe and a concurrent session's PRD independently described the same production event.
+⛔ **NOT ADOPTED, NOT COMMITTED, NOT EDITED (LAW 10 + S-270).** It is another session's work product
+and another session's branch.
+
+### ⚠️ [leg 151] THE WORKING TREE IS SHARED WITH A LIVE CONCURRENT SESSION — WHAT THIS LEG DID ABOUT IT
+
+⛔ **The repo was checked out on `prd-111-field-date-toggle`, not `main`** — both refs sat on leg 150's
+`80f29d6`. Switching branches would have moved HEAD out from under an active session and silently
+redirected **its** next commit onto main. ⭐ **So leg 151 committed onto `main` WITHOUT CHECKING IT
+OUT**, using a temporary index (`GIT_INDEX_FILE` → `read-tree` → `write-tree` → `commit-tree` →
+`update-ref`). The real index, the working tree and the PRD-111 branch were **not touched**.
+⚠️ **The one consequence, stated plainly:** until `prd-111-field-date-toggle` is rebased onto the new
+`main`, this leg's files will still read as uncommitted **on that branch**. They are committed on
+`main`, which is where the relay looks.
+⚠️ **Also recorded:** the concurrent session's formatter reflowed **9 lines** of this log (markdown
+table padding, `*emphasis*` → `_emphasis_`). **Content-neutral, left alone rather than fought** — the
+known Cursor formatter-noise pattern, and reverting it would race their editor for no gain.
+
+### ⛔⛔ [leg 151] THE BLAST RADIUS FOUND S-285'S **SECOND INSTANCE**, AN HOUR NEWER THAN THE FIRST
+
+Radius derived from the catalogue (S-280), not guessed: every enabled fixture whose scenario or
+assertions mention sourcing/venue, the touched pod/product, or the three touched machines →
+**24 fixtures**. Fired **per fixture** (S-250) with the cron-44 guard: **958 pass / 2 fail, zero
+`scenario_error`.** Both reds were re-fired **alone** (S-283) and the population split the familiar
+two ways:
+
+| class                  | fixture       | verdict                                                                                                                       |
+| ---------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **SWEEP INTERFERENCE** | **43 seq 32** | RED in the sweep, **GREEN alone at 60/60**. Third consecutive leg fixture 43 has landed in this class. Not a defect.          |
+| **GENUINE, AND NEW**   | **5 seq 11**  | RED in the sweep **and** RED alone. Caused by a live write that landed **during this leg**.                                    |
+
+⛔⛔ **S-285's SECOND INSTANCE, AND IT IS THE WORSE ONE.** Fixture 5 is named *"Venue-sourced never
+blocks (Fade Fit)"* — Fade Fit is the exact product from the leg-56 incident (7,992 phantom sentinel
+units). seq 11 requires every Active Fade Fit mapping row on ACTIVATEMCC-1037 to resolve to `venue`.
+One did not: **`Fade Fit - Coconut`**, an Active `product_mapping` row created at
+**2026-08-08T09:21:42Z** inside the **105-row direct-write burst from the `warehouse` role**, with no
+sourcing edge — so `resolve_product_sourcing_v3` fell back to **`boonz_wh`** while its **four**
+sibling variants all resolved to `venue`. ⛔ **That is the S-53 coupling live again: a venue-supplied
+SKU sized against Boonz WH stock and blockable by its absence.**
+
+⭐ **THE POPULATION WAS MEASURED, NOT WORRIED ABOUT.** Fleet-wide: **21 orphan triples out of 1,402
+assorted (1.5 %)** — 14 dating to the 2026-05-23 P1.1 genesis era (Al Ain Zero ×12, Plaay Tablets ×2),
+1 from 07-24, 3 from 08-05, and **3 from 09:21Z today**. ⭐⭐ **The discriminator that makes the remedy
+set exact rather than a judgement call: `orphans_whose_pod_already_has_a_venue_edge` = 3, and those 3
+are precisely the Fade Fit - Coconut rows.** The other 18 have **no venue sibling**, so the `boonz_wh`
+fallback is very likely correct for them and minting anything would be **originating** intent.
+
+### ✅✅ [leg 151] **FIXTURE 5 — 16/1 → 17/0.** Three more mints, same writer, stronger corroboration
+
+Three `set_product_sourcing_v3` calls (ACTIVATE-2005, ACTIVATEMCC-1037, VOXMCC-1005), all
+**`changed:true`, `superseded_id: null`**. ⭐ Corroboration is stronger than the 7Up case: each pod
+carries **4 venue edges and ZERO non-venue edges** — unanimously venue — so a `boonz_wh` fallback for
+one variant is unambiguously wrong rather than merely unlikely.
+
+> **The defect corrected, before → after:** `resolve_product_sourcing_v3(Coconut)` **`boonz_wh` →
+> `venue`** on all three · pod rollup **`venue` → `venue`** · `v_shelf_state.sourcing` **`venue` →
+> `venue`** — ⭐ **again no pod-grain movement; the fix is SKU-grain, which is exactly the grain of the
+> defect.** `product_sourcing` **Active 4025 → 4028**, **Superseded 40 → 40 (nothing destroyed)**,
+> 3 audit rows `via_rpc=true`.
+
+⭐ **AND THE REMEDY SET IS PROVABLY EXHAUSTED:** after the mint,
+`orphans_with_venue_sibling` = **0** (orphans 21 → 18). There is no second guess to make.
+
+### [leg 151] STATE AT CLOSE — every figure re-derived live
+
+`max(version)` **20260808143000** · `prd110%` **341** (was 339; **+2 this leg**) · disk owed-set **341**
+· ⭐ **owed md5 `76039b68f1f8179b42b1b5be85589125` on BOTH sides**, disk side recomputed in Python
+(S-31 exclusion applied) · golden **63 fixtures / 2328 enabled assertions** (was 63 / 2326: **+2, both
+fixture 46**; ⭐ **the fixture population did NOT move this leg**) · `golden.stress_runs` **14**
+(unchanged) · **37 active crons** (unchanged).
+⛔ **LIVE plan tables untouched by this leg:** `2026-08-07` **101** · `2026-08-08` **117** ·
+`2026-08-09` **97** — all three identical to the open reading.
+⭐ **ALL TEN SENTINELS UNMOVED (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091**
+· `bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** ·
+`rank_machines_by_value_at_risk_v3` **754532ac** · `swap_v3` **ffff8485** ·
+`approve_facing_proposal_v3` **9435ab69** · `wh_fefo_for_line` **f79d4265** · `list_m2m_donors_v3`
+**5ecb9a2d** · `resolve_supply_ladder_v3` **056cca45**. ⛔ **No engine body was touched this leg.**
+
+**FLAGS AT CLOSE — NOT ONE FLAG OR DIAL CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `base_stock_min_gaps` **2**.
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE (all unchanged):** `picker_weight_proposals_v3` pending **0** ·
+`feedback_proposals_v3` **12** = 8 real + 4 synthetic (S-265) · `rotation_proposals_v3` **25** ·
+`facing_proposals_v3` **20**, of which **0 are real** (S-276).
+⭐ **S-262 was NOT re-armed:** the 24-fixture radius is targeted, not a full sweep, and fixture 58 was
+not in it — `picker_weight_proposals_v3` pending measured **0** at close, consistent with leg 149's
+and leg 150's measurements of the same effect.
+
+### RESUME POINTER 2026-08-08 leg 151 · FINAL
+
+- ⚠️ **FIRST — `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 151
+  launched three background waiters and **all of them exited**; it leaves **no process running**.
+  Then S-270: read the untracked set — and see the concurrent-session note below, which is NOT
+  optional context this time.
+- ⛔ **RISK 104: expect `prd110%` = 341, `max(version)` = 20260808143000, owed-set 341 on disk, owed
+  md5 `76039b68f1f8179b42b1b5be85589125` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON** — the `tr`/`sed` recipe re-adds a newline.
+- ✅⭐ **GOLDEN HAS NO KNOWN RED — AND READ S-275 BEFORE REPEATING THAT SENTENCE.** The three leg-150
+  decay reds (30, 40, 46) are **CLOSED BY EXECUTION**, plus fixture 5 which this leg's own radius
+  found. Banked green this leg: **30 (20/20) · 46 (29/29) · 40 (60/60) · 5 (17/17) · 43 (60/60
+  alone)**, plus 22 more fixtures green in the radius. ⛔ **That is 28 of 63 fixtures, NOT the whole
+  suite** — S-275 says the phrase may only be written after a run over the enabled suite. **The
+  honest claim is: no red is known, and 35 fixtures have not been fired since leg 148's sweep.**
+- ⛔⛔ **S-285 IS THE HEADLINE AND IT IS NOT FIXED — IT IS THE NEXT LEG'S BEST UNIT.**
+  `product_mapping` took **72 direct writes at 08:42Z from `operator_admin`** and **105 more at 09:21Z
+  from the `warehouse` role**, all `via_rpc = false`, on one ordinary Friday. Articles 1 and 3 say a
+  protected entity has exactly one canonical write path and `authenticated` may not write it directly.
+  **S-53 has now recurred three times** (leg 47, leg 136/S-251, and twice inside leg 151) and every
+  recurrence has the same shape: a mapping row appears, its `product_sourcing` edge does not, and a
+  venue-supplied SKU silently becomes Boonz-WH-sized. ⭐ **Six edges were minted this leg; the writer
+  gate was not built.** Dara + Cody unit: a canonical `product_mapping` writer, or a trigger that
+  refuses an Active mapping row whose pod already carries venue edges and which has none of its own.
+- ⛔⛔ **NEVER ADJUDICATE A SWEEP RED WITHOUT AN ISOLATION RE-FIRE (S-283, re-earned).** This leg's two
+  radius reds split **exactly** the predicted way: fixture 43 GREEN alone at 60/60 (its **third**
+  consecutive appearance in the interference class — 16/42/43 at leg 150), fixture 5 RED alone and
+  genuinely defective. ⛔ Budget isolation re-fires into the S7 triple.
+- ⏸️ **NEXT TASK: the answered-unexecuted list, still EIGHT and untouched by this leg** — D-19
+  (⛔ blocked on DR-6, a Stax FE-deploy unit **this loop cannot perform**) · **D-31** (the last CONVERGE
+  unit — ⛔ re-derive its site list from the catalogue, never from a `prosrc ILIKE` grep, S-280) ·
+  D-29, D-33, D-34 (see DR-9) · D-37 · D-39 · D-40. Then DR-10, then Tier 4 (DR-1 cutover unit,
+  **flag-off**). ⭐ **EXECUTED so far:** D-21(half 1), D-27(a), D-28(half 1), D-32, D-43, D-44, D-45,
+  D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8.
+- ⛔⛔ **D-37 MUST RESTATE TWO SENTINELS AND RE-DERIVE THEM, NOT GUESS THEM.** `resolve_supply_ladder_v3`
+  is D-37's target and it sits at **056cca45**; fixture **6 seq 50** and fixture **44 seq 28** both pin
+  that md5 exactly and D-37 will red them. Fixture 6 seq 22/25/26 must be **RESTATED, never deleted**.
+  ⭐ Copy leg 150's substitution guard whole — and note leg 151 **extended** it: pin the pre-image md5
+  as a hard `RAISE EXCEPTION`, assert **every** substitution's occurrence count exactly, add an
+  idempotence guard, and assert in the post-block that the **untouched** neighbour (anchor A, which
+  shared B's machine literal) still appears exactly as many times as before.
+- ⭐⭐ **THE DRY-RUN LESSON THIS LEG ADDS, AND IT IS THE MOST TRANSFERABLE THING HERE (S-287):** a dry
+  run that only proves the **edit applies** proves nothing about whether the **result runs**. Leg 151
+  edited a 12,304-character scenario by five regex substitutions; the shim dry run then applied the
+  migration **AND fired the patched fixture in the same doomed transaction**, carrying the verdict out
+  through the exception message (`RAISE EXCEPTION 'DRY VERDICT pass=% fail=% ...'`). It returned
+  **pass=60 fail=0** before a single byte was committed, and the real apply reproduced it exactly.
+  ⛔ **Any future scenario_sql or engine-body substitution should use this, not the plain suffix.**
+- ⚠️⚠️ **THE WORKING TREE IS SHARED WITH A LIVE CONCURRENT SESSION — DO NOT `git switch`.** The repo is
+  checked out on **`prd-111-field-date-toggle`** (PRD-111 = an FE-only, CS-approved pack-ahead date
+  toggle for the field PWA — classified per leg 150's instruction, **not adopted**, LAW 10). Leg 151
+  committed onto **`main` without checking it out**, via a temporary index
+  (`GIT_INDEX_FILE` → `read-tree` → `write-tree` → `commit-tree` → `update-ref`), so the other
+  session's branch, index and working tree were untouched. ⛔ **Consequence to expect: leg 151's files
+  read as uncommitted on the PRD-111 branch until it is rebased onto the new `main`.** Verify with
+  `git log main --oneline -3`, never with `git status` alone.
+- ⭐ **PRD-111 also explains a number you will probe:** `2026-08-09` holds **97** `refill_plan_output`
+  rows because CS pushed Sunday's AMZ plan so the team could pack Saturday — PRD-111's own context
+  paragraph names that incident. It is **not** an anomaly and **not** the nightly cron.
+- ⏸️ **THE S7 TRIPLE IS STILL OWED.** ⭐ Good news: the fixture population **stopped moving** this leg
+  (63 both sides; only 2 assertions added, both in fixture 46), and the three decay reds that blocked
+  it are closed. ⛔ Still: fire **PER FIXTURE** (`run_all` through the management API banks nothing,
+  S-250); ⛔ never START a fixture in UTC minutes **37-40** (cron 44); ⛔ reconcile
+  `scripts/prd110_s7_fixtures.txt` against `golden.fixtures WHERE enabled` first (S-269 — it reads
+  **63** on both sides and needed no edit this leg) and ⛔ **`cp scripts/prd110_s7_fixtures.txt /tmp/`
+  before firing** (S-279). ⛔ **Budget generously: fixture 43 alone took 110 s and fixture 5 took 61 s;
+  the 24-fixture radius took ~22 min.**
+- ⛔⛔ **EVERY FULL SWEEP RE-ARMS S-262 — BUDGET THE CLEANUP INTO IT.** After each: re-run dr5d's
+  predicate (`/tmp/leg145_s262.sql`) or the next weekly miner run is refused `pending_exists`. ⭐ A
+  targeted blast-radius re-fire does NOT re-arm it — leg 151 measured pending **0 → 0** across a
+  24-fixture radius, the third leg to confirm this.
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 (a count assertion reading the object under
+  test proves SELF-CONSISTENCY, never correctness) · S-268 (`REVOKE ALL … FROM PUBLIC` does NOT remove
+  Supabase's schema default privileges; name `anon` explicitly) · S-272 (restating an assertion must
+  move `expect_op`/`expect` with the SHAPE of `check_sql`) · S-266 (a scenario that RAISEs rolls back
+  its own `golden.scratch` DELETE, so scratch-reading assertions re-evaluate the PREVIOUS run's
+  snapshot **and pass** — `n_fail` is the only sound verdict) · S-277 · S-280 (a previous leg's
+  scoping addendum is a hypothesis; re-derive from the catalogue) · S-281 · S-283 · S-284 (the shim's
+  dry run and its real apply are visually identical — the `DO $dry$` suffix is the ONLY difference) ·
+  🆕 **S-285 (`product_mapping` has no write gate; S-53 recurs because of it)** · 🆕 **S-286 (a
+  concurrent session's orphan file was the explanation for a LAW-12 number, not noise — classify
+  orphans, do not merely quarantine them)** · 🆕 **S-287 (dry-run the RESULT, not just the EDIT)**.
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** All ten are listed under
+  STATE AT CLOSE above and **none moved this leg**.
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (tenth leg).
+  `/tmp/prd110_sql.sh` and `/tmp/apply_mig.sh` both work; the apply shim registers the version it is
+  handed in the SAME POST. 🆕 `/tmp/prd110_fire.sh <fixture_id> "<note>"` is this leg's single-fixture
+  isolation runner (scratch DELETE from outside the transaction per S-254, cron-44 guard, freshness
+  floor, `scenario_error` surfaced) — **the S-283 re-fire tool, ready-made.**
+- ⚠️ **THE LIVE CS ASKS, NOW FIVE:** S-251 (Galaxy - Milk Chocolate venue-supply confirmation) ·
+  **D-21 half-2** (the margin weight W%, and whether 90 % is still the right bar at 53.99 %
+  computability) · **D-28 half-2** (share vs queue on a contested batch; and if queue, not keyed on a
+  random uuid) · **D-27 half-2** (`velocity_raw` vs the canonical in-stock object — a policy AND a
+  ~20 s/evaluation perf decision; ⛔ measure the donor-set delta before recommending) · 🆕 **S-285's
+  ask: confirm 7Up - Regular (Soft Drinks Mix, 3 machines) and Fade Fit - Coconut (Fade Fit pod, 3
+  machines) really are venue-supplied.** ⛔ **Six edges were minted mirroring intent CS's own writes
+  recorded; this leg did not originate that intent. If a flip was wrong, the MAPPING is what is wrong
+  and BOTH sides must be reverted together** (the S-251 wording, and it still applies).
+- ⏸️ **NAMED, NOT FIXED (LAW 10):** 18 remaining orphan sourcing triples with **no** venue sibling
+  (14 of them from the 2026-05-23 P1.1 genesis era) — leave them; `boonz_wh` is probably right and
+  minting would originate intent · the **26 latent** non-assorted venue_team triples from CS's 08:42Z
+  write, each of which becomes an orphan the moment its pod is assorted · `wh_fefo_for_line` still
+  carries `anon` + `PUBLIC` EXECUTE (the D-30-shaped revoke, from leg 149).
+- ⏸️ **S-265 (OPEN):** fixture 57 mints into the LIVE CS review queue (`p_dry_run => false`), so 4
+  synthetic proposals sit beside the 8 real ones in `feedback_proposals_v3`.
+- ⚠️ **LAW 12:** `2026-08-07` **101** · `2026-08-08` **117** · `2026-08-09` **97**. ⛔ Re-probe every
+  leg — and expect movement, because **CS ran a full live refill day inside this leg's window**
+  (pick → engine_add_pod → finalize → stitch → approve → push 97 rows to dispatch at 09:03Z, warehouse
+  packing from 09:00Z). ⭐ Nothing this leg wrote touched any of it.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282, S-284,
+  S-286 and S-287 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279, S-283 and 🆕 S-285 are OPEN.**
+  New findings resume at **S-288**.
