@@ -1007,3 +1007,52 @@ guarded only STRUCTURALLY (seq 19 reads `pg_get_viewdef`), because the fleet con
 restoring the value it found. Measured at ship: bar 2→3 flips exactly **1 of 31** machines to
 `policy_seed` (the ruling's "one machine"); bar 2→35 flips all 31; both sets match an independent
 re-derivation with zero symmetric difference.
+
+---
+
+## PRD-110 D-27(a) (2026-08-08, relay leg 150) — m2m donor surplus
+
+| Metric                                                                                                 | Canonical object      | Status                                                            | Notes                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------ | --------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **m2m donor surplus** (which shelves may donate stock to another machine, and how much they can spare) | `v_m2m_donor_surplus` | ✅ LIVE (`20260808120500_prd110_d27a_converge_m2m_donor_surplus`) | Consumers: `list_m2m_donors_v3` (names the donors `stitch_v3` may pull from) and `resolve_supply_ladder_v3` rung 4 (decides whether m2m is satisfiable at all). Both previously carried the rule VERBATIM. Proven by golden fixture **71** (RED 16/31 → GREEN 31/31) and pinned by fixture **45** assertions 4–5. |
+
+The rule is `GREATEST(current_stock - GREATEST(COALESCE(velocity_instock, velocity_raw, 0) * 7, 5), 0)`
+over `v_shelf_state`, restricted to shelves carrying a pod whose stock exceeds that cover floor.
+Cody permitted the mirror at P3.1c only because fixture 45 pinned the two objects together; D-27
+(CS 2026-08-01) ordered the convergence as its own reviewed unit.
+
+### ⛔ THE TWO EXCESS COLUMNS ARE NOT REDUNDANT — do not "clean up" one of them
+
+`v_m2m_donor_surplus` deliberately publishes **both** `excess_exact` (numeric) and `excess_units`
+(per-row `::int`), because the two consumers have **always rounded differently** and converging
+them is a policy change, not a refactor:
+
+- `list_m2m_donors_v3` rounds **each row** (its `RETURNS TABLE` declares `excess_units integer`)
+  and callers sum the rounded values → reads `excess_units`.
+- `resolve_supply_ladder_v3` sums the **numeric** excess into `v_donor_units` (declared numeric)
+  and rounds **once**, at `v_av4 := LEAST(p_qty_needed, v_donor_units)::int` → reads `excess_exact`.
+
+Measured live at leg 150: **353 donor rows over 57 pods, 46 rows fractional, sum-of-rounded 2014
+vs rounded-of-sum 2012, and 17 of 57 pods disagree.** Pointing both consumers at one column would
+silently move rung-4 availability on those 17 pods. Fixture 71 seqs **18–21** pin the column types
+and which consumer reads which; seq **24** pins the naming side's arithmetic and seq **27** the
+ladder's, as numbers. Converging them turns one of those red **on purpose**, so the change gets its
+Article-16 review.
+
+⚠️ **Fixture 45 seq 5's pin is narrower than it reads** (leg 150, S-281): it compares the two
+objects' total excess at ONE pod (`b1827ff7`), whose 5 donor rows happen to have integral excess,
+so it is green by luck of the arithmetic. Fixture 71 seqs 23–24 restate that pin **fleet-wide and
+on the correct side of the rounding seam**.
+
+### ⏸️ D-27(b) IS STILL OPEN — the velocity TERM did not converge here
+
+`v_m2m_donor_surplus` carries `COALESCE(velocity_instock, velocity_raw, 0)` forward **byte-for-byte**.
+⛔ `v_shelf_state.velocity_instock` is a hardcoded `NULL::numeric` column — **0 of 656 rows carry a
+value** (fixture 71 seq 3; consistent with fixture 3 seq 15) — so that COALESCE resolves to
+`velocity_raw` unconditionally and its first arm is **dead code**. This is not an oversight: it is
+the recorded perf decision **S-39** (the canonical in-stock objects cost ~20 s per evaluation, while
+`v_shelf_state` costs 113 ms and is read four times per engine run plus once per FE machine-page
+load). The registered canonical in-stock object at shelf grain is
+**`v_shelf_instock_velocity_split_v3`**. Repointing the donor rule at it changes which machines
+qualify as donors **and** imports that ~20 s cost onto the rung-4 path — so D-27(b) is a policy
+change with a perf constraint, and it needs the before/after donor-set diff the ruling asks for.

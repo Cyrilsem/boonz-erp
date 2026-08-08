@@ -11487,11 +11487,11 @@ SELECT proname, prosrc ~* 'SUM\s*\(\s*rd\.quantity', prosrc ~* 'committed\s+AS\s
 `dispatch_id` for it to be earlier than. The CS ask is therefore a choice between two named policies,
 measured rather than argued (fixture 70, 21 units vs three lines of 40/30/25):
 
-| | binder today (symmetric) | canonical view today (asymmetric) |
-| --- | --- | --- |
-| lines charged nothing | **0** | **1** |
-| lines not `blocked_no_wh` | **0** | **1** |
-| ordering key | none — order-independent | **`gen_random_uuid()`** |
+|                           | binder today (symmetric) | canonical view today (asymmetric) |
+| ------------------------- | ------------------------ | --------------------------------- |
+| lines charged nothing     | **0**                    | **1**                             |
+| lines not `blocked_no_wh` | **0**                    | **1**                             |
+| ordering key              | none — order-independent | **`gen_random_uuid()`**           |
 
 ⛔ **The status quo is that the two objects disagree in production and nobody could see it**, because
 the competition window has always closed by the time anyone reads the archive (leg 148: `open_wh_lines`
@@ -11513,3 +11513,81 @@ into a convergence migration.** D-27/D-28's own wording: "never a drive-by".
 ### ⏸️ OPEN CS DECISIONS after this leg — **ONE STANDING ASK: S-251 (Galaxy venue-supply confirmation)**, plus **D-21 half-2** (the margin weight W%, and whether 90 % is still the right bar at 53.99 % computability) and 🆕 **D-28 half-2** (share vs queue on a contested batch; and if queue, it must stop being keyed on a random uuid). The answered-unexecuted list drops from ten to **NINE**: D-19, D-27, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-28 half 1 is now EXECUTED**, joining D-21(half 1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8. DR-1 and DR-10 remain as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. ⚠️ **S-280 is CLOSED (recorded); S-265, S-266 and S-279 remain OPEN.** New findings resume at **S-281**.
 
 ⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust this line.
+
+---
+
+## ⭐⭐ leg 150 (2026-08-08) — **D-27(a) EXECUTED.** S-281/S-282/S-284 raised and closed same leg; **S-283 raised OPEN and it blocks the S7 triple.** D-27 half 2 parked as a sharpened CS ask.
+
+⛔ **Written AFTER the evidence it cites, per S-243.** Every number was read back live at leg-150 close.
+
+### ✅ D-27(a) CLOSED BY EXECUTION — the donor-surplus rule is one object
+
+`20260808120000` (fixture 71 RED baseline, **16/31**) → `20260808120500` (the de-dup, fixture 71
+**31/31**) → `20260808130000` (restate the two md5 sentinels it legitimately moved).
+Cody ⚠️ Approve-with-revisions; **all three revisions executed** (register the object in
+`METRICS_REGISTRY.md`; restate both stale `COMMENT ON FUNCTION` bodies, since `CREATE OR REPLACE`
+preserves comments; pin the shipped md5 because the ladder ships by named substitution and the
+migration text therefore does not contain its own effect).
+
+**Acceptance evidence, both live consumers, whole output:** donor set **353 rows / 57 pods, md5
+`b6dcd61a…` on both sides**; ladder rung 4 over 12 pods **md5 `47a472af…` on both sides**, total
+**467.95** (fractional, so the numeric path is genuinely exercised). `list_m2m_donors_v3`
+**42198fee → 5ecb9a2d**, `resolve_supply_ladder_v3` **920b32d0 → 056cca45**, all eight other
+sentinels unmoved.
+
+### ⛔⛔ S-281 (CLOSED, recorded) — the Article-16 pin that licensed the mirror was a single-instance pin passing by luck
+
+The two mirrored sites **round differently and always have**: `list_m2m_donors_v3` casts each row to
+`::int`; the ladder sums numeric and rounds once. Live: **353 donor rows / 57 pods, 46 fractional,
+sum-of-rounded 2014 vs rounded-of-sum 2012, 17 of 57 pods disagree.** Fixture 45 seq 5 pins the two
+objects at ONE pod whose rows happen to be integral. ⛔ **The tidy de-dup — one excess column — would
+have moved rung-4 availability on 17 pods with fixture 45 staying green throughout.** The canonical
+view therefore publishes **both** `excess_exact` (numeric) and `excess_units` (int), and fixture 71
+seqs 18-21/24/27 pin which consumer reads which, as numbers.
+
+### ⛔ S-282 (CLOSED, recorded) — D-27(b) is bigger than the leg-149 addendum hoped
+
+`v_shelf_state.velocity_instock` is a hardcoded `NULL::numeric`; **0 of 656 rows** carry a value, so
+the COALESCE resolves to `velocity_raw` unconditionally and its first arm is dead code. ⭐ Not an
+oversight — the recorded perf decision **S-39**: the registered canonical object
+`v_shelf_instock_velocity_split_v3` costs **~20 s per evaluation** and machine-scoping does not
+reduce it, while `v_shelf_state` costs 113 ms and is read four times per engine run.
+
+### ⛔⛔ S-283 (**OPEN** — blocks the S7 triple) — a sweep red is not a defect until an isolation re-fire says so
+
+The 25-fixture blast radius closed **889 pass / 8 fail**. Re-firing every red **alone** split them:
+
+- **MINE, authorised (2):** fixture **6 seq 50** and **44 seq 28**, the same ladder md5 sentinel.
+  Restated per S-272; both now GREEN. The sentinels did their job.
+- **SWEEP INTERFERENCE (3):** fixtures **16, 42, 43** — RED in the sweep, **GREEN alone**
+  (33/33, 85/85, 60/60). ⛔ Fixture 16 seq 30 reported `prp_delta` = **48**, and `pod_refill_plan`
+  gained **exactly 48** rows in the preceding 2 hours: **these assertions measure a window, not their
+  own transaction**, so a sweep's own fixtures rot them (S-204 class).
+- **GENUINE LIVE DECAY (3):** fixtures **30** (seq 3, 3 orphan venue_team triples) · **40** (seq 8,
+  Vitamin Well has no real non-sentinel WH stock left — a premise sensor firing correctly) · **46**
+  (seq 26, 2030-horizon row count). All three green on the **08-07 17:13** sweep, so they decayed
+  inside 16 hours; fixture 46 was **27/27 in leg 149's own blast radius yesterday**.
+
+⛔ **These three decay reds are the next leg's LAW-8 work and must close before any S7 triple.**
+
+### ⛔ S-284 (CLOSED, recorded) — the shim's dry run and its real apply look identical
+
+A `CREATE VIEW` probe was run through `/tmp/prd110_sql.sh` **without** the `DO $dry$ … RAISE 'DRY' …`
+suffix. The shim commits on success, so the view existed in production, unregistered, for ~40 s
+before being dropped and its absence verified. No harm (a new view nothing references cannot alter
+any existing object) but **the suffix is the ONLY thing distinguishing a dry run from an apply.**
+⭐ RULE: any probe containing DDL gets the suffix, or it is an apply.
+
+### ⏸️ D-27 HALF 2 PARKED WITH A SHARPENED ASK, NOT AN OPEN QUESTION
+
+Should the donor rule keep `velocity_raw` (a CALENDAR-day rate) or move to the registered canonical
+`v_shelf_instock_velocity_split_v3` (units per IN-STOCK day)? ⛔ **Two measured facts, neither an
+opinion:** (1) the in-stock object costs **~20 s per evaluation** and machine-scoping does not help
+(S-26) — this is a perf decision as much as a policy one; (2) per PRD-108's trap an in-stock rate
+**overstates calendar velocity**, and here velocity × 7 sets the **cover floor a donor must keep
+back**, so switching makes donors **far more conservative** and could empty rung 4 entirely.
+⛔ Measure the donor-set delta before recommending.
+
+### ⏸️ OPEN CS DECISIONS after this leg — **ONE STANDING ASK: S-251 (Galaxy venue-supply confirmation)**, plus **D-21 half-2** (the margin weight W%), **D-28 half-2** (share vs queue on a contested batch; and if queue, it must stop being keyed on a random uuid) and 🆕 **D-27 half-2** (velocity_raw vs the canonical in-stock object — a policy AND perf decision). The answered-unexecuted list drops from nine to **EIGHT**: D-19, D-29, D-31, D-33, D-34, D-37, D-39, D-40. ⭐ **D-27(a) is now EXECUTED**, joining D-21(half 1), D-28(half 1), D-32, D-43..D-47, DR-3, DR-4, DR-5, DR-7, DR-8. DR-1 and DR-10 remain as WORK; **DR-6 is FE-deploy work this loop cannot perform**, and D-19 stays blocked behind it. ⚠️ **S-281, S-282 and S-284 are CLOSED (recorded); S-265, S-266, S-279 and S-283 remain OPEN.** New findings resume at **S-285**.
+
+⛔ Per S-80, the next leg must still grep this file — **the WHOLE file, not the tail** — for `CS DECISION` rather than trust the line above.

@@ -35100,12 +35100,12 @@ that pushes. So fixture 70 MAKES the contest - a product with **zero pickable st
 units planted at WH_CENTRAL, three open lines demanding **40 + 30 + 25 = 95** - and the numbers came
 out exactly as designed on the very first fire:
 
-| measure                                  | binder (symmetric) | canonical view (asymmetric) |
-| ---------------------------------------- | ------------------ | --------------------------- |
-| lines charged nothing                    | **0**              | **1**                       |
-| lines satisfiable / not `blocked_no_wh`  | **0**              | **1**                       |
-| per-line discount                        | 55 / 65 / 70       | 0 / q · / q · + q ·         |
-| sum of discounts                         | **190** = 2 × 95   | uuid-dependent, unassertable |
+| measure                                 | binder (symmetric) | canonical view (asymmetric)  |
+| --------------------------------------- | ------------------ | ---------------------------- |
+| lines charged nothing                   | **0**              | **1**                        |
+| lines satisfiable / not `blocked_no_wh` | **0**              | **1**                        |
+| per-line discount                       | 55 / 65 / 70       | 0 / q · / q · + q ·          |
+| sum of discounts                        | **190** = 2 × 95   | uuid-dependent, unassertable |
 
 ⭐ **Every asserted figure is invariant under all six permutations of three random uuids.** The
 individual `reserved_by_earlier` values ARE uuid-dependent, so they are recorded in
@@ -35155,8 +35155,8 @@ history, and the non-zero rows are older lines that were never packed.)
    hand `anon` a `reserved_by_earlier` of 0 where it reads a real number now. The safe-looking flag
    was the dangerous choice here.
 3. ⚠️ **A NAMED, ACCEPTED BEHAVIOUR CHANGE ON THE `anon` PATH.** `wh_fefo_for_line` is `SECURITY
-   INVOKER` and carries `anon` **and** `PUBLIC` EXECUTE. A direct anon call now raises `permission
-   denied for view` where it previously returned `committed_elsewhere = 0` - **not because nothing
+INVOKER` and carries `anon` **and** `PUBLIC` EXECUTE. A direct anon call now raises `permission
+denied for view` where it previously returned `committed_elsewhere = 0` - **not because nothing
    was committed, but because `refill_dispatching`'s only SELECT policy is `authenticated_read`, so
    RLS blinded anon to every competitor row and the binder silently over-committed.** A loud refusal
    replacing a silently wrong number is an improvement. ⛔ Verified reachable by nobody: no FE, n8n,
@@ -35340,3 +35340,297 @@ canonical velocity object may already sit upstream of both sites. Establish what
 `v_shelf_state.velocity_instock` is derived from **before** designing (b) — if it is already the
 canonical object, (b) collapses to deleting a defensive `COALESCE` and the "donor-set change" may be
 smaller than the ruling assumes. ⛔ Measure it; do not reason about it from this paragraph.
+
+## LEG 150 - 2026-08-08 - **D-27(a) EXECUTED: the m2m donor-surplus rule is now ONE object.** Fixture 71 RED 16/34 → GREEN 31/31; both live consumers md5-identical across the change. ⛔ **And the first blast radius since the 08-07 sweep found EIGHT reds - only two of them mine, and three of them are not reproducible in isolation (S-283).**
+
+### ✅ [leg 150] STEP R - EVERY POINTER CLAIM VERIFIED. ONE DRIFT, AND IT IS LIVE PLAN DATA
+
+`ps` (S-241) FIRST, narrowed to `prd110|golden|stress_s|psql`: **no process running**. Then S-270:
+`git status --porcelain --untracked-files=all` **empty** - no orphan leg. ⭐ The leg-148 STEP-R duty
+("ADJUDICATE any sweep the previous leg launched") had nothing to adjudicate: leg 149 launched none.
+RISK 104 reconciled EXACTLY: `max(version)` **20260808090500** · `prd110%` **334→336** · disk owed-set
+**336** · **owed md5 `96e98aad87185404a303db44ced44fae` on both sides** (disk side in Python).
+Golden **62 / 2295**. `stress_runs` **14**. **37 active crons**. All eight sentinels unmoved under
+`prosrc` (S-109). S-80 grep of the WHOLE parking lot: latest ruling block is still **"POST-DONE DR
+REGISTER CLOSED" (2026-08-04)** - **no CS ruling since leg 141**, eight legs running.
+⚠️ **THE ONE DRIFT: `2026-08-08` moved 0 → 117 rows** in `refill_plan_output`. The nightly cron ran
+between legs. LAW 12 now binds that date too; every synthetic plant this leg used the 2030 band.
+
+### ⛔ [leg 150] S-281 - **THE ART-16 PIN CODY RELIED ON TO TOLERATE THE MIRROR NEVER COVERED THE DIVERGENCE IT WAS MEANT TO CATCH**
+
+D-27's premise is that `list_m2m_donors_v3` mirrors the ladder's rung-4 rule. It does - **but the two
+sites round differently, and always have:**
+
+- `list_m2m_donors_v3` casts **each row** to `::int` (its `RETURNS TABLE` declares `excess_units
+  integer`); callers sum the rounded values.
+- `resolve_supply_ladder_v3` sums the **numeric** excess into `v_donor_units` (declared numeric) and
+  rounds **once**, at `v_av4 := LEAST(p_qty_needed, v_donor_units)::int`.
+
+Measured live before touching anything: **353 donor rows over 57 pods, 46 rows fractional,
+sum-of-rounded 2014 vs rounded-of-sum 2012, and 17 of 57 pods disagree.**
+
+⛔⛔ **Fixture 45 seq 5 - the pin - compares the two objects at ONE pod (`b1827ff7`), whose 5 donor
+rows happen to have integral excess (30 = 30). It is green by luck of the arithmetic.** Had the
+de-dup pointed both consumers at one excess column - the obvious, tidy-looking move - rung-4
+availability would have moved on 17 of 57 pods and fixture 45 would have stayed green throughout.
+⭐ **THE LESSON: a pin at one instance does not pin a rule. Fixture 71 seqs 22-24 restate it
+fleet-wide, and on the correct side of the rounding seam.**
+
+### ⛔ [leg 150] S-282 - **`v_shelf_state.velocity_instock` IS A HARDCODED `NULL::numeric`, SO D-27(b) IS BIGGER THAN THE LEG-149 ADDENDUM HOPED**
+
+The addendum's "one thing to verify, not assume" was: is the canonical velocity object already
+upstream of both sites, in which case (b) collapses to deleting a defensive COALESCE? **Measured:
+no.** `pg_get_viewdef` shows `NULL::numeric AS velocity_instock` - a literal - and **0 of 656 rows**
+carry a value. So `COALESCE(velocity_instock, velocity_raw, 0)` resolves to `velocity_raw`
+**unconditionally and by construction**, not merely "in practice" (S-73's weaker phrasing); the first
+arm is dead code.
+⭐ **And this is not an oversight - it is the recorded perf decision S-39**, re-read this leg from
+`METRICS_REGISTRY.md`: the registered canonical object is **`v_shelf_instock_velocity_split_v3`**
+(shelf grain, 🟢 canonical since leg 34) and it costs **~20 s per evaluation**, while `v_shelf_state`
+costs 113 ms and is read four times per engine run plus once per FE machine-page load. Fixture 3
+seq 15 already asserts the NULL.
+⛔ **So D-27(b) is a policy change WITH A PERF CONSTRAINT**: it moves the donor set *and* imports
+~20 s onto the rung-4 path. It is not a one-line COALESCE deletion. Fixture 71 seq 3 pins the fact.
+
+### ✅✅ [leg 150] **FIXTURE 71 APPLIED AND FIRED FIRST - RED 16 / 31, AND THE RED WAS EXACT**
+
+LAW 1 in the strict order: `20260808120000` applied, fired, **16/31 with ZERO `scenario_error`**.
+The 15 reds are **exactly** the 15 structural assertions (seq 7-11, 13-21, 29); every premise (1-6)
+and every invariance (22-28) was green from the first firing, which is the whole point - a de-dup
+must move no number. Adjudicated from `golden.runs.n_fail`, never from the returned set (S-266).
+
+⭐ **THE FIXTURE WRITES NOTHING.** The donor rule is a pure read over live state, so there is no
+plant, no subtransaction, no RAISE and no DELETE against any protected table. Because its population
+is genuinely live, every assertion is a PROPERTY or an INVARIANCE (S-257) and four premise sensors
+(seqs 1-4) fail loudly and by name if live data stops supplying the case (S-274): donor rows ≥1,
+pods ≥2, `velocity_instock` non-null count = 0, and **disagreeing pods ≥1**.
+
+⛔ **THE DRY RUN EARNED ITS KEEP TWICE.** (1) `golden.fixtures.plan_date` carries a **UNIQUE
+constraint** - `2030-06-17` was taken, so the fixture moved to `2030-06-18`, chosen by a query that
+also proved the date virgin across all four plan tables. (2) The convergence's own post-guard
+refused the first draft because the new `list_m2m_donors_v3` body **mentioned `excess_exact` in a
+comment** and the guard greps `prosrc`. ⭐ The guard was right and the prose was reworded - the check
+was not weakened.
+
+### ✅✅ [leg 150] **THE DE-DUPLICATION - `20260808120500`** (Cody ⚠️ Approve-with-revisions → all three revisions executed)
+
+`public.v_m2m_donor_surplus` is the canonical definition; `list_m2m_donors_v3` and
+`resolve_supply_ladder_v3` rung 4 both read it. **Fixture 71: 31 / 31, 5.5 s, zero `scenario_error`.**
+`list_m2m_donors_v3` **42198fee → 5ecb9a2d** · `resolve_supply_ladder_v3` **920b32d0 → 056cca45**.
+⛔ **All eight sentinels unmoved.**
+
+⭐⭐ **THE ACCEPTANCE EVIDENCE THE RULING ASKED FOR - BOTH CONSUMERS, WHOLE OUTPUT, BEFORE AND AFTER:**
+
+> **Donor set** (all 57 pods through `list_m2m_donors_v3`): **353 rows before · 353 after · md5
+> `b6dcd61a8b093fa5a791327d445080e1` on BOTH sides · `sum(excess_units)` 2014 both sides.**
+> **Ladder rung 4** (12 pods through a real `resolve_supply_ladder_v3` call): **md5
+> `47a472af6c9c6f073b00b628f0e6138a` on BOTH sides · total excess 467.95 both sides.**
+
+⭐ **NOT VACUOUS:** all 353 donor rows carry a non-zero excess, and the ladder total **467.95 is
+fractional**, so the exact-numeric path was genuinely exercised rather than trivially integral.
+⭐ The two ladder probes ran on **different plan_dates** (2030-06-19 / 2030-06-20) and still produced
+one md5 - which additionally establishes that rung-4 donor arithmetic is plan_date-independent.
+
+**The three claims that ARE the unit:**
+
+1. ⛔⛔ **THE CANONICAL VIEW PUBLISHES TWO EXCESS COLUMNS AND THAT IS THE WHOLE UNIT.**
+   `excess_exact` (numeric, for the ladder) and `excess_units` (per-row `::int`, for the donor
+   list). Collapsing them is the tidy-looking move that silently moves rung-4 availability on 17 of
+   57 pods. Fixture 71 seqs 18-21 pin the column types and which consumer reads which; seq 24 pins
+   the naming side's arithmetic and seq 27 the ladder's, **as numbers**. Converging them turns one
+   of those red **on purpose** - the fixture-70 seq-27 role, transplanted.
+2. ⛔ **THE VELOCITY TERM IS CARRIED FORWARD BYTE-FOR-BYTE.** Dead COALESCE arm and all. That is
+   D-27(b) and it is still parked - see S-282.
+3. ⭐ **NO ANON BEHAVIOUR CHANGE, MEASURED RATHER THAN ARGUED.** `list_m2m_donors_v3` carries `anon`
+   EXECUTE and is SECURITY INVOKER, but `v_shelf_state` never granted `anon`, so the anon path was
+   **already refused** before this leg (fixture 71 seq 6, green on both sides). Only the object named
+   in the message moves. ⛔ Unlike D-28, there is nothing to park here.
+
+⭐ **CODY'S THREE REVISIONS, ALL EXECUTED:** **R1** the object is REGISTERED in
+`METRICS_REGISTRY.md` (an unregistered canonical object gives Article 16 nothing to point at, so the
+next inline copy would not be blockable). **R2** `COMMENT ON FUNCTION list_m2m_donors_v3` still read
+*"Predicate is a byte-for-byte replica of resolve_supply_ladder_v3 rung 4"* - `CREATE OR REPLACE`
+**preserves comments**, so that stale claim would have shipped intact; both comments restated.
+**R3** the ladder ships by **named substitution**, so `schema_migrations.statements` does not contain
+the body that shipped - the post-block now refuses if the md5 did not move and RAISEs a NOTICE
+carrying both values.
+
+⭐ **GUARD IDIOM RE-USED FROM DR-8 / D-28, AND EXTENDED:** `DO $guard$` before each `CREATE OR
+REPLACE` (it OVERLOADS across a differing signature rather than replacing - the `repurpose_machine`
+foot-gun) asserting overload count, identity args, `pronargdefaults` and `prosecdef`. **New this
+leg:** the ladder guard also pins the **pre-image md5** and asserts the substitution pattern matched
+**exactly once**, because a 16,996-character body edited by regex must refuse rather than guess.
+⭐ Verified live that `CREATE OR REPLACE` loses no attribute: `provolatile` s, `proparallel` u,
+`procost` 100, `prorows` 1000/0, `proleakproof` false, `proconfig` search_path=public - every
+non-default is respecified.
+
+### ⛔⛔ [leg 150] S-283 - **THREE OF THE EIGHT BLAST-RADIUS REDS ARE NOT REPRODUCIBLE IN ISOLATION, AND A SWEEP CANNOT TELL YOU THAT**
+
+The blast radius was **derived, not guessed** (S-280): 25 fixtures whose scenario or assertions touch
+the changed objects, `v_shelf_state`, or the words donor/rung-4/ladder. Fired **per fixture** (S-250)
+with the cron-44 minute-37-40 window respected. Result: **889 pass / 8 fail across 25 fixtures.**
+Every red was then re-fired **alone**, and the population split three ways:
+
+| class | fixtures | verdict |
+| ----- | -------- | ------- |
+| **MINE, authorised** | **6 seq 50 · 44 seq 28** | the same `resolve_supply_ladder_v3` md5 sentinel, in two fixtures. **The sentinels did their job** - the change could not land silently. RESTATED (S-272), both now GREEN. |
+| **SWEEP INTERFERENCE** | **16 · 42 · 43** | RED in the sweep, **GREEN alone** (16: 33/33 · 42: 85/85 · 43: 60/60). Not caused by this unit and not a real regression. |
+| **GENUINE LIVE DECAY** | **30 · 40 · 46** | RED in the sweep **and** RED alone. Pre-existing, predates this leg. |
+
+⛔⛔ **THE INTERFERENCE CLASS IS THE FINDING.** Fixture 16 seq 30 reported `prp_delta` = **48**, and
+`pod_refill_plan` gained **exactly 48 rows in the preceding 2 hours** - the two numbers are the same
+number. **These assertions measure a plan-table delta over a WINDOW, not over their own
+transaction**, so they count what *other fixtures in the same sweep* wrote. This is the S-204 class
+("a fixture can rot another fixture's assertion") and it means **a red in a full sweep is not
+evidence of a defect until it has been re-fired alone.** ⛔ It also means the S7 triple is exposed:
+three consecutive sweeps could disagree with each other for reasons that have nothing to do with
+determinism. ⭐ **STANDING RULE: never adjudicate a sweep red without an isolation re-fire.**
+
+⛔ **THE DECAY CLASS IS NOT MINE AND IS NOT FIXED.** Fixture **30** seq 3 (3 orphan ASSORTED
+venue_team triples, was 0) · **40** seq 8 (Vitamin Well has no real non-sentinel WH stock left, so
+its non-vacuity premise fires correctly) · **46** seq 26 (2030-horizon row count moved). All three
+were green on the 08-07 17:13 full sweep, so **they decayed inside 16 hours** - faster than the sweep
+cadence. Fixtures 40 and 46 both call the ladder, so causal disconnection was **proved by isolation
+re-fire**, not asserted. ⛔ Fixture 46 was **27/27 in leg 149's own blast radius yesterday.**
+
+### [leg 150] STATE AT CLOSE - every figure re-derived live
+
+`max(version)` **20260808130000** · `prd110%` **339** (was 336; **+3 this leg**) · disk owed-set
+**339** · **owed md5 `2c26071b4279e87175b01cc97279cecf` on BOTH sides**, disk side recomputed in
+Python · golden **63 fixtures / 2326 enabled assertions** (was 62 / 2295: **+1 fixture, +31
+assertions**, all fixture 71) · `golden.stress_runs` **14** (unchanged) · **37 active crons**
+(unchanged). ⭐ `scripts/prd110_s7_fixtures.txt` updated to **63** and reconciled against
+`golden.fixtures WHERE enabled`: **exact set match** (S-269); per S-279 it was also copied to `/tmp`.
+⛔ **LIVE plan tables untouched by this leg:** `2026-08-07` **101**, `2026-08-08` **117** (both
+unchanged by the unit; the 117 arrived from the nightly cron before the leg started).
+⭐ **SENTINELS DID NOT MOVE (`prosrc`):** `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** ·
+`bind_dispatch_fefo` **8ad35ce9** · `find_substitutes_for_shelf_v3` **6aa6885e** ·
+`rank_machines_by_value_at_risk_v3` **754532ac** · `swap_v3` **ffff8485** ·
+`approve_facing_proposal_v3` **9435ab69** · `wh_fefo_for_line` **f79d4265**.
+🔄 **MOVED BY DESIGN (they are the proof):** `list_m2m_donors_v3` **42198fee → 5ecb9a2d** ·
+`resolve_supply_ladder_v3` **920b32d0 → 056cca45**.
+
+**FLAGS AT CLOSE - NOT ONE FLAG OR DIAL CHANGED THIS LEG:** `preflight_enforcement` **warn** ·
+`gate0_require_manual_confirm` **true** · `spot_buy_cap_enforcement` **block** / cap **15** ·
+`pod_inventory_write_freeze` **off** · `miner_weekly_pick_dry_run` **false** ·
+`miner_weekly_edit_dry_run` **false** · `base_stock_min_gaps` **2**.
+⛔ **No cutover flag exists and none was created. LAW 4 intact.**
+
+**QUEUES AT CLOSE:** `picker_weight_proposals_v3` pending **0** · `feedback_proposals_v3` pending
+**12** = 8 real + 4 synthetic (S-265) · `rotation_proposals_v3` pending **25** ·
+`facing_proposals_v3` pending **20**, of which **0 are real** (S-276).
+
+### ⛔ [leg 150] AN HONEST SLIP, RECORDED - S-284
+
+Probing how `pg_get_viewdef` would render the canonical view, this leg ran `CREATE VIEW` through the
+shim **without the `RAISE 'DRY'` suffix**. The shim commits on success, so the view existed in
+production, unregistered, for ~40 seconds before being dropped and its absence verified.
+⛔ **THE HAZARD IS THAT A DRY RUN AND A REAL APPLY LOOK IDENTICAL** - both return a result set; only
+the presence of the `DO $dry$ ... RAISE ... $dry$;` suffix distinguishes them, and it is the operator's
+job to remember it. No harm resulted (a brand-new view that nothing references cannot alter any
+existing object's behaviour, and the drop was verified) but the pointer's own advice - "use the shim
+as a free dry run" - **is only true if the suffix is actually appended.**
+⭐ **RULE: any probe that includes DDL gets the suffix, or it is an apply.**
+
+### RESUME POINTER 2026-08-08 leg 150 · FINAL
+
+- ⚠️ **FIRST - `ps` (S-241) BEFORE ANY DB PROBE**, narrowed to `prd110|golden|stress_s|psql`. Leg 150
+  left **no process running** and launched **no background sweep** - the STEP-R adjudication duty has
+  nothing to adjudicate; record it satisfied, do not skip it silently. Then S-270: read the untracked
+  set - leg 148 found two orphaned migrations there, so never assume it is empty.
+- ⛔ **RISK 104: expect `prd110%` = 339, `max(version)` = 20260808130000, owed-set 339 on disk, owed
+  md5 `2c26071b4279e87175b01cc97279cecf` both sides.** Recipe unchanged:
+  `md5(string_agg(version||'_'||name, E'\n' ORDER BY version))` over `name LIKE '%prd110%'`; disk side
+  is the sorted filename list (minus `.sql`, no trailing newline) MINUS S-31's retained
+  `20260730203000`. ⭐ **Compute the disk side in PYTHON** - the `tr`/`sed` recipe re-adds a newline.
+- ⛔⛔ **GOLDEN HAS THREE KNOWN REDS AND THEY ARE NOT THIS LEG'S (S-283): fixtures 30 (seq 3), 40
+  (seq 8) and 46 (seq 26)**, all confirmed by isolation re-fire, all green on the 08-07 17:13 sweep,
+  so all decayed within 16 hours. ⛔ **They are the next leg's LAW-8 work and they must be closed
+  before any S7 triple.** Their shape is the familiar one: a live precondition that decayed (40 is a
+  textbook S-274 premise sensor firing correctly - Vitamin Well simply has no real WH stock left).
+- ⛔⛔ **NEVER ADJUDICATE A SWEEP RED WITHOUT AN ISOLATION RE-FIRE (S-283).** Three of this leg's
+  eight reds (16, 42, 43) were GREEN alone. Fixture 16 seq 30's `prp_delta` of 48 was **exactly** the
+  number of `pod_refill_plan` rows created in the preceding 2 hours - these assertions measure a
+  window, not their own transaction, so a sweep's own fixtures rot them. This also means **the S7
+  triple can disagree with itself for reasons unrelated to determinism** - budget the isolation
+  re-fires into it.
+- ⏸️ **NEXT TASK: the answered-unexecuted list, now EIGHT.** ⭐ **D-27(a) is CLOSED this leg** (the
+  ruling's remaining half is D-27(b), now a CS-shaped ask, see below). Remaining: D-19 (⛔ blocked on
+  DR-6, a Stax FE-deploy unit **this loop cannot perform**) · **D-31** (the last CONVERGE unit - ⛔
+  re-derive its site list from the catalogue, never from a `prosrc ILIKE '%<column>%'` grep, S-280) ·
+  D-29, D-33, D-34 (see DR-9) · D-37 · D-39 · D-40. Then DR-10, then Tier 4 (DR-1 cutover unit,
+  **flag-off**). ⭐ **EXECUTED so far:** D-21(half 1), D-27(a), D-28(half 1), D-32, D-43, D-44, D-45,
+  D-46, D-47, DR-3, DR-4, DR-5, DR-7, DR-8.
+- ⛔⛔ **D-37 MUST RESTATE TWO MORE SENTINELS AND RE-DERIVE THEM, NOT GUESS THEM.**
+  `resolve_supply_ladder_v3` is D-37's target and this leg moved its body to **056cca45**. Fixture **6
+  seq 50** and fixture **44 seq 28** both pin that md5 exactly; D-37 will red them a third time. ⛔
+  Also still true from leg 149: fixture 6 seq 22/25/26 must be **RESTATED, never deleted**. ⭐ The
+  substitution guard this leg used - pin the pre-image md5, assert the pattern matches exactly once -
+  is the right way to edit that 16,996-character body and D-37 should copy it whole.
+- ⭐⭐ **THE D-27(a) PATTERN, AND WHAT IT ADDS TO D-28's:** (1) re-derive the site list from the
+  catalogue · (2) capture EVERY live consumer's whole output as an md5 before and diff after · (3)
+  prove the diff is not vacuous · (4) 🆕 **look for a rounding/typing seam between mirrored sites
+  BEFORE converging them - two objects can implement "the same rule" and still disagree, and the
+  pin that was supposed to catch that may be a single-instance pin passing by luck (S-281)** · (5) 🆕
+  **a guard that greps `prosrc` also greps your comments - reword the prose, never weaken the guard.**
+- ⏸️ **DR-10 IS NEW WORK, NOT AN ASK** - the Article-8 `write_audit_log` gap on all four
+  `*_proposals_v3` tables. One family-wide migration + one fixture. ⛔ Do **not** do it on one table.
+- ⏸️ **THE S7 TRIPLE IS STILL OWED AND THE POPULATION MOVED AGAIN** (60 → 61 → 62 → 63). ⛔ Do not
+  start a triple until the fixture population stops moving AND the three S-283 decay reds are closed.
+  Budget **~25-30 min/round, ~1.5 h for a triple**, plus isolation re-fires. ⛔ Fire PER FIXTURE
+  (`run_all` through the management API banks nothing, S-250); ⛔ never START a fixture in UTC minutes
+  37-40 (cron 44); ⛔ reconcile the manifest against `golden.fixtures WHERE enabled` first (S-269 - it
+  now reads **63** on both sides) and ⛔ **`cp scripts/prd110_s7_fixtures.txt /tmp/` before firing**
+  (S-279 - both runners read the `/tmp` path and nothing copies it).
+- ⛔⛔ **EVERY FULL SWEEP RE-ARMS S-262 - BUDGET THE CLEANUP INTO IT.** After each: re-run dr5d's
+  predicate (`/tmp/leg145_s262.sql`) or the next weekly miner run is refused `pending_exists`. ⭐ A
+  targeted blast-radius re-fire does NOT re-arm it (leg 149 measured 0 → 0; leg 150's 25-fixture
+  radius left `picker_weight_proposals_v3` pending at **0**, fixture 58 not being among them).
+- ⛔ **STANDING RULES THAT BIND EVERY FUTURE UNIT:** S-267 (a count assertion reading the object under
+  test proves SELF-CONSISTENCY, never correctness) · S-268 (`REVOKE ALL … FROM PUBLIC` does NOT remove
+  Supabase's schema default privileges; name `anon` explicitly - and for every `CREATE VIEW` in
+  `public`, `REVOKE ALL ON <v> FROM anon, authenticated;` before its GRANT) · S-272 (restating an
+  assertion must move `expect_op`/`expect` with the SHAPE of `check_sql`) · S-266 (a scenario that
+  RAISEs rolls back its own `golden.scratch` DELETE, so scratch-reading assertions re-evaluate the
+  PREVIOUS run's snapshot **and pass** - `n_fail` is the only sound verdict) · S-277 (an absolute count
+  over an append-only ledger cannot state a relative property) · S-280 (a previous leg's scoping
+  addendum is a hypothesis; re-derive it from the catalogue) · 🆕 **S-281 (a single-instance pin does
+  not pin a rule)** · 🆕 **S-283 (a sweep red is not a defect until an isolation re-fire says so)** ·
+  🆕 **S-284 (the shim's dry run and its real apply are visually identical - the `DO $dry$` suffix is
+  the ONLY difference; any DDL probe without it is an APPLY)**.
+- ⛔ **SENTINEL md5s ARE `md5(prosrc)`, NEVER `pg_get_functiondef` (S-109).** Expect
+  `engine_add_pod_v3` **e9f3caff** · `stitch_v3` **a8753091** · `bind_dispatch_fefo` **8ad35ce9** ·
+  `find_substitutes_for_shelf_v3` **6aa6885e** · `rank_machines_by_value_at_risk_v3` **754532ac** ·
+  `swap_v3` **ffff8485** · `approve_facing_proposal_v3` **9435ab69** · `wh_fefo_for_line` **f79d4265**
+  · 🆕 `list_m2m_donors_v3` **5ecb9a2d** · 🆕 `resolve_supply_ladder_v3` **056cca45** (both moved this
+  leg by design; both are now sentinels like the rest).
+- ⛔ **`/tmp` SURVIVED AGAIN and the Supabase MCP still has not connected** (ninth leg).
+  `/tmp/prd110_sql.sh` and `/tmp/apply_mig.sh` both work; the apply shim registers the version it is
+  handed in the SAME POST. ⭐ **The shim is transactional - USE IT AS A FREE DRY RUN ON EVERY
+  MIGRATION**: append `DO $dry$ BEGIN RAISE EXCEPTION 'DRY'; END $dry$;` and the whole body executes,
+  guards and all, then vanishes. ⛔ **S-284: without that suffix it is an APPLY, and it looks the same.**
+- ⚠️ **THE LIVE CS ASKS, NOW FOUR:** S-251 (confirm "Galaxy - Milk Chocolate" really is venue-supplied
+  on the ten co_managed machines) · **D-21 half-2** (the margin weight W%, and whether 90 % is still
+  the right bar at 53.99 % computability) · **D-28 half-2** (share vs queue on a contested batch; and
+  if queue, it must stop being keyed on a random uuid) · 🆕 **D-27 half-2** (below).
+- ⏸️ **D-27(b) PARKED WITH A SHARPENED ASK, NOT AN OPEN QUESTION.** Should the donor rule keep using
+  `velocity_raw` (`slot_lifecycle.velocity_30d`, a CALENDAR-day rate) or move to the registered
+  canonical **`v_shelf_instock_velocity_split_v3`** (units per IN-STOCK day)? ⛔ **Two measured facts
+  CS needs and neither is an opinion:** (1) the in-stock object costs **~20 s per evaluation** and
+  machine-scoping does not reduce it (S-26), so this is a perf decision as much as a policy one; (2)
+  per PRD-108's trap, an in-stock rate **overstates calendar velocity** (23.6x mean / 90x max on the
+  suitability path), and here velocity is multiplied by 7 to set the **cover floor a donor must keep
+  back** - so switching would make donors **far more conservative** and could empty rung 4. ⛔ Measure
+  the donor-set delta before recommending; do not reason about it from this paragraph.
+- ⏸️ **S-265 (OPEN):** fixture 57 mints into the LIVE CS review queue (`p_dry_run => false`), so 4
+  synthetic proposals sit beside the 8 real ones in `feedback_proposals_v3`.
+- ⏸️ **PARKED, NAMED, NOT FIXED (LAW 10):** `wh_fefo_for_line` still carries `anon` + `PUBLIC` EXECUTE
+  (the D-30-shaped revoke, from leg 149). ⭐ **`list_m2m_donors_v3` carries the same `anon` EXECUTE but
+  is NOT the same problem** - it was already refused at `v_shelf_state` before this leg (fixture 71
+  seq 6 proves it on both sides), so there is nothing to park.
+- ⚠️ **LAW 12:** `2026-08-07` holds **101** rows, `2026-08-08` holds **117**. ⛔ Re-probe every leg -
+  it moved 0 → 117 between legs 149 and 150.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.** **S-257..S-264, S-267..S-273, S-275..S-278, S-280..S-282 and
+  S-284 are CLOSED (recorded).** ⛔ **S-265, S-266, S-279 and S-283 are OPEN.** New findings resume
+  at **S-285**.
