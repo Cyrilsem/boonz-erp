@@ -39349,3 +39349,96 @@ baton dropped; assume nothing about the watcher and check it FIRST.**
   `eq`/`ne`/`gt`/`gte`/`lt`/`lte`/`contains`/`is_null`/`not_null`, NOT `=`.** ⛔ **`golden.runs` has
   NO `scenario_error` column** - detail lives in `detail` (jsonb).
   ⛔ **`machines_to_visit` keys on `plan_date`/`add_source`/`status`, NOT `visit_date`/`source`.**
+
+---
+
+## ⭐⭐ leg 167 (2026-08-08) - **STEP R found the baton ATTENDED for the first time in three legs.** Every pointer claim re-derived. ⛔⛔ **S-336: the D-34 blast radius was hand-listed and MISSED THREE FIXTURES; derived from `golden.assertions` it is SEVEN, not four.**
+
+**Window:** 20:39Z - · **no flag flipped, no dial turned**
+
+### STEP R - the pointer verified, and one alarm that was not real
+
+- ⭐ **THE WATCHER WAS ALIVE** (PID 16406, `prd110_leg165_cron45_watch.sh`), started 20:25:42Z,
+  deadline **21:55:42Z** - it genuinely covers the 21:22Z fire. `ps` narrowed (S-241) found it on the
+  first probe. **First leg since 163 to inherit a live watcher.** A second, independent gate watcher
+  was armed anyway (`/tmp/leg167_gate.sh`, PID 17893, deadline **22:05Z**) because leg 166's exits on
+  the first row and this leg needs the classified result too.
+- ⛔⛔ **A PRE-IMAGE MD5 MISMATCH THAT WAS NOT DRIFT - S-336's twin.** The banked runner md5
+  `37f5d8ce…` read live as `f668347d…` and the pipeline likewise. **Nothing had changed:** leg 166
+  banked `md5(pg_get_functiondef(oid))`, this leg's probe used `md5(prosrc)`. Both agree exactly once
+  hashed the same way. ⛔ **A pre-image bank that does not record its own hash recipe is a false
+  drift alarm waiting for the next leg** - and the tempting reaction to "the engine body changed
+  under me" is to stop and bisect. Recipe is now written next to the numbers.
+- ⭐ **RISK 104 reconciles by SET DIFFERENCE, exactly as owed:** disk **396** vs DB **390**, and the
+  six are precisely `20260809050500`..`052600` - leg 165's staged D-34 unit, **zero db-only rows**.
+  Disk md5 `c7e1edab405986041ca8d2ea04622e04` · DB md5 `435a0e8275a17324166ce678d76013d0` ·
+  DB `max(version)` `20260809050000`. The handoff invariant holds: staged whole, not half-applied.
+- ⭐ **LAW 4 VERIFIED:** all 10 clusters `authoritative_engine='v19'` · `pod_refills` **4,177** ·
+  `w_intents` **0**, `updated_at` still `2026-08-06 23:20:27.984211+00`.
+  ⛔ The table is `engine_cutover_authority_v3`; `engine_cutover_state_v3` **does not exist** and the
+  pointer's shorthand cost one probe.
+- ⭐ **LAW 12 VERIFIED:** `2026-08-08` **117** · `2026-08-09` **97** · `2026-08-10` **absent**, and
+  **zero `operator_status='pending'`** on both live dates.
+- ⭐ **S-320 PRE-STATE HOLDS, fifth consecutive leg:** `machines_to_visit` for 2026-08-09 carries
+  **5 `cs_added` + 4 `cs_dropped`, ZERO `picked`** (all `add_source='picker'`).
+  `resolve_refill_plan_date()` = **2026-08-09** · `is_refill_planning_day_v3('2026-08-09')` = **true**.
+- ⭐ **S-80 DISCHARGED on the whole parking lot:** the last CS-authored block is still
+  **POST-DONE DR REGISTER CLOSED (2026-08-04)**. The twelve asks stand; no new ruling.
+- ⭐ **Pre-fire bank:** `shadow_runner_log_v3` **564** · `pipeline_runs_v3` **144** ·
+  `pod_refills_shadow` **24,483** · enabled fixture population **71**.
+- ⛔ **`/tmp` SURVIVED** (twenty-second leg); the Supabase MCP still has not connected.
+
+### ⛔⛔ S-336 (NEW, **CLOSED as a finding**) - **THE BLAST RADIUS WAS HAND-LISTED AND IT WAS WRONG**
+
+The pointer named four fixtures for the D-34 apply: **53, 37, 51, 61**. Derived instead by asking
+`golden.fixtures` + `golden.assertions` which fixtures MENTION the objects D-34 rewrites
+(`run_nightly_shadow_v3`, `run_pipeline_v3`, `shadow_runner_log_v3`, `v_shadow_runner_health_v3`,
+`pipeline_runs_v3`), the answer is **SEVEN**:
+
+| fixture | runner | pipeline | log | health | pipeline_runs | in pointer? |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1  |   | ✓ |   |   | ✓ | ⛔ **MISSED** |
+| 37 | ✓ |   | ✓ | ✓ |   | ✓ |
+| 51 |   | ✓ |   |   | ✓ | ✓ |
+| 53 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 60 |   |   |   |   | ✓ | ⛔ **MISSED** |
+| 61 | ✓ |   |   |   |   | ✓ |
+| 76 |   | ✓ |   |   |   | ⛔ **MISSED** |
+
+⭐⭐ **Migration 3 of 4 rewrites `run_pipeline_v3`'s body, so every pipeline fixture is in radius -
+and the hand-list only carried the ones whose NAMES sound like runner tests.** ⛔ The missed three
+are the quiet class: fixture 1 is the 59-assertion VOX full replay, and its last green
+(`leg163 D-29 blast`, 18:54Z) **predates leg 164's three applies** - so a red there after the D-34
+apply could not have been attributed without a fresh pre-image.
+
+**Pre-apply baselines banked for all seven** (`leg167_pre_baseline` for 1/60/76, run 20:43Z):
+**1 → 59/0 · 60 → 54/0 · 76 → 29/0**; inherited **37 → 43/0 · 51 → 53/0 · 61 → 13/0**
+(`leg165_pre_baseline`) and **53 → 24/10 RED** (`leg165_d34_red`).
+⛔ **RULE: derive the blast radius by object name out of `golden.assertions`. Never inherit a
+hand-list, and never trust a fixture's NAME to tell you what it touches.**
+
+### ✅ D-34 PRE-FLIGHT - the vocabulary is closed, checked before the apply not after
+
+Leg 166 proved seq 34/35/36 statically. Two gaps it did not cover, closed here against the staged
+files:
+
+- ⭐ **No emittable word can be refused by the CHECK.** Every status literal the staged
+  `run_pipeline_v3` / `run_nightly_shadow_v3` / role-pin migrations can write (13 words) is present
+  in the staged `shadow_runner_log_v3_status_check`. Comment lines stripped first, S-323-style, so
+  prose could not vote. **This is the failure seq 31 already caught once** (`refused_by_check`).
+- ⭐ **`skipped` is in the CHECK but NOT in the health whitelist - and that is CORRECT.** The staged
+  health view filters `step='summary'` on every branch; `skipped` is a **measure-step** word and can
+  never reach `last_scheduled_status`. An unknown summary word yields
+  `unknown_scheduled_status__<word>` with `is_healthy=false` - **fails loudly**, S-332 as specced.
+- ⭐ The ten reds of fixture 53 map cleanly onto the six migrations: 24/25 → pipeline classifier ·
+  27/28 → per-run non-vacuity · 29/30/31 → status vocabulary · 32/33 → health whitelist ·
+  34 → the `parked (D-34)` string (live `position` = **9373**, staged = **0**).
+
+### ⏸️ THE GATE IS CORRECTLY SHUT - and tonight is why
+
+D-34 rewrites `run_nightly_shadow_v3`, the function cron 45 calls at 21:22Z and the one whose
+verification has been owed since leg 159. **S-335 makes the wait non-negotiable rather than merely
+tidy:** tonight is the first fire in four nights that can bank v3 evidence at all
+(`is_refill_planning_day_v3` true, 5 `cs_added` machines in scope, Gate 0 with nothing unconfirmed
+to find). Applying an untested runner rewrite 37 minutes ahead of it would risk the only accruing
+night AND the verification in one move. **Apply AFTER the fire is classified, not before.**
