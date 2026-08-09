@@ -636,6 +636,31 @@ Written per plan_date by `refresh_engine_forecast_error_v3(p_plan_date date)` (i
 DELETE+INSERT). Proven by **golden fixture 36** (31 assertions). Snapshot rather than view by
 **ADR §10** — measured 13.5 s floor on the actuals scan, plus measurement provenance.
 
+⛔⛔ **THE v3 SUBJECT IS THE RUN TAGGED `engine_add_pod_v3`, AND IT IS NAMED, NOT INFERRED**
+(S-348, `20260809070500_prd110_leg175_s348_measure_engine_run`). `pod_refills_shadow` holds several
+runs per `plan_date`, and since **D-34** the nightly runner calls `run_pipeline_v3`, which banks
+**two** of them per night: the engine run (`engine_tag='engine_add_pod_v3'`) and the composed run
+(`engine_tag='compose_v3'`). `produced_at` is the **transaction** clock, so both carry the identical
+timestamp and `ORDER BY produced_at DESC` stopped identifying one run the night D-34 shipped. Before
+the fix the tail tie-break on `run_id` handed the choice to an arbitrary uuid — the same date scored
+8 series or 4 depending on which uuid sorted first — and a composed run banked _after_ the engine run
+took the subject outright with no tie at all. **`compose_v3` is not the subject.** Every historical
+date was measured on the engine run and v19's side of this table reads `pod_refills`, so the
+predicate reproduces the existing subject exactly: 2026-08-04 and 2026-08-09 select the same
+`run_id` before and after.
+
+⛔ **The tag literal is load-bearing, and its sensor is golden fixture 37 seq 9, not seq 44.** Re-tag
+the engine and the selector matches nothing, `v_run` goes NULL, and the date measures **zero** v3
+series — an absence, not a wrong number. Seq 44 ("every measured v3 run resolves to an
+`engine_add_pod_v3` run") goes _vacuously green_ in that world because there are no rows left to
+violate it. Seq 9 ("the measure step recorded at least one v3 series") is what actually reds. A red
+seq 9 after any engine-tag change is this predicate, first suspect.
+
+⏸️ **OPEN (S-349, CS):** whether the v3 subject _should_ become the composed plan now that D-34
+produces one — `compose_v3` is the shape CS would actually approve, and v19's `pod_refills` is a
+final plan rather than a raw engine draft. Answering it re-bases every v3 WMAPE, so it is a CS
+ruling and not the writer's to make.
+
 ⛔ **EVERY READER MUST BRANCH ON `is_vacuous` BEFORE READING `wmape`.** This is not advisory. A
 WMAPE of NULL means _nothing was measurable_, and the named `vacuous_reason` says which:
 

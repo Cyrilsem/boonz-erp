@@ -1028,6 +1028,14 @@ idempotent — pinned by golden fixture 36 seq 30). Every row it writes carries 
 `actuals_settled`, so a measurement taken before the horizon elapsed is visibly provisional rather
 than quietly wrong.
 
+⛔ **The v3 subject is the run tagged `engine_add_pod_v3`** (S-348, `20260809070500`). The selector
+is `WHERE plan_date = p_plan_date AND engine_tag = 'engine_add_pod_v3' ORDER BY produced_at DESC,
+run_id LIMIT 1`. The tag predicate is **not** decoration: `produced_at` is the transaction clock, and
+since D-34 `run_pipeline_v3` banks an engine run _and_ a `compose_v3` run per night at the identical
+timestamp, so without it the measurement subject was chosen by a uuid sort. Re-tag the engine and
+this function silently measures **nothing** — golden fixture 37 seq 9 is the sensor, seq 44 goes
+vacuously green. See METRICS_REGISTRY for the full note and the parked S-349 ask.
+
 ⛔ **Not a reader.** Read through `v_engine_wmape_v3` / `v_engine_wmape_v3_gate` and branch on
 `is_vacuous` (see METRICS_REGISTRY). Do not compute WMAPE anywhere else.
 ⛔ **Do not call it in a loop over all plan_dates.** ADR §10.1 measured the cost: date-bounded it is

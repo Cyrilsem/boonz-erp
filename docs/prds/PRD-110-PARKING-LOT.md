@@ -13149,8 +13149,8 @@ therefore changes no number CS reads on ~Aug 17 - it is not LAW-4 territory and 
 ⛔ **It is NOT an explanation of S-341** (that is a single-run population gap between two engines).
 Two separate findings on the same table; do not merge them.
 
-**THE FIX, SPECIFIED:** `pod_refills_shadow` has **no monotonic id column**, so *"the most recent
-run"* is not expressible today. Either (a) tie-break on **line count DESC, then `run_id`** - a
+**THE FIX, SPECIFIED:** `pod_refills_shadow` has **no monotonic id column**, so _"the most recent
+run"_ is not expressible today. Either (a) tie-break on **line count DESC, then `run_id`** - a
 one-line change, no schema touch, and fixture 37 then reads `8 = 8` on both measurements; or
 (b) **Dara adds an insertion-order column** and the order becomes "last written". **Take (a) to
 Cody first.** Blast radius: `run_nightly_shadow_v3` calls it, `v_cutover_readiness_v3` consumes the
@@ -13195,6 +13195,88 @@ Tier 1-3 and DR-1 all re-derived live this leg and all still stand (see the log'
 S-251 · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** ·
 **S-320** · **S-328** · **S-330** · **S-333** · **S-335** · **S-341** · **DR-6 deploy**.
 ⚠️ **S-339 OPEN** · **S-313 OPEN** · 🆕 **S-348 OPEN (loop-side)**. New findings resume at **S-349**.
+
+⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
+`CS DECISION` rather than trust the line above.
+
+---
+
+## ⭐⭐ leg 175 (2026-08-09) - **S-348 CLOSED, AND IT WAS BIGGER THAN THE COIN FLIP.** 🆕 **S-349 is a new CS ask** - the one question the fix deliberately refused to answer.
+
+### ✅ S-348 CLOSED - the measurement subject is now NAMED, not decided by a UUID
+
+`refresh_engine_forecast_error_v3` selected its v3 run with
+`ORDER BY sh.produced_at DESC, sh.run_id LIMIT 1`. One predicate added:
+`AND sh.engine_tag = 'engine_add_pod_v3'`. Migration `20260809070500`, Cody-reviewed
+(⚠️ approve-with-revisions; all four revisions discharged in this leg). `md5(prosrc)`
+`0c0d53ba…` → `3ce7ddb1…`, one overload, ACL and `SECURITY DEFINER` unchanged.
+
+### ⛔⛔ THE CAUSE IS **D-34**, NOT THE RE-RUN - and leg 174's "inert on live data" **EXPIRES TONIGHT**
+
+Leg 174 read this as a re-run lottery: `produced_at` is the transaction clock, so a date re-run
+inside one transaction ties and a UUID breaks the tie. True, but not the mechanism that matters.
+**D-34 pointed the nightly runner at `run_pipeline_v3`, and the pipeline banks TWO shadow runs per
+call** - `engine_add_pod_v3` (32 lines on fixture 37) and `compose_v3` (6 lines) - **tied to the
+microsecond, on every single night.** Read straight off `shadow_runner_log_v3.detail`:
+`run_id` = the engine run, `planned_run_id` = the composed run, one call, one transaction.
+
+⛔ **Leg 174's inertness probe was correct when taken and is about to stop being true.** Cron 45
+last fired **2026-08-08 21:22:00Z** and its log row carries `planned_run_id = NULL` - the **pre-D-34
+body**. D-34 went live between **21:22 and 21:24:59Z** (fixture 37 jumps from 2 runs per execution
+to 4 at exactly 21:24:59). **Tonight's cron - 2026-08-09 21:22Z, planning 2026-08-10 - is the FIRST
+live nightly under D-34, and it writes both runs.** From tonight, every live date ties, and the
+number CS reads at cutover would have been drawn from a hat. The fix landed ~21 hours ahead of it.
+
+### ⛔ IT WAS ALREADY WRONG, AND WORSE THAN A TIE
+
+A composed run that lands **after** the engine run wins outright, no tie required. Proven
+deterministically by a forced-rollback probe rather than by waiting for the coin: one later
+compose-only run cloned onto 2030-02-07, re-measure → **4 series instead of 8**, residue **0 rows**.
+⛔ **`2030-02-11` was already measured on a `compose_v3` run** (4 series where its engine run carries
+8). Nothing read that date's measurement, which is exactly why it survived unnoticed.
+
+### ⭐ RED → GREEN, adjudicated from `golden.runs` only (S-340)
+
+| fixture | before fix                                        | after fix |
+| ------- | ------------------------------------------------- | --------- |
+| 37      | **45/2** - seq 44 `4` vs `0`, seq 46 `compose_v3` | **47/0**  |
+| 36      | (blast radius)                                    | **31/0**  |
+
+Fixture 37 gains **seq 44..47**: the subject pin · an anti-vacuity sensor (both run kinds really are
+tied at `max(produced_at)`) · the deterministic re-compose probe · a zero-residue pin on that probe.
+`idem` now reads `fce_before 8 = fce_after 8`; it read `4` vs `4` and `4` vs `8` before.
+
+### ⭐ NO CS-FACING NUMBER MOVED - checked row by row, not asserted
+
+Stored `run_id` vs the new selection, every measured date: **2026-08-04 `8e3fe430…` → identical** ·
+**2026-08-09 `58d6ab1c…` → identical** · 2030-02-06 and 2030-11-01 identical · 2030-02-07 and
+2030-02-11 move off a `compose_v3` run onto the engine run, both synthetic, no assertion reading
+either. **That** is why this is loop work under LAW 8 and not a CS ruling: the predicate
+**reproduces** the subject every historical date already had. All ten clusters remain `v19`.
+
+### ⏸️ 🆕 **S-349 (NEW CS ASK)** - should the v3 subject BECOME the composed plan?
+
+The fix pins the **engine** run because that is what every historical date was measured on. But the
+honest question is now open: **v19's side of `engine_forecast_error_v3` reads `pod_refills`, a
+FINAL plan, while v3's side reads a raw engine draft** - and since D-34 a composed v3 plan exists to
+compare against. `compose_v3` is the shape CS would actually approve.
+⛔ **Answering it re-bases every v3 WMAPE, including the cutover instrument, so it is CS's call.**
+⭐ **Not urgent, and deliberately so:** the loop has made the current subject explicit and pinned, so
+the ask can wait for the Aug-17 review instead of being settled by whoever next debugs a night.
+
+### ⭐ S-347 SHARPENED (not contradicted) - **after a 524, POLL `golden.runs`, do not read it once**
+
+Fixture 37's green run returned a **524 at 125 s**; the first `golden.runs` read found **no row** and
+the scratch still held the RED values. The row appeared **12 seconds later** - the run committed at
+`00:07:52Z`, the 524 fired at `00:07:40Z`. ⛔ **A single post-524 read is not evidence of absence.**
+Poll until `finished_at` is non-null (and check `pg_stat_activity` for `run_fixture`) before
+concluding anything. The standing rule - **524 = never re-fire** - is unchanged and was right.
+
+### ⏸️ OPEN CS DECISIONS after this leg - **FIFTEEN; leg 175 raised ONE (S-349) and closed none.**
+
+S-251 · **D-21 half-2** · **D-28 half-2** · **D-27 half-2** · **S-285's ask** · **D-48** · **S-312** ·
+**S-320** · **S-328** · **S-330** · **S-333** · **S-335** · **S-341** · **DR-6 deploy** · 🆕 **S-349**.
+⚠️ **S-339 OPEN** · **S-313 OPEN** · ✅ **S-348 CLOSED**. New findings resume at **S-350**.
 
 ⛔ Per S-80, the next leg must still grep this file - **the WHOLE file, not the tail** - for
 `CS DECISION` rather than trust the line above.
