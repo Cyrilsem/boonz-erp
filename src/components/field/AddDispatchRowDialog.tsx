@@ -12,6 +12,17 @@ import {
 } from "@/app/(field)/field/_actions/dispatch-edits";
 import { WH_CENTRAL_ID } from "@/lib/dispatch-constants";
 
+/**
+ * PRD-112 §3.2 - does this error come from prevent_duplicate_unstarted_dispatch?
+ * Matched on the guard's own wording ("Duplicate unstarted dispatch row for
+ * (machine=…, shelf=…, product=…)") rather than on a code, since the trigger
+ * raises a plain message. Kept deliberately loose: a false negative just means
+ * the driver sees the raw guard text, which is the behaviour we had before.
+ */
+function isDuplicateRowError(message: string): boolean {
+  return /duplicate unstarted dispatch/i.test(message);
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -243,7 +254,7 @@ export function AddDispatchRowDialog({
           )}
           {selectedProduct && (
             <p className="text-xs text-blue-700">
-              ✓ Selected: {selectedProduct.boonz_product_name} — start typing to
+              ✓ Selected: {selectedProduct.boonz_product_name} - start typing to
               change
             </p>
           )}
@@ -272,7 +283,7 @@ export function AddDispatchRowDialog({
             </select>
             {action === "Remove" && (
               <span className="text-xs text-slate-500">
-                Returns are sourced from this machine — locked.
+                Returns are sourced from this machine - locked.
               </span>
             )}
           </label>
@@ -302,7 +313,7 @@ export function AddDispatchRowDialog({
                 onChange={(e) => setSourceMachine(e.target.value)}
                 className="mt-1 w-full rounded border px-2 py-1"
               >
-                <option value="">— pick —</option>
+                <option value="">- pick -</option>
                 {machines.map((m) => (
                   <option key={m.machine_id} value={m.machine_id}>
                     {m.official_name}
@@ -326,9 +337,19 @@ export function AddDispatchRowDialog({
         </div>
 
         {error && (
-          <p className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error}
-          </p>
+          <div className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>{error}</p>
+            {/* PRD-112 §3.2. The duplicate-unstarted-row guard is correct and
+              stays byte-identical; what was missing was the sentence telling the
+              driver where to go instead. Add is for a genuinely NEW line; an
+              existing line changes product through Change product. */}
+            {isDuplicateRowError(error) && (
+              <p className="mt-1 font-medium">
+                This product already exists on this shelf - use Change product
+                on that line.
+              </p>
+            )}
+          </div>
         )}
 
         <div className="mt-4 flex justify-end gap-2">

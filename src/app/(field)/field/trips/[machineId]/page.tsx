@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 import DriverFeedbackDialog from "@/components/field/DriverFeedbackDialog";
+import { ChangeProductDialog } from "@/components/field/ChangeProductDialog";
 
 interface MachineInfo {
   official_name: string;
@@ -26,6 +27,12 @@ interface RefillLine {
   dispatched: boolean;
   confirmed: boolean;
   comment: string;
+  /** PRD-112: original_boonz_product_id is set, i.e. the product on this line was changed at the machine */
+  substituted: boolean;
+  /** PRD-112: 'Refill' / 'Add New' lines are substitutable; 'Remove' legs are not */
+  action: string | null;
+  /** PRD-112: this view also lists yesterday's lines, which the RPC refuses as a closed day */
+  dispatch_date: string;
 }
 
 export default function MachineRefillPage() {
@@ -41,6 +48,12 @@ export default function MachineRefillPage() {
   const [gpsWarning, setGpsWarning] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  // PRD-112 §3.2: the driver is standing at the machine and the venue holds a
+  // different flavor. He records what actually went in and keeps moving.
+  const [changeProductLine, setChangeProductLine] = useState<RefillLine | null>(
+    null,
+  );
+  const [subToast, setSubToast] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -88,6 +101,9 @@ export default function MachineRefillPage() {
         dispatched,
         comment,
         shelf_id,
+        action,
+        dispatch_date,
+        original_boonz_product_id,
         shelf_configurations!inner(shelf_code),
         pod_products!inner(pod_product_name),
         boonz_products(boonz_product_name)
@@ -121,6 +137,11 @@ export default function MachineRefillPage() {
           dispatched: !!line.dispatched,
           confirmed: !!line.dispatched,
           comment: (line.comment as string) ?? "",
+          substituted:
+            ((line as Record<string, unknown>).original_boonz_product_id as
+              string | null) != null,
+          action: (line.action as string | null) ?? null,
+          dispatch_date: line.dispatch_date as string,
         };
       });
       mapped.sort((a, b) => a.shelf_code.localeCompare(b.shelf_code));
@@ -397,8 +418,17 @@ export default function MachineRefillPage() {
                   {line.confirmed ? "✓" : ""}
                 </button>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {line.pod_product_name}
+                  <p className="flex items-center gap-1.5 text-sm font-medium">
+                    <span className="truncate">{line.pod_product_name}</span>
+                    {/* PRD-112: the plan wrote a different product here. */}
+                    {line.substituted && (
+                      <span
+                        title="Product changed at the machine"
+                        className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+                      >
+                        SUB
+                      </span>
+                    )}
                   </p>
                   {line.boonz_product_name &&
                     line.boonz_product_name !== line.pod_product_name && (
@@ -409,6 +439,23 @@ export default function MachineRefillPage() {
                   <p className="text-xs text-neutral-500">
                     Planned: {line.quantity}
                   </p>
+                  {/* PRD-112 §3.2. These lines are picked_up by definition (the
+                    query filters on it), which is exactly the state the packed-row
+                    guard blocks and driver_substitute_dispatch_line is the
+                    sanctioned way through. Remove legs are not substitutable, and
+                    neither is yesterday: this list reaches back one day, and the
+                    RPC treats a past date as settled history. Offering a button
+                    that can only fail is not "never blocked", it is worse. */}
+                  {line.action !== "Remove" &&
+                    line.dispatch_date >= getDubaiDate() && (
+                      <button
+                        type="button"
+                        onClick={() => setChangeProductLine(line)}
+                        className="mt-1 rounded border border-violet-300 px-2 py-1 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 dark:hover:bg-violet-950/40"
+                      >
+                        ⇄ Change product
+                      </button>
+                    )}
                   <input
                     type="text"
                     value={line.comment}
@@ -439,6 +486,45 @@ export default function MachineRefillPage() {
           </ul>
         </div>
       ))}
+
+      {/* PRD-112 §3.2 */}
+      {changeProductLine && (
+        <ChangeProductDialog
+          open={!!changeProductLine}
+          onClose={() => setChangeProductLine(null)}
+          dispatchId={changeProductLine.dispatch_id}
+          machineId={machineId}
+          currentProductName={
+            changeProductLine.boonz_product_name ??
+            changeProductLine.pod_product_name
+          }
+          shelfCode={changeProductLine.shelf_code}
+          plannedQty={changeProductLine.quantity}
+          onSuccess={({ needsReview }) => {
+            setSubToast(
+              needsReview
+                ? "Change saved. Head office will confirm the stock at day close."
+                : "Change saved.",
+            );
+            setChangeProductLine(null);
+            void fetchData();
+          }}
+        />
+      )}
+      {subToast && (
+        <div className="fixed inset-x-0 bottom-20 z-50 flex justify-center px-4">
+          <div className="flex max-w-md items-center gap-3 rounded-lg bg-neutral-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+            <span className="flex-1">{subToast}</span>
+            <button
+              onClick={() => setSubToast(null)}
+              aria-label="Dismiss"
+              className="shrink-0 font-semibold"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Submit button */}
       <button

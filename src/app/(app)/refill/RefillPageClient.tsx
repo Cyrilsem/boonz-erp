@@ -9,6 +9,7 @@ import { TrackerTab } from "./TrackerTab";
 import { SignalsTab } from "./SignalsTab";
 import SnapshotTab, { type RefillInitialData } from "./SnapshotTab";
 import RefillLogTab from "./RefillLogTab";
+import DayCloseTab from "./DayCloseTab";
 
 // PRD-087 P3: the Stock Snapshot feature (types, helpers, state, handlers and
 // JSX) lives in SnapshotTab.tsx. The snapshot types are re-exported here so
@@ -27,7 +28,13 @@ export default function RefillPageClient({
   initialData?: RefillInitialData;
 }) {
   const [tab, setTab] = useState<
-    "snapshot" | "planning" | "dispatching" | "signals" | "issues" | "log"
+    | "snapshot"
+    | "planning"
+    | "dispatching"
+    | "dayclose"
+    | "signals"
+    | "issues"
+    | "log"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
@@ -109,6 +116,7 @@ export default function RefillPageClient({
             ["snapshot", "Stock Snapshot"],
             ["planning", "Refill Planning"],
             ["dispatching", "Refill Dispatch"],
+            ["dayclose", "Day Close"],
             ["log", "Log"],
             ["signals", "Signals"],
             ["issues", "Issues"],
@@ -157,6 +165,10 @@ export default function RefillPageClient({
           setGenerated={setGenerated}
         />
       )}
+
+      {/* ── Day Close tab — PRD-112 §3.3: the reviewable note where CS closes
+           the loop on everything the drivers absorbed at the edge today. ── */}
+      {tab === "dayclose" && <DayCloseTab selectedDate={selectedDate} />}
 
       {/* ── Log tab — PRD-087: historical refill trace (refill_dispatching) ── */}
       {tab === "log" && <RefillLogTab />}
