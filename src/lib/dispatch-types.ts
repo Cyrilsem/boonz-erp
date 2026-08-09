@@ -5,6 +5,70 @@
 export type DispatchAction = "Refill" | "Add New" | "Remove";
 
 /**
+ * PRD-113 — an in-machine move is not a warehouse return.
+ *
+ * A swap that relocates product between two shelves of the SAME machine writes a
+ * Remove leg and an Add New leg. The Remove is NOT a return: those units never
+ * leave the machine. Rendering it as "Remove" is what confused the driver on
+ * MC-2004-0100-O1 (plan 2026-08-07), and rendering its partner as "Add New" lost
+ * the "move with machine" intent entirely.
+ *
+ * The authority is the backend: `refill_dispatching.is_internal_move`, written by
+ * `tg_mark_internal_move_pair`, with `internal_move_cleared_at` as the durable
+ * human override. The FE never re-derives the pairing rule — it reads the flag.
+ * The comment sniffing below is DISPLAY-ONLY backfill for rows written before the
+ * column existed (PRD-113 fix 4), and never feeds a write or an approval.
+ */
+export interface InternalMoveFields {
+  action?: string | null;
+  is_internal_move?: boolean | null;
+  internal_move_cleared_at?: string | null;
+  comment?: string | null;
+}
+
+/**
+ * Legacy in-machine-move comment conventions, for display-only backfill.
+ *
+ * Deliberately anchored on a SHELF-CODE target (A01…A99). The live comment corpus
+ * also contains "Move to AstroLabs", "Move to IRIS", "Move to NOOK" — those are
+ * moves to another VENUE, i.e. genuine departures from the machine, and labelling
+ * them "Move within machine" would be exactly the wrong error.
+ */
+const LEGACY_INTERNAL_MOVE_COMMENT = [
+  /\[internal[- ]move\]/i,
+  /\bmoved?\b[^.;|]*\bto\s+A\d{1,2}\b/i,
+  /\brelocated\s+to\s+A\d{1,2}\b/i,
+  /\bin-machine move\b/i,
+  /\bINTERNAL MOVE\b/,
+];
+
+/** True when this leg relocates product to another shelf of the same machine. */
+export function isInternalMoveLeg(row: InternalMoveFields): boolean {
+  // A human ruling that this is a genuine warehouse return outranks everything.
+  if (row.internal_move_cleared_at) return false;
+  if (row.is_internal_move) return true;
+  const c = row.comment;
+  if (!c) return false;
+  return LEGACY_INTERNAL_MOVE_COMMENT.some((re) => re.test(c));
+}
+
+/**
+ * The chip a dispatch leg should carry. An internal-move Remove never reads
+ * "REMOVE" or "RETURN" — the units are staying in the machine.
+ */
+export function dispatchActionChip(row: InternalMoveFields): {
+  label: string;
+  tone: "move" | "remove" | "add" | "refill";
+} {
+  if (isInternalMoveLeg(row) && row.action === "Remove") {
+    return { label: "MOVE WITHIN MACHINE", tone: "move" };
+  }
+  if (row.action === "Remove") return { label: "REMOVE", tone: "remove" };
+  if (row.action === "Add New") return { label: "ADD NEW", tone: "add" };
+  return { label: "REFILL", tone: "refill" };
+}
+
+/**
  * Expiry warning enum — mirrors the CHECK constraint on
  * refill_dispatching.expiry_warning and refill_plan_output.expiry_warning.
  */

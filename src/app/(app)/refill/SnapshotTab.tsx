@@ -363,8 +363,6 @@ export default function SnapshotTab({
   >({});
   const [reviewing, setReviewing] = useState(false);
   const [reviewProgress, setReviewProgress] = useState<ProgressMsg[]>([]);
-  const [reviewingAll, setReviewingAll] = useState(false);
-  const [reviewAllProgress, setReviewAllProgress] = useState<ProgressMsg[]>([]);
 
   const [stockRefreshing, setStockRefreshing] = useState(false);
   const [stockRefreshMsg, setStockRefreshMsg] = useState<
@@ -1141,80 +1139,6 @@ export default function SnapshotTab({
     }
   }
 
-  // ── Claude review — all machines (SSE) ──────────────────────────────────────
-  async function handleReviewAll() {
-    setReviewingAll(true);
-    setReviewAllProgress([]);
-    try {
-      const supabase = getSupabase();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        setReviewingAll(false);
-        return;
-      }
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-      const response = await fetch(
-        `${supabaseUrl}/functions/v1/review-machine`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: anonKey,
-          },
-          body: JSON.stringify({ review_all: true }),
-        },
-      );
-      if (!response.ok) {
-        setReviewingAll(false);
-        return;
-      }
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (reader) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          let event: Record<string, unknown>;
-          try {
-            event = JSON.parse(line.slice(6)) as Record<string, unknown>;
-          } catch {
-            continue;
-          }
-          const step = event.step as string;
-          const detail = (event.detail as string) ?? "";
-          setReviewAllProgress((prev) => [
-            ...prev,
-            { step, detail, elapsed: "" },
-          ]);
-          if (step === "done") {
-            const results = event.results as MachineReview[] | undefined;
-            if (results) {
-              setReviewResults((prev) => {
-                const next = { ...prev };
-                for (const r of results) next[r.machine_name] = r;
-                return next;
-              });
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error("[review-all]", e);
-    } finally {
-      setReviewingAll(false);
-    }
-  }
-
   const selectedHealth = machineHealth.find(
     (m) => m.machine_name === selectedMachine,
   );
@@ -1264,43 +1188,6 @@ export default function SnapshotTab({
               </span>
             ) : (
               "Refresh data"
-            )}
-          </button>
-
-          <button
-            onClick={handleReviewAll}
-            disabled={reviewingAll || refreshing}
-            className={`px-4 py-2.5 rounded-lg font-medium text-sm transition-colors ${
-              reviewingAll
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
-                : "bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800"
-            }`}
-          >
-            {reviewingAll ? (
-              <span className="flex items-center gap-2">
-                <svg
-                  className="animate-spin h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                Reviewing…
-              </span>
-            ) : (
-              "🤖 Review All"
             )}
           </button>
 
@@ -1364,28 +1251,9 @@ export default function SnapshotTab({
           </div>
         )}
 
-        {/* Review All progress — visible while reviewing all machines */}
-        {reviewingAll && reviewAllProgress.length > 0 && (
-          <div className="mt-4 bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-1">
-            <p className="text-purple-700 font-medium text-sm flex items-center gap-2">
-              <span className="inline-block w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-              Reviewing all machines with Claude…
-            </p>
-            <div className="space-y-0.5 mt-2">
-              {reviewAllProgress.slice(-5).map((msg, i, arr) => (
-                <p
-                  key={i}
-                  className={`text-xs font-mono ${i === arr.length - 1 ? "text-purple-700" : "text-purple-400"}`}
-                >
-                  → {msg.detail}
-                </p>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Review All done badge */}
-        {!reviewingAll && Object.keys(reviewResults).length > 0 && (
+        {/* Machines reviewed by Claude — fed by the per-machine review (PRD-113: the
+            dead "Review All" button and its handler are gone; this badge is not theirs). */}
+        {Object.keys(reviewResults).length > 0 && (
           <div className="mt-3 flex items-center gap-2 text-xs text-purple-700">
             <span className="w-2 h-2 rounded-full bg-purple-500" />
             {Object.keys(reviewResults).length} machine

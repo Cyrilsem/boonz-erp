@@ -111,3 +111,121 @@ that stamped it, with the instruction for reversing it.
 Generated 2026-08-10 from `pod_inventory_audit_log` (`source='sale'`, `delta<0`) joined to
 the batch's `expiration_date`. **3 batches, 14 units.** Full table in
 `docs/prds/PRD-113-expired-consumption-report.md`. No automatic restoration; CS decides.
+
+---
+
+## Leg 1 — backend applied and proven
+
+All four migrations applied to production and registered in
+`supabase_migrations.schema_migrations` with versions matching the filenames exactly.
+
+`ALTER TABLE ... ADD COLUMN` on a 37k-row table is metadata-only and instant; the
+`CREATE INDEX` is not, and it blocked long enough to kill the first attempt. Applied with an
+explicit `SET lock_timeout` so a lock wait fails fast instead of hanging the whole migration.
+
+### Cody verdict — ⚠️ Approve with revisions, 7 conditions, none waivable
+
+Articles checked: 1, 2, 3, 4, 5, 7, 8, 11, 12, 14, 15, 16. Knowledge base loaded in full.
+
+Passing as drafted: Article 12 (all four idempotent and forward-only), Article 14 (a column,
+not a table), Article 7 (A4 only INSERTs into the audit log), Article 11 (the no-cron-caller
+claim independently verified across all 48 `cron.job` rows).
+
+The seven conditions, all implemented **before** apply:
+
+1. **Article 4 — `mark_internal_move_legs`.** A DEFINER writer on `refill_dispatching` that
+   set neither `app.via_rpc` nor `app.rpc_name`, validated no caller role, and was granted to
+   `authenticated`. Now sets both GUCs, validates role, and is registered in the
+   `enforce_canonical_dispatch_write` allowlist — without that entry, its newly compliant
+   write would have landed a `bypass_violation_log` row on every call.
+2. **Article 4 — the trigger.** It set `app.via_trigger` but not `app.rpc_name`, so
+   `write_audit_log` would have credited `stitch_pod_to_boonz` for a write it did not make.
+   It now stamps its own name and restores the prior value (S-160; PRD-016B GUC leak).
+3. **Least privilege — the predicate.** `refill_dispatching` carries
+   `authenticated_read FOR SELECT` with `qual = true`, so `SECURITY DEFINER` bought nothing.
+   Dropped to INVOKER.
+4. **Articles 1 + 3 — the sharpest finding.** All three refusal messages instructed the
+   operator to "clear `refill_dispatching.is_internal_move` on the leg". Verified live:
+   `authenticated` holds table-level UPDATE on that table, and policy
+   `field_and_warehouse_update_dispatch` passes five roles with `qual = true`. The
+   instruction was **executable**, and it opened the exact credit gate this PRD exists to
+   close. Replaced by canonical writer `clear_internal_move_flag(dispatch_id, reason)` —
+   authenticated caller required, four roles, 10+ character reason, `warning`-level alert.
+5. **Durability.** A cleared flag was re-stamped the moment another Add New landed, so the
+   human override did not survive the trigger. `internal_move_cleared_at` /
+   `internal_move_cleared_by` added; "a human has ruled" is now the FIRST branch of the
+   predicate and a skip condition in both stamping writers.
+6. **Article 16.** `is_internal_move_dispatch` registered in `METRICS_REGISTRY.md`.
+7. **Article 15.** `CHANGELOG.md`, `MIGRATIONS_REGISTRY.md`, `RPC_REGISTRY.md` updated.
+
+Recorded and explicitly **out of scope**: `refill_dispatching` grants `authenticated` full
+table-level DML (the S-308 Supabase default) on top of that permissive UPDATE policy.
+Pre-existing; closing it would break live FE writers. Logged so it is not rediscovered as new.
+
+### Live smoke tests — every one inside a rolled-back subtransaction
+
+Verified afterwards that nothing was left behind: 0 synthetic dispatch rows, 0 sales, 0
+alerts, 0 flagged live legs.
+
+| probe | result |
+|---|---|
+| Add New arriving after its Remove stamps that Remove | ✅ |
+| Remove arriving after its Add New stamps itself | ✅ |
+| genuine Remove with no counterpart NOT flagged | ✅ |
+| genuine Remove still in the queue, still approvable, still credits | ✅ `item_added` flips |
+| flagged legs absent from the queue | ✅ |
+| `wh_approve_remove_receipt` refuses, and names `clear_internal_move_flag` | ✅ |
+| `approve_stuck_remove` refuses identically (the back door) | ✅ |
+| `clear_internal_move_flag` re-opens the leg; predicate honours it at once | ✅ |
+| a later Add New does NOT re-stamp a cleared leg | ✅ |
+| a reason under 10 characters is refused | ✅ |
+| FIFO: expired batch keeps all 8 units, stays Active, 0 sale audit rows | ✅ |
+| FIFO: non-expired batch drains to 0; sales settled; overflow alert raised | ✅ |
+
+**A red herring worth recording.** The first FIFO probe used the synthetic 2030 dates and
+read like the OLD behaviour — the expired batch drained. The code was right and the fixture
+was wrong: the expiry rule is anchored to the **real** current Dubai date, so
+`expiration_date = 2030-04-01` is in the *future* from 2026 and correctly ineligible for the
+skip. Re-anchored to `CURRENT_DATE - 10`. This trap is written into the golden fixture's
+notes, because any future edit that "tidies" those dates into `{{plan_date}}` arithmetic
+silently disarms the whole expired-stock half of the fixture.
+
+### Golden fixture 113 — 25/25 green, 221 ms, no scenario error
+
+Fixture-20 pattern: the scenario RAISEs, so every synthetic dispatch row, pod batch, sale and
+alert rolls back and only the observation blob survives (contrast fixture 112, which commits
+its 2030 rows). Encodes the MC-2004 incident plus both positive controls — a Remove with no
+counterpart and a genuine M2W — and asserts the credit path still ACCEPTS and credits a real
+return, which is the assertion that would catch an over-broad rule.
+
+---
+
+## Leg 1 — FE
+
+- **Problem 3 done.** The dead purple "🤖 Review All" button, its `handleReviewAll` handler
+  and both of its state hooks are gone (4.5 KB). The "N machines reviewed by Claude" badge
+  survives, minus its `reviewingAll` guard — `reviewResults` is also fed by the *working*
+  per-machine review, so removing the badge would have deleted a live feature.
+- **One FE helper, not three copies.** `isInternalMoveLeg` / `dispatchActionChip` live in
+  `src/lib/dispatch-types.ts`. The backend flag is the authority; the FE never re-derives the
+  pairing rule.
+- **Display-only legacy backfill (PRD-113 fix 4)** is anchored on a shelf-code target
+  (`A01`…`A99`). The live comment corpus also contains "Move to AstroLabs", "Move to IRIS",
+  "Move to NOOK" — those are moves to another *venue*, genuine departures from the machine,
+  and labelling them "Move within machine" would be exactly the wrong error.
+- **Driver view** (`/field/dispatching/[machineId]`): an internal-move Remove renders
+  `MOVE WITHIN MACHINE`, never REMOVE or RETURN; its paired Add New shows `Moved from A07`;
+  the toggle reads "✓ Moved to its new shelf"; and the return confirm no longer promises a
+  warehouse credit the backend now refuses.
+- **Office dispatch detail** (`DailyDispatchingTab`): chip reads "Move within machine" with
+  the explanation on hover. The move flag was added to the **group key** — without it an
+  in-machine move and a genuine return of the same product on the same shelf collapse into
+  one row and the operator reads one label for two different physical acts.
+- **Packing page already had a pod-grain in-machine-move detector** (`internalMoveAddIds`,
+  keyed on `pod_product_id`) that drives its layout and already shows a source shelf. It is a
+  second derivation of the same idea at a different grain — Article 16 debt worth converging,
+  but converging it means reworking the packing layout engine, which is beyond this PRD and
+  is recorded rather than attempted.
+
+`npx tsc --noEmit` clean. `npm run build` ✅ compiled successfully. `npm run lint`: 98 errors
+on this branch and **98 on `main`** — no new lint errors.
