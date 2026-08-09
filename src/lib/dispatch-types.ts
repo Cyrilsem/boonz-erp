@@ -36,8 +36,11 @@ export interface InternalMoveFields {
  */
 const LEGACY_INTERNAL_MOVE_COMMENT = [
   /\[internal[- ]move\]/i,
-  /\bmoved?\b[^.;|]*\bto\s+A\d{1,2}\b/i,
-  /\brelocated\s+to\s+A\d{1,2}\b/i,
+  // "Move to A2", "Moved to A13", "move ALL 8 Tamreem from A16 into A04"
+  /\b(?:move[ds]?|consolidat\w*)\b[^.;|]*\b(?:in)?to\s+A\d{1,2}\b/i,
+  // "move Krambals A12 -> A02 (off A12)"
+  /\bA\d{1,2}\s*(?:->|→)\s*A\d{1,2}\b/,
+  /\brelocated\s+(?:in)?to\s+A\d{1,2}\b/i,
   /\bin-machine move\b/i,
   /\bINTERNAL MOVE\b/,
 ];

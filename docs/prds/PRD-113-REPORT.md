@@ -324,3 +324,32 @@ Probed live:
 **Cody on A6** (Articles 12, 16): ✅ Approve. Strictly narrowing; one trigger re-created;
 no function body, grant or signature changed; forward-only. It closes an Article 16
 divergence rather than creating one. No new conditions.
+
+---
+
+## Leg 1 — the legacy-comment backfill, validated against the real corpus
+
+PRD-113 fix 4 asks for display-only backfill of rows whose comment "matches the existing move
+conventions". Rather than guess the conventions, the regex set was run against all **217
+distinct Remove / M2W comments** in `refill_dispatching`.
+
+The first draft matched 5 and **missed 3 genuine in-machine moves**: `into A04` (not `to`),
+the arrow form `A12 -> A02`, and the CONSOLIDATION phrasing. Widened to
+`(?:move[ds]?|consolidat\w*) ... (?:in)?to A\d{1,2}` plus an `A\d+ -> A\d+` pattern.
+
+Final result — **8 matched, 209 skipped**, and every one of the six cross-machine comments
+still correctly skipped:
+
+| matched (renders "Move within machine") | skipped (a real departure from the machine) |
+|---|---|
+| `Move to A2` · `Moved to A13` | `Move to AstroLabs` · `Move to IRIS` · `Move to NOOK` |
+| `CS 2026-06-01: move Krambals A12 -> A02` | `Move to USH` · `Move to ADDMIND` |
+| `CONSOLIDATION: move ALL 8 Tamreem from A16 into A04` ×2 | `[MOVE TO AMZ-3003 A01] ... carry to AMZ-3003 shelf A01` |
+| `Popit relocated to A14` | |
+| the two hand-neutralised MC-2004 legs | |
+
+The last skipped row is the one that justifies the shelf-code anchoring: it contains a shelf
+code (`A01`) **and** the word MOVE, but names a different machine. Anchoring on the word
+"move" alone would have labelled a genuine cross-machine transfer as an in-machine move.
+
+`npx tsc --noEmit` clean, `npm run build` ✅ compiled successfully.
