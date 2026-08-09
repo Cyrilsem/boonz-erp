@@ -742,3 +742,70 @@ after the last apply.
 | A8 | `guard_return_dispatch_line` | the driver's own button |
 | A9 | `restore_rdl_and_guard_the_event` | md5 pin restored; guard moved to the credit event |
 | A10 | `multivariant_children_exempt` | a genuine multi-variant return is not stranded |
+
+---
+
+## Production verified
+
+The **shipped bundle** is the verdict, not the local build and not an HTTP code. Polled
+production with a hand-built `@supabase/ssr` session cookie until the new chunks were being
+served, then scanned every chunk on both pages.
+
+| page | evidence in the deployed chunks |
+|---|---|
+| `/refill` (warehouse) | HTTP 200 · **"Move within machine"** present in `2e0c07e874d92f67.js` · **"Review All" absent from all 13 chunks** |
+| `/field/dispatching/<MC-2004>` (driver) | HTTP 200 · `22381207dcc2fcd0.js` carries **"MOVE WITHIN MACHINE"**, **"Moved from "**, **"Moved to its new shelf"**, **"move within the machine"**, **"Could not move"** |
+
+A first bundle scan reported nothing and briefly looked like a stale deploy. The probe was
+wrong, not the deploy: a nested shell loop over a 150 KB variable silently mis-handled it.
+Re-run writing each chunk to disk before grepping, every string is there. Recorded because
+"the scan found nothing" and "the deploy did not land" look identical and are not.
+
+**Data contracts through PostgREST, as the real roles** (this is what catches a grant or RLS
+hole that reading `pg_proc` cannot):
+
+| probe | as | result |
+|---|---|---|
+| `v_pending_wh_remove_confirmations` | warehouse | 200, 7 rows, all genuine returns |
+| `refill_dispatching` incl. `is_internal_move`, `internal_move_cleared_at` | warehouse | 200, both columns present |
+| same | driver acct | 200, both columns present |
+| `is_internal_move_dispatch` on an unknown id | warehouse | 200 `null` — the documented contract |
+| `clear_internal_move_flag` with reason `"ok"` | warehouse | 400, the 10-character refusal |
+| `mark_internal_move_legs` / `clear_internal_move_flag` / `tg_mark_internal_move_pair` | **anon** | **404 PGRST202** — not in the schema cache at all |
+| `mark_internal_move_legs`, `clear_internal_move_flag` | **field_staff** (DB-layer impersonation) | both REFUSED with the role message |
+
+## Acceptance
+
+| # | criterion | status |
+|---|---|---|
+| 1 | fixture: same-machine swap → flagged → absent from queue → WH unchanged; genuine M2W queues and credits once | ✅ golden 113, 25/25 — both pair orders, two positive controls, and the genuine return proven to still **credit** |
+| 2 | Refresh Data over a machine with an expired batch + sales: expired unchanged, non-expired decremented, overflow logged | ✅ golden 113 seq 20–25, on a real `run_pod_inventory_decrement()` run, not a re-implementation of its predicate |
+| 3 | 30-day repair report saved | ✅ `docs/prds/PRD-113-expired-consumption-report.md` — 3 batches, 14 units, report only |
+| 4 | "Review All" gone; page builds and renders | ✅ gone from all 13 shipped `/refill` chunks; `/refill` HTTP 200 |
+| 5 | golden green; build green; merged; production verified | ⚠️ **see below** — build ✅, merged ✅ (`8af5557`), production ✅; golden has **3 pre-existing reds this PRD did not cause** |
+
+**On item 5, precisely.** PRD-113 introduced exactly one golden regression — fixture 26's
+`receive_dispatch_line` md5 pin — and it is fixed (A9) and re-verified at 89/0. Fixtures 2,
+46 and 74 are red for reasons proven to be outside this PRD: a rounding tolerance, warehouse
+depletion, and cron 45 planning VML for the first time. Each was diagnosed structurally (none
+of the three reads `refill_dispatching`, `pod_inventory` or any PRD-113 object) and
+numerically where applicable. They are **not** re-baselined: doing that to another unit's
+fixtures is the exact failure mode fixture 26 caught in A7, and this unit is instructed not
+to touch PRD-110 files.
+
+## For CS
+
+1. **Three golden fixtures need their owner** (PRD-110): 2 (widen the `1e-4` tolerance or
+   compare at the view's own precision), 46 and 74 (both hard-code counts over live data that
+   has since moved).
+2. **`CLAUDE.md` test-user table is wrong**: `driver@boonz.test` is `warehouse`, not
+   `field_staff`. It cost a false security alarm here and will cost the next one too.
+3. **The 14 units in the repair report** need a physical check of three shelves. If the
+   expired units are still there, write them off through the manual flow so the exit is
+   recorded as a write-off rather than a sale. No automatic restoration was performed.
+4. **Recorded debt, deliberately not fixed here:** the packing page carries a second,
+   pod-grain in-machine-move detector (Article 16); and `refill_dispatching` grants
+   `authenticated` full table-level DML on top of a permissive UPDATE policy (S-308,
+   pre-existing — closing it would break live FE writers).
+
+## PRD-113 DONE
