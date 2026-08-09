@@ -93,3 +93,113 @@ The fixture encodes the real incident with three lines on VOXMCC-1005-0201-B0: a
 **Infrastructure note, logged because it is a shared-resource fact and not a PRD-112 result:** the database returned `the database system is not accepting connections` once, and Cloudflare 521/525 twice, during this sweep. PRD-110's relay is hammering the same instance concurrently. I paced the remaining batches and waited for health checks to return 200 before resuming rather than retrying into a struggling instance.
 
 Next: Unit 7 - FE.
+
+## Unit 7 — FE (DONE)
+
+Branch `prd-112-driver-substitution`, merged to `main` as `a011777`, production deploy
+recorded in `docs/DEPLOYMENTS.md` (`boonz-mdcb2c98p`).
+
+**The state Unit 7 actually found.** `ChangeProductDialog.tsx` and
+`driverSubstituteDispatchLine` / `listSubstituteProducts` already existed on `main` -
+swept there by the PRD-110 relay's `git add -A` in leg 164, not by a PRD-112 commit.
+Both were imported by **no file**. So the backend had been live since Unit 4 and nothing
+in the product could reach it: the driver still had no button, and CS still had no panel.
+Unit 7 is the wiring plus the Day Close panel, not a rewrite.
+
+| file                                     | change                                                     |
+| ---------------------------------------- | ---------------------------------------------------------- |
+| `refill/DayCloseTab.tsx`                 | new - the §3.3 panel                                        |
+| `refill/RefillPageClient.tsx`            | "Day Close" tab, between Refill Dispatch and Log            |
+| `field/packing/[machineId]/page.tsx`     | Change product button, SUB badge, dialog, toast             |
+| `field/trips/[machineId]/page.tsx`       | same, plus `action` / `dispatch_date` / `original_…` select |
+| `field/AddDispatchRowDialog.tsx`         | the duplicate-guard sentence (acceptance 5)                 |
+| `field/_actions/dispatch-edits.ts`       | em-dash removal only                                        |
+
+**Three FE decisions worth recording, because each one is a place the obvious code is wrong.**
+
+1. **The packing button is deliberately NOT behind `isReadOnly`.** Every other affordance on
+   that card is. But a packed, picked-up line is the *normal* case for a substitution - that
+   is the entire 08-08 incident - so gating it there would have shipped the bug the PRD was
+   written to kill. The RPC is the sanctioned way through the packed-row guard; the FE has to
+   actually offer it in the state the guard fires.
+2. **Mix cards are excluded.** A mix card aggregates several boonz variants behind one pod
+   label, so "which product am I replacing" has no single answer, while the RPC works one
+   `dispatch_id` at a time. Remove lines never reach the branch, which already matches the
+   RPC's Refill / Add New gate.
+3. **The trips list reaches back one day** (`gte(yesterday)`), and the RPC refuses a past
+   date as settled history. Rendering the button there would have been a tap that can only
+   fail. It is hidden for `dispatch_date < today (Dubai)`. "Never blocked" has to mean never
+   *offered-then-refused* too.
+
+**A defect caught before it shipped.** The gaps builder compares and subtracts
+`quantity` / `filled_quantity`, both postgres `numeric`. PostgREST does emit those as JSON
+numbers (verified on the wire: `planned_qty 6 int`), but a string `"10" < "9"` would have
+silently invented a shortfall gap for every two-digit line. Coerced once through `num()`.
+
+**Lint.** The new tab lints **0 errors / 0 warnings**. The first draft added one
+`react-hooks/set-state-in-effect` - the rule fires on any effect that reaches setState
+before an await, which is why `SignalsTab` and `PendingRemoveApprovalsPanel` carry it.
+Restructured into a pure `loadDayClose()` that returns data and holds no state, with
+setState only inside the `.then` callback: the shape `RefillLogTab` and `/refill/drift`
+already use. Repo-wide error count is unchanged from the `main` baseline of 98.
+
+### Verification
+
+`npx tsc --noEmit` clean. `npm run build` green (before the merge and again on merged main).
+
+**The preview could not be walked, so the production deploy was walked instead.** The
+branch preview alias
+`boonz-erp-git-prd-112-driver-substitution-cyril-semaans-projects.vercel.app` is a
+**64-character DNS label** and does not resolve at all - past the 63-byte limit, so this is
+not an SSO problem, the host does not exist. Rather than skip the walk, I signed in against
+production with the real test accounts (password grant) and drove the deployed app with a
+hand-built `@supabase/ssr` session cookie:
+
+| walk                                        | result                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| `/refill` as `warehouse@boonz.test`         | HTTP 200, served HTML carries **Day Close** in the tab bar with the other six |
+| `/field/trips` as `driver@boonz.test`       | HTTP 200, session accepted by middleware                                     |
+| `/field/packing/<id>`, `/field/trips/<id>`  | HTTP 200 both                                                                |
+| deployed client chunks for `/field/packing` | contain `"Change product"`, `"SUB"`, `"already exists on this shelf"`         |
+
+That last row is the one that matters: the shipped bundle, not the local build, carries the
+new UI.
+
+**Every data contract the new UI depends on, exercised through PostgREST as the real role**
+(this is what catches a grant or RLS hole that reading `pg_proc` cannot):
+
+| probe                                                       | as        | result                                                     |
+| ----------------------------------------------------------- | --------- | ---------------------------------------------------------- |
+| `v_day_close_events` full column list                       | warehouse | 200, fixture rows render-shaped correctly                  |
+| `day_close_checks(2026-08-10)`                              | warehouse | 200, 4 green / 1 red (62 returns pending)                  |
+| `product_mapping` picker query                              | **driver**| 200, 317 rows, 52 `venue_team` - the picker populates      |
+| trips select incl. `action` / `dispatch_date` / `original_…`| **driver**| 200, all three columns present                             |
+| gaps select incl. `shelf_configurations(shelf_code)` embed  | warehouse | 200, 70 rows for today, embed resolves                     |
+| `driver_substitute_dispatch_line` x3 malformed inputs       | **driver**| reachable and EXECUTE-granted; all three raise pre-write   |
+| `acknowledge_day_close_event` / `acknowledge_day_close`     | warehouse | **refused** - "role warehouse not authorized (CS closes the day)", event still unacknowledged |
+
+**Acceptance.** 1 and 2 are proven at the RPC layer by golden fixture 112 (Unit 5) and the
+FE now issues exactly that call from a JWT proven able to reach it. 3's read half is proven
+above against the real fixture rows; its write half is fixture 112. 4 is proven live:
+`day_close_checks` went red with 4 unreceived machines on 2026-08-09 and red on returns for
+2026-08-10, so the checks track real state rather than always reading green. 5 is done -
+the sentence is appended only when the message is the duplicate guard's (matcher tested
+against the live wording), and `prevent_duplicate_unstarted_dispatch` still hashes
+`b11581fe9540b3a12c67bf6d4d25d0fc`, byte-identical to the Unit 4 pin. 6 is Units 5-6. 7 is
+build green, walked as above, merged.
+
+**Two things I did NOT do, deliberately.**
+
+1. **No live substitution on a real production line.** PRD §6 suggests a "live smoke on a
+   1-unit line". There is no un-substitute RPC: it rewrites `boonz_product_id`, rebinds
+   `from_wh_inventory_id`, appends an audit comment and opens a day-close event, on a line a
+   driver is working today. Fixture 112 already performs exactly this sequence end to end on
+   synthetic 2030 data and is green, and the probes above prove a real `field_staff` JWT
+   reaches the same function, so the smoke would buy very little for an irreversible write to
+   live operational data. **CS action if you want it anyway.**
+2. **No browser-driven interaction test.** The buttons render client-side, so an HTTP walk
+   cannot click them. Playwright is not installed and CLAUDE.md forbids adding packages
+   unasked. The interaction path is covered by build + typecheck + the bundle grep + the RPC
+   contract probes, not by a click.
+
+## PRD-112 DONE
