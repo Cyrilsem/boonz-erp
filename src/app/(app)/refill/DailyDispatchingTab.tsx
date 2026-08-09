@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useCallback, Fragment } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { machineShortId } from "@/lib/utils/machine-id";
+import { isInternalMoveLeg } from "@/lib/dispatch-types";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,9 @@ interface DispatchLine {
   machine_id: string;
   boonz_product_id: string;
   action: string | null;
+  comment?: string | null;
+  is_internal_move?: boolean | null;
+  internal_move_cleared_at?: string | null;
   quantity: number | null;
   filled_quantity: number | null;
   packed: boolean;
@@ -74,6 +78,8 @@ interface LineGroup {
   shelf_code: string | null;
   boonz_product_name: string;
   action: string | null;
+  /** PRD-113: this Remove relocates product to another shelf of the SAME machine. */
+  is_internal_move: boolean;
   plan_qty: number;
   total_filled: number;
   earliest_expiry: string | null;
@@ -86,7 +92,17 @@ interface LineGroup {
 function buildSortedGroups(lines: DispatchLine[]): LineGroup[] {
   const groups = new Map<string, LineGroup>();
   for (const l of lines) {
-    const key = `${l.shelf_code ?? ""}|${l.boonz_product_id}|${l.action ?? ""}`;
+    // PRD-113: the move flag is part of the group IDENTITY. Without it, an
+    // in-machine move and a genuine return of the same product on the same shelf
+    // would collapse into one row and the operator would read one label for two
+    // very different physical acts.
+    const isMove = isInternalMoveLeg({
+      action: l.action,
+      is_internal_move: l.is_internal_move,
+      internal_move_cleared_at: l.internal_move_cleared_at,
+      comment: l.comment,
+    });
+    const key = `${l.shelf_code ?? ""}|${l.boonz_product_id}|${l.action ?? ""}|${isMove ? "move" : "std"}`;
     const qty = Number(l.quantity ?? 0);
     const filled = Number(l.filled_quantity ?? 0);
     const existing = groups.get(key);
@@ -96,6 +112,7 @@ function buildSortedGroups(lines: DispatchLine[]): LineGroup[] {
         shelf_code: l.shelf_code ?? null,
         boonz_product_name: l.boonz_products?.boonz_product_name ?? "\u2014",
         action: l.action,
+        is_internal_move: isMove,
         plan_qty: qty,
         total_filled: filled,
         earliest_expiry: l.expiry_date,
@@ -184,7 +201,7 @@ export function DailyDispatchingTab({
     const { data } = await supabase
       .from("refill_dispatching")
       .select(
-        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, pack_outcome, returned, skipped, expiry_date, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group, adyen_store_code), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
+        "dispatch_id, machine_id, boonz_product_id, action, quantity, filled_quantity, packed, picked_up, dispatched, pack_outcome, returned, skipped, expiry_date, comment, is_internal_move, internal_move_cleared_at, machines!refill_dispatching_machine_id_fkey!inner(official_name, pod_location, venue_group, adyen_store_code), boonz_products(boonz_product_name), shelf_configurations!inner(shelf_code)",
       )
       .eq("dispatch_date", queryDate)
       .eq("include", true)
@@ -884,21 +901,30 @@ function MachineRow({
                               fontWeight: 600,
                               padding: "2px 6px",
                               borderRadius: 4,
-                              background:
-                                g.action === "refill"
+                              background: g.is_internal_move
+                                ? "rgba(176, 137, 48, 0.15)"
+                                : g.action === "refill"
                                   ? "rgba(36, 84, 74, 0.08)"
                                   : g.action === "collect"
                                     ? "rgba(225, 180, 96, 0.15)"
                                     : "transparent",
-                              color:
-                                g.action === "refill"
+                              color: g.is_internal_move
+                                ? "#8a6a1f"
+                                : g.action === "refill"
                                   ? "#24544a"
                                   : g.action === "collect"
                                     ? "#b08930"
                                     : "#6b6860",
                             }}
+                            title={
+                              g.is_internal_move
+                                ? "PRD-113: these units move to another shelf of this same machine. They never reach the warehouse, so there is nothing to receive and nothing to credit."
+                                : undefined
+                            }
                           >
-                            {g.action ?? "\u2014"}
+                            {g.is_internal_move
+                              ? "Move within machine"
+                              : (g.action ?? "\u2014")}
                           </span>
                         </td>
                         <td
