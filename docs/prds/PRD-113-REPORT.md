@@ -265,18 +265,18 @@ luck rather than posture:
 1. `REVOKE EXECUTE ... FROM PUBLIC, anon` on all three (and from `authenticated` on the
    trigger function).
 2. The NULL-uid branch now names the roles it actually means — `current_user IN
-   ('service_role','postgres','supabase_admin')` — so the guard holds even if a future
+('service_role','postgres','supabase_admin')` — so the guard holds even if a future
    migration re-grants EXECUTE. That is the S-308 lesson: a default grant comes back whenever
    someone is not looking.
 
 Verified post-image:
 
-| function | EXECUTE holders |
-|---|---|
-| `mark_internal_move_legs` | authenticated, postgres, service_role |
-| `clear_internal_move_flag` | authenticated, postgres, service_role |
-| `tg_mark_internal_move_pair` | postgres, service_role |
-| `is_internal_move_dispatch` | PUBLIC — read-only and `security_invoker`, so `anon` gets RLS-filtered reads and nothing more |
+| function                     | EXECUTE holders                                                                               |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `mark_internal_move_legs`    | authenticated, postgres, service_role                                                         |
+| `clear_internal_move_flag`   | authenticated, postgres, service_role                                                         |
+| `tg_mark_internal_move_pair` | postgres, service_role                                                                        |
+| `is_internal_move_dispatch`  | PUBLIC — read-only and `security_invoker`, so `anon` gets RLS-filtered reads and nothing more |
 
 Probed live as `SET LOCAL ROLE anon`: `mark_internal_move_legs` →
 `REFUSED_no_execute_grant`.
@@ -285,3 +285,42 @@ Probed live as `SET LOCAL ROLE anon`: `mark_internal_move_legs` →
 A2 in both dimensions; provenance GUCs and the audit path are unchanged; forward-only with
 `CREATE OR REPLACE` and an idempotent `REVOKE`; no object dropped; no metric touched. No new
 conditions.
+
+---
+
+## Leg 1 — A6: the trigger was testing less than the predicate
+
+Found by reading the two objects side by side rather than by a failing test, which is the
+only way this one surfaces.
+
+`is_internal_move_dispatch()` only counts an Add New as a pairing counterpart when it is live
+work — `cancelled = false AND skipped = false AND include = true`.
+`tg_mark_internal_move_pair`'s `WHEN` clause tested only `cancelled` and `is_m2m`. So an Add
+New inserted with `include = false` or `skipped = true` still fired the Add-arm and stamped a
+Remove that **the predicate itself does not consider paired**.
+
+That is not cosmetic, because the predicate's first live branch is
+`WHEN COALESCE(rd.is_internal_move, false) THEN true` — **the stored column overrides the
+pairing test.** An over-stamp propagates straight through to the queue view and all three
+approve RPCs, so a genuine warehouse return could have dropped out of the approval queue on
+the strength of an Add New that was never going to happen. Two objects answering one question
+and disagreeing at the edges: the exact Article 16 disease the predicate exists to cure.
+
+`20260810150000_prd113_a6_trigger_matches_the_predicate.sql` re-creates the trigger with
+`skipped` and `include` added to the `WHEN` clause, making its gate a strict subset of the
+predicate's. Fixed forward — A2 and A5 are not edited. The function body, the Remove arm, the
+alerts and every grant are untouched.
+
+Applied on the second try: the first hit a 20s `lock_timeout`, because `DROP TRIGGER` needs
+ACCESS EXCLUSIVE and the golden sweep was holding `refill_dispatching`. Retried at 60s.
+
+Probed live:
+
+| probe | result |
+|---|---|
+| a de-scoped (`include = false`) Add New stamps the Remove | ✅ no — flag false, predicate false |
+| a live Add New stamps the Remove | ✅ yes |
+
+**Cody on A6** (Articles 12, 16): ✅ Approve. Strictly narrowing; one trigger re-created;
+no function body, grant or signature changed; forward-only. It closes an Article 16
+divergence rather than creating one. No new conditions.
