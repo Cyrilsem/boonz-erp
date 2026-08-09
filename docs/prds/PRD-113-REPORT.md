@@ -316,10 +316,10 @@ ACCESS EXCLUSIVE and the golden sweep was holding `refill_dispatching`. Retried 
 
 Probed live:
 
-| probe | result |
-|---|---|
+| probe                                                     | result                              |
+| --------------------------------------------------------- | ----------------------------------- |
 | a de-scoped (`include = false`) Add New stamps the Remove | ✅ no — flag false, predicate false |
-| a live Add New stamps the Remove | ✅ yes |
+| a live Add New stamps the Remove                          | ✅ yes                              |
 
 **Cody on A6** (Articles 12, 16): ✅ Approve. Strictly narrowing; one trigger re-created;
 no function body, grant or signature changed; forward-only. It closes an Article 16
@@ -340,13 +340,13 @@ the arrow form `A12 -> A02`, and the CONSOLIDATION phrasing. Widened to
 Final result — **8 matched, 209 skipped**, and every one of the six cross-machine comments
 still correctly skipped:
 
-| matched (renders "Move within machine") | skipped (a real departure from the machine) |
-|---|---|
-| `Move to A2` · `Moved to A13` | `Move to AstroLabs` · `Move to IRIS` · `Move to NOOK` |
-| `CS 2026-06-01: move Krambals A12 -> A02` | `Move to USH` · `Move to ADDMIND` |
+| matched (renders "Move within machine")                  | skipped (a real departure from the machine)              |
+| -------------------------------------------------------- | -------------------------------------------------------- |
+| `Move to A2` · `Moved to A13`                            | `Move to AstroLabs` · `Move to IRIS` · `Move to NOOK`    |
+| `CS 2026-06-01: move Krambals A12 -> A02`                | `Move to USH` · `Move to ADDMIND`                        |
 | `CONSOLIDATION: move ALL 8 Tamreem from A16 into A04` ×2 | `[MOVE TO AMZ-3003 A01] ... carry to AMZ-3003 shelf A01` |
-| `Popit relocated to A14` | |
-| the two hand-neutralised MC-2004 legs | |
+| `Popit relocated to A14`                                 |                                                          |
+| the two hand-neutralised MC-2004 legs                    |                                                          |
 
 The last skipped row is the one that justifies the shelf-code anchoring: it contains a shelf
 code (`A01`) **and** the word MOVE, but names a different machine. Anchoring on the word
@@ -365,7 +365,7 @@ delegate their "credit/archival logic" to.
 A3 guarded the three functions the PRD names. Those are not the three ways a Remove leg gets
 credited:
 
-- **`receive_all_dispatches_for_machine(machine, date, use_filled)`** loops over *every*
+- **`receive_all_dispatches_for_machine(machine, date, use_filled)`** loops over _every_
   dispatched, unreceived, included row for a machine/date — Remove legs included — and calls
   `receive_dispatch_line` directly. It is wired to the "Mark All" bulk action on `/refill`
   (`DailyDispatchingTab.tsx:381`). Live, reachable, and it walks straight past all three A3
@@ -390,14 +390,14 @@ touched.
 
 Probed live, inside a rolled-back subtransaction:
 
-| probe | result |
-|---|---|
-| `receive_dispatch_line` called directly on a move leg | ✅ REFUSED |
-| bulk receive over a machine holding one move leg + one genuine return | ✅ skipped 1, received 1 |
-| the move leg credited? | ✅ no — `item_added` still false |
-| the genuine return credited? | ✅ yes — `item_added` true |
+| probe                                                                 | result                           |
+| --------------------------------------------------------------------- | -------------------------------- |
+| `receive_dispatch_line` called directly on a move leg                 | ✅ REFUSED                       |
+| bulk receive over a machine holding one move leg + one genuine return | ✅ skipped 1, received 1         |
+| the move leg credited?                                                | ✅ no — `item_added` still false |
+| the genuine return credited?                                          | ✅ yes — `item_added` true       |
 
-**Cody on A7** (Articles 1, 4, 8, 12, 16): ✅ Approve. This is Article 1 being *applied*
+**Cody on A7** (Articles 1, 4, 8, 12, 16): ✅ Approve. This is Article 1 being _applied_
 rather than bent — the guard moves onto the canonical write path instead of being replicated
 at each caller. Provenance GUCs, signatures and audit behaviour unchanged; forward-only; no
 drops. The bulk skip is the LAW 5 shape (report, do not silently do nothing). No new
@@ -432,10 +432,10 @@ diagnosis rather than an assumption.
 3. **Subjects.** The two rows are HUAWEI-2003-0000-B1 and ADDMIND-1007-0000-W0, neither
    touched by any PRD-113 object, migration, probe or fixture.
 
-| machine | velocity_instock | velocity_raw | stock_hours | delta | delta if velocity_raw unrounded |
-|---|---|---|---|---|---|
-| HUAWEI-2003-0000-B1 | 0.415229 | 0.033333 | 57.7994 | **1.179e-4** | 6.7e-6 |
-| ADDMIND-1007-0000-W0 | 0.397944 | 0.033333 | 60.3099 | **1.009e-4** | 1.8e-5 |
+| machine              | velocity_instock | velocity_raw | stock_hours | delta        | delta if velocity_raw unrounded |
+| -------------------- | ---------------- | ------------ | ----------- | ------------ | ------------------------------- |
+| HUAWEI-2003-0000-B1  | 0.415229         | 0.033333     | 57.7994     | **1.179e-4** | 6.7e-6                          |
+| ADDMIND-1007-0000-W0 | 0.397944         | 0.033333     | 60.3099     | **1.009e-4** | 1.8e-5                          |
 
 So it is a **fixture tolerance defect that live data drifted into** — it fires whenever a
 shelf settles at exactly 1 unit / 30 days with a high in-stock-to-raw ratio. Left alone
@@ -443,3 +443,45 @@ deliberately: fixture 2 is PRD-110 territory, this build unit is instructed not 
 PRD-110 files, and widening someone else's tolerance to make my own sweep look green is
 exactly the wrong move. **Handed to the PRD-110 owner**: the fix is to compare at the view's
 own precision (or widen to ~5e-4), not to re-baseline the fixture.
+
+---
+
+## Leg 1 — production walk (backend live, FE pre-merge baseline)
+
+Same method as PRD-112: the branch preview alias is a 64-character DNS label and does not
+resolve, so production is signed into with the real test accounts (password grant) and driven
+with a hand-built `@supabase/ssr` session cookie. Script kept at `/tmp/prd113_walk.sh`.
+
+The backend is already live, so the guards are provable from a real client now; the FE rows
+below are the pre-merge baseline and are re-walked after the merge.
+
+| probe | as | result |
+|---|---|---|
+| `/refill` | warehouse | HTTP 200 |
+| `/field/dispatching` | driver acct | HTTP 200 |
+| `v_pending_wh_remove_confirmations` | warehouse | HTTP 200, 7 rows, all genuine |
+| `refill_dispatching` incl. `is_internal_move`, `internal_move_cleared_at` | warehouse | HTTP 200, both columns present |
+| same select | driver acct | HTTP 200, both columns present |
+| `is_internal_move_dispatch` on an unknown id | warehouse | HTTP 200 `null` — the documented NULL contract, and callers COALESCE it |
+| `clear_internal_move_flag` with reason `"ok"` | warehouse | HTTP 400, the 10-character refusal |
+| `anon` → `mark_internal_move_legs` / `clear_internal_move_flag` / `tg_mark_internal_move_pair` | anon | HTTP 404 PGRST202 — **not in the schema cache at all for anon**, which is A5 working end to end |
+
+### A stale line in CLAUDE.md cost a false alarm
+
+Two probes that were *supposed* to be refusals came back HTTP 200 as `driver@boonz.test`,
+which looked like a privilege hole in a brand-new DEFINER writer. It was not.
+**`driver@boonz.test` carries role `warehouse`, not `field_staff`** — CLAUDE.md's test-user
+table is wrong on that line. The only real `field_staff` accounts are `anthony001@boonz.test`
+and `vox_admin@boonz.me`, and no password is known for either.
+
+The role gate was therefore proven at the DB layer against a real `field_staff` uid, using
+the same `request.jwt.claims` impersonation the golden fixtures use:
+
+| probe | result |
+|---|---|
+| `mark_internal_move_legs` as field_staff | ✅ REFUSED — "may not relabel dispatch legs" |
+| `clear_internal_move_flag` as field_staff | ✅ REFUSED — "may not re-open a warehouse credit" |
+
+**For CS:** the `## Test Users` block in `CLAUDE.md` lists `driver@boonz.test` under
+`field_staff`. It is `warehouse`. Not corrected here — editing CLAUDE.md is outside this
+PRD's scope — but it will mislead the next role probe exactly as it misled this one.
