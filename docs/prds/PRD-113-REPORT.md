@@ -407,3 +407,39 @@ conditions.
 that is what the PRD listed. It took a second, independent question — "what else reaches the
 credit writer?" — to find the hole. A6 and A7 are both cases where the specified scope and
 the actual invariant were not the same thing.
+
+---
+
+## Leg 1 — golden sweep: the one red, diagnosed rather than waved through
+
+**Fixture 2 "Censored velocity cold-start" — 53/54, seq 20 red.** It was 54/54 on every recent
+run (leg 173 A/B/C, leg 175 A/B/C). So it is a genuine change of state, and it deserved a
+diagnosis rather than an assumption.
+
+**It is not PRD-113.** Three independent lines of evidence:
+
+1. **Structural.** Seq 20 reads `public.v_shelf_instock_velocity_v3`. That view reads
+   **neither `refill_dispatching` nor `pod_inventory`** — verified against its definition.
+   Those two tables are the entire surface PRD-113 touches.
+2. **Arithmetic.** The assertion is
+   `abs(velocity_instock/velocity_raw - 720/stock_hours) > 1e-4`, and both violating rows
+   carry `velocity_raw = 0.033333` — the 6-decimal rounding of exactly one unit per 30 days
+   (`1/30 = 0.0333333…`). That rounding is a relative error of `1.0e-5`, and the ratio it
+   divides into is ~12.4, so it lands as `1.24e-4` absolute — just over the fixture's `1e-4`
+   tolerance. Recomputed with an unrounded `1/30`, the same two rows give `6.7e-6` and
+   `1.8e-5`, comfortably inside. The assertion's own description says "to the view's own 6dp
+   rounding"; the tolerance simply is not wide enough for the smallest `velocity_raw` bucket.
+3. **Subjects.** The two rows are HUAWEI-2003-0000-B1 and ADDMIND-1007-0000-W0, neither
+   touched by any PRD-113 object, migration, probe or fixture.
+
+| machine | velocity_instock | velocity_raw | stock_hours | delta | delta if velocity_raw unrounded |
+|---|---|---|---|---|---|
+| HUAWEI-2003-0000-B1 | 0.415229 | 0.033333 | 57.7994 | **1.179e-4** | 6.7e-6 |
+| ADDMIND-1007-0000-W0 | 0.397944 | 0.033333 | 60.3099 | **1.009e-4** | 1.8e-5 |
+
+So it is a **fixture tolerance defect that live data drifted into** — it fires whenever a
+shelf settles at exactly 1 unit / 30 days with a high in-stock-to-raw ratio. Left alone
+deliberately: fixture 2 is PRD-110 territory, this build unit is instructed not to touch
+PRD-110 files, and widening someone else's tolerance to make my own sweep look green is
+exactly the wrong move. **Handed to the PRD-110 owner**: the fix is to compare at the view's
+own precision (or widen to ~5e-4), not to re-baseline the fixture.
