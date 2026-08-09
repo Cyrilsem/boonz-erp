@@ -675,3 +675,39 @@ still a defect, and this one lands on a person mid-task.
 |---|---|
 | plain Remove, paired Add New present | ✅ BLOCKED |
 | multi-variant child, same product, same pairing | ✅ ALLOWED and credited |
+
+---
+
+## Leg 1 — full golden sweep: 72 fixtures, one red was mine and it is fixed
+
+Fired **per fixture** through `/tmp/prd110_sql.sh` at `statement_timeout = 600s`, scratch
+cleared from outside each fixture's transaction (S-254), and adjudicated by reading
+`golden.runs` back — never off the response body (S-212). `golden.run_all` through the
+management API is not usable here: one heavy fixture trips the timeout and the whole
+`run_all` transaction rolls back, banking nothing (S-250).
+
+**72 banked · 68 green · 4 red.** Every red diagnosed, not assumed:
+
+| fixture | red | mine? | cause |
+|---|---|---|---|
+| **26** `receive_dispatch_line` md5 pin | 88/1 | **YES** | A7 edited a byte-pinned function. **Fixed by A9; re-run 89/0 green.** |
+| **2** censored velocity cold-start | 53/1 | no | fixture tolerance defect: `velocity_raw` rounds to `0.033333` (= 1 unit / 30 d); that 1.0e-5 relative error across a ratio of ~12.4 lands at 1.24e-4 against a 1e-4 threshold. Unrounded, the same rows give 6.7e-6 and 1.8e-5. The view reads neither `refill_dispatching` nor `pod_inventory`. |
+| **46** FEFO SKU binding | 28/1 | no | warehouse depletion. `resolve_fefo_sku_legs_v3` now returns `status: partial, n_legs: 1, qty_bound: 2` of 20 — only two units of one SKU left for that pod. Scenario references none of PRD-113's surfaces. |
+| **74** DR-1 cutover authority | 51/2 | no | **the nightly cron did its job.** `VML` moved from `no_v3_measurement` to `v3_horizon_not_elapsed`, so the fixture's hard-coded 6/4 split reads 5/5. `engine_forecast_error_v3` holds 44 VML rows dated **2026-08-10** — written by cron 45 `prd110_p27_nightly_shadow_runner_v3` (21:22 UTC) between fixture 74's last green run (2026-08-09 01:20 UTC) and this sweep (23:07 UTC). `v_cutover_readiness_v3` reads none of PRD-113's surfaces. |
+
+**The honest verdict on acceptance item 5.** PRD-113 introduced exactly **one** golden
+regression, fixture 26, and it is fixed and re-verified. The other three are pre-existing
+fixtures whose premises are live data they do not own — a rounding tolerance, warehouse
+stock, and the v3 engine's own progress. Making them green means editing PRD-110's fixtures,
+which this unit is instructed not to touch and which would be the wrong instinct anyway:
+**re-baselining someone else's pin to make my sweep read green is exactly the failure mode
+fixture 26 just caught me in.** All three are handed to the PRD-110 owner with the diagnosis
+above.
+
+Final state of the two fixtures this PRD is responsible for, re-run after the last migration
+(A10):
+
+| fixture | result |
+|---|---|
+| 26 (the pin I broke) | **89 / 0 green** |
+| 113 (PRD-113's own) | **25 / 0 green** |
