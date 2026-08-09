@@ -683,6 +683,20 @@ export default function DispatchingDetailPage() {
         }
 
         const status = (rpcData as { status?: string } | null)?.status;
+        // PRD-113: return_dispatch_line refuses an in-machine move with a structured
+        // {'status':'refused'} object rather than an error, so rpcErr is null here. Without
+        // this branch the driver taps, sees nothing, and the leg silently stays unresolved.
+        if (status === "refused") {
+          const why =
+            (rpcData as { reason?: string; message?: string } | null)?.reason ===
+            "internal_move_return_blocked"
+              ? "⚠ This is a move within the machine — it does not go back to the warehouse, so there is nothing to return. Mark it moved, or leave it for the office."
+              : "⚠ Return refused: " +
+                ((rpcData as { message?: string } | null)?.message ??
+                  "see the office");
+          setInvWarnings((prev) => ({ ...prev, [line.dispatch_id]: why }));
+          continue;
+        }
         if (status === "already_returned") {
           console.info("[B3.2] already returned — no-op:", line.dispatch_id);
           setInvWarnings((prev) => ({
@@ -1323,6 +1337,16 @@ export default function DispatchingDetailPage() {
                               : "✓ Added to machine"}
                         </button>
                         <button
+                          disabled={
+                            line.is_internal_move &&
+                            line.dispatch_action === "Remove"
+                          }
+                          title={
+                            line.is_internal_move &&
+                            line.dispatch_action === "Remove"
+                              ? "An in-machine move has no warehouse leg — there is nothing to return. If the move could not be done, leave the line unresolved and tell the office."
+                              : undefined
+                          }
                           onClick={() => {
                             // PRD-028 3c: returns are an explicit per-line act
                             // with a confirm naming qty + destination WH.
@@ -1345,9 +1369,12 @@ export default function DispatchingDetailPage() {
                             updateAction(line.dispatch_id, "returned");
                           }}
                           className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
-                            line.action === "returned"
-                              ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-                              : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                            line.is_internal_move &&
+                            line.dispatch_action === "Remove"
+                              ? "cursor-not-allowed border-neutral-200 text-neutral-300 dark:border-neutral-800 dark:text-neutral-600"
+                              : line.action === "returned"
+                                ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                                : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
                           }`}
                         >
                           {line.is_internal_move &&

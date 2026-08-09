@@ -455,20 +455,20 @@ with a hand-built `@supabase/ssr` session cookie. Script kept at `/tmp/prd113_wa
 The backend is already live, so the guards are provable from a real client now; the FE rows
 below are the pre-merge baseline and are re-walked after the merge.
 
-| probe | as | result |
-|---|---|---|
-| `/refill` | warehouse | HTTP 200 |
-| `/field/dispatching` | driver acct | HTTP 200 |
-| `v_pending_wh_remove_confirmations` | warehouse | HTTP 200, 7 rows, all genuine |
-| `refill_dispatching` incl. `is_internal_move`, `internal_move_cleared_at` | warehouse | HTTP 200, both columns present |
-| same select | driver acct | HTTP 200, both columns present |
-| `is_internal_move_dispatch` on an unknown id | warehouse | HTTP 200 `null` — the documented NULL contract, and callers COALESCE it |
-| `clear_internal_move_flag` with reason `"ok"` | warehouse | HTTP 400, the 10-character refusal |
-| `anon` → `mark_internal_move_legs` / `clear_internal_move_flag` / `tg_mark_internal_move_pair` | anon | HTTP 404 PGRST202 — **not in the schema cache at all for anon**, which is A5 working end to end |
+| probe                                                                                          | as          | result                                                                                          |
+| ---------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------- |
+| `/refill`                                                                                      | warehouse   | HTTP 200                                                                                        |
+| `/field/dispatching`                                                                           | driver acct | HTTP 200                                                                                        |
+| `v_pending_wh_remove_confirmations`                                                            | warehouse   | HTTP 200, 7 rows, all genuine                                                                   |
+| `refill_dispatching` incl. `is_internal_move`, `internal_move_cleared_at`                      | warehouse   | HTTP 200, both columns present                                                                  |
+| same select                                                                                    | driver acct | HTTP 200, both columns present                                                                  |
+| `is_internal_move_dispatch` on an unknown id                                                   | warehouse   | HTTP 200 `null` — the documented NULL contract, and callers COALESCE it                         |
+| `clear_internal_move_flag` with reason `"ok"`                                                  | warehouse   | HTTP 400, the 10-character refusal                                                              |
+| `anon` → `mark_internal_move_legs` / `clear_internal_move_flag` / `tg_mark_internal_move_pair` | anon        | HTTP 404 PGRST202 — **not in the schema cache at all for anon**, which is A5 working end to end |
 
 ### A stale line in CLAUDE.md cost a false alarm
 
-Two probes that were *supposed* to be refusals came back HTTP 200 as `driver@boonz.test`,
+Two probes that were _supposed_ to be refusals came back HTTP 200 as `driver@boonz.test`,
 which looked like a privilege hole in a brand-new DEFINER writer. It was not.
 **`driver@boonz.test` carries role `warehouse`, not `field_staff`** — CLAUDE.md's test-user
 table is wrong on that line. The only real `field_staff` accounts are `anthony001@boonz.test`
@@ -477,11 +477,73 @@ and `vox_admin@boonz.me`, and no password is known for either.
 The role gate was therefore proven at the DB layer against a real `field_staff` uid, using
 the same `request.jwt.claims` impersonation the golden fixtures use:
 
-| probe | result |
-|---|---|
-| `mark_internal_move_legs` as field_staff | ✅ REFUSED — "may not relabel dispatch legs" |
+| probe                                     | result                                            |
+| ----------------------------------------- | ------------------------------------------------- |
+| `mark_internal_move_legs` as field_staff  | ✅ REFUSED — "may not relabel dispatch legs"      |
 | `clear_internal_move_flag` as field_staff | ✅ REFUSED — "may not re-open a warehouse credit" |
 
 **For CS:** the `## Test Users` block in `CLAUDE.md` lists `driver@boonz.test` under
 `field_staff`. It is `warehouse`. Not corrected here — editing CLAUDE.md is outside this
 PRD's scope — but it will mislead the next role probe exactly as it misled this one.
+
+---
+
+## Leg 1 — A8: the path the driver can actually reach
+
+A7 guarded `receive_dispatch_line`. `return_dispatch_line` is a **separate** credit writer —
+it does not call `receive_dispatch_line` at all — and its Remove branch does this:
+
+```sql
+IF v_dispatch.action = 'Remove' THEN
+  v_return_qty := ABS(v_dispatch.quantity);
+  ... UPDATE warehouse_inventory SET warehouse_stock = warehouse_stock + v_return_qty
+```
+
+A full warehouse credit, under the mutation reason `confirmed_removal`. And it is reachable
+from **the driver's own second button on `/field/dispatching`**. Of every path found in this
+PRD, this is the one most likely to fire in the field — a driver tapping a button on a phone
+while standing at the machine.
+
+`20260810170000_prd113_a8_guard_return_dispatch_line.sql` refuses it in the **same shape** as
+the PRD-070 `is_m2m` block it now sits above: a structured `{'status':'refused'}` object, not
+a RAISE. The driver page submits every line of a trip in one pass, and one refused leg must
+not abort the remaining lines.
+
+Probed live:
+
+| probe | result |
+|---|---|
+| in-machine move → `return_dispatch_line` | ✅ `refused` / `internal_move_return_blocked` |
+| warehouse stock moved? | ✅ **delta 0** |
+| leg marked returned? | ✅ no |
+| genuine return (packed, picked up, real actor) | ✅ `returned` |
+| its warehouse credit | ✅ **+5**, exactly the quantity — unchanged |
+
+A first pass at this probe showed the genuine return "refused" too, which briefly looked like
+over-blocking. It was the pre-existing `no_actor_non_physical` guard — my probe had passed a
+NULL actor on a line that was never packed. Re-run with a real actor and a physical history,
+it credits exactly as before. Worth recording: a refusal object is not self-evidently *your*
+refusal, and reading only `status` would have produced a false alarm in one direction or a
+missed regression in the other.
+
+**FE follow-through.** `return_dispatch_line` returns jsonb, so a refusal arrives with
+`rpcErr === null` — the driver page would have treated it as success, and the leg would have
+silently stayed unresolved. Two changes:
+
+- the save path now branches on `status === 'refused'` and shows the driver plain language:
+  *"This is a move within the machine — it does not go back to the warehouse, so there is
+  nothing to return."*
+- the return button is **disabled** on an internal-move Remove, with the explanation on
+  hover, rather than offered and then refused.
+
+`npx tsc --noEmit` clean, `npm run build` ✅.
+
+### The pattern across A6, A7 and A8
+
+Three of the eight migrations exist because the PRD's named scope and the actual invariant
+were not the same thing. The PRD said "the Inventory Approval query and the approve receipt
+RPC". The real invariant is **no path may credit the warehouse for units that never left the
+machine**, and the paths are: three approve RPCs, `receive_dispatch_line` (with its bulk
+looper wired to a "Mark All" button), and `return_dispatch_line` (wired to a driver's
+button). Each was found by asking *who else writes the credit* rather than by re-reading the
+PRD.
