@@ -9,7 +9,7 @@ import { usePageTour } from "../../../components/onboarding/use-page-tour";
 import Tour from "../../../components/onboarding/tour";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 import { machineShortId } from "@/lib/utils/machine-id";
-import type { ExpiryWarning } from "@/lib/dispatch-types";
+import { isInternalMoveLeg, type ExpiryWarning } from "@/lib/dispatch-types";
 import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 
@@ -36,6 +36,10 @@ interface DispatchLine {
   dispatch_id: string;
   /** Planned action (Refill/Add New/Remove) — determines UI labels + which RPC to call */
   dispatch_action: DispatchAction;
+  // PRD-113: this Remove relocates product to another shelf of the SAME machine.
+  is_internal_move: boolean;
+  // PRD-113: the paired Add New's origin shelf, for "Moved from A07".
+  moved_from_shelf: string | null;
   boonz_product_id: string | null;
   /** pod_product (variant family) — used to scope the "+ Add return" picker to siblings */
   pod_product_id: string | null;
@@ -185,6 +189,8 @@ export default function DispatchingDetailPage() {
         driver_confirmed_at,
         driver_confirmed_qty,
         comment,
+        is_internal_move,
+        internal_move_cleared_at,
         shelf_configurations(shelf_code),
         pod_products(pod_product_name)
       `,
@@ -233,6 +239,18 @@ export default function DispatchingDetailPage() {
           dispatch_id: line.dispatch_id,
           dispatch_action: ((line.action as string) ??
             "Refill") as DispatchAction,
+          // PRD-113: the backend is the authority (is_internal_move, written by
+          // tg_mark_internal_move_pair). The comment sniff is display-only backfill
+          // for rows written before the column existed.
+          is_internal_move: isInternalMoveLeg({
+            action: (line.action as string) ?? null,
+            is_internal_move: (line as Record<string, unknown>)
+              .is_internal_move as boolean | null,
+            internal_move_cleared_at: (line as Record<string, unknown>)
+              .internal_move_cleared_at as string | null,
+            comment: (line.comment as string | null) ?? null,
+          }),
+          moved_from_shelf: null,
           boonz_product_id: (line.boonz_product_id as string | null) ?? null,
           pod_product_id:
             ((line as Record<string, unknown>).pod_product_id as
@@ -292,6 +310,21 @@ export default function DispatchingDetailPage() {
             if (resolved) line.boonz_product_name = resolved;
           }
         }
+      }
+
+      // PRD-113: give each Add New that partners an in-machine move its origin
+      // shelf, so the driver reads "Moved from A07" instead of a bare "ADD NEW"
+      // and the move-with-machine intent survives to the field.
+      const moveOrigins = new Map<string, string>();
+      for (const l of mapped) {
+        if (!l.is_internal_move || l.dispatch_action !== "Remove") continue;
+        if (!l.boonz_product_id || !l.shelf_code) continue;
+        moveOrigins.set(l.boonz_product_id, l.shelf_code);
+      }
+      for (const l of mapped) {
+        if (l.dispatch_action !== "Add New" || !l.boonz_product_id) continue;
+        const from = moveOrigins.get(l.boonz_product_id);
+        if (from && from !== l.shelf_code) l.moved_from_shelf = from;
       }
 
       mapped.sort((a, b) =>
@@ -650,6 +683,20 @@ export default function DispatchingDetailPage() {
         }
 
         const status = (rpcData as { status?: string } | null)?.status;
+        // PRD-113: return_dispatch_line refuses an in-machine move with a structured
+        // {'status':'refused'} object rather than an error, so rpcErr is null here. Without
+        // this branch the driver taps, sees nothing, and the leg silently stays unresolved.
+        if (status === "refused") {
+          const why =
+            (rpcData as { reason?: string; message?: string } | null)?.reason ===
+            "internal_move_return_blocked"
+              ? "⚠ This is a move within the machine — it does not go back to the warehouse, so there is nothing to return. Mark it moved, or leave it for the office."
+              : "⚠ Return refused: " +
+                ((rpcData as { message?: string } | null)?.message ??
+                  "see the office");
+          setInvWarnings((prev) => ({ ...prev, [line.dispatch_id]: why }));
+          continue;
+        }
         if (status === "already_returned") {
           console.info("[B3.2] already returned — no-op:", line.dispatch_id);
           setInvWarnings((prev) => ({
@@ -1241,7 +1288,15 @@ export default function DispatchingDetailPage() {
 
                     {/* Action badge — show planned action type so driver knows what's expected */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
-                      {line.dispatch_action === "Remove" ? (
+                      {line.is_internal_move &&
+                      line.dispatch_action === "Remove" ? (
+                        /* PRD-113: these units are NOT coming back to the
+                           warehouse — they move to another shelf of this same
+                           machine. Never render them as REMOVE or RETURN. */
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+                          MOVE WITHIN MACHINE
+                        </span>
+                      ) : line.dispatch_action === "Remove" ? (
                         <span className="rounded bg-rose-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
                           REMOVE
                         </span>
@@ -1252,6 +1307,11 @@ export default function DispatchingDetailPage() {
                       ) : (
                         <span className="rounded bg-sky-50 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
                           REFILL
+                        </span>
+                      )}
+                      {line.moved_from_shelf && (
+                        <span className="rounded bg-amber-50 px-1.5 py-0.5 font-medium normal-case tracking-normal text-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+                          Moved from {line.moved_from_shelf}
                         </span>
                       )}
                     </div>
@@ -1269,11 +1329,24 @@ export default function DispatchingDetailPage() {
                               : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
                           }`}
                         >
-                          {line.dispatch_action === "Remove"
-                            ? "✓ Removed from machine"
-                            : "✓ Added to machine"}
+                          {line.is_internal_move &&
+                          line.dispatch_action === "Remove"
+                            ? "✓ Moved to its new shelf"
+                            : line.dispatch_action === "Remove"
+                              ? "✓ Removed from machine"
+                              : "✓ Added to machine"}
                         </button>
                         <button
+                          disabled={
+                            line.is_internal_move &&
+                            line.dispatch_action === "Remove"
+                          }
+                          title={
+                            line.is_internal_move &&
+                            line.dispatch_action === "Remove"
+                              ? "An in-machine move has no warehouse leg — there is nothing to return. If the move could not be done, leave the line unresolved and tell the office."
+                              : undefined
+                          }
                           onClick={() => {
                             // PRD-028 3c: returns are an explicit per-line act
                             // with a confirm naming qty + destination WH.
@@ -1285,24 +1358,31 @@ export default function DispatchingDetailPage() {
                               const dest =
                                 line.from_warehouse_name ??
                                 "the source warehouse";
-                              if (
-                                !confirm(
-                                  `Return ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} to ${dest}? This credits warehouse stock when you save.`,
-                                )
-                              )
-                                return;
+                              // PRD-113: an in-machine move has no warehouse leg.
+                              // Promising a credit here is the phantom stock this
+                              // PRD exists to stop, and the backend refuses it.
+                              const prompt = line.is_internal_move
+                                ? `This is a MOVE WITHIN THE MACHINE — ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} go to another shelf, not back to ${dest}. Mark it as not done? No warehouse stock is credited.`
+                                : `Return ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} to ${dest}? This credits warehouse stock when you save.`;
+                              if (!confirm(prompt)) return;
                             }
                             updateAction(line.dispatch_id, "returned");
                           }}
                           className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
-                            line.action === "returned"
-                              ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-                              : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                            line.is_internal_move &&
+                            line.dispatch_action === "Remove"
+                              ? "cursor-not-allowed border-neutral-200 text-neutral-300 dark:border-neutral-800 dark:text-neutral-600"
+                              : line.action === "returned"
+                                ? "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                                : "border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
                           }`}
                         >
-                          {line.dispatch_action === "Remove"
-                            ? "↩ Could not remove"
-                            : "↩ Returned"}
+                          {line.is_internal_move &&
+                          line.dispatch_action === "Remove"
+                            ? "↩ Could not move"
+                            : line.dispatch_action === "Remove"
+                              ? "↩ Could not remove"
+                              : "↩ Returned"}
                         </button>
                         {/* BUG-010 #3: per-line trigger for multi-variant split — only for REMOVE */}
                         {line.dispatch_action === "Remove" && (
