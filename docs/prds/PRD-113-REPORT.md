@@ -167,25 +167,25 @@ Pre-existing; closing it would break live FE writers. Logged so it is not redisc
 Verified afterwards that nothing was left behind: 0 synthetic dispatch rows, 0 sales, 0
 alerts, 0 flagged live legs.
 
-| probe | result |
-|---|---|
-| Add New arriving after its Remove stamps that Remove | ✅ |
-| Remove arriving after its Add New stamps itself | ✅ |
-| genuine Remove with no counterpart NOT flagged | ✅ |
-| genuine Remove still in the queue, still approvable, still credits | ✅ `item_added` flips |
-| flagged legs absent from the queue | ✅ |
-| `wh_approve_remove_receipt` refuses, and names `clear_internal_move_flag` | ✅ |
-| `approve_stuck_remove` refuses identically (the back door) | ✅ |
-| `clear_internal_move_flag` re-opens the leg; predicate honours it at once | ✅ |
-| a later Add New does NOT re-stamp a cleared leg | ✅ |
-| a reason under 10 characters is refused | ✅ |
-| FIFO: expired batch keeps all 8 units, stays Active, 0 sale audit rows | ✅ |
-| FIFO: non-expired batch drains to 0; sales settled; overflow alert raised | ✅ |
+| probe                                                                     | result                |
+| ------------------------------------------------------------------------- | --------------------- |
+| Add New arriving after its Remove stamps that Remove                      | ✅                    |
+| Remove arriving after its Add New stamps itself                           | ✅                    |
+| genuine Remove with no counterpart NOT flagged                            | ✅                    |
+| genuine Remove still in the queue, still approvable, still credits        | ✅ `item_added` flips |
+| flagged legs absent from the queue                                        | ✅                    |
+| `wh_approve_remove_receipt` refuses, and names `clear_internal_move_flag` | ✅                    |
+| `approve_stuck_remove` refuses identically (the back door)                | ✅                    |
+| `clear_internal_move_flag` re-opens the leg; predicate honours it at once | ✅                    |
+| a later Add New does NOT re-stamp a cleared leg                           | ✅                    |
+| a reason under 10 characters is refused                                   | ✅                    |
+| FIFO: expired batch keeps all 8 units, stays Active, 0 sale audit rows    | ✅                    |
+| FIFO: non-expired batch drains to 0; sales settled; overflow alert raised | ✅                    |
 
 **A red herring worth recording.** The first FIFO probe used the synthetic 2030 dates and
 read like the OLD behaviour — the expired batch drained. The code was right and the fixture
 was wrong: the expiry rule is anchored to the **real** current Dubai date, so
-`expiration_date = 2030-04-01` is in the *future* from 2026 and correctly ineligible for the
+`expiration_date = 2030-04-01` is in the _future_ from 2026 and correctly ineligible for the
 skip. Re-anchored to `CURRENT_DATE - 10`. This trap is written into the golden fixture's
 notes, because any future edit that "tidies" those dates into `{{plan_date}}` arithmetic
 silently disarms the whole expired-stock half of the fixture.
@@ -204,14 +204,14 @@ return, which is the assertion that would catch an over-broad rule.
 
 - **Problem 3 done.** The dead purple "🤖 Review All" button, its `handleReviewAll` handler
   and both of its state hooks are gone (4.5 KB). The "N machines reviewed by Claude" badge
-  survives, minus its `reviewingAll` guard — `reviewResults` is also fed by the *working*
+  survives, minus its `reviewingAll` guard — `reviewResults` is also fed by the _working_
   per-machine review, so removing the badge would have deleted a live feature.
 - **One FE helper, not three copies.** `isInternalMoveLeg` / `dispatchActionChip` live in
   `src/lib/dispatch-types.ts`. The backend flag is the authority; the FE never re-derives the
   pairing rule.
 - **Display-only legacy backfill (PRD-113 fix 4)** is anchored on a shelf-code target
   (`A01`…`A99`). The live comment corpus also contains "Move to AstroLabs", "Move to IRIS",
-  "Move to NOOK" — those are moves to another *venue*, genuine departures from the machine,
+  "Move to NOOK" — those are moves to another _venue_, genuine departures from the machine,
   and labelling them "Move within machine" would be exactly the wrong error.
 - **Driver view** (`/field/dispatching/[machineId]`): an internal-move Remove renders
   `MOVE WITHIN MACHINE`, never REMOVE or RETURN; its paired Add New shows `Moved from A07`;
@@ -229,3 +229,59 @@ return, which is the assertion that would catch an over-broad rule.
 
 `npx tsc --noEmit` clean. `npm run build` ✅ compiled successfully. `npm run lint`: 98 errors
 on this branch and **98 on `main`** — no new lint errors.
+
+---
+
+## Leg 1 — A5: a hole I opened, found by the advisors and closed
+
+`get_advisors(security)` run straight after A2 returned 810 lints. 809 are the fleet-wide
+pre-existing families (338 + 270 identical `*_security_definer_function_executable` warnings
+across every DEFINER function, 80 `security_definer_view` errors). Nine mention PRD-113
+objects, and one of those nine is a **defect A2 introduced**.
+
+Supabase grants `EXECUTE` on every new function to `PUBLIC` by default, so A2's explicit
+`GRANT ... TO authenticated, service_role` was additive noise on top of a grant `anon`
+already held. All three new functions were reachable unauthenticated at `/rest/v1/rpc/<name>`.
+
+For `clear_internal_move_flag` that was only untidy — it refuses a NULL `auth.uid()`
+outright. For `mark_internal_move_legs` it was real. Its role check read:
+
+```sql
+IF v_uid IS NOT NULL THEN ...check the role... END IF;
+```
+
+which trusts a NULL uid as "the service_role / cron context". **An `anon` caller also has
+`auth.uid() = NULL`**, so an unauthenticated POST would have skipped the role check entirely
+and relabelled dispatch legs on any plan date it chose — dropping every leg it flagged out of
+the warehouse return queue. That is the same denial-of-credit this PRD is trying to make
+impossible in the other direction. `tg_mark_internal_move_pair` was exposed too; calling a
+trigger function over REST raises "trigger functions can only be called as triggers", so it
+was never exploitable, but a trigger function has no business being an RPC endpoint.
+
+`20260810140000_prd113_a5_close_anon_execute_on_new_writers.sql` fixes it **forward**
+(Article 12 — A2 is not edited) with two independent layers, because either alone would be
+luck rather than posture:
+
+1. `REVOKE EXECUTE ... FROM PUBLIC, anon` on all three (and from `authenticated` on the
+   trigger function).
+2. The NULL-uid branch now names the roles it actually means — `current_user IN
+   ('service_role','postgres','supabase_admin')` — so the guard holds even if a future
+   migration re-grants EXECUTE. That is the S-308 lesson: a default grant comes back whenever
+   someone is not looking.
+
+Verified post-image:
+
+| function | EXECUTE holders |
+|---|---|
+| `mark_internal_move_legs` | authenticated, postgres, service_role |
+| `clear_internal_move_flag` | authenticated, postgres, service_role |
+| `tg_mark_internal_move_pair` | postgres, service_role |
+| `is_internal_move_dispatch` | PUBLIC — read-only and `security_invoker`, so `anon` gets RLS-filtered reads and nothing more |
+
+Probed live as `SET LOCAL ROLE anon`: `mark_internal_move_legs` →
+`REFUSED_no_execute_grant`.
+
+**Cody on A5** (Articles 1, 3, 4, 8, 12, 13, 16): ✅ Approve. Strictly more restrictive than
+A2 in both dimensions; provenance GUCs and the audit path are unchanged; forward-only with
+`CREATE OR REPLACE` and an idempotent `REVOKE`; no object dropped; no metric touched. No new
+conditions.
