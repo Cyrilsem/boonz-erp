@@ -40395,3 +40395,106 @@ the scratch still held RED values - and the row landed **12 seconds later** (`fi
 check `pg_stat_activity` for `run_fixture` before concluding. **524 = never re-fire** stands.
 ⭐ Fixture 37 alone runs ~**122 s** - it sits right on the Cloudflare edge timeout, so it will 524
 roughly half the time regardless.
+
+### ✅✅ THE S7 TRIPLE IS **GREEN** - three full passes from scratch, attended end to end (70 minutes)
+
+Driver launched **00:12:20Z**, ended **01:22:00Z**. Floor `2026-08-09 00:12:17.519445+00` (DB clock,
+taken before launch). Recipe unchanged: payload-isolated shim (S-343), no fixture ids, sequential,
+NULL `p_max_phase` (S-309), `statement_timeout` in the SAME POST (S-310). **No turn was ended to
+await a notification.**
+
+| pass | rows | distinct | pass | fail | minutes | tuple_md5   | verdict           |
+| ---- | ---- | -------- | ---- | ---- | ------- | ----------- | ----------------- |
+| A    | 71   | 71       | 2664 | 0    | 23.6    | `6f34df65…` | ✅ complete green |
+| B    | 71   | 71       | 2664 | 0    | 23.3    | `6f34df65…` | ✅ complete green |
+| C    | 71   | 71       | 2664 | 0    | 22.5    | `6f34df65…` | ✅ complete green |
+
+`ASSERT_1_three_rounds` ✅ · `ASSERT_2_every_round_complete` ✅ · `ASSERT_3_determinism_identical` ✅
+(**one distinct tuple md5 across all three**) · `ASSERT_4_zero_fail` ✅ · **orphans below the floor: 0**
+(S-346's rule applied and it had nothing to exclude this time).
+⭐ **2664, not leg 174's 2660** - the four new S-348 pins. ⭐ **Fixture 37 read `47/0` in ALL THREE
+passes.** Six observations at leg 174 gave four greens and two reds; three-for-three identical is the
+coin flip being dead rather than lucky.
+
+⭐ **S-347's audit earned its keep, and classified correctly:** `f37.fire` carried a non-JSON first
+byte in **B and C** - **`Error code 524`** both times, at 124.4 s and after. `golden.runs` holds the
+row in both cases (47/0), so **neither was re-fired** and neither verdict is affected. All 71 `.fire`
+files in all three passes post-date the driver floor; no other non-JSON byte anywhere.
+⛔ Pass A's fixture 37 returned clean JSON at 115.4 s. **Fixture 37 straddles the Cloudflare edge
+timeout, so it will 524 unpredictably forever** - that is an artefact of the transport, not a fixture
+defect, and `golden.runs` is the only thing that may adjudicate it.
+
+### ⭐ THE DONE-2 EVIDENCE, RE-DERIVED LIVE AFTER THE TRIPLE
+
+| item   | probe                                                         | live                                  |
+| ------ | ------------------------------------------------------------- | ------------------------------------- |
+| D-46   | `bind_dispatch_fefo` `md5(prosrc)`                            | `8ad35ce9…` - off `45ec06ab`          |
+| D-45   | `compose_plan_with_edits_v3` `'add'` branch                   | `e.base_qty + e.edit_qty` at 4277     |
+| D-43   | `push_plan_to_dispatch` / `repack_machine`                    | **`warehouse` in both halves**        |
+| DR-4   | `spot_buy_cap_enforcement` / `spot_buy_price_cap_aed`         | **`block`** / **15**                  |
+| DR-5   | `miner_weekly_edit_dry_run` · `..._pick_dry_run`              | **false** · **false**                 |
+| DR-7   | cron **48** `prd110_dr7_rotation_heartbeat_0530_sunday_dubai` | **`30 1 * * 0`, active**              |
+| DR-8   | `approve_facing_proposal_v3`                                  | **present**                           |
+| DR-1   | 10 clusters · `v_cutover_readiness_v3`                        | **10/10 `v19`, 10/10 `is_vacuous`**   |
+| D-44   | `var_money_reserved_slots`                                    | **2**                                 |
+| D-19   | `preflight_enforcement`                                       | **`warn`** - correctly NOT flipped    |
+| DR-3   | `pod_inventory_write_freeze`                                  | **`off`** - built, freeze parked      |
+| S-348  | `refresh_engine_forecast_error_v3` `md5`                      | **`3ce7ddb1…`** - off `0c0d53ba`      |
+| LAW 11 | `gate0_require_manual_confirm`                                | **true**                              |
+| LAW 12 | pending rows `< 2027-01-01`                                   | **only 2026-06-26 (95) + 06-28 (13)** |
+
+⛔ **D-45's probe read `false` on the first pass** because it searched for `base_qty + edit_qty` while
+the source reads `e.base_qty + e.edit_qty`. **A probe's false negative is not a defect** - LAW 13 cuts
+both ways, and the grep was re-run against the body before the row above was written.
+
+## DONE-2
+
+**PRD-110 GOAL COMMAND 2 · EXECUTION SPRINT COMPLETE 2026-08-09T01:26Z · legs 132-175.**
+
+### What flipped (every state change, before → after)
+
+| flag / object                         | before  | after                   | leg |
+| ------------------------------------- | ------- | ----------------------- | --- |
+| `spot_buy_cap_enforcement` (DR-4)     | `warn`  | **`block`**             | 137 |
+| `spot_buy_price_cap_aed`              | 15      | 15 (held)               | -   |
+| `w_empty` (DR-5)                      | 0.900   | **0.945**               | 141 |
+| `miner_weekly_edit_dry_run` (DR-5)    | true    | **false**               | 141 |
+| `miner_weekly_pick_dry_run` (DR-5)    | true    | **false**               | 141 |
+| `var_money_reserved_slots` (D-44)     | 0       | **2**                   | 145 |
+| cron **48** rotation heartbeat (DR-7) | absent  | **`30 1 * * 0` active** | 143 |
+| `preflight_enforcement` (D-19)        | `warn`  | **`warn`** ⛔           | -   |
+| cutover flag (LAW 4)                  | v19 ×10 | **v19 ×10**             | -   |
+
+### What shipped
+
+Tier 1 D-46 · D-45 · DR-3 · D-43 · DR-4 all EXECUTED. Tier 2: eleven of the twelve answered
+decisions executed (D-21, D-27a, D-28a, D-29, D-31, D-32, D-33, D-34, D-37, D-39\*, D-40); **DR-6
+built** (the Stax FE unit D-19 waits on). Tier 3 D-44 · D-47 · DR-5 · DR-7 · DR-8 all EXECUTED.
+Tier 4 **DR-1 built and SHIPS FLAG-OFF**: flip / revert / block-reason RPCs live, per-cluster,
+auditable, reversible, and refusing all ten clusters as `horizon_not_elapsed`. **LAW 4 was never
+touched: this sprint flipped no cluster and will not.**
+**Golden: 71 fixtures, 2664 assertions, 0 fail, three identical consecutive passes.**
+
+### ⛔ THE ONE THING NOT EXECUTED, AND IT IS CS'S TO UNBLOCK
+
+**D-19 (`preflight_enforcement` → `block`) is built and NOT flipped.** Its precondition is DR-6's FE
+deploy. DR-6 is built and committed (`921ee46`), but local `main` is **22 commits ahead of
+`origin/main`** and `git branch -r --contains 921ee46` is **empty**. Pushing is a **Vercel production
+deploy** - an outward-facing action, and CS's call, not this loop's. **One `git push` unblocks the
+deploy and D-19 together.** Flipping `preflight_enforcement` before that FE lands would refuse plans
+in a UI with no affordance to explain or override the refusal.
+
+### What the cutover flip will require of CS on ~Aug 17
+
+1. **WMAPE stops being vacuous on 2026-08-11**, not before. All ten clusters read `is_vacuous=true`,
+   `horizon_not_elapsed`, today; DR-1 **refuses to flip a vacuous cluster** by construction.
+2. ⛔⛔ **Tonight's cron (2026-08-09 21:22Z) is the FIRST nightly under D-34** and the first to bank
+   both an engine run and a composed run per date. **S-348's fix landed ~20 hours ahead of it.**
+   Read the first post-D-34 measurement before trusting the Aug-17 numbers.
+3. **Answer S-349 before reading WMAPE as a verdict:** v19's side of the scoreboard is a FINAL plan
+   (`pod_refills`), v3's side is the raw engine draft. They may not be like-for-like.
+4. Flip **per cluster**, read `cutover_block_reason_v3` first, and keep `revert_cluster_to_v19_v3`
+   in reach - it is one call and it is per-cluster.
+5. **FIFTEEN CS asks are open** (S-251 · D-21 h2 · D-28 h2 · D-27 h2 · S-285 · D-48 · S-312 · S-320 ·
+   S-328 · S-330 · S-333 · S-335 · S-341 · DR-6 deploy · 🆕 S-349). **S-341 and S-349 both concern
+   the instrument being read on Aug 17 and should be answered first.**
