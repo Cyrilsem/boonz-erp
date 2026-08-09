@@ -711,3 +711,34 @@ Final state of the two fixtures this PRD is responsible for, re-run after the la
 |---|---|
 | 26 (the pin I broke) | **89 / 0 green** |
 | 113 (PRD-113's own) | **25 / 0 green** |
+
+---
+
+## Merge
+
+`prd-113-internal-moves-expired-guard` → `main` as **`8af5557`** (no-ff), 14 commits.
+`npx tsc --noEmit` clean and `npm run build` ✅ on merged `main` **before** the push.
+
+The pull hit `cannot pull with rebase: You have unstaged changes` — `docs/prds/PRD-112-REPORT.md`
+was already modified in the working tree when this unit started and is **not mine to commit**.
+Stashed by path (not `-u`, which would have swept up the two relay scripts), rebased with
+`--rebase=merges` per the PRD-072 deploy-recorder push-race lesson, then popped. The PRD-112
+edit and both untracked relay scripts are exactly as this unit found them.
+
+## Ten migrations, applied and ledger-matched
+
+Every file's name matches its `supabase_migrations.schema_migrations` row exactly, verified
+after the last apply.
+
+| # | migration | what |
+|---|---|---|
+| A1 | `is_internal_move_column` | the column, the durable-override pair, the pairing index |
+| A2 | `internal_move_predicate_and_writer` | canonical predicate, stamp writer, un-stamp writer, trigger, allowlist |
+| A3 | `return_queue_excludes_internal_moves` | queue view + the three approve RPCs |
+| A4 | `fifo_never_consumes_expired` | expired batches ineligible; overflow reported |
+| A5 | `close_anon_execute_on_new_writers` | the `anon` hole A2 opened |
+| A6 | `trigger_matches_the_predicate` | trigger gate ⊆ predicate gate |
+| A7 | `guard_the_credit_writer` | the bulk receiver behind "Mark All" |
+| A8 | `guard_return_dispatch_line` | the driver's own button |
+| A9 | `restore_rdl_and_guard_the_event` | md5 pin restored; guard moved to the credit event |
+| A10 | `multivariant_children_exempt` | a genuine multi-variant return is not stranded |
