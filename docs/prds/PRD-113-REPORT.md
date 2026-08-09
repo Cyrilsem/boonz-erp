@@ -579,3 +579,74 @@ Plus the three approve RPCs from A3, which are entry points rather than credit w
 **The invariant, stated once:** no path may credit the warehouse for units that never left
 the machine. As of A8 that holds at the writer layer, not merely at the entry points the PRD
 happened to name.
+
+---
+
+## Leg 1 — A9: I broke another PRD's Cody condition, and the sweep caught me
+
+**Golden fixture 26 seq 14 went red: `28195f57` expected, a different hash actual.** The
+assertion is:
+
+> ⛔ the incumbent `receive_dispatch_line` is BYTE-FOR-BYTE UNCHANGED (md5 `28195f57`). The
+> whole design rests on composing it, not editing it — **Cody condition 1 is void the moment
+> this moves.**
+
+That is PRD-110's ratified condition for the spot-buy design (`receive_dispatch_line_sourced_v3`
+composes this function rather than replacing it). **A7 edited it.** Conditions are not
+waivable, and that includes conditions belonging to another unit — re-baselining someone
+else's pin so my own sweep reads green would be exactly the wrong move.
+
+`20260810180000_prd113_a9_restore_rdl_and_guard_the_event.sql` reverts A7's function edit
+verbatim and moves the invariant to where it always belonged — **the credit event, not one
+function that happens to cause it**:
+
+```sql
+BEFORE UPDATE ON refill_dispatching
+WHEN (NEW.item_added = true AND COALESCE(OLD.item_added,false) = false
+      AND NEW.action = 'Remove' AND COALESCE(NEW.is_m2m,false) = false)
+```
+
+This is strictly **better** than the A7 edit, not a concession:
+
+- it covers every caller of `receive_dispatch_line`, present and future, plus a direct
+  PostgREST call — which an in-function guard never could;
+- it survives `receive_dispatch_line` being rewritten by a later PRD;
+- it composes rather than edits, which is the very principle fixture 26 protects.
+
+**Scope kept deliberately narrow.** The trigger fires only on the `item_added` credit event
+for a Remove. It does **not** police `returned = true`: A8 already refuses there with a
+structured object rather than a RAISE, so bulk callers keep working. A RAISE on `returned`
+would have turned `eod_auto_release_unpicked` / `release_stale_unpacked_dispatches` into a
+hard nightly failure the first time either met one of these legs.
+
+A7's other change — the skip inside `receive_all_dispatches_for_machine` — **stays**. That
+function carries no pin, and the skip is what keeps "Mark All" working rather than dying on
+the first move leg.
+
+Verified: `left(md5(prosrc),8)` on `receive_dispatch_line` is **`28195f57`** again.
+
+| probe | result |
+|---|---|
+| `receive_dispatch_line` direct on a move leg (function no longer guards) | ✅ BLOCKED by the trigger |
+| `wh_approve_remove_receipt` | ✅ still refuses first, with its own friendlier message |
+| bulk receive | ✅ skipped 1, received 1 |
+| move credited / genuine credited | ✅ false / true |
+
+**Fixture 26 re-run post-A9: 89/0 green** (it was 88/1). **Fixture 113 re-run post-A9: 25/0
+green.**
+
+### Fixture 46 — the third red, also not mine
+
+`46 seq 7` ("the merge really is cross-SKU: 20 units draw on at least 2 distinct SKUs")
+expected `>= 2`, got `1`. It was 29/0 on leg 173 A/B/C and leg 175 A/B/C.
+
+Its scenario references **none** of `refill_dispatching`, `is_internal_move`,
+`receive_dispatch_line`, `return_dispatch_line` or the FIFO decrement — checked, all false.
+It calls `resolve_fefo_sku_legs_v3(TODAY, …)` against **live `warehouse_inventory`**, which
+PRD-113 never writes.
+
+Run live now, that call returns `status: "partial"`, `n_legs: 1`, `qty_bound: 2` of 20 — the
+warehouse holds only two units of a single SKU for that pod today. The sibling SKU that made
+it cross-SKU yesterday has been consumed or has expired. **Warehouse stock depletion**, the
+same class of defect as fixture 2: a fixture whose premise is live data it does not own.
+Left for the PRD-110 owner.
