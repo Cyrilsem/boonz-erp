@@ -547,3 +547,35 @@ machine**, and the paths are: three approve RPCs, `receive_dispatch_line` (with 
 looper wired to a "Mark All" button), and `return_dispatch_line` (wired to a driver's
 button). Each was found by asking *who else writes the credit* rather than by re-reading the
 PRD.
+
+---
+
+## Leg 1 — the credit surface, enumerated rather than assumed
+
+After A8 I stopped finding paths by intuition and asked the database instead: every function
+that reads `refill_dispatching` **and** increments `warehouse_inventory.warehouse_stock`.
+
+```sql
+SELECT p.proname, p.prosrc ILIKE '%is_internal_move%' AS already_guarded
+FROM pg_proc p
+WHERE p.pronamespace = 'public'::regnamespace
+  AND p.prosrc ILIKE '%refill_dispatching%'
+  AND p.prosrc ILIKE '%warehouse_stock%'
+  AND p.prosrc ~* 'warehouse_stock[[:space:]]*=[[:space:]]*(COALESCE\()?warehouse_stock';
+```
+
+Five functions. All five accounted for:
+
+| function | status |
+|---|---|
+| `receive_dispatch_line` | ✅ guarded (A7) — and with it every caller, including `receive_all_dispatches_for_machine` and the direct FE calls |
+| `return_dispatch_line` | ✅ guarded (A8) — the driver's button |
+| `credit_dispatch_remainder` | ✅ safe by construction — returns `skipped` on `action = 'Remove'` ("Remove line has no fill remainder") before touching stock |
+| `pack_dispatch_line` | ✅ no Remove path — the string `Remove` does not appear in its 10.5 KB body, and Remove legs are stamped `no_pack_needed` at insert by `tg_default_pack_outcome_driver_legs`, so nothing is ever drawn from the warehouse for one and nothing can be released back |
+| `repair_unbound_dispatch` | ✅ no Remove path — same, 3.2 KB body, no `Remove` reference |
+
+Plus the three approve RPCs from A3, which are entry points rather than credit writers.
+
+**The invariant, stated once:** no path may credit the warehouse for units that never left
+the machine. As of A8 that holds at the writer layer, not merely at the entry points the PRD
+happened to name.
