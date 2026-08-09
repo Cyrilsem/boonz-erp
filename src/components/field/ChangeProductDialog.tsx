@@ -8,12 +8,12 @@ import {
 } from "@/app/(field)/field/_actions/dispatch-edits";
 
 /**
- * PRD-112 §3.2 — "Change product".
+ * PRD-112 §3.2 - "Change product".
  *
  * The driver is standing at the machine and the venue has a different flavor than
  * the plan. Two taps, under ten seconds, zero approvals: pick what actually went
  * in the shelf, say how many, tap a reason chip. The RPC never refuses on business
- * grounds — anything it could not verify comes back ok with a review flag and lands
+ * grounds - anything it could not verify comes back ok with a review flag and lands
  * in the Day Close panel for CS the same evening.
  */
 
@@ -25,7 +25,7 @@ interface Props {
   /** Product currently on the line, shown so the driver can see what he is replacing */
   currentProductName: string;
   shelfCode: string;
-  /** Planned quantity — pre-fills the qty field, since a like-for-like swap is the common case */
+  /** Planned quantity - pre-fills the qty field, since a like-for-like swap is the common case */
   plannedQty: number;
   revalidate?: string;
   onSuccess?: (result: {
@@ -92,7 +92,7 @@ export function ChangeProductDialog({
     })();
   }, [open, machineId]);
 
-  // Venue-mapped products first (PRD §3.2) — on a VOX machine those are the
+  // Venue-mapped products first (PRD §3.2) - on a VOX machine those are the
   // flavors the venue itself stocks, which is what he is usually reaching for.
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -201,7 +201,7 @@ export function ChangeProductDialog({
 
         {selected && (
           <p className="mt-2 text-xs text-blue-700">
-            ✓ {selected.name} — tap the field above to change
+            ✓ {selected.name} - tap the field above to change
           </p>
         )}
 
@@ -245,7 +245,7 @@ export function ChangeProductDialog({
         </div>
 
         <p className="mt-3 text-xs text-slate-500">
-          Saved straight away. Head office reviews it at day close — you do not
+          Saved straight away. Head office reviews it at day close - you do not
           need approval to keep going.
         </p>
 

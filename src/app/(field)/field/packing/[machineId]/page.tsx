@@ -11,6 +11,7 @@ import { PackAheadBanner } from "../../_lib/pack-date-controls";
 import type { DispatchAction, ExpiryWarning } from "@/lib/dispatch-types";
 import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
+import { ChangeProductDialog } from "@/components/field/ChangeProductDialog";
 import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -294,6 +295,13 @@ export default function PackingDetailPage() {
     allowed_tabs: ("qty" | "shelf" | "product" | "source" | "remove")[];
   } | null>(null);
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
+  // PRD-112 §3.2: the driver swaps the product on a line he is standing in front
+  // of. Deliberately NOT gated on isReadOnly - a packed, picked-up line is the
+  // normal case for a substitution, and blocking it there is the whole incident.
+  const [changeProductLine, setChangeProductLine] = useState<PackLine | null>(
+    null,
+  );
+  const [subToast, setSubToast] = useState<string | null>(null);
   // PRD-047 1b: one-tap shelf swap (Remove old + Add New via swap_dispatch_shelf).
   // PRD-047 v2 PHASE 2: pod-level whole-shelf swap state.
   // PRD-053 Phase B: per-expiry split dialog target line (driver dispatching line).
@@ -3505,6 +3513,15 @@ export default function PackingDetailPage() {
                           </span>
                         )}
                         {line.display_name}
+                        {/* PRD-112 §3.2: the plan wrote a different product here. */}
+                        {line.substituted && (
+                          <span
+                            title="Product changed by the driver at the machine"
+                            className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-400"
+                          >
+                            SUB
+                          </span>
+                        )}
                         {line.dispatch_action === "Add New" && (
                           <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                             NEW
@@ -4140,6 +4157,28 @@ export default function PackingDetailPage() {
                         </p>
                       )}
 
+                      {/* PRD-112 §3.2 "Change product". Rendered for every
+                        substitutable line regardless of isReadOnly: the driver
+                        reaches for this precisely when the line is already
+                        packed and the venue turned out to hold another flavor.
+                        Mix cards are excluded - they aggregate several variants
+                        behind one label, so "which product am I replacing" has
+                        no single answer; the RPC works one dispatch line at a
+                        time. Remove lines never reach here (isRemove returns
+                        earlier), matching the RPC's Refill / Add New gate. */}
+                      {!isMix && (
+                        <div className="mb-2">
+                          <button
+                            onClick={() => setChangeProductLine(line)}
+                            title="Venue had something else - record what actually went in"
+                            aria-label={`Change product on ${line.display_name}`}
+                            className="w-full rounded-lg border border-violet-300 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400 dark:hover:bg-violet-950/40"
+                          >
+                            ⇄ Change product
+                          </button>
+                        </div>
+                      )}
+
                       {/* Action toggle */}
                       {!isReadOnly && (
                         <div className="flex gap-2">
@@ -4454,6 +4493,50 @@ export default function PackingDetailPage() {
             void fetchData();
           }}
         />
+      )}
+
+      {/* PRD-112 §3.2: two taps, under ten seconds, zero approvals. */}
+      {changeProductLine && (
+        <ChangeProductDialog
+          open={!!changeProductLine}
+          onClose={() => setChangeProductLine(null)}
+          dispatchId={changeProductLine.dispatch_id}
+          machineId={machineId}
+          currentProductName={
+            changeProductLine.boonz_display_name ??
+            changeProductLine.display_name
+          }
+          shelfCode={changeProductLine.shelf_code}
+          plannedQty={
+            changeProductLine.packed_qty || changeProductLine.recommended_qty
+          }
+          revalidate={`/field/packing/${machineId}`}
+          onSuccess={({ needsReview }) => {
+            // Never a failure to the driver: an unverified substitution is still
+            // saved, it just carries a note CS closes tonight.
+            setSubToast(
+              needsReview
+                ? "Change saved. Head office will confirm the stock at day close."
+                : "Change saved.",
+            );
+            setChangeProductLine(null);
+            void fetchData();
+          }}
+        />
+      )}
+      {subToast && (
+        <div className="fixed inset-x-0 bottom-20 z-50 flex justify-center px-4">
+          <div className="flex max-w-md items-center gap-3 rounded-lg bg-neutral-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+            <span className="flex-1">{subToast}</span>
+            <button
+              onClick={() => setSubToast(null)}
+              aria-label="Dismiss"
+              className="shrink-0 font-semibold"
+            >
+              OK
+            </button>
+          </div>
+        </div>
       )}
 
       {/* PRD-053 Phase B: per-expiry split on a dispatch line (total locked) */}

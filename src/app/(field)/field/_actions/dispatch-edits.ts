@@ -145,7 +145,7 @@ export async function driverSubstituteDispatchLine(input: {
   if (!Number.isFinite(input.filledQty) || input.filledQty <= 0)
     return {
       ok: false,
-      error: "Quantity must be > 0 — use “Not filled” if nothing went in",
+      error: 'Quantity must be > 0 - use "Not filled" if nothing went in',
     };
 
   const supabase = await createClient();
