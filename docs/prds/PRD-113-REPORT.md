@@ -650,3 +650,28 @@ warehouse holds only two units of a single SKU for that pod today. The sibling S
 it cross-SKU yesterday has been consumed or has expired. **Warehouse stock depletion**, the
 same class of defect as fixture 2: a fixture whose premise is live data it does not own.
 Left for the PRD-110 owner.
+
+---
+
+## Leg 1 — A10: the A9 trigger could strand a multi-variant return
+
+`wh_approve_remove_receipt_multivariant` splits one Remove into child Remove rows, one per
+variant, and calls `receive_dispatch_line` on each **inside the same transaction**. A9's
+trigger evaluates the pairing predicate on every child — and a child carries the *parent's*
+shelf but a *variant* product id. If that variant happened to have an unrelated Add New on
+another shelf of the same machine that day, the child would be blocked, the whole call would
+abort, and the child would never exist — so there would be nothing for
+`clear_internal_move_flag` to clear. A warehouse manager would be stuck mid-task on a
+**genuine** return with no recovery path.
+
+The parent has already been through the A3 guard by then, so the children inherit a verdict
+that was made properly once. `20260810190000_prd113_a10_multivariant_children_exempt.sql`
+exempts them by their own creation marker (`[multi-variant child of …]`).
+
+The failure this prevents is a *refusal*, not a bad credit — but a refusal with no way out is
+still a defect, and this one lands on a person mid-task.
+
+| probe | result |
+|---|---|
+| plain Remove, paired Add New present | ✅ BLOCKED |
+| multi-variant child, same product, same pairing | ✅ ALLOWED and credited |
