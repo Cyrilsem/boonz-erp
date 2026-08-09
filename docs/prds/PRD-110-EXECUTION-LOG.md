@@ -40478,7 +40478,7 @@ touched: this sprint flipped no cluster and will not.**
 ### ⛔ THE ONE THING NOT EXECUTED, AND IT IS CS'S TO UNBLOCK
 
 **D-19 (`preflight_enforcement` → `block`) is built and NOT flipped.** Its precondition is DR-6's FE
-deploy. DR-6 is built and committed (`921ee46`), but local `main` is **22 commits ahead of
+deploy. DR-6 is built and committed (`921ee46`), but local `main` is **23 commits ahead of
 `origin/main`** and `git branch -r --contains 921ee46` is **empty**. Pushing is a **Vercel production
 deploy** - an outward-facing action, and CS's call, not this loop's. **One `git push` unblocks the
 deploy and D-19 together.** Flipping `preflight_enforcement` before that FE lands would refuse plans
@@ -40498,3 +40498,46 @@ in a UI with no affordance to explain or override the refusal.
 5. **FIFTEEN CS asks are open** (S-251 · D-21 h2 · D-28 h2 · D-27 h2 · S-285 · D-48 · S-312 · S-320 ·
    S-328 · S-330 · S-333 · S-335 · S-341 · DR-6 deploy · 🆕 S-349). **S-341 and S-349 both concern
    the instrument being read on Aug 17 and should be answered first.**
+
+### RESUME POINTER 2026-08-09 leg 175 · FINAL · **the sprint halted on `## DONE-2`**
+
+- ✅ **`## DONE-2` IS APPENDED.** The outer loop halts here. There is no "next task" - every
+  buildable item in Tiers 1-4 is shipped and re-verified live, and golden is green three passes
+  running. A leg that starts anyway should do STEP R, confirm the evidence table above still reads
+  true, and then **stop rather than invent work**.
+- ⛔⛔ **THE ONE LIVE HANDOFF IS TO CS, NOT TO A LEG:** `git push` → Vercel production deploys DR-6 →
+  D-19 (`preflight_enforcement` → `block`) becomes executable. Local `main` is **23 commits ahead of
+  `origin/main`** (still at leg 161) and `921ee46` is on no remote branch. ⛔ **DO NOT PUSH.**
+- ⛔⛔ **TIME-SENSITIVE, AND IT IS THE FIRST THING TO READ TOMORROW:** cron 45 at **2026-08-09 21:22Z**
+  is the **first live nightly under D-34** and the first to bank an engine run AND a `compose_v3` run
+  on a live date. S-348's fix landed ahead of it. **Probe it the next morning:**
+  `SELECT plan_date, engine_tag, count(DISTINCT run_id) FROM pod_refills_shadow WHERE plan_date='2026-08-10' GROUP BY 1,2`
+  should show **both tags**, and `engine_forecast_error_v3` for that date must point at the
+  `engine_add_pod_v3` run. If it points at `compose_v3`, S-348 regressed.
+- ⛔ **FIFTEEN CS asks stand** (leg 175 raised one, S-349, and closed none): S-251 · D-21 h2 ·
+  D-28 h2 · D-27 h2 · S-285 · D-48 · S-312 · S-320 · S-328 · S-330 · S-333 · S-335 · S-341 ·
+  DR-6 deploy · 🆕 **S-349**. ⭐ **S-341 and S-349 both concern the Aug-17 instrument - answer first.**
+- ⭐ **S-349 stated once, plainly:** v19's side of `engine_forecast_error_v3` reads `pod_refills`, a
+  FINAL plan; v3's side reads the raw engine draft. Since D-34 a composed v3 plan exists. Should the
+  v3 subject become `compose_v3`? It re-bases every v3 WMAPE, so it is CS's.
+- ⛔ **S-339 OPEN** (`compose_plan_with_edits_v3` RAISEs on a valid-but-empty source run) ·
+  **S-313 OPEN** (cosmetic twin of S-342). ✅ **S-348 CLOSED.**
+  **STANDING RULES:** S-266..S-347 unchanged · 🆕 **S-347 SHARPENED - after a 524, POLL `golden.runs`
+  until `finished_at` is non-null; a single read finding no row is NOT evidence of absence** (fixture
+  37's row landed 12 s after its 524). New findings resume at **S-350**.
+- ⛔ **S-192, S-197, S-198, S-202, S-215..S-218, S-227, S-233..S-248 UNCHANGED AND UNEXECUTED.**
+  ⛔ **S-211 and S-214 are PHANTOMS.**
+- ⭐ **RISK 104 CLEAN both ways after this leg:** `prd110%` disk **400** = DB **400**, `disk-only []`,
+  `db-only []`, `max(version)` **`20260809070500`**. The two new files were registered in
+  `supabase_migrations.schema_migrations` by hand - **the management-API query endpoint does NOT
+  register a migration**, so every apply through it needs the explicit INSERT.
+- ⛔ **`/tmp` SURVIVED** (twenty-seventh leg). `prd110_sql_leg173.sh` and `prd110_leg173_sweep.sh`
+  both work; the Supabase MCP still has not connected. ⛔ **The sweep writes to `/tmp/leg173_<suffix>`
+  regardless of leg** - leg 175 moved leg 173's stale `s7B`/`s7C` dirs to `/tmp/leg174_stale_*` so
+  the `.fire` audit could not read a previous leg's file. **Use a fresh suffix or clear the dir.**
+- ⛔ **Schema gotchas confirmed live this leg:** `refill_plan_output` has **`operator_status`**, not
+  `status` · the DONE-2 flags live in **`refill_policy_params` COLUMNS**, not `refill_settings` keys ·
+  `engine_cutover_authority_v3` is the cluster table (not `refill_cluster_config`) ·
+  `golden.assertions` has **`description`**, not `name` · `pod_refills_shadow` is append-only with
+  **no id column** and now carries **two `engine_tag` values per night**.
+- ⛔⛔ **NOTHING IS RUNNING.** `ps` widened is clean - no driver, no sweep, no watcher.
