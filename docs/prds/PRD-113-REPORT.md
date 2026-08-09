@@ -353,3 +353,57 @@ code (`A01`) **and** the word MOVE, but names a different machine. Anchoring on 
 "move" alone would have labelled a genuine cross-machine transfer as an in-machine move.
 
 `npx tsc --noEmit` clean, `npm run build` ✅ compiled successfully.
+
+---
+
+## Leg 1 — A7: the guard was on the wrong layer
+
+The most serious finding of the build, and it came from asking a question the PRD does not
+ask: **who else calls `receive_dispatch_line`?** — the function all three approve RPCs
+delegate their "credit/archival logic" to.
+
+A3 guarded the three functions the PRD names. Those are not the three ways a Remove leg gets
+credited:
+
+- **`receive_all_dispatches_for_machine(machine, date, use_filled)`** loops over *every*
+  dispatched, unreceived, included row for a machine/date — Remove legs included — and calls
+  `receive_dispatch_line` directly. It is wired to the "Mark All" bulk action on `/refill`
+  (`DailyDispatchingTab.tsx:381`). Live, reachable, and it walks straight past all three A3
+  guards. One click would have credited every in-machine move on the machine.
+- `src/app/(field)/field/trips/[machineId]/page.tsx` also calls `receive_dispatch_line`
+  directly, per line.
+
+Guarding N call sites is the disease the canonical predicate exists to cure, so
+`20260810160000_prd113_a7_guard_the_credit_writer.sql` puts the guard on the single writer
+that actually moves the stock. Every present and future caller inherits it. The three approve
+RPCs keep their own guard and still fire first, with a message aimed at a warehouse manager
+rather than at a developer.
+
+The bulk loop **skips** such legs rather than raising — a RAISE inside it would take down the
+whole "Mark All" for every other line on the machine — and names what it skipped in the
+return value (`skipped_internal_moves`, `internal_move_legs`), so the operator is told rather
+than left to infer.
+
+`receive_dispatch_line` is re-emitted as its live definition with **one** guard inserted
+immediately after its existing already-received check. Nothing else in the 18 KB body is
+touched.
+
+Probed live, inside a rolled-back subtransaction:
+
+| probe | result |
+|---|---|
+| `receive_dispatch_line` called directly on a move leg | ✅ REFUSED |
+| bulk receive over a machine holding one move leg + one genuine return | ✅ skipped 1, received 1 |
+| the move leg credited? | ✅ no — `item_added` still false |
+| the genuine return credited? | ✅ yes — `item_added` true |
+
+**Cody on A7** (Articles 1, 4, 8, 12, 16): ✅ Approve. This is Article 1 being *applied*
+rather than bent — the guard moves onto the canonical write path instead of being replicated
+at each caller. Provenance GUCs, signatures and audit behaviour unchanged; forward-only; no
+drops. The bulk skip is the LAW 5 shape (report, do not silently do nothing). No new
+conditions.
+
+**Honest note on the review process:** my own Cody pass listed the three approve RPCs because
+that is what the PRD listed. It took a second, independent question — "what else reaches the
+credit writer?" — to find the hole. A6 and A7 are both cases where the specified scope and
+the actual invariant were not the same thing.
