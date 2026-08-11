@@ -400,13 +400,13 @@ written. T11 becomes three assertions that carry the same protection:
 Five migrations, all additive, all forward-only, repo filenames matching the applied
 `supabase_migrations.schema_migrations.version` byte for byte:
 
-| version          | name                                                | contents                                                                                                             |
-| ---------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| version          | name                                                | contents                                                                                                                |
+| ---------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `20260811201329` | `prd003_po_document_totals_vat`                     | table + RLS + S-308 revoke, `source_addition_id` + partial UNIQUE, `v_po_document_totals`, **C-3 reconciliation patch** |
-| `20260811201443` | `prd003_po_totals_rpcs_and_addition_mirror`         | the three RPCs + the internal mirror, anon/PUBLIC revokes                                                             |
-| `20260811201550` | `prd003_wire_addition_mirror_into_receive_paths`    | both receive paths rebuilt from live bodies, one added statement each                                                |
-| `20260811201626` | `prd003_revoke_write_verbs_on_totals_view`          | S-308 follow-through on the view                                                                                     |
-| `20260811202600` | `prd003_procurement_events_admit_totals_and_mirror` | widens the `event_type` CHECK                                                                                        |
+| `20260811201443` | `prd003_po_totals_rpcs_and_addition_mirror`         | the three RPCs + the internal mirror, anon/PUBLIC revokes                                                               |
+| `20260811201550` | `prd003_wire_addition_mirror_into_receive_paths`    | both receive paths rebuilt from live bodies, one added statement each                                                   |
+| `20260811201626` | `prd003_revoke_write_verbs_on_totals_view`          | S-308 follow-through on the view                                                                                        |
+| `20260811202358` | `prd003_procurement_events_admit_totals_and_mirror` | widens the `event_type` CHECK                                                                                           |
 
 Two things were found only by applying and rehearsing, and both would have been production failures:
 
@@ -418,23 +418,23 @@ rehearsal this lands on the first real receive after deploy.
 
 **S-308 applies to views.** After migration 1 the post-image read
 `v_po_document_totals: {postgres=arwdDxtm, authenticated=arwdDxtm, service_role=arwdDxtm}`. The
-default privilege hands `authenticated` the full verb set on every *relation* in `public`, not just
+default privilege hands `authenticated` the full verb set on every _relation_ in `public`, not just
 every table, and `GRANT SELECT` does not take the rest away. Closed by migration 4.
 
 ### Condition post-images
 
-| #   | Condition                                              | Evidence                                                                                                                                                              | State |
-| --- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
-| C-0 | no PRD-003 object in any cost path                     | `view_refs_prd003 = (none)`, `any_cost_named_fn_refs_prd003 = (none)`, `engine_objects_ref_prd003 = (none)`; the only dependent of the table is its own view          | ✅    |
-| C-1 | write verbs revoked from `authenticated`               | table ACL `authenticated=rm/postgres`; `has_table_privilege` INSERT/UPDATE/DELETE all **false**, SELECT true                                                          | ✅    |
-| C-2 | mirror is definer-only                                 | `_mirror_po_addition_line_v1` ACL is exactly `{postgres=X/postgres,service_role=X/postgres}`; `has_function_privilege('authenticated', …) = false`                     | ✅    |
-| C-3 | reconciliation does not double-count                   | live delta test below: +10 units → `net_wh_flow` +10 patched, counterfactual unpatched +20                                                                            | ✅    |
-| C-4 | dual audit on every writer                             | `procurement_events` + `write_audit_log` inserts in both `set_po_document_totals` and `_mirror_po_addition_line_v1`                                                    | ✅    |
-| C-5 | GUC + role gate + validation                           | `app.via_rpc` / `app.rpc_name` set before the write; role read from `user_profiles`; `(SELECT auth.uid())`; T3/T6/T9 prove the guards fire                            | ✅    |
-| C-6 | metrics registry                                       | `METRICS_REGISTRY.md` PRD-003 section added; both FE surfaces read `get_po_document_totals` instead of re-deriving                                                     | ✅    |
-| C-7 | anon + PUBLIC revoked on every new function            | `has_function_privilege('anon', …) = false` on all four                                                                                                              | ✅    |
-| C-8 | no `warehouse_inventory` write                         | M2 below: exactly one batch created per addition receive, by the pre-existing receive path                                                                            | ✅    |
-| C-9 | forward-only, valid timestamps, own files              | five `YYYYMMDDHHMMSS_` filenames with real time components; no past migration edited                                                                                  | ✅    |
+| #   | Condition                                   | Evidence                                                                                                                                                     | State |
+| --- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- |
+| C-0 | no PRD-003 object in any cost path          | `view_refs_prd003 = (none)`, `any_cost_named_fn_refs_prd003 = (none)`, `engine_objects_ref_prd003 = (none)`; the only dependent of the table is its own view | ✅    |
+| C-1 | write verbs revoked from `authenticated`    | table ACL `authenticated=rm/postgres`; `has_table_privilege` INSERT/UPDATE/DELETE all **false**, SELECT true                                                 | ✅    |
+| C-2 | mirror is definer-only                      | `_mirror_po_addition_line_v1` ACL is exactly `{postgres=X/postgres,service_role=X/postgres}`; `has_function_privilege('authenticated', …) = false`           | ✅    |
+| C-3 | reconciliation does not double-count        | live delta test below: +10 units → `net_wh_flow` +10 patched, counterfactual unpatched +20                                                                   | ✅    |
+| C-4 | dual audit on every writer                  | `procurement_events` + `write_audit_log` inserts in both `set_po_document_totals` and `_mirror_po_addition_line_v1`                                          | ✅    |
+| C-5 | GUC + role gate + validation                | `app.via_rpc` / `app.rpc_name` set before the write; role read from `user_profiles`; `(SELECT auth.uid())`; T3/T6/T9 prove the guards fire                   | ✅    |
+| C-6 | metrics registry                            | `METRICS_REGISTRY.md` PRD-003 section added; both FE surfaces read `get_po_document_totals` instead of re-deriving                                           | ✅    |
+| C-7 | anon + PUBLIC revoked on every new function | `has_function_privilege('anon', …) = false` on all four                                                                                                      | ✅    |
+| C-8 | no `warehouse_inventory` write              | M2 below: exactly one batch created per addition receive, by the pre-existing receive path                                                                   | ✅    |
+| C-9 | forward-only, valid timestamps, own files   | five `YYYYMMDDHHMMSS_` filenames with real time components; no past migration edited                                                                         | ✅    |
 
 ---
 
@@ -444,12 +444,12 @@ Every test ran as a DO block that performs the writes, measures the assertions, 
 transaction unwinds (the PRD-016B dry-test pattern). Verified afterwards:
 `SELECT count(*) FROM purchase_order_totals` → **0**. Production carries none of this.
 
-| #    | Case                                             | Measured                                                                     | Verdict |
-| ---- | ------------------------------------------------ | ----------------------------------------------------------------------------- | ------- |
+| #    | Case                                             | Measured                                                                       | Verdict |
+| ---- | ------------------------------------------------ | ------------------------------------------------------------------------------ | ------- |
 | T1   | PO-2026-9260, VAT auto                           | subtotal 254.77, VAT 12.74, grand 267.51, variance **−0.01** vs invoice 267.52 | ✅      |
 | T2   | after correcting Activia Honey to 107.36         | subtotal 254.78, VAT 12.74, grand **267.52**, variance **0.00**                | ✅      |
 | T3   | discount 20.00, no label                         | raised `discount_label is required when discount > 0`                          | ✅      |
-| T4   | discount 20.00 labelled "Promo"                  | VAT 11.74 on 234.77, grand 246.51                                             | ✅      |
+| T4   | discount 20.00 labelled "Promo"                  | VAT 11.74 on 234.77, grand 246.51                                              | ✅      |
 | T5   | VAT typed as 0 (exempt supplier)                 | accepted, grand = subtotal 254.77, `vat_override_warning` returned             | ✅      |
 | T6   | edit with a 5-char reason                        | raised `reason is required on edit (>= 10 chars)`                              | ✅      |
 | T7   | line price edited after totals captured          | `totals_stale = true`, stored 254.77 vs live 254.78                            | ✅      |
@@ -467,24 +467,24 @@ Statement of Account, and T11c makes it structural so it stays true for code not
 
 ### The additions mirror
 
-| #  | Case                                        | Measured                                                                       | Verdict |
-| -- | ------------------------------------------- | -------------------------------------------------------------------------------- | ------- |
-| M1 | receive an addition via the addition path   | a `purchase_orders` line appears, returned as `mirrored_po_line_id`               | ✅      |
-| M2 | Article 6 / C-8: warehouse batches created  | `wh_before 6 → wh_after 7` — exactly **one**, by the pre-existing receive path    | ✅      |
-| M3 | the mirrored line carries the money         | qty 10, unit 6.30, total **63.00**, outcome `received`, po_number 9400, supplier set | ✅   |
-| M4 | idempotency                                 | second `_mirror_po_addition_line_v1` call returns the same id, still exactly 1 row | ✅      |
-| M5 | the PO subtotal counts the addition **once**| live subtotal 1075.65 → 1138.65, delta exactly **63.00**                          | ✅      |
+| #   | Case                                         | Measured                                                                             | Verdict |
+| --- | -------------------------------------------- | ------------------------------------------------------------------------------------ | ------- |
+| M1  | receive an addition via the addition path    | a `purchase_orders` line appears, returned as `mirrored_po_line_id`                  | ✅      |
+| M2  | Article 6 / C-8: warehouse batches created   | `wh_before 6 → wh_after 7` — exactly **one**, by the pre-existing receive path       | ✅      |
+| M3  | the mirrored line carries the money          | qty 10, unit 6.30, total **63.00**, outcome `received`, po_number 9400, supplier set | ✅      |
+| M4  | idempotency                                  | second `_mirror_po_addition_line_v1` call returns the same id, still exactly 1 row   | ✅      |
+| M5  | the PO subtotal counts the addition **once** | live subtotal 1075.65 → 1138.65, delta exactly **63.00**                             | ✅      |
 
 ### C-3, the conservation proof
 
 The first run of this test **failed**, and the failure was in the test, not the code: it asserted
-`procurement_in_additions = 0` for Perrier Grapefruit on 2026-08-11 while a *pre-existing, unmirrored*
+`procurement_in_additions = 0` for Perrier Grapefruit on 2026-08-11 while a _pre-existing, unmirrored_
 addition of the same product on the same date was legitimately contributing 10 units there. Restated
 as a delta against a clean product, with the unpatched behaviour computed explicitly alongside:
 
-| measure                                          | value  |
-| ------------------------------------------------ | ------ |
-| units actually received                          | 10     |
+| measure                                          | value   |
+| ------------------------------------------------ | ------- |
+| units actually received                          | 10      |
 | `procurement_in_po` delta                        | **+10** |
 | `procurement_in_additions` delta                 | **0**   |
 | `net_wh_flow` delta (patched)                    | **+10** |
@@ -494,3 +494,82 @@ Conservation holds: ten units in, ten units counted. The counterfactual column i
 the patch this PRD ships a permanent, silent, per-product, per-day overstatement of warehouse intake.
 
 ---
+
+## Leg 2 — 2026-08-12 — the merge gate
+
+Three defects were found at the gate, none of them in the PRD-003 SQL. Two were in the record, one
+was in the harness that was supposed to be judging the record. All three are the kind that ship a
+false green, so each is written down with the evidence that settled it.
+
+### G-1. The migration ledger disagreed with production
+
+Leg 1 recorded the fifth migration as `20260811202600` and asserted the repo filenames matched the
+applied `supabase_migrations.schema_migrations.version` "byte for byte". They did not. Production
+recorded **`20260811202358`**; the repo file was named `20260811202600`. Same name, different
+version — so the repo carried a migration the runner would consider unapplied, and `db push` would
+have re-run it. The DDL is a `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`, so re-running is
+harmless in effect, which is exactly what makes this class of drift survive unnoticed.
+
+Repo file renamed to `20260811202358_prd003_procurement_events_admit_totals_and_mirror.sql`; the
+table above corrected. The applied ledger is the source of truth and the repo now mirrors it. This
+is the Round 2.5 lesson from `CLAUDE.md` arriving from the other direction: there, valid-looking
+filenames were never applied; here, an applied migration carried a filename nothing would match.
+
+Live constraint verified to carry all three new event types (`po_totals_set`, `po_totals_edited`,
+`po_addition_line_mirrored`), so the DDL itself is correct and applied.
+
+### G-2. Prettier churn had spilled into three other PRDs' files
+
+The working tree carried uncommitted reformatting of `PRD-112-REPORT.md`, `PRD-113-REPORT.md` and
+`field/dispatching/[machineId]/page.tsx` — markdown table padding, `*x*` → `_x_`, one line-wrap.
+Content-free, but out of scope per §13 ("own files only"). All three reverted. The dispatching page
+is PRD-113's `internal_move_return_blocked` branch and this PRD has no business touching it.
+
+### G-3. ⛔ The golden harness was manufacturing a false red — and could have manufactured a false green
+
+The first gate run reported **fixture 18 red**, 79/80, on seq 70:
+
+> ⛔ `app.via_rpc` is RESTORED after the RPC returns. These GUCs leak across statements in this
+> codebase (PRD-016B); a spot buy that left via_rpc set would make the next unrelated write look
+> like an RPC.
+
+Expected `''`, actual `'true'`. Fixture 18 had been green 80/80 in **every** run through 2026-08-09,
+and the only migrations between that run and this one were PRD-113's `a1`–`a10` and PRD-003's five.
+It read exactly like a regression this PRD had introduced, and it is a conservation-adjacent
+provenance assertion, so it was treated as blocking.
+
+It is not a regression. **It is an artifact of the harness a previous leg of this relay built.**
+
+Job 51 `prd003_golden_gate` ran **six fixtures per tick inside one DO block**, therefore inside **one
+transaction**. `set_config(..., is_local => true)` is transaction-scoped, not statement-scoped, so a
+GUC set by any fixture persists to COMMIT — across the fixture boundary and into every fixture that
+follows it in the same tick. The historical green runs came from the PRD-110 sweep, which fires one
+fixture per HTTP call and therefore one fixture per transaction. The suite was never designed to be
+batched.
+
+Proof, run alone in its own transaction:
+
+| run                         | isolation          | result          | seq 70 actual |
+| --------------------------- | ------------------ | --------------- | ------------- |
+| `PRD-003 gate` (6-per-tick) | shared transaction | **79/80 RED**   | `true`        |
+| `prd003-isolation-probe`    | own transaction    | **80/80 GREEN** | `''` (empty)  |
+
+No code change between the two. The fixture is green; the harness was wrong.
+
+The dangerous half is the converse, and it is why this was not simply worked around: a batched
+harness leaks GUCs _forward_, so a fixture asserting that a GUC **is** set can pass on a value some
+earlier fixture left behind. That is a **false green**, and a false green in the suite that gates
+every merge is worth more than any one fixture's red. Job 51 was rebuilt to **one fixture per tick**
+— pg_cron gives each invocation its own transaction, restoring the exact isolation the historical
+baseline had — keeping the advisory-lock overlap guard and the cron-44 straddle guard (fixtures 2,
+19, 20, 21, 22, 27 assert `shelf_composition` snapshot-at-start vs live-at-end; cron 44 rewrites
+that table at `:40` every hour).
+
+An earlier attempt to drive the suite from the shell was abandoned and is recorded so it is not
+retried: the Supabase Management API sits behind a ~100 s Cloudflare ceiling (524), and the
+statement is **cancelled** on gateway disconnect rather than continuing server-side — verified
+against `pg_stat_activity`, and by fixture 2 committing nothing. Six fixtures exceed 90 s (37, 36,
+42, 43, 7, 16; max 115 s), so no shell-driven runner can carry this suite. The work has to run
+inside the database.
+
+The contaminated `PRD-003 gate` rows are superseded by `PRD-003 gate v2`, adjudicated below.

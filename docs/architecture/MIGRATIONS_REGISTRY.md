@@ -5349,13 +5349,13 @@ will; Article 8 coverage for this family begins here.
 All five are additive and forward-only (Article 12). Repo filenames match the applied
 `supabase_migrations.schema_migrations.version` exactly.
 
-| version          | name                                            | what it does                                                                                                                                                     |
-| ------------------ | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20260811201329` | `prd003_po_document_totals_vat`                 | `purchase_order_totals` + RLS + S-308 revoke; `purchase_orders.source_addition_id` + partial UNIQUE; `v_po_document_totals`; **`v_daily_flow_reconciliation` double-count patch (C-3)**. |
-| `20260811201443` | `prd003_po_totals_rpcs_and_addition_mirror`     | `set_po_document_totals`, `get_po_document_totals`, `get_input_vat_report`, `_mirror_po_addition_line_v1`; anon + PUBLIC revokes.                                |
-| `20260811201550` | `prd003_wire_addition_mirror_into_receive_paths`| `receive_purchase_order` and `receive_purchase_order_addition` rebuilt from live bodies with one added statement each.                                            |
-| `20260811201626` | `prd003_revoke_write_verbs_on_totals_view`      | S-308 follow-through on the VIEW - the post-image showed `authenticated=arwdDxtm` on it.                                                                          |
-| `20260811202600` | `prd003_procurement_events_admit_totals_and_mirror` | widens the `event_type` CHECK by three values.                                                                                                                |
+| version          | name                                                | what it does                                                                                                                                                                             |
+| ---------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260811201329` | `prd003_po_document_totals_vat`                     | `purchase_order_totals` + RLS + S-308 revoke; `purchase_orders.source_addition_id` + partial UNIQUE; `v_po_document_totals`; **`v_daily_flow_reconciliation` double-count patch (C-3)**. |
+| `20260811201443` | `prd003_po_totals_rpcs_and_addition_mirror`         | `set_po_document_totals`, `get_po_document_totals`, `get_input_vat_report`, `_mirror_po_addition_line_v1`; anon + PUBLIC revokes.                                                        |
+| `20260811201550` | `prd003_wire_addition_mirror_into_receive_paths`    | `receive_purchase_order` and `receive_purchase_order_addition` rebuilt from live bodies with one added statement each.                                                                   |
+| `20260811201626` | `prd003_revoke_write_verbs_on_totals_view`          | S-308 follow-through on the VIEW - the post-image showed `authenticated=arwdDxtm` on it.                                                                                                 |
+| `20260811202600` | `prd003_procurement_events_admit_totals_and_mirror` | widens the `event_type` CHECK by three values.                                                                                                                                           |
 
 ⚠️ **S-308 APPLIES TO VIEWS, NOT JUST TABLES, AND THAT COST AN EXTRA MIGRATION.** The default
 privilege hands `authenticated` the full verb set on **every relation** created in `public`. After
