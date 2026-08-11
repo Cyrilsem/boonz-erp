@@ -11,6 +11,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { CancelPOLineDrawer } from "@/app/(field)/components/CancelPOLineDrawer";
+import type { PODocumentTotals } from "@/types/po-document-totals";
 
 // PRD-002: per-line lock + Cancel gating on the desktop PO drawer.
 const EDIT_ROLES = new Set([
@@ -271,6 +272,21 @@ export default function ProcurementPage() {
   // Field additions state
   const [pendingAdditionsCount, setPendingAdditionsCount] = useState(0);
   const [poAdditions, setPoAdditions] = useState<POAddition[]>([]);
+
+  // PRD-003 — document totals for the open PO, plus the manager edit form.
+  const [poTotals, setPoTotals] = useState<PODocumentTotals | null>(null);
+  const [editingTotals, setEditingTotals] = useState(false);
+  const [editDiscount, setEditDiscount] = useState<number | null>(null);
+  const [editDiscountLabel, setEditDiscountLabel] = useState("");
+  const [editVat, setEditVat] = useState<number | null>(null);
+  const [editOtherAdj, setEditOtherAdj] = useState<number | null>(null);
+  const [editOtherAdjLabel, setEditOtherAdjLabel] = useState("");
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState("");
+  const [editInvoiceDate, setEditInvoiceDate] = useState("");
+  const [editInvoiceTotal, setEditInvoiceTotal] = useState<number | null>(null);
+  const [totalsReason, setTotalsReason] = useState("");
+  const [totalsSaving, setTotalsSaving] = useState(false);
+  const [totalsEditError, setTotalsEditError] = useState<string | null>(null);
   const [receivingAddition, setReceivingAddition] = useState<string | null>(
     null,
   );
@@ -625,10 +641,73 @@ export default function ProcurementPage() {
       .eq("po_id", po.po_id)
       .order("created_at", { ascending: false })
       .limit(100);
+    // PRD-003: the document totals block, read in one call from the Article 16
+    // canonical object v_po_document_totals. has_totals=false renders exactly
+    // as before this PRD (invariant I-4).
+    const { data: totalsData, error: totalsErr } = await supabase.rpc(
+      "get_po_document_totals",
+      { p_po_id: po.po_id },
+    );
+    if (totalsErr) {
+      console.error("[Procurement] get_po_document_totals error:", totalsErr);
+      setPoTotals(null);
+    } else {
+      setPoTotals(totalsData as PODocumentTotals);
+    }
     setPOLines((data ?? []) as unknown as PODetail[]);
     setPoAdditions((additionsData ?? []) as unknown as POAddition[]);
     setPOLoading(false);
   }, []);
+
+  // PRD-003 §6.3: manager-role post-receipt correction. Routes to
+  // set_po_document_totals with a reason (>= 10 chars, same rule as
+  // edit_purchase_order_line). No direct table write — Article 3.
+  const saveTotalsEdit = useCallback(async () => {
+    if (!selectedPO) return;
+    if (totalsReason.trim().length < 10) {
+      setTotalsEditError("A reason of at least 10 characters is required.");
+      return;
+    }
+    setTotalsSaving(true);
+    setTotalsEditError(null);
+    const supabase = createClient();
+    const { error: err } = await supabase.rpc("set_po_document_totals", {
+      p_po_id: selectedPO.po_id,
+      p_discount_aed: editDiscount ?? 0,
+      p_discount_label: editDiscountLabel.trim() || null,
+      p_vat_aed: editVat,
+      p_vat_rate: 0.05,
+      p_other_adjustment_aed: editOtherAdj ?? 0,
+      p_other_adjustment_label: editOtherAdjLabel.trim() || null,
+      p_supplier_invoice_number: editInvoiceNumber.trim() || null,
+      p_supplier_invoice_date: editInvoiceDate || null,
+      p_supplier_invoice_total_aed: editInvoiceTotal,
+      p_reason: totalsReason.trim(),
+      p_source: "edit",
+    });
+    setTotalsSaving(false);
+    if (err) {
+      setTotalsEditError(err.message);
+      return;
+    }
+    const { data: fresh } = await supabase.rpc("get_po_document_totals", {
+      p_po_id: selectedPO.po_id,
+    });
+    setPoTotals(fresh as PODocumentTotals);
+    setEditingTotals(false);
+    setTotalsReason("");
+  }, [
+    selectedPO,
+    totalsReason,
+    editDiscount,
+    editDiscountLabel,
+    editVat,
+    editOtherAdj,
+    editOtherAdjLabel,
+    editInvoiceNumber,
+    editInvoiceDate,
+    editInvoiceTotal,
+  ]);
 
   // Load suppliers + products for new PO form
   const openNewPO = useCallback(async () => {
@@ -3703,33 +3782,475 @@ export default function ProcurementPage() {
                             </span>
                           )}
                         </span>
-                        {(lineValue > 0 || addValue > 0) && (
-                          <span
-                            style={{ fontWeight: 600, color: "#0a0a0a" }}
-                            title={
-                              addValue > 0
-                                ? `Lines ${lineValue.toFixed(2)} + additions ${addValue.toFixed(2)} AED`
-                                : undefined
-                            }
-                          >
-                            Total: {(lineValue + addValue).toFixed(2)} AED
-                            {addValue > 0 && (
-                              <span
-                                style={{
-                                  fontWeight: 400,
-                                  fontSize: 11,
-                                  color: "#6b6860",
-                                }}
-                              >
-                                {" "}
-                                (incl. {addValue.toFixed(2)} additions)
-                              </span>
-                            )}
+                        {/* PRD-003 §6.3: when a totals row exists the grand
+                            total comes from v_po_document_totals, not from
+                            client-side arithmetic. The pre-PRD-003 sum stays as
+                            the fallback for POs with no totals row (I-4). */}
+                        {poTotals?.has_totals ? (
+                          <span style={{ fontWeight: 600, color: "#0a0a0a" }}>
+                            Grand Total:{" "}
+                            {Number(poTotals.grand_total_aed).toFixed(2)} AED
                           </span>
+                        ) : (
+                          (lineValue > 0 || addValue > 0) && (
+                            <span
+                              style={{ fontWeight: 600, color: "#0a0a0a" }}
+                              title={
+                                addValue > 0
+                                  ? `Lines ${lineValue.toFixed(2)} + additions ${addValue.toFixed(2)} AED`
+                                  : undefined
+                              }
+                            >
+                              Total: {(lineValue + addValue).toFixed(2)} AED
+                              {addValue > 0 && (
+                                <span
+                                  style={{
+                                    fontWeight: 400,
+                                    fontSize: 11,
+                                    color: "#6b6860",
+                                  }}
+                                >
+                                  {" "}
+                                  (incl. {addValue.toFixed(2)} additions)
+                                </span>
+                              )}
+                            </span>
+                          )
                         )}
                       </>
                     );
                   })()}
+                </div>
+              )}
+
+              {/* ── PRD-003 document totals breakdown + manager correction ──── */}
+              {!poLoading && selectedPO && (
+                <div style={{ marginTop: 12 }}>
+                  {poTotals?.has_totals &&
+                    (() => {
+                      const t = poTotals;
+                      const n = (x: number | null) => Number(x ?? 0);
+                      const line = (
+                        label: string,
+                        value: string,
+                        bold = false,
+                      ) => (
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontSize: 13,
+                            padding: "3px 0",
+                            fontWeight: bold ? 600 : 400,
+                            color: bold ? "#0a0a0a" : "#6b6860",
+                          }}
+                        >
+                          <span>{label}</span>
+                          <span>{value}</span>
+                        </div>
+                      );
+                      const v = t.invoice_variance_aed;
+                      return (
+                        <div
+                          style={{
+                            background: "#faf9f7",
+                            borderRadius: 6,
+                            padding: "10px 14px",
+                          }}
+                        >
+                          {line(
+                            "Subtotal (ex-VAT)",
+                            `${n(t.subtotal_ex_vat_aed).toFixed(2)} AED`,
+                          )}
+                          {n(t.discount_aed) > 0 &&
+                            line(
+                              `Discount${t.discount_label ? ` (${t.discount_label})` : ""}`,
+                              `− ${n(t.discount_aed).toFixed(2)} AED`,
+                            )}
+                          {line(
+                            `VAT (${(n(t.vat_rate) * 100).toFixed(0)}%)${t.vat_is_override ? " · edited" : ""}`,
+                            `${n(t.vat_aed).toFixed(2)} AED`,
+                          )}
+                          {n(t.other_adjustment_aed) !== 0 &&
+                            line(
+                              `Adjustment${t.other_adjustment_label ? ` (${t.other_adjustment_label})` : ""}`,
+                              `${n(t.other_adjustment_aed).toFixed(2)} AED`,
+                            )}
+                          <div
+                            style={{
+                              borderTop: "1px solid #e8e4de",
+                              marginTop: 4,
+                              paddingTop: 4,
+                            }}
+                          >
+                            {line(
+                              "Grand Total",
+                              `${n(t.grand_total_aed).toFixed(2)} AED`,
+                              true,
+                            )}
+                          </div>
+                          {v !== null && v !== undefined && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color:
+                                  Number(v) === 0
+                                    ? "#15803d"
+                                    : Math.abs(Number(v)) <= 0.1
+                                      ? "#92400e"
+                                      : "#b91c1c",
+                              }}
+                            >
+                              {Number(v) === 0
+                                ? "✓ matches the supplier invoice"
+                                : `${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(2)} AED vs invoice ${n(t.supplier_invoice_total_aed).toFixed(2)}`}
+                              {" · advisory, never blocking"}
+                            </div>
+                          )}
+                          {t.totals_stale && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: "#92400e",
+                              }}
+                            >
+                              ⚠ Totals out of date — lines changed after capture
+                              (live {n(t.live_subtotal_ex_vat_aed).toFixed(2)}{" "}
+                              AED)
+                            </div>
+                          )}
+                          {Number(t.live_unmirrored_additions) > 0 && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                color: "#6b6860",
+                              }}
+                            >
+                              includes{" "}
+                              {n(t.live_additions_ex_vat_aed).toFixed(2)} AED
+                              from {t.live_unmirrored_additions} field addition
+                              {Number(t.live_unmirrored_additions) === 1
+                                ? ""
+                                : "s"}{" "}
+                              with no PO line
+                              {t.additions_price_suspect &&
+                                " — price looks like a pack total, not a unit price"}
+                            </div>
+                          )}
+                          {t.line_price_regime === "unknown" && (
+                            <div
+                              style={{
+                                marginTop: 6,
+                                fontSize: 11,
+                                color: "#6b6860",
+                              }}
+                            >
+                              Line-price regime unknown — these lines predate
+                              ex-VAT capture and may be VAT-inclusive.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                  {/* Manager-role post-receipt correction. Article 3: routes to
+                      set_po_document_totals with a reason, never a table write. */}
+                  {!editingTotals ? (
+                    <button
+                      onClick={() => {
+                        const t = poTotals;
+                        setEditDiscount(
+                          t?.discount_aed != null
+                            ? Number(t.discount_aed)
+                            : null,
+                        );
+                        setEditDiscountLabel(t?.discount_label ?? "");
+                        setEditVat(
+                          t?.vat_aed != null ? Number(t.vat_aed) : null,
+                        );
+                        setEditOtherAdj(
+                          t?.other_adjustment_aed != null
+                            ? Number(t.other_adjustment_aed)
+                            : null,
+                        );
+                        setEditOtherAdjLabel(t?.other_adjustment_label ?? "");
+                        setEditInvoiceNumber(t?.supplier_invoice_number ?? "");
+                        setEditInvoiceDate(t?.supplier_invoice_date ?? "");
+                        setEditInvoiceTotal(
+                          t?.supplier_invoice_total_aed != null
+                            ? Number(t.supplier_invoice_total_aed)
+                            : null,
+                        );
+                        setTotalsReason("");
+                        setTotalsEditError(null);
+                        setEditingTotals(true);
+                      }}
+                      style={{
+                        marginTop: 8,
+                        fontSize: 12,
+                        color: "#6b6860",
+                        textDecoration: "underline",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      {poTotals?.has_totals
+                        ? "Correct invoice totals"
+                        : "Add invoice totals"}
+                    </button>
+                  ) : (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        background: "#fff",
+                        border: "1px solid #e8e4de",
+                        borderRadius: 6,
+                        padding: 14,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          marginBottom: 10,
+                        }}
+                      >
+                        {poTotals?.has_totals
+                          ? "Correct invoice totals"
+                          : "Add invoice totals"}
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 10,
+                        }}
+                      >
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Discount (AED)
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editDiscount ?? ""}
+                            onChange={(e) =>
+                              setEditDiscount(
+                                e.target.value === ""
+                                  ? null
+                                  : parseFloat(e.target.value),
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Discount label
+                          <input
+                            type="text"
+                            value={editDiscountLabel}
+                            onChange={(e) =>
+                              setEditDiscountLabel(e.target.value)
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          VAT (AED) — blank = auto @ 5%
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editVat ?? ""}
+                            onChange={(e) =>
+                              setEditVat(
+                                e.target.value === ""
+                                  ? null
+                                  : parseFloat(e.target.value),
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Other adjustment (AED)
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editOtherAdj ?? ""}
+                            onChange={(e) =>
+                              setEditOtherAdj(
+                                e.target.value === ""
+                                  ? null
+                                  : parseFloat(e.target.value),
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Adjustment label
+                          <input
+                            type="text"
+                            value={editOtherAdjLabel}
+                            onChange={(e) =>
+                              setEditOtherAdjLabel(e.target.value)
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Supplier invoice no.
+                          <input
+                            type="text"
+                            value={editInvoiceNumber}
+                            onChange={(e) =>
+                              setEditInvoiceNumber(e.target.value)
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Invoice date
+                          <input
+                            type="date"
+                            value={editInvoiceDate}
+                            onChange={(e) => setEditInvoiceDate(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                        <label style={{ fontSize: 11, color: "#6b6860" }}>
+                          Supplier invoice total (AED)
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editInvoiceTotal ?? ""}
+                            onChange={(e) =>
+                              setEditInvoiceTotal(
+                                e.target.value === ""
+                                  ? null
+                                  : parseFloat(e.target.value),
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              padding: 6,
+                              border: "1px solid #e8e4de",
+                              borderRadius: 4,
+                            }}
+                          />
+                        </label>
+                      </div>
+                      <label
+                        style={{
+                          fontSize: 11,
+                          color: "#6b6860",
+                          display: "block",
+                          marginTop: 10,
+                        }}
+                      >
+                        Reason (min 10 characters) *
+                        <input
+                          type="text"
+                          value={totalsReason}
+                          onChange={(e) => setTotalsReason(e.target.value)}
+                          placeholder="e.g. supplier reissued the invoice with the delivery charge"
+                          style={{
+                            width: "100%",
+                            padding: 6,
+                            border: "1px solid #e8e4de",
+                            borderRadius: 4,
+                          }}
+                        />
+                      </label>
+                      {totalsEditError && (
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontSize: 11,
+                            color: "#b91c1c",
+                          }}
+                        >
+                          {totalsEditError}
+                        </div>
+                      )}
+                      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => void saveTotalsEdit()}
+                          disabled={
+                            totalsSaving || totalsReason.trim().length < 10
+                          }
+                          style={{
+                            padding: "6px 14px",
+                            fontSize: 12,
+                            borderRadius: 4,
+                            border: "none",
+                            background: "#0a0a0a",
+                            color: "#fff",
+                            cursor: "pointer",
+                            opacity:
+                              totalsSaving || totalsReason.trim().length < 10
+                                ? 0.5
+                                : 1,
+                          }}
+                        >
+                          {totalsSaving ? "Saving…" : "Save totals"}
+                        </button>
+                        <button
+                          onClick={() => setEditingTotals(false)}
+                          style={{
+                            padding: "6px 14px",
+                            fontSize: 12,
+                            borderRadius: 4,
+                            border: "1px solid #e8e4de",
+                            background: "#fff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

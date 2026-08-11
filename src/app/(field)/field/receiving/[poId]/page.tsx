@@ -97,11 +97,31 @@ export default function ReceivingDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // PRD-087 R: receive by TOTAL paid — the system computes the unit price
-  // (total ÷ received qty). Takes precedence over a manual unit price.
-  const [editedTotals, setEditedTotals] = useState<
+  // PRD-003 (CS ruling Q4, replaces PRD-087 R): receive by UNIT PRICE ex-VAT as
+  // printed on the supplier bill. The LINE TOTAL is computed, never typed.
+  //
+  // The old flow captured "total paid for N units" and back-computed the unit
+  // price (107.35 / 16 = 6.7094). That division is the root cause of the fils
+  // drift in PRD-003 §2.1: the supplier billed a flat 6.71, so their line read
+  // 107.36, and one fils entered short compounded by 1.05 into a 267.51 vs
+  // 267.52 mismatch. Capturing the printed unit price kills it at the source.
+  const [editedUnitPrices, setEditedUnitPrices] = useState<
     Record<string, number | null>
   >({});
+
+  // PRD-003 — document-level totals, submitted AFTER receive_purchase_order
+  // succeeds. Advisory only: a failure here never invalidates the receipt.
+  const [discountAed, setDiscountAed] = useState<number | null>(null);
+  const [discountLabel, setDiscountLabel] = useState("");
+  const [vatAed, setVatAed] = useState<number | null>(null);
+  const [vatEdited, setVatEdited] = useState(false);
+  const [otherAdjAed, setOtherAdjAed] = useState<number | null>(null);
+  const [otherAdjLabel, setOtherAdjLabel] = useState("");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState("");
+  const [invoiceTotal, setInvoiceTotal] = useState<number | null>(null);
+  const [totalsError, setTotalsError] = useState<string | null>(null);
+  const [totalsSaving, setTotalsSaving] = useState(false);
 
   // 90-day weighted average unit price per boonz product (received POs),
   // for the on-par / below / above purchase-price indicator.
@@ -483,17 +503,13 @@ export default function ReceivingDetailPage() {
           };
         }
 
-        // PRD-087 R: total-paid entry wins → unit = total / received qty;
-        // else the PO's ordered unit price stands.
-        const lineQty = (l.batches ?? []).reduce(
-          (s, b) => s + (Number(b.received_qty) || 0),
-          0,
-        );
-        const totalPaid = editedTotals[l.po_line_id];
+        // PRD-003 Q4: the typed UNIT PRICE wins as-is — no division, so no fils
+        // drift. Else the PO's ordered unit price stands. The RPC computes the
+        // line total as received_qty x price, which is the same arithmetic the
+        // supplier's bill does.
+        const typedUnit = editedUnitPrices[l.po_line_id];
         const effectivePrice =
-          totalPaid != null && lineQty > 0
-            ? Math.round((totalPaid / lineQty) * 10000) / 10000
-            : l.price_per_unit_aed;
+          typedUnit != null ? typedUnit : l.price_per_unit_aed;
 
         return {
           po_line_id: l.po_line_id,
@@ -591,9 +607,49 @@ export default function ReceivingDetailPage() {
       }
     }
 
+    // PRD-003 §6.1: document totals go in a SECOND call, after the receipt has
+    // landed. If this fails the receipt still stands — a driver at the warehouse
+    // door must not lose a confirmed receipt to a paperwork call. The retry
+    // affordance is the totals card, which stays on screen with its error.
+    await saveDocumentTotals();
+
     setReceiveResults(resultsList);
     setSubmitted(true);
     setSubmitting(false);
+  }
+
+  // PRD-003 — the totals writer. Never blocks, never raises into the receipt.
+  async function saveDocumentTotals(): Promise<boolean> {
+    setTotalsSaving(true);
+    setTotalsError(null);
+    const supabase = createClient();
+    const { error: totErr } = await supabase.rpc("set_po_document_totals", {
+      p_po_id: poId,
+      p_discount_aed: discountAed ?? 0,
+      p_discount_label: discountLabel.trim() || null,
+      // NULL = let the RPC compute it at p_vat_rate. Only send a figure when the
+      // operator actually overrode the auto value.
+      p_vat_aed: vatEdited ? (vatAed ?? 0) : null,
+      p_vat_rate: 0.05,
+      p_other_adjustment_aed: otherAdjAed ?? 0,
+      p_other_adjustment_label: otherAdjLabel.trim() || null,
+      p_supplier_invoice_number: invoiceNumber.trim() || null,
+      p_supplier_invoice_date: invoiceDate || null,
+      p_supplier_invoice_total_aed: invoiceTotal,
+      p_source: "receiving",
+      // PRD-003 §12: lines captured through the Q4 unit-price field are ex-VAT
+      // by construction. Legacy POs stay 'unknown' — see the migration comment.
+      p_line_price_regime: "ex_vat",
+    });
+    setTotalsSaving(false);
+    if (totErr) {
+      console.error("[Receiving] set_po_document_totals error:", totErr);
+      setTotalsError(
+        `Totals not saved: ${totErr.message}. The receipt itself is confirmed — retry the totals below.`,
+      );
+      return false;
+    }
+    return true;
   }
 
   // ── Field addition helpers ──────────────────────────────────────────────────
@@ -1037,13 +1093,16 @@ export default function ReceivingDetailPage() {
                     />
                   </div>
 
-                  {/* PRD-087 R: enter TOTAL paid — unit price is computed
-                      from total ÷ received qty, and benchmarked against the
-                      product's 90-day weighted average purchase price. */}
+                  {/* PRD-003 Q4: enter the UNIT PRICE ex-VAT exactly as printed
+                      on the bill (a Union Coop line reads QTY / UNIT PRICE /
+                      VAT / AMT — capture UNIT PRICE). The line total is
+                      computed, never typed, so the back-computation that caused
+                      the fils drift is gone. Benchmarked against the product's
+                      90-day weighted average purchase price. */}
                   <div className="mt-3">
                     <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                      Total paid for {batchTotal || 0} units (AED)
-                      {editedTotals[line.po_line_id] != null && (
+                      Unit price ex-VAT (AED) — as printed on the bill
+                      {editedUnitPrices[line.po_line_id] != null && (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
                           edited
                         </span>
@@ -1056,21 +1115,17 @@ export default function ReceivingDetailPage() {
                       value={
                         // "key present" = the user has touched the field —
                         // show exactly what they typed (empty stays empty,
-                        // it must NOT snap back to the prefilled total).
-                        line.po_line_id in editedTotals
-                          ? (editedTotals[line.po_line_id] ?? "")
-                          : line.price_per_unit_aed != null && batchTotal > 0
-                            ? Math.round(
-                                line.price_per_unit_aed * batchTotal * 100,
-                              ) / 100
-                            : ""
+                        // it must NOT snap back to the prefilled price).
+                        line.po_line_id in editedUnitPrices
+                          ? (editedUnitPrices[line.po_line_id] ?? "")
+                          : (line.price_per_unit_aed ?? "")
                       }
                       onChange={(e) => {
                         const val =
                           e.target.value === ""
                             ? null
                             : parseFloat(e.target.value);
-                        setEditedTotals((prev) => ({
+                        setEditedUnitPrices((prev) => ({
                           ...prev,
                           [line.po_line_id]: val,
                         }));
@@ -1079,29 +1134,38 @@ export default function ReceivingDetailPage() {
                       className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
                     />
                     {(() => {
-                      const totalPaid = editedTotals[line.po_line_id];
+                      const typed = editedUnitPrices[line.po_line_id];
                       const unit =
-                        totalPaid != null && batchTotal > 0
-                          ? totalPaid / batchTotal
+                        typed != null
+                          ? typed
                           : (line.price_per_unit_aed ?? null);
                       const hist = avg90[line.boonz_product_id];
                       if (unit == null)
                         return (
                           <p className="mt-1 text-xs text-neutral-400">
-                            Enter total paid to compute the unit price.
+                            Enter the printed unit price to compute the line
+                            total.
                           </p>
                         );
+
+                      // PRD-003 §12 sanity chip. The 2026-08-11 Union Coop
+                      // incident was the 8-unit PACK TOTAL typed into the unit
+                      // price field (74 / 76.60 as "unit" prices). >3x the
+                      // trailing average is that mistake, not a price rise.
+                      const packTotalSuspect =
+                        hist != null && unit > 3 * hist.avg;
                       const diffPct = hist
                         ? ((unit - hist.avg) / hist.avg) * 100
                         : null;
-                      const tone =
-                        diffPct == null
+                      const tone = packTotalSuspect
+                        ? "text-red-600"
+                        : diffPct == null
                           ? "text-neutral-500"
                           : Math.abs(diffPct) <= 5
                             ? "text-neutral-600"
                             : diffPct < 0
                               ? "text-emerald-700"
-                              : "text-red-600";
+                              : "text-amber-700";
                       const badge =
                         diffPct == null
                           ? "· no 90d history"
@@ -1111,9 +1175,20 @@ export default function ReceivingDetailPage() {
                               ? `▼ ${Math.abs(diffPct).toFixed(0)}% below 90d avg (${hist!.avg.toFixed(2)})`
                               : `▲ ${diffPct.toFixed(0)}% above 90d avg (${hist!.avg.toFixed(2)})`;
                       return (
-                        <p className={`mt-1 text-xs font-medium ${tone}`}>
-                          = {unit.toFixed(2)} AED/unit {badge}
-                        </p>
+                        <>
+                          <p className={`mt-1 text-xs font-medium ${tone}`}>
+                            Line total = {(unit * batchTotal).toFixed(2)} AED (
+                            {batchTotal} × {unit.toFixed(2)}) {badge}
+                          </p>
+                          {packTotalSuspect && (
+                            <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                              ⚠ {unit.toFixed(2)} is more than 3× the 90-day
+                              average ({hist!.avg.toFixed(2)}). Is this the PACK
+                              TOTAL rather than the unit price? Enter the price
+                              for ONE unit.
+                            </p>
+                          )}
+                        </>
                       );
                     })()}
                   </div>
@@ -1383,6 +1458,269 @@ export default function ReceivingDetailPage() {
       {error && (
         <p className="mt-4 text-sm text-red-600 dark:text-red-400">{error}</p>
       )}
+
+      {/* ── PRD-003 Invoice Totals ────────────────────────────────────────────
+          Everything here is DISPLAY arithmetic. set_po_document_totals
+          recomputes the subtotal server-side from the non-cancelled lines and
+          the unmirrored additions and never trusts a client figure — these
+          numbers exist so the operator can see the document reconcile before
+          they hit Confirm. */}
+      {(hasActionableLines || pendingAdditions.length > 0) &&
+        (() => {
+          const linesSubtotal = lines.reduce((sum, l) => {
+            if (notPurchasedLines.has(l.po_line_id)) return sum;
+            const qty = (l.batches ?? []).reduce(
+              (s, b) => s + (Number(b.received_qty) || 0),
+              0,
+            );
+            const typed = editedUnitPrices[l.po_line_id];
+            const unit = typed != null ? typed : (l.price_per_unit_aed ?? 0);
+            return sum + unit * qty;
+          }, 0);
+          const additionsSubtotal = pendingAdditions.reduce(
+            (s, a) => s + (a.price_per_unit_aed ?? 0) * a.qty,
+            0,
+          );
+          const r2 = (n: number) => Math.round(n * 100) / 100;
+          const subtotal = r2(linesSubtotal + additionsSubtotal);
+          const discount = discountAed ?? 0;
+          const vatAuto = r2((subtotal - discount) * 0.05);
+          const vat = vatEdited ? (vatAed ?? 0) : vatAuto;
+          const other = otherAdjAed ?? 0;
+          const grand = r2(subtotal - discount + vat + other);
+          const variance =
+            invoiceTotal != null ? r2(grand - invoiceTotal) : null;
+
+          const inputCls =
+            "w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900";
+
+          return (
+            <div className="mt-6 rounded-lg border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
+              <h2 className="mb-3 text-sm font-semibold">Invoice Totals</h2>
+
+              <div className="flex items-center justify-between py-1 text-sm">
+                <span className="text-neutral-500">Subtotal (ex-VAT)</span>
+                <span className="font-medium">{subtotal.toFixed(2)} AED</span>
+              </div>
+              {additionsSubtotal > 0 && (
+                <p className="mb-2 text-xs text-neutral-400">
+                  includes {additionsSubtotal.toFixed(2)} from{" "}
+                  {pendingAdditions.length} field addition
+                  {pendingAdditions.length === 1 ? "" : "s"}
+                </p>
+              )}
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Discount (AED)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={discountAed ?? ""}
+                    onChange={(e) =>
+                      setDiscountAed(
+                        e.target.value === ""
+                          ? null
+                          : parseFloat(e.target.value),
+                      )
+                    }
+                    placeholder="0.00"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Discount label{discount > 0 ? " *" : ""}
+                  </label>
+                  <input
+                    type="text"
+                    value={discountLabel}
+                    onChange={(e) => setDiscountLabel(e.target.value)}
+                    placeholder="e.g. Promo"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+              {discount > 0 && !discountLabel.trim() && (
+                <p className="mt-1 text-xs text-red-600">
+                  A discount needs a label — an unexplained adjustment is how
+                  reconciliation rots.
+                </p>
+              )}
+
+              <div className="mt-3">
+                <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
+                  VAT @ 5% (AED)
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                      vatEdited
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                        : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                    }`}
+                  >
+                    {vatEdited ? "edited" : "auto"}
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={vatEdited ? (vatAed ?? "") : vatAuto}
+                  onChange={(e) => {
+                    setVatEdited(true);
+                    setVatAed(
+                      e.target.value === "" ? null : parseFloat(e.target.value),
+                    );
+                  }}
+                  className={inputCls}
+                />
+                {vatEdited && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVatEdited(false);
+                      setVatAed(null);
+                    }}
+                    className="mt-1 text-xs text-neutral-500 underline"
+                  >
+                    reset to auto ({vatAuto.toFixed(2)})
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Other adjustment (AED)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={otherAdjAed ?? ""}
+                    onChange={(e) =>
+                      setOtherAdjAed(
+                        e.target.value === ""
+                          ? null
+                          : parseFloat(e.target.value),
+                      )
+                    }
+                    placeholder="0.00 (− for a credit)"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Adjustment label{other !== 0 ? " *" : ""}
+                  </label>
+                  <input
+                    type="text"
+                    value={otherAdjLabel}
+                    onChange={(e) => setOtherAdjLabel(e.target.value)}
+                    placeholder="e.g. Delivery"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+              {other !== 0 && !otherAdjLabel.trim() && (
+                <p className="mt-1 text-xs text-red-600">
+                  An adjustment needs a label.
+                </p>
+              )}
+
+              <div className="mt-4 flex items-center justify-between border-t border-neutral-200 pt-3 dark:border-neutral-800">
+                <span className="text-sm font-semibold">Grand Total</span>
+                <span className="text-base font-bold">
+                  {grand.toFixed(2)} AED
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Supplier invoice no.
+                  </label>
+                  <input
+                    type="text"
+                    value={invoiceNumber}
+                    onChange={(e) => setInvoiceNumber(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="mb-0.5 block text-xs text-neutral-500">
+                    Invoice date
+                  </label>
+                  <input
+                    type="date"
+                    value={invoiceDate}
+                    onChange={(e) => setInvoiceDate(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <label className="mb-0.5 block text-xs text-neutral-500">
+                  Supplier invoice total (AED)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={invoiceTotal ?? ""}
+                  onChange={(e) =>
+                    setInvoiceTotal(
+                      e.target.value === "" ? null : parseFloat(e.target.value),
+                    )
+                  }
+                  placeholder="what the paper says"
+                  className={inputCls}
+                />
+              </div>
+
+              {/* Variance chip. PRD-003 CS ruling Q2: ADVISORY AT EVERY ROLE
+                  LEVEL. It never blocks Confirm — receiving must not be gated
+                  on a paperwork mismatch. */}
+              {variance !== null && (
+                <div
+                  className={`mt-3 rounded px-3 py-2 text-xs font-medium ${
+                    variance === 0
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                      : Math.abs(variance) <= 0.1
+                        ? "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                        : "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  }`}
+                >
+                  {variance === 0
+                    ? "✓ matches the supplier invoice"
+                    : Math.abs(variance) <= 0.1
+                      ? `≈ ${variance > 0 ? "+" : ""}${variance.toFixed(2)} AED — rounding`
+                      : `⚠ ${variance > 0 ? "+" : ""}${variance.toFixed(2)} AED — check line prices or add an adjustment`}
+                  <span className="ml-1 font-normal opacity-70">
+                    (advisory — never blocks Confirm)
+                  </span>
+                </div>
+              )}
+
+              {totalsError && (
+                <div className="mt-3 rounded bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                  {totalsError}
+                  <button
+                    type="button"
+                    onClick={() => void saveDocumentTotals()}
+                    disabled={totalsSaving}
+                    className="ml-2 underline disabled:opacity-50"
+                  >
+                    {totalsSaving ? "Retrying…" : "Retry totals"}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Confirm button — visible when there's something to act on */}
       {(hasActionableLines || pendingAdditions.length > 0) && (
