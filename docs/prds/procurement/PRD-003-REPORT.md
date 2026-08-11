@@ -608,24 +608,132 @@ Run as a `DO` block that writes, measures, then `RAISE`s so the transaction unwi
 
 | measure                                    | value                                                            |
 | ------------------------------------------ | ---------------------------------------------------------------- |
-| rows returned                               | 2 — one per supplier, both in `2026-08`                          |
+| rows returned                              | 2 — one per supplier, both in `2026-08`                          |
 | Merich Global Wholesalers (PO-2026-9260)   | 1 PO, subtotal 254.77, VAT **12.74**, grand 267.51, overrides 0  |
 | Union Coop (PO-2026-9400), VAT forced to 0 | 1 PO, subtotal 1075.65, VAT **0.00**, grand 1075.65, overrides 1 |
-| footer total recoverable input VAT          | **12.74 AED**                                                    |
-| override warning on the zero-VAT PO         | `vat_override_warning`, auto would have been 53.78 (dev 53.78)   |
+| footer total recoverable input VAT         | **12.74 AED**                                                    |
+| override warning on the zero-VAT PO        | `vat_override_warning`, auto would have been 53.78 (dev 53.78)   |
 
 The override count is the column that earns its place: a period whose VAT was hand-typed is a period
 finance should look at before filing, and the report says so without anyone having to ask.
 
 ### Verify gates re-run after the change
 
-| gate               | result                                                                               |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| `npx tsc --noEmit` | clean, exit 0                                                                        |
-| `npm run build`    | exit 0                                                                               |
-| `npm run lint`     | 148 problems (98 errors, 50 warnings) — **byte-identical to the `main` baseline**    |
+| gate               | result                                                                            |
+| ------------------ | --------------------------------------------------------------------------------- |
+| `npx tsc --noEmit` | clean, exit 0                                                                     |
+| `npm run build`    | exit 0                                                                            |
+| `npm run lint`     | 148 problems (98 errors, 50 warnings) — **byte-identical to the `main` baseline** |
 
 The lint number was measured, not assumed: `main` was checked out into a throwaway worktree with
 `node_modules` symlinked and linted independently. It reports the same 148/98/50. Every finding in a
 PRD-003 file (`set-state-in-effect` on the page components, one unused `today`) is present on `main`
 at the same site. PRD-003 adds no lint debt.
+
+### C-3 coverage sweep — is `v_daily_flow_reconciliation` the only double-count surface?
+
+Cody found one aggregator that adds `purchase_orders` and `po_additions` together and patched it.
+One is a finding; the question is whether it is the _only_ one. Swept every relation and every
+function body in `public`:
+
+| object                            | kind     | mirror guard (`source_addition_id`)   |
+| --------------------------------- | -------- | ------------------------------------- |
+| `v_daily_flow_reconciliation`     | view     | ✅ present (C-3 patch)                |
+| `v_po_document_totals`            | view     | ✅ present                            |
+| `set_po_document_totals`          | function | ✅ present                            |
+| `_mirror_po_addition_line_v1`     | function | ✅ present (its own idempotency)      |
+| `receive_purchase_order`          | function | n/a — a writer; it _calls_ the mirror |
+| `receive_purchase_order_addition` | function | n/a — same                            |
+
+Those six are the complete set of objects in `public` that name `po_additions`. Every one that
+**aggregates** carries the guard; the two that do not are the writers that create the mirrored line
+in the first place. There is no third surface where an addition can be counted twice.
+
+Also confirmed at the same time: no golden fixture md5-pins `receive_purchase_order` or
+`receive_purchase_order_addition`, so rebuilding those two bodies trips no LAW 3 pin. (Fixture 26
+pins `receive_dispatch_line` — a different function, untouched here.) Both live bodies verify as
+calling `_mirror_po_addition_line_v1`.
+
+---
+
+## Leg 4 — 2026-08-12 — the last §12 item, and the gate adjudication
+
+### G-5. The gift/bonus case was named in §12, and the UI steered the operator into the one repair that breaks T11
+
+§12 closes with a case the build had to accommodate: *"A supplier gift/bonus units case exists (8
+received, 1 billed): received_qty may exceed billed qty; cost = actual cash only. Never inflate
+lines to match invoices."*
+
+Nothing blocked it, so it read as satisfied. It was not, and the way it failed is worth stating
+precisely, because every artifact around it was correct.
+
+With 8 units delivered and 1 billed at a printed 76.60, the operator enters the printed unit price
+(that is what Q4 asked for) and the RPC computes `total_price_aed = received_qty × price` — 612.80
+against 76.60 of actual cash. The document then reads 536.20 above the supplier's paper, and the
+red variance chip said, in as many words: **"check line prices or add an adjustment."**
+
+Both roads it offered are wrong. Raising or lowering line prices to close the gap is the §2
+workaround this PRD exists to abolish. Netting 536.20 out with a document-level adjustment balances
+the *document* while leaving 536.20 of phantom cost sitting on `price_per_unit_aed` — the ex-VAT
+spine that feeds `v_product_landed_cost` → COGS → every partner settlement. That is the exact harm
+T11 was written to prevent, arriving through a door T11 does not watch: T11 asserts the totals
+writer never moves the spine, and this moves it through the *receive* writer, at capture time,
+with the operator's own hand on it.
+
+**Closed FE-side, no migration.** `receive_purchase_order` computes the line total from
+`received_qty × price_per_unit_aed` and F-3 puts that arithmetic off-limits, so the only honest
+lever is the price submitted. The receiving screen now carries a per-line **Free / bonus units**
+field. Left empty — the normal case — nothing changes and the Q4 no-division guarantee holds
+byte for byte. Set, it computes:
+
+```
+cash            = printed_unit × (received − free)      -- what was actually billed
+effective_unit  = round(cash / received, 4)             -- what the RPC is given
+line_total      = round(received × effective_unit, 2)   -- what the RPC stores
+```
+
+The warehouse is still credited with every unit that physically landed; the money stays at the cash
+paid; the free units dilute unit cost, which is the standard landed-cost treatment and the number
+`v_product_landed_cost` should see. One module-scope helper serves the line display, the submit path
+and the totals card, so the operator cannot be shown one number and the RPC given another.
+
+The variance hint was rewritten with it. A variance **above** the invoice now reads "check the unit
+prices, or mark unbilled units as free/bonus on the line — never raise a line price to match the
+paper." Only a variance *below* the invoice suggests an adjustment, which is where an adjustment
+(delivery, handling) actually belongs. Still advisory, still never blocking — CS ruling Q2.
+
+### T13 — the gift/bonus case, end to end against production
+
+Same dry-test discipline as T1–T12: a `DO` block that performs the real writes through the real
+RPCs, measures, then `RAISE`s so the transaction unwinds. Scenario: 8 units of a live PO-2026-9402
+line land, 1 is billed, printed unit price 76.60.
+
+| measure                                          | value                                    |
+| ------------------------------------------------ | ---------------------------------------- |
+| unit price stored                                | **9.5750** (the cash spread over all 8)  |
+| line total stored                                | **76.60** — exactly the cash billed      |
+| what a printed-price submit would have stored    | 612.80                                   |
+| **phantom cost avoided on the ex-VAT spine**     | **536.20 AED**                           |
+| warehouse units credited                         | 12 → 20, delta **+8** (the full delivery) |
+| `v_product_landed_cost.landed_cost`              | 4.5 → **4.5**, unchanged (T11b holds)    |
+| resulting document totals                        | subtotal 76.60, VAT 3.83, grand 80.43    |
+
+Verified after the unwind: `purchase_order_totals` **0** rows, no `T13` warehouse batch, the PO line
+still unreceived with a NULL price. Production carries nothing from this test.
+
+The counterfactual column is the assertion. Physical stock and money move independently here — 8
+units in, 76.60 paid — which is precisely what "received_qty may exceed billed qty; cost = actual
+cash only" means, and what the build could not previously express.
+
+**Deferred deliberately:** the bonus quantity itself is not persisted. Recording it would mean a
+column on `purchase_orders` and a third rebuild of `receive_purchase_order`, whose price arithmetic
+F-3 rules off-limits and whose body two golden fixtures sit downstream of. The effective unit price
+carries the money correctly today; the *reason* it differs from the printed price is not yet
+durable. Worth a follow-up PRD, and it is a real gap, not a solved one.
+
+### Verify gates re-run after the FE change
+
+| gate               | result                                                            |
+| ------------------ | ----------------------------------------------------------------- |
+| `npx tsc --noEmit` | clean, exit 0                                                     |
+| `npm run build`    | exit 0                                                            |

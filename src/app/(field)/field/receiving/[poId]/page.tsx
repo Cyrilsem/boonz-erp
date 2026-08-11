@@ -84,6 +84,59 @@ function generateKey(): string {
   return Math.random().toString(36).slice(2);
 }
 
+// ── PRD-003 §12 — supplier gift / bonus units ────────────────────────────────
+// A supplier can deliver 8 and bill 1. received_qty may exceed the billed qty,
+// and the ruling is: cost = the actual cash, never inflate a line to match the
+// paper.
+//
+// receive_purchase_order computes total_price_aed = received_qty ×
+// price_per_unit_aed and this PRD may not touch that arithmetic (F-3), so the
+// only honest way to hold a line's cost at the cash actually paid is to submit
+// the CASH-EFFECTIVE unit price: the billed cash spread over every unit that
+// physically landed. The warehouse is still credited with all 8 units, the money
+// stays at what was paid, and the free units dilute unit cost — the standard
+// landed-cost treatment, and the number v_product_landed_cost should see.
+//
+// The alternative the variance chip used to invite — leave the line at 8 × the
+// printed price and net the difference out with a document-level adjustment —
+// balances the document while leaving 7 units of phantom cost on the ex-VAT
+// spine that feeds COGS and every partner settlement. That is the exact harm
+// T11 exists to prevent, reached by a different door.
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
+
+/** Cash actually billed for a line: the printed unit price × the BILLED units. */
+function lineCashAed(
+  printedUnit: number,
+  receivedQty: number,
+  freeQty: number,
+): number {
+  const billed = Math.max(0, receivedQty - Math.max(0, freeQty));
+  return round2(printedUnit * billed);
+}
+
+/** What goes to the RPC. `price_per_unit_aed` is numeric(10,4), hence 4dp. */
+function effectiveUnitPriceAed(
+  printedUnit: number,
+  receivedQty: number,
+  freeQty: number,
+): number {
+  const free = Math.max(0, freeQty);
+  if (free <= 0 || receivedQty <= 0) return printedUnit;
+  return round4(lineCashAed(printedUnit, receivedQty, free) / receivedQty);
+}
+
+/** The line total the RPC will store: round2(received_qty × the 4dp price). */
+function lineTotalAed(
+  printedUnit: number,
+  receivedQty: number,
+  freeQty: number,
+): number {
+  return round2(
+    receivedQty * effectiveUnitPriceAed(printedUnit, receivedQty, freeQty),
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ReceivingDetailPage() {
@@ -108,6 +161,12 @@ export default function ReceivingDetailPage() {
   const [editedUnitPrices, setEditedUnitPrices] = useState<
     Record<string, number | null>
   >({});
+
+  // PRD-003 §12 — units delivered but NOT billed (supplier gift / bonus).
+  // Keyed by po_line_id. Never blocks anything; when set it dilutes the unit
+  // price so the line carries the cash paid, not the printed price × everything
+  // that landed.
+  const [freeUnits, setFreeUnits] = useState<Record<string, number | null>>({});
 
   // PRD-003 — document-level totals, submitted AFTER receive_purchase_order
   // succeeds. Advisory only: a failure here never invalidates the receipt.
@@ -508,8 +567,21 @@ export default function ReceivingDetailPage() {
         // line total as received_qty x price, which is the same arithmetic the
         // supplier's bill does.
         const typedUnit = editedUnitPrices[l.po_line_id];
-        const effectivePrice =
+        const printedPrice =
           typedUnit != null ? typedUnit : l.price_per_unit_aed;
+
+        // PRD-003 §12: free units dilute, they do not inflate. With no bonus
+        // units this is the printed price unchanged, so the Q4 no-division
+        // guarantee above still holds for every ordinary line.
+        const receivedQty = l.batches.reduce(
+          (s, b) => s + (Number(b.received_qty) || 0),
+          0,
+        );
+        const free = freeUnits[l.po_line_id] ?? 0;
+        const effectivePrice =
+          printedPrice == null
+            ? null
+            : effectiveUnitPriceAed(printedPrice, receivedQty, free);
 
         return {
           po_line_id: l.po_line_id,
@@ -1200,12 +1272,41 @@ export default function ReceivingDetailPage() {
                             : diffPct < 0
                               ? `▼ ${Math.abs(diffPct).toFixed(0)}% below 90d avg (${hist!.avg.toFixed(2)})`
                               : `▲ ${diffPct.toFixed(0)}% above 90d avg (${hist!.avg.toFixed(2)})`;
+                      // PRD-003 §12 gift/bonus. `free` units landed but were
+                      // not billed, so the cash is the printed price × the
+                      // billed units and the stored unit cost is that cash
+                      // spread over everything received.
+                      const free = Math.min(
+                        Math.max(0, freeUnits[line.po_line_id] ?? 0),
+                        batchTotal,
+                      );
+                      const billed = batchTotal - free;
+                      const cash = lineCashAed(unit, batchTotal, free);
+                      const effUnit = effectiveUnitPriceAed(
+                        unit,
+                        batchTotal,
+                        free,
+                      );
+                      const lineTotal = lineTotalAed(unit, batchTotal, free);
+
                       return (
                         <>
                           <p className={`mt-1 text-xs font-medium ${tone}`}>
-                            Line total = {(unit * batchTotal).toFixed(2)} AED (
-                            {batchTotal} × {unit.toFixed(2)}) {badge}
+                            Line total = {lineTotal.toFixed(2)} AED (
+                            {free > 0
+                              ? `${billed} billed × ${unit.toFixed(2)}, ${free} free`
+                              : `${batchTotal} × ${unit.toFixed(2)}`}
+                            ) {badge}
                           </p>
+                          {free > 0 && (
+                            <p className="mt-1 rounded bg-sky-50 px-2 py-1 text-xs text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
+                              {batchTotal} units received, {billed} billed. Cash
+                              stays at {cash.toFixed(2)} AED and the unit cost
+                              recorded is {effUnit.toFixed(4)} AED — the free
+                              units dilute cost, they are never free stock at
+                              full price.
+                            </p>
+                          )}
                           {packTotalSuspect && (
                             <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
                               ⚠ {unit.toFixed(2)} is more than 3× the 90-day
@@ -1217,6 +1318,32 @@ export default function ReceivingDetailPage() {
                         </>
                       );
                     })()}
+
+                    {/* PRD-003 §12 — free / bonus units. Advisory and optional:
+                        left empty (the normal case) nothing changes at all. */}
+                    <div className="mt-2">
+                      <label className="mb-0.5 block text-xs text-neutral-500">
+                        Free / bonus units — delivered but not billed
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={batchTotal}
+                        step="1"
+                        value={freeUnits[line.po_line_id] ?? ""}
+                        onChange={(e) =>
+                          setFreeUnits((prev) => ({
+                            ...prev,
+                            [line.po_line_id]:
+                              e.target.value === ""
+                                ? null
+                                : parseFloat(e.target.value),
+                          }))
+                        }
+                        placeholder="0"
+                        className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                      />
+                    </div>
                   </div>
                 </> /* end isNotPurchased ? ... : <> </> */
               )}
@@ -1501,7 +1628,9 @@ export default function ReceivingDetailPage() {
             );
             const typed = editedUnitPrices[l.po_line_id];
             const unit = typed != null ? typed : (l.price_per_unit_aed ?? 0);
-            return sum + unit * qty;
+            // §12: same helper the submit path uses, so what the operator sees
+            // here is what the RPC will store.
+            return sum + lineTotalAed(unit, qty, freeUnits[l.po_line_id] ?? 0);
           }, 0);
           const additionsSubtotal = pendingAdditions.reduce(
             (s, a) => s + (a.price_per_unit_aed ?? 0) * a.qty,
@@ -1720,11 +1849,18 @@ export default function ReceivingDetailPage() {
                         : "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                   }`}
                 >
+                  {/* §12: a variance ABOVE the paper usually means unbilled
+                      free units, and the repair is to mark them as bonus — not
+                      to net the gap out with an adjustment, which would leave
+                      phantom cost sitting on the ex-VAT line prices that feed
+                      COGS and every partner settlement. */}
                   {variance === 0
                     ? "✓ matches the supplier invoice"
                     : Math.abs(variance) <= 0.1
                       ? `≈ ${variance > 0 ? "+" : ""}${variance.toFixed(2)} AED — rounding`
-                      : `⚠ ${variance > 0 ? "+" : ""}${variance.toFixed(2)} AED — check line prices or add an adjustment`}
+                      : variance > 0
+                        ? `⚠ +${variance.toFixed(2)} AED above the invoice — check the unit prices, or mark unbilled units as free/bonus on the line. Never raise a line price to match the paper.`
+                        : `⚠ ${variance.toFixed(2)} AED below the invoice — check the unit prices, or add a labelled adjustment (delivery, handling).`}
                   <span className="ml-1 font-normal opacity-70">
                     (advisory — never blocks Confirm)
                   </span>
