@@ -2960,3 +2960,39 @@ machine-scoped product mapping. The name-family rule returns the correct 19 unit
 The commit gate itself is NOT yet wired: `stitch_pod_to_boonz` is unchanged. INV-06 was found to
 produce false positives against live data before wiring, which would have refused valid plans; it was
 fixed first. pgTAP, the frozen fixture and the FE surface remain outstanding.
+
+## 2026-08-11 - PRD-003: PO document totals (VAT, discount, adjustments, grand total)
+
+Branch `prd-003-po-document-totals`. Five additive migrations (`20260811201329`, `20260811201443`,
+`20260811201550`, `20260811201626`, `20260811202600`) + FE on receiving, `/field/orders` and
+`/app/procurement`. Cody ⚠️ approve with revisions, 9 binding conditions, all satisfied.
+Articles 1, 2, 3 + S-308, 4, 6, 8, 12, 16.
+
+**What it closes.** `purchase_orders` is line-grain with no header row, so there was nowhere to
+record VAT, a discount, a delivery charge or the supplier's grand total. PO-2026-9260 read 254.77
+against a Merich invoice of 267.52 and the only tool the team had was to inflate line prices until
+the total matched - which pushes recoverable VAT into `price_per_unit_aed`, inflating COGS on every
+partner settlement. Line prices stay ex-VAT, permanently.
+
+**Four findings that changed the design, all from live data:**
+
+1. `purchase_outcome = 'cancelled'` **does not exist** in this database - 828 `received`, 294
+   `not_purchased`, 38 NULL. The PRD's view filter was a dead predicate.
+2. `warehouse_inventory` **has no cost column at all**, so T11 could not be run as written. It became
+   three assertions: the ex-VAT line prices are unchanged, `v_product_landed_cost` is unchanged, and
+   structurally no PRD-003 object is reachable from any cost path.
+3. **46 of 49 received `po_additions` have no `purchase_orders` line.** The leak is the default, not
+   an edge case.
+4. `po_additions.price_per_unit_aed` **is frequently a pack total, not a unit price** (Twix qty 50 @
+   "109.9", Nutella qty 24 @ "287.76"). Valuing the unmirrored additions naively gives AED 23,664.20
+   of fiction. This is why the mirror is **forward-only with no backfill**.
+
+**The blocking finding.** `v_daily_flow_reconciliation` adds `procurement_in_po` and
+`procurement_in_additions` into `net_wh_flow`. A mirrored addition sits on both sides, so the mirror
+would have broken a live conservation law on the first receive after merge. Patched in the same
+migration; proven at +10 patched vs +20 unpatched for 10 real units.
+
+**CS rulings.** Q1 stays procurement PRD-003. Q2 the variance chip is advisory at every role level.
+Q3 the input-VAT report ships in v1. Q4 receiving now captures the printed **unit price ex-VAT** and
+computes the line total, killing the back-computation that caused the fils drift, with a sanity chip
+for the pack-total-in-the-unit-price-field mistake from the 2026-08-11 Union Coop incident.

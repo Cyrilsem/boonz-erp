@@ -1303,3 +1303,26 @@ default path. Fixture 76 is the pin that makes a future divergence visible.
 ⭐ **The explicit-source branch is deliberately exempt.** `run_pipeline_v3` passes the run it planned
 and re-asserts that stitch consumed it; a caller naming a raw base still gets the raw base. The
 canonicalisation is of the DEFAULT, which is the path a human invokes by hand.
+
+## PRD-003 (2026-08-11) - PO document grand total and recoverable input VAT
+
+| Metric                                                                          | Canonical object                                                                   | Status                          | Known illegal copies to retire                                                                                                        |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **PO document grand total** (subtotal - discount + VAT + adjustment)            | `v_po_document_totals`, read via `get_po_document_totals(p_po_id)`                  | LIVE (PRD-003, 2026-08-11)      | The client-side `SUM(total_price_aed)` in the browser on `/field/orders` and `/app/procurement`. Both cut over in the same PRD.        |
+| **PO live subtotal ex-VAT** (non-cancelled lines + unmirrored received additions) | `v_po_document_totals.live_subtotal_ex_vat_aed`                                     | LIVE (PRD-003, 2026-08-11)      | Any `SUM(total_price_aed)` that filters on `purchase_outcome <> 'cancelled'` - that value does not exist, the writer sets `not_purchased`. |
+| **Recoverable input VAT by month by supplier**                                  | `get_input_vat_report(p_date_from, p_date_to)` over `purchase_order_totals`         | LIVE (PRD-003, CS ruling Q3)    | none yet - registered on creation so one never appears.                                                                                |
+
+⛔ **THIS IS A RECEIVABLE, NEVER A COST.** Input VAT is recoverable (Boonz is VAT-registered). No
+object in this row group may be referenced by `v_product_landed_cost`, `boonz_products.avg_cost`,
+`boonz_products.avg_30days_cost`, `product_mapping.avg_cost` or `pod_products.purchasing_cost`.
+Pushing VAT into unit cost inflates COGS on every partner settlement and understates net client
+revenue. Cody made this condition **C-0** and it is asserted structurally, not just by a test.
+
+⚠️ **`live_subtotal_ex_vat_aed` and `subtotal_ex_vat_aed` are DIFFERENT NUMBERS ON PURPOSE.** The
+first is recomputed on every read; the second is the snapshot taken when totals were captured. Their
+divergence is the product, surfaced as `totals_stale`. A consumer that reads one where it meant the
+other will silently show a stale grand total - which is the failure PRD-003 exists to make loud.
+
+⛔ **`invoice_variance_aed` IS NULL, NOT ZERO, WHEN NO SUPPLIER TOTAL WAS ENTERED.** The PRD draft
+specified `COALESCE(grand,0) - COALESCE(invoice,0)`, which renders every totals row without a
+supplier figure as a large red variance. NULL means "no chip", which is the honest state.
