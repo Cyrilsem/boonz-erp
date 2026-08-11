@@ -763,6 +763,32 @@ export default function ReceivingDetailPage() {
               ))}
             </div>
           )}
+          {/* PRD-003 §6.1: the retry affordance has to live HERE. This screen
+              replaces the form on submit, so an error surfaced on the totals
+              card would be unreachable the moment it mattered. The receipt is
+              already in inventory — only the paperwork failed. */}
+          {totalsError && (
+            <div className="mb-4 w-full max-w-sm rounded-lg border border-amber-200 bg-amber-50 p-3 text-left dark:border-amber-900 dark:bg-amber-950/30">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                Invoice totals not saved
+              </p>
+              <p className="text-xs text-amber-800 dark:text-amber-300">
+                {totalsError}
+              </p>
+              <button
+                onClick={() => void saveDocumentTotals()}
+                disabled={totalsSaving}
+                className="mt-2 rounded border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 disabled:opacity-50 dark:border-amber-800 dark:text-amber-300"
+              >
+                {totalsSaving ? "Retrying…" : "Retry saving totals"}
+              </button>
+            </div>
+          )}
+          {totalsError === null && totalsSaving === false && (
+            <p className="mb-4 text-xs text-neutral-400">
+              Invoice totals saved.
+            </p>
+          )}
           <button
             onClick={() => router.push("/field/receiving")}
             className="rounded-lg bg-neutral-900 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
