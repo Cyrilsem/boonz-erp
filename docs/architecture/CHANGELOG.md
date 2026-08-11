@@ -2964,7 +2964,7 @@ fixed first. pgTAP, the frozen fixture and the FE surface remain outstanding.
 ## 2026-08-11 - PRD-003: PO document totals (VAT, discount, adjustments, grand total)
 
 Branch `prd-003-po-document-totals`. Five additive migrations (`20260811201329`, `20260811201443`,
-`20260811201550`, `20260811201626`, `20260811202600`) + FE on receiving, `/field/orders` and
+`20260811201550`, `20260811201626`, `20260811202358`) + FE on receiving, `/field/orders` and
 `/app/procurement`. Cody ⚠️ approve with revisions, 9 binding conditions, all satisfied.
 Articles 1, 2, 3 + S-308, 4, 6, 8, 12, 16.
 
@@ -2996,3 +2996,22 @@ migration; proven at +10 patched vs +20 unpatched for 10 real units.
 Q3 the input-VAT report ships in v1. Q4 receiving now captures the printed **unit price ex-VAT** and
 computes the line total, killing the back-computation that caused the fils drift, with a sanity chip
 for the pack-total-in-the-unit-price-field mistake from the 2026-08-11 Union Coop incident.
+
+**The gift/bonus case (§12), closed FE-side with no migration.** With 8 units delivered and 1
+billed, entering the printed unit price stored 612.80 against 76.60 of actual cash, and the red
+variance chip then invited the operator to either raise line prices (the workaround this PRD
+abolishes) or net the gap out with a document adjustment - which balances the document while
+leaving 536.20 of phantom cost on the ex-VAT spine that feeds COGS and every partner settlement.
+That is the harm T11 exists to prevent, reached through the _receive_ writer rather than the totals
+writer, which T11 does not watch. A per-line **Free / bonus units** field now spreads the billed
+cash over every unit received: the warehouse is credited with all 8, the money stays at 76.60, and
+the free units dilute unit cost (standard landed-cost treatment). Left empty - the normal case -
+nothing changes and the Q4 no-division guarantee holds byte for byte. Deferred deliberately: the
+bonus quantity itself is not persisted, which would need a column on `purchase_orders` and a third
+rebuild of `receive_purchase_order`, whose price arithmetic is off-limits. A real gap, not a solved
+one.
+
+**Registry note.** The fifth migration is `20260811202358`, the version production actually
+recorded. An earlier draft of this entry (and of the build report) cited `20260811202600`, a
+filename that existed in the repo but matched no applied version - so `db push` would have re-run
+it. The applied ledger is the source of truth; repo and CHANGELOG now mirror it.
