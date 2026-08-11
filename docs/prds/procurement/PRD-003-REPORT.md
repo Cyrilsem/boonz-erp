@@ -573,3 +573,59 @@ against `pg_stat_activity`, and by fixture 2 committing nothing. Six fixtures ex
 inside the database.
 
 The contaminated `PRD-003 gate` rows are superseded by `PRD-003 gate v2`, adjudicated below.
+
+---
+
+## Leg 3 — 2026-08-11/12 — the Q3 deliverable that was built but never surfaced
+
+### G-4. `get_input_vat_report` existed, was registered, and no screen read it
+
+CS ruled **Q3 = YES** in §12: the recoverable input-VAT report ships in v1. Leg 1 built the RPC,
+gave it the right ACL, indexed `purchase_order_totals.supplier_invoice_date` specifically to serve
+it, and registered it in `METRICS_REGISTRY.md` as a canonical object. A grep of `src/` for
+`get_input_vat_report` returned **zero call sites**.
+
+A function nobody can call is not a report. Finance reads screens, not `pg_proc`. Q3 was therefore
+open, not closed, and the gate would have merged a PRD with a binding CS ruling unfulfilled — with
+every artifact around the hole present and correct, which is exactly what makes this class of gap
+survive a review.
+
+Closed on the procurement page: a fourth tab, **Input VAT**, with a From/To period filter, one row
+per month per supplier (POs, subtotal ex-VAT, discount, recoverable VAT, grand total, and a count of
+manual VAT overrides), and a footer total. It reads `get_input_vat_report` and does no VAT
+arithmetic of its own — C-6, and the §2 lesson that client-side arithmetic is how this problem was
+created in the first place.
+
+The tab-visibility guard had to change with it. The PO table was gated on `tab !== "demand"`, which
+would have rendered the order list underneath the new report. Replaced with an explicit
+`isPOListTab = tab === "pending" || tab === "all"`, so a fifth tab later cannot reintroduce the same
+bug by omission.
+
+### T12 — the report against real POs
+
+Run as a `DO` block that writes, measures, then `RAISE`s so the transaction unwinds. Verified after:
+`SELECT count(*) FROM purchase_order_totals` → **0**. Production still carries no totals rows.
+
+| measure                                    | value                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| rows returned                               | 2 — one per supplier, both in `2026-08`                          |
+| Merich Global Wholesalers (PO-2026-9260)   | 1 PO, subtotal 254.77, VAT **12.74**, grand 267.51, overrides 0  |
+| Union Coop (PO-2026-9400), VAT forced to 0 | 1 PO, subtotal 1075.65, VAT **0.00**, grand 1075.65, overrides 1 |
+| footer total recoverable input VAT          | **12.74 AED**                                                    |
+| override warning on the zero-VAT PO         | `vat_override_warning`, auto would have been 53.78 (dev 53.78)   |
+
+The override count is the column that earns its place: a period whose VAT was hand-typed is a period
+finance should look at before filing, and the report says so without anyone having to ask.
+
+### Verify gates re-run after the change
+
+| gate               | result                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit` | clean, exit 0                                                                        |
+| `npm run build`    | exit 0                                                                               |
+| `npm run lint`     | 148 problems (98 errors, 50 warnings) — **byte-identical to the `main` baseline**    |
+
+The lint number was measured, not assumed: `main` was checked out into a throwaway worktree with
+`node_modules` symlinked and linted independently. It reports the same 148/98/50. Every finding in a
+PRD-003 file (`set-state-in-effect` on the page components, one unused `today`) is present on `main`
+at the same site. PRD-003 adds no lint debt.

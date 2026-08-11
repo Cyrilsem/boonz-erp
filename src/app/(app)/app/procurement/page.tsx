@@ -87,7 +87,22 @@ interface POAddition {
   boonz_products: { boonz_product_name: string };
 }
 
-type TabFilter = "pending" | "all" | "demand";
+// PRD-003 (CS ruling Q3 = YES): "vat" is the recoverable input-VAT report for
+// finance — SUM(vat_aed) by month by supplier, read from get_input_vat_report.
+type TabFilter = "pending" | "all" | "demand" | "vat";
+
+// PRD-003 — one row of get_input_vat_report(p_date_from, p_date_to).
+type InputVatRow = {
+  period_month: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  po_count: number;
+  subtotal_ex_vat_aed: number | null;
+  discount_aed: number | null;
+  vat_aed: number | null;
+  grand_total_aed: number | null;
+  overrides: number;
+};
 
 // PRD-103b: a PO is fully cancelled when every line is not_purchased and
 // nothing was received. Such POs leave Pending and show as "Cancelled" in
@@ -272,6 +287,13 @@ export default function ProcurementPage() {
   // Field additions state
   const [pendingAdditionsCount, setPendingAdditionsCount] = useState(0);
   const [poAdditions, setPoAdditions] = useState<POAddition[]>([]);
+
+  // PRD-003 (CS ruling Q3) — recoverable input-VAT report state.
+  const [vatRows, setVatRows] = useState<InputVatRow[]>([]);
+  const [vatLoading, setVatLoading] = useState(false);
+  const [vatError, setVatError] = useState<string | null>(null);
+  const [vatFrom, setVatFrom] = useState("");
+  const [vatTo, setVatTo] = useState("");
 
   // PRD-003 — document totals for the open PO, plus the manager edit form.
   const [poTotals, setPoTotals] = useState<PODocumentTotals | null>(null);
@@ -497,9 +519,31 @@ export default function ProcurementPage() {
     [demandSource, loadDemand, loadPodDemand],
   );
 
+  // PRD-003 §11 Q3 (CS ruling: YES, in v1). Recoverable input VAT by month by
+  // supplier. Read straight from the Article 16 canonical object — the FE does
+  // no VAT arithmetic of its own, which is the whole point of this PRD.
+  const loadInputVatReport = useCallback(async (from: string, to: string) => {
+    setVatLoading(true);
+    setVatError(null);
+    const supabase = createClient();
+    const { data, error: err } = await supabase.rpc("get_input_vat_report", {
+      p_date_from: from || null,
+      p_date_to: to || null,
+    });
+    setVatLoading(false);
+    if (err) {
+      console.error("[Procurement] get_input_vat_report error:", err);
+      setVatError(err.message);
+      setVatRows([]);
+      return;
+    }
+    setVatRows((data ?? []) as InputVatRow[]);
+  }, []);
+
   const handleTabChange = useCallback(
     (t: TabFilter) => {
       setTab(t);
+      if (t === "vat") loadInputVatReport(vatFrom, vatTo);
       if (t === "demand") {
         if (!demandLoaded) loadDemand(demandSource);
         if (!podLoaded) loadPodDemand(demandSource);
@@ -527,6 +571,9 @@ export default function ProcurementPage() {
       loadOpenPoLines,
       suppliers.length,
       demandSource,
+      loadInputVatReport,
+      vatFrom,
+      vatTo,
     ],
   );
 
@@ -1608,6 +1655,10 @@ export default function ProcurementPage() {
     setTimeout(() => setAdditionToast(null), 4000);
   };
 
+  // PRD-003: "pending" and "all" render the PO table; "demand" and the new
+  // "vat" report tab each render their own view instead.
+  const isPOListTab = tab === "pending" || tab === "all";
+
   const displayed = useMemo(() => {
     let result = allOrders;
     if (tab === "pending")
@@ -1719,7 +1770,7 @@ export default function ProcurementPage() {
         className="flex items-center gap-3 flex-wrap mb-6"
         style={{ borderBottom: "1px solid #e8e4de", paddingBottom: 16 }}
       >
-        {(["pending", "all", "demand"] as const).map((t) => (
+        {(["pending", "all", "demand", "vat"] as const).map((t) => (
           <button
             key={t}
             onClick={() => handleTabChange(t)}
@@ -1739,10 +1790,12 @@ export default function ProcurementPage() {
               ? `Pending (${pendingCount})`
               : t === "all"
                 ? "All Orders"
-                : "⚡ Demand"}
+                : t === "demand"
+                  ? "⚡ Demand"
+                  : "Input VAT"}
           </button>
         ))}
-        {tab !== "demand" && (
+        {isPOListTab && (
           <>
             <input
               type="text"
@@ -3224,8 +3277,292 @@ export default function ProcurementPage() {
         </>
       )}
 
+      {/* ── PRD-003 Q3: recoverable input-VAT report ──────────────────────────
+          SUM(vat_aed) by month by supplier, straight from get_input_vat_report.
+          This is a RECEIVABLE, not a cost: nothing here touches
+          price_per_unit_aed, warehouse_inventory or any Statement of Account
+          (PRD-003 I-2). Period is bucketed on the supplier invoice date, or the
+          capture date when the supplier gave no dated invoice. */}
+      {tab === "vat" && (
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+              gap: 10,
+              flexWrap: "wrap",
+              marginBottom: 14,
+            }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  color: "#6b6860",
+                  marginBottom: 3,
+                }}
+              >
+                From
+              </label>
+              <input
+                type="date"
+                value={vatFrom}
+                onChange={(e) => setVatFrom(e.target.value)}
+                style={{
+                  border: "1px solid #e8e4de",
+                  borderRadius: 8,
+                  padding: "6px 10px",
+                  fontSize: 13,
+                  background: "white",
+                  color: "#0a0a0a",
+                }}
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 11,
+                  color: "#6b6860",
+                  marginBottom: 3,
+                }}
+              >
+                To
+              </label>
+              <input
+                type="date"
+                value={vatTo}
+                onChange={(e) => setVatTo(e.target.value)}
+                style={{
+                  border: "1px solid #e8e4de",
+                  borderRadius: 8,
+                  padding: "6px 10px",
+                  fontSize: 13,
+                  background: "white",
+                  color: "#0a0a0a",
+                }}
+              />
+            </div>
+            <button
+              onClick={() => loadInputVatReport(vatFrom, vatTo)}
+              disabled={vatLoading}
+              style={{
+                border: "1px solid #e8e4de",
+                borderRadius: 8,
+                padding: "7px 14px",
+                fontSize: 13,
+                fontWeight: 500,
+                background: "white",
+                color: "#6b6860",
+                cursor: vatLoading ? "not-allowed" : "pointer",
+              }}
+            >
+              {vatLoading ? "Loading…" : "↻ Run report"}
+            </button>
+            {(vatFrom || vatTo) && (
+              <button
+                onClick={() => {
+                  setVatFrom("");
+                  setVatTo("");
+                  loadInputVatReport("", "");
+                }}
+                style={{
+                  border: "none",
+                  background: "none",
+                  fontSize: 12,
+                  color: "#6b6860",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                  paddingBottom: 8,
+                }}
+              >
+                clear dates
+              </button>
+            )}
+          </div>
+
+          {vatError && (
+            <div
+              style={{
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                borderRadius: 8,
+                padding: "10px 14px",
+                fontSize: 13,
+                color: "#b91c1c",
+                marginBottom: 14,
+              }}
+            >
+              {vatError}
+            </div>
+          )}
+
+          <div
+            style={{
+              background: "white",
+              border: "1px solid #e8e4de",
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            <table className="w-full text-sm">
+              <thead>
+                <tr style={{ borderBottom: "1px solid #e8e4de" }}>
+                  {[
+                    "Month",
+                    "Supplier",
+                    "POs",
+                    "Subtotal ex-VAT",
+                    "Discount",
+                    "Recoverable VAT",
+                    "Grand Total",
+                    "VAT overrides",
+                  ].map((h, hi) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: hi <= 1 ? "left" : "right",
+                        padding: "10px 14px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#6b6860",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {vatLoading && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      style={{
+                        padding: "20px 14px",
+                        fontSize: 13,
+                        color: "#6b6860",
+                      }}
+                    >
+                      Loading…
+                    </td>
+                  </tr>
+                )}
+                {!vatLoading && vatRows.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      style={{
+                        padding: "20px 14px",
+                        fontSize: 13,
+                        color: "#6b6860",
+                      }}
+                    >
+                      No document totals captured in this period. PRD-003 does
+                      not backfill history — VAT appears here from the first PO
+                      received through the new totals card onward.
+                    </td>
+                  </tr>
+                )}
+                {!vatLoading &&
+                  vatRows.map((r, ri) => {
+                    const num = (x: number | null) => Number(x ?? 0);
+                    const cell = (
+                      v: string,
+                      align: "left" | "right" = "right",
+                      bold = false,
+                    ) => (
+                      <td
+                        style={{
+                          padding: "10px 14px",
+                          fontSize: 13,
+                          textAlign: align,
+                          color: "#0a0a0a",
+                          fontWeight: bold ? 600 : 400,
+                        }}
+                      >
+                        {v}
+                      </td>
+                    );
+                    return (
+                      <tr
+                        key={`${r.period_month}-${r.supplier_id ?? "none"}-${ri}`}
+                        style={{ borderBottom: "1px solid #f3f0ec" }}
+                      >
+                        {cell(String(r.period_month).slice(0, 7), "left")}
+                        {cell(r.supplier_name ?? "— unassigned —", "left")}
+                        {cell(String(r.po_count))}
+                        {cell(num(r.subtotal_ex_vat_aed).toFixed(2))}
+                        {cell(num(r.discount_aed).toFixed(2))}
+                        {cell(num(r.vat_aed).toFixed(2), "right", true)}
+                        {cell(num(r.grand_total_aed).toFixed(2))}
+                        {cell(
+                          Number(r.overrides) > 0 ? String(r.overrides) : "—",
+                        )}
+                      </tr>
+                    );
+                  })}
+              </tbody>
+              {!vatLoading && vatRows.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop: "1px solid #e8e4de" }}>
+                    <td
+                      colSpan={5}
+                      style={{
+                        padding: "10px 14px",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#6b6860",
+                      }}
+                    >
+                      Total recoverable input VAT
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 14px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        textAlign: "right",
+                        color: "#0a0a0a",
+                      }}
+                    >
+                      {vatRows
+                        .reduce((s, r) => s + Number(r.vat_aed ?? 0), 0)
+                        .toFixed(2)}{" "}
+                      AED
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 14px",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        textAlign: "right",
+                        color: "#0a0a0a",
+                      }}
+                    >
+                      {vatRows
+                        .reduce((s, r) => s + Number(r.grand_total_aed ?? 0), 0)
+                        .toFixed(2)}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+          <p style={{ marginTop: 10, fontSize: 11, color: "#6b6860" }}>
+            Recoverable input VAT is a receivable, never an inventory cost. It
+            does not reach warehouse valuation, COGS or any Statement of
+            Account.
+          </p>
+        </div>
+      )}
+
       {/* Table */}
-      {tab !== "demand" && (
+      {isPOListTab && (
         <div
           style={{
             background: "white",
