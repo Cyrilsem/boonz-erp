@@ -12,6 +12,7 @@ import { EditPOLineDrawer } from "../../components/EditPOLineDrawer";
 import { CancelPOLineDrawer } from "../../components/CancelPOLineDrawer";
 import { CancelPODrawer } from "../../components/CancelPODrawer";
 import { POEditHistoryPill } from "../../components/POEditHistoryPill";
+import type { PODocumentTotals } from "@/types/po-document-totals";
 
 const EDIT_ROLES = new Set([
   "warehouse",
@@ -114,6 +115,13 @@ export default function OrdersPage() {
   const [expandedPoId, setExpandedPoId] = useState<string | null>(null);
   const [expandedLines, setExpandedLines] = useState<POLineDetail[]>([]);
   const [expandLoading, setExpandLoading] = useState(false);
+
+  // PRD-003: the document totals block for the expanded PO. NULL until loaded;
+  // has_totals=false means this PO has no totals row and renders subtotal-only,
+  // exactly as it did before this PRD (invariant I-4).
+  const [expandedTotals, setExpandedTotals] = useState<PODocumentTotals | null>(
+    null,
+  );
 
   const fetchOrders = useCallback(async () => {
     const supabase = createClient();
@@ -284,6 +292,20 @@ export default function OrdersPage() {
         };
       });
       setExpandedLines(mapped);
+    }
+
+    // PRD-003: one call for the whole totals block, read from the canonical
+    // object. A PO with no totals row comes back has_totals=false and the
+    // footer falls through to the subtotal-only render (invariant I-4).
+    const { data: totalsData, error: totalsErr } = await supabase.rpc(
+      "get_po_document_totals",
+      { p_po_id: poId },
+    );
+    if (totalsErr) {
+      console.error("[Orders] get_po_document_totals error:", totalsErr);
+      setExpandedTotals(null);
+    } else {
+      setExpandedTotals(totalsData as PODocumentTotals);
     }
 
     setExpandLoading(false);
@@ -595,23 +617,153 @@ export default function OrdersPage() {
                                 );
                               })}
                             </tbody>
+                            {/* PRD-003 §6.2: the full document breakdown when
+                                a totals row exists, the single Total line when
+                                it does not. Every figure comes from
+                                v_po_document_totals — the browser does no
+                                arithmetic here. */}
                             <tfoot>
-                              <tr className="border-t border-neutral-200 font-medium dark:border-neutral-700">
-                                <td className="pt-1.5" colSpan={3}>
-                                  Total
-                                </td>
-                                <td className="pt-1.5 text-right">
-                                  {expandedLines
-                                    .reduce(
-                                      (sum, l) =>
-                                        sum + (l.total_price_aed ?? 0),
-                                      0,
-                                    )
-                                    .toFixed(2)}{" "}
-                                  AED
-                                </td>
-                                <td colSpan={2} />
-                              </tr>
+                              {(() => {
+                                const t = expandedTotals;
+                                const money = (n: number | null | undefined) =>
+                                  n == null
+                                    ? "—"
+                                    : `${Number(n).toFixed(2)} AED`;
+                                const row = (
+                                  label: React.ReactNode,
+                                  value: React.ReactNode,
+                                  bold = false,
+                                ) => (
+                                  <tr className={bold ? "font-semibold" : ""}>
+                                    <td className="pt-1" colSpan={3}>
+                                      {label}
+                                    </td>
+                                    <td className="pt-1 text-right">{value}</td>
+                                    <td colSpan={2} />
+                                  </tr>
+                                );
+
+                                if (!t?.has_totals) {
+                                  return (
+                                    <tr className="border-t border-neutral-200 font-medium dark:border-neutral-700">
+                                      <td className="pt-1.5" colSpan={3}>
+                                        Total
+                                      </td>
+                                      <td className="pt-1.5 text-right">
+                                        {money(
+                                          t?.live_subtotal_ex_vat_aed ??
+                                            expandedLines.reduce(
+                                              (sum, l) =>
+                                                sum + (l.total_price_aed ?? 0),
+                                              0,
+                                            ),
+                                        )}
+                                      </td>
+                                      <td colSpan={2} />
+                                    </tr>
+                                  );
+                                }
+
+                                const v = t.invoice_variance_aed;
+                                return (
+                                  <>
+                                    <tr className="border-t border-neutral-200 dark:border-neutral-700">
+                                      <td className="pt-1.5" colSpan={3}>
+                                        Subtotal
+                                      </td>
+                                      <td className="pt-1.5 text-right">
+                                        {money(t.subtotal_ex_vat_aed)}
+                                      </td>
+                                      <td colSpan={2} />
+                                    </tr>
+                                    {Number(t.discount_aed) > 0 &&
+                                      row(
+                                        `Discount${t.discount_label ? ` (${t.discount_label})` : ""}`,
+                                        `− ${money(t.discount_aed)}`,
+                                      )}
+                                    {row(
+                                      <>
+                                        VAT (
+                                        {(
+                                          Number(t.vat_rate ?? 0) * 100
+                                        ).toFixed(0)}
+                                        %)
+                                        {t.vat_is_override && (
+                                          <span className="ml-1 text-[10px] text-amber-600">
+                                            edited
+                                          </span>
+                                        )}
+                                      </>,
+                                      money(t.vat_aed),
+                                    )}
+                                    {Number(t.other_adjustment_aed) !== 0 &&
+                                      row(
+                                        `Adjustment${t.other_adjustment_label ? ` (${t.other_adjustment_label})` : ""}`,
+                                        money(t.other_adjustment_aed),
+                                      )}
+                                    <tr className="border-t border-neutral-200 font-semibold dark:border-neutral-700">
+                                      <td className="pt-1.5" colSpan={3}>
+                                        Grand Total
+                                      </td>
+                                      <td className="pt-1.5 text-right">
+                                        {money(t.grand_total_aed)}
+                                      </td>
+                                      <td colSpan={2} />
+                                    </tr>
+                                    {v !== null && v !== undefined && (
+                                      <tr>
+                                        <td colSpan={6} className="pt-1.5">
+                                          <span
+                                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                              Number(v) === 0
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
+                                                : Math.abs(Number(v)) <= 0.1
+                                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                                                  : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                                            }`}
+                                          >
+                                            {Number(v) === 0
+                                              ? "✓ matches invoice"
+                                              : `${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(2)} vs invoice`}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    {t.totals_stale && (
+                                      <tr>
+                                        <td colSpan={6} className="pt-1.5">
+                                          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                                            ⚠ totals out of date — lines changed
+                                            after they were captured (live{" "}
+                                            {money(t.live_subtotal_ex_vat_aed)})
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    {Number(t.live_unmirrored_additions) >
+                                      0 && (
+                                      <tr>
+                                        <td colSpan={6} className="pt-1.5">
+                                          <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                                            includes{" "}
+                                            {money(t.live_additions_ex_vat_aed)}{" "}
+                                            from {t.live_unmirrored_additions}{" "}
+                                            field addition
+                                            {Number(
+                                              t.live_unmirrored_additions,
+                                            ) === 1
+                                              ? ""
+                                              : "s"}{" "}
+                                            with no PO line
+                                            {t.additions_price_suspect &&
+                                              " — price looks like a pack total"}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </tfoot>
                           </table>
 

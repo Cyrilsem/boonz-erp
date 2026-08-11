@@ -5343,3 +5343,33 @@ adjudicated from `golden.runs`. Independent post-run probe: all five status popu
 `write_audit_log` count still 0 — the exercise leaves nothing behind.
 ⛔ **Triggers are not retroactive.** The 83 existing proposal rows have no audit history and never
 will; Article 8 coverage for this family begins here.
+
+## PRD-003 (2026-08-11) - PO document totals, VAT, and the additions mirror
+
+All five are additive and forward-only (Article 12). Repo filenames match the applied
+`supabase_migrations.schema_migrations.version` exactly.
+
+| version          | name                                                | what it does                                                                                                                                                                             |
+| ---------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260811201329` | `prd003_po_document_totals_vat`                     | `purchase_order_totals` + RLS + S-308 revoke; `purchase_orders.source_addition_id` + partial UNIQUE; `v_po_document_totals`; **`v_daily_flow_reconciliation` double-count patch (C-3)**. |
+| `20260811201443` | `prd003_po_totals_rpcs_and_addition_mirror`         | `set_po_document_totals`, `get_po_document_totals`, `get_input_vat_report`, `_mirror_po_addition_line_v1`; anon + PUBLIC revokes.                                                        |
+| `20260811201550` | `prd003_wire_addition_mirror_into_receive_paths`    | `receive_purchase_order` and `receive_purchase_order_addition` rebuilt from live bodies with one added statement each.                                                                   |
+| `20260811201626` | `prd003_revoke_write_verbs_on_totals_view`          | S-308 follow-through on the VIEW - the post-image showed `authenticated=arwdDxtm` on it.                                                                                                 |
+| `20260811202600` | `prd003_procurement_events_admit_totals_and_mirror` | widens the `event_type` CHECK by three values.                                                                                                                                           |
+
+⚠️ **S-308 APPLIES TO VIEWS, NOT JUST TABLES, AND THAT COST AN EXTRA MIGRATION.** The default
+privilege hands `authenticated` the full verb set on **every relation** created in `public`. After
+`20260811201329` the ACL read was
+`v_po_document_totals: {postgres=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,service_role=arwdDxtm/postgres}`.
+`GRANT SELECT` does not take the other verbs away and `REVOKE ... FROM anon` does not touch what
+`authenticated` holds. The view is non-updatable so a write would have failed anyway - but
+"it would fail anyway" is luck, not posture. Post-image after `20260811201626`:
+`purchase_order_totals: authenticated=rm/postgres` (SELECT + MAINTAIN only), INSERT/UPDATE/DELETE all
+`has_table_privilege = false`.
+
+⛔ **THE PRE-MERGE DRY-RUN IS WHAT CAUGHT THE CHECK-CONSTRAINT BREAK.** T1 was run as a DO block that
+performs every write, measures every assertion, then `RAISE`s so the whole transaction unwinds and
+production is left untouched (the PRD-016B pattern). The first run failed with `23514` on
+`procurement_events_event_type_check`. Without that rehearsal the failure would have landed on the
+first real receive after deploy. Verified afterwards: `purchase_order_totals` row count **0** - the
+rehearsal left nothing behind.

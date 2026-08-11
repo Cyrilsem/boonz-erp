@@ -277,3 +277,42 @@ Low risk: additive, no writes to protected entities, no path into refill/packing
 - **Q2.** Should the variance ever be _blocking_ for a manager-level receipt (as opposed to advisory for warehouse staff)? Current spec: never blocking.
 - **Q3.** Once VAT is captured, a recoverable input-VAT report by period is a ~1 hour add (`SUM(vat_aed)` by month by supplier). Worth including in v1 for finance?
 - **Q4.** Separate from this PRD: should the receiving screen capture **unit price** rather than **total paid**? The back-computation (`107.35 / 16 = 6.7094`) is the root cause of the fils drift in §2.1 and will keep generating variances.
+
+---
+
+## 12. AMENDMENT 2026-08-11 — CS approval, Q-rulings, and scope addition (binding)
+
+**CS approved the build 2026-08-11.** Rulings on §11:
+
+- **Q1:** Stays procurement **PRD-003** (folder-local sequence). Global sequence is unrelated.
+- **Q2:** Variance chip stays **advisory, never blocking** — at every role level.
+- **Q3:** **YES** — include the recoverable input-VAT report (SUM(vat_aed) by month by supplier) in v1.
+- **Q4:** **YES — in scope.** The receiving screen captures **unit price ex-VAT as printed on the bill** (e.g. Union Coop bill shows QTY / UNIT PRICE / VAT / AMT per line — capture UNIT PRICE), and the line total is computed, not typed. Kills the back-compute fils drift at the root.
+
+**New scope item (live incident 2026-08-11, PO-2026-9400 Union Coop):** the FE "add product to
+existing PO" writes **`po_additions`** (side table) and `receive_purchase_order_addition` credits
+warehouse_inventory — but no `purchase_orders` line is ever created, so the PO card total and all
+cost reads silently exclude additions. Fix in this PRD: on addition receive, mirror a real
+`purchase_orders` line (same po_number/po_id/supplier, received state) atomically, and
+`v_po_document_totals` must count additions until backfilled. The 2026-08-11 incident also showed
+the team typing the **8-unit total into the unit-price field** (74 / 76.60 as "unit" prices) —
+the Q4 capture redesign plus a sanity chip (unit price > 3x product's trailing median → warn)
+prevents the recurrence. A supplier **gift/bonus units** case exists (8 received, 1 billed):
+received_qty may exceed billed qty; cost = actual cash only. Never inflate lines to match invoices.
+
+**Live-data warning for the builder:** existing `purchase_orders` line prices are in practice
+**VAT-INCLUSIVE** (entered from bill AMT — e.g. PO-2026-9400 Popcorn Butter 2.95 = 32.45/11 incl
+VAT vs bill ex-VAT unit 2.81). The §"Hard invariant" (lines ex-VAT forever) applies to the NEW
+capture path going forward; do NOT rewrite historical lines (no backfill), but the totals view
+must be explicit about which regime a PO's lines are in (regime flag by capture date or presence
+of a purchase_order_totals row).
+
+## 13. Execution notes for Claude Code
+
+Single-session task, branch `prd-003-po-document-totals`. Order: Dara schema paragraph → Cody
+constitutional review paragraph (both written into the report; conditions NOT waivable) →
+migration → RPCs → FE receiving card + PO card footer → T11 regression (warehouse_inventory cost
+= ex-VAT unit) → golden run_all green → build green → merge to main → production verified.
+Additive migrations only, own migration files only; do not touch other PRDs' files. Append
+progress to `docs/prds/procurement/PRD-003-REPORT.md`; final line exactly `## PRD-003 DONE`
+(or `## PRD-003 BLOCKED` with the verdict).

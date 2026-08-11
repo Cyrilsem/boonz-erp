@@ -3014,3 +3014,49 @@ builder. Left untouched deliberately rather than risk a 53-assertion fixture ban
 to authoritative machines would be the obvious symmetry and would deadlock the cutover on its own
 evidence: with 0 clusters flipped, v3 would plan nothing, `engine_forecast_error_v3` would stop
 accruing, and no cluster could ever clear the readiness gate.
+
+## PRD-003 (2026-08-11) - PO document totals + the additions mirror
+
+Migrations `20260811201329`, `20260811201443`, `20260811201550`, `20260811201626`, `20260811202600`.
+Cody verdict ⚠️ approve with revisions, 9 binding conditions, all satisfied. Articles 1, 2, 3 + S-308,
+4, 6, 8, 12, 16.
+
+| function                                                                                                  | writes                                                                                                           | notes                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_po_document_totals(text,numeric,text,numeric,numeric,numeric,text,text,date,numeric,text,text,text)` | `purchase_order_totals` (UPSERT), `procurement_events` (`po_totals_set` / `po_totals_edited`), `write_audit_log` | ✅ SOLE canonical writer on `purchase_order_totals`. SECURITY DEFINER, `search_path=public,pg_temp`, role gate `warehouse / operator_admin / superadmin / manager`. Reason ≥ 10 chars on edit. ACL `{postgres=X,authenticated=X,service_role=X}`. ⛔ **Writes NOTHING to `purchase_orders`** - VAT must never reach the ex-VAT cost spine (I-1/I-2). |
+| `get_po_document_totals(text)`                                                                            | none                                                                                                             | ✅ SECURITY **INVOKER**, STABLE. Thin wrapper over `v_po_document_totals`. Returns `{po_id, has_totals:false}` for an unknown PO rather than NULL, so the FE renders subtotal-only without a null check.                                                                                                                                             |
+| `get_input_vat_report(date,date)`                                                                         | none                                                                                                             | ✅ SECURITY **INVOKER**, STABLE. CS ruling Q3. `SUM(vat_aed)` by month by supplier. Supplier resolved by `DISTINCT ON (po_id)` because `purchase_orders` is line-grain.                                                                                                                                                                              |
+| `_mirror_po_addition_line_v1(uuid,uuid)`                                                                  | `purchase_orders` (INSERT), `procurement_events` (`po_addition_line_mirrored`), `write_audit_log`                | ✅ **INTERNAL definer-only.** ACL exactly `{postgres=X,service_role=X}` - no `anon`, no `authenticated`. Same shape as `_resolve_open_walkin_po_v3`. Idempotent via the partial UNIQUE on `purchase_orders.source_addition_id`.                                                                                                                      |
+
+⛔ **THE "TWO INSERT WRITERS IS THE CEILING" RULING (PRD-022 D3b) STILL HOLDS, AND THAT IS WHY THE
+MIRROR IS SHAPED THIS WAY.** `create_purchase_order` and `add_purchase_order_lines` remain the only
+two **caller-reachable** INSERT paths on `purchase_orders`. `_mirror_po_addition_line_v1` is reached
+only as definer, from `receive_purchase_order` and `receive_purchase_order_addition`, both of which
+are already canonical writers on that table. A future migration that grants it to `authenticated`
+breaks the ceiling - do not.
+
+⛔ **C-3, THE ONE THAT WOULD HAVE SHIPPED A BROKEN CONSERVATION LAW.**
+`v_daily_flow_reconciliation` computes `net_wh_flow = procurement_in_po + procurement_in_additions +
+wh_in_from_returns - wh_out_to_packs`, and the first two terms are **added**. A mirrored addition
+carries `received_qty` on its new line AND still exists in `po_additions`, so without the two
+`NOT EXISTS (… source_addition_id …)` clauses added by migration `20260811201329`, every mirrored
+addition would overstate warehouse intake by exactly its quantity, per product, per day, forever.
+Measured on a live dry-run: 10 units received gives **+10** patched, **+20** unpatched. Any future
+consumer that sums both sides must carry the same exclusion.
+
+⛔ **`purchase_orders` STILL HAS NO `audit_log_write` TRIGGER.** The universal audit (Article 8) does
+not cover it and never has, across all 9 DEFINER writers on it now. Every new writer must insert into
+`procurement_events` AND `write_audit_log` by hand. `po_addition_line_mirrored` is deliberately a
+**distinct event type from `goods_received`**: the mirror creates NO warehouse batch and must never
+be read as a second warehouse credit (Article 6 - the D-E lesson from `receive_spot_fill_po_v3`).
+
+⚠️ **`receive_purchase_order` and `receive_purchase_order_addition` were rebuilt from their live
+bodies** with exactly one statement added each (the mirror PERFORM, immediately after the
+`po_additions` status flip). No `warehouse_inventory` statement was added, moved or removed.
+`receive_purchase_order` gained `additions_mirrored` in its return jsonb and in the `goods_received`
+payload; `receive_purchase_order_addition` gained `mirrored_po_line_id`.
+
+⚠️ **`procurement_events.event_type` is a CLOSED CHECK enum** and it bit during the pre-merge dry
+run: the first `set_po_document_totals` call raised `23514`. Migration `20260811202600` widens it by
+three values. Any future domain event on this table needs the same widening or it fails at runtime,
+not at deploy time.
