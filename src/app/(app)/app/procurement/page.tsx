@@ -88,10 +88,10 @@ interface POAddition {
 }
 
 // PRD-003 (CS ruling Q3 = YES): "vat" is the recoverable input-VAT report for
-// finance — SUM(vat_aed) by month by supplier, read from get_input_vat_report.
+// finance - SUM(vat_aed) by month by supplier, read from get_input_vat_report.
 type TabFilter = "pending" | "all" | "demand" | "vat";
 
-// PRD-003 — one row of get_input_vat_report(p_date_from, p_date_to).
+// PRD-003 - one row of get_input_vat_report(p_date_from, p_date_to).
 type InputVatRow = {
   period_month: string;
   supplier_id: string | null;
@@ -288,14 +288,14 @@ export default function ProcurementPage() {
   const [pendingAdditionsCount, setPendingAdditionsCount] = useState(0);
   const [poAdditions, setPoAdditions] = useState<POAddition[]>([]);
 
-  // PRD-003 (CS ruling Q3) — recoverable input-VAT report state.
+  // PRD-003 (CS ruling Q3) - recoverable input-VAT report state.
   const [vatRows, setVatRows] = useState<InputVatRow[]>([]);
   const [vatLoading, setVatLoading] = useState(false);
   const [vatError, setVatError] = useState<string | null>(null);
   const [vatFrom, setVatFrom] = useState("");
   const [vatTo, setVatTo] = useState("");
 
-  // PRD-003 — document totals for the open PO, plus the manager edit form.
+  // PRD-003 - document totals for the open PO, plus the manager edit form.
   const [poTotals, setPoTotals] = useState<PODocumentTotals | null>(null);
   const [editingTotals, setEditingTotals] = useState(false);
   const [editDiscount, setEditDiscount] = useState<number | null>(null);
@@ -520,7 +520,7 @@ export default function ProcurementPage() {
   );
 
   // PRD-003 §11 Q3 (CS ruling: YES, in v1). Recoverable input VAT by month by
-  // supplier. Read straight from the Article 16 canonical object — the FE does
+  // supplier. Read straight from the Article 16 canonical object - the FE does
   // no VAT arithmetic of its own, which is the whole point of this PRD.
   const loadInputVatReport = useCallback(async (from: string, to: string) => {
     setVatLoading(true);
@@ -708,7 +708,7 @@ export default function ProcurementPage() {
 
   // PRD-003 §6.3: manager-role post-receipt correction. Routes to
   // set_po_document_totals with a reason (>= 10 chars, same rule as
-  // edit_purchase_order_line). No direct table write — Article 3.
+  // edit_purchase_order_line). No direct table write - Article 3.
   const saveTotalsEdit = useCallback(async () => {
     if (!selectedPO) return;
     if (totalsReason.trim().length < 10) {
@@ -3462,7 +3462,7 @@ export default function ProcurementPage() {
                       }}
                     >
                       No document totals captured in this period. PRD-003 does
-                      not backfill history — VAT appears here from the first PO
+                      not backfill history - VAT appears here from the first PO
                       received through the new totals card onward.
                     </td>
                   </tr>
@@ -3493,14 +3493,14 @@ export default function ProcurementPage() {
                         style={{ borderBottom: "1px solid #f3f0ec" }}
                       >
                         {cell(String(r.period_month).slice(0, 7), "left")}
-                        {cell(r.supplier_name ?? "— unassigned —", "left")}
+                        {cell(r.supplier_name ?? " - unassigned - ", "left")}
                         {cell(String(r.po_count))}
                         {cell(num(r.subtotal_ex_vat_aed).toFixed(2))}
                         {cell(num(r.discount_aed).toFixed(2))}
                         {cell(num(r.vat_aed).toFixed(2), "right", true)}
                         {cell(num(r.grand_total_aed).toFixed(2))}
                         {cell(
-                          Number(r.overrides) > 0 ? String(r.overrides) : "—",
+                          Number(r.overrides) > 0 ? String(r.overrides) : " - ",
                         )}
                       </tr>
                     );
@@ -4255,7 +4255,7 @@ export default function ProcurementPage() {
                                 color: "#92400e",
                               }}
                             >
-                              ⚠ Totals out of date — lines changed after capture
+                              ⚠ Totals out of date - lines changed after capture
                               (live {n(t.live_subtotal_ex_vat_aed).toFixed(2)}{" "}
                               AED)
                             </div>
@@ -4276,7 +4276,7 @@ export default function ProcurementPage() {
                                 : "s"}{" "}
                               with no PO line
                               {t.additions_price_suspect &&
-                                " — price looks like a pack total, not a unit price"}
+                                " - price looks like a pack total, not a unit price"}
                             </div>
                           )}
                           {t.line_price_regime === "unknown" && (
@@ -4287,7 +4287,7 @@ export default function ProcurementPage() {
                                 color: "#6b6860",
                               }}
                             >
-                              Line-price regime unknown — these lines predate
+                              Line-price regime unknown - these lines predate
                               ex-VAT capture and may be VAT-inclusive.
                             </div>
                           )}
@@ -4408,7 +4408,7 @@ export default function ProcurementPage() {
                           />
                         </label>
                         <label style={{ fontSize: 11, color: "#6b6860" }}>
-                          VAT (AED) — blank = auto @ 5%
+                          VAT (AED) - blank = auto @ 5%
                           <input
                             type="number"
                             step="0.01"

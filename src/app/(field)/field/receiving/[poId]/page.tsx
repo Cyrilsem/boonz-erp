@@ -84,7 +84,7 @@ function generateKey(): string {
   return Math.random().toString(36).slice(2);
 }
 
-// ── PRD-003 §12 — supplier gift / bonus units ────────────────────────────────
+// ── PRD-003 §12 - supplier gift / bonus units ────────────────────────────────
 // A supplier can deliver 8 and bill 1. received_qty may exceed the billed qty,
 // and the ruling is: cost = the actual cash, never inflate a line to match the
 // paper.
@@ -94,11 +94,11 @@ function generateKey(): string {
 // only honest way to hold a line's cost at the cash actually paid is to submit
 // the CASH-EFFECTIVE unit price: the billed cash spread over every unit that
 // physically landed. The warehouse is still credited with all 8 units, the money
-// stays at what was paid, and the free units dilute unit cost — the standard
+// stays at what was paid, and the free units dilute unit cost - the standard
 // landed-cost treatment, and the number v_product_landed_cost should see.
 //
-// The alternative the variance chip used to invite — leave the line at 8 × the
-// printed price and net the difference out with a document-level adjustment —
+// The alternative the variance chip used to invite - leave the line at 8 × the
+// printed price and net the difference out with a document-level adjustment -
 // balances the document while leaving 7 units of phantom cost on the ex-VAT
 // spine that feeds COGS and every partner settlement. That is the exact harm
 // T11 exists to prevent, reached by a different door.
@@ -162,13 +162,13 @@ export default function ReceivingDetailPage() {
     Record<string, number | null>
   >({});
 
-  // PRD-003 §12 — units delivered but NOT billed (supplier gift / bonus).
+  // PRD-003 §12 - units delivered but NOT billed (supplier gift / bonus).
   // Keyed by po_line_id. Never blocks anything; when set it dilutes the unit
   // price so the line carries the cash paid, not the printed price × everything
   // that landed.
   const [freeUnits, setFreeUnits] = useState<Record<string, number | null>>({});
 
-  // PRD-003 — document-level totals, submitted AFTER receive_purchase_order
+  // PRD-003 - document-level totals, submitted AFTER receive_purchase_order
   // succeeds. Advisory only: a failure here never invalidates the receipt.
   const [discountAed, setDiscountAed] = useState<number | null>(null);
   const [discountLabel, setDiscountLabel] = useState("");
@@ -562,7 +562,7 @@ export default function ReceivingDetailPage() {
           };
         }
 
-        // PRD-003 Q4: the typed UNIT PRICE wins as-is — no division, so no fils
+        // PRD-003 Q4: the typed UNIT PRICE wins as-is - no division, so no fils
         // drift. Else the PO's ordered unit price stands. The RPC computes the
         // line total as received_qty x price, which is the same arithmetic the
         // supplier's bill does.
@@ -680,7 +680,7 @@ export default function ReceivingDetailPage() {
     }
 
     // PRD-003 §6.1: document totals go in a SECOND call, after the receipt has
-    // landed. If this fails the receipt still stands — a driver at the warehouse
+    // landed. If this fails the receipt still stands - a driver at the warehouse
     // door must not lose a confirmed receipt to a paperwork call. The retry
     // affordance is the totals card, which stays on screen with its error.
     await saveDocumentTotals();
@@ -690,7 +690,7 @@ export default function ReceivingDetailPage() {
     setSubmitting(false);
   }
 
-  // PRD-003 — the totals writer. Never blocks, never raises into the receipt.
+  // PRD-003 - the totals writer. Never blocks, never raises into the receipt.
   async function saveDocumentTotals(): Promise<boolean> {
     setTotalsSaving(true);
     setTotalsError(null);
@@ -710,14 +710,14 @@ export default function ReceivingDetailPage() {
       p_supplier_invoice_total_aed: invoiceTotal,
       p_source: "receiving",
       // PRD-003 §12: lines captured through the Q4 unit-price field are ex-VAT
-      // by construction. Legacy POs stay 'unknown' — see the migration comment.
+      // by construction. Legacy POs stay 'unknown' - see the migration comment.
       p_line_price_regime: "ex_vat",
     });
     setTotalsSaving(false);
     if (totErr) {
       console.error("[Receiving] set_po_document_totals error:", totErr);
       setTotalsError(
-        `Totals not saved: ${totErr.message}. The receipt itself is confirmed — retry the totals below.`,
+        `Totals not saved: ${totErr.message}. The receipt itself is confirmed - retry the totals below.`,
       );
       return false;
     }
@@ -838,7 +838,7 @@ export default function ReceivingDetailPage() {
           {/* PRD-003 §6.1: the retry affordance has to live HERE. This screen
               replaces the form on submit, so an error surfaced on the totals
               card would be unreachable the moment it mattered. The receipt is
-              already in inventory — only the paperwork failed. */}
+              already in inventory - only the paperwork failed. */}
           {totalsError && (
             <div className="mb-4 w-full max-w-sm rounded-lg border border-amber-200 bg-amber-50 p-3 text-left dark:border-amber-900 dark:bg-amber-950/30">
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
@@ -1193,13 +1193,13 @@ export default function ReceivingDetailPage() {
 
                   {/* PRD-003 Q4: enter the UNIT PRICE ex-VAT exactly as printed
                       on the bill (a Union Coop line reads QTY / UNIT PRICE /
-                      VAT / AMT — capture UNIT PRICE). The line total is
+                      VAT / AMT - capture UNIT PRICE). The line total is
                       computed, never typed, so the back-computation that caused
                       the fils drift is gone. Benchmarked against the product's
                       90-day weighted average purchase price. */}
                   <div className="mt-3">
                     <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                      Unit price ex-VAT (AED) — as printed on the bill
+                      Unit price ex-VAT (AED) - as printed on the bill
                       {editedUnitPrices[line.po_line_id] != null && (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
                           edited
@@ -1302,7 +1302,7 @@ export default function ReceivingDetailPage() {
                             <p className="mt-1 rounded bg-sky-50 px-2 py-1 text-xs text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
                               {batchTotal} units received, {billed} billed. Cash
                               stays at {cash.toFixed(2)} AED and the unit cost
-                              recorded is {effUnit.toFixed(4)} AED — the free
+                              recorded is {effUnit.toFixed(4)} AED - the free
                               units dilute cost, they are never free stock at
                               full price.
                             </p>
@@ -1319,11 +1319,11 @@ export default function ReceivingDetailPage() {
                       );
                     })()}
 
-                    {/* PRD-003 §12 — free / bonus units. Advisory and optional:
+                    {/* PRD-003 §12 - free / bonus units. Advisory and optional:
                         left empty (the normal case) nothing changes at all. */}
                     <div className="mt-2">
                       <label className="mb-0.5 block text-xs text-neutral-500">
-                        Free / bonus units — delivered but not billed
+                        Free / bonus units - delivered but not billed
                       </label>
                       <input
                         type="number"
@@ -1615,7 +1615,7 @@ export default function ReceivingDetailPage() {
       {/* ── PRD-003 Invoice Totals ────────────────────────────────────────────
           Everything here is DISPLAY arithmetic. set_po_document_totals
           recomputes the subtotal server-side from the non-cancelled lines and
-          the unmirrored additions and never trusts a client figure — these
+          the unmirrored additions and never trusts a client figure - these
           numbers exist so the operator can see the document reconcile before
           they hit Confirm. */}
       {(hasActionableLines || pendingAdditions.length > 0) &&
@@ -1701,7 +1701,7 @@ export default function ReceivingDetailPage() {
               </div>
               {discount > 0 && !discountLabel.trim() && (
                 <p className="mt-1 text-xs text-red-600">
-                  A discount needs a label — an unexplained adjustment is how
+                  A discount needs a label - an unexplained adjustment is how
                   reconciliation rots.
                 </p>
               )}
@@ -1837,7 +1837,7 @@ export default function ReceivingDetailPage() {
               </div>
 
               {/* Variance chip. PRD-003 CS ruling Q2: ADVISORY AT EVERY ROLE
-                  LEVEL. It never blocks Confirm — receiving must not be gated
+                  LEVEL. It never blocks Confirm - receiving must not be gated
                   on a paperwork mismatch. */}
               {variance !== null && (
                 <div
@@ -1850,19 +1850,19 @@ export default function ReceivingDetailPage() {
                   }`}
                 >
                   {/* §12: a variance ABOVE the paper usually means unbilled
-                      free units, and the repair is to mark them as bonus — not
+                      free units, and the repair is to mark them as bonus - not
                       to net the gap out with an adjustment, which would leave
                       phantom cost sitting on the ex-VAT line prices that feed
                       COGS and every partner settlement. */}
                   {variance === 0
                     ? "✓ matches the supplier invoice"
                     : Math.abs(variance) <= 0.1
-                      ? `≈ ${variance > 0 ? "+" : ""}${variance.toFixed(2)} AED — rounding`
+                      ? `≈ ${variance > 0 ? "+" : ""}${variance.toFixed(2)} AED - rounding`
                       : variance > 0
-                        ? `⚠ +${variance.toFixed(2)} AED above the invoice — check the unit prices, or mark unbilled units as free/bonus on the line. Never raise a line price to match the paper.`
-                        : `⚠ ${variance.toFixed(2)} AED below the invoice — check the unit prices, or add a labelled adjustment (delivery, handling).`}
+                        ? `⚠ +${variance.toFixed(2)} AED above the invoice - check the unit prices, or mark unbilled units as free/bonus on the line. Never raise a line price to match the paper.`
+                        : `⚠ ${variance.toFixed(2)} AED below the invoice - check the unit prices, or add a labelled adjustment (delivery, handling).`}
                   <span className="ml-1 font-normal opacity-70">
-                    (advisory — never blocks Confirm)
+                    (advisory - never blocks Confirm)
                   </span>
                 </div>
               )}

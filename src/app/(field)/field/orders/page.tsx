@@ -620,14 +620,14 @@ export default function OrdersPage() {
                             {/* PRD-003 §6.2: the full document breakdown when
                                 a totals row exists, the single Total line when
                                 it does not. Every figure comes from
-                                v_po_document_totals — the browser does no
+                                v_po_document_totals - the browser does no
                                 arithmetic here. */}
                             <tfoot>
                               {(() => {
                                 const t = expandedTotals;
                                 const money = (n: number | null | undefined) =>
                                   n == null
-                                    ? "—"
+                                    ? " - "
                                     : `${Number(n).toFixed(2)} AED`;
                                 const row = (
                                   label: React.ReactNode,
@@ -733,7 +733,7 @@ export default function OrdersPage() {
                                       <tr>
                                         <td colSpan={6} className="pt-1.5">
                                           <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-                                            ⚠ totals out of date — lines changed
+                                            ⚠ totals out of date - lines changed
                                             after they were captured (live{" "}
                                             {money(t.live_subtotal_ex_vat_aed)})
                                           </span>
@@ -756,7 +756,7 @@ export default function OrdersPage() {
                                               : "s"}{" "}
                                             with no PO line
                                             {t.additions_price_suspect &&
-                                              " — price looks like a pack total"}
+                                              " - price looks like a pack total"}
                                           </span>
                                         </td>
                                       </tr>

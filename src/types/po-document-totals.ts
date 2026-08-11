@@ -1,8 +1,8 @@
-// PRD-003 — the shape returned by get_po_document_totals, a thin wrapper over
+// PRD-003 - the shape returned by get_po_document_totals, a thin wrapper over
 // v_po_document_totals: the Article 16 canonical object for "PO document grand
 // total" and "recoverable input VAT".
 //
-// Every consumer READS these figures. Nothing re-derives them client-side —
+// Every consumer READS these figures. Nothing re-derives them client-side -
 // browser-side re-derivation of the PO total is the exact defect PRD-003 was
 // written to end (see PRD §2: "the 'Total' shown on the PO card is a
 // client-side SUM(total_price_aed) computed in the browser").
@@ -12,7 +12,7 @@
 // pass them through `Number(...)` before arithmetic or `.toFixed()`.
 export interface PODocumentTotals {
   po_id: string;
-  /** false when this PO has no totals row — render subtotal-only, as before PRD-003 (I-4). */
+  /** false when this PO has no totals row - render subtotal-only, as before PRD-003 (I-4). */
   has_totals: boolean;
 
   // Live, recomputed on every read from the non-cancelled lines and the
@@ -23,7 +23,7 @@ export interface PODocumentTotals {
   live_line_count: number | null;
   /** received po_additions on this PO with no mirrored purchase_orders line. */
   live_unmirrored_additions: number | null;
-  /** an addition priced above 3x the product's trailing median — likely a pack total. */
+  /** an addition priced above 3x the product's trailing median - likely a pack total. */
   additions_price_suspect: boolean | null;
 
   // Captured at entry.
@@ -42,7 +42,7 @@ export interface PODocumentTotals {
   supplier_invoice_number: string | null;
   supplier_invoice_date: string | null;
   supplier_invoice_total_aed: number | null;
-  /** 'ex_vat' | 'vat_inclusive' | 'unknown' — legacy lines stay 'unknown'. */
+  /** 'ex_vat' | 'vat_inclusive' | 'unknown' - legacy lines stay 'unknown'. */
   line_price_regime: string | null;
   source: string | null;
 
