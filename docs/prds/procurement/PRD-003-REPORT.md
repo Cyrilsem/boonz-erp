@@ -882,3 +882,113 @@ The totals writer moves the document. It does not move the ex-VAT spine. That is
 | `npm run build`    | exit 0                                  |
 | golden `run_all`   | 69/72 green, 3 adjudicated reds (above) |
 | T11                | pass                                    |
+
+### Merged
+
+`main` fast-forwarded nothing: a `--no-ff` merge commit `a0308e7` carries the eight branch commits,
+15 files, 5 migrations (all five already applied to production and version-matched to the ledger
+after G-1). Pushed to `origin/main`; the deploy recorder confirmed it live as
+`chore(deploy): record production a0308e7`.
+
+### One rule this PRD had been breaking the whole way through
+
+The repo rule is no em dashes anywhere, code comments and UI strings included. This branch had put
+**47** of them into `src/`, including two the operator reads on the receiving screen ("Free / bonus
+units - delivered but not billed" and the variance hint). Fixed in `ca66903`, and deliberately only
+on the 47 lines this branch authored: `git blame` separated them from the ~55 on lines belonging to
+other units, and rewriting those would be exactly the out-of-scope churn G-2 caught. This report was
+normalized the same way. The migration files were **not** touched: their text is already applied in
+production, and editing an applied migration to fix punctuation is how a file stops describing what
+actually ran. `tsc` clean, `npm run build` exit 0 after the change; merged and deployed as `b7b26ee`.
+
+### Production verified on the shipped bundle
+
+The verdict is the bundle production actually serves, not the local build and not an HTTP 200.
+Walked production with a hand-built `@supabase/ssr` session cookie (minted through the admin
+generate-link flow, revoked with a `logout` afterwards), then downloaded and scanned every chunk on
+both pages.
+
+| page | HTTP | evidence in the deployed chunks |
+| ---- | ---- | ------------------------------- |
+| `/app/procurement` (operator_admin) | 200, 13 chunks | `7d579547b18619f1.js` carries **"Input VAT"**, **"Recoverable VAT"**, **"Recoverable input VAT is a receivable"**, **"Supplier invoice total (AED)"** |
+| `/field/receiving/PO-2026-9402` | 200, 13 chunks | `adcdb0815b201afd.js` carries **"Free / bonus units"**, **"free/bonus on the line"**, **"Never raise a line price to match the paper"**, **"Supplier invoice no."** |
+
+The served chunk carries the string in its **ASCII** form ("Free / bonus units - delivered but not
+billed") and **zero** occurrences of the em-dash form, which is how the newest deploy is
+distinguished from the previous one rather than assumed.
+
+**Data contracts through PostgREST, as the real roles.** This is the probe that catches a grant hole
+`pg_proc` cannot:
+
+| probe | as | result |
+| ----- | -- | ------ |
+| `get_input_vat_report` | operator_admin | 200, `[]` |
+| `get_input_vat_report` | warehouse | 200, `[]` |
+| `get_input_vat_report` | **anon** | **401 / 42501 permission denied** |
+| `get_po_document_totals('PO-2026-9400')` | operator_admin | 200, live figures with null totals |
+| same | warehouse | 200, identical |
+| `SELECT v_po_document_totals` | operator_admin | 200 |
+| `INSERT v_po_document_totals` | operator_admin | refused |
+
+The two empty reports are the honest state, not a fault: `purchase_order_totals` has **0** rows
+because no PO has been received through the new capture path yet. The report will populate on the
+first receive; that is worth knowing before someone reads an empty finance screen as a broken one.
+
+On the refused INSERT, the HTTP error is `55000 "Views containing WITH are not automatically
+updatable"`, which is Postgres's updatability refusal and **not** proof the migration-5 revoke took.
+The privilege state is, and it did:
+
+| object | `anon` | `authenticated` | `service_role` |
+| ------ | ------ | --------------- | -------------- |
+| `v_po_document_totals` | none | **SELECT only** | full |
+| `purchase_order_totals` | none | **SELECT only** | full |
+
+Write verbs reach the totals spine only through `set_po_document_totals`, which is SECURITY DEFINER
+and role-gated. Recorded this way because "the INSERT failed" and "the INSERT was forbidden" are
+different facts and only one of them is a control.
+
+### Harness left clean
+
+pg_cron job 51 `prd003_golden_gate` was unscheduled once the sweep completed. It had run every
+minute, and with every fixture claimed it would have returned immediately forever. `cron.job` now
+carries **0** rows named `prd003_golden_gate`. The golden fixtures, `golden.runs` history and the
+PRD-110 sweep tooling are untouched.
+
+---
+
+## Acceptance against §13
+
+| # | requirement | state |
+| - | ----------- | ----- |
+| 1 | Dara schema paragraph in the report | done (Leg 1) |
+| 2 | Cody constitutional review, conditions not waivable | done (Leg 1); C-1..C-6 all discharged, C-3 swept for further surfaces in Leg 3 |
+| 3 | migration | 5 applied, filenames version-matched to the ledger |
+| 4 | RPCs | `set_po_document_totals`, `get_po_document_totals`, `get_input_vat_report`, `_mirror_po_addition_line_v1` |
+| 5 | FE receiving card + PO card footer | shipped, plus the Input VAT tab (Q3) and the free/bonus field |
+| 6 | T11 regression | **pass**, re-run against production on the merge candidate |
+| 7 | golden `run_all` green | **69/72, three adjudicated reds proven not this PRD's** (Leg 5) |
+| 8 | build green | `tsc` clean, `npm run build` exit 0 |
+| 9 | merged to main | `a0308e7`, plus `b7b26ee` |
+| 10 | production verified | shipped bundle scanned on both pages, role probes through PostgREST |
+
+## For CS
+
+1. **The gate is 69/72, not 72/72.** Nothing here re-baselined another unit's fixture, and the three
+   reds are written up above with their causes. Fixtures **42, 46, 74 need their owner (PRD-110)**:
+   42 hard-codes two live machine UUIDs and breaks whenever a driver visits one of them; 46 and 74
+   hard-code counts over live data that has since moved. PRD-113 handed back the same three-ish set
+   for the same reason, which is itself the finding: these fixtures re-red on their own every few days.
+2. **`v_cutover_readiness_v3` has a one-sided vacuity predicate.** NOVO reads `is_vacuous = true`
+   while carrying a real `wmape_v3` of 1.9140, which trips the S-176 guard (fixture 74 seq 29). No
+   cutover can be signed off on a fabricated number here, so it is not urgent, but the guard is
+   currently firing on a case it was not written for.
+3. **The bonus quantity is still not persisted** (Leg 4). The money is right; the reason a unit price
+   differs from the printed price is not durable. It needs a column and a fourth rebuild of
+   `receive_purchase_order`, which is why it was not done here.
+4. **The input-VAT report is empty until the first receive through the new path.** Expected, not broken.
+5. **No backfill was performed** (F-5). 46 unmirrored `po_additions` rows carry unit-price fields that
+   are in practice pack totals; mirroring them would inject roughly AED 23.6k of fiction into the
+   ex-VAT cost spine. The mirror is forward-only and stays that way until someone re-prices those 46
+   rows by hand against the paper.
+
+## PRD-003 DONE
