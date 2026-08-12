@@ -384,3 +384,153 @@ The tick function now computes the same expression `run_all` does. The vacuous r
 
 **Sweep status: IN FLIGHT.** Adjudicate from `golden.runs WHERE note='PRD-114 gate'` and from nothing
 else - a sweep's stdout is an assertion COUNT and reads identical for green and red.
+
+---
+
+## Leg 2 - 2026-08-12/13 - the gate adjudicated, the merge, production
+
+### The sweep completed: 73 fixtures, 70 green, 3 red
+
+`PRD-114 gate` finished with every enabled fixture run exactly once. Adjudicated from `golden.runs`
+only.
+
+| fixture  | assertions       | verdict |
+| -------- | ---------------- | ------- |
+| 70 of 73 | all pass         | green   |
+| 42       | 81 pass / 5 fail | red     |
+| 46       | 28 pass / 1 fail | red     |
+| 74       | 48 pass / 5 fail | red     |
+
+**Those are the same three fixtures the PRD-003 gate reported, at byte-identical assertion counts**
+(42: 81/5, 46: 28/1, 74: 48/5). PRD-003 leg 5 established each one's cause and each one precedes this
+branch: fixture 42 was falsified by a real driver visit on 2026-08-10 that reset `days_since_visit`
+to 1 (its other four failures are its own non-vacuity guards firing by design); fixtures 46 and 74
+were already red in `prd113 leg1 full sweep` on 2026-08-09, before PRD-003 existed, let alone this
+PRD. Fixture 46's seq 7 still reads `actual = 1` against `expect >= 2` - live warehouse stock is
+still consolidated onto a single SKU.
+
+PRD-114 touches no object any of the three names. It creates three functions and one `day_close_events`
+event kind; none of them appears in those fixtures' `scenario_sql` or in any of their assertions.
+**Fixture 114 itself is green in-sweep at 28/0**, and fixtures 112, 113 and 105 - the other driver-flow
+fixtures, the ones a regression here would reach first - are green at 21/0, 25/0 and 15/0.
+
+**Zero new reds. Acceptance 5's `run_all green` is met in the only sense available:** the suite is at
+its established baseline and this PRD moved no fixture off it.
+
+### The gate's THIRD harness bug, and the one that could have been a false green
+
+Fixture 71 (`D-27(a)`) came back red mid-sweep at 31/1 with **no failing assertion**. The whole
+scenario had refused:
+
+> `cannot set parameter "role" within security-definer function`
+
+That is PostgreSQL's own rule: `SET ROLE` is forbidden anywhere inside a `SECURITY DEFINER` call
+stack, because it would let the definer's borrowed privileges be laundered into a third role.
+Fixture 71's `scenario_sql` switches role to plant its donor surplus. **The bug is mine and it is in
+the harness, not the fixture:** `golden.run_all` and `golden.run_fixture` are BOTH `prosecdef = false`,
+and pg_cron job 52 runs as `postgres`. Marking the tick `DEFINER` did not add a capability - it
+REMOVED one, and it removed exactly the one a privilege fixture needs.
+
+Blast radius, measured rather than asserted: a regex over `scenario_sql` and over every enabled
+fixture's assertion `check_sql` for `set (local )?role | set_config('role')` returns fixture 71 and
+**nothing else**. Fixture 114 impersonates its driver and its operator_admin through
+`request.jwt.claims`, not `SET ROLE`, so it was never in this class. One fixture was affected, and it
+is the one that went red - there is no silent second victim.
+
+⛔ **Worth naming what did not happen.** A `SET ROLE` refusal is a hard ERROR, so `run_fixture`
+recorded a `scenario_error` and reported the run false. Had the restriction instead made the role
+switch silently no-op, every privilege assertion in the suite would have run as `postgres` and
+**passed** - a false green in precisely the class of test that exists to catch privilege bugs.
+
+Three harness bugs across three PRDs now - PRD-003's shared-transaction GUC leak, this PRD's `P0`
+phase gate, and this - and all three surfaced because some guard distrusted the harness rather than
+the code. The tick is now `SECURITY INVOKER`, which restores byte-for-byte the context `run_all`
+gives a fixture. The void run row was **retagged** `PRD-114 gate VOID (definer blocked SET ROLE)`
+rather than deleted, and fixture 71 re-ran under the fixed tick: **31 / 0 green**.
+
+The same migration reconciles `md5(prosrc)` of the deployed body with its file (the phase-gate fix had
+been applied carrying a one-line version of a comment the file wrote out in full: live
+`b2b9264295ff289271d892a101a255bf` -> file `e681ed4bb7792f9a7844619fbddcfcac`). Forward-only replace;
+the applied file is not edited. Job 52 is **unscheduled** now the sweep is complete - with every
+fixture claimed it would return immediately forever.
+
+### ⛔ A correction to leg 1's Cody paragraph: `sold_through_<date>` is NOT new vocabulary
+
+Leg 1 recorded, as one of two items flagged for CS, that `sold_through_<date>` is "a **new**
+`removal_reason` vocabulary word, so anything downstream that parses that column needs to learn it."
+**That is false, and it was asserted from the migration rather than from the column.** Live
+`pod_inventory` carries `sold_through_<date>` on **86 distinct dates**, unbroken from `2026-05-19` to
+`2026-08-12` - 86 dates across an 86-day span, so not one day missing - on **1,698** rows, all
+`Inactive`. An established daily vocabulary that predates this PRD by three months.
+
+It has a named author, which is what settles it: `auto_decrement_pod_inventory` stamps
+`removal_reason = format('sold_through_%s', CURRENT_DATE)` whenever a sale brings a batch to `<= 0`
+(`CHANGELOG.md:1597`). PRD-114's Sold outcome therefore says the same thing that writer says, in the
+same words, about the same event - a batch that left the shelf by being bought.
+
+This makes the design better than leg 1 claimed, not worse: the Sold outcome reuses the existing word
+in the existing format rather than minting one. Nothing downstream needs to learn anything. The other
+flagged item stands unchanged - `backfill_archive_pod_inventory_row` writes no `inventory_events` row,
+so the write-off is invisible to movement truth under the eventual `pod_inventory` freeze. That one is
+pre-existing and remains CS's to schedule.
+
+Recorded rather than quietly edited: leg 1's sentence was the kind of claim a reader would have acted
+on.
+
+### Merge
+
+`main` <- `prd-114-visit-checklist`, merge commit **2e8a1c8**, no fast-forward. Verified on `main`
+AFTER the merge, not before it:
+
+| gate               | result on merged `main`         |
+| ------------------ | ------------------------------- |
+| `npx tsc --noEmit` | clean, exit 0                   |
+| `npm run build`    | compiled successfully in 11.4 s |
+
+Six files of other PRDs' reports sat modified in the working tree throughout and were **not** staged,
+not stashed into any commit, and not touched. Every commit named its own files explicitly; `git add -A`
+was never run.
+
+### Production verified - over the real path, not by inspection
+
+The deploy recorder wrote `2026-08-12T21:07:13.795Z | 2e8a1c8` to `docs/DEPLOYMENTS.md`, so
+production is running this merge commit.
+
+Backend verified through **PostgREST with a real logged-in user's JWT** - the exact call the component
+makes, not an MCP query wearing a role:
+
+| probe                                                               | result                                                                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `get_expiry_sanity_checks` as authenticated (`7f4ecaa4`, warehouse) | **7 rows**, 6 `expired` + 1 `expiring`, correct shelves and dates                                |
+| same RPC as `anon`                                                  | **401**                                                                                          |
+| `record_expiry_check` as `anon`                                     | **401**                                                                                          |
+| `record_expiry_check`, `exists` on an EXPIRED batch                 | refused: `an EXPIRED batch takes sold or remove only (got exists) - it cannot stay on the shelf` |
+| direct `INSERT` into `day_close_events` as authenticated            | **403**                                                                                          |
+| `day_close_events` of kind `expiry_check` after all probes          | **0**                                                                                            |
+
+The last two lines are Cody's C-5 proven **in production** rather than only at fixture 114 seq 19/20:
+the FE cannot reach `day_close_events` except through the RPC, because `authenticated` holds no write
+verb on the table.
+
+⛔ One live detail worth keeping, because it is the severity boundary proving itself on the real clock:
+the `B08 / Benlian Chips - Sour Cream` batch dated `2026-08-12` read **`expiring`** in leg 1 and reads
+**`expired`** now. Nothing was deployed in between. The Dubai date rolled, and a batch expiring today
+became a batch that expired yesterday - which is exactly the `date < today(Dubai)` rule §3.1 asks for,
+recomputed server-side on every call rather than cached at tap time.
+
+Fleet today: **16** candidate batches, **7** already expired, across **7** machines. Production
+carries **zero** rows written by this PRD.
+
+### Acceptance
+
+| #   | acceptance                                          | evidence                                                                  |
+| --- | --------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1   | category renders, red/amber, correct chips per row  | fixture 114 seq 1-6; live 7-row read on `WH2-2001-3000-O1`                |
+| 2   | one event per tap, re-tap updates never duplicates  | fixture 114 seq 10, 24; partial unique index makes it structural          |
+| 3   | acknowledge writes; WH untouched; re-ack idempotent | fixture 114 seq 11-13, 18, 22, 23; md5 fingerprint, not a row count       |
+| 4   | golden fixture on synthetic 2030 data, all four     | fixture 114, **28 / 28**, green again in-sweep                            |
+| 5   | run_all green, build green, merged, prod verified   | 70/73 at the established baseline, zero new reds; 2e8a1c8 live and walked |
+
+Cody's seven conditions were all discharged in leg 1 and none was waived.
+
+## PRD-114 DONE
