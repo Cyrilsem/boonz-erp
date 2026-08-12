@@ -1326,3 +1326,44 @@ other will silently show a stale grand total - which is the failure PRD-003 exis
 ⛔ **`invoice_variance_aed` IS NULL, NOT ZERO, WHEN NO SUPPLIER TOTAL WAS ENTERED.** The PRD draft
 specified `COALESCE(grand,0) - COALESCE(invoice,0)`, which renders every totals row without a
 supplier figure as a large red variance. NULL means "no chip", which is the honest state.
+
+## PRD-114 (2026-08-12) - the driver's expiry sanity checklist
+
+| Metric                                                                        | Canonical object                                                              | Status                     | Known illegal copies to retire                                                                      |
+| ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Expiry sanity worklist for one machine** (per-batch rows the driver checks) | `get_expiry_sanity_checks(p_machine_id)`                                      | LIVE (PRD-114, 2026-08-12) | none yet - registered on creation so one never appears. The FE must not rebuild this from a SELECT. |
+| **Driver disposition on one expiring batch** (exists/sold/remove/skip)        | `day_close_events` kind `expiry_check`, written only by `record_expiry_check` | LIVE (PRD-114, 2026-08-12) | none. `authenticated` holds no write verb on `day_close_events`; the FE cannot write one by hand.   |
+
+⚠️ **`get_expiry_sanity_checks` is DISJOINT from `v_machine_expiry_summary` /
+`v_machine_expiry_batches`.** It reads `pod_inventory` directly, which the row above records as a
+path the detail/slots RPCs were deliberately realigned OFF in PRD-028/PRD-059. The divergence is
+granted for one reason and only that reason: **a resolution rule cannot promise never to return
+FEWER rows than the ledger holds, and on a safety worklist a silently dropped row is a pack of
+expired food left in a machine.**
+
+The precise mechanism, stated correctly because the first draft of this entry stated it wrongly and
+golden fixture 114 refused it. `v_machine_expiry_batches` keeps ONE row per
+`(machine, COALESCE(shelf_id::text,'noshelf'), boonz_product_id)`, chosen by
+`row_number() ... ORDER BY snapshot_date DESC, pod_inventory_id` - it keeps the **newest snapshot**,
+it does **not** take the `MIN` expiry. For **shelf-bound** rows that collapse can never fire:
+`idx_pod_inv_active_shelf` is `UNIQUE (machine_id, shelf_id, boonz_product_id) WHERE status='Active'`,
+so the partition is already unique and the two surfaces agree row for row (fixture 114 seq 26 pins
+`4/4`). For **off-shelf** rows it fires freely: a btree unique index treats NULLs as DISTINCT, so
+`shelf_id IS NULL` batches are unconstrained, and N of them on one machine publish as ONE (seq 4 pins
+`2/1`). Live count of that class today is **zero** - PRD-059 cleaned 61, PRD-105 RC-4 swept the tail -
+so the collapse is **inert in production and structurally live**, which is exactly why it is pinned by
+a fixture rather than trusted to a paragraph.
+
+⛔ **Do not "fix" this RPC by pointing it at the batches view, and do not assert a shelf-bound sibling
+pair anywhere** - the schema forbids one, and fixture 114 seq 27 pins that refusal so a later leg
+reading only this prose cannot rebuild the impossible test. Same disjointness, same
+reason-must-be-written-down rule, as `v_expiry_action_queue` above.
+
+⛔ **`get_expiry_sanity_checks` MUST NEVER PUBLISH A COUNT.** Expired-now / 7d / 30d / earliest belong
+to `v_machine_expiry_summary` and to nothing else. This object returns rows; the moment it returns an
+aggregate it becomes a second answer to a registered question. Cody made this condition C-1.
+
+⚠️ **`severity` is computed in the backend, never sent by the client.** `record_expiry_check`
+recomputes `expired` vs `expiring` from the ledger and the real clock before it accepts an outcome,
+which is what makes "an expired batch cannot stay on the shelf" a rule rather than a rendering
+choice. An FE that could send its own severity could unlock the Exists chip on a red row.
