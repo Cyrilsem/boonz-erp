@@ -30,7 +30,25 @@ import {
 const font = "'Plus Jakarta Sans', sans-serif";
 
 type EventKind =
-  "substitution" | "not_filled" | "shortfall" | "spot_buy" | "stock_unverified";
+  | "substitution"
+  | "not_filled"
+  | "shortfall"
+  | "spot_buy"
+  | "stock_unverified"
+  // PRD-114: a driver's disposition on one expiring batch. Acknowledging a
+  // Remove or a Sold archives that batch; Exists and Skip write no stock.
+  | "expiry_check";
+
+/** PRD-114 payload keys. Read from the event rather than re-derived: severity is
+ *  a backend fact and this screen must not compute a second opinion of it. */
+type ExpiryCheckPayload = {
+  pod_inventory_id?: string;
+  product_name?: string;
+  qty?: number | string;
+  expiry?: string;
+  severity?: "expired" | "expiring";
+  outcome?: "exists" | "sold" | "remove" | "skip";
+};
 
 type DayCloseEvent = {
   id: string;
@@ -53,6 +71,7 @@ type DayCloseEvent = {
   created_at: string;
   acknowledged_at: string | null;
   acknowledged: boolean;
+  payload: ExpiryCheckPayload | null;
 };
 
 type CloseCheck = {
@@ -110,6 +129,16 @@ const GAP_META: Record<Gap["kind"], { label: string; tone: BadgeTone }> = {
   drift: { label: "drift open", tone: "brand" },
 };
 
+/** PRD-114 §3.3. What acknowledging each disposition actually does, said in the
+ *  words of the consequence rather than the enum - CS is authorising a stock
+ *  write on two of these four and nothing on the other two. */
+const EXPIRY_OUTCOME_LABEL: Record<string, string> = {
+  remove: "driver pulled it (write off)",
+  sold: "already sold through (close batch)",
+  exists: "still on the shelf (no stock change)",
+  skip: "skipped (no stock change)",
+};
+
 const REVIEW_REASON_LABEL: Record<string, string> = {
   substitution_spot_buy: "driver bought it himself",
   substitution_stock_unverified: "no warehouse batch matched",
@@ -156,7 +185,7 @@ async function loadDayClose(selectedDate: string): Promise<DayCloseData> {
     supabase
       .from("v_day_close_events")
       .select(
-        "id, event_date, kind, machine_id, machine_name, dispatch_id, shelf_code, old_product, new_product, planned_qty, filled_qty, reason, source_tag, review_reason, needs_review, pod_action, created_by_name, created_at, acknowledged_at, acknowledged",
+        "id, event_date, kind, machine_id, machine_name, dispatch_id, shelf_code, old_product, new_product, planned_qty, filled_qty, reason, source_tag, review_reason, needs_review, pod_action, created_by_name, created_at, acknowledged_at, acknowledged, payload",
       )
       .eq("event_date", selectedDate)
       .order("created_at", { ascending: true })
@@ -331,14 +360,23 @@ export default function DayCloseTab({
     setData(d);
   }, [selectedDate]);
 
+  // PRD-114 §3.3: expiry_check rows sit under Changes, not Gaps. They are a
+  // thing the driver DID and CS confirms, the same shape as a substitution -
+  // not a hole someone still has to chase.
   const changes = useMemo(
-    () => events.filter((e) => e.kind === "substitution"),
+    () =>
+      events.filter(
+        (e) => e.kind === "substitution" || e.kind === "expiry_check",
+      ),
     [events],
   );
   // spot_buy / stock_unverified rows are the gap side of a substitution: the
   // change itself is recorded above, this is the part CS still has to chase.
   const eventGaps = useMemo(
-    () => events.filter((e) => e.kind !== "substitution"),
+    () =>
+      events.filter(
+        (e) => e.kind !== "substitution" && e.kind !== "expiry_check",
+      ),
     [events],
   );
   const openCount = useMemo(
@@ -562,6 +600,20 @@ export default function DayCloseTab({
             <li key={e.id}>
               <Card>
                 <div className="flex flex-wrap items-center gap-2">
+                  {/* PRD-114: red chip for an expired batch, amber for one still
+                      in date. The severity is read off the event, never
+                      recomputed here - the backend decided it at tap time. */}
+                  {e.kind === "expiry_check" && (
+                    <Badge
+                      tone={
+                        e.payload?.severity === "expired" ? "danger" : "warn"
+                      }
+                    >
+                      {e.payload?.severity === "expired"
+                        ? "expired"
+                        : "expiring"}
+                    </Badge>
+                  )}
                   <strong style={{ fontSize: 13 }}>{e.machine_name}</strong>
                   {e.shelf_code && <Badge tone="muted">{e.shelf_code}</Badge>}
                   {e.source_tag && <Badge tone="brand">{e.source_tag}</Badge>}
@@ -595,18 +647,50 @@ export default function DayCloseTab({
                     </button>
                   )}
                 </div>
-                <div style={{ fontSize: 13, marginTop: 6 }}>
-                  {e.old_product ?? "?"}{" "}
-                  <span style={{ color: "var(--muted)" }}>&rarr;</span>{" "}
-                  <strong>{e.new_product ?? "?"}</strong>
-                </div>
-                <div
-                  style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}
-                >
-                  filled {qty(e.filled_qty)} of {qty(e.planned_qty)} planned
-                  {e.created_by_name ? ` · ${e.created_by_name}` : ""}
-                  {e.reason ? ` · "${e.reason}"` : ""}
-                </div>
+                {e.kind === "expiry_check" ? (
+                  <>
+                    <div style={{ fontSize: 13, marginTop: 6 }}>
+                      <strong>{e.payload?.product_name ?? "?"}</strong>{" "}
+                      <span style={{ color: "var(--muted)" }}>&rarr;</span>{" "}
+                      <strong>
+                        {EXPIRY_OUTCOME_LABEL[e.payload?.outcome ?? ""] ??
+                          e.payload?.outcome ??
+                          "?"}
+                      </strong>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        marginTop: 3,
+                      }}
+                    >
+                      {qty(num(e.payload?.qty ?? null))} unit
+                      {Number(e.payload?.qty) === 1 ? "" : "s"} · expiry{" "}
+                      {e.payload?.expiry ?? "?"}
+                      {e.created_by_name ? ` · ${e.created_by_name}` : ""}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, marginTop: 6 }}>
+                      {e.old_product ?? "?"}{" "}
+                      <span style={{ color: "var(--muted)" }}>&rarr;</span>{" "}
+                      <strong>{e.new_product ?? "?"}</strong>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--muted)",
+                        marginTop: 3,
+                      }}
+                    >
+                      filled {qty(e.filled_qty)} of {qty(e.planned_qty)} planned
+                      {e.created_by_name ? ` · ${e.created_by_name}` : ""}
+                      {e.reason ? ` · "${e.reason}"` : ""}
+                    </div>
+                  </>
+                )}
                 {e.acknowledged && e.pod_action && (
                   <div
                     style={{

@@ -13,6 +13,7 @@ import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 import { ChangeProductDialog } from "@/components/field/ChangeProductDialog";
 import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
+import ExpirySanityChecks from "@/components/field/ExpirySanityChecks";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -4391,6 +4392,17 @@ export default function PackingDetailPage() {
           </button>
         </div>
       )}
+
+      {/* PRD-114 §3.2: the final category, AFTER the pack lines. Renders nothing
+          when the machine has no batch inside the 7-day window, so the pack flow
+          is byte-identical on a clean machine (§4.4). eventDate follows the
+          pack-ahead toggle (PRD-111) so a check done while packing tomorrow's
+          trip lands on tomorrow's Day Close, not today's. */}
+      <ExpirySanityChecks
+        machineId={machineId}
+        eventDate={selectedDate}
+        readOnly={isReadOnly}
+      />
 
       {/* Bottom bar */}
       <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">

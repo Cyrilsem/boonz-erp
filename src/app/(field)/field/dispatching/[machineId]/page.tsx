@@ -12,6 +12,7 @@ import { machineShortId } from "@/lib/utils/machine-id";
 import { isInternalMoveLeg, type ExpiryWarning } from "@/lib/dispatch-types";
 import { DispatchEditDialog } from "@/components/field/DispatchEditDialog";
 import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
+import ExpirySanityChecks from "@/components/field/ExpirySanityChecks";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -688,8 +689,8 @@ export default function DispatchingDetailPage() {
         // this branch the driver taps, sees nothing, and the leg silently stays unresolved.
         if (status === "refused") {
           const why =
-            (rpcData as { reason?: string; message?: string } | null)?.reason ===
-            "internal_move_return_blocked"
+            (rpcData as { reason?: string; message?: string } | null)
+              ?.reason === "internal_move_return_blocked"
               ? "⚠ This is a move within the machine — it does not go back to the warehouse, so there is nothing to return. Mark it moved, or leave it for the office."
               : "⚠ Return refused: " +
                 ((rpcData as { message?: string } | null)?.message ??
@@ -1461,6 +1462,11 @@ export default function DispatchingDetailPage() {
           </div>
         );
       })}
+
+      {/* PRD-114 §3.2: the final category, AFTER the dispatch lines. Renders
+          nothing at all when the machine has no batch inside the 7-day window,
+          so every existing flow is byte-identical on a clean machine (§4.4). */}
+      <ExpirySanityChecks machineId={machineId} readOnly={isReadOnly} />
 
       {/* BUG-010 #3: Add-extra-return modal — variants only (same pod_product) */}
       {extraReturnOpen && extraReturnSourceLine && (
