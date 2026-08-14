@@ -151,12 +151,12 @@ C-1..C-7 before the FE lands.
 
 Three migrations, forward-only, own files only.
 
-| file | migration name | what |
-| --- | --- | --- |
-| `20260814090000_prd115_remove_dispatch_row_tombstone.sql` | `prd115_remove_dispatch_row_tombstone` | §2.1 tombstone |
-| `20260814090500_prd115_push_plan_tombstone_guard.sql` | `prd115_push_plan_tombstone_guard` | §2.2 push guard |
-| `20260814091000_prd115_pack_status_needs_reconfirm.sql` | `prd115_pack_status_needs_reconfirm` | §2.3 needs_reconfirm |
-| `20260814093000_prd115_golden_fixture_115.sql` | `prd115_golden_fixture_115` | acceptance 5 |
+| file                                                      | migration name                         | what                 |
+| --------------------------------------------------------- | -------------------------------------- | -------------------- |
+| `20260814090000_prd115_remove_dispatch_row_tombstone.sql` | `prd115_remove_dispatch_row_tombstone` | §2.1 tombstone       |
+| `20260814090500_prd115_push_plan_tombstone_guard.sql`     | `prd115_push_plan_tombstone_guard`     | §2.2 push guard      |
+| `20260814091000_prd115_pack_status_needs_reconfirm.sql`   | `prd115_pack_status_needs_reconfirm`   | §2.3 needs_reconfirm |
+| `20260814093000_prd115_golden_fixture_115.sql`            | `prd115_golden_fixture_115`            | acceptance 5         |
 
 ### 2.1 — the tombstone
 
@@ -256,7 +256,7 @@ no longer decides the banner.
   `"This returns ALL packed stock to the warehouse and starts the pack over."` and a pointer
   back to Finish remaining. It replaced a bare `window.confirm()` that was one keystroke
   from returning every packed unit to the warehouse — and in the incident it was the only
-  prominent exit from a state that was merely *displayed* wrong.
+  prominent exit from a state that was merely _displayed_ wrong.
 - the clean already-packed banner is guarded `&& !needsReconfirm`, so the two are mutually
   exclusive in the DOM as well as in the view.
 
@@ -307,3 +307,41 @@ COUNT, not its characters; acceptance 4's asserted string is reproduced above an
 test.
 
 ---
+
+## 4. The gate sweep (acceptance 5)
+
+Run by cron job 53 `prd115_golden_gate`, `* * * * *`, calling
+`public.prd114_golden_gate_tick('PRD-115 gate')` under `statement_timeout='300000'` — the
+one-fixture-per-tick runner PRD-114 built. Adjudication is from `golden.runs` WHERE
+`note='PRD-115 gate'`, never from a tick's stdout.
+
+### The runner is not merely a convenience — running beside it restarted the database
+
+Worth recording, because the failure was mine and it is repeatable. With the gate armed and
+ticking, this leg also drove `golden.run_fixture` by hand through the Management API to go
+faster. Two heavy engine fixtures then ran concurrently on the instance:
+
+| time (UTC) | event                                                                                                                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 11:45:00   | tick claims fixture 7; manual `run_fixture(3)` issued against the same instance                                                                                                           |
+| 11:51:23   | tick 27595 dies: `canceling statement due to statement timeout` inside `engine_add_pod_v3` — 300 s was ample for fixture 7's historical 110 s, and contention alone spent the other 190 s |
+| 11:51:24   | tick 27598 dies: `server restarted`                                                                                                                                                       |
+| 11:55:51   | `pg_postmaster_start_time()` — the instance came back                                                                                                                                     |
+| 11:56:06   | cron resumes on its own; fixture 7 re-claimed and green                                                                                                                                   |
+
+Both hand-driven attempts at fixture 3 had already returned
+`Connection terminated due to connection timeout`, and every read after them did too,
+including `SELECT 1`. That looked like a stuck backend holding locks. It was not:
+`pg_stat_activity` came back with 3 active / 0 idle-in-transaction once the instance
+returned. The instance was simply saturated, and then it fell over.
+
+Two things follow, and the second is the one that matters:
+
+- `run_fixture` INSERTs its run row before executing, so a fixture is claimed the moment it
+  starts. A tick that dies takes that INSERT down with it, so the fixture is correctly
+  unclaimed on the next tick. Fixture 7 re-ran and passed. The claim mechanism is
+  crash-correct and no fixture was silently skipped.
+- **Do not run fixtures beside the gate.** The gate serialises on
+  `pg_try_advisory_lock(114114)`; a hand-driven `run_fixture` takes no such lock, so it is
+  invisible to the guard and the serialisation the runner exists to provide is gone. The
+  cost is not a slow sweep, it is a production restart in the middle of a working day.
