@@ -29,6 +29,12 @@ interface PackingMachine {
   pack_confirmed: boolean;
   /** PRD-020: machine finished as Complete but Partial (skipped or not_filled > 0) */
   is_partial: boolean;
+  /**
+   * PRD-115 §2.3: a FINAL confirm exists but the machine is no longer ready to
+   * close. Read from v_machine_pack_status, never re-derived here - the whole
+   * point is that the chip and the Finish gate read one object.
+   */
+  needs_reconfirm: boolean;
 }
 
 // PRD-111: default export wraps the inner component in <Suspense> — required by
@@ -92,7 +98,7 @@ function PackingPageInner() {
         .limit(10000),
       supabase
         .from("v_machine_pack_status")
-        .select("machine_id, pack_confirmed")
+        .select("machine_id, pack_confirmed, needs_reconfirm")
         .eq("dispatch_date", selectedDate)
         .limit(10000),
     ]);
@@ -102,12 +108,23 @@ function PackingPageInner() {
         !!c.pack_confirmed,
       ]),
     );
+    // PRD-115 §2.3: the board carried the same latent contradiction the machine
+    // screen did - pack_confirmed alone reads "Confirmed" even when the machine
+    // is no longer ready to close. needs_reconfirm comes from the canonical
+    // object, so the chip and the Finish gate cannot disagree.
+    const needsReconfirmByMachine = new Map<string, boolean>(
+      (confirmRows ?? []).map((c) => [
+        c.machine_id as string,
+        !!c.needs_reconfirm,
+      ]),
+    );
     const statusByMachine = new Map<
       string,
       {
         is_pack_complete: boolean;
         pack_confirmed: boolean;
         is_partial: boolean;
+        needs_reconfirm: boolean;
         packable_n: number;
         resolved_n: number;
         driver_action_n: number;
@@ -122,6 +139,8 @@ function PackingPageInner() {
           // PRD-020: partial = finished with at least one skipped or not_filled line.
           is_partial:
             Number(s.skipped_n ?? 0) > 0 || Number(s.not_filled_n ?? 0) > 0,
+          needs_reconfirm:
+            needsReconfirmByMachine.get(s.machine_id as string) ?? false,
           packable_n: Number(s.packable_n ?? 0),
           resolved_n: Number(s.resolved_n ?? 0),
           driver_action_n: Number(s.driver_action_n ?? 0),
@@ -181,6 +200,10 @@ function PackingPageInner() {
           pack_confirmed:
             (status?.pack_confirmed ?? false) || dispatchedComplete,
           is_partial: status?.is_partial ?? false,
+          // Dispatch dominance (PRD-087) settles the machine: once every fillable
+          // line is out the door there is nothing left to reconfirm.
+          needs_reconfirm:
+            (status?.needs_reconfirm ?? false) && !dispatchedComplete,
         });
       }
     }
@@ -304,24 +327,31 @@ function PackingPageInner() {
                 <span
                   {...(idx === 0 ? { "data-tour": "packing-status" } : {})}
                   className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    ready && machine.is_partial
+                    machine.needs_reconfirm
                       ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
-                      : ready
-                        ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                        : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                      : ready && machine.is_partial
+                        ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200"
+                        : ready
+                          ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                          : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
                   }`}
                 >
                   {/* PRD-020 (AC-5): a partial finish is amber "Partial", never a
                       red / incomplete state. */}
-                  {machine.pack_confirmed
-                    ? machine.is_partial
-                      ? "Confirmed (partial)"
-                      : "Confirmed"
-                    : ready
+                  {/* PRD-115 §2.3: needs_reconfirm outranks pack_confirmed. A
+                      machine that was confirmed and then drifted is not
+                      "Confirmed" - saying so is what sent ops to SQL. */}
+                  {machine.needs_reconfirm
+                    ? "Needs reconfirm"
+                    : machine.pack_confirmed
                       ? machine.is_partial
-                        ? "Partial"
-                        : "Ready"
-                      : "Packing"}
+                        ? "Confirmed (partial)"
+                        : "Confirmed"
+                      : ready
+                        ? machine.is_partial
+                          ? "Partial"
+                          : "Ready"
+                        : "Packing"}
                 </span>
               </Link>
             </li>
