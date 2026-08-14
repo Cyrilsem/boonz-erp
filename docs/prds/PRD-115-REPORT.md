@@ -345,3 +345,139 @@ Two things follow, and the second is the one that matters:
   `pg_try_advisory_lock(114114)`; a hand-driven `run_fixture` takes no such lock, so it is
   invisible to the guard and the serialisation the runner exists to provide is gone. The
   cost is not a slow sweep, it is a production restart in the middle of a working day.
+
+---
+
+## 5. Local verification
+
+Re-run this leg against the committed tree, and against the live database rather than
+against the report's own claims.
+
+| check                                     | result                                                |
+| ----------------------------------------- | ----------------------------------------------------- |
+| `npm run build`                           | exit 0                                                |
+| `npx tsc --noEmit`                        | clean                                                 |
+| `scripts/prd115-fe-string-assertions.mjs` | 18/18                                                 |
+| `npm run lint`                            | 98 errors / 50 warnings, **all pre-existing** (below) |
+| branch diff vs `main`                     | 14 files, every one a PRD-115 file                    |
+
+`npm run lint` is not green on this repo and was not green before this branch. Two of the
+148 problems sit in files PRD-115 edits, and both are the same repo-wide
+`react-hooks/set-state-in-effect` rule firing on `useEffect(() => { fetchData(); })` — a
+pattern that is present verbatim on `main` at `packing/[machineId]/page.tsx:1258` and
+`packing/page.tsx:195`. This branch moved those lines, it did not author them, and the same
+rule fires in `PendingRemoveApprovalsPanel.tsx`, which PRD-115 never opens. Fixing them is a
+refactor outside this PRD's scope. **New lint errors introduced by PRD-115: zero.**
+
+Live-database re-verification of §2 (catalogue reads, not fixture runs):
+
+- `push_plan_to_dispatch` md5 = `487f33107819ce8335251e235ac7405e`, 25,295 b — the v12
+  post-image this report recorded under C-4, unchanged since.
+- `v_machine_pack_status` = 21 columns, both `needs_reconfirm` and `unresolved_n` present,
+  `reloptions` still NULL (C-7 holds).
+- `remove_dispatch_row` body still carries the `removed_at_dispatch_by` stamp.
+
+---
+
+## 6. Gate adjudication — the sweep, and five reds that are not PRD-115's
+
+Cron 53 `prd115_golden_gate` swept 74 enabled fixtures at one per tick, tag
+`'PRD-115 gate'`. Adjudication is from `golden.runs`, never from a tick's stdout.
+
+Coverage is complete: `golden.fixtures WHERE enabled` = 74, and
+`count(distinct fixture_id) FROM golden.runs WHERE note='PRD-115 gate'` = 74. The sweep ran
+11:36:00 → 13:08:00 UTC and then quiesced with nothing left to claim.
+
+**69 green, 5 red.** An earlier draft of this heading said "two reds". That was wrong, and
+it was wrong in the direction that flatters the branch, so it is worth saying plainly: the
+count is five, and two of the five (fixtures 14 and 16) were GREEN on the previous full
+sweep. A red that changed state during this branch's window is the only kind worth arguing
+about, so both are argued below rather than waved at.
+
+### The acceptance itself
+
+| fixture | result                | detail                    |
+| ------- | --------------------- | ------------------------- |
+| **115** | **PASS — 29/29, 0 f** | 1,201 ms, P0, tag matched |
+
+That is acceptance 1, 2 and Cody C-2/C-3/C-4/C-6 in one object: the tombstone survives a
+second approve wave, `reset_approved_undispatched`, `repack_machine` and a THIRD approve
+wave; forcing the tombstoned row back to `approved` by raw UPDATE still yields
+`lines_pushed=0, lines_tombstoned=1` because push v12 reads the append-only remove edit-log
+entry and not the mutable status; and `"already packed" + "N to resolve"` is unrepresentable
+fleet-wide.
+
+### The five reds, against the last full sweep before this branch
+
+`PRD-114 gate`, 2026-08-12, is the baseline. Same runner, same fixture set.
+
+| fixture | 2026-08-12 | 2026-08-14 | moved?    | domain                       |
+| ------- | ---------- | ---------- | --------- | ---------------------------- |
+| 14      | 49/0 PASS  | 48/1 FAIL  | **yes**   | estimator clamp/conservation |
+| 16      | 33/0 PASS  | 33/1 FAIL  | **yes**   | depth-pin staging premise    |
+| 42      | 81/5 FAIL  | 81/5 FAIL  | no        | value-at-risk picker         |
+| 46      | 28/1 FAIL  | 28/1 FAIL  | no        | FEFO SKU binding             |
+| 74      | 48/5 FAIL  | 45/8 FAIL  | **worse** | DR-1 cutover readiness       |
+
+42 and 46 are byte-identical to their pre-branch state and need no defence. The other three
+do.
+
+**Fixture 14 — seq 6, live WEIMI drift pulled a stale seed into the filter.**
+The assertion walks shelves on `MPMCC-1058-0000-R0` `WHERE current_stock > max_stock` and
+demands the estimator's SEED event equal capacity. The violating shelf is A15
+(`28134364`), `seed=20` against `max_stock=25`. That seed was written
+**2026-07-30 18:40 UTC** by `estimator:2026-07-30T18:00:36` — two weeks before this branch
+existed. Nothing rewrote it. What changed is the FILTER: seq 1 (`count of over-capacity
+shelves`) reads **3** on 2026-08-12 and **5** on 2026-08-14. Live WEIMI stock pushed A15 to
+26 against a capacity of 25, dragging a shelf with a stale seed into an assertion that had
+never evaluated it. This is the same class as fixture 42's known behaviour — these fixtures
+bind to live fleet state, so real ops activity re-reds them.
+
+**Fixture 16 — a setup premise that live warehouse stock can no longer stage.**
+Not an assertion failure at all. `detail[0]` is a `scenario_error`:
+
+> FX16 setup: no shelf on this machine has ZERO warehouse availability - the "a pin never
+> conjures stock" premise cannot be staged, and re-baselining seq 15/16 would delete that
+> proof rather than fix it
+
+The fixture needs a zero-availability shelf to prove a depth pin raises demand without
+conjuring stock. Warehouse stock moved, so the premise cannot be staged. The fixture is
+refusing to re-baseline itself into vacuity, which is correct behaviour.
+
+**Fixture 74 — the calendar moved past the fixture's baked-in verdicts.**
+Every one of the eight failures is a cutover-readiness verdict string: VOX expected
+`no_v3_measurement`, reads `v3_horizon_not_elapsed`; AMAZON expected
+`v3_horizon_not_elapsed`, reads `v3_worse_than_v19`; seq 27 expected VOX's REAL v3 series
+count to be `0` and it reads `80`. The fixture's own text pins its expectations to
+"real v3 series from 2026-08-04" and a horizon of 2026-08-11. Real v3 planning has since
+happened for VOX and the horizon has elapsed. Time and real forecast rows, not code.
+
+### Non-involvement, proven from the catalogue rather than asserted
+
+PRD-115 changed exactly three database objects. The reds live in three domains, and the
+three objects reach none of them. Measured against `pg_proc.prosrc` and
+`pg_get_viewdef`, not from memory:
+
+| object                  | writes `inventory_events` / `shelf_composition` | writes `warehouse_inventory` | any forecast/cutover ref |
+| ----------------------- | ----------------------------------------------- | ---------------------------- | ------------------------ |
+| `remove_dispatch_row`   | 0 (0 refs)                                      | 0 (**0 refs**)               | 0                        |
+| `push_plan_to_dispatch` | 0 (0 refs)                                      | 0 (**0 refs**)               | 0                        |
+| `v_machine_pack_status` | n/a (view)                                      | 0 refs                       | 0                        |
+
+`push_plan_to_dispatch` does reference `shelf_configurations` three times and `weimi` twice
+— all reads, zero write statements against either. So the fixture-14 pair (`seed`,
+`max_stock`) is untouchable from here: PRD-115 writes neither the events table that holds
+the seed nor the config that carries the capacity.
+
+**Verdict: run_all green for PRD-115.** 69/74 green, fixture 115 green 29/29, and all five
+reds are environmental — two pre-existing unchanged, two live-data drift, one calendar
+drift. Zero reds are attributable to this branch. The five are real work for whoever owns
+the estimator, the pin fixture and DR-1; they are not this PRD's to fix, and silently
+re-baselining them would delete the proofs they exist to carry.
+
+### The gate is disarmed
+
+Cron 53 `prd115_golden_gate` ran `* * * * *`. The sweep is complete, so the job is now
+`active=false`. Leaving a per-minute fixture runner armed against production is precisely
+the hazard §4 documents, and an idle-ticking gate is one schema change away from being a
+busy one.
