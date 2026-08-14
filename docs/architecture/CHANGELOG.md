@@ -3015,3 +3015,37 @@ one.
 recorded. An earlier draft of this entry (and of the build report) cited `20260811202600`, a
 filename that existed in the repo but matched no applied version - so `db push` would have re-run
 it. The applied ledger is the source of truth; repo and CHANGELOG now mirror it.
+
+## 2026-08-14 — PRD-115: a plan edit mid-pack is safe
+
+**The incident (NISSAN-0804, ~14:27).** CS re-scoped shelf A15 three times while the packer was
+packing. Removed Dubai Popcorn came back twice; the screen carried 19 per-line warnings; the
+pick-total refusal named neither the line nor the rule; and after ops unpacked two rows post-confirm
+the machine showed BOTH "already packed for 2026-08-14" AND "Finish - 1 to resolve", with a
+destructive "Override & re-pack" as the only prominent exit. Ops hand-closed the line and re-ran
+`confirm_machine_packed` from SQL.
+
+**The vector was not the obvious one.** A removed row's plan row keeps `dispatched=true`, so a plain
+re-push already skipped it. What actually resurrected it: `reset_approved_undispatched` flips every
+`approved` plan row for the machine back to `pending` AND NULLs `dispatch_id`, and the next
+`approve_refill_plan` wave then pushes it fresh with no tombstone key left to check.
+`repack_machine` — the RPC behind the FE's own "Override & re-pack" button — does the same thing
+with `dispatched=false`. The button offered as the exit from the stuck state was the trigger that
+re-armed the removed lines.
+
+**Fixes.** `remove_dispatch_row` tombstones the linked plan row in the same transaction
+(Articles 1/4/5/8/12/15, registered in `RPC_REGISTRY.md` with its exact column scope).
+`push_plan_to_dispatch` v12 independently refuses a plan row linked to an operator-removed dispatch
+row, regardless of `operator_status` — the belt to that braces, because `operator_status` is mutable
+and the edit log is not. `v_machine_pack_status.pack_state` gains `needs_reconfirm`, so `completed`
+now IMPLIES `ready_to_pack_close` and the contradictory pair is unrepresentable.
+
+**FE.** One refresh banner replaces the per-line wall; the `needs_reconfirm` banner reads the
+canonical object (Article 16) with **Finish remaining** as the primary CTA and the re-pack demoted
+behind a destructive modal; pick validation names the line and the Remove-leg rule, and same-pod
+Remove legs now render adjacent to their refill carrying a "counts separately" chip.
+
+**Evidence.** Golden fixture 115, 29/29. The red was MEASURED against the pre-fix bodies inside a
+rolled-back subtransaction (`a01_live` 1 → 0, `a01_total` 2 → 1), not assumed.
+`scripts/prd115-fe-string-assertions.mjs` 18/18. Cody: approve with revisions, C-1..C-7 all
+satisfied and none waived.

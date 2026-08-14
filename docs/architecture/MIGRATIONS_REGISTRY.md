@@ -5373,3 +5373,25 @@ production is left untouched (the PRD-016B pattern). The first run failed with `
 `procurement_events_event_type_check`. Without that rehearsal the failure would have landed on the
 first real receive after deploy. Verified afterwards: `purchase_order_totals` row count **0** - the
 rehearsal left nothing behind.
+
+## 2026-08-14 — PRD-115 mid-pack plan edit safety
+
+Four migrations, forward-only.
+
+| version          | name                                   | notes                                                                                                                                                                                                                                                                                       |
+| ---------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260814090000` | `prd115_remove_dispatch_row_tombstone` | §2.1. `remove_dispatch_row` gains a `refill_plan_output` tombstone (`operator_status='rejected'` + `removed_at_dispatch_by` appended to `operator_comment`, `WHERE dispatch_id = p_dispatch_id`), same transaction as the `include=false` write. Every prior guard byte-identical.          |
+| `20260814090500` | `prd115_push_plan_tombstone_guard`     | §2.2. `push_plan_to_dispatch` v11 → **v12_prd115_tombstone_guard** via anchored splice. **Base md5 `5f858899eecef1e75e6ae6d00fcc1c8b` → post md5 `487f33107819ce8335251e235ac7405e`** (24,251 → 25,295 b). Base-md5 gate + three anchor-uniqueness gates + idempotent re-run short-circuit. |
+| `20260814091000` | `prd115_pack_status_needs_reconfirm`   | §2.3. `v_machine_pack_status.pack_state` gains `needs_reconfirm`; two additive trailing columns `needs_reconfirm`, `unresolved_n`. Grants and `reloptions` verified identical pre/post.                                                                                                     |
+| `20260814093000` | `prd115_golden_fixture_115`            | Acceptance 5. Fixture 115 (29 assertions) on synthetic date `2030-04-26`. Zero residue.                                                                                                                                                                                                     |
+
+⛔ **The splice pattern, and why it is not cleverness.** `push_plan_to_dispatch` is 24 kB of
+conservation stop-ship, RC-01 §5(5a)/§5(5b) idempotency, M2M pairing and FIFO batch walking.
+PRD-115 §3 requires the duplicate-unstarted, packed-row and conservation guards to stay
+BYTE-IDENTICAL, and the only way to be certain of that is to never retype them. This follows
+`20260709015534_drift_kill_p1_wire_push_and_stitch.sql`, which established the pattern on this
+exact function. Byte-identity was then PROVEN rather than asserted: reversing exactly the three
+insertions from the live v12 body reproduces the v11 md5.
+
+⛔ **Record the post-image md5.** The next splice needs `487f33107819ce8335251e235ac7405e` as its
+base, and will refuse to run without it.

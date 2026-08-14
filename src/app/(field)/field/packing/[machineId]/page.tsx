@@ -14,6 +14,13 @@ import { AddDispatchRowDialog } from "@/components/field/AddDispatchRowDialog";
 import { ChangeProductDialog } from "@/components/field/ChangeProductDialog";
 import ExpiryBreakdownDialog from "@/components/dispatch/ExpiryBreakdownDialog";
 import ExpirySanityChecks from "@/components/field/ExpirySanityChecks";
+import {
+  pickExceedsPlanMessage,
+  planChangedBanner,
+  needsReconfirmBanner,
+  REMOVE_LEG_CHIP,
+  REPACK_DESTRUCTIVE_WARNING,
+} from "../_lib/pack-messages";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // PRD-030 partial-pack / no-dark-stage: "not_filled" = zero stock available, line
@@ -210,6 +217,31 @@ export default function PackingDetailPage() {
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [whWarnMsg, setWhWarnMsg] = useState<string>("");
+  /**
+   * PRD-115 §2.3: how many lines the save loop found already committed under the
+   * packer. ONE number feeding ONE banner, replacing the per-line warning wall
+   * (19 copies of "already packed - refresh to edit" on one screen in the
+   * NISSAN-0804 incident). It is a count, not a list, because the only useful
+   * action is the same for all of them: refresh.
+   */
+  const [planDrift, setPlanDrift] = useState(0);
+  /**
+   * PRD-115 §2.3 + Cody C-5 (Article 16): the machine's pack state read FROM
+   * v_machine_pack_status, the registered canonical object. Never re-derived from
+   * the client `lines` array - two independent client-side derivations reading the
+   * same rows is exactly what rendered "already packed" and "1 to resolve"
+   * side by side.
+   */
+  const [packStatus, setPackStatus] = useState<{
+    pack_state: string;
+    needs_reconfirm: boolean;
+    unresolved_n: number;
+  } | null>(null);
+  /** PRD-115 §2.3: over-pick refusals, named per line with the Remove-leg rule. */
+  const [pickErrors, setPickErrors] = useState<string[]>([]);
+  /** PRD-115 §2.3: "Override & re-pack" now sits behind an explicit destructive dialog. */
+  const [repackConfirmOpen, setRepackConfirmOpen] = useState(false);
+  const [repacking, setRepacking] = useState(false);
   /** PRD-030: confirm_machine_packed blocked result — unresolved lines hold the gate. */
   const [confirmBlock, setConfirmBlock] = useState<{
     message: string;
@@ -369,6 +401,27 @@ export default function PackingDetailPage() {
       .single();
 
     if (machineData) setMachine(machineData);
+
+    // PRD-115 §2.3 (Cody C-5, Article 16): the pack state comes from the
+    // canonical object, not from counting `lines` here. unresolved_n is derived
+    // in v_dispatch_pack_progress - the SAME object confirm_machine_packed gates
+    // on - so the banner and the Finish button can never disagree again.
+    const { data: packStatusRow } = await supabase
+      .from("v_machine_pack_status")
+      .select("pack_state, needs_reconfirm, unresolved_n")
+      .eq("machine_id", machineId)
+      .eq("dispatch_date", selectedDate)
+      .maybeSingle();
+    setPackStatus(
+      packStatusRow
+        ? {
+            pack_state: (packStatusRow.pack_state as string) ?? "open",
+            needs_reconfirm: !!packStatusRow.needs_reconfirm,
+            unresolved_n: Number(packStatusRow.unresolved_n ?? 0),
+          }
+        : null,
+    );
+
     const primaryWarehouseId =
       (machineData?.primary_warehouse_id as string | null) ?? null;
     // PRD-036 Phase A: include the machine's secondary serving warehouse (was
@@ -1372,8 +1425,13 @@ export default function PackingDetailPage() {
   async function handleConfirmPacking(p_final = true) {
     setSaving(true);
     setWhWarnMsg("");
+    setPlanDrift(0);
+    setPickErrors([]);
     const supabase = createClient();
     const warnings: string[] = [];
+    // PRD-115 §2.3: counted, not narrated. See the planDrift state comment.
+    let driftLines = 0;
+    const overPicks: string[] = [];
 
     for (const line of lines) {
       // Skip M2M lines — they are born packed=true and need no WH action
@@ -1434,11 +1492,13 @@ export default function PackingDetailPage() {
 
         // Re-pack of an already-packed parent is not supported by the RPC
         // (protect_packed_dispatch_row trigger blocks identity changes).
-        // Surface a clear message instead of falling back to legacy.
+        //
+        // PRD-115 §2.3: this used to push a per-line warning. On the incident
+        // screen that produced NINETEEN of them, which reads as nineteen faults
+        // and is one: the plan moved while the packer was packing. Count it and
+        // let the single refresh banner say so once.
         if (line.packed) {
-          warnings.push(
-            `${line.pod_product_name}: already packed — refresh to edit`,
-          );
+          driftLines += 1;
           continue;
         }
 
@@ -1506,6 +1566,23 @@ export default function PackingDetailPage() {
           continue;
         }
 
+        // PRD-115 §2.3 (acceptance 4): catch the over-pick HERE, where the line
+        // name and the plan are both in hand, instead of letting
+        // pack_dispatch_line raise "Pick total (6) exceeds planned quantity (3)".
+        // That message is true and useless: it does not say which line, and it
+        // does not say why 6 is wrong when the packer physically counted 6 units.
+        // She had added the same-pod Remove leg's 3 into her pick. Remove legs
+        // come OUT of the machine and draw nothing from the warehouse.
+        // The backend guard is untouched and still the authority - this is a
+        // pre-flight that makes the refusal legible.
+        const pickTotal = picks.reduce((s, p) => s + p.qty, 0);
+        if (pickTotal > line.recommended_qty) {
+          overPicks.push(
+            pickExceedsPlanMessage(line.display_name, line.recommended_qty),
+          );
+          continue;
+        }
+
         // Diagnostic telemetry — used to verify mix lines are taking the
         // RPC path (zero legacy fallback expected).
         const distinctBpids = new Set(picks.map((p) => p.boonz_product_id));
@@ -1543,6 +1620,9 @@ export default function PackingDetailPage() {
     if (warnings.length > 0) {
       setWhWarnMsg(warnings.join(" · "));
     }
+    // PRD-115 §2.3: one banner for the drift, a named list for the over-picks.
+    setPlanDrift(driftLines);
+    setPickErrors(overPicks);
 
     // B3.1 Issue 8: re-fetch authoritative state after the save loop so
     // the UI reflects packed=true, filled_quantity, and any RPC-spawned
@@ -1605,6 +1685,28 @@ export default function PackingDetailPage() {
       setConfirmSummary(result?.summary ?? null);
       // PRD-107 R4: surface orphaned swap legs so the shelf does not go out empty.
       setOrphanLegs(result?.orphaned_swap_legs ?? []);
+
+      // PRD-115 §2.3: packStatus was read by the fetchData() ABOVE, i.e. BEFORE
+      // this confirm landed. Leaving it there would render "Plan changed after
+      // confirm" next to the Complete banner - the same contradiction this PRD
+      // exists to remove, just one screen later. Re-read the canonical object.
+      {
+        const { data: freshStatus } = await supabase
+          .from("v_machine_pack_status")
+          .select("pack_state, needs_reconfirm, unresolved_n")
+          .eq("machine_id", machineId)
+          .eq("dispatch_date", selectedDate)
+          .maybeSingle();
+        setPackStatus(
+          freshStatus
+            ? {
+                pack_state: (freshStatus.pack_state as string) ?? "open",
+                needs_reconfirm: !!freshStatus.needs_reconfirm,
+                unresolved_n: Number(freshStatus.unresolved_n ?? 0),
+              }
+            : null,
+        );
+      }
 
       // PRD-044: Save & come back leaves the machine in_progress (NOT marked done).
       // Re-fetch so already-resolved lines show locked and the rest stay editable
@@ -1972,6 +2074,12 @@ export default function PackingDetailPage() {
   // backend repack_machine guard added 2026-05-13). Returning stock to WH
   // would lie about physical reality.
   const isDispatchLocked = lines.some((l) => l.dispatched);
+  // PRD-115 §2.3 (Cody C-5): the drifted-confirm state comes from the canonical
+  // object. `hasPriorPack` above stays as-is - it answers a different question
+  // ("is there anything to un-pack"), and it is what gates the destructive
+  // re-pack. What it must NOT do any more is decide the banner.
+  const needsReconfirm = packStatus?.needs_reconfirm === true;
+  const unresolvedFromView = packStatus?.unresolved_n ?? 0;
 
   // ── Group lines by action category ──────────────────────────────────────────
   // Separate returned items from active packing lines
@@ -2083,13 +2191,45 @@ export default function PackingDetailPage() {
     (l) => !l.dispatch_comment || !swapCommentPattern.test(l.dispatch_comment),
   );
 
-  // Section 1: Pack these items — plain refills only
-  if (plainRefills.length > 0) {
+  // PRD-115 §2.3: a Remove leg sitting on the SAME shelf and the SAME pod as a
+  // Refill is the one the packer will fold into her pick, because physically the
+  // two are the same product on the same shelf. In the incident the Activia
+  // Refill (A05, plan 3) sat in "Pack these items" and its Remove leg (A05, 3)
+  // sat in a "Remove from machine" section further down the page, so the only
+  // thing that connected them was the packer's own arithmetic. Render them
+  // adjacent, each carrying the "counts separately" chip.
+  const samePodRemoveByRefill = new Map<string, PackLine>();
+  const adjacentRemoveIds = new Set<string>();
+  for (const rl of standaloneRemoves) {
+    const host = plainRefills.find(
+      (pl) =>
+        !samePodRemoveByRefill.has(pl.dispatch_id) &&
+        pl.shelf_code === rl.shelf_code &&
+        pl.pod_product_id === rl.pod_product_id,
+    );
+    if (host) {
+      samePodRemoveByRefill.set(host.dispatch_id, rl);
+      adjacentRemoveIds.add(rl.dispatch_id);
+    }
+  }
+  const packSectionLines = plainRefills.flatMap((pl) => {
+    const paired = samePodRemoveByRefill.get(pl.dispatch_id);
+    return paired ? [pl, paired] : [pl];
+  });
+  // Removes with no same-pod refill keep their own section; moving those would
+  // just be a different kind of scattering.
+  const detachedRemoves = standaloneRemoves.filter(
+    (rl) => !adjacentRemoveIds.has(rl.dispatch_id),
+  );
+
+  // Section 1: Pack these items — plain refills, each followed by its same-pod
+  // Remove leg (PRD-115 §2.3)
+  if (packSectionLines.length > 0) {
     sections.push({
       key: "pack",
       icon: "📦",
       title: "Pack these items",
-      lines: plainRefills,
+      lines: packSectionLines,
     });
   }
 
@@ -2118,13 +2258,13 @@ export default function PackingDetailPage() {
     });
   }
 
-  // Section 3: Standalone removes (no swap partner)
-  if (standaloneRemoves.length > 0) {
+  // Section 3: Standalone removes (no swap partner, no same-pod refill to sit next to)
+  if (detachedRemoves.length > 0) {
     sections.push({
       key: "remove",
       icon: "❌",
       title: "Remove from machine",
-      lines: standaloneRemoves,
+      lines: detachedRemoves,
     });
   }
 
@@ -2220,7 +2360,95 @@ export default function PackingDetailPage() {
         </div>
       )}
 
-      {hasPriorPack && machine && !isDispatchLocked && (
+      {/* PRD-115 §2.3: ONE banner for a plan that moved mid-pack. It replaces the
+          per-line "already packed - refresh to edit" wall entirely; there is
+          exactly one actionable thing to do about drift, so there is exactly one
+          control. */}
+      {planDrift > 0 && (
+        <div
+          role="status"
+          className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20"
+        >
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            {planChangedBanner(planDrift)}
+          </p>
+          <button
+            onClick={() => {
+              setPlanDrift(0);
+              void fetchData();
+            }}
+            className="min-h-[44px] shrink-0 rounded-lg bg-amber-700 px-4 text-xs font-semibold text-white transition-colors hover:bg-amber-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-900"
+          >
+            Refresh
+          </button>
+        </div>
+      )}
+
+      {/* PRD-115 §2.3 (acceptance 4): over-picks, named. The rule travels with
+          the refusal, so the packer never has to guess which units the warehouse
+          is actually handing over. */}
+      {pickErrors.length > 0 && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm dark:border-rose-800 dark:bg-rose-950/20"
+        >
+          <p className="font-medium text-rose-900 dark:text-rose-200">
+            {pickErrors.length === 1
+              ? "One line was not saved"
+              : `${pickErrors.length} lines were not saved`}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {pickErrors.map((msg) => (
+              <li
+                key={msg}
+                className="text-xs text-rose-700 dark:text-rose-300"
+              >
+                {msg}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* PRD-115 §2.3: the drifted-confirm state, named. Before this the screen
+          showed "Machine already packed" AND "Finish - 1 to resolve" at once,
+          with the destructive re-pack as the only prominent exit. The primary
+          action is now to FINISH the remaining work; the destructive path is
+          demoted and gated. */}
+      {needsReconfirm && machine && !isDispatchLocked && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20">
+          <p className="font-medium text-amber-900 dark:text-amber-200">
+            {needsReconfirmBanner(unresolvedFromView)}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+            This machine was confirmed, then the plan changed. Finish what is
+            left and confirm again - nothing needs to be un-packed.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => handleConfirmPacking(true)}
+              disabled={saving}
+              aria-label="Finish the remaining lines and confirm the pack again"
+              className="min-h-[44px] rounded-lg bg-neutral-900 px-4 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+            >
+              {saving ? "Saving…" : "Finish remaining"}
+            </button>
+            {hasPriorPack && (
+              <button
+                onClick={() => setRepackConfirmOpen(true)}
+                className="min-h-[44px] rounded-lg border border-neutral-300 px-3 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                Override &amp; re-pack
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* The clean already-packed case. Mutually exclusive with the banner above
+          by construction: pack_state cannot be both 'completed' and
+          'needs_reconfirm' since PRD-115 §2.3. */}
+      {hasPriorPack && machine && !isDispatchLocked && !needsReconfirm && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-700 dark:bg-amber-950/20">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -2228,46 +2456,86 @@ export default function PackingDetailPage() {
                 Machine already packed for {selectedDate}
               </p>
               <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-0.5">
-                Override clears the existing pack (returns stock to warehouse)
-                and starts fresh.
+                {REPACK_DESTRUCTIVE_WARNING}
               </p>
             </div>
             <button
-              onClick={async () => {
-                if (
-                  !confirm(
-                    `Override all items packed for ${machine.official_name}? Stock will be returned to the warehouse.`,
-                  )
-                )
-                  return;
-                const supabase = createClient();
-                const { data, error } = await supabase.rpc("repack_machine", {
-                  p_machine_name: machine.official_name,
-                  p_dispatch_date: selectedDate,
-                  p_reason: "user_override_repack",
-                });
-                if (error) {
-                  alert(`Re-pack failed: ${error.message}`);
-                  return;
-                }
-                // Backend may refuse via the dispatch-gate (or other RPC-level errors)
-                // by returning a jsonb envelope { status:'error', error:<code>, message }.
-                if (data?.status === "error") {
-                  alert(
-                    data?.message ??
-                      `Re-pack refused: ${data?.error ?? "unknown"}`,
-                  );
-                  return;
-                }
-                alert(
-                  `Re-pack done. Returned ${data?.returned_count ?? 0}, fresh dispatch rows: ${data?.fresh_dispatch_rows_created ?? 0}. Reloading…`,
-                );
-                window.location.reload();
-              }}
-              className="shrink-0 rounded bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
+              onClick={() => setRepackConfirmOpen(true)}
+              className="min-h-[44px] shrink-0 rounded border border-neutral-300 px-3 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
-              Override & re-pack
+              Override &amp; re-pack
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* PRD-115 §2.3: the destructive dialog. window.confirm() was one keystroke
+          from returning every packed unit to the warehouse, and in the incident it
+          was the ONLY prominent exit from a state that was merely displayed wrong. */}
+      {repackConfirmOpen && machine && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="prd115-repack-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        >
+          <div className="w-full max-w-sm rounded-xl bg-white p-4 shadow-xl dark:bg-neutral-900">
+            <p
+              id="prd115-repack-title"
+              className="text-base font-semibold text-rose-700 dark:text-rose-400"
+            >
+              Override &amp; re-pack {machine.official_name}?
+            </p>
+            <p className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">
+              {REPACK_DESTRUCTIVE_WARNING}
+            </p>
+            <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+              If lines were simply left unfinished, close this and use
+              &ldquo;Finish remaining&rdquo; instead - it needs no stock
+              movement.
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setRepackConfirmOpen(false)}
+                disabled={repacking}
+                className="min-h-[44px] flex-1 rounded-lg border border-neutral-300 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setRepacking(true);
+                  const supabase = createClient();
+                  const { data, error } = await supabase.rpc("repack_machine", {
+                    p_machine_name: machine.official_name,
+                    p_dispatch_date: selectedDate,
+                    p_reason: "user_override_repack",
+                  });
+                  if (error) {
+                    setRepacking(false);
+                    setRepackConfirmOpen(false);
+                    setWhWarnMsg(`Re-pack failed: ${error.message}`);
+                    return;
+                  }
+                  // Backend may refuse via the dispatch-gate (or other RPC-level
+                  // errors) by returning { status:'error', error:<code>, message }.
+                  if (data?.status === "error") {
+                    setRepacking(false);
+                    setRepackConfirmOpen(false);
+                    setWhWarnMsg(
+                      data?.message ??
+                        `Re-pack refused: ${data?.error ?? "unknown"}`,
+                    );
+                    return;
+                  }
+                  window.location.reload();
+                }}
+                disabled={repacking}
+                className="min-h-[44px] flex-1 rounded-lg bg-rose-700 text-sm font-semibold text-white transition-colors hover:bg-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-900 disabled:opacity-50"
+              >
+                {repacking ? "Returning stock…" : "Return stock & re-pack"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2744,6 +3012,15 @@ export default function PackingDetailPage() {
                             </span>
                             <span className="text-xs text-red-600 dark:text-red-300">
                               · {removeLine.recommended_qty || "—"} units
+                            </span>
+                            {/* PRD-115 §2.3: these units come OUT of the machine.
+                                They draw nothing from the warehouse, so they are
+                                not part of the pick below. */}
+                            <span
+                              title="Remove legs come out of the machine and draw no warehouse stock - do not add them to your pick"
+                              className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:bg-red-950/50 dark:text-red-300"
+                            >
+                              {REMOVE_LEG_CHIP}
                             </span>
                           </p>
                         </div>
@@ -3463,6 +3740,15 @@ export default function PackingDetailPage() {
                               REMOVE FROM MACHINE
                             </span>
                           )}
+                          {/* PRD-115 §2.3: the chip the packer needed. She counted
+                              this leg's units into the same-pod pick and got
+                              "Pick total (6) exceeds planned quantity (3)". */}
+                          <span
+                            title="Remove legs come out of the machine and draw no warehouse stock - do not add them to your pick"
+                            className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:bg-red-950/50 dark:text-red-300"
+                          >
+                            {REMOVE_LEG_CHIP}
+                          </span>
                         </p>
                         <p className="mb-2 text-xs text-red-500 dark:text-red-400">
                           Take these out of the machine on arrival
@@ -3526,6 +3812,19 @@ export default function PackingDetailPage() {
                         {line.dispatch_action === "Add New" && (
                           <span className="rounded bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                             NEW
+                          </span>
+                        )}
+                        {/* PRD-115 §2.3: a Remove leg with a non-zero quantity does
+                            NOT take the dedicated remove card above (that branch
+                            keys on recommended_qty === 0), so it renders here
+                            looking like something to pick. It is not. This is the
+                            exact line the packer counted into her Activia pick. */}
+                        {line.dispatch_action === "Remove" && (
+                          <span
+                            title="Remove legs come out of the machine and draw no warehouse stock - do not add them to your pick"
+                            className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                          >
+                            {REMOVE_LEG_CHIP}
                           </span>
                         )}
                         {swapAddIds.has(line.dispatch_id) && (
