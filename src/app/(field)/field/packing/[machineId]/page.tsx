@@ -1686,6 +1686,28 @@ export default function PackingDetailPage() {
       // PRD-107 R4: surface orphaned swap legs so the shelf does not go out empty.
       setOrphanLegs(result?.orphaned_swap_legs ?? []);
 
+      // PRD-115 §2.3: packStatus was read by the fetchData() ABOVE, i.e. BEFORE
+      // this confirm landed. Leaving it there would render "Plan changed after
+      // confirm" next to the Complete banner - the same contradiction this PRD
+      // exists to remove, just one screen later. Re-read the canonical object.
+      {
+        const { data: freshStatus } = await supabase
+          .from("v_machine_pack_status")
+          .select("pack_state, needs_reconfirm, unresolved_n")
+          .eq("machine_id", machineId)
+          .eq("dispatch_date", selectedDate)
+          .maybeSingle();
+        setPackStatus(
+          freshStatus
+            ? {
+                pack_state: (freshStatus.pack_state as string) ?? "open",
+                needs_reconfirm: !!freshStatus.needs_reconfirm,
+                unresolved_n: Number(freshStatus.unresolved_n ?? 0),
+              }
+            : null,
+        );
+      }
+
       // PRD-044: Save & come back leaves the machine in_progress (NOT marked done).
       // Re-fetch so already-resolved lines show locked and the rest stay editable
       // (lossless resume); surface the running breakdown instead of navigating away.
