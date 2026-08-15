@@ -5395,3 +5395,68 @@ insertions from the live v12 body reproduces the v11 md5.
 
 ⛔ **Record the post-image md5.** The next splice needs `487f33107819ce8335251e235ac7405e` as its
 base, and will refuse to run without it.
+
+## 2026-08-14 — PRD-022 groundwork: total-first pricing + the advisory flagger
+
+Four migrations, forward-only. **These were applied through the Supabase MCP and have no `.sql`
+file in `supabase/migrations/`** — they are recorded here because the registry is the only place
+they exist in git. Reconstruct from `pg_get_functiondef` if a file is ever needed.
+
+| version          | name                                         | notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260814104803` | `po_unit_price_guard`                        | First cut of the price guard.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `20260814104915` | `po_unit_price_guard_fix_record_fields`      | Field-reference fix on the above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `20260814111855` | `po_price_total_first_flag_only`             | `total_price_aed` + `price_flag jsonb` on `po_additions` and `purchase_orders`; trigger fn `procurement_price_sync_and_flag` on both (BEFORE INSERT OR UPDATE) doing total↔unit sync and stamping `LOOKS_LIKE_LINE_TOTAL` / `PRICE_HIGH` / `PRICE_LOW`; helpers `peer_unit_price_v1`, `classify_procurement_price_v1`, `price_looks_like_line_total_v1`; RPCs `create_po_addition_v2`, `correct_procurement_unit_price_v1`; view `v_po_price_flags`. Backfill stamped 14 rows with `backfilled:true`. |
+| `20260814112002` | `procurement_events_allow_price_flag_raised` | `event_type` CHECK += `'price_flag_raised'`.                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+⛔ **Advisory forever.** The flagger never raises and never blocks. A flag is a jsonb column plus a
+`procurement_events` row; the warehouse write always completes.
+
+## 2026-08-15 — PRD-022: pricing_status, the review verdict, and total-first receive
+
+Four migrations, forward-only. Cody ⚠️ approve with revisions — 4 required changes and 1 statement
+deleted, all applied before DDL. Articles 1, 2, 3 + S-308, 4, 5, 7, 8, 12, 13, 15.
+
+Source of truth for all four: `supabase/migrations/20260815092204_po_pricing_status_v1.sql` (the
+annotated single-file form). Applied as four parts because a `CREATE OR REPLACE VIEW` failure would
+otherwise have rolled back two 8 kB function bodies with it.
+
+| version applied as                       | notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `po_pricing_status_v1`                   | `pricing_status text NOT NULL DEFAULT 'priced'` + CHECK `in ('priced','free_goods','unpriced')` on both tables (constant default → no rewrite). `procurement_events` CHECK += `'price_flag_reviewed'`. `procurement_price_sync_and_flag` extended with the three-block `pricing_status` section. **Column-level UPDATE lockdown on `po_additions`** (Cody): `REVOKE UPDATE FROM authenticated` then re-grant on the 14 pre-existing columns only, so `pricing_status` and `price_flag` are unreachable from the browser. |
+| `po_pricing_status_v1_rpcs`              | `create_po_addition_v2` **dropped at 7 args and recreated at 8** with `p_pricing_status` (see `deprecated.md` — `CREATE OR REPLACE` cannot add a parameter, and an overload would have left the no-total path live). New `review_price_flag_v1(text,uuid,text,text)`. Anon `EXECUTE` revoked on `create_po_addition_v2`, `correct_procurement_unit_price_v1` and `receive_purchase_order_addition`.                                                                                                                      |
+| `po_pricing_status_v1_view_and_backfill` | `v_po_price_flags` gains `pricing_status` **appended last** (mid-list insertion raises 42P16). Idempotent backfill: 3 `po_additions` + 18 `purchase_orders` received rows carrying no money → `unpriced` + `UNPRICED_RECEIPT` with `backfilled:true`. One summary `write_audit_log` row, not 21.                                                                                                                                                                                                                         |
+| `po_pricing_status_v1_receive_path`      | `_mirror_po_addition_line_v1` carries `pricing_status` onto the mirrored line. `receive_purchase_order` line payload accepts `total_price_aed` + `pricing_status`; unit still accepted and counted as `legacy_unit_entry` / `legacy_unit_lines` in the `goods_received` payload.                                                                                                                                                                                                                                         |
+
+⛔ **Trigger block ordering is load-bearing.** free_goods short-circuit → unpriced→priced reset →
+the unpriced stamp, all **before** the existing `if not v_changed` early return, because a receive
+transition is a status change and moves neither price nor qty. The stamp keys on
+`v_recv OR v_prev_code = 'UNPRICED_RECEIPT'` rather than on `pricing_status` alone — that is
+precisely what stops a flag cleared by `review_price_flag_v1` resurrecting on the next unrelated
+edit. Proven in a rolled-back transaction across six transitions.
+
+⛔ **`purchase_orders` qty edits still never rescale prices.** The `purchase_orders` branch has no
+qty-derivation clause and this migration did not add one. Verified live: qty 10 → 50 left
+`total_price_aed` at 25.00 and `price_per_unit_aed` at 2.5000.
+
+⛔ **The Vitamin Well - Care row (`219fc9b2`) was NOT marked `free_goods`,** which is a deliberate
+departure from the PRD text. Its total is 9.25, and `create_po_addition_v2` in the same migration
+refuses to create such a row (`FREE_GOODS_WITH_PRICE`). Cody blocked it: a backfill must not seed a
+state the canonical writer can neither reproduce nor repair. It stays `priced`, which is true.
+`review_price_flag_v1(verdict='confirmed_correct')` is the instrument if it is ever flagged.
+
+**Held, not applied:** `supabase/migrations/_HELD_prd022_po_additions_rpc_only.sql` — drops the
+`field_staff_insert` and `warehouse_update` policies on `po_additions`. Gated on a one-week clean
+soak; the four preconditions and their queries are in the file header. Earliest apply 2026-08-22.
+
+**Fifth migration, post-advisor:** `po_pricing_status_v1_trigger_fn_revoke` — the security advisor
+flagged `procurement_price_sync_and_flag()` as `anon`-executable via `/rest/v1/rpc/`. Inherited from
+`po_price_total_first_flag_only`, not introduced here, but the body is replaced by this PRD so it is
+in the blast radius. Revoked from `public`/`anon`/`authenticated`; trigger execution unaffected
+(the trigger fires as table owner) and proven by a full receive afterwards.
+
+⛔ **Left alone deliberately:** the advisor's `security_definer_view` ERROR on `v_po_price_flags`.
+**All 82 views in `public`** lack `security_invoker`, so this is a systemic pre-existing posture, not
+a PRD-022 regression. Flipping one view in isolation would start applying RLS for its callers and
+change behaviour. Recorded for a dedicated unit; `CREATE OR REPLACE VIEW` preserved whatever the
+2026-08-14 migration set.

@@ -42,6 +42,13 @@ const sections: NavSection[] = [
       { label: "Products", href: "/app/products", icon: "☐" },
       { label: "Suppliers", href: "/app/suppliers", icon: "⇠" },
       { label: "Procurement", href: "/app/procurement", icon: "⛁" },
+      // PRD-022: admin/manager only. Hidden from warehouse and finance below —
+      // the page itself also refuses any role outside REVIEW_ROLES.
+      {
+        label: "Price Review",
+        href: "/app/procurement/price-review",
+        icon: "⚠",
+      },
       { label: "Lifecycle", href: "/app/lifecycle", icon: "⬡" },
     ],
   },
@@ -84,6 +91,7 @@ const hiddenByRole: Record<string, string[]> = {
     "Inventory Sessions",
     "WH Quarantine",
     "Drift Monitor",
+    "Price Review",
   ],
   manager: ["Settings", "Lifecycle"],
   // Warehouse: inventory, products, procurement, machines, refill/dispatch,
@@ -98,6 +106,7 @@ const hiddenByRole: Record<string, string[]> = {
     "Settings",
     "Inventory Sessions",
     "Drift Monitor",
+    "Price Review",
   ],
 };
 
