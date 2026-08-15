@@ -32,6 +32,18 @@ interface ReceiveBatch {
   expiry_date: string;
 }
 
+/** PRD-022: the advisory flag procurement_price_sync_and_flag stamps. */
+interface PriceFlag {
+  code: string;
+  unit_aed: number | null;
+  total_aed: number | null;
+  qty: number | null;
+  peer_median_unit_aed: number | null;
+  peer_observations: number | null;
+  unit_vs_median_pct: number | null;
+  suggested_unit_aed: number | null;
+}
+
 interface ReceiveLine {
   po_line_id: string;
   po_id: string;
@@ -41,6 +53,8 @@ interface ReceiveLine {
   received_qty: number | null;
   supplier_id: string;
   price_per_unit_aed: number | null;
+  total_price_aed: number | null;
+  price_flag: PriceFlag | null;
   purchase_date: string;
   wh_location: string;
   received_date: string | null;
@@ -64,6 +78,9 @@ interface FieldAddition {
   boonz_product_id: string;
   qty: number;
   price_per_unit_aed: number | null;
+  total_price_aed: number | null;
+  pricing_status: string;
+  price_flag: PriceFlag | null;
   status: string;
   wh_location: string;
   boonz_products: { boonz_product_name: string };
@@ -84,57 +101,41 @@ function generateKey(): string {
   return Math.random().toString(36).slice(2);
 }
 
-// ── PRD-003 §12 - supplier gift / bonus units ────────────────────────────────
-// A supplier can deliver 8 and bill 1. received_qty may exceed the billed qty,
-// and the ruling is: cost = the actual cash, never inflate a line to match the
-// paper.
+// ── PRD-022 - total-first capture (supersedes the PRD-003 Q4 unit-first rule) ─
 //
-// receive_purchase_order computes total_price_aed = received_qty ×
-// price_per_unit_aed and this PRD may not touch that arithmetic (F-3), so the
-// only honest way to hold a line's cost at the cash actually paid is to submit
-// the CASH-EFFECTIVE unit price: the billed cash spread over every unit that
-// physically landed. The warehouse is still credited with all 8 units, the money
-// stays at what was paid, and the free units dilute unit cost - the standard
-// landed-cost treatment, and the number v_product_landed_cost should see.
+// PRD-003 Q4 had the operator type the printed UNIT price and computed the line
+// total, on the reasoning that dividing a total by qty loses fils. PRD-022
+// inverts it, and the fils argument now points the other way.
 //
-// The alternative the variance chip used to invite - leave the line at 8 × the
-// printed price and net the difference out with a document-level adjustment -
-// balances the document while leaving 7 units of phantom cost on the ex-VAT
-// spine that feeds COGS and every partner settlement. That is the exact harm
-// T11 exists to prevent, reached by a different door.
+// What the bill prints, and what every cost read ultimately wants, is the LINE
+// TOTAL - the cash. Capturing the total stores that figure exactly, with no
+// division anywhere on the path from the paper to total_price_aed. The unit
+// price becomes the derived, lossy number, which is the right one to lose fils
+// on because nothing settles against it. Under the old rule the exact number
+// was the one nobody pays and the rounded one was the money.
+//
+// It also removes an entire class of error at the source. The 2026-08-11 Union
+// Coop incident was a PACK TOTAL typed into a field labelled "unit price". When
+// the field asks for the total, that keystroke is simply correct.
+//
+// Supplier gift / bonus units (PRD-003 §12) fall out for free. A supplier can
+// deliver 8 and bill 1; the bill total IS the cash for the billed units, so
+// typing it stores the cash with no adjustment step, and the derived unit price
+// spreads that cash over everything that landed - the same landed-cost
+// treatment §12 wanted, arrived at without inflating then deflating the line.
+// The "Free / bonus units" field therefore no longer changes what is stored; it
+// annotates the breakdown chip so the operator can see billed vs free.
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
-/** Cash actually billed for a line: the printed unit price × the BILLED units. */
-function lineCashAed(
-  printedUnit: number,
-  receivedQty: number,
-  freeQty: number,
-): number {
-  const billed = Math.max(0, receivedQty - Math.max(0, freeQty));
-  return round2(printedUnit * billed);
-}
-
-/** What goes to the RPC. `price_per_unit_aed` is numeric(10,4), hence 4dp. */
-function effectiveUnitPriceAed(
-  printedUnit: number,
-  receivedQty: number,
-  freeQty: number,
-): number {
-  const free = Math.max(0, freeQty);
-  if (free <= 0 || receivedQty <= 0) return printedUnit;
-  return round4(lineCashAed(printedUnit, receivedQty, free) / receivedQty);
-}
-
-/** The line total the RPC will store: round2(received_qty × the 4dp price). */
-function lineTotalAed(
-  printedUnit: number,
-  receivedQty: number,
-  freeQty: number,
-): number {
-  return round2(
-    receivedQty * effectiveUnitPriceAed(printedUnit, receivedQty, freeQty),
-  );
+/**
+ * The unit cost the DB will derive from the total, mirroring
+ * procurement_price_sync_and_flag exactly: round(total / qty, 4).
+ * Display-only - the FE never sends this.
+ */
+function derivedUnitAed(total: number, receivedQty: number): number | null {
+  if (receivedQty <= 0) return null;
+  return round4(total / receivedQty);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -150,22 +151,22 @@ export default function ReceivingDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // PRD-003 (CS ruling Q4, replaces PRD-087 R): receive by UNIT PRICE ex-VAT as
-  // printed on the supplier bill. The LINE TOTAL is computed, never typed.
-  //
-  // The old flow captured "total paid for N units" and back-computed the unit
-  // price (107.35 / 16 = 6.7094). That division is the root cause of the fils
-  // drift in PRD-003 §2.1: the supplier billed a flat 6.71, so their line read
-  // 107.36, and one fils entered short compounded by 1.05 into a 267.51 vs
-  // 267.52 mismatch. Capturing the printed unit price kills it at the source.
-  const [editedUnitPrices, setEditedUnitPrices] = useState<
+  // PRD-022: receive by LINE TOTAL ex-VAT as printed on the supplier bill.
+  // The unit price is derived and shown read-only, never typed. See the
+  // total-first note at the top of this file for why this inverts PRD-003 Q4.
+  const [editedTotals, setEditedTotals] = useState<
     Record<string, number | null>
   >({});
 
+  // PRD-022: per-line "Free goods - 0.00 is correct". Required before a line
+  // with an empty or zero total can be confirmed, so a missing price can never
+  // be mistaken for a free delivery. Writes pricing_status='free_goods'.
+  const [freeGoodsLines, setFreeGoodsLines] = useState<Set<string>>(new Set());
+
   // PRD-003 §12 - units delivered but NOT billed (supplier gift / bonus).
-  // Keyed by po_line_id. Never blocks anything; when set it dilutes the unit
-  // price so the line carries the cash paid, not the printed price × everything
-  // that landed.
+  // Keyed by po_line_id. Kept as-is per the PRD-022 decision list, but under
+  // total-first it no longer alters what is stored: the typed bill total is
+  // already the cash for the billed units. It drives the breakdown chip only.
   const [freeUnits, setFreeUnits] = useState<Record<string, number | null>>({});
 
   // PRD-003 - document-level totals, submitted AFTER receive_purchase_order
@@ -221,7 +222,12 @@ export default function ReceivingDetailPage() {
   const [selectedProduct, setSelectedProduct] = useState<BoonzProduct | null>(
     null,
   );
-  const [addPrice, setAddPrice] = useState<number>(0);
+  // PRD-022: the addition form captures the bill total, not a unit price, and
+  // routes through create_po_addition_v2. addFreeGoods is the same explicit
+  // assertion the received lines require.
+  const [addTotal, setAddTotal] = useState<number>(0);
+  const [addFreeGoods, setAddFreeGoods] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   // PRD-002: multi-batch additions. Each batch becomes one po_additions row.
   // Same price across batches (price is per-product on the PO line, not per
   // batch). Default single-batch state preserves the prior UX.
@@ -251,6 +257,8 @@ export default function ReceivingDetailPage() {
         boonz_product_id,
         supplier_id,
         price_per_unit_aed,
+        total_price_aed,
+        price_flag,
         boonz_products!inner(boonz_product_name),
         suppliers!inner(supplier_name)
       `,
@@ -267,7 +275,7 @@ export default function ReceivingDetailPage() {
         supabase
           .from("po_additions")
           .select(
-            "addition_id, boonz_product_id, qty, price_per_unit_aed, status, boonz_products(boonz_product_name)",
+            "addition_id, boonz_product_id, qty, price_per_unit_aed, total_price_aed, pricing_status, price_flag, status, boonz_products(boonz_product_name)",
           )
           .eq("po_id", poId)
           .limit(10000),
@@ -345,6 +353,8 @@ export default function ReceivingDetailPage() {
         received_qty: (line.received_qty as number | null) ?? null,
         supplier_id: (line.supplier_id as string) ?? "",
         price_per_unit_aed: (line.price_per_unit_aed as number | null) ?? null,
+        total_price_aed: (line.total_price_aed as number | null) ?? null,
+        price_flag: (line.price_flag as PriceFlag | null) ?? null,
         purchase_date: line.purchase_date,
         wh_location: "",
         received_date: (line.received_date as string | null) ?? null,
@@ -562,30 +572,22 @@ export default function ReceivingDetailPage() {
           };
         }
 
-        // PRD-003 Q4: the typed UNIT PRICE wins as-is - no division, so no fils
-        // drift. Else the PO's ordered unit price stands. The RPC computes the
-        // line total as received_qty x price, which is the same arithmetic the
-        // supplier's bill does.
-        const typedUnit = editedUnitPrices[l.po_line_id];
-        const printedPrice =
-          typedUnit != null ? typedUnit : l.price_per_unit_aed;
+        // PRD-022: the typed LINE TOTAL is what the bill printed, and it goes to
+        // the RPC untouched. No division on the path from paper to
+        // total_price_aed; the trigger derives the unit price from it.
+        const typedTotal = editedTotals[l.po_line_id];
+        const lineTotal =
+          typedTotal != null ? typedTotal : (l.total_price_aed ?? null);
 
-        // PRD-003 §12: free units dilute, they do not inflate. With no bonus
-        // units this is the printed price unchanged, so the Q4 no-division
-        // guarantee above still holds for every ordinary line.
-        const receivedQty = l.batches.reduce(
-          (s, b) => s + (Number(b.received_qty) || 0),
-          0,
-        );
-        const free = freeUnits[l.po_line_id] ?? 0;
-        const effectivePrice =
-          printedPrice == null
-            ? null
-            : effectiveUnitPriceAed(printedPrice, receivedQty, free);
+        // Free goods is an explicit assertion, never an inference from a blank
+        // field. Anything else with no total is simply sent without one, and
+        // the trigger flags it UNPRICED_RECEIPT - advisory, never blocking.
+        const isFreeGoods = freeGoodsLines.has(l.po_line_id);
 
         return {
           po_line_id: l.po_line_id,
-          price_per_unit_aed: effectivePrice ?? null,
+          total_price_aed: isFreeGoods ? 0 : (lineTotal ?? null),
+          pricing_status: isFreeGoods ? "free_goods" : "priced",
           wh_location: l.wh_location || null,
           close_as_not_purchased: false,
           batches: l.batches
@@ -608,7 +610,10 @@ export default function ReceivingDetailPage() {
         addition_id: a.addition_id,
         boonz_product_id: a.boonz_product_id,
         qty: a.qty,
-        price_per_unit_aed: a.price_per_unit_aed ?? null,
+        // PRD-022: the addition already carries its own priced/free_goods
+        // assertion from create_po_addition_v2. Pass it through so the receive
+        // does not silently reclassify it.
+        pricing_status: a.pricing_status ?? "priced",
         wh_location: additionLocations[a.addition_id] || null,
       }));
 
@@ -752,40 +757,73 @@ export default function ReceivingDetailPage() {
       return;
     }
 
-    setAddSaving(true);
-    const supabase = createClient();
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
+    // PRD-022: the total is per-PRODUCT as printed on the bill, but a multi-
+    // batch add splits one delivered quantity across expiry dates. Apportion the
+    // bill total across the batches by quantity so the rows sum back to exactly
+    // what was billed, and give the last batch the rounding remainder rather
+    // than letting fils evaporate.
+    const totalQty = cleanBatches.reduce((s, b) => s + b.qty, 0);
+    let allocated = 0;
+    const batchTotals = cleanBatches.map((b, i) => {
+      if (addFreeGoods) return 0;
+      if (i === cleanBatches.length - 1) return round2(addTotal - allocated);
+      const share = round2((addTotal * b.qty) / totalQty);
+      allocated = round2(allocated + share);
+      return share;
+    });
 
-    // One po_additions row per batch (mirrors how PO lines themselves are
-    // stored — one row per batch at receive time).
-    const rows = cleanBatches.map((b) => ({
-      po_id: poId,
-      boonz_product_id: selectedProduct.product_id,
-      qty: b.qty,
-      price_per_unit_aed: addPrice || null,
-      expiry_date: b.expiry || null,
-      added_by: authUser?.id,
-      status: "pending_receive" as const,
-    }));
-
-    const { error: insertErr } = await supabase
-      .from("po_additions")
-      .insert(rows);
-
-    setAddSaving(false);
-
-    if (insertErr) {
-      alert(`Add failed: ${insertErr.message}`);
+    if (!addFreeGoods && !(addTotal > 0)) {
+      setAddError(
+        "Enter the total price from the bill, or tick “Free goods” if 0.00 is correct.",
+      );
       return;
     }
 
+    setAddSaving(true);
+    setAddError(null);
+    const supabase = createClient();
+
+    // PRD-022: no direct table write. create_po_addition_v2 is the canonical
+    // writer — it validates the priced/free_goods contract, derives the unit
+    // price, and lands a write_audit_log row (Articles 1, 4, 8).
+    for (let i = 0; i < cleanBatches.length; i++) {
+      const b = cleanBatches[i];
+      const { data, error: rpcErr } = await supabase.rpc(
+        "create_po_addition_v2",
+        {
+          p_po_id: poId,
+          p_boonz_product_id: selectedProduct.product_id,
+          p_qty: b.qty,
+          p_total_price_aed: batchTotals[i],
+          p_expiry_date: b.expiry || null,
+          p_wh_location: null,
+          p_notes: null,
+          p_pricing_status: addFreeGoods ? "free_goods" : "priced",
+        },
+      );
+
+      const res = data as { status?: string; error?: string } | null;
+      if (rpcErr || res?.status !== "ok") {
+        setAddSaving(false);
+        setAddError(
+          rpcErr?.message ??
+            res?.error ??
+            "Add failed — please check the price and try again.",
+        );
+        // Partial batches may already exist; refresh so the operator sees what
+        // actually landed rather than guessing.
+        fetchData();
+        return;
+      }
+    }
+
+    setAddSaving(false);
     setShowAddItem(false);
     setSelectedProduct(null);
     setAddSearch("");
     setAddBatches([{ qty: 1, expiry: "" }]);
-    setAddPrice(0);
+    setAddTotal(0);
+    setAddFreeGoods(false);
     setToast(
       cleanBatches.length === 1
         ? "Added!"
@@ -1191,16 +1229,48 @@ export default function ReceivingDetailPage() {
                     />
                   </div>
 
-                  {/* PRD-003 Q4: enter the UNIT PRICE ex-VAT exactly as printed
+                  {/* PRD-022: capture the LINE TOTAL ex-VAT exactly as printed
                       on the bill (a Union Coop line reads QTY / UNIT PRICE /
-                      VAT / AMT - capture UNIT PRICE). The line total is
-                      computed, never typed, so the back-computation that caused
-                      the fils drift is gone. Benchmarked against the product's
-                      90-day weighted average purchase price. */}
+                      VAT / AMT - capture AMT). The unit price is derived and
+                      shown read-only. Benchmarked against the product's 90-day
+                      weighted average purchase price, inverted: the derived
+                      unit is what gets compared. */}
                   <div className="mt-3">
+                    {/* PRD-022: the flag the DB already stamped on this line. */}
+                    {line.price_flag && (
+                      <div className="mb-2 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                        <span className="font-semibold">
+                          ⚠ {line.price_flag.code.replace(/_/g, " ")}
+                        </span>
+                        {line.price_flag.peer_median_unit_aed != null && (
+                          <>
+                            {" "}
+                            — recorded at{" "}
+                            {Number(line.price_flag.unit_aed ?? 0).toFixed(
+                              2,
+                            )}{" "}
+                            /unit against a peer median of{" "}
+                            {Number(
+                              line.price_flag.peer_median_unit_aed,
+                            ).toFixed(2)}
+                            .
+                          </>
+                        )}
+                        {line.price_flag.suggested_unit_aed != null && (
+                          <span className="font-medium">
+                            {" "}
+                            Did you mean{" "}
+                            {Number(line.price_flag.suggested_unit_aed).toFixed(
+                              2,
+                            )}{" "}
+                            /unit?
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <label className="mb-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                      Unit price ex-VAT (AED) - as printed on the bill
-                      {editedUnitPrices[line.po_line_id] != null && (
+                      Total price ex-VAT (AED) - as printed on the bill
+                      {editedTotals[line.po_line_id] != null && (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
                           edited
                         </span>
@@ -1210,60 +1280,83 @@ export default function ReceivingDetailPage() {
                       type="number"
                       min={0}
                       step="0.01"
+                      disabled={freeGoodsLines.has(line.po_line_id)}
                       value={
                         // "key present" = the user has touched the field —
                         // show exactly what they typed (empty stays empty,
-                        // it must NOT snap back to the prefilled price).
-                        line.po_line_id in editedUnitPrices
-                          ? (editedUnitPrices[line.po_line_id] ?? "")
-                          : (line.price_per_unit_aed ?? "")
+                        // it must NOT snap back to the prefilled total).
+                        freeGoodsLines.has(line.po_line_id)
+                          ? ""
+                          : line.po_line_id in editedTotals
+                            ? (editedTotals[line.po_line_id] ?? "")
+                            : (line.total_price_aed ?? "")
                       }
                       onChange={(e) => {
                         const val =
                           e.target.value === ""
                             ? null
                             : parseFloat(e.target.value);
-                        setEditedUnitPrices((prev) => ({
+                        setEditedTotals((prev) => ({
                           ...prev,
                           [line.po_line_id]: val,
                         }));
                       }}
                       placeholder="0.00"
-                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900"
+                      className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm placeholder:text-neutral-400 disabled:bg-neutral-100 disabled:text-neutral-400 dark:border-neutral-600 dark:bg-neutral-900 dark:disabled:bg-neutral-800"
                     />
                     {(() => {
-                      const typed = editedUnitPrices[line.po_line_id];
-                      const unit =
-                        typed != null
-                          ? typed
-                          : (line.price_per_unit_aed ?? null);
+                      if (freeGoodsLines.has(line.po_line_id)) {
+                        return (
+                          <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+                            Free goods — this line will be stored at 0.00 and
+                            will not be price-flagged.
+                          </p>
+                        );
+                      }
+
+                      const typed = editedTotals[line.po_line_id];
+                      const total =
+                        typed != null ? typed : (line.total_price_aed ?? null);
                       const hist = avg90[line.boonz_product_id];
-                      if (unit == null)
+                      if (total == null)
                         return (
                           <p className="mt-1 text-xs text-neutral-400">
-                            Enter the printed unit price to compute the line
-                            total.
+                            Enter the bill total to derive the unit price, or
+                            tick “Free goods” below.
                           </p>
                         );
 
-                      // PRD-003 §12 sanity chip. The 2026-08-11 Union Coop
-                      // incident was the 8-unit PACK TOTAL typed into the unit
-                      // price field (74 / 76.60 as "unit" prices). >3x the
-                      // trailing average is that mistake, not a price rise.
-                      const packTotalSuspect =
-                        hist != null && unit > 3 * hist.avg;
+                      const unit = derivedUnitAed(total, batchTotal);
+                      if (unit == null)
+                        return (
+                          <p className="mt-1 text-xs text-neutral-400">
+                            Enter a received quantity to derive the unit price.
+                          </p>
+                        );
+
+                      // PRD-022 sanity chip, inverted. Under total-first the
+                      // classic slip is the reverse of the 2026-08-11 Union Coop
+                      // incident: typing a UNIT price into a field that asks for
+                      // the total. That lands a derived unit far BELOW the
+                      // trailing average, so that is what we warn on. A derived
+                      // unit far above still warns - it is either a real price
+                      // rise or a wrong received quantity.
+                      const unitPriceSuspect =
+                        hist != null && batchTotal > 1 && unit < hist.avg / 3;
+                      const highSuspect = hist != null && unit > 3 * hist.avg;
                       const diffPct = hist
                         ? ((unit - hist.avg) / hist.avg) * 100
                         : null;
-                      const tone = packTotalSuspect
-                        ? "text-red-600"
-                        : diffPct == null
-                          ? "text-neutral-500"
-                          : Math.abs(diffPct) <= 5
-                            ? "text-neutral-600"
-                            : diffPct < 0
-                              ? "text-emerald-700"
-                              : "text-amber-700";
+                      const tone =
+                        unitPriceSuspect || highSuspect
+                          ? "text-red-600"
+                          : diffPct == null
+                            ? "text-neutral-500"
+                            : Math.abs(diffPct) <= 5
+                              ? "text-neutral-600"
+                              : diffPct < 0
+                                ? "text-emerald-700"
+                                : "text-amber-700";
                       const badge =
                         diffPct == null
                           ? "· no 90d history"
@@ -1272,52 +1365,83 @@ export default function ReceivingDetailPage() {
                             : diffPct < 0
                               ? `▼ ${Math.abs(diffPct).toFixed(0)}% below 90d avg (${hist!.avg.toFixed(2)})`
                               : `▲ ${diffPct.toFixed(0)}% above 90d avg (${hist!.avg.toFixed(2)})`;
-                      // PRD-003 §12 gift/bonus. `free` units landed but were
-                      // not billed, so the cash is the printed price × the
-                      // billed units and the stored unit cost is that cash
-                      // spread over everything received.
+                      // PRD-003 §12 gift/bonus, now annotation only: the typed
+                      // bill total is already the cash for the billed units.
                       const free = Math.min(
                         Math.max(0, freeUnits[line.po_line_id] ?? 0),
                         batchTotal,
                       );
                       const billed = batchTotal - free;
-                      const cash = lineCashAed(unit, batchTotal, free);
-                      const effUnit = effectiveUnitPriceAed(
-                        unit,
-                        batchTotal,
-                        free,
-                      );
-                      const lineTotal = lineTotalAed(unit, batchTotal, free);
 
                       return (
                         <>
                           <p className={`mt-1 text-xs font-medium ${tone}`}>
-                            Line total = {lineTotal.toFixed(2)} AED (
-                            {free > 0
-                              ? `${billed} billed × ${unit.toFixed(2)}, ${free} free`
-                              : `${batchTotal} × ${unit.toFixed(2)}`}
-                            ) {badge}
+                            = {unit.toFixed(2)} /unit ({total.toFixed(2)} ÷{" "}
+                            {batchTotal}) {badge}
                           </p>
                           {free > 0 && (
                             <p className="mt-1 rounded bg-sky-50 px-2 py-1 text-xs text-sky-800 dark:bg-sky-900/30 dark:text-sky-300">
-                              {batchTotal} units received, {billed} billed. Cash
-                              stays at {cash.toFixed(2)} AED and the unit cost
-                              recorded is {effUnit.toFixed(4)} AED - the free
-                              units dilute cost, they are never free stock at
-                              full price.
+                              {batchTotal} units received, {billed} billed. The{" "}
+                              {total.toFixed(2)} AED you typed is the cash, and
+                              the {unit.toFixed(4)} AED unit cost spreads it
+                              over everything that landed - the free units
+                              dilute cost, they are never free stock at full
+                              price.
                             </p>
                           )}
-                          {packTotalSuspect && (
+                          {unitPriceSuspect && (
                             <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                              ⚠ {unit.toFixed(2)} is more than 3× the 90-day
-                              average ({hist!.avg.toFixed(2)}). Is this the PACK
-                              TOTAL rather than the unit price? Enter the price
-                              for ONE unit.
+                              ⚠ {total.toFixed(2)} across {batchTotal} units is
+                              only {unit.toFixed(2)} each, under a third of the
+                              90-day average ({hist!.avg.toFixed(2)}). Is this
+                              the UNIT price rather than the line total? Enter
+                              the total for all {batchTotal} units.
+                            </p>
+                          )}
+                          {highSuspect && (
+                            <p className="mt-1 rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                              ⚠ {unit.toFixed(2)} per unit is more than 3× the
+                              90-day average ({hist!.avg.toFixed(2)}). Check the
+                              total and the received quantity.
                             </p>
                           )}
                         </>
                       );
                     })()}
+
+                    {/* PRD-022: an empty or zero total must be asserted, never
+                        assumed. Without this tick the line still saves - the
+                        warehouse is never blocked - but it lands as 'unpriced'
+                        and carries an advisory UNPRICED_RECEIPT flag. */}
+                    <label className="mt-2 flex items-start gap-2 rounded border border-neutral-200 px-2 py-1.5 text-xs text-neutral-600 dark:border-neutral-700 dark:text-neutral-300">
+                      <input
+                        type="checkbox"
+                        checked={freeGoodsLines.has(line.po_line_id)}
+                        onChange={(e) => {
+                          setFreeGoodsLines((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(line.po_line_id);
+                            else next.delete(line.po_line_id);
+                            return next;
+                          });
+                          if (e.target.checked) {
+                            setEditedTotals((prev) => ({
+                              ...prev,
+                              [line.po_line_id]: 0,
+                            }));
+                          }
+                        }}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="font-medium">
+                          Free goods — 0.00 is correct
+                        </span>
+                        <br />
+                        Tick this only if the supplier delivered this line at no
+                        charge.
+                      </span>
+                    </label>
 
                     {/* PRD-003 §12 - free / bonus units. Advisory and optional:
                         left empty (the normal case) nothing changes at all. */}
@@ -1369,10 +1493,19 @@ export default function ReceivingDetailPage() {
                     {a.boonz_products.boonz_product_name}
                   </span>
                   <span className="ml-2 text-xs text-amber-600">x{a.qty}</span>
-                  {a.price_per_unit_aed != null && (
-                    <span className="ml-2 text-xs text-amber-600">
-                      {a.price_per_unit_aed.toFixed(2)} AED/unit
+                  {/* PRD-022: lead with the total (the cash), unit derived. */}
+                  {a.pricing_status === "free_goods" ? (
+                    <span className="ml-2 rounded bg-emerald-200 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      free goods
                     </span>
+                  ) : (
+                    a.total_price_aed != null && (
+                      <span className="ml-2 text-xs text-amber-600">
+                        {a.total_price_aed.toFixed(2)} AED total
+                        {a.price_per_unit_aed != null &&
+                          ` · ${a.price_per_unit_aed.toFixed(2)}/unit`}
+                      </span>
+                    )
                   )}
                 </div>
                 <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-800">
@@ -1428,7 +1561,9 @@ export default function ReceivingDetailPage() {
           setSelectedProduct(null);
           setAddSearch("");
           setAddBatches([{ qty: 1, expiry: "" }]);
-          setAddPrice(0);
+          setAddTotal(0);
+          setAddFreeGoods(false);
+          setAddError(null);
         }}
         className="mt-4 w-full rounded-lg border-2 border-dashed border-blue-200 bg-blue-50 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100"
       >
@@ -1491,18 +1626,68 @@ export default function ReceivingDetailPage() {
                 <p className="mb-3 text-sm font-medium text-neutral-700">
                   {selectedProduct.boonz_product_name}
                 </p>
+                {/* PRD-022: the bill total for this product, not a unit price.
+                    Split across batches by quantity when there is more than
+                    one, so the po_additions rows sum back to what was billed. */}
                 <div className="mb-3">
                   <label className="mb-0.5 block text-xs text-neutral-500">
-                    Price (AED)
+                    Total price ex-VAT (AED) - as printed on the bill
                   </label>
                   <input
                     type="number"
                     min={0}
                     step={0.01}
-                    value={addPrice || ""}
-                    onChange={(e) => setAddPrice(Number(e.target.value))}
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                    disabled={addFreeGoods}
+                    value={addFreeGoods ? "" : addTotal || ""}
+                    onChange={(e) => setAddTotal(Number(e.target.value))}
+                    placeholder="0.00"
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm disabled:bg-neutral-100 disabled:text-neutral-400"
                   />
+                  {(() => {
+                    const q = addBatches.reduce(
+                      (s, b) => s + (Number(b.qty) || 0),
+                      0,
+                    );
+                    if (addFreeGoods)
+                      return (
+                        <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                          Free goods — stored at 0.00, never price-flagged.
+                        </p>
+                      );
+                    const u = addTotal > 0 ? derivedUnitAed(addTotal, q) : null;
+                    return u == null ? (
+                      <p className="mt-1 text-xs text-neutral-400">
+                        Enter the bill total, or tick “Free goods” below.
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs font-medium text-neutral-600">
+                        = {u.toFixed(2)} /unit ({addTotal.toFixed(2)} ÷ {q})
+                      </p>
+                    );
+                  })()}
+                  <label className="mt-2 flex items-start gap-2 rounded border border-neutral-200 px-2 py-1.5 text-xs text-neutral-600">
+                    <input
+                      type="checkbox"
+                      checked={addFreeGoods}
+                      onChange={(e) => {
+                        setAddFreeGoods(e.target.checked);
+                        if (e.target.checked) setAddTotal(0);
+                      }}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium">
+                        Free goods — 0.00 is correct
+                      </span>
+                      <br />
+                      Tick only if the supplier gave this at no charge.
+                    </span>
+                  </label>
+                  {addError && (
+                    <p className="mt-2 rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+                      {addError}
+                    </p>
+                  )}
                 </div>
 
                 {/* PRD-002: one row per {qty, expiry} batch. Each becomes one
@@ -1626,14 +1811,16 @@ export default function ReceivingDetailPage() {
               (s, b) => s + (Number(b.received_qty) || 0),
               0,
             );
-            const typed = editedUnitPrices[l.po_line_id];
-            const unit = typed != null ? typed : (l.price_per_unit_aed ?? 0);
-            // §12: same helper the submit path uses, so what the operator sees
-            // here is what the RPC will store.
-            return sum + lineTotalAed(unit, qty, freeUnits[l.po_line_id] ?? 0);
+            // PRD-022: the typed bill total IS the line total. Free goods
+            // contribute nothing. Same figure the submit path sends, so what
+            // the operator reconciles here is what the RPC will store.
+            if (freeGoodsLines.has(l.po_line_id)) return sum;
+            if (qty <= 0) return sum;
+            const typed = editedTotals[l.po_line_id];
+            return sum + (typed != null ? typed : (l.total_price_aed ?? 0));
           }, 0);
           const additionsSubtotal = pendingAdditions.reduce(
-            (s, a) => s + (a.price_per_unit_aed ?? 0) * a.qty,
+            (s, a) => s + (a.total_price_aed ?? 0),
             0,
           );
           const r2 = (n: number) => Math.round(n * 100) / 100;

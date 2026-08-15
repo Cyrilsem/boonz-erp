@@ -1,0 +1,80 @@
+-- PRD-022 — migration 3 of 3: po_additions_rpc_only
+--
+-- ⛔ HELD. DO NOT APPLY YET.
+--
+-- The `_HELD_` prefix keeps this out of `supabase db push` (the runner only
+-- picks up `YYYYMMDDHHMMSS_*.sql`). To ship it, rename to a real timestamp
+-- prefix matching the convention in CLAUDE.md, e.g.
+--   20260822HHMMSS_prd022_po_additions_rpc_only.sql
+-- and apply through the Supabase MCP like the rest of PRD-022.
+--
+-- ── Gate: one week of clean soak ────────────────────────────────────────────
+--
+-- Earliest apply date: 2026-08-22 (one week after the FE shipped on
+-- 2026-08-15). Before applying, all four must hold:
+--
+--   1. `legacy_unit_lines` is 0 across every goods_received event in the soak
+--      window. A non-zero count means some caller is still sending a unit
+--      price instead of a total, and that caller has not been found yet:
+--
+--        select payload->>'legacy_unit_lines' as legacy, count(*)
+--        from procurement_events
+--        where event_type = 'goods_received'
+--          and created_at > '2026-08-15'
+--        group by 1;
+--
+--   2. Every po_additions row created in the window came through
+--      create_po_addition_v2 — i.e. the FE really did stop writing directly:
+--
+--        select a.addition_id, w.rpc_name
+--        from po_additions a
+--        left join write_audit_log w
+--          on w.row_pk = a.addition_id::text
+--         and w.table_name = 'po_additions'
+--         and w.operation = 'INSERT'
+--        where a.created_at > '2026-08-15'
+--          and w.rpc_name is distinct from 'create_po_addition_v2';
+--
+--      Any row here is a direct insert that survived the FE pass. Find the
+--      caller before dropping the policy, or that caller starts erroring.
+--
+--   3. No n8n flow or edge function inserts/updates po_additions. Not
+--      checkable from SQL — this one is a human confirmation from CS.
+--
+--   4. `npm run build` is green on main with the PRD-022 FE deployed.
+--
+-- ── What this does ──────────────────────────────────────────────────────────
+--
+-- Drops the two direct-write policies on po_additions, leaving
+-- create_po_addition_v2 and receive_purchase_order (both SECURITY DEFINER, so
+-- both bypass RLS as owner) as the only write paths. Article 1 and Article 3.
+--
+-- READS ARE UNTOUCHED. `authenticated_read` stays exactly as it is — four FE
+-- call sites still SELECT from po_additions and all four must keep working:
+--   src/app/(app)/app/procurement/page.tsx:637, :686
+--   src/app/(field)/field/page.tsx:1187
+--   src/app/(field)/field/receiving/[poId]/page.tsx:276
+--
+-- Note the column-level UPDATE grant from po_pricing_status_v1 stays in place
+-- underneath this. It is a narrower, independent control (it keeps
+-- pricing_status and price_flag out of authenticated's reach regardless of
+-- policy), and dropping warehouse_update does not supersede it.
+
+drop policy if exists field_staff_insert on public.po_additions;
+drop policy if exists warehouse_update  on public.po_additions;
+
+-- Proof to run immediately after applying: exactly one policy should remain,
+-- `authenticated_read`, cmd = SELECT.
+--
+--   select policyname, cmd from pg_policies
+--   where schemaname = 'public' and tablename = 'po_additions';
+--
+-- And a direct write as an authenticated warehouse user must now fail:
+--
+--   begin;
+--   set local role authenticated;
+--   set local request.jwt.claims = '{"sub":"bf32624e-3334-425d-b694-c5944b0c66f0"}';
+--   insert into po_additions (po_id, boonz_product_id, qty, added_by)
+--   values ('PO-TEST', gen_random_uuid(), 1,
+--           'bf32624e-3334-425d-b694-c5944b0c66f0');  -- expect 42501
+--   rollback;
