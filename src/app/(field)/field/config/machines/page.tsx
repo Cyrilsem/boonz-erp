@@ -16,13 +16,21 @@ const DEFAULT_STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Pending"];
 // ── Inventory buckets (fleet reclassification 2026-07-12) ────────────────────
 // Same split as /app/pods: whereabouts live in pod_location, status is just
 // Active|Inactive. The warehouse manager scans by section, not by a flat list.
-type Bucket = "Active" | "Office" | "DIP" | "China" | "Legacy" | "Other";
+type Bucket =
+  | "Active"
+  | "Office"
+  | "DIP"
+  | "China"
+  | "Lebanon"
+  | "Legacy"
+  | "Other";
 
 const BUCKET_ORDER: Bucket[] = [
   "Active",
   "Office",
   "DIP",
   "China",
+  "Lebanon",
   "Legacy",
   "Other",
 ];
@@ -32,6 +40,7 @@ const BUCKET_LABELS: Record<Bucket, string> = {
   Office: "Office / Central",
   DIP: "DIP Warehouse",
   China: "China",
+  Lebanon: "Lebanon",
   Legacy: "Legacy (records only)",
   Other: "Other Inactive",
 };
@@ -41,6 +50,9 @@ function bucketOf(m: {
   pod_location: string | null;
 }): Bucket {
   if (m.pod_location === "Legacy") return "Legacy";
+  // Lebanon is its own market: machines there stay in this section even when
+  // Active, so "In Market" remains a clean UAE view (decision 2026-08-19).
+  if (m.pod_location === "Lebanon") return "Lebanon";
   if (m.status?.toLowerCase() === "active") return "Active";
   if (m.pod_location === "Office" || m.pod_location === "Central")
     return "Office";
@@ -1006,6 +1018,7 @@ export default function MachinesPage() {
                                       "Office",
                                       "DIP",
                                       "China",
+                                      "Lebanon",
                                       "Legacy",
                                       "Central",
                                     ].includes(row.pod_location) &&

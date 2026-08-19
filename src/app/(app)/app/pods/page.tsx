@@ -75,13 +75,21 @@ const STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Pending"];
 // ── Inventory buckets ─────────────────────────────────────────────────────────
 // The physical split CS uses to read the fleet. Legacy = bookkeeping ghosts,
 // excluded from machine counts and shown with status "—".
-type Bucket = "Active" | "Office" | "DIP" | "China" | "Legacy" | "Other";
+type Bucket =
+  | "Active"
+  | "Office"
+  | "DIP"
+  | "China"
+  | "Lebanon"
+  | "Legacy"
+  | "Other";
 
 const BUCKET_ORDER: Bucket[] = [
   "Active",
   "Office",
   "DIP",
   "China",
+  "Lebanon",
   "Legacy",
   "Other",
 ];
@@ -91,6 +99,7 @@ const BUCKET_META: Record<Bucket, { label: string; hint: string }> = {
   Office: { label: "Office / Central", hint: "stored at the office" },
   DIP: { label: "DIP Warehouse", hint: "stored in DIP" },
   China: { label: "China", hint: "not yet shipped" },
+  Lebanon: { label: "Lebanon", hint: "Lebanon market — active or staged" },
   Legacy: { label: "Legacy", hint: "records only — not counted" },
   Other: { label: "Other Inactive", hint: "unclassified" },
 };
@@ -100,6 +109,9 @@ function bucketOf(m: {
   pod_location: string | null;
 }): Bucket {
   if (m.pod_location === "Legacy") return "Legacy";
+  // Lebanon is its own market: machines there stay in this section even when
+  // Active, so "In Market" remains a clean UAE view (decision 2026-08-19).
+  if (m.pod_location === "Lebanon") return "Lebanon";
   if (m.status?.toLowerCase() === "active") return "Active";
   if (m.pod_location === "Office" || m.pod_location === "Central")
     return "Office";
