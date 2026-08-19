@@ -13,52 +13,41 @@ const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
 
 const DEFAULT_STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Pending"];
 
-// ── Inventory buckets (fleet reclassification 2026-07-12) ────────────────────
-// Same split as /app/pods: whereabouts live in pod_location, status is just
-// Active|Inactive. The warehouse manager scans by section, not by a flat list.
-type Bucket =
-  | "Active"
-  | "Office"
-  | "DIP"
-  | "China"
-  | "Lebanon"
-  | "Legacy"
-  | "Other";
+// ── Location sections (DB-driven, 2026-08-19) ────────────────────────────────
+// Sections come from machine_location_categories — add a row there to add a
+// section, no code deploy needed. Grouping rule: a wins_over_active category
+// (Lebanon, Legacy) always claims the machine; otherwise status Active →
+// in_market; otherwise the machine's category, falling back to "other".
+interface LocationCategory {
+  code: string;
+  label: string;
+  hint: string | null;
+  sort_order: number;
+  wins_over_active: boolean;
+  collapsed_by_default: boolean;
+  assignable: boolean;
+}
 
-const BUCKET_ORDER: Bucket[] = [
-  "Active",
-  "Office",
-  "DIP",
-  "China",
-  "Lebanon",
-  "Legacy",
-  "Other",
+// Used until (or in case) the lookup table fetch resolves, so the page never
+// renders ungrouped. Mirrors the seed rows of machine_location_categories.
+const FALLBACK_CATEGORIES: LocationCategory[] = [
+  { code: "in_market", label: "In Market", hint: null, sort_order: 0, wins_over_active: false, collapsed_by_default: false, assignable: false },
+  { code: "office", label: "Office / Central", hint: null, sort_order: 10, wins_over_active: false, collapsed_by_default: false, assignable: true },
+  { code: "dip", label: "DIP Warehouse", hint: null, sort_order: 20, wins_over_active: false, collapsed_by_default: false, assignable: true },
+  { code: "china", label: "China", hint: null, sort_order: 30, wins_over_active: false, collapsed_by_default: true, assignable: true },
+  { code: "lebanon", label: "Lebanon", hint: null, sort_order: 40, wins_over_active: true, collapsed_by_default: false, assignable: true },
+  { code: "legacy", label: "Legacy (records only)", hint: null, sort_order: 50, wins_over_active: true, collapsed_by_default: true, assignable: true },
+  { code: "other", label: "Other Inactive", hint: null, sort_order: 60, wins_over_active: false, collapsed_by_default: false, assignable: false },
 ];
 
-const BUCKET_LABELS: Record<Bucket, string> = {
-  Active: "In Market",
-  Office: "Office / Central",
-  DIP: "DIP Warehouse",
-  China: "China",
-  Lebanon: "Lebanon",
-  Legacy: "Legacy (records only)",
-  Other: "Other Inactive",
-};
-
-function bucketOf(m: {
-  status: string | null;
-  pod_location: string | null;
-}): Bucket {
-  if (m.pod_location === "Legacy") return "Legacy";
-  // Lebanon is its own market: machines there stay in this section even when
-  // Active, so "In Market" remains a clean UAE view (decision 2026-08-19).
-  if (m.pod_location === "Lebanon") return "Lebanon";
-  if (m.status?.toLowerCase() === "active") return "Active";
-  if (m.pod_location === "Office" || m.pod_location === "Central")
-    return "Office";
-  if (m.pod_location === "DIP") return "DIP";
-  if (m.pod_location === "China") return "China";
-  return "Other";
+function bucketOf(
+  m: { status: string | null; location_category: string | null },
+  cats: Map<string, LocationCategory>,
+): string {
+  const cat = m.location_category ? cats.get(m.location_category) : undefined;
+  if (cat?.wins_over_active) return cat.code;
+  if (m.status?.toLowerCase() === "active") return "in_market";
+  return cat?.code ?? "other";
 }
 
 // Device number = pod_number minus the BOONZ_ prefix — how the warehouse
@@ -91,6 +80,7 @@ interface Machine {
   contact_phone: string | null;
   notes: string | null;
   venue_group: string | null;
+  location_category: string | null;
 }
 
 interface MachineDraft {
@@ -99,6 +89,7 @@ interface MachineDraft {
   pod_location: string;
   pod_address: string;
   status: string;
+  location_category: string;
   contact_person: string;
   contact_email: string;
   contact_phone: string;
@@ -113,6 +104,7 @@ function emptyMachineDraft(): MachineDraft {
     pod_location: "",
     pod_address: "",
     status: "Active",
+    location_category: "",
     contact_person: "",
     contact_email: "",
     contact_phone: "",
@@ -128,6 +120,7 @@ function machineRowToDraft(r: Machine): MachineDraft {
     pod_location: r.pod_location ?? "",
     pod_address: r.pod_address ?? "",
     status: r.status ?? "Active",
+    location_category: r.location_category ?? "",
     contact_person: r.contact_person ?? "",
     contact_email: r.contact_email ?? "",
     contact_phone: r.contact_phone ?? "",
@@ -140,10 +133,12 @@ function MachineFormFields({
   draft,
   onChange,
   statusOptions,
+  categories,
 }: {
   draft: MachineDraft;
   onChange: (patch: Partial<MachineDraft>) => void;
   statusOptions: string[];
+  categories: LocationCategory[];
 }) {
   return (
     <div className="space-y-2">
@@ -186,6 +181,25 @@ function MachineFormFields({
             ))}
           </select>
         </div>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-neutral-500">
+          Section
+        </label>
+        <select
+          value={draft.location_category}
+          onChange={(e) => onChange({ location_category: e.target.value })}
+          className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900"
+        >
+          <option value="">— automatic (In Market when Active) —</option>
+          {categories
+            .filter((c) => c.assignable)
+            .map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.label}
+              </option>
+            ))}
+        </select>
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-neutral-500">
@@ -345,11 +359,21 @@ export default function MachinesPage() {
   // Machines tab
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machineSearch, setMachineSearch] = useState("");
-  const [bucketFilter, setBucketFilter] = useState<"all" | Bucket>("all");
-  // China + Legacy are big and rarely touched — collapsed by default.
+  const [bucketFilter, setBucketFilter] = useState<string>("all");
+  // Sections come from machine_location_categories; big rarely-touched ones
+  // (China, Legacy) arrive flagged collapsed_by_default.
+  const [categories, setCategories] =
+    useState<LocationCategory[]>(FALLBACK_CATEGORIES);
   const [collapsedSections, setCollapsedSections] = useState<
     Record<string, boolean>
-  >({ China: true, Legacy: true });
+  >(
+    Object.fromEntries(
+      FALLBACK_CATEGORIES.filter((c) => c.collapsed_by_default).map((c) => [
+        c.code,
+        true,
+      ]),
+    ),
+  );
   const [machineExpanded, setMachineExpanded] = useState<string | null>(null);
   const [machineDrafts, setMachineDrafts] = useState<
     Record<string, MachineDraft>
@@ -494,22 +518,42 @@ export default function MachinesPage() {
     }
     setUserRole(profile.role);
 
-    const [{ data: machineData }, { data: aliasData }] = await Promise.all([
-      supabase
-        .from("machines")
-        .select(
-          "machine_id, official_name, pod_number, pod_location, pod_address, status, contact_person, contact_email, contact_phone, notes, venue_group",
-        )
-        .order("official_name"),
-      supabase
-        .from("machine_name_aliases")
-        .select(
-          "alias_id, machine_id, original_name, official_name, is_active, machines!inner(official_name)",
-        )
-        .order("official_name"),
-    ]);
+    const [{ data: machineData }, { data: aliasData }, { data: catData }] =
+      await Promise.all([
+        supabase
+          .from("machines")
+          .select(
+            "machine_id, official_name, pod_number, pod_location, pod_address, status, contact_person, contact_email, contact_phone, notes, venue_group, location_category",
+          )
+          .order("official_name"),
+        supabase
+          .from("machine_name_aliases")
+          .select(
+            "alias_id, machine_id, original_name, official_name, is_active, machines!inner(official_name)",
+          )
+          .order("official_name"),
+        supabase
+          .from("machine_location_categories")
+          .select(
+            "code, label, hint, sort_order, wins_over_active, collapsed_by_default, assignable",
+          )
+          .eq("is_active", true)
+          .order("sort_order"),
+      ]);
 
     if (machineData) setMachines(machineData as Machine[]);
+    if (catData && catData.length > 0) {
+      const cats = catData as LocationCategory[];
+      setCategories(cats);
+      // Seed collapse state only for codes the user hasn't toggled yet.
+      setCollapsedSections((prev) => {
+        const next = { ...prev };
+        for (const c of cats) {
+          if (!(c.code in next) && c.collapsed_by_default) next[c.code] = true;
+        }
+        return next;
+      });
+    }
     if (aliasData) {
       const seen = new Set<string>();
       const deduped: Alias[] = [];
@@ -542,11 +586,16 @@ export default function MachinesPage() {
     return combined;
   }, [machines]);
 
+  const catMap = useMemo(
+    () => new Map(categories.map((c) => [c.code, c])),
+    [categories],
+  );
+
   // Filtered machines — search matches name OR device number
   const filteredMachines = useMemo(() => {
     let result = machines;
     if (bucketFilter !== "all")
-      result = result.filter((m) => bucketOf(m) === bucketFilter);
+      result = result.filter((m) => bucketOf(m, catMap) === bucketFilter);
     if (machineSearch) {
       const q = machineSearch.toLowerCase();
       result = result.filter(
@@ -557,20 +606,20 @@ export default function MachinesPage() {
       );
     }
     return result;
-  }, [machines, machineSearch, bucketFilter]);
+  }, [machines, machineSearch, bucketFilter, catMap]);
 
-  // Sectioned by bucket in fixed order; searching force-expands everything.
+  // Sectioned by category sort order; searching force-expands everything.
   const machineSections = useMemo(() => {
-    const map = new Map<Bucket, Machine[]>();
+    const map = new Map<string, Machine[]>();
     for (const m of filteredMachines) {
-      const b = bucketOf(m);
+      const b = bucketOf(m, catMap);
       if (!map.has(b)) map.set(b, []);
       map.get(b)!.push(m);
     }
-    return BUCKET_ORDER.filter((b) => map.has(b)).map(
-      (b) => [b, map.get(b)!] as const,
-    );
-  }, [filteredMachines]);
+    return categories
+      .filter((c) => map.has(c.code))
+      .map((c) => [c.code, map.get(c.code)!] as const);
+  }, [filteredMachines, categories, catMap]);
 
   const searchActive = machineSearch.trim().length > 0;
 
@@ -623,6 +672,7 @@ export default function MachinesPage() {
         pod_location: draft.pod_location.trim() || null,
         pod_address: draft.pod_address.trim() || null,
         status: draft.status,
+        location_category: draft.location_category || null,
         contact_person: draft.contact_person.trim() || null,
         contact_email: draft.contact_email.trim() || null,
         contact_phone: draft.contact_phone.trim() || null,
@@ -727,6 +777,7 @@ export default function MachinesPage() {
       pod_location: newMachine.pod_location.trim() || null,
       pod_address: newMachine.pod_address.trim() || null,
       status: newMachine.status,
+      location_category: newMachine.location_category || null,
       contact_person: newMachine.contact_person.trim() || null,
       contact_email: newMachine.contact_email.trim() || null,
       contact_phone: newMachine.contact_phone.trim() || null,
@@ -921,15 +972,13 @@ export default function MachinesPage() {
           <div className="mb-3 flex gap-2">
             <select
               value={bucketFilter}
-              onChange={(e) =>
-                setBucketFilter(e.target.value as "all" | Bucket)
-              }
+              onChange={(e) => setBucketFilter(e.target.value)}
               className="rounded-lg border border-neutral-300 px-2 py-2 text-xs dark:border-neutral-600 dark:bg-neutral-900"
             >
               <option value="all">All sections</option>
-              {BUCKET_ORDER.map((b) => (
-                <option key={b} value={b}>
-                  {BUCKET_LABELS[b]}
+              {categories.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
                 </option>
               ))}
             </select>
@@ -961,16 +1010,16 @@ export default function MachinesPage() {
                   }
                   className="mb-2 flex w-full items-center justify-between rounded-lg px-3 py-2"
                   style={{
-                    background: bucket === "Active" ? "#eaf3f0" : "#f5f2ee",
+                    background: bucket === "in_market" ? "#eaf3f0" : "#f5f2ee",
                   }}
                 >
                   <span
                     className="text-xs font-bold uppercase tracking-wider"
                     style={{
-                      color: bucket === "Active" ? "#24544a" : "#6b6860",
+                      color: bucket === "in_market" ? "#24544a" : "#6b6860",
                     }}
                   >
-                    {BUCKET_LABELS[bucket]}
+                    {catMap.get(bucket)?.label ?? bucket}
                     <span className="ml-2 font-medium normal-case tracking-normal text-neutral-400">
                       {rows.length}
                     </span>
@@ -985,7 +1034,7 @@ export default function MachinesPage() {
                       const isExpanded = machineExpanded === row.machine_id;
                       const draft = machineDrafts[row.machine_id];
                       const dev = deviceNo(row.pod_number);
-                      const isLegacy = bucket === "Legacy";
+                      const isLegacy = bucket === "legacy";
                       return (
                         <li
                           key={row.machine_id}
@@ -1065,6 +1114,7 @@ export default function MachinesPage() {
                                   }))
                                 }
                                 statusOptions={statusOptions}
+                                categories={categories}
                               />
                               {machineSaveMsg[row.machine_id] && (
                                 <p
@@ -1328,6 +1378,7 @@ export default function MachinesPage() {
               draft={newMachine}
               onChange={(patch) => setNewMachine((p) => ({ ...p, ...patch }))}
               statusOptions={statusOptions}
+              categories={categories}
             />
             <button
               onClick={handleAddMachine}

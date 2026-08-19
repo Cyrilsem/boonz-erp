@@ -50,6 +50,7 @@ interface Machine {
   hw_test_successful: boolean | null;
   cabinet_count: number | null;
   source_of_supply: string | null;
+  location_category: string | null;
 }
 
 type DrawerTab = "overview" | "adyen" | "payment" | "hardware" | "wifi";
@@ -75,49 +76,42 @@ const STATUS_OPTIONS = ["Active", "Inactive", "Maintenance", "Pending"];
 // ── Inventory buckets ─────────────────────────────────────────────────────────
 // The physical split CS uses to read the fleet. Legacy = bookkeeping ghosts,
 // excluded from machine counts and shown with status "—".
-type Bucket =
-  | "Active"
-  | "Office"
-  | "DIP"
-  | "China"
-  | "Lebanon"
-  | "Legacy"
-  | "Other";
+//
+// Sections are DB-driven (2026-08-19): rows of machine_location_categories.
+// Add a row there to add a section — no code deploy needed. Grouping rule:
+// a wins_over_active category (Lebanon, Legacy) always claims the machine;
+// otherwise status Active → in_market; otherwise the machine's category,
+// falling back to "other".
+interface LocationCategory {
+  code: string;
+  label: string;
+  hint: string | null;
+  sort_order: number;
+  wins_over_active: boolean;
+  collapsed_by_default: boolean;
+  assignable: boolean;
+}
 
-const BUCKET_ORDER: Bucket[] = [
-  "Active",
-  "Office",
-  "DIP",
-  "China",
-  "Lebanon",
-  "Legacy",
-  "Other",
+// Used until (or in case) the lookup table fetch resolves, so the page never
+// renders ungrouped. Mirrors the seed rows of machine_location_categories.
+const FALLBACK_CATEGORIES: LocationCategory[] = [
+  { code: "in_market", label: "In Market", hint: "installed & selling", sort_order: 0, wins_over_active: false, collapsed_by_default: false, assignable: false },
+  { code: "office", label: "Office / Central", hint: "stored at the office", sort_order: 10, wins_over_active: false, collapsed_by_default: false, assignable: true },
+  { code: "dip", label: "DIP Warehouse", hint: "stored in DIP", sort_order: 20, wins_over_active: false, collapsed_by_default: false, assignable: true },
+  { code: "china", label: "China", hint: "not yet shipped", sort_order: 30, wins_over_active: false, collapsed_by_default: true, assignable: true },
+  { code: "lebanon", label: "Lebanon", hint: "Lebanon market — active or staged", sort_order: 40, wins_over_active: true, collapsed_by_default: false, assignable: true },
+  { code: "legacy", label: "Legacy (records only)", hint: "records only — not counted", sort_order: 50, wins_over_active: true, collapsed_by_default: true, assignable: true },
+  { code: "other", label: "Other Inactive", hint: "unclassified", sort_order: 60, wins_over_active: false, collapsed_by_default: false, assignable: false },
 ];
 
-const BUCKET_META: Record<Bucket, { label: string; hint: string }> = {
-  Active: { label: "Active — In Market", hint: "installed & selling" },
-  Office: { label: "Office / Central", hint: "stored at the office" },
-  DIP: { label: "DIP Warehouse", hint: "stored in DIP" },
-  China: { label: "China", hint: "not yet shipped" },
-  Lebanon: { label: "Lebanon", hint: "Lebanon market — active or staged" },
-  Legacy: { label: "Legacy", hint: "records only — not counted" },
-  Other: { label: "Other Inactive", hint: "unclassified" },
-};
-
-function bucketOf(m: {
-  status: string | null;
-  pod_location: string | null;
-}): Bucket {
-  if (m.pod_location === "Legacy") return "Legacy";
-  // Lebanon is its own market: machines there stay in this section even when
-  // Active, so "In Market" remains a clean UAE view (decision 2026-08-19).
-  if (m.pod_location === "Lebanon") return "Lebanon";
-  if (m.status?.toLowerCase() === "active") return "Active";
-  if (m.pod_location === "Office" || m.pod_location === "Central")
-    return "Office";
-  if (m.pod_location === "DIP") return "DIP";
-  if (m.pod_location === "China") return "China";
-  return "Other";
+function bucketOf(
+  m: { status: string | null; location_category: string | null },
+  cats: Map<string, LocationCategory>,
+): string {
+  const cat = m.location_category ? cats.get(m.location_category) : undefined;
+  if (cat?.wins_over_active) return cat.code;
+  if (m.status?.toLowerCase() === "active") return "in_market";
+  return cat?.code ?? "other";
 }
 const LOCATION_TYPE_OPTIONS = [
   "office",
@@ -156,7 +150,7 @@ const ADYEN_INVENTORY_OPTIONS = [
 ];
 
 const MACHINE_COLS =
-  "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, adyen_unique_terminal_id, adyen_permanent_terminal_id, adyen_store_code, adyen_fridge_assigned, adyen_store_description, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, shipment_batch_nbr, micron_app_id, app_version, micron_version, wifi_network_name, wifi_mac_address, wifi_device_hostname, payment_terminal_installed, payment_micron_bo_setup, payment_adyen_store_created, payment_connect_store_terminal, payment_general_ui_updated, payment_pos_hide_button, payment_app_deployed, payment_app_deployed_terminal, payment_kiosk_mode, payment_fan_test, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply";
+  "machine_id, official_name, venue_group, status, include_in_refill, pod_location, pod_address, adyen_status, adyen_inventory_in_store, adyen_unique_terminal_id, adyen_permanent_terminal_id, adyen_store_code, adyen_fridge_assigned, adyen_store_description, location_type, contact_person, contact_phone, contact_email, installation_date, notes, serial_number, shipment_batch_nbr, micron_app_id, app_version, micron_version, wifi_network_name, wifi_mac_address, wifi_device_hostname, payment_terminal_installed, payment_micron_bo_setup, payment_adyen_store_created, payment_connect_store_terminal, payment_general_ui_updated, payment_pos_hide_button, payment_app_deployed, payment_app_deployed_terminal, payment_kiosk_mode, payment_fan_test, hw_compressor_ok, hw_calibration_ok, hw_door_spring_ok, hw_test_successful, cabinet_count, source_of_supply, location_category";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -482,7 +476,9 @@ export default function MachinesPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [bucketFilter, setBucketFilter] = useState<"All" | Bucket>("All");
+  const [bucketFilter, setBucketFilter] = useState<string>("All");
+  const [categories, setCategories] =
+    useState<LocationCategory[]>(FALLBACK_CATEGORIES);
   const [groupFilter, setGroupFilter] = useState("All");
   const [selected, setSelected] = useState<Machine | null>(null);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("overview");
@@ -591,17 +587,33 @@ export default function MachinesPage() {
   useEffect(() => {
     async function load() {
       const supabase = createClient();
-      const { data, error } = await supabase
-        .from("machines")
-        .select(MACHINE_COLS)
-        .order("official_name")
-        .limit(10000);
+      const [{ data, error }, { data: catData }] = await Promise.all([
+        supabase
+          .from("machines")
+          .select(MACHINE_COLS)
+          .order("official_name")
+          .limit(10000),
+        supabase
+          .from("machine_location_categories")
+          .select(
+            "code, label, hint, sort_order, wins_over_active, collapsed_by_default, assignable",
+          )
+          .eq("is_active", true)
+          .order("sort_order"),
+      ]);
       if (error) console.error("machines fetch error:", error);
       setMachines(data ?? []);
+      if (catData && catData.length > 0)
+        setCategories(catData as LocationCategory[]);
       setLoading(false);
     }
     load();
   }, []);
+
+  const catMap = useMemo(
+    () => new Map(categories.map((c) => [c.code, c])),
+    [categories],
+  );
 
   const groups = useMemo(() => {
     const set = new Set<string>();
@@ -629,37 +641,38 @@ export default function MachinesPage() {
           !!m.adyen_store_code && m.adyen_store_code.toLowerCase().includes(q);
         if (!nameHit && !devHit && !storeHit) return false;
       }
-      if (bucketFilter !== "All" && bucketOf(m) !== bucketFilter) return false;
+      if (bucketFilter !== "All" && bucketOf(m, catMap) !== bucketFilter)
+        return false;
       if (groupFilter !== "All" && m.venue_group !== groupFilter) return false;
       return true;
     });
-  }, [machines, search, bucketFilter, groupFilter, deviceNumber]);
+  }, [machines, search, bucketFilter, groupFilter, deviceNumber, catMap]);
 
-  // Bucketed view: rows grouped in fixed order with separators between groups.
+  // Bucketed view: rows grouped by category sort order with separators.
   const grouped = useMemo(() => {
-    const map = new Map<Bucket, Machine[]>();
+    const map = new Map<string, Machine[]>();
     for (const m of filtered) {
-      const b = bucketOf(m);
+      const b = bucketOf(m, catMap);
       if (!map.has(b)) map.set(b, []);
       map.get(b)!.push(m);
     }
-    return BUCKET_ORDER.filter((b) => map.has(b)).map(
-      (b) => [b, map.get(b)!] as const,
-    );
-  }, [filtered]);
+    return categories
+      .filter((c) => map.has(c.code))
+      .map((c) => [c.code, map.get(c.code)!] as const);
+  }, [filtered, categories, catMap]);
 
   const fleetCounts = useMemo(() => {
     let active = 0,
       stored = 0,
       legacy = 0;
     for (const m of machines) {
-      const b = bucketOf(m);
-      if (b === "Active") active++;
-      else if (b === "Legacy") legacy++;
+      const b = bucketOf(m, catMap);
+      if (b === "in_market") active++;
+      else if (b === "legacy") legacy++;
       else stored++;
     }
     return { active, stored, legacy, counted: active + stored };
-  }, [machines]);
+  }, [machines, catMap]);
 
   // ── Edit helpers ────────────────────────────────────────────────────────────
 
@@ -767,6 +780,15 @@ export default function MachinesPage() {
             <div style={grid2}>
               <Field label="Venue Group" value={m.venue_group} />
               <Field label="Location Type" value={m.location_type} />
+              <Field
+                label="Section"
+                value={
+                  m.location_category
+                    ? (catMap.get(m.location_category)?.label ??
+                      m.location_category)
+                    : "automatic"
+                }
+              />
               <Field label="Location" value={m.pod_location} />
               <Field label="Address" value={m.pod_address} />
               <Field label="Supply Source" value={m.source_of_supply} />
@@ -952,6 +974,28 @@ export default function MachinesPage() {
                 options={STATUS_OPTIONS}
                 onChange={updateField}
               />
+              <div style={{ marginBottom: 14 }}>
+                <FieldLabel>Section</FieldLabel>
+                <select
+                  value={strVal("location_category")}
+                  onChange={(e) =>
+                    updateField(
+                      "location_category",
+                      e.target.value === "" ? null : e.target.value,
+                    )
+                  }
+                  style={{ ...inputStyle, cursor: "pointer" }}
+                >
+                  <option value="">— automatic (In Market when Active) —</option>
+                  {categories
+                    .filter((c) => c.assignable)
+                    .map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                </select>
+              </div>
               <EditableField
                 label="Location"
                 field="pod_location"
@@ -1312,12 +1356,12 @@ export default function MachinesPage() {
             background: "white",
           }}
         />
-        {(["All", ...BUCKET_ORDER] as const)
+        {["All", ...categories.map((c) => c.code)]
           .filter(
             (b) =>
               b === "All" ||
-              b === "Active" ||
-              machines.some((m) => bucketOf(m) === b),
+              b === "in_market" ||
+              machines.some((m) => bucketOf(m, catMap) === b),
           )
           .map((s) => (
             <button
@@ -1334,7 +1378,7 @@ export default function MachinesPage() {
                 cursor: "pointer",
               }}
             >
-              {s}
+              {s === "All" ? "All" : (catMap.get(s)?.label ?? s)}
             </button>
           ))}
         <select
@@ -1440,10 +1484,10 @@ export default function MachinesPage() {
                       fontWeight: 700,
                       letterSpacing: "0.1em",
                       textTransform: "uppercase",
-                      color: bucket === "Active" ? "#24544a" : "#6b6860",
+                      color: bucket === "in_market" ? "#24544a" : "#6b6860",
                     }}
                   >
-                    {BUCKET_META[bucket].label}
+                    {catMap.get(bucket)?.label ?? bucket}
                     <span
                       style={{
                         fontWeight: 500,
@@ -1453,13 +1497,16 @@ export default function MachinesPage() {
                         color: "#9ca3af",
                       }}
                     >
-                      {rows.length} · {BUCKET_META[bucket].hint}
+                      {rows.length}
+                      {catMap.get(bucket)?.hint
+                        ? ` · ${catMap.get(bucket)?.hint}`
+                        : ""}
                     </span>
                   </td>
                 </tr>,
                 ...rows.map((m) => {
                   const isActive = m.status?.toLowerCase() === "active";
-                  const isLegacy = bucket === "Legacy";
+                  const isLegacy = bucket === "legacy";
                   const isSelected = selected?.machine_id === m.machine_id;
                   return (
                     <tr
