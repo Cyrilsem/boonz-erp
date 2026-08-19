@@ -1,5 +1,36 @@
 # Architecture Changelog
 
+## 2026-08-19 — Machine location sections are DB-driven (Lebanon + future markets)
+
+**Migration:** `machine_location_categories_lookup` (applied live 2026-08-19). New lookup table
+`machine_location_categories` (code PK, label, hint, sort_order, wins_over_active,
+collapsed_by_default, assignable, is_active) with RLS: SELECT for `authenticated`, writes gated to
+operator_admin/superadmin/manager (Article 2). New nullable column
+`machines.location_category text REFERENCES machine_location_categories(code)` + index. One-time
+backfill from the historical `pod_location` convention (Legacy/Lebanon/Office/Central/DIP/China →
+legacy/lebanon/office/office/dip/china; 65 rows categorized, 37 venue rows left NULL).
+
+**Grouping rule (FE):** a `wins_over_active` category (lebanon, legacy) always claims the machine;
+otherwise status Active → `in_market`; otherwise the machine's category, falling back to `other`.
+Adding a future section (Iraq, KSA…) = one INSERT into the lookup table, zero code deploys.
+
+**FE:** `/app/pods` and `/field/config/machines` fetch the lookup (hardcoded FALLBACK_CATEGORIES if
+the fetch fails), group/filter/label sections dynamically, and both edit forms gain a "Section"
+dropdown (assignable categories + "automatic"). The dropdown writes `machines.location_category`
+through the existing role-gated direct-update surface — same Batch 5 / RC-04 debt as the rest of the
+machine edit form; the future `update_machine` canonical writer must absorb this column (Article 3
+noted by Cody, approved with revisions).
+
+
+## 2026-08-19 — DF3: driver tasks auto-close when a PO settles (the 66-task backlog)
+
+- **The symptom:** the driver app Tasks page showed 66 open tasks; only 1 was real. Root cause read off live rows: `receive_purchase_order` never touched `driver_tasks`, and `cancel_po_line` rewrote the task's `notes` (down to "(all lines cancelled)") but never flipped `status`. A task therefore closed ONLY via a manual driver tap (Acknowledge → Collected), which nobody performs because the warehouse receives the goods regardless. 58 open tasks pointed at fully received POs (many received same-day, oldest 19 Jun), 6 at fully cancelled POs, 1 at a PO that no longer exists.
+- **One-time data cleanup (execute_sql, 2026-08-19):** 58 stale tasks → `collected` (comment: "auto-closed 2026-08-19: PO fully received at warehouse"), 7 → `cancelled` (fully-cancelled or missing PO). Close, never DELETE. Open tasks now: 1 (Al Ain Water PO-2026-VNT2HKIT, genuinely live).
+- **Structural fix (2 migrations):** `df3_driver_tasks_autoclose_on_po_settle` (cancel_po_line) + `df3_receive_purchase_order_autoclose_task`. Both writers now end with: count actionable lines on the PO (`purchase_outcome IS NULL OR NOT IN ('received','not_purchased')`); if zero remain, close any `pending/acknowledged` task — `collected` when ≥1 line was received (stamping `collected_at`), else `cancelled` — appending an `[auto-closed by <rpc>]` marker to `outcome_comment`. Follows the S-142/S-147 precedent in `create_spot_purchase_v3`. `cancel_po` delegates to `cancel_po_line` and inherits the fix.
+- **Accepted gap, by design:** a `po_addition` still `pending_receive` does NOT hold the task open — the driver's field work is done; receipt is a warehouse action.
+- **Noted, out of scope:** 4 of the 5 currently-pending POs (CF0814MCC, 9402, 9403, 9259) have NO driver task at all — created via a path that skipped task creation. The tasks list was wrong in both directions.
+- Cody ✅ Approve (Articles 1, 4, 5, 7, 8, 12, 13, 14). `driver_tasks` is not a protected entity; both touched functions are registered canonical writers extending existing write paths.
+
 ## 2026-08-15 — PRD-022: the bill total is the number, and a zero price now has to say which kind of zero it is
 
 - **The inversion, and why it is the right way round.** PRD-003 Q4 had the warehouse type the printed UNIT price and computed the line total, reasoning that dividing a total by qty loses fils. PRD-022 reverses it: capture the LINE TOTAL exactly as printed, derive the unit. The fils argument now points the other way — the total is the cash, it is what settles and what feeds COGS, and it is now stored with no division anywhere on the path from paper to `total_price_aed`. The unit price becomes the lossy one, which is the correct number to lose fils on because nothing settles against it. Under the old rule the exact figure was the one nobody pays and the rounded one was the money. It also kills the 2026-08-11 Union Coop incident at the source: that was a PACK TOTAL typed into a field labelled "unit price", and when the field asks for the total that keystroke is simply correct.

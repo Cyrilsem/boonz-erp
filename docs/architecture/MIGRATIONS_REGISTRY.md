@@ -4,6 +4,15 @@ The Supabase `migrations` table is the system of record. This file is a curated 
 
 Migrations not listed here are pre-reform (operational migrations from before 2026-04-25). They're not in scope for the constitution-compliance rollup but remain in the Supabase history.
 
+## DF3 — driver_tasks auto-close on PO settle (APPLIED 2026-08-19)
+
+| Migration name                              | Article(s)        | Status             | Note |
+| ------------------------------------------- | ----------------- | ------------------ | ---- |
+| `df3_driver_tasks_autoclose_on_po_settle`   | 1, 4, 5, 7, 8, 12 | ✅ Applied to prod | `cancel_po_line`: after the DF2 notes rebuild, if zero actionable lines remain on the PO, flip the open driver task to `collected` (≥1 line received) or `cancelled`, appending an `[auto-closed by cancel_po_line]` marker. `cancel_po` inherits via delegation. |
+| `df3_receive_purchase_order_autoclose_task` | 1, 4, 5, 7, 8, 12 | ✅ Applied to prod | `receive_purchase_order`: same terminal block before RETURN. Fixes the 66-task driver backlog (64 stale). One-time cleanup of 65 stale tasks done via execute_sql the same day. A `pending_receive` addition does not hold the task open (documented choice). |
+
+**Cody review 2026-08-19:** ✅ Approve (Articles 1, 4, 5, 7, 8, 12, 13, 14). Non-protected entity (`driver_tasks`), existing canonical writers, S-142/S-147 auto-close precedent.
+
 ## PRD-113 — in-machine moves are not returns + expired stock never auto-consumed (APPLIED 2026-08-10)
 
 | Migration name                                   | Article(s)         | Status             | Note                                                                                                                                                                                                                                                                                                                                                              |
@@ -5460,3 +5469,25 @@ in the blast radius. Revoked from `public`/`anon`/`authenticated`; trigger execu
 a PRD-022 regression. Flipping one view in isolation would start applying RLS for its callers and
 change behaviour. Recorded for a dedicated unit; `CREATE OR REPLACE VIEW` preserved whatever the
 2026-08-14 migration set.
+
+
+---
+
+## 2026-08-19 — `machine_location_categories_lookup`
+
+**What:** New lookup `machine_location_categories` + `machines.location_category` (nullable, FK) +
+`idx_machines_location_category` + one-time backfill from `pod_location`
+(Legacy/Lebanon/Office/Central/DIP/China). Seeded: in_market, office, dip, china, lebanon, legacy,
+other. RLS on the lookup: `mlc_read` (SELECT, authenticated), `mlc_admin_write` (ALL,
+operator_admin/superadmin/manager via user_profiles).
+
+**Why:** machine section grouping in /app/pods and /field/config/machines was hardcoded FE buckets;
+adding a market (Lebanon) required a deploy. Sections are now data. `wins_over_active=true`
+(lebanon, legacy) keeps those machines out of In Market even when status=Active.
+
+**Cody:** ⚠️ approved with revisions (Articles 2, 3, 12, 14) — Article 3 note: the edit-form write of
+`location_category` rides the existing `admins_manage_machines` direct-update surface (Batch 5 /
+RC-04 debt); fold into the future canonical `update_machine` RPC.
+
+**Rollback:** `ALTER TABLE machines DROP COLUMN location_category; DROP TABLE
+machine_location_categories;` (forward-only preferred — write a new migration).
