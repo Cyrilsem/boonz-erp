@@ -1,0 +1,12 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- Best-understanding of intent (2026-07-27): a one-off DATA fix repointing orphaned
+-- pod_inventory/slot rows for "Plaay"-branded products (confirmed live as a real product
+-- brand -- e.g. "Plaay Tablets - Dark Chocolate", "Plaay Protein Balls - Peanut Butter
+-- Truffles 2P" appear in monitoring_alerts.payload; "Plaay" is not a venue/machine name and
+-- is preserved verbatim from the source migration name) to the correct machine/shelf.
+-- Searched pg_proc for functions named *orphan_pod*/*repoint*: none found, so no reusable
+-- guard/RPC exists to reconstruct. The specific rows repointed are not recoverable from
+-- current state (pod_inventory/slot_lifecycle carry no residual "orphan" or "plaay" tag).
+-- RED: intentionally empty -- data fix already applied to prod
+-- 20260727224835_phaseF_plaay_orphan_pod_repoint. Do not attempt to replay; if the original
+-- orphan-repoint intent needs to be re-derived, ask CS.

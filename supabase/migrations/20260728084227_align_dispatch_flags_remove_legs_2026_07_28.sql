@@ -1,0 +1,6 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- Second of a same-day fix -> align -> REVERT sequence; aligned dispatch flags for Remove legs
+-- after 20260728083304_fix_dispatched_flag_2026_07_28.sql. No current-state trace in prod.
+-- Body NOT recoverable: transient same-day change, fully reverted by
+-- 20260728090346_revert_dispatched_flag_2026_07_28.sql.
+-- intentionally empty: change already applied to and later reverted in prod 20260728084227

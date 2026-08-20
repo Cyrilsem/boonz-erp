@@ -1,0 +1,21 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+--
+-- YELLOW / stub with caveat, NOT a full reconstruction. Per docs/architecture/MIGRATIONS_REGISTRY.md
+-- line 5417, this was a "Field-reference fix on the above" -- a same-day correction to
+-- po_unit_price_guard (20260814104803), applied roughly 70 seconds after it. Both were superseded
+-- again within the hour by po_price_total_first_flag_only (20260814111855), the migration that
+-- actually shipped the durable objects (total_price_aed, price_flag, procurement_price_sync_and_flag,
+-- its helpers, create_po_addition_v2, v_po_price_flags) still live today.
+--
+-- Because this object's DDL was replaced again on the same day, only the FINAL cumulative body
+-- survives in pg_proc. The specific RECORD-field bug this migration fixed (relative to its
+-- predecessor) and the exact corrected body cannot be recovered without a byte-level diff that was
+-- never captured. Per the audit brief's explicit instruction for this class of item: do not
+-- fabricate an intermediate body.
+--
+-- The reconstructable content of this lineage lives in
+-- supabase/migrations/20260814111855_po_price_total_first_flag_only.sql (this repo, written as part
+-- of this same audit).
+--
+-- intentionally empty: superseded same-day by po_price_total_first_flag_only (20260814111855);
+-- current live state reconstructed there.

@@ -1,0 +1,22 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+--
+-- YELLOW / stub with caveat, NOT a full reconstruction. Per docs/architecture/MIGRATIONS_REGISTRY.md
+-- line 5416, this was "First cut of the price guard" -- an early version of what became the
+-- procurement price-flagging trigger. It was superseded roughly 70 seconds later, same day, by
+-- po_unit_price_guard_fix_record_fields (20260814104915), and both were superseded again within
+-- the hour by po_price_total_first_flag_only (20260814111855), which is the migration that actually
+-- shipped total_price_aed, price_flag, the trigger function procurement_price_sync_and_flag, its
+-- helper functions, create_po_addition_v2 and v_po_price_flags -- all still live today.
+--
+-- Because this object's DDL was replaced twice more on the same day, only the FINAL cumulative body
+-- survives in pg_proc / information_schema. There is no way to recover this specific migration's
+-- intermediate body (whatever "first cut" shape it had, including any field-name bug that the very
+-- next migration exists to fix) without a byte-level diff that was never captured. Per the audit
+-- brief's explicit instruction for this class of item: do not fabricate an intermediate body.
+--
+-- The reconstructable content of this lineage lives in
+-- supabase/migrations/20260814111855_po_price_total_first_flag_only.sql (this repo, written as part
+-- of this same audit).
+--
+-- intentionally empty: superseded same-day by po_unit_price_guard_fix_record_fields (20260814104915)
+-- and again by po_price_total_first_flag_only (20260814111855); current live state reconstructed there.

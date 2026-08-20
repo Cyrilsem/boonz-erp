@@ -1,0 +1,6 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- Third of a same-day fix -> align -> REVERT sequence; reverted the two migrations above the
+-- same day. Net effect on current prod state: no-op (confirmed: no *dispatched_flag* or
+-- *remove_legs* column/constraint/function exists in prod as of 2026-08-20).
+-- Body NOT recoverable: the revert's own SQL is not derivable from a state that no longer differs.
+-- intentionally empty: revert already applied to prod 20260728090346

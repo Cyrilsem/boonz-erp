@@ -1,0 +1,7 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- First of a same-day fix -> align -> REVERT sequence around a dispatched-flag concept
+-- (Remove-leg dispatch flags); no column/constraint/function named *dispatched_flag* or
+-- *remove_legs* exists in prod today, so this step left no durable current-state trace.
+-- Body NOT recoverable: transient same-day change, fully reverted by
+-- 20260728090346_revert_dispatched_flag_2026_07_28.sql.
+-- intentionally empty: change already applied to and later reverted in prod 20260728083304

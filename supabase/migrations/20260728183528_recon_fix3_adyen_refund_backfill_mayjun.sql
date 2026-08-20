@@ -1,0 +1,8 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- VOX SOA reconciliation wave (recon_fix1..6, 2026-07-28). Backfilled
+-- adyen_transactions.refunded_amount_value = captured_amount_value for 6 RefundedBulk May/Jun rows
+-- that had never been backfilled (full-refund assumption per CS; true-up if Adyen later shows
+-- partials). net_captured_value self-corrects off this column.
+-- Body NOT recoverable: one-off data UPDATE across 6 named rows, no current-state trace to
+-- reconstruct the exact row list/prior values from.
+-- intentionally empty: data fix already applied to prod 20260728183528

@@ -1,0 +1,18 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- PRD-108 Volume-Driven Size-Up, step 4/4 (Phase 2b, apply-time record only). Source:
+-- docs/prds/PRD-108-EXECUTION-LOG.md 2.3 ("prd108_v_sizeup_candidates + ..._rank1_benchmark |
+-- Phase 2b proposal surface"); docs/architecture/MIGRATIONS_REGISTRY.md:709.
+--
+-- RED — intentionally empty: could not identify a live prod object for this migration name.
+-- Checked pg_class (views/tables) and pg_proc (functions) for any relation or function named
+-- v_sizeup_candidates_rank1_benchmark or matching *rank1_benchmark* — zero matches in current
+-- prod (2026-08-20). What IS live: v_sizeup_candidates (see 20260729103028) already contains
+-- the full rank-1-by-suitability newcomer benchmark inline as CTEs (nc_pool -> nc_pct ->
+-- nc_ranked -> newcomer), which is exactly the logic this migration's name describes ("T3's
+-- decisive rank-1 benchmark", execution log 1.2/2.4). The most likely explanation is that this
+-- migration originally created a standalone helper view/function four minutes after
+-- prd108_v_sizeup_candidates, and that object was later dropped/inlined back into
+-- v_sizeup_candidates in the same PRD-108 session — no separate catalog object survives to
+-- recover a definition from, and no doc records its standalone shape.
+-- Per the audit brief: do not guess at SQL for an object with no live trace. Data fix already
+-- reflected in prod via 20260729103028_prd108_v_sizeup_candidates.sql's inline CTEs.

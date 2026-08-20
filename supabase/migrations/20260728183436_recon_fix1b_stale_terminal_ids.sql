@@ -1,0 +1,8 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- VOX SOA reconciliation wave (recon_fix1..6, 2026-07-28). Nulled stale
+-- machines.adyen_unique_terminal_id claims on 13 Inactive machines whose terminal has exactly one
+-- Active real owner. JET-2001/WH2-2001 pair (...499563, both Inactive) deliberately left untouched.
+-- Under audit GUCs.
+-- Body NOT recoverable: one-off data UPDATE across 13 named rows, no current-state trace to
+-- reconstruct the exact row list/prior values from.
+-- intentionally empty: data fix already applied to prod 20260728183436

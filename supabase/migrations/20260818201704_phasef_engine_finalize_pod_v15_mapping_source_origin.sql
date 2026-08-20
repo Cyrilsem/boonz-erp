@@ -1,0 +1,8 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- engine_finalize_pod v15: introduced source_origin classification on pod_refill_plan rows
+-- (vox_at_venue vs warehouse) via a product_mapping join, ahead of the machine-scope-precedence
+-- refinement that followed 3.5 hours later in the same day (v15.1, next migration).
+-- Body NOT recoverable: CREATE OR REPLACE FUNCTION overwrote this version's exact body before any
+-- git snapshot existed; only the current live body (v15.1) is introspectable via pg_get_functiondef.
+-- intentionally empty: superseded same-day by phasef_engine_finalize_pod_v15_1_machine_scope_precedence,
+-- which carries the current live definition of public.engine_finalize_pod(date, uuid[]).

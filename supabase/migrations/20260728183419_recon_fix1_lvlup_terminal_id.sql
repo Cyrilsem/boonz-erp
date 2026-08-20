@@ -1,0 +1,7 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- VOX SOA reconciliation wave (recon_fix1..6, 2026-07-28). Corrected machines.adyen_unique_terminal_id
+-- for LVLUP-2015: cleared a stale claim on terminal ...993605 (MPMCC-1054's real terminal),
+-- set to its own ...993390 (validated from store LVLUP_2015_0000_R0). 1 row, under audit GUCs.
+-- Body NOT recoverable: one-off data UPDATE, no current-state trace to reconstruct the exact
+-- prior/next values from (the row is now simply correct going forward).
+-- intentionally empty: data fix already applied to prod 20260728183419
