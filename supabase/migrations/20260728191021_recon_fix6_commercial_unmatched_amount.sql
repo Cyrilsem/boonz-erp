@@ -1,0 +1,19 @@
+-- Reconstructed from prod 2026-08-20; originally applied via MCP with no migration file committed.
+-- Undocumented in CHANGELOG.md / MIGRATIONS_REGISTRY.md / RPC_REGISTRY.md (verified 2026-08-20;
+-- those only name recon_fix4/5a/5b). Applied 2026-07-28, right after recon_fix5b, in the same
+-- VOX SOA reconciliation wave. Further patched get_vox_commercial_report: the live function body
+-- today contains an 'unmatched_amount' field in the 'waterfall' output object
+-- (COALESCE(ROUND(SUM(total_amount) FILTER (WHERE NOT is_matched), 2), 0)) -- confirmed present
+-- via pg_get_functiondef on 2026-08-20, matching the "unmatched amount" concept this migration's
+-- name implies (transactions that never matched to an Adyen/cash-recovery reference).
+--
+-- Body NOT duplicated here: get_vox_commercial_report was patched twice same-day
+-- (recon_fix5b, then this migration) and Postgres CREATE OR REPLACE overwrites a function in
+-- place, so only the FINAL merged body survives in prod -- this migration's incremental diff on
+-- top of recon_fix5b cannot be isolated from it. The full current live body (which already
+-- includes this migration's unmatched_amount addition) is reconstructed in full in
+-- 20260728183806_recon_fix5b_vox_commercial_report_refunds.sql; re-applying that file alone
+-- already re-establishes this migration's effect too. Note also: the SAME function was further
+-- touched by recon_fix7/recon_fix7b later that week (a different worker's migrations, not covered
+-- by this reconstruction task) -- the live body reflects those cumulative changes as well.
+-- intentionally empty here to avoid a duplicate CREATE OR REPLACE of the same function body.
