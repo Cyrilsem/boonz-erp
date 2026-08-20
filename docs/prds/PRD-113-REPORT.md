@@ -511,18 +511,18 @@ not abort the remaining lines.
 
 Probed live:
 
-| probe | result |
-|---|---|
-| in-machine move → `return_dispatch_line` | ✅ `refused` / `internal_move_return_blocked` |
-| warehouse stock moved? | ✅ **delta 0** |
-| leg marked returned? | ✅ no |
-| genuine return (packed, picked up, real actor) | ✅ `returned` |
-| its warehouse credit | ✅ **+5**, exactly the quantity — unchanged |
+| probe                                          | result                                        |
+| ---------------------------------------------- | --------------------------------------------- |
+| in-machine move → `return_dispatch_line`       | ✅ `refused` / `internal_move_return_blocked` |
+| warehouse stock moved?                         | ✅ **delta 0**                                |
+| leg marked returned?                           | ✅ no                                         |
+| genuine return (packed, picked up, real actor) | ✅ `returned`                                 |
+| its warehouse credit                           | ✅ **+5**, exactly the quantity — unchanged   |
 
 A first pass at this probe showed the genuine return "refused" too, which briefly looked like
 over-blocking. It was the pre-existing `no_actor_non_physical` guard — my probe had passed a
 NULL actor on a line that was never packed. Re-run with a real actor and a physical history,
-it credits exactly as before. Worth recording: a refusal object is not self-evidently *your*
+it credits exactly as before. Worth recording: a refusal object is not self-evidently _your_
 refusal, and reading only `status` would have produced a false alarm in one direction or a
 missed regression in the other.
 
@@ -531,8 +531,8 @@ missed regression in the other.
 silently stayed unresolved. Two changes:
 
 - the save path now branches on `status === 'refused'` and shows the driver plain language:
-  *"This is a move within the machine — it does not go back to the warehouse, so there is
-  nothing to return."*
+  _"This is a move within the machine — it does not go back to the warehouse, so there is
+  nothing to return."_
 - the return button is **disabled** on an internal-move Remove, with the explanation on
   hover, rather than offered and then refused.
 
@@ -545,7 +545,7 @@ were not the same thing. The PRD said "the Inventory Approval query and the appr
 RPC". The real invariant is **no path may credit the warehouse for units that never left the
 machine**, and the paths are: three approve RPCs, `receive_dispatch_line` (with its bulk
 looper wired to a "Mark All" button), and `return_dispatch_line` (wired to a driver's
-button). Each was found by asking *who else writes the credit* rather than by re-reading the
+button). Each was found by asking _who else writes the credit_ rather than by re-reading the
 PRD.
 
 ---
@@ -566,13 +566,13 @@ WHERE p.pronamespace = 'public'::regnamespace
 
 Five functions. All five accounted for:
 
-| function | status |
-|---|---|
-| `receive_dispatch_line` | ✅ guarded (A7) — and with it every caller, including `receive_all_dispatches_for_machine` and the direct FE calls |
-| `return_dispatch_line` | ✅ guarded (A8) — the driver's button |
-| `credit_dispatch_remainder` | ✅ safe by construction — returns `skipped` on `action = 'Remove'` ("Remove line has no fill remainder") before touching stock |
-| `pack_dispatch_line` | ✅ no Remove path — the string `Remove` does not appear in its 10.5 KB body, and Remove legs are stamped `no_pack_needed` at insert by `tg_default_pack_outcome_driver_legs`, so nothing is ever drawn from the warehouse for one and nothing can be released back |
-| `repair_unbound_dispatch` | ✅ no Remove path — same, 3.2 KB body, no `Remove` reference |
+| function                    | status                                                                                                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `receive_dispatch_line`     | ✅ guarded (A7) — and with it every caller, including `receive_all_dispatches_for_machine` and the direct FE calls                                                                                                                                                 |
+| `return_dispatch_line`      | ✅ guarded (A8) — the driver's button                                                                                                                                                                                                                              |
+| `credit_dispatch_remainder` | ✅ safe by construction — returns `skipped` on `action = 'Remove'` ("Remove line has no fill remainder") before touching stock                                                                                                                                     |
+| `pack_dispatch_line`        | ✅ no Remove path — the string `Remove` does not appear in its 10.5 KB body, and Remove legs are stamped `no_pack_needed` at insert by `tg_default_pack_outcome_driver_legs`, so nothing is ever drawn from the warehouse for one and nothing can be released back |
+| `repair_unbound_dispatch`   | ✅ no Remove path — same, 3.2 KB body, no `Remove` reference                                                                                                                                                                                                       |
 
 Plus the three approve RPCs from A3, which are entry points rather than credit writers.
 
@@ -625,12 +625,12 @@ the first move leg.
 
 Verified: `left(md5(prosrc),8)` on `receive_dispatch_line` is **`28195f57`** again.
 
-| probe | result |
-|---|---|
-| `receive_dispatch_line` direct on a move leg (function no longer guards) | ✅ BLOCKED by the trigger |
-| `wh_approve_remove_receipt` | ✅ still refuses first, with its own friendlier message |
-| bulk receive | ✅ skipped 1, received 1 |
-| move credited / genuine credited | ✅ false / true |
+| probe                                                                    | result                                                  |
+| ------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `receive_dispatch_line` direct on a move leg (function no longer guards) | ✅ BLOCKED by the trigger                               |
+| `wh_approve_remove_receipt`                                              | ✅ still refuses first, with its own friendlier message |
+| bulk receive                                                             | ✅ skipped 1, received 1                                |
+| move credited / genuine credited                                         | ✅ false / true                                         |
 
 **Fixture 26 re-run post-A9: 89/0 green** (it was 88/1). **Fixture 113 re-run post-A9: 25/0
 green.**
@@ -657,8 +657,8 @@ Left for the PRD-110 owner.
 
 `wh_approve_remove_receipt_multivariant` splits one Remove into child Remove rows, one per
 variant, and calls `receive_dispatch_line` on each **inside the same transaction**. A9's
-trigger evaluates the pairing predicate on every child — and a child carries the *parent's*
-shelf but a *variant* product id. If that variant happened to have an unrelated Add New on
+trigger evaluates the pairing predicate on every child — and a child carries the _parent's_
+shelf but a _variant_ product id. If that variant happened to have an unrelated Add New on
 another shelf of the same machine that day, the child would be blocked, the whole call would
 abort, and the child would never exist — so there would be nothing for
 `clear_internal_move_flag` to clear. A warehouse manager would be stuck mid-task on a
@@ -668,12 +668,12 @@ The parent has already been through the A3 guard by then, so the children inheri
 that was made properly once. `20260810190000_prd113_a10_multivariant_children_exempt.sql`
 exempts them by their own creation marker (`[multi-variant child of …]`).
 
-The failure this prevents is a *refusal*, not a bad credit — but a refusal with no way out is
+The failure this prevents is a _refusal_, not a bad credit — but a refusal with no way out is
 still a defect, and this one lands on a person mid-task.
 
-| probe | result |
-|---|---|
-| plain Remove, paired Add New present | ✅ BLOCKED |
+| probe                                           | result                  |
+| ----------------------------------------------- | ----------------------- |
+| plain Remove, paired Add New present            | ✅ BLOCKED              |
 | multi-variant child, same product, same pairing | ✅ ALLOWED and credited |
 
 ---
@@ -688,12 +688,12 @@ management API is not usable here: one heavy fixture trips the timeout and the w
 
 **72 banked · 68 green · 4 red.** Every red diagnosed, not assumed:
 
-| fixture | red | mine? | cause |
-|---|---|---|---|
-| **26** `receive_dispatch_line` md5 pin | 88/1 | **YES** | A7 edited a byte-pinned function. **Fixed by A9; re-run 89/0 green.** |
-| **2** censored velocity cold-start | 53/1 | no | fixture tolerance defect: `velocity_raw` rounds to `0.033333` (= 1 unit / 30 d); that 1.0e-5 relative error across a ratio of ~12.4 lands at 1.24e-4 against a 1e-4 threshold. Unrounded, the same rows give 6.7e-6 and 1.8e-5. The view reads neither `refill_dispatching` nor `pod_inventory`. |
-| **46** FEFO SKU binding | 28/1 | no | warehouse depletion. `resolve_fefo_sku_legs_v3` now returns `status: partial, n_legs: 1, qty_bound: 2` of 20 — only two units of one SKU left for that pod. Scenario references none of PRD-113's surfaces. |
-| **74** DR-1 cutover authority | 51/2 | no | **the nightly cron did its job.** `VML` moved from `no_v3_measurement` to `v3_horizon_not_elapsed`, so the fixture's hard-coded 6/4 split reads 5/5. `engine_forecast_error_v3` holds 44 VML rows dated **2026-08-10** — written by cron 45 `prd110_p27_nightly_shadow_runner_v3` (21:22 UTC) between fixture 74's last green run (2026-08-09 01:20 UTC) and this sweep (23:07 UTC). `v_cutover_readiness_v3` reads none of PRD-113's surfaces. |
+| fixture                                | red  | mine?   | cause                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------- | ---- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **26** `receive_dispatch_line` md5 pin | 88/1 | **YES** | A7 edited a byte-pinned function. **Fixed by A9; re-run 89/0 green.**                                                                                                                                                                                                                                                                                                                                                                           |
+| **2** censored velocity cold-start     | 53/1 | no      | fixture tolerance defect: `velocity_raw` rounds to `0.033333` (= 1 unit / 30 d); that 1.0e-5 relative error across a ratio of ~12.4 lands at 1.24e-4 against a 1e-4 threshold. Unrounded, the same rows give 6.7e-6 and 1.8e-5. The view reads neither `refill_dispatching` nor `pod_inventory`.                                                                                                                                                |
+| **46** FEFO SKU binding                | 28/1 | no      | warehouse depletion. `resolve_fefo_sku_legs_v3` now returns `status: partial, n_legs: 1, qty_bound: 2` of 20 — only two units of one SKU left for that pod. Scenario references none of PRD-113's surfaces.                                                                                                                                                                                                                                     |
+| **74** DR-1 cutover authority          | 51/2 | no      | **the nightly cron did its job.** `VML` moved from `no_v3_measurement` to `v3_horizon_not_elapsed`, so the fixture's hard-coded 6/4 split reads 5/5. `engine_forecast_error_v3` holds 44 VML rows dated **2026-08-10** — written by cron 45 `prd110_p27_nightly_shadow_runner_v3` (21:22 UTC) between fixture 74's last green run (2026-08-09 01:20 UTC) and this sweep (23:07 UTC). `v_cutover_readiness_v3` reads none of PRD-113's surfaces. |
 
 **The honest verdict on acceptance item 5.** PRD-113 introduced exactly **one** golden
 regression, fixture 26, and it is fixed and re-verified. The other three are pre-existing
@@ -707,10 +707,10 @@ above.
 Final state of the two fixtures this PRD is responsible for, re-run after the last migration
 (A10):
 
-| fixture | result |
-|---|---|
+| fixture              | result           |
+| -------------------- | ---------------- |
 | 26 (the pin I broke) | **89 / 0 green** |
-| 113 (PRD-113's own) | **25 / 0 green** |
+| 113 (PRD-113's own)  | **25 / 0 green** |
 
 ---
 
@@ -730,18 +730,18 @@ edit and both untracked relay scripts are exactly as this unit found them.
 Every file's name matches its `supabase_migrations.schema_migrations` row exactly, verified
 after the last apply.
 
-| # | migration | what |
-|---|---|---|
-| A1 | `is_internal_move_column` | the column, the durable-override pair, the pairing index |
-| A2 | `internal_move_predicate_and_writer` | canonical predicate, stamp writer, un-stamp writer, trigger, allowlist |
-| A3 | `return_queue_excludes_internal_moves` | queue view + the three approve RPCs |
-| A4 | `fifo_never_consumes_expired` | expired batches ineligible; overflow reported |
-| A5 | `close_anon_execute_on_new_writers` | the `anon` hole A2 opened |
-| A6 | `trigger_matches_the_predicate` | trigger gate ⊆ predicate gate |
-| A7 | `guard_the_credit_writer` | the bulk receiver behind "Mark All" |
-| A8 | `guard_return_dispatch_line` | the driver's own button |
-| A9 | `restore_rdl_and_guard_the_event` | md5 pin restored; guard moved to the credit event |
-| A10 | `multivariant_children_exempt` | a genuine multi-variant return is not stranded |
+| #   | migration                              | what                                                                   |
+| --- | -------------------------------------- | ---------------------------------------------------------------------- |
+| A1  | `is_internal_move_column`              | the column, the durable-override pair, the pairing index               |
+| A2  | `internal_move_predicate_and_writer`   | canonical predicate, stamp writer, un-stamp writer, trigger, allowlist |
+| A3  | `return_queue_excludes_internal_moves` | queue view + the three approve RPCs                                    |
+| A4  | `fifo_never_consumes_expired`          | expired batches ineligible; overflow reported                          |
+| A5  | `close_anon_execute_on_new_writers`    | the `anon` hole A2 opened                                              |
+| A6  | `trigger_matches_the_predicate`        | trigger gate ⊆ predicate gate                                          |
+| A7  | `guard_the_credit_writer`              | the bulk receiver behind "Mark All"                                    |
+| A8  | `guard_return_dispatch_line`           | the driver's own button                                                |
+| A9  | `restore_rdl_and_guard_the_event`      | md5 pin restored; guard moved to the credit event                      |
+| A10 | `multivariant_children_exempt`         | a genuine multi-variant return is not stranded                         |
 
 ---
 
@@ -751,9 +751,9 @@ The **shipped bundle** is the verdict, not the local build and not an HTTP code.
 production with a hand-built `@supabase/ssr` session cookie until the new chunks were being
 served, then scanned every chunk on both pages.
 
-| page | evidence in the deployed chunks |
-|---|---|
-| `/refill` (warehouse) | HTTP 200 · **"Move within machine"** present in `2e0c07e874d92f67.js` · **"Review All" absent from all 13 chunks** |
+| page                                    | evidence in the deployed chunks                                                                                                                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/refill` (warehouse)                   | HTTP 200 · **"Move within machine"** present in `2e0c07e874d92f67.js` · **"Review All" absent from all 13 chunks**                                                       |
 | `/field/dispatching/<MC-2004>` (driver) | HTTP 200 · `22381207dcc2fcd0.js` carries **"MOVE WITHIN MACHINE"**, **"Moved from "**, **"Moved to its new shelf"**, **"move within the machine"**, **"Could not move"** |
 
 A first bundle scan reported nothing and briefly looked like a stale deploy. The probe was
@@ -764,25 +764,25 @@ Re-run writing each chunk to disk before grepping, every string is there. Record
 **Data contracts through PostgREST, as the real roles** (this is what catches a grant or RLS
 hole that reading `pg_proc` cannot):
 
-| probe | as | result |
-|---|---|---|
-| `v_pending_wh_remove_confirmations` | warehouse | 200, 7 rows, all genuine returns |
-| `refill_dispatching` incl. `is_internal_move`, `internal_move_cleared_at` | warehouse | 200, both columns present |
-| same | driver acct | 200, both columns present |
-| `is_internal_move_dispatch` on an unknown id | warehouse | 200 `null` — the documented contract |
-| `clear_internal_move_flag` with reason `"ok"` | warehouse | 400, the 10-character refusal |
-| `mark_internal_move_legs` / `clear_internal_move_flag` / `tg_mark_internal_move_pair` | **anon** | **404 PGRST202** — not in the schema cache at all |
-| `mark_internal_move_legs`, `clear_internal_move_flag` | **field_staff** (DB-layer impersonation) | both REFUSED with the role message |
+| probe                                                                                 | as                                       | result                                            |
+| ------------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------- |
+| `v_pending_wh_remove_confirmations`                                                   | warehouse                                | 200, 7 rows, all genuine returns                  |
+| `refill_dispatching` incl. `is_internal_move`, `internal_move_cleared_at`             | warehouse                                | 200, both columns present                         |
+| same                                                                                  | driver acct                              | 200, both columns present                         |
+| `is_internal_move_dispatch` on an unknown id                                          | warehouse                                | 200 `null` — the documented contract              |
+| `clear_internal_move_flag` with reason `"ok"`                                         | warehouse                                | 400, the 10-character refusal                     |
+| `mark_internal_move_legs` / `clear_internal_move_flag` / `tg_mark_internal_move_pair` | **anon**                                 | **404 PGRST202** — not in the schema cache at all |
+| `mark_internal_move_legs`, `clear_internal_move_flag`                                 | **field_staff** (DB-layer impersonation) | both REFUSED with the role message                |
 
 ## Acceptance
 
-| # | criterion | status |
-|---|---|---|
-| 1 | fixture: same-machine swap → flagged → absent from queue → WH unchanged; genuine M2W queues and credits once | ✅ golden 113, 25/25 — both pair orders, two positive controls, and the genuine return proven to still **credit** |
-| 2 | Refresh Data over a machine with an expired batch + sales: expired unchanged, non-expired decremented, overflow logged | ✅ golden 113 seq 20–25, on a real `run_pod_inventory_decrement()` run, not a re-implementation of its predicate |
-| 3 | 30-day repair report saved | ✅ `docs/prds/PRD-113-expired-consumption-report.md` — 3 batches, 14 units, report only |
-| 4 | "Review All" gone; page builds and renders | ✅ gone from all 13 shipped `/refill` chunks; `/refill` HTTP 200 |
-| 5 | golden green; build green; merged; production verified | ⚠️ **see below** — build ✅, merged ✅ (`8af5557`), production ✅; golden has **3 pre-existing reds this PRD did not cause** |
+| #   | criterion                                                                                                              | status                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | fixture: same-machine swap → flagged → absent from queue → WH unchanged; genuine M2W queues and credits once           | ✅ golden 113, 25/25 — both pair orders, two positive controls, and the genuine return proven to still **credit**            |
+| 2   | Refresh Data over a machine with an expired batch + sales: expired unchanged, non-expired decremented, overflow logged | ✅ golden 113 seq 20–25, on a real `run_pod_inventory_decrement()` run, not a re-implementation of its predicate             |
+| 3   | 30-day repair report saved                                                                                             | ✅ `docs/prds/PRD-113-expired-consumption-report.md` — 3 batches, 14 units, report only                                      |
+| 4   | "Review All" gone; page builds and renders                                                                             | ✅ gone from all 13 shipped `/refill` chunks; `/refill` HTTP 200                                                             |
+| 5   | golden green; build green; merged; production verified                                                                 | ⚠️ **see below** — build ✅, merged ✅ (`8af5557`), production ✅; golden has **3 pre-existing reds this PRD did not cause** |
 
 **On item 5, precisely.** PRD-113 introduced exactly one golden regression — fixture 26's
 `receive_dispatch_line` md5 pin — and it is fixed (A9) and re-verified at 89/0. Fixtures 2,

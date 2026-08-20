@@ -506,11 +506,11 @@ The deploy recorder wrote `2026-08-14T14:58:42.728Z | 9cabb43` to `docs/DEPLOYME
 
 **Backend, read from the live catalogue:**
 
-| object                  | check                                                    | result                                   |
-| ----------------------- | -------------------------------------------------------- | ---------------------------------------- |
-| `push_plan_to_dispatch` | `md5(pg_get_functiondef)`                                | `487f33107819ce8335251e235ac7405e`, 25,295 b — the v12 post-image recorded under C-4 |
-| `remove_dispatch_row`   | carries `removed_at_dispatch_by`, writes `operator_comment` | true / true                              |
-| `v_machine_pack_status` | column count, both new columns present                    | 21, true                                 |
+| object                  | check                                                       | result                                                                               |
+| ----------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `push_plan_to_dispatch` | `md5(pg_get_functiondef)`                                   | `487f33107819ce8335251e235ac7405e`, 25,295 b — the v12 post-image recorded under C-4 |
+| `remove_dispatch_row`   | carries `removed_at_dispatch_by`, writes `operator_comment` | true / true                                                                          |
+| `v_machine_pack_status` | column count, both new columns present                      | 21, true                                                                             |
 
 C-7 re-proven, and this time against a control rather than against the report's own
 pre-image: `v_machine_pack_status` reads
@@ -538,16 +538,16 @@ simultaneously is now unrepresentable, and no machine is currently sitting in th
 screens HTTP 200, then every `_next/static` chunk the pages reference pulled down and
 grepped — 908 kB across 13 chunks on the detail screen:
 
-| string                                | production bundle |
-| ------------------------------------- | ----------------- |
-| `Remove legs are counted separately`  | present           |
-| `counts separately` (the chip)        | present           |
-| `Finish remaining` (the CTA)          | present           |
-| `Plan changed` (the one banner)       | present           |
-| `returns ALL packed stock`            | present           |
-| `needs_reconfirm` / `unresolved_n`    | present           |
-| `Needs reconfirm` (board chip)        | present           |
-| **`already packed - refresh to edit`**| **absent**        |
+| string                                 | production bundle |
+| -------------------------------------- | ----------------- |
+| `Remove legs are counted separately`   | present           |
+| `counts separately` (the chip)         | present           |
+| `Finish remaining` (the CTA)           | present           |
+| `Plan changed` (the one banner)        | present           |
+| `returns ALL packed stock`             | present           |
+| `needs_reconfirm` / `unresolved_n`     | present           |
+| `Needs reconfirm` (board chip)         | present           |
+| **`already packed - refresh to edit`** | **absent**        |
 
 The last row is acceptance 3 proven against shipped bytes rather than against the source
 tree: the warning wall is not merely unrendered, it is not in the bundle.

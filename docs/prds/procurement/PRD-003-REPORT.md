@@ -908,10 +908,10 @@ Walked production with a hand-built `@supabase/ssr` session cookie (minted throu
 generate-link flow, revoked with a `logout` afterwards), then downloaded and scanned every chunk on
 both pages.
 
-| page | HTTP | evidence in the deployed chunks |
-| ---- | ---- | ------------------------------- |
-| `/app/procurement` (operator_admin) | 200, 13 chunks | `7d579547b18619f1.js` carries **"Input VAT"**, **"Recoverable VAT"**, **"Recoverable input VAT is a receivable"**, **"Supplier invoice total (AED)"** |
-| `/field/receiving/PO-2026-9402` | 200, 13 chunks | `adcdb0815b201afd.js` carries **"Free / bonus units"**, **"free/bonus on the line"**, **"Never raise a line price to match the paper"**, **"Supplier invoice no."** |
+| page                                | HTTP           | evidence in the deployed chunks                                                                                                                                     |
+| ----------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/app/procurement` (operator_admin) | 200, 13 chunks | `7d579547b18619f1.js` carries **"Input VAT"**, **"Recoverable VAT"**, **"Recoverable input VAT is a receivable"**, **"Supplier invoice total (AED)"**               |
+| `/field/receiving/PO-2026-9402`     | 200, 13 chunks | `adcdb0815b201afd.js` carries **"Free / bonus units"**, **"free/bonus on the line"**, **"Never raise a line price to match the paper"**, **"Supplier invoice no."** |
 
 The served chunk carries the string in its **ASCII** form ("Free / bonus units - delivered but not
 billed") and **zero** occurrences of the em-dash form, which is how the newest deploy is
@@ -920,15 +920,15 @@ distinguished from the previous one rather than assumed.
 **Data contracts through PostgREST, as the real roles.** This is the probe that catches a grant hole
 `pg_proc` cannot:
 
-| probe | as | result |
-| ----- | -- | ------ |
-| `get_input_vat_report` | operator_admin | 200, `[]` |
-| `get_input_vat_report` | warehouse | 200, `[]` |
-| `get_input_vat_report` | **anon** | **401 / 42501 permission denied** |
+| probe                                    | as             | result                             |
+| ---------------------------------------- | -------------- | ---------------------------------- |
+| `get_input_vat_report`                   | operator_admin | 200, `[]`                          |
+| `get_input_vat_report`                   | warehouse      | 200, `[]`                          |
+| `get_input_vat_report`                   | **anon**       | **401 / 42501 permission denied**  |
 | `get_po_document_totals('PO-2026-9400')` | operator_admin | 200, live figures with null totals |
-| same | warehouse | 200, identical |
-| `SELECT v_po_document_totals` | operator_admin | 200 |
-| `INSERT v_po_document_totals` | operator_admin | refused |
+| same                                     | warehouse      | 200, identical                     |
+| `SELECT v_po_document_totals`            | operator_admin | 200                                |
+| `INSERT v_po_document_totals`            | operator_admin | refused                            |
 
 The two empty reports are the honest state, not a fault: `purchase_order_totals` has **0** rows
 because no PO has been received through the new capture path yet. The report will populate on the
@@ -938,10 +938,10 @@ On the refused INSERT, the HTTP error is `55000 "Views containing WITH are not a
 updatable"`, which is Postgres's updatability refusal and **not** proof the migration-5 revoke took.
 The privilege state is, and it did:
 
-| object | `anon` | `authenticated` | `service_role` |
-| ------ | ------ | --------------- | -------------- |
-| `v_po_document_totals` | none | **SELECT only** | full |
-| `purchase_order_totals` | none | **SELECT only** | full |
+| object                  | `anon` | `authenticated` | `service_role` |
+| ----------------------- | ------ | --------------- | -------------- |
+| `v_po_document_totals`  | none   | **SELECT only** | full           |
+| `purchase_order_totals` | none   | **SELECT only** | full           |
 
 Write verbs reach the totals spine only through `set_po_document_totals`, which is SECURITY DEFINER
 and role-gated. Recorded this way because "the INSERT failed" and "the INSERT was forbidden" are
@@ -958,18 +958,18 @@ PRD-110 sweep tooling are untouched.
 
 ## Acceptance against §13
 
-| # | requirement | state |
-| - | ----------- | ----- |
-| 1 | Dara schema paragraph in the report | done (Leg 1) |
-| 2 | Cody constitutional review, conditions not waivable | done (Leg 1); C-1..C-6 all discharged, C-3 swept for further surfaces in Leg 3 |
-| 3 | migration | 5 applied, filenames version-matched to the ledger |
-| 4 | RPCs | `set_po_document_totals`, `get_po_document_totals`, `get_input_vat_report`, `_mirror_po_addition_line_v1` |
-| 5 | FE receiving card + PO card footer | shipped, plus the Input VAT tab (Q3) and the free/bonus field |
-| 6 | T11 regression | **pass**, re-run against production on the merge candidate |
-| 7 | golden `run_all` green | **69/72, three adjudicated reds proven not this PRD's** (Leg 5) |
-| 8 | build green | `tsc` clean, `npm run build` exit 0 |
-| 9 | merged to main | `a0308e7`, plus `b7b26ee` |
-| 10 | production verified | shipped bundle scanned on both pages, role probes through PostgREST |
+| #   | requirement                                         | state                                                                                                     |
+| --- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1   | Dara schema paragraph in the report                 | done (Leg 1)                                                                                              |
+| 2   | Cody constitutional review, conditions not waivable | done (Leg 1); C-1..C-6 all discharged, C-3 swept for further surfaces in Leg 3                            |
+| 3   | migration                                           | 5 applied, filenames version-matched to the ledger                                                        |
+| 4   | RPCs                                                | `set_po_document_totals`, `get_po_document_totals`, `get_input_vat_report`, `_mirror_po_addition_line_v1` |
+| 5   | FE receiving card + PO card footer                  | shipped, plus the Input VAT tab (Q3) and the free/bonus field                                             |
+| 6   | T11 regression                                      | **pass**, re-run against production on the merge candidate                                                |
+| 7   | golden `run_all` green                              | **69/72, three adjudicated reds proven not this PRD's** (Leg 5)                                           |
+| 8   | build green                                         | `tsc` clean, `npm run build` exit 0                                                                       |
+| 9   | merged to main                                      | `a0308e7`, plus `b7b26ee`                                                                                 |
+| 10  | production verified                                 | shipped bundle scanned on both pages, role probes through PostgREST                                       |
 
 ## For CS
 

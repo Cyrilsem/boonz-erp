@@ -106,19 +106,19 @@ Both were imported by **no file**. So the backend had been live since Unit 4 and
 in the product could reach it: the driver still had no button, and CS still had no panel.
 Unit 7 is the wiring plus the Day Close panel, not a rewrite.
 
-| file                                     | change                                                     |
-| ---------------------------------------- | ---------------------------------------------------------- |
-| `refill/DayCloseTab.tsx`                 | new - the §3.3 panel                                        |
-| `refill/RefillPageClient.tsx`            | "Day Close" tab, between Refill Dispatch and Log            |
-| `field/packing/[machineId]/page.tsx`     | Change product button, SUB badge, dialog, toast             |
-| `field/trips/[machineId]/page.tsx`       | same, plus `action` / `dispatch_date` / `original_…` select |
-| `field/AddDispatchRowDialog.tsx`         | the duplicate-guard sentence (acceptance 5)                 |
-| `field/_actions/dispatch-edits.ts`       | em-dash removal only                                        |
+| file                                 | change                                                      |
+| ------------------------------------ | ----------------------------------------------------------- |
+| `refill/DayCloseTab.tsx`             | new - the §3.3 panel                                        |
+| `refill/RefillPageClient.tsx`        | "Day Close" tab, between Refill Dispatch and Log            |
+| `field/packing/[machineId]/page.tsx` | Change product button, SUB badge, dialog, toast             |
+| `field/trips/[machineId]/page.tsx`   | same, plus `action` / `dispatch_date` / `original_…` select |
+| `field/AddDispatchRowDialog.tsx`     | the duplicate-guard sentence (acceptance 5)                 |
+| `field/_actions/dispatch-edits.ts`   | em-dash removal only                                        |
 
 **Three FE decisions worth recording, because each one is a place the obvious code is wrong.**
 
 1. **The packing button is deliberately NOT behind `isReadOnly`.** Every other affordance on
-   that card is. But a packed, picked-up line is the *normal* case for a substitution - that
+   that card is. But a packed, picked-up line is the _normal_ case for a substitution - that
    is the entire 08-08 incident - so gating it there would have shipped the bug the PRD was
    written to kill. The RPC is the sanctioned way through the packed-row guard; the FE has to
    actually offer it in the state the guard fires.
@@ -129,7 +129,7 @@ Unit 7 is the wiring plus the Day Close panel, not a rewrite.
 3. **The trips list reaches back one day** (`gte(yesterday)`), and the RPC refuses a past
    date as settled history. Rendering the button there would have been a tap that can only
    fail. It is hidden for `dispatch_date < today (Dubai)`. "Never blocked" has to mean never
-   *offered-then-refused* too.
+   _offered-then-refused_ too.
 
 **A defect caught before it shipped.** The gaps builder compares and subtracts
 `quantity` / `filled_quantity`, both postgres `numeric`. PostgREST does emit those as JSON
@@ -155,11 +155,11 @@ not an SSO problem, the host does not exist. Rather than skip the walk, I signed
 production with the real test accounts (password grant) and drove the deployed app with a
 hand-built `@supabase/ssr` session cookie:
 
-| walk                                        | result                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| walk                                        | result                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
 | `/refill` as `warehouse@boonz.test`         | HTTP 200, served HTML carries **Day Close** in the tab bar with the other six |
-| `/field/trips` as `driver@boonz.test`       | HTTP 200, session accepted by middleware                                     |
-| `/field/packing/<id>`, `/field/trips/<id>`  | HTTP 200 both                                                                |
+| `/field/trips` as `driver@boonz.test`       | HTTP 200, session accepted by middleware                                      |
+| `/field/packing/<id>`, `/field/trips/<id>`  | HTTP 200 both                                                                 |
 | deployed client chunks for `/field/packing` | contain `"Change product"`, `"SUB"`, `"already exists on this shelf"`         |
 
 That last row is the one that matters: the shipped bundle, not the local build, carries the
@@ -168,15 +168,15 @@ new UI.
 **Every data contract the new UI depends on, exercised through PostgREST as the real role**
 (this is what catches a grant or RLS hole that reading `pg_proc` cannot):
 
-| probe                                                       | as        | result                                                     |
-| ----------------------------------------------------------- | --------- | ---------------------------------------------------------- |
-| `v_day_close_events` full column list                       | warehouse | 200, fixture rows render-shaped correctly                  |
-| `day_close_checks(2026-08-10)`                              | warehouse | 200, 4 green / 1 red (62 returns pending)                  |
-| `product_mapping` picker query                              | **driver**| 200, 317 rows, 52 `venue_team` - the picker populates      |
-| trips select incl. `action` / `dispatch_date` / `original_…`| **driver**| 200, all three columns present                             |
-| gaps select incl. `shelf_configurations(shelf_code)` embed  | warehouse | 200, 70 rows for today, embed resolves                     |
-| `driver_substitute_dispatch_line` x3 malformed inputs       | **driver**| reachable and EXECUTE-granted; all three raise pre-write   |
-| `acknowledge_day_close_event` / `acknowledge_day_close`     | warehouse | **refused** - "role warehouse not authorized (CS closes the day)", event still unacknowledged |
+| probe                                                        | as         | result                                                                                        |
+| ------------------------------------------------------------ | ---------- | --------------------------------------------------------------------------------------------- |
+| `v_day_close_events` full column list                        | warehouse  | 200, fixture rows render-shaped correctly                                                     |
+| `day_close_checks(2026-08-10)`                               | warehouse  | 200, 4 green / 1 red (62 returns pending)                                                     |
+| `product_mapping` picker query                               | **driver** | 200, 317 rows, 52 `venue_team` - the picker populates                                         |
+| trips select incl. `action` / `dispatch_date` / `original_…` | **driver** | 200, all three columns present                                                                |
+| gaps select incl. `shelf_configurations(shelf_code)` embed   | warehouse  | 200, 70 rows for today, embed resolves                                                        |
+| `driver_substitute_dispatch_line` x3 malformed inputs        | **driver** | reachable and EXECUTE-granted; all three raise pre-write                                      |
+| `acknowledge_day_close_event` / `acknowledge_day_close`      | warehouse  | **refused** - "role warehouse not authorized (CS closes the day)", event still unacknowledged |
 
 **Acceptance.** 1 and 2 are proven at the RPC layer by golden fixture 112 (Unit 5) and the
 FE now issues exactly that call from a JWT proven able to reach it. 3's read half is proven
