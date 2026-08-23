@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
+import PromptModal from "@/components/PromptModal";
 import { adjustWarehouseLineMetadata } from "@/lib/inventory/adjust-warehouse-line";
 import {
   attemptCorrection,
@@ -939,15 +940,12 @@ export default function InventoryPage() {
     return;
   }
 
-  async function handleReject(editId: string) {
-    // PRD-013 P1.D: route through canonical reject RPC; requires decision note
-    // >= 10 chars. Prompt the operator for the note (no toast lib; same
-    // alert/prompt fallback used by PRD-001 / PRD-012).
-    const note =
-      typeof window !== "undefined"
-        ? window.prompt("Reject reason (>= 10 chars):", "")
-        : "";
-    const trimmed = (note ?? "").trim();
+  // PRD-116h: window.prompt replaced with an in-app modal, opened via
+  // `rejectTarget` and submitted through this function.
+  const [rejectTarget, setRejectTarget] = useState<string | null>(null);
+
+  async function handleReject(editId: string, note: string) {
+    const trimmed = note.trim();
     if (trimmed.length < 10) {
       alert(
         `Reject requires a decision note of at least 10 characters (got ${trimmed.length}).`,
@@ -979,6 +977,7 @@ export default function InventoryPage() {
       s.delete(editId);
       return s;
     });
+    setRejectTarget(null);
     showReviewToast("Edit rejected");
   }
 
@@ -1753,7 +1752,7 @@ export default function InventoryPage() {
                             ✓ Approve
                           </button>
                           <button
-                            onClick={() => handleReject(edit.edit_id)}
+                            onClick={() => setRejectTarget(edit.edit_id)}
                             disabled={isProcessing}
                             className="rounded-lg border border-red-400 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/30"
                           >
@@ -2087,6 +2086,18 @@ export default function InventoryPage() {
             {controlSaving ? "Saving..." : "Complete control"}
           </button>
         </div>
+      )}
+      {rejectTarget && (
+        <PromptModal
+          title="Reject this edit"
+          mode="reason"
+          minReasonLength={10}
+          destructive
+          confirmLabel="Reject"
+          busy={processingIds.has(rejectTarget)}
+          onCancel={() => setRejectTarget(null)}
+          onConfirm={({ reason }) => handleReject(rejectTarget, reason)}
+        />
       )}
     </div>
   );

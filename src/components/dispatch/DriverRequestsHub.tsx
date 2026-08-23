@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/primitives";
+import PromptModal from "@/components/PromptModal";
 
 const font = "'Plus Jakarta Sans', sans-serif";
 
@@ -131,15 +132,16 @@ export default function DriverRequestsHub() {
     [],
   );
 
+  // PRD-116h: window.confirm replaced with an in-app modal. Callers now set
+  // `pendingBulkAccept`; the modal below calls this with the confirmed rows.
+  const [pendingBulkAccept, setPendingBulkAccept] = useState<{
+    rows: AdditionRow[];
+    busyKey: string;
+  } | null>(null);
+
   const approveMany = useCallback(
     async (rows: AdditionRow[], busyKey: string) => {
       if (rows.length === 0) return;
-      if (
-        !window.confirm(
-          `Accept ${rows.length} driver addition${rows.length > 1 ? "s" : ""}? This logs each via review_driver_addition.`,
-        )
-      )
-        return;
       setBusy(busyKey);
       setErr(null);
       const supabase = createClient();
@@ -162,6 +164,7 @@ export default function DriverRequestsHub() {
         (prev ?? []).filter((r) => !done.includes(r.dispatch_id)),
       );
       setBusy(null);
+      setPendingBulkAccept(null);
     },
     [],
   );
@@ -196,7 +199,12 @@ export default function DriverRequestsHub() {
         <div style={{ flex: 1 }} />
         {pendingCount > 0 && (
           <button
-            onClick={() => approveMany(additions ?? [], "__all__")}
+            onClick={() =>
+              setPendingBulkAccept({
+                rows: additions ?? [],
+                busyKey: "__all__",
+              })
+            }
             disabled={busy !== null}
             style={{
               padding: "8px 14px",
@@ -298,7 +306,12 @@ export default function DriverRequestsHub() {
               <div style={{ flex: 1 }} />
               {g.additions.length > 0 && (
                 <button
-                  onClick={() => approveMany(g.additions, g.machine)}
+                  onClick={() =>
+                    setPendingBulkAccept({
+                      rows: g.additions,
+                      busyKey: g.machine,
+                    })
+                  }
                   disabled={busy !== null}
                   style={{
                     padding: "5px 10px",
@@ -431,6 +444,20 @@ export default function DriverRequestsHub() {
         Engine signals and the issue board live in Refill &amp; Dispatch →
         Signals / Issues.
       </p>
+      {pendingBulkAccept && (
+        <PromptModal
+          title={`Accept ${pendingBulkAccept.rows.length} driver addition${pendingBulkAccept.rows.length > 1 ? "s" : ""}?`}
+          description="This logs each via review_driver_addition."
+          mode="confirm"
+          confirmLabel="Accept all"
+          busy={busy === pendingBulkAccept.busyKey}
+          error={err}
+          onCancel={() => setPendingBulkAccept(null)}
+          onConfirm={() =>
+            approveMany(pendingBulkAccept.rows, pendingBulkAccept.busyKey)
+          }
+        />
+      )}
     </div>
   );
 }

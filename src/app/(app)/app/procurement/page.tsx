@@ -11,6 +11,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import { CancelPOLineDrawer } from "@/app/(field)/components/CancelPOLineDrawer";
+import PromptModal from "@/components/PromptModal";
 import type { PODocumentTotals } from "@/types/po-document-totals";
 
 // PRD-002: per-line lock + Cancel gating on the desktop PO drawer.
@@ -1168,17 +1169,13 @@ export default function ProcurementPage() {
   };
 
   // D3: edit / cancel an open PO line via the canonical RPCs (reason required).
+  // PRD-116h: all four flows below used to prompt via window.prompt/confirm.
+  // They now route through the single `linePrompt` modal state + dispatcher.
   const editOpenLine = async (
     line: OpenPoLine,
     patch: { qty?: number; price?: number; expiry?: string | null },
+    reason: string,
   ) => {
-    const reason = window.prompt(
-      `Reason for editing ${line.boonz_product_name} (min 10 chars):`,
-    );
-    if (!reason || reason.trim().length < 10) {
-      alert("Edit needs a reason of at least 10 characters.");
-      return;
-    }
     const supabase = createClient();
     const { error } = await supabase.rpc("edit_purchase_order_line", {
       p_po_line_id: line.po_line_id,
@@ -1187,32 +1184,19 @@ export default function ProcurementPage() {
       p_new_expiry_date: patch.expiry ?? null,
       p_reason: reason,
     });
-    if (error) {
-      alert(`Edit failed: ${error.message}`);
-      return;
-    }
+    if (error) throw new Error(`Edit failed: ${error.message}`);
     loadOpenPoLines();
     setDemandToast(`✓ Updated ${line.boonz_product_name}`);
     setTimeout(() => setDemandToast(null), 4000);
   };
 
-  const cancelOpenLine = async (line: OpenPoLine) => {
-    const reason = window.prompt(
-      `Reason to cancel ${line.boonz_product_name} (min 10 chars):`,
-    );
-    if (!reason || reason.trim().length < 10) {
-      alert("Cancel needs a reason of at least 10 characters.");
-      return;
-    }
+  const cancelOpenLine = async (line: OpenPoLine, reason: string) => {
     const supabase = createClient();
     const { error } = await supabase.rpc("cancel_po_line", {
       p_po_line_id: line.po_line_id,
       p_reason: reason,
     });
-    if (error) {
-      alert(`Cancel failed: ${error.message}`);
-      return;
-    }
+    if (error) throw new Error(`Cancel failed: ${error.message}`);
     loadOpenPoLines();
     loadDemand(demandSource);
     setDemandToast(`✓ Cancelled ${line.boonz_product_name}`);
@@ -1222,30 +1206,67 @@ export default function ProcurementPage() {
   // PRD-087: cancel an ENTIRE unreceived PO. Delegates to the canonical
   // cancel_po RPC, which loops cancel_po_line per open line (role gate,
   // audit trail, procurement_events and driver-note regeneration all fire).
-  const cancelWholePo = async (poNumber: string | number) => {
-    const reason = window.prompt(
-      `Cancel ALL open lines of PO-${poNumber}? This cannot be undone from the UI.\nReason (min 10 chars):`,
-    );
-    if (reason === null) return;
-    if (reason.trim().length < 10) {
-      alert("Cancel needs a reason of at least 10 characters.");
-      return;
-    }
+  const cancelWholePo = async (poNumber: string | number, reason: string) => {
     const supabase = createClient();
     const { data, error } = await supabase.rpc("cancel_po", {
       p_po_number: String(poNumber),
       p_reason: reason,
     });
-    if (error) {
-      alert(`Cancel failed: ${error.message}`);
-      return;
-    }
+    if (error) throw new Error(`Cancel failed: ${error.message}`);
     const n = (data as { cancelled_lines?: number } | null)?.cancelled_lines;
     setSelectedPO(null);
     fetchOrders();
     loadOpenPoLines();
     setDemandToast(`✓ PO-${poNumber} cancelled (${n ?? "all"} lines)`);
     setTimeout(() => setDemandToast(null), 4000);
+  };
+
+  // PRD-116h: single dispatcher backing the line-action modal below.
+  type LinePrompt =
+    | { kind: "editQty"; line: OpenPoLine }
+    | { kind: "editPrice"; line: OpenPoLine }
+    | { kind: "cancelLine"; line: OpenPoLine }
+    | { kind: "cancelWholePo"; poNumber: string | number };
+  const [linePrompt, setLinePrompt] = useState<LinePrompt | null>(null);
+  const [linePromptBusy, setLinePromptBusy] = useState(false);
+  const [linePromptError, setLinePromptError] = useState<string | null>(null);
+
+  const submitLinePrompt = async (result: {
+    value: string;
+    reason: string;
+  }) => {
+    if (!linePrompt) return;
+    setLinePromptBusy(true);
+    setLinePromptError(null);
+    try {
+      switch (linePrompt.kind) {
+        case "editQty":
+          await editOpenLine(
+            linePrompt.line,
+            { qty: Number(result.value) },
+            result.reason,
+          );
+          break;
+        case "editPrice":
+          await editOpenLine(
+            linePrompt.line,
+            { price: Number(result.value) },
+            result.reason,
+          );
+          break;
+        case "cancelLine":
+          await cancelOpenLine(linePrompt.line, result.reason);
+          break;
+        case "cancelWholePo":
+          await cancelWholePo(linePrompt.poNumber, result.reason);
+          break;
+      }
+      setLinePrompt(null);
+    } catch (e) {
+      setLinePromptError(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setLinePromptBusy(false);
+    }
   };
 
   // D3b: owner-only append a line to an existing open PO via add_purchase_order_lines.
@@ -1635,46 +1656,121 @@ export default function ProcurementPage() {
 
   const [additionToast, setAdditionToast] = useState<string | null>(null);
 
-  // Issue #9: receive routes through receive_purchase_order_addition RPC.
-  // Operator can pick the receiving warehouse instead of hardcoded WH_CENTRAL.
+  // PRD-016d (2026-08-21): field purchases frequently go shop -> machine and
+  // never touch a warehouse shelf. The old flow was a native window.prompt that
+  // ONLY accepted a warehouse code, so those receipts had no truthful answer and
+  // sat pending forever (the 14-Aug Carrefour Vitamin Well sat 7 days). This is a
+  // real in-app modal with both destinations. "Machine" routes through
+  // receive_po_addition_into_machine, which receives the units and immediately
+  // debits them onto the shelf in one transaction: warehouse nets to zero and the
+  // cost is attributed to the machine visit.
+  const WH_CODE_TO_ID: Record<string, string> = {
+    WH_CENTRAL: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85",
+    WH_MM: "0aef9ccf-32ad-4545-8413-29bebd931d0b",
+    WH_MCC: "4fcfb52c-271f-4aa7-a373-3495e3271cd3",
+  };
+
+  const [receiveAddition, setReceiveAddition] = useState<POAddition | null>(
+    null,
+  );
+  const [receiveDest, setReceiveDest] = useState<"warehouse" | "machine">(
+    "warehouse",
+  );
+  const [receiveWh, setReceiveWh] = useState("WH_CENTRAL");
+  const [receiveMachineId, setReceiveMachineId] = useState("");
+  const [receiveShelf, setReceiveShelf] = useState("");
+  const [receiveVisitDate, setReceiveVisitDate] = useState("");
+  const [receiveMachines, setReceiveMachines] = useState<
+    { machine_id: string; official_name: string }[]
+  >([]);
+  const [receiveShelves, setReceiveShelves] = useState<string[]>([]);
+  const [receiveError, setReceiveError] = useState<string | null>(null);
+
   const handleReceiveAddition = async (addition: POAddition) => {
+    setReceiveAddition(addition);
+    setReceiveDest("warehouse");
+    setReceiveWh("WH_CENTRAL");
+    setReceiveMachineId("");
+    setReceiveShelf("");
+    setReceiveShelves([]);
+    setReceiveError(null);
+    setReceiveVisitDate(new Date().toISOString().slice(0, 10));
+    if (receiveMachines.length === 0) {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("machines")
+        .select("machine_id, official_name")
+        .eq("status", "Active")
+        .order("official_name");
+      setReceiveMachines(
+        (data ?? []) as { machine_id: string; official_name: string }[],
+      );
+    }
+  };
+
+  // Shelves of the chosen machine, so the operator picks a real slot code.
+  const handleReceiveMachineChange = async (machineId: string) => {
+    setReceiveMachineId(machineId);
+    setReceiveShelf("");
+    if (!machineId) {
+      setReceiveShelves([]);
+      return;
+    }
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("shelf_configurations")
+      .select("shelf_code")
+      .eq("machine_id", machineId)
+      .order("shelf_code");
+    setReceiveShelves(
+      ((data ?? []) as { shelf_code: string }[]).map((s) => s.shelf_code),
+    );
+  };
+
+  const submitReceiveAddition = async () => {
+    const addition = receiveAddition;
+    if (!addition) return;
+    setReceiveError(null);
+
+    const intoMachine = receiveDest === "machine";
+    if (intoMachine && (!receiveMachineId || !receiveShelf)) {
+      setReceiveError("Pick the machine and the shelf the stock went into.");
+      return;
+    }
+    const warehouseId = WH_CODE_TO_ID[receiveWh];
+    if (!intoMachine && !warehouseId) {
+      setReceiveError(`Unknown warehouse "${receiveWh}".`);
+      return;
+    }
+
     setReceivingAddition(addition.addition_id);
     const supabase = createClient();
 
-    // Prompt operator to pick warehouse (default WH_CENTRAL)
-    const choice = window.prompt(
-      `Receive ${addition.qty}x ${addition.boonz_products.boonz_product_name} into which warehouse?\nType: WH_CENTRAL, WH_MM, or WH_MCC`,
-      "WH_CENTRAL",
-    );
-    if (!choice) {
+    // Article 1 / Rule S1: canonical RPCs only, never a direct table write.
+    const res = intoMachine
+      ? await supabase.rpc("receive_po_addition_into_machine", {
+          p_addition_id: addition.addition_id,
+          p_machine_id: receiveMachineId,
+          p_shelf_code: receiveShelf,
+          p_visit_date: receiveVisitDate || null,
+          p_reason: `field purchase placed directly in machine (${addition.qty}x ${addition.boonz_products.boonz_product_name})`,
+        })
+      : await supabase.rpc("receive_purchase_order_addition", {
+          p_addition_id: addition.addition_id,
+          p_warehouse_id: warehouseId,
+          p_expiry: addition.expiry_date ?? null,
+          p_batch_id: null,
+        });
+
+    const data = res.data as { status?: string; error?: string } | null;
+
+    if (res.error) {
+      setReceiveError(`Receive failed: ${res.error.message}`);
       setReceivingAddition(null);
       return;
     }
-    const WH_CODE_TO_ID: Record<string, string> = {
-      WH_CENTRAL: "4bebef68-9e36-4a5c-9c2c-142f8dbdae85",
-      WH_MM: "0aef9ccf-32ad-4545-8413-29bebd931d0b",
-      WH_MCC: "4fcfb52c-271f-4aa7-a373-3495e3271cd3",
-    };
-    const warehouseId = WH_CODE_TO_ID[choice.trim().toUpperCase()];
-    if (!warehouseId) {
-      alert(`Unknown warehouse "${choice}". Use WH_CENTRAL / WH_MM / WH_MCC.`);
-      setReceivingAddition(null);
-      return;
-    }
-
-    // Article 1 / Rule S1: canonical RPC (was direct .insert() — bypassed audit).
-    const { data, error } = await supabase.rpc(
-      "receive_purchase_order_addition",
-      {
-        p_addition_id: addition.addition_id,
-        p_warehouse_id: warehouseId,
-        p_expiry: addition.expiry_date ?? null,
-        p_batch_id: null, // RPC formats default batch_id
-      },
-    );
-
-    if (error) {
-      alert(`Receive failed: ${error.message}`);
+    if (data?.status === "error") {
+      setReceiveError(data.error ?? "Receive failed");
       setReceivingAddition(null);
       return;
     }
@@ -1682,10 +1778,14 @@ export default function ProcurementPage() {
       setAdditionToast("Already received — no duplicate created");
       setTimeout(() => setAdditionToast(null), 3000);
       setReceivingAddition(null);
+      setReceiveAddition(null);
       return;
     }
 
-    // Optimistic: mark as received in local state
+    const machineName =
+      receiveMachines.find((m) => m.machine_id === receiveMachineId)
+        ?.official_name ?? "machine";
+
     setPoAdditions((prev) =>
       prev.map((a) =>
         a.addition_id === addition.addition_id
@@ -1695,8 +1795,11 @@ export default function ProcurementPage() {
     );
     setPendingAdditionsCount((prev) => Math.max(0, prev - 1));
     setReceivingAddition(null);
+    setReceiveAddition(null);
     setAdditionToast(
-      `✓ ${addition.qty}x ${addition.boonz_products.boonz_product_name} received into ${choice.trim().toUpperCase()}`,
+      intoMachine
+        ? `✓ ${addition.qty}x ${addition.boonz_products.boonz_product_name} placed in ${machineName} ${receiveShelf}`
+        : `✓ ${addition.qty}x ${addition.boonz_products.boonz_product_name} received into ${receiveWh}`,
     );
     setTimeout(() => setAdditionToast(null), 4000);
   };
@@ -1769,6 +1872,312 @@ export default function ProcurementPage() {
         >
           {additionToast}
         </div>
+      )}
+      {/* PRD-016d: receive-destination modal for a field addition. Replaces the
+          native window.prompt that only accepted a warehouse code. */}
+      {receiveAddition && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Receive field addition"
+          onClick={() => {
+            if (!receivingAddition) setReceiveAddition(null);
+          }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 300,
+            background: "rgba(15,15,14,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "white",
+              borderRadius: 12,
+              padding: 24,
+              width: "100%",
+              maxWidth: 460,
+              boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div
+              style={{
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                fontWeight: 800,
+                fontSize: 18,
+                letterSpacing: "-0.01em",
+                marginBottom: 4,
+              }}
+            >
+              Receive {receiveAddition.qty}&times;{" "}
+              {receiveAddition.boonz_products.boonz_product_name}
+            </div>
+            <div style={{ fontSize: 13, color: "#6b6860", marginBottom: 18 }}>
+              Where did this stock physically go?
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              {(
+                [
+                  ["warehouse", "Into a warehouse"],
+                  ["machine", "Straight into a machine"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => setReceiveDest(value)}
+                  style={{
+                    flex: 1,
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    border:
+                      receiveDest === value
+                        ? "2px solid #f59e0b"
+                        : "1px solid #e5e3de",
+                    background: receiveDest === value ? "#fffbeb" : "white",
+                    color: receiveDest === value ? "#92400e" : "#3f3d39",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {receiveDest === "warehouse" ? (
+              <label
+                style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+              >
+                Warehouse
+                <select
+                  value={receiveWh}
+                  onChange={(e) => setReceiveWh(e.target.value)}
+                  style={{
+                    width: "100%",
+                    marginTop: 6,
+                    padding: "9px 10px",
+                    borderRadius: 8,
+                    border: "1px solid #e5e3de",
+                    fontSize: 13,
+                  }}
+                >
+                  <option value="WH_CENTRAL">WH_CENTRAL</option>
+                  <option value="WH_MM">WH_MM</option>
+                  <option value="WH_MCC">WH_MCC</option>
+                </select>
+              </label>
+            ) : (
+              <>
+                <label
+                  style={{ display: "block", fontSize: 12, fontWeight: 600 }}
+                >
+                  Machine
+                  <select
+                    value={receiveMachineId}
+                    onChange={(e) => handleReceiveMachineChange(e.target.value)}
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "9px 10px",
+                      borderRadius: 8,
+                      border: "1px solid #e5e3de",
+                      fontSize: 13,
+                    }}
+                  >
+                    <option value="">Select a machine&hellip;</option>
+                    {receiveMachines.map((m) => (
+                      <option key={m.machine_id} value={m.machine_id}>
+                        {m.official_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                  <label style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>
+                    Shelf
+                    <select
+                      value={receiveShelf}
+                      onChange={(e) => setReceiveShelf(e.target.value)}
+                      disabled={!receiveMachineId}
+                      style={{
+                        width: "100%",
+                        marginTop: 6,
+                        padding: "9px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #e5e3de",
+                        fontSize: 13,
+                        background: receiveMachineId ? "white" : "#f5f4f1",
+                      }}
+                    >
+                      <option value="">
+                        {receiveMachineId ? "Select…" : "Pick machine first"}
+                      </option>
+                      {receiveShelves.map((code) => (
+                        <option key={code} value={code}>
+                          {code}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>
+                    Date placed
+                    <input
+                      type="date"
+                      value={receiveVisitDate}
+                      onChange={(e) => setReceiveVisitDate(e.target.value)}
+                      style={{
+                        width: "100%",
+                        marginTop: 6,
+                        padding: "9px 10px",
+                        borderRadius: 8,
+                        border: "1px solid #e5e3de",
+                        fontSize: 13,
+                      }}
+                    />
+                  </label>
+                </div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    fontSize: 12,
+                    color: "#6b6860",
+                    background: "#faf9f7",
+                    border: "1px solid #eeece7",
+                    borderRadius: 8,
+                    padding: "8px 10px",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  The units are received and moved onto the shelf in one step,
+                  so the warehouse nets to zero and the cost lands on that
+                  machine visit.
+                </div>
+              </>
+            )}
+
+            {receiveError && (
+              <div
+                style={{
+                  marginTop: 14,
+                  fontSize: 12,
+                  color: "#b91c1c",
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                }}
+              >
+                {receiveError}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+                marginTop: 20,
+              }}
+            >
+              <button
+                onClick={() => setReceiveAddition(null)}
+                disabled={!!receivingAddition}
+                style={{
+                  padding: "9px 16px",
+                  borderRadius: 8,
+                  border: "1px solid #e5e3de",
+                  background: "white",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReceiveAddition}
+                disabled={!!receivingAddition}
+                style={{
+                  padding: "9px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: receivingAddition ? "#9ca3af" : "#f59e0b",
+                  color: "white",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: receivingAddition ? "not-allowed" : "pointer",
+                }}
+              >
+                {receivingAddition ? "Receiving…" : "Confirm receive"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* PRD-116h: replaces the window.prompt chain for line qty/price edits
+          and the window.prompt/confirm for line/whole-PO cancel. */}
+      {linePrompt && (
+        <PromptModal
+          title={
+            linePrompt.kind === "editQty"
+              ? `Edit qty — ${linePrompt.line.boonz_product_name}`
+              : linePrompt.kind === "editPrice"
+                ? `Edit price — ${linePrompt.line.boonz_product_name}`
+                : linePrompt.kind === "cancelLine"
+                  ? `Cancel ${linePrompt.line.boonz_product_name}`
+                  : `Cancel ALL open lines of PO-${linePrompt.poNumber}`
+          }
+          description={
+            linePrompt.kind === "cancelWholePo"
+              ? "This cannot be undone from the UI."
+              : undefined
+          }
+          mode={
+            linePrompt.kind === "editQty" || linePrompt.kind === "editPrice"
+              ? "reason-with-value"
+              : "reason"
+          }
+          valueLabel={
+            linePrompt.kind === "editQty"
+              ? "New qty"
+              : linePrompt.kind === "editPrice"
+                ? "New price (AED)"
+                : undefined
+          }
+          valueType="number"
+          defaultValue={
+            linePrompt.kind === "editQty"
+              ? String(linePrompt.line.ordered_qty ?? "")
+              : linePrompt.kind === "editPrice"
+                ? (linePrompt.line.price_per_unit_aed?.toString() ?? "")
+                : ""
+          }
+          minReasonLength={10}
+          destructive={
+            linePrompt.kind === "cancelLine" ||
+            linePrompt.kind === "cancelWholePo"
+          }
+          confirmLabel={
+            linePrompt.kind === "editQty" || linePrompt.kind === "editPrice"
+              ? "Save"
+              : "Cancel it"
+          }
+          cancelLabel="Back"
+          busy={linePromptBusy}
+          error={linePromptError}
+          onCancel={() => {
+            setLinePrompt(null);
+            setLinePromptError(null);
+          }}
+          onConfirm={submitLinePrompt}
+        />
       )}
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
@@ -2999,35 +3408,25 @@ export default function ProcurementPage() {
                             style={{ display: "flex", gap: 8, marginTop: 4 }}
                           >
                             <button
-                              onClick={() => {
-                                const v = window.prompt(
-                                  "New qty:",
-                                  String(line.ordered_qty),
-                                );
-                                if (v != null && v !== "")
-                                  editOpenLine(line, { qty: Number(v) });
-                              }}
+                              onClick={() =>
+                                setLinePrompt({ kind: "editQty", line })
+                              }
                               style={drawerSmallBtnStyle}
                             >
                               Edit qty
                             </button>
                             <button
-                              onClick={() => {
-                                const v = window.prompt(
-                                  "New price (AED):",
-                                  line.price_per_unit_aed != null
-                                    ? String(line.price_per_unit_aed)
-                                    : "",
-                                );
-                                if (v != null && v !== "")
-                                  editOpenLine(line, { price: Number(v) });
-                              }}
+                              onClick={() =>
+                                setLinePrompt({ kind: "editPrice", line })
+                              }
                               style={drawerSmallBtnStyle}
                             >
                               Edit price
                             </button>
                             <button
-                              onClick={() => cancelOpenLine(line)}
+                              onClick={() =>
+                                setLinePrompt({ kind: "cancelLine", line })
+                              }
                               style={{
                                 ...drawerSmallBtnStyle,
                                 color: "#b91c1c",
@@ -3875,7 +4274,12 @@ export default function ProcurementPage() {
                   ) &&
                   poLines.some((l) => l.purchase_outcome == null) && (
                     <button
-                      onClick={() => cancelWholePo(poLines[0].po_number!)}
+                      onClick={() =>
+                        setLinePrompt({
+                          kind: "cancelWholePo",
+                          poNumber: poLines[0].po_number!,
+                        })
+                      }
                       style={{
                         padding: "6px 12px",
                         fontSize: 12,

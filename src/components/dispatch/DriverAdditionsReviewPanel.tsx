@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import PromptModal from "@/components/PromptModal";
 
 interface QueueRow {
   dispatch_id: string;
@@ -44,12 +45,18 @@ export default function DriverAdditionsReviewPanel() {
     void load();
   }, [load]);
 
-  async function decide(row: QueueRow, decision: "accepted" | "rejected") {
-    const reason = window.prompt(
-      `${decision === "accepted" ? "Accept" : "Reject"} ${row.quantity}u ${row.boonz_product_name ?? ""} on ${row.machine_name ?? ""} ${row.shelf_code ?? ""}?\nOptional note:`,
-      "",
-    );
-    if (reason === null) return; // cancelled
+  // PRD-116h: window.prompt replaced with an in-app modal. `pendingDecision`
+  // holds the row+decision awaiting an (optional) note from the operator.
+  const [pendingDecision, setPendingDecision] = useState<{
+    row: QueueRow;
+    decision: "accepted" | "rejected";
+  } | null>(null);
+
+  async function decide(
+    row: QueueRow,
+    decision: "accepted" | "rejected",
+    reason: string,
+  ) {
     setBusyId(row.dispatch_id);
     setError(null);
     const supabase = createClient();
@@ -63,6 +70,7 @@ export default function DriverAdditionsReviewPanel() {
       setError(error.message);
       return;
     }
+    setPendingDecision(null);
     // optimistic: drop the row from the pending queue
     setRows((prev) => prev.filter((r) => r.dispatch_id !== row.dispatch_id));
   }
@@ -115,7 +123,9 @@ export default function DriverAdditionsReviewPanel() {
                 <button
                   type="button"
                   disabled={busyId === r.dispatch_id}
-                  onClick={() => void decide(r, "accepted")}
+                  onClick={() =>
+                    setPendingDecision({ row: r, decision: "accepted" })
+                  }
                   className="min-h-[44px] rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-50"
                 >
                   {busyId === r.dispatch_id ? "…" : "✓ Accept"}
@@ -123,7 +133,9 @@ export default function DriverAdditionsReviewPanel() {
                 <button
                   type="button"
                   disabled={busyId === r.dispatch_id}
-                  onClick={() => void decide(r, "rejected")}
+                  onClick={() =>
+                    setPendingDecision({ row: r, decision: "rejected" })
+                  }
                   className="min-h-[44px] rounded-lg border border-rose-300 px-3 text-sm font-medium text-rose-700 hover:bg-rose-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 disabled:opacity-50 dark:border-rose-800 dark:text-rose-300"
                 >
                   ✗ Reject
@@ -132,6 +144,25 @@ export default function DriverAdditionsReviewPanel() {
             </li>
           ))}
         </ul>
+      )}
+      {pendingDecision && (
+        <PromptModal
+          title={`${pendingDecision.decision === "accepted" ? "Accept" : "Reject"} ${pendingDecision.row.quantity}u ${pendingDecision.row.boonz_product_name ?? ""}`}
+          description={`${pendingDecision.row.machine_name ?? "—"} · ${pendingDecision.row.shelf_code ?? "—"}`}
+          mode="reason"
+          reasonOptional
+          reasonPlaceholder="Optional note…"
+          destructive={pendingDecision.decision === "rejected"}
+          confirmLabel={
+            pendingDecision.decision === "accepted" ? "Accept" : "Reject"
+          }
+          busy={busyId === pendingDecision.row.dispatch_id}
+          error={error}
+          onCancel={() => setPendingDecision(null)}
+          onConfirm={({ reason }) =>
+            decide(pendingDecision.row, pendingDecision.decision, reason)
+          }
+        />
       )}
     </div>
   );
