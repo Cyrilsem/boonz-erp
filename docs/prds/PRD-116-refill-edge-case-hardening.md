@@ -36,6 +36,8 @@ multi-flavour in-machine moves). All five now have git migration files (this com
 | G   | **Red Bull Regular 0% global split** + ~15 machine-scoped-only SKUs invisible to procurement                                                                                                                 | Weekly-session mapping decision, affects stitch fleet-wide       |
 | H   | **Kill remaining 9 native `window.prompt`/`confirm` sites** (6 on procurement page) + deploy the pending FE (receive-destination modal, uncommitted `page.tsx` changes)                                      | FE deploy needs CS eyes; tsc/lint clean already                  |
 | I   | **Expiry entry validation** — day/month transposition moved a batch 11 months (VW Zero Lemon 2027-01-03 vs 2027-12-03). Add a sanity check at receive: expiry < purchase+24m and warn on d/m-swap candidates | Small, but touches receive writers; batch with D                 |
+| J   | **Packing swap modal** — shelf picker built from the plan's `lines`, not `shelf_configurations` (WPP showed 3 of 16 live shelves); Remove validated at flavour level against pod-level WEIMI data | UX consequence of F; ship with or after F |
+| K   | **Redirect a return to another machine** — a Remove can only go back to the warehouse; JET's Vitamin Well was physically placed in OMDBB and the system still showed a return to the office. Backend (`convert_removes_to_m2m_transfer` + `approve_m2m_transfer`) exists and is correct; it has no front door | FE + Cody; depends on B and J2 |
 
 ## Non-goals
 
