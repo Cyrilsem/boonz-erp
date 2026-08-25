@@ -1,0 +1,102 @@
+-- DRAFT — NOT APPLIED. PRD-117 item N (Tier 2, prepare-only).
+-- Sketch for a canonical merge writer for duplicate warehouse_inventory batches
+-- (same warehouse_id + boonz_product_id + expiration_date, multiple Active rows).
+-- Population: docs/prds/../../BOONZ BRAIN/duplicate_wh_batches_2026-08-25.csv
+-- (21 real groups / 44 rows / 675 units as of 2026-08-25 22:xx UTC; 3 additional
+-- groups excluded from that CSV because their batch_id is 'S5-%' — confirmed via
+-- item O to be golden-fixture/sandbox test rows created 2026-08-04/05, NOT real
+-- duplicates. Do not merge those.)
+--
+-- ⛔ OPEN QUESTION FOR CODY + DARA BEFORE THIS IS EVER APPLIED:
+-- CLAUDE.md / the Constitution Article 6 states warehouse_inventory.status may
+-- ONLY be written by the warehouse manager, through the manager-only propose-
+-- then-confirm surface (see feedback_warehouse_status_manager_only memory).
+-- A merge writer that flips the losing rows' status to something like 'Merged'
+-- (see below) IS a status write on warehouse_inventory and must either:
+--   (a) be restricted to the same manager-only role gate as every other
+--       status-touching path, with the same propose-then-confirm UX, or
+--   (b) avoid touching `status` at all — e.g. zero the losing rows' quantity
+--       to 0 and leave status='Active' (a 0-qty Active row is already a normal,
+--       harmless state elsewhere in the schema — FEFO loops already filter on
+--       COALESCE(current_stock,0) > 0 / warehouse_stock > 0).
+-- Option (b) is the safer default and is what the sketch below does. Do NOT
+-- add a status-flip without Cody's explicit sign-off naming which article
+-- permits it.
+--
+-- Design (draft, illustrative only):
+--
+-- CREATE OR REPLACE FUNCTION public.merge_wh_inventory_batches(
+--   p_warehouse_id uuid,
+--   p_boonz_product_id uuid,
+--   p_expiration_date date,
+--   p_dry_run boolean DEFAULT true
+-- ) RETURNS jsonb
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+--  SET search_path TO 'public'
+-- AS $function$
+-- DECLARE
+--   v_caller_role text;
+--   v_keeper      warehouse_inventory%ROWTYPE;
+--   v_total       numeric;
+--   v_row_ids     uuid[];
+-- BEGIN
+--   PERFORM public.set_write_context('merge_wh_inventory_batches',
+--     format('merge duplicate batches %s/%s/%s', p_warehouse_id, p_boonz_product_id, p_expiration_date),
+--     'warehouse_inventory', p_warehouse_id::text);
+--
+--   SELECT role INTO v_caller_role FROM user_profiles WHERE id = auth.uid();
+--   IF v_caller_role NOT IN ('warehouse','operator_admin','superadmin') THEN
+--     RETURN jsonb_build_object('status','error','error','Insufficient role');
+--   END IF;
+--
+--   -- keeper = earliest-received (lowest snapshot_date, tie-break lowest wh_inventory_id)
+--   -- so FEFO history / oldest batch_id label survives on the surviving row.
+--   SELECT * INTO v_keeper FROM warehouse_inventory
+--    WHERE warehouse_id = p_warehouse_id AND boonz_product_id = p_boonz_product_id
+--      AND expiration_date = p_expiration_date AND status = 'Active'
+--    ORDER BY snapshot_date ASC, wh_inventory_id ASC
+--    LIMIT 1 FOR UPDATE;
+--
+--   IF v_keeper.wh_inventory_id IS NULL THEN
+--     RETURN jsonb_build_object('status','error','error','No matching Active rows');
+--   END IF;
+--
+--   SELECT sum(warehouse_stock), array_agg(wh_inventory_id) INTO v_total, v_row_ids
+--     FROM warehouse_inventory
+--    WHERE warehouse_id = p_warehouse_id AND boonz_product_id = p_boonz_product_id
+--      AND expiration_date = p_expiration_date AND status = 'Active';
+--
+--   IF array_length(v_row_ids, 1) <= 1 THEN
+--     RETURN jsonb_build_object('status','noop','error','Only one Active row, nothing to merge');
+--   END IF;
+--
+--   IF p_dry_run THEN
+--     RETURN jsonb_build_object('status','dry_run', 'keeper_id', v_keeper.wh_inventory_id,
+--       'merged_total', v_total, 'row_ids', v_row_ids);
+--   END IF;
+--
+--   UPDATE warehouse_inventory SET warehouse_stock = v_total
+--    WHERE wh_inventory_id = v_keeper.wh_inventory_id;
+--
+--   -- Option (b): zero the losers, leave status untouched (Article 6 safe).
+--   UPDATE warehouse_inventory SET warehouse_stock = 0
+--    WHERE wh_inventory_id = ANY(v_row_ids) AND wh_inventory_id <> v_keeper.wh_inventory_id;
+--
+--   RETURN jsonb_build_object('status','ok', 'keeper_id', v_keeper.wh_inventory_id,
+--     'merged_total', v_total, 'zeroed_ids', v_row_ids);
+-- END;
+-- $function$;
+--
+-- Fixture/test plan before this ever ships:
+--   1. Run p_dry_run=true against all 21 real groups from the CSV, confirm
+--      merged_total per group matches the CSV's per-group sum exactly.
+--   2. Rolled-back-transaction test of one real group's live merge (p_dry_run=false),
+--      confirm FEFO views (v_pod_inventory_latest analog for WH, wh_fefo_for_line)
+--      still return the correct total after the zero-out, and that no in-flight
+--      pinned_at_plan_time dispatch row referencing a losing wh_inventory_id breaks
+--      (from_wh_inventory_id FK on refill_dispatching — check for references to the
+--      losing rows before zeroing; a pinned reference to a zeroed row is a bug this
+--      function must guard against, e.g. refuse to merge if any losing row is
+--      referenced by an undispatched refill_dispatching.from_wh_inventory_id).
+--   3. Cody review naming Articles 1, 4, 6, 8, 12 explicitly before any apply.
