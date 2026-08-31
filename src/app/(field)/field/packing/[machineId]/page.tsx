@@ -373,6 +373,22 @@ export default function PackingDetailPage() {
     new Map(),
   );
 
+  /** PRD-118 item I: committed units attributed to ONE physical batch.
+   *  Pinned commitments (PRD-053 breakdown, else the FEFO pin) are keyed
+   *  `wh:<wh_inventory_id>`; only unpinned lines fall back to the old
+   *  product|||expiry bucket. Before this, ALL commitments used the
+   *  product+expiry key, so two batches sharing an expiry date each absorbed
+   *  the full committed total and every machine's screen showed
+   *  "all batches fully committed" while the rack was full
+   *  (2026-08-31 Sunbites/Activia pack deadlock). */
+  const committedForBatch = (
+    whInventoryId: string,
+    boonzProductId: string,
+    expiry: string | null,
+  ): number =>
+    (committedByBatch.get(`wh:${whInventoryId}`) ?? 0) +
+    (committedByBatch.get(`${boonzProductId}|||${expiry ?? "null"}`) ?? 0);
+
   // PRD-036 Phase A: canonical pickable-stock truth per dispatch line from
   // v_dispatch_pickable. Used to render the stranded-stock note so a 0 is
   // trusted (stock exists in a non-serving warehouse) rather than a binding gap.
@@ -1152,7 +1168,7 @@ export default function PackingDetailPage() {
     const { data: committedRows } = await supabase
       .from("refill_dispatching")
       .select(
-        "boonz_product_id, expiry_date, filled_quantity, quantity, machines(official_name)",
+        "boonz_product_id, expiry_date, filled_quantity, quantity, from_wh_inventory_id, driver_confirmed_breakdown, machines(official_name)",
       )
       .eq("dispatch_date", selectedDate)
       .eq("packed", false)
@@ -1175,8 +1191,39 @@ export default function PackingDetailPage() {
         row.boonz_product_id,
         (committedMap.get(row.boonz_product_id) ?? 0) + qty,
       );
-      const bk = `${row.boonz_product_id}|||${(row.expiry_date as string | null) ?? "null"}`;
-      committedBatchMap.set(bk, (committedBatchMap.get(bk) ?? 0) + qty);
+      // PRD-118 item I: attribute the commitment to the exact batch(es) the
+      // line will draw from — PRD-053 breakdown entries first, then the FEFO
+      // pin. Only unpinned lines fall back to the product|||expiry bucket, so
+      // pinned commitments no longer smear across same-expiry batches.
+      const breakdown = (
+        row as {
+          driver_confirmed_breakdown?:
+            | { qty?: number; wh_inventory_id?: string }[]
+            | null;
+        }
+      ).driver_confirmed_breakdown;
+      const pinnedWhId = (row as { from_wh_inventory_id?: string | null })
+        .from_wh_inventory_id;
+      let attributed = 0;
+      if (Array.isArray(breakdown)) {
+        for (const e of breakdown) {
+          const eQty = typeof e?.qty === "number" ? e.qty : 0;
+          if (!e?.wh_inventory_id || eQty <= 0) continue;
+          const wk = `wh:${e.wh_inventory_id}`;
+          committedBatchMap.set(wk, (committedBatchMap.get(wk) ?? 0) + eQty);
+          attributed += eQty;
+        }
+      }
+      const rest = Math.max(0, qty - attributed);
+      if (rest > 0) {
+        if (pinnedWhId) {
+          const wk = `wh:${pinnedWhId}`;
+          committedBatchMap.set(wk, (committedBatchMap.get(wk) ?? 0) + rest);
+        } else {
+          const bk = `${row.boonz_product_id}|||${(row.expiry_date as string | null) ?? "null"}`;
+          committedBatchMap.set(bk, (committedBatchMap.get(bk) ?? 0) + rest);
+        }
+      }
       // machines(official_name) embeds as an object (or array) depending on the relationship shape.
       const rel = (row as { machines?: unknown }).machines;
       const name = Array.isArray(rel)
@@ -1200,7 +1247,9 @@ export default function PackingDetailPage() {
         const info = whBatchInfoMap.get(whId);
         if (!info) continue;
         const bk = `${info.boonz_product_id}|||${info.expiry ?? "null"}`;
-        const committed = committedBatchMap.get(bk) ?? 0;
+        const committed =
+          (committedBatchMap.get(`wh:${whId}`) ?? 0) +
+          (committedBatchMap.get(bk) ?? 0);
         const rawStock = whIdToStock.get(whId) ?? 0;
         const available = Math.max(0, rawStock - committed);
         initBatchPickQtys[dispatchId][whId] = Math.min(
@@ -1229,7 +1278,9 @@ export default function PackingDetailPage() {
         const info = whBatchInfoMap.get(b.wh_inventory_id);
         if (!info) continue;
         const bk = `${info.boonz_product_id}|||${info.expiry ?? "null"}`;
-        const committed = committedBatchMap.get(bk) ?? 0;
+        const committed =
+          (committedBatchMap.get(`wh:${b.wh_inventory_id}`) ?? 0) +
+          (committedBatchMap.get(bk) ?? 0);
         const rawStock = whIdToStock.get(b.wh_inventory_id) ?? 0;
         const available = Math.max(0, rawStock - committed);
         const alreadyPicked = current[b.wh_inventory_id] ?? 0;
@@ -2894,8 +2945,11 @@ export default function PackingDetailPage() {
                     addLine.singleBatches &&
                     addLine.singleBatches.length > 0
                       ? addLine.singleBatches.reduce((sum, b) => {
-                          const bk = `${addLine.boonz_product_id}|||${b.expiry ?? "null"}`;
-                          const bc = committedByBatch.get(bk) ?? 0;
+                          const bc = committedForBatch(
+                            b.wh_inventory_id,
+                            addLine.boonz_product_id,
+                            b.expiry,
+                          );
                           return sum + Math.max(0, b.stock - bc);
                         }, 0)
                       : addAvailable;
@@ -3089,10 +3143,12 @@ export default function PackingDetailPage() {
                                               batchPickQtys[
                                                 addLine.dispatch_id
                                               ]?.[b.wh_inventory_id] ?? 0;
-                                            const batchKey = `${v.boonzProductId}|||${b.expiry ?? "null"}`;
                                             const batchCommitted =
-                                              committedByBatch.get(batchKey) ??
-                                              0;
+                                              committedForBatch(
+                                                b.wh_inventory_id,
+                                                v.boonzProductId,
+                                                b.expiry,
+                                              );
                                             const batchAvailable = Math.max(
                                               0,
                                               b.stock - batchCommitted,
@@ -3245,9 +3301,11 @@ export default function PackingDetailPage() {
                                 batchPickQtys[addLine.dispatch_id]?.[
                                   b.wh_inventory_id
                                 ] ?? 0;
-                              const batchKey = `${addLine.boonz_product_id}|||${b.expiry ?? "null"}`;
-                              const batchCommitted =
-                                committedByBatch.get(batchKey) ?? 0;
+                              const batchCommitted = committedForBatch(
+                                b.wh_inventory_id,
+                                addLine.boonz_product_id,
+                                b.expiry,
+                              );
                               const batchAvailable = Math.max(
                                 0,
                                 b.stock - batchCommitted,
@@ -3700,8 +3758,11 @@ export default function PackingDetailPage() {
                     line.singleBatches &&
                     line.singleBatches.length > 0
                       ? line.singleBatches.reduce((sum, b) => {
-                          const bk = `${line.boonz_product_id}|||${b.expiry ?? "null"}`;
-                          const bc = committedByBatch.get(bk) ?? 0;
+                          const bc = committedForBatch(
+                            b.wh_inventory_id,
+                            line.boonz_product_id,
+                            b.expiry,
+                          );
                           return sum + Math.max(0, b.stock - bc);
                         }, 0)
                       : lineAvailable;
@@ -3928,9 +3989,12 @@ export default function PackingDetailPage() {
                                             batchPickQtys[line.dispatch_id]?.[
                                               b.wh_inventory_id
                                             ] ?? 0;
-                                          const batchKey = `${v.boonzProductId}|||${b.expiry ?? "null"}`;
                                           const batchCommitted =
-                                            committedByBatch.get(batchKey) ?? 0;
+                                            committedForBatch(
+                                              b.wh_inventory_id,
+                                              v.boonzProductId,
+                                              b.expiry,
+                                            );
                                           const batchAvailable = Math.max(
                                             0,
                                             b.stock - batchCommitted,
@@ -4096,9 +4160,11 @@ export default function PackingDetailPage() {
                                           const vCommitted = v.batches.reduce(
                                             (s, b) =>
                                               s +
-                                              (committedByBatch.get(
-                                                `${v.boonzProductId}|||${b.expiry ?? "null"}`,
-                                              ) ?? 0),
+                                              committedForBatch(
+                                                b.wh_inventory_id,
+                                                v.boonzProductId,
+                                                b.expiry,
+                                              ),
                                             0,
                                           );
                                           const vAvail = v.batches.reduce(
@@ -4107,9 +4173,11 @@ export default function PackingDetailPage() {
                                               Math.max(
                                                 0,
                                                 b.stock -
-                                                  (committedByBatch.get(
-                                                    `${v.boonzProductId}|||${b.expiry ?? "null"}`,
-                                                  ) ?? 0),
+                                                  committedForBatch(
+                                                    b.wh_inventory_id,
+                                                    v.boonzProductId,
+                                                    b.expiry,
+                                                  ),
                                               ),
                                             0,
                                           );
@@ -4253,9 +4321,11 @@ export default function PackingDetailPage() {
                                   batchPickQtys[line.dispatch_id]?.[
                                     b.wh_inventory_id
                                   ] ?? 0;
-                                const batchKey = `${line.boonz_product_id}|||${b.expiry ?? "null"}`;
-                                const batchCommitted =
-                                  committedByBatch.get(batchKey) ?? 0;
+                                const batchCommitted = committedForBatch(
+                                  b.wh_inventory_id,
+                                  line.boonz_product_id,
+                                  b.expiry,
+                                );
                                 const batchAvailable = Math.max(
                                   0,
                                   b.stock - batchCommitted,
