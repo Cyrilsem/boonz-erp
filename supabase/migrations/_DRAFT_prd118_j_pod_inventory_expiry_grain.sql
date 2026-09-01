@@ -1,0 +1,110 @@
+-- DRAFT — NOT APPLIED. PRD-118 item J (Tier 1, held per Cody/Dara review 2026-09-01).
+--
+-- Root cause: idx_pod_inv_active_shelf is a UNIQUE INDEX on
+-- pod_inventory(machine_id, shelf_id, boonz_product_id) WHERE status='Active' — it
+-- physically forbids two Active rows for the same machine+shelf+product, REGARDLESS
+-- of expiry. receive_dispatch_line therefore has no choice but to archive any existing
+-- Active row and merge into one INSERT with current_stock = old+new summed and
+-- expiration_date = LEAST(old_expiry, new_expiry). Real incident: AMZ-1068 A05 held
+-- ~3 Activia dated 31 Aug; 4 fresh units dated 25 Sep were delivered; pod_inventory
+-- collapsed to one row (6 units @ 2026-08-31) — the fresh batch's true expiry was
+-- destroyed and the shelf then read as fully expired everywhere.
+--
+-- ⛔ DO NOT APPLY without first auditing every reader of pod_inventory that assumes
+-- "at most one Active row per machine+shelf+product" WITHOUT an expiry qualifier.
+-- This exact index was already found load-bearing once before (PRD-114, 2026-08-12:
+-- "idx_pod_inv_active_shelf makes a shelf-bound sibling pair IMPOSSIBLE... reaches
+-- only NULL-shelf rows, keeps the newest snapshot not the MIN expiry"). PRD-059 and
+-- PRD-105 both did surgery on pod_inventory's active-row semantics and the
+-- expiry-collapse views reading it. Audit candidates, NOT checked this session:
+-- v_live_shelf_stock, v_shelf_slot_identity, auto_decrement_pod_inventory, the
+-- v_machine_expiry_batches resolution rule, and anything else matching
+-- `pod_inventory` + `status = 'Active'` without `expiration_date` in the same
+-- predicate. Cody's review (2026-09-01): approved the DESIGN shape, explicitly
+-- conditional on that audit happening before apply.
+--
+-- Design, per Dara (2026-09-01):
+--   1. Replace idx_pod_inv_active_shelf with idx_pod_inv_active_shelf_expiry
+--      (machine_id, shelf_id, boonz_product_id, expiration_date) WHERE status='Active'
+--      — widens the grain to one Active row per real, DATED batch.
+--   2. Add idx_pod_inv_active_shelf_nulldate (machine_id, shelf_id, boonz_product_id)
+--      WHERE status='Active' AND expiration_date IS NULL — Postgres treats every NULL
+--      in a unique index key as distinct from every other NULL, so #1 alone would NOT
+--      stop unbounded duplicate date-less rows (the PRD-118 item K population) from
+--      accumulating. expiration_date is in the partial predicate here, not the key,
+--      so the "distinct NULLs" problem does not apply to this second index.
+--   3. receive_dispatch_line's Refill/Add-New merge block: only top-up (UPDATE) an
+--      existing Active row that shares the SAME expiration_date; a different expiry
+--      gets its OWN new row via INSERT, never archived/merged away. Verified to
+--      compile (rolled-back transaction, 2026-09-01) against live md5
+--      b2be5e5b14c57eb253eb04140642a36b.
+--
+-- ============================================================================
+-- STEP 1 — index change (apply only after the reader audit above is complete)
+-- ============================================================================
+-- DROP INDEX IF EXISTS public.idx_pod_inv_active_shelf;
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_pod_inv_active_shelf_expiry
+--   ON public.pod_inventory (machine_id, shelf_id, boonz_product_id, expiration_date)
+--   WHERE (status = 'Active');
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS idx_pod_inv_active_shelf_nulldate
+--   ON public.pod_inventory (machine_id, shelf_id, boonz_product_id)
+--   WHERE (status = 'Active' AND expiration_date IS NULL);
+--
+-- ============================================================================
+-- STEP 2 — receive_dispatch_line writer fix (same transaction as Step 1 —
+-- the old index would reject the writer's new INSERT on a different expiry)
+-- ============================================================================
+-- DO $mig$
+-- DECLARE v_def text; v_new text;
+-- BEGIN
+--   SELECT pg_get_functiondef(p.oid) INTO v_def FROM pg_proc p
+--    WHERE p.proname='receive_dispatch_line' AND p.pronamespace='public'::regnamespace;
+--   IF md5(v_def) <> 'b2be5e5b14c57eb253eb04140642a36b' THEN
+--     RAISE EXCEPTION 'receive_dispatch_line drifted (md5 %), refusing blind patch', md5(v_def);
+--   END IF;
+--
+--   v_new := replace(v_def,
+-- $patch$    IF p_filled_quantity > 0 THEN
+--       WITH archived AS (UPDATE pod_inventory SET status = 'Inactive', removal_reason = format('merged_into_dispatch_%s_%s', v_dispatch.dispatch_date, p_dispatch_id::text), snapshot_at = now() WHERE machine_id = v_dispatch.machine_id AND shelf_id = v_dispatch.shelf_id AND boonz_product_id = v_dispatch.boonz_product_id AND status = 'Active' RETURNING current_stock, expiration_date), merge_stats AS (SELECT COALESCE(SUM(current_stock), 0)::numeric AS prior_qty, COUNT(*)::int AS prior_n, MIN(expiration_date) AS oldest_expiry FROM archived)
+--       INSERT INTO pod_inventory (machine_id, shelf_id, boonz_product_id, snapshot_date, current_stock, estimated_remaining, expiration_date, batch_id, status, snapshot_at, created_at) SELECT v_dispatch.machine_id, v_dispatch.shelf_id, v_dispatch.boonz_product_id, CURRENT_DATE, p_filled_quantity + ms.prior_qty, p_filled_quantity + ms.prior_qty, LEAST(v_effective_expiry, COALESCE(ms.oldest_expiry, v_effective_expiry)), CASE WHEN ms.prior_n > 0 THEN format('MERGED-DISPATCH-%s', v_dispatch.dispatch_date) ELSE format('DISPATCH-%s', v_dispatch.dispatch_date) END, 'Active', now(), now() FROM merge_stats ms RETURNING pod_inventory_id INTO v_pod_id;
+--       SELECT prior_n INTO v_prior_active_merged FROM (SELECT COUNT(*)::int AS prior_n FROM pod_inventory WHERE machine_id = v_dispatch.machine_id AND shelf_id = v_dispatch.shelf_id AND boonz_product_id = v_dispatch.boonz_product_id AND status = 'Inactive' AND removal_reason = format('merged_into_dispatch_%s_%s', v_dispatch.dispatch_date, p_dispatch_id::text)) AS s;
+--     END IF;$patch$,
+-- $patch$    IF p_filled_quantity > 0 THEN
+--       -- PRD-118 item J fix: only merge into an EXISTING row that shares the SAME
+--       -- expiration_date (a genuine top-up of the same batch). A different expiry
+--       -- is a different batch and gets its OWN row — it must never destroy or fold
+--       -- into a sibling batch's identity.
+--       UPDATE pod_inventory
+--          SET current_stock = current_stock + p_filled_quantity,
+--              estimated_remaining = current_stock + p_filled_quantity,
+--              snapshot_at = now()
+--        WHERE machine_id = v_dispatch.machine_id AND shelf_id = v_dispatch.shelf_id
+--          AND boonz_product_id = v_dispatch.boonz_product_id AND status = 'Active'
+--          AND ((expiration_date = v_effective_expiry) OR (expiration_date IS NULL AND v_effective_expiry IS NULL))
+--        RETURNING pod_inventory_id INTO v_pod_id;
+--
+--       IF NOT FOUND THEN
+--         INSERT INTO pod_inventory (machine_id, shelf_id, boonz_product_id, snapshot_date,
+--           current_stock, estimated_remaining, expiration_date, batch_id, status, snapshot_at, created_at)
+--         VALUES (v_dispatch.machine_id, v_dispatch.shelf_id, v_dispatch.boonz_product_id, CURRENT_DATE,
+--           p_filled_quantity, p_filled_quantity, v_effective_expiry,
+--           format('DISPATCH-%s', v_dispatch.dispatch_date), 'Active', now(), now())
+--         RETURNING pod_inventory_id INTO v_pod_id;
+--       END IF;
+--       v_prior_active_merged := 0;
+--     END IF;$patch$);
+--   IF v_new = v_def THEN RAISE EXCEPTION 'merge block not found'; END IF;
+--   EXECUTE v_new;
+-- END $mig$;
+--
+-- ============================================================================
+-- Test fixture, run before this ever ships for real:
+--   Deliver fresh-dated stock onto a lane holding older-dated stock (the exact PRD-118
+--   test ask). Pick a real machine+shelf+product with a real Active pod_inventory row,
+--   call receive_dispatch_line for a dispatch of the SAME product with a DIFFERENT
+--   expiry, and assert: two Active pod_inventory rows exist afterward, one at each
+--   date, neither destroyed. Then re-run the same scenario with the SAME expiry twice
+--   and assert exactly one row, correctly summed (top-up path unaffected).
+-- ============================================================================
