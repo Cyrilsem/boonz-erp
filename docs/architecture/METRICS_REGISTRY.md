@@ -198,6 +198,14 @@ seq 28-29 pin the random-uuid finding. Whole-table proof at ship: **37,395 live 
 `72c814d27fc4a3c1c92f219ff6698088` identical before and after**, 3,542 of them carrying a non-zero
 `reserved_by_earlier` so the window was genuinely exercised.
 
+⭐ **PRD-118 item I (2026-08-31, `prd118_i_commitment_batch_grain_and_breakdown`): additive columns
+`from_wh_inventory_id` + `driver_confirmed_breakdown` exposed.** Same object, same seven-clause
+predicate, same consumers — this adds batch-grain visibility so a reader can net commitment per
+`from_wh_inventory_id` instead of per `boonz_product_id`. Fixes a real packing-screen defect: netting
+at product grain smeared one batch's committed units across every batch of that product, so a
+3-machine Sunbites case showed "no stock" on all three batches when only one actually carried the
+commitment. No predicate change, no new canonical object — exposure only (Article 16 clean).
+
 A venue-sourced shelf is _unconstrained_ here and simply **absent** from the dispatch views, because
 nothing is picked for it. Folding this into the dispatch family would lose the sourcing dimension,
 which is the entire point of WS-A2. Folding it into `v_shelf_state` would put commitment-blind

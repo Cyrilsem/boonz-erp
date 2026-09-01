@@ -1,5 +1,74 @@
 # Architecture Changelog
 
+## 2026-08-31 — PRD-118 item I: packing screen nets commitment at batch grain
+
+**Migration:** `prd118_i_commitment_batch_grain_and_breakdown` (applied live 2026-08-31).
+`v_dispatch_open_wh_commitment` (the PRD-110 D-28 canonical "which lines count as an open warehouse
+claim" object) gains two additive columns — `from_wh_inventory_id` and `driver_confirmed_breakdown`
+— exposure only, the 7-clause predicate is unchanged. Before this, a consumer could only net
+commitment per `boonz_product_id`, which smeared one batch's committed units across every batch of
+the same product on the packing screen: a 3-machine Sunbites case where all three batches read "no
+stock" on screen while the actual committed units sat against one specific batch, and the other two
+were genuinely free. The packing FE now nets per-batch. Cody ✅ (Articles 12, 16 — additive columns,
+no redefinition, no competing object).
+
+**Effect:** deadlock cleared same morning; all three Sunbites lines packed on-screen. FE commit
+`fix(prd-118): item I` on `main`, deployed and validated in production 2026-08-31.
+
+## 2026-08-21 — PRD-113b: in-machine moves on a multi-flavour shelf were queued as returns
+
+**Migration:** `prd113b_internal_move_pod_level_pairing` (applied live 2026-08-21).
+`is_internal_move_dispatch` paired the Remove leg to an Add New on `boonz_product_id`. Two things
+break that on a multi-flavour pod: the driver's "[DRIVER-INSERT] Multi-variant split" child rows lose
+the parent's m2m tagging (`source_kind='unknown'`, `source_machine_id` NULL), and the destination
+Add New usually carries only ONE flavour of the pod. The other flavours therefore matched nothing,
+were classified as warehouse returns, and appeared in "Returns awaiting your approval" — where
+approving would have credited warehouse stock for units still sitting in the machine.
+
+Live case: MPMCC-1054 (Magic Planet) 2026-08-20 DM re-layout — Popit Mix moved A06 → A05, and
+Orange Squeeze 2 + Original Cola 3 + a 0-qty leg stranded in the queue. WEIMI confirms the move
+(19 Aug A5 = Ice Tea 12 / A6 = Popit 8; 21 Aug A5 = Popit 8 / A6 = Nutella 10). Nothing left the pod.
+
+**Fix:** added a POD-PRODUCT-level fallback to the pairing, narrowly gated so it cannot swallow a
+genuine return — the destination Add New must itself be an in-machine move (`source_kind='m2m'` with
+`source_machine_id = machine_id`) and carry NO `from_warehouse_id`. `clear_internal_move_flag`
+remains the human override. Read-only STABLE function, no writes. Articles 12, 16. Cody ✅.
+
+**Effect:** 14 Remove legs since 1 June reclassify as in-machine moves. **None of them ever created a
+warehouse_inventory row** (`source_event_id` check), so there is no phantom batch to reverse. The
+5 still-open legs were stamped durably via `mark_internal_move_legs` (2026-06-01 ×1, 06-03 ×1,
+08-20 ×3). The returns queue is now empty.
+
+⚠️ **Flagged, not fixed:** 7 of the 14 were approved historically (WPP 2026-06-01 Pepsi ×2, OMDCW
+2026-07-02 Popit ×3, MC-2004 2026-08-07 Pepsi/Coke ×3 — 21 units). They created no new batch, which
+means receive merged them into an existing batch and the credit is untraceable via `source_event_id`.
+Those 21 units may be phantom warehouse stock. Needs a physical count decision, not a blind reversal.
+
+## 2026-08-21 — PRD-016d: field purchases can be received straight into a machine
+
+**Migration:** `prd016d_receive_po_addition_into_machine` (applied live 2026-08-21).
+NEW DEFINER `receive_po_addition_into_machine(p_addition_id, p_machine_id, p_shelf_code, p_visit_date?, p_reason?)`
+— composes two existing canonical writers in ONE transaction: `receive_purchase_order_addition`
+(credits the machine's `primary_warehouse_id`, mirrors the PO line so the cost lands) then
+`record_actual_refill` (debits that WH and credits the pod). Net warehouse effect zero; cost is
+attributed to the machine visit. Role-gated warehouse/operator_admin/superadmin/manager. No new
+direct table writes — Articles 1, 4, 8, 12. Cody ✅.
+⛔ `pod_inventory` allows ONE Active row per machine+shelf+product, so the wrapper reuses the shelf's
+existing expiry when merging and only takes the purchase expiry on a fresh shelf; the true batch
+expiry survives on the warehouse row. Returns `expiry_key_reused` so the mismatch is visible.
+
+**FE:** `/app/procurement` — the field-addition Receive button no longer fires `window.prompt`
+("Type: WH_CENTRAL, WH_MM, or WH_MCC"). That prompt was unanswerable for shop→machine purchases and
+is blocked outright in some browsers, which is why the 14-Aug Carrefour Vitamin Well addition sat
+pending 7 days (the only addition in the table's history never received same-day). Replaced with an
+in-app modal: destination toggle (warehouse / straight into a machine), machine + shelf pickers
+loaded from `machines` and `shelf_configurations`, date-placed field, inline errors instead of
+`alert()`. Both paths call canonical RPCs only. tsc clean; eslint clean (the one remaining error at
+line 633 is the pre-existing `set-state-in-effect` on `fetchOrders`).
+
+**Still open:** 9 more `window.prompt`/`confirm` sites across the app (6 on this page) — same
+blocking-dialog class. Ticket to Stax.
+
 ## 2026-08-19 — Machine location sections are DB-driven (Lebanon + future markets)
 
 **Migration:** `machine_location_categories_lookup` (applied live 2026-08-19). New lookup table
@@ -20,7 +89,6 @@ dropdown (assignable categories + "automatic"). The dropdown writes `machines.lo
 through the existing role-gated direct-update surface — same Batch 5 / RC-04 debt as the rest of the
 machine edit form; the future `update_machine` canonical writer must absorb this column (Article 3
 noted by Cody, approved with revisions).
-
 
 ## 2026-08-19 — DF3: driver tasks auto-close when a PO settles (the 66-task backlog)
 

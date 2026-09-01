@@ -6,10 +6,10 @@ Migrations not listed here are pre-reform (operational migrations from before 20
 
 ## DF3 — driver_tasks auto-close on PO settle (APPLIED 2026-08-19)
 
-| Migration name                              | Article(s)        | Status             | Note |
-| ------------------------------------------- | ----------------- | ------------------ | ---- |
+| Migration name                              | Article(s)        | Status             | Note                                                                                                                                                                                                                                                              |
+| ------------------------------------------- | ----------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `df3_driver_tasks_autoclose_on_po_settle`   | 1, 4, 5, 7, 8, 12 | ✅ Applied to prod | `cancel_po_line`: after the DF2 notes rebuild, if zero actionable lines remain on the PO, flip the open driver task to `collected` (≥1 line received) or `cancelled`, appending an `[auto-closed by cancel_po_line]` marker. `cancel_po` inherits via delegation. |
-| `df3_receive_purchase_order_autoclose_task` | 1, 4, 5, 7, 8, 12 | ✅ Applied to prod | `receive_purchase_order`: same terminal block before RETURN. Fixes the 66-task driver backlog (64 stale). One-time cleanup of 65 stale tasks done via execute_sql the same day. A `pending_receive` addition does not hold the task open (documented choice). |
+| `df3_receive_purchase_order_autoclose_task` | 1, 4, 5, 7, 8, 12 | ✅ Applied to prod | `receive_purchase_order`: same terminal block before RETURN. Fixes the 66-task driver backlog (64 stale). One-time cleanup of 65 stale tasks done via execute_sql the same day. A `pending_receive` addition does not hold the task open (documented choice).     |
 
 **Cody review 2026-08-19:** ✅ Approve (Articles 1, 4, 5, 7, 8, 12, 13, 14). Non-protected entity (`driver_tasks`), existing canonical writers, S-142/S-147 auto-close precedent.
 
@@ -5470,7 +5470,6 @@ a PRD-022 regression. Flipping one view in isolation would start applying RLS fo
 change behaviour. Recorded for a dedicated unit; `CREATE OR REPLACE VIEW` preserved whatever the
 2026-08-14 migration set.
 
-
 ---
 
 ## 2026-08-19 — `machine_location_categories_lookup`
@@ -5491,3 +5490,6 @@ RC-04 debt); fold into the future canonical `update_machine` RPC.
 
 **Rollback:** `ALTER TABLE machines DROP COLUMN location_category; DROP TABLE
 machine_location_categories;` (forward-only preferred — write a new migration).
+| `prd016d_receive_po_addition_into_machine` | 1,4,8,12 | ✅ Applied | 2026-08-21 | NEW DEFINER composing receive_purchase_order_addition + record_actual_refill so a shop→machine field purchase can be received without inventing warehouse stock. Unblocks the pending-addition banner. FE modal replaces window.prompt. Cody ✅. |
+| `prd113b_internal_move_pod_level_pairing` | 12,16 | ✅ Applied | 2026-08-21 | is_internal_move_dispatch gains a pod-product-level fallback (gated on the destination Add New being m2m-self with no from_warehouse_id) so multi-flavour in-machine moves stop surfacing as warehouse returns. 14 legs reclassified, 0 phantom WH rows, 5 stamped. Cody ✅. |
+| `prd118_i_commitment_batch_grain_and_breakdown` | 12,16 | ✅ Applied | 2026-08-31 | `v_dispatch_open_wh_commitment` (PRD-110 D-28 canonical open-WH-claim object) gains additive columns `from_wh_inventory_id` + `driver_confirmed_breakdown` so the packing screen can net commitment at BATCH grain instead of product grain. Predicate/shape unchanged — exposure only. Fixed a 3-machine Sunbites packing deadlock (batches reading "no stock" while a sibling batch of the same product carried the committed units). Backend applied live 2026-08-31 (prod schema_migrations 20260831041646 + 20260831041717, reconstructed here as one file — incremental diff between the two not preserved outside prod); FE `fix(prd-118): item I` shipped same day. Cody ✅ (Article 16 — additive, no competing object). |
