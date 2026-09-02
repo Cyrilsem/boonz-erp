@@ -4762,15 +4762,13 @@ export default function PackingDetailPage() {
       )}
 
       {/* PRD-114 §3.2: the final category, AFTER the pack lines. Renders nothing
-          when the machine has no batch inside the 7-day window, so the pack flow
-          is byte-identical on a clean machine (§4.4). eventDate follows the
-          pack-ahead toggle (PRD-111) so a check done while packing tomorrow's
-          trip lands on tomorrow's Day Close, not today's. */}
-      <ExpirySanityChecks
-        machineId={machineId}
-        eventDate={selectedDate}
-        readOnly={isReadOnly}
-      />
+          when the machine has no batch inside the 3-day window, so the pack flow
+          is byte-identical on a clean machine. PRD-119: the tap writes the shelf
+          record immediately (not gated behind a Day Close acknowledge), so it no
+          longer needs an eventDate to route to - what's on the shelf right now is
+          what's on the shelf right now, regardless of which day is selected for
+          the pack-ahead toggle (PRD-111). */}
+      <ExpirySanityChecks machineId={machineId} readOnly={isReadOnly} />
 
       {/* Bottom bar */}
       <div className="fixed bottom-14 left-0 right-0 border-t border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-950">
