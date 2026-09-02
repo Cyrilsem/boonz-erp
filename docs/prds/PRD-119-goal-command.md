@@ -1,0 +1,57 @@
+/goal Ship PRD-119 in ONE loop, end to end, to completion — expiry management & smart inventory. Repo: ~/Documents/Boonz Script and Data/BOONZ BRAIN/boonz-erp. Supabase project eizcexopcuoycuosittm. Field PWA + admin app deploy through the existing Vercel pipeline from main.
+
+READ FIRST, IN FULL, IN THIS ORDER
+
+1. docs/prds/PRD-119-expiry-management-and-smart-inventory.md — the spec. §1 is the scope fence, §3 the decisions, §4 the driver line + the single WM confirmation queue, §5 the date flow, §6 the disposition ledger, §7 the return flow, §8 the build order, §10 the wiring scan that explains WHY (every CS-click gate is dead; the WM's physical receipt is the only gate that works).
+2. docs/prds/PRD-118-expiry-entry-and-bind-integrity.md + its ADDENDUM 2, then docs/prds/PRD-118-REPORT.md (or the loop's report file) to learn exactly which 118 items shipped: A, B (correct_expiry_v1), D, G (set_wh_quarantine), H, J (pod grain), K. PRD-119 builds ON those. If J shipped, P2 below is half done — verify, don't redo. If J did not ship, P2 ships it using supabase/migrations/_DRAFT_prd118_j_pod_inventory_expiry_grain.sql after completing the reader audit that file demands.
+3. docs/prds/PRD-114-driver-visit-checklist-expired-red.md + PRD-114-REPORT.md (the driver category you are re-scoping, and src/components/field/ExpirySanityChecks.tsx), PRD-112 (day_close_events), PRD-113 / PRD-116-item-B (internal move pairing), PRD-100 (record_actual_refill).
+4. docs/architecture/RPC_REGISTRY.md, MIGRATIONS_REGISTRY.md, METRICS_REGISTRY.md, CHANGELOG.md — you update all four as you go.
+
+NON-NEGOTIABLE RULES
+Load `dara` before any schema change and `cody` before every migration; get a verdict each time. Canonical RPCs only — never raw INSERT/UPDATE/DELETE on pod_refill_plan, refill_plan_output, refill_dispatching, slot_lifecycle, pod_inventory, warehouse_inventory. Every new function is SECURITY DEFINER with an explicit role check, a mandatory reason, sets app.via_rpc / app.rpc_name — copy reactivate_warehouse_row. Every migration applied via MCP gets its git file committed IMMEDIATELY (standing rule since the 08-21 parity reconcile). Work on branch prd-119; merge to main only when tsc is green and the phase's fixtures pass; commit messages end with the Co-Authored-By trailer. Do NOT touch live plan or dispatch rows for plan_date 2026-09-02, 2026-09-03 or 2026-09-04 (NISSAN visit booked 04 Sep) — migrations, functions, FE and synthetic fixtures only; if a change would alter a live row, stop and report. Never delete data: flags off, functions retained, tables dropped only after CS sign-off. PACKING KEEPS THE SYSTEM RECOMMENDATION (batch suggested, packer confirms/changes) — do not build manual batch selection. NO category-based day thresholds, NO "quarantine" state in anything new. The refill engine owns pull/refill/redeploy decisions — PRD-119 never emits a pull command other than REMOVE EXPIRED (≤3 days).
+
+WORK THE PHASES IN ORDER — each phase ends with its fixtures green, registries updated, a short entry in docs/prds/PRD-119-REPORT.md, and a commit.
+
+P1 — WAREHOUSE TRUTH (PRD §7, §4.1, §10)
+
+- Return flow: an engine Remove leg or a driver REMOVE EXPIRED leaves the machine carrying product, qty, expiry from the lane lot (refill_dispatching.expiry_date + from_wh_inventory_id, or the pod lot id). It lands as ONE line in a new Warehouse Confirmations queue (view v_wm_confirmations) pre-filled, with a system-proposed outcome: redeploy → machine X, waste by <date> (X sells it at ≥ qty/(days_left − 2) per day over the last 28 days and has a live lane for it) or waste (expired at arrival, or no qualifying machine). New writer wm_confirm_line(p_line_id, p_qty, p_expiry, p_outcome, p_target_machine_id, p_reason, p_caller, p_dry_run default true): credits warehouse_inventory on the batch with THAT expiry (new row if none, never a 2099 sentinel for a consignment SKU), writes disposition_events, sets reserved_for_machine_id + waste_by for redeploy. This absorbs today's two panels (PendingRemoveApprovalsPanel + returns-awaiting-approval) and the approve_return / wh_approve_remove_receipt doors — keep those RPCs callable, route the FE to the new one.
+- disposition_events (PRD §6): append-only, states removed_at_machine → in_transit → received → restocked | redeploy_pending | redeployed | waste(disposal_code); value_aed from the batch cost; RLS append-only; nightly job flips redeploy_pending past waste_by into a proposed waste line back in the WM queue.
+- M2M: a Remove leg paired with an Add leg on another machine never enters the queue and never writes warehouse_inventory; both legs carry the source lane's lot (expiry). Fix the last PRD-113b hole: the driver multi-variant split children must inherit source_kind / source_machine_id / is_m2m from the parent. Nightly assertion: no M2M leg with expiry_date NULL when the source lane had a dated lot.
+- 48h dispatch guard: bind/recommendation never offers a batch with ≤2 days to expiry; Gate-2 refuses it; NO override parameter.
+- Stale-line auto-close: a dispatch line packed + picked_up with driver_outcome NULL for >5 days closes as driver_outcome='delivered_unconfirmed' through a canonical writer, releases its consumer_stock commitment, and is listed in the CS summary (P3). One-time sweep of the current 320 lines / 1,142 units (oldest 31 Mar): dry-run first, print the list, then apply.
+- Receipt per-line dates: confirm 118-A shipped; if not, ship it (per-line mandatory, same-date-across-products warning, ±25% shelf-life band).
+  Fixtures (synthetic 2030 data, golden.runs note 'PRD-119 P1'): return a dated lot → WH batch credited on that expiry; return an expired lot → proposed waste, confirm → disposition waste + no WH stock; return a lot with a qualifying fast machine → proposed redeploy with target + waste_by; M2M move → zero WH writes, destination lane lot dated, split children tagged m2m; batch with 2 days left → bind refuses, Gate-2 refuses; stale line → auto-closed, consumer_stock released.
+
+P2 — SHELF (PRD §3 D0/D2, §5 deletion list)
+
+- J grain live (verify or ship): one Active pod_inventory row per machine+shelf+product+expiry, plus the NULL-date partial unique index. Complete the reader audit named in the draft (v_live_shelf_stock, v_shelf_slot_identity, auto_decrement_pod_inventory, v_machine_expiry_batches, anything matching pod_inventory + status='Active' without expiration_date in the predicate) and fix each reader BEFORE the index swap.
+- receive_dispatch_line lands delivered units on their own expiry; only tops up a row with the SAME date.
+- Retire the sales decrement: add a kill-switch (engine_settings / feature flag row 'pod_sales_decrement_enabled' default false) checked at the top of auto_decrement_pod_inventory so the external caller (~520 calls/day, service role — find it: n8n workflow or edge function; report where) becomes a no-op that still marks nothing. Keep the function for rollback. Document the 28% cross-lane evidence in the migration header.
+- resync_pod_inventory_from_weimi: may REGISTER a physically present product with no lot as a DATE? row; may NOT change current_stock on dated lots.
+  Fixtures: deliver 25-Sep stock onto a lane holding 31-Aug → two rows, two dates; 100 synthetic sales → zero pod_inventory writes; resync on a lane with a dated lot → lot untouched, unknown product → DATE? row.
+
+P3 — DRIVER LINE + SINGLE QUEUE + READ-ONLY DAY CLOSE (PRD §4, §4.1, §4.2)
+
+- Re-scope PRD-114's "Sanity checks — expiry" category (ExpirySanityChecks.tsx + get_expiry_sanity_checks): rows = lots with expiry < visit date, lots dated within 1–3 days of the visit, lots with NULL/unverified date. Answers: Removed (count pre-filled from lot qty, editable) · Not there; for DATE? rows: Date read (picker; photo optional) · Not there. No Exists, no Skip, no Sold.
+- The tap writes NOW through the canonical atomic writer (record_actual_refill line kinds write_off / set_expiry / close_lot, or a thin apply_expiry_check(event_id) wrapper Cody approves): Removed → pod lot current_stock −= n, archive at 0 with removal_reason 'expired_writeoff', disposition_events removed_at_machine, WM queue line; Not there → archive sold_through_<date>, no queue; Date read → correct_expiry_v1('pod', …, 'driver read label'), no queue. day_close_events still gets one log row per tap, acknowledged_at stamped by the system at write time (log, not gate).
+- Apply the 8 historical expiry_check taps whose lots are still Active (list them first); leave the 57 substitution and 40 stock_unverified events as log — report them, do not apply.
+- WM "Warehouse Confirmations" tab on /field/inventory: one list, all v_wm_confirmations lines, pre-filled, proposed outcome, Confirm / Edit; lines >48h old red. Remove the two old panels from the page (keep components in the tree until P4 sign-off).
+- CS Day Close (DayCloseTab.tsx): remove the acknowledge buttons; show per day: driver taps applied, WM confirmations, unconfirmed lines with age. Read-only.
+- Load `stax` for FE work; tsc green; deploy from main; validate on the field PWA with a synthetic machine.
+  Fixtures: expired lot 4 on record → Removed 2 → 2 written off + 2 sold_through + 1 WM line; DATE? → Date read → correct_expiry_v1 audit row; Not there → archived, no WM line; the WM line confirmed → WH + disposition written once; re-confirm idempotent.
+
+P4 — EXPIRY & WASTE MODULE (PRD §6)
+
+- Admin screen: warehouse batches by days-to-expiry with write-off (reason + disposal_code + value) and redeploy actions; disposition ledger view; reports: waste by product / supplier / machine / month with value, redeploy success rate.
+- Sheet migration: the returns Google Sheet (id 1Xlxh0CkNb3lbowF2P8vel8QA4zpeHSqRS1sKUq3Lr_o, 104 rows / 340 units) loads as source='migration_sheet'. If Drive is not reachable from the loop, read a CSV export at ~/Documents/Boonz Script and Data/BOONZ BRAIN/returns_sheet_export.csv; if absent, ship the loader + fixture and list this as the one open item.
+- Alerts: retire nothing, but wire expiry_unvalidated, bug010_wh_approval_stuck, prd016_guardrail2_return_variant_uncorrected into WM queue lines instead of monitoring_alerts rows; leave the rest as metrics. No new alert without an owner.
+- Procurement hook: weekly-procurement reads waste per SKU (last 90d) and shows it beside the proposed quantity.
+  Fixtures: 104 rows loaded, totals match the sheet; a write-off appears in the ledger with value; a redeploy_pending past waste_by becomes a proposed waste line.
+
+P5 — RECEIPT CAPTURE UX (D3) — only if P1–P4 are green with time left; otherwise write the design note and stop.
+
+STOP CONDITIONS
+Stop and write up (never force) anything that would touch live plan/dispatch rows for 02–04 Sep, any schema decision Dara flags as needing CS, any Cody FAIL you cannot resolve in two attempts, or the external auto_decrement caller if it lives outside the repo (report its location and the exact switch CS must flip). Carry on with the remaining phases.
+
+MORNING REPORT — docs/prds/PRD-119-REPORT.md, end with the line `## PRD-119 DONE` only when P1–P4 fixtures are green and deployed
+Per phase: what shipped, the Cody verdict per migration, fixture results, the 320-line sweep result (lines closed, consumer_stock released), the 8 expiry taps applied, where the sales-decrement caller lives and its current state, what stayed open and why. Then the exact list of live rows that changed (should be: the sweep, the 8 taps, nothing else).
