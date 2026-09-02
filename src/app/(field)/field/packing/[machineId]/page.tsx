@@ -1198,8 +1198,7 @@ export default function PackingDetailPage() {
       const breakdown = (
         row as {
           driver_confirmed_breakdown?:
-            | { qty?: number; wh_inventory_id?: string }[]
-            | null;
+            { qty?: number; wh_inventory_id?: string }[] | null;
         }
       ).driver_confirmed_breakdown;
       const pinnedWhId = (row as { from_wh_inventory_id?: string | null })
