@@ -24,7 +24,7 @@ import { FieldHeader } from "../../components/field-header";
 import { getExpiryStyle } from "@/app/(field)/utils/expiry";
 import { usePageTour } from "../../components/onboarding/use-page-tour";
 import Tour from "../../components/onboarding/tour";
-import PendingRemoveApprovalsPanel from "@/components/inventory/PendingRemoveApprovalsPanel";
+import WarehouseConfirmationsPanel from "@/components/inventory/WarehouseConfirmationsPanel";
 import { StartInventorySessionBar } from "@/components/inventory/StartInventorySessionBar";
 import { CanaryIndicator } from "@/components/inventory/CanaryIndicator";
 
@@ -1617,8 +1617,10 @@ export default function InventoryPage() {
           <CanaryIndicator />
         </div>
 
-        {/* BUG-010: Returns awaiting WH-side approval (driver_confirm_remove → wh_approve_remove_receipt) */}
-        <PendingRemoveApprovalsPanel />
+        {/* PRD-119 §4.1: the single Warehouse Confirmations queue replaces
+            BUG-010's PendingRemoveApprovalsPanel (kept in the tree, not
+            rendered, until P4 sign-off). */}
+        <WarehouseConfirmationsPanel />
 
         {/* Control mode message */}
         {controlMessage && (
