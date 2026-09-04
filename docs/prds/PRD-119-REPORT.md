@@ -139,7 +139,47 @@ old RPCs still callable and unrouted).
 
 ## P4 — Expiry & waste module
 
-_(not started)_
+**Historical sheet load — SHIPPED.** `supabase/migrations/20260904103000_prd119_p4_migration_sheet_load.sql`,
+commit `1b8ede4`. One-time backfill of the returns Google Sheet (id
+`1Xlxh0CkNb3lbowF2P8vel8QA4zpeHSqRS1sKUq3Lr_o`, read live via the Google Drive MCP,
+no CSV fallback needed) into `disposition_events`. The sheet had grown to
+113 rows / 365 units by load time — the PRD's own snapshot text ("104 rows,
+340 units") is stale; loaded as-found rather than reusing the stale number.
+
+Resolution: exact product-name match (46/113) -> normalized match (case/
+punctuation-insensitive) -> a hand-verified 32-entry alias map, each alias
+individually checked against the live catalog before being added, never
+guessed on an ambiguous multi-variant product. **99/113 rows (315/365 units)
+loaded**, `source='migration_sheet'`: 97 rows / 311 units `state='waste'`,
+2 rows / 4 units `state='removed_at_machine'` (the sheet's own
+"Updated in system-Removed"="No" rows — genuinely still open, left
+unreconciled for a human rather than silently marked done).
+
+**14 rows (50 units) deliberately NOT loaded**, flagged for CS rather than
+guessed:
+
+- Genuinely ambiguous (2-3 catalog variants, sheet gives no way to pick):
+  Caprice x2, "7 days" x1, Extra Gum x1, Yan Yan x1, Sunblast x1.
+- Absent from the current catalog entirely: Vitamin Well - Well Care x2,
+  Be kind bar - peanut butter x1, Be kind bar - Dark chocolate x1,
+  Barebells - Carmel Cashew x1.
+- One row with a blank product name (qty 7, exp 16 Jul 2026).
+- YoPro Vanilla / YoPro chocolate x2 — the PRD's own text already names this
+  exact "YoPro Vanilla/Strawberry mismatch" as a flag-for-CS item.
+
+Verified in a rolled-back transaction before the real apply (97/311 +
+2/4 = 99/315); live `GROUP BY state` after the real `apply_migration` call
+matched exactly: `waste: 97 rows / 311 units`, `removed_at_machine: 2 rows /
+4 units`. Cody: approve, Articles 1/7/12 — additive-only, idempotency
+guarded (refuses if any `source='migration_sheet'` row already exists),
+writes only through the migration's own privileged role, not `authenticated`
+(the S-308 `disposition_events` REVOKE is not being bypassed).
+
+**Not yet done:** admin FE screens (write-off/redeploy actions, disposition
+ledger view, reports), alerts rewiring (`expiry_unvalidated`,
+`bug010_wh_approval_stuck`, `prd016_guardrail2_return_variant_uncorrected`
+into WM queue lines), procurement hook (waste-per-SKU last 90d beside
+proposed quantity).
 
 ## P5 — Receipt capture UX
 
