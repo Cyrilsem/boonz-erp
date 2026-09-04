@@ -1375,3 +1375,24 @@ aggregate it becomes a second answer to a registered question. Cody made this co
 recomputes `expired` vs `expiring` from the ledger and the real clock before it accepts an outcome,
 which is what makes "an expired batch cannot stay on the shelf" a rule rather than a rendering
 choice. An FE that could send its own severity could unlock the Exists chip on a red row.
+
+## PRD-119 (2026-09-02 to 2026-09-04) — warehouse truth, WM queue, expiry & waste
+
+| Metric                                                                                     | Canonical object       | Status            | Known illegal copies to retire                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------ | ---------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Warehouse Confirmations queue** (return-flow lines + open driver taps)                   | `v_wm_confirmations`   | LIVE (2026-09-02) | `PendingRemoveApprovalsPanel` retired (unrendered, kept in tree per build order).                                                                                                  |
+| **Full disposition history** (every state transition on a returned/redeployed/wasted unit) | `v_disposition_ledger` | LIVE (2026-09-04) | none — this is the direct replacement for the returns Google Sheet.                                                                                                                |
+| **Redeploy proposal → outcome** (proposed vs redeployed/still pending)                     | `v_redeploy_outcomes`  | LIVE (2026-09-04) | none. FE must not hand-walk `superseded_by_event` itself.                                                                                                                          |
+| **Waste per SKU, last 90 days** (procurement's demand-vs-waste signal)                     | `v_waste_by_sku_90d`   | LIVE (2026-09-04) | none.                                                                                                                                                                              |
+| **WM attention queue** (deduped bug010/prd016/expiry_unvalidated alerts)                   | `v_wm_alert_queue`     | LIVE (2026-09-04) | raw `monitoring_alerts` reads — 1,010 raw bug010 rows collapse to 228 actionable lines; reading the table directly re-exposes the day-repeat duplication this view exists to hide. |
+
+⚠️ **`v_wm_alert_queue`'s `dedup_key` is the join key `acknowledge_wm_alert` requires**, not the raw
+`alert_id`. Acking by `alert_id` alone would leave older duplicate rows (the same stuck dispatch,
+logged again the next day by `monitor_stuck_remove_dispatches`) unacknowledged, and the line would
+reappear at a stale date on the next read. Verified live before shipping: a 2-day-open dispatch
+acked by dedup key cleared both underlying rows in one call.
+
+⚠️ **`v_redeploy_outcomes` follows the supersede chain exactly one hop.** `redeploy_pending` has one
+possible successor state today (`redeployed`, written only by `confirm_disposition_redeploy`) — if a
+future change adds a second possible transition off `redeploy_pending`, this view's single `LEFT
+JOIN` stops being sufficient and must be revisited, not silently trusted.

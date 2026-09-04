@@ -358,6 +358,12 @@ export default function ProcurementPage() {
     new Map(),
   );
   const [supplierMetaLoaded, setSupplierMetaLoaded] = useState(false);
+  // PRD-119 P4: waste-per-SKU last 90 days, shown beside the suggested qty
+  // so procurement can see when a "gap" is really an over-order pattern.
+  const [wasteMap, setWasteMap] = useState<
+    Map<string, { qty: number; value: number }>
+  >(new Map());
+  const [wasteMapLoaded, setWasteMapLoaded] = useState(false);
   // Set-supplier action (writes supplier_products, RLS-gated). Target product id.
   const [setSupplierFor, setSetSupplierFor] = useState<DemandRow | null>(null);
   const [setSupplierChoice, setSetSupplierChoice] = useState("");
@@ -497,6 +503,28 @@ export default function ProcurementPage() {
     setSupplierMetaLoaded(true);
   }, []);
 
+  // PRD-119 P4: waste-per-SKU last 90 days — canonical object v_waste_by_sku_90d.
+  const loadWasteMap = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("v_waste_by_sku_90d")
+      .select("boonz_product_id, waste_qty_90d, waste_value_90d")
+      .limit(10000);
+    const m = new Map<string, { qty: number; value: number }>();
+    for (const row of (data ?? []) as Array<{
+      boonz_product_id: string;
+      waste_qty_90d: number;
+      waste_value_90d: number;
+    }>) {
+      m.set(row.boonz_product_id, {
+        qty: row.waste_qty_90d,
+        value: row.waste_value_90d,
+      });
+    }
+    setWasteMap(m);
+    setWasteMapLoaded(true);
+  }, []);
+
   // PRD-022 D1/D5: open PO lines for ordered-state chips + the Open POs drawer tab.
   const loadOpenPoLines = useCallback(async () => {
     const supabase = createClient();
@@ -548,6 +576,7 @@ export default function ProcurementPage() {
         if (!demandLoaded) loadDemand(demandSource);
         if (!podLoaded) loadPodDemand(demandSource);
         if (!supplierMetaLoaded) loadSupplierMeta();
+        if (!wasteMapLoaded) loadWasteMap();
         loadOpenPoLines();
         // Load suppliers for the "Create Draft PO" + set-supplier flows.
         if (suppliers.length === 0) {
@@ -568,6 +597,8 @@ export default function ProcurementPage() {
       loadPodDemand,
       supplierMetaLoaded,
       loadSupplierMeta,
+      wasteMapLoaded,
+      loadWasteMap,
       loadOpenPoLines,
       suppliers.length,
       demandSource,
@@ -1474,6 +1505,21 @@ export default function ProcurementPage() {
             </>
           )}
         </td>
+        <td className="px-3 py-3" style={{ fontSize: 12 }}>
+          {(() => {
+            const w = wasteMap.get(r.boonz_product_id);
+            if (!w || w.qty === 0)
+              return <span style={{ color: "#9ca3af" }}>—</span>;
+            return (
+              <span
+                style={{ color: "#b91c1c" }}
+                title={`${w.value.toFixed(2)} AED`}
+              >
+                {w.qty.toFixed(0)}u
+              </span>
+            );
+          })()}
+        </td>
       </tr>
     );
   };
@@ -2241,13 +2287,27 @@ export default function ProcurementPage() {
                         </th>
                       );
                     })}
+                    <th
+                      className="text-left px-3 py-3"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 500,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        color: "#6b6860",
+                        whiteSpace: "nowrap",
+                      }}
+                      title="PRD-119: waste written off in the last 90 days for this SKU"
+                    >
+                      Waste 90d
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {demandLoading ? (
                     Array.from({ length: 8 }).map((_, i) => (
                       <tr key={i} style={{ borderBottom: "1px solid #f5f2ee" }}>
-                        {[36, 200, 100, 80, 80, 80, 70, 80].map((w, j) => (
+                        {[36, 200, 100, 80, 80, 80, 70, 80, 60].map((w, j) => (
                           <td key={j} className="px-3 py-3">
                             <div
                               className="animate-pulse rounded"
@@ -2264,7 +2324,7 @@ export default function ProcurementPage() {
                   ) : demandRows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="px-4 py-10 text-center"
                         style={{ color: "#6b6860" }}
                       >

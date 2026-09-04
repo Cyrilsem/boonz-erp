@@ -1,5 +1,63 @@
 # Architecture Changelog
 
+## 2026-09-02 to 2026-09-04 — PRD-119: warehouse truth, shelf grain, single WM queue, expiry & waste module
+
+**P1 Warehouse truth.** `disposition_events` — append-only ledger replacing the returns Google Sheet,
+state machine `removed_at_machine → in_transit → received → {restocked | redeploy_pending |
+redeployed | waste}`, RLS + explicit `authenticated` REVOKE (S-308), writable only by DEFINER RPCs.
+`v_wm_confirmations` / `wm_confirm_line` — the single Warehouse Confirmations queue and its confirm
+door for return-flow lines. 48h absolute dispatch guard beneath the existing 7-day override. M2M B1
+fix (found B2/B3 already shipped under PRD-117, avoided regressing a superior classifier).
+
+**P2 Shelf.** `pod_inventory_expiry_grain` (PRD-118 item J, deferred there, closed here) — one Active
+row per machine+shelf+product+expiry. Full reader audit found and fixed `v_pod_inventory_latest`,
+`v_machine_expiry_batches` (the exact defect PRD-114 already named), `approve_pod_inventory_edit`'s
+add_stock branch, `record_variant_correction`'s new-variant lookup, and
+`v_pod_inventory_shelf_mismatch`'s multi_active_rows verdict. `pod_sales_decrement_enabled` kill
+switch (default off) — the prior decrementer matched by product name across the whole machine, no
+shelf predicate. `resync_pod_inventory_from_weimi` restricted to DATE?-row-only corrections.
+
+**P3 Driver line + single queue + read-only Day Close.** `apply_expiry_check` — canonical tap writer
+(`removed | not_there | date_read`), composing `correct_expiry_v1` (role gate widened to
+`field_staff`, scoped to `p_scope='pod'`). `v_wm_confirmations` generalized to a second source
+(open driver-tap `removed_at_machine` events, chained via `superseded_by_event`). FE:
+`ExpirySanityChecks.tsx` re-scoped (7d→3d window, Exists/Skip dropped, immediate writes), new
+`WarehouseConfirmationsPanel.tsx` replacing `PendingRemoveApprovalsPanel`, `DayCloseTab.tsx` reworked
+to read-only log + summary stats.
+
+**P4 Expiry & waste module.** Historical returns-sheet load into `disposition_events`
+(`source='migration_sheet'`, 99/113 rows, 14 flagged not guessed).
+`confirm_disposition_redeploy` — the writer that closes `redeploy_pending → redeployed`, a
+transition `wm_confirm_line` could open but never close. `propose_wh_redeploy` — opens a redeploy
+proposal directly off an aging `warehouse_inventory` batch for admin triage (caught and fixed a
+2099-12-31 sentinel-date bug in testing before applying). `v_disposition_ledger`,
+`v_redeploy_outcomes`, `v_waste_by_sku_90d` — canonical read objects for the ledger/reports/
+procurement hook. `v_wm_alert_queue` + `acknowledge_wm_alert` — found `monitoring_alerts.acknowledged`
+had no writer anywhere (1,010 open `bug010_wh_approval_stuck` rows, dispatch-days not dispatches;
+337 open `prd016_guardrail2_return_variant_uncorrected`), dedupes to 228 + 337 actionable lines.
+Found and fixed a second gap while wiring this: `check_expiry_unvalidated` (PRD-118 K2) was written
+but never scheduled in `cron.job` — added the missing nightly job. New admin screen
+`/admin/expiry-waste` (Batches / Alerts / Ledger & Reports), surfaced in the sidebar nav; a Waste 90d
+column on the procurement Demand tab. All P4 backend objects verified in rolled-back transactions
+before real `apply_migration` calls; all three admin FE tabs and the write-off/acknowledge actions
+verified live against real production data with real writes.
+
+**P5 Receipt capture UX** — design note only (D3 capture-method + shelf-life-band check), not built;
+no `shelf_life_days` column exists yet.
+
+**Deliberately not shipped, flagged not dropped:** the stale packed-line 320/1,142-unit sweep (the
+literal predicate from the PRD's own evidence text returns ~28x more lines than the PRD's number;
+strong unverified hypothesis involves `warehouse_inventory.consumer_stock > 0`, not reproduced —
+do not reuse the naive count); item L (`driver_substitute_dispatch_line`'s FEFO branch leaves
+`from_wh_inventory_id=NULL`) and G2b (`pack_dispatch_line`/`bind_dispatch_fefo` `manually_quarantined`
+patches) both stayed gated on the 2026-09-02/03/04 packing runs, which were still open (2/9/12 lines)
+as of 2026-09-04 15:27 Dubai time — the live-date protection rule this branch operated under start
+to finish.
+
+**Cody:** every migration this session individually reviewed and approved before applying (Articles
+1, 4, 6, 7, 11, 12, 16 the recurring set); no destructive writes, no direct table writes from FE, no
+plan/dispatch rows on the protected dates touched.
+
 ## 2026-08-31 — PRD-118 item I: packing screen nets commitment at batch grain
 
 **Migration:** `prd118_i_commitment_batch_grain_and_breakdown` (applied live 2026-08-31).

@@ -6,16 +6,25 @@
 // venue actually had and kept moving; this is where CS closes the loop:
 // inventory closed, refill closed, gaps acknowledged.
 //
-// Three reads, no derived stock arithmetic on the client:
-//   v_day_close_events   - what the drivers changed (Changes) and the gaps those
-//                          changes opened (spot buys, unverified stock).
-//   day_close_checks()   - the five close checks, computed live in one call.
-//   refill_dispatching   - the plan-side gaps (not filled, shortfall, review) for
-//                          the same date, plus open drift candidates.
+// PRD-119 §4.2: expiry_check rows are no longer a gate. The tap already wrote
+// the shelf record at apply_expiry_check time (acknowledged_at is stamped by
+// the system at write time, not by a CS click) — this page shows them as a
+// read-only log, alongside what the WM confirmed and what is still sitting in
+// her queue. The acknowledge mechanism stays live for substitution / spot_buy /
+// stock_unverified rows (PRD-112, unchanged by this PRD).
 //
-// One write path: acknowledge_day_close_event / acknowledge_day_close. Stock
-// truth moves there and nowhere else, which is why nothing on this page writes
-// pod_inventory directly.
+// Reads, no derived stock arithmetic on the client:
+//   v_day_close_events    - what the drivers changed (Changes) and the gaps those
+//                           changes opened (spot buys, unverified stock).
+//   day_close_checks()    - the five close checks, computed live in one call.
+//   refill_dispatching    - the plan-side gaps (not filled, shortfall, review) for
+//                           the same date, plus open drift candidates.
+//   v_wm_confirmations    - the live Warehouse Confirmations queue (PRD-119),
+//                           not date-scoped — it is always "what's open right now".
+//
+// Write path for substitution / spot_buy / stock_unverified only:
+// acknowledge_day_close_event / acknowledge_day_close. expiry_check rows write
+// nowhere from this page — apply_expiry_check already wrote them at the tap.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -39,15 +48,26 @@ type EventKind =
   // Remove or a Sold archives that batch; Exists and Skip write no stock.
   | "expiry_check";
 
-/** PRD-114 payload keys. Read from the event rather than re-derived: severity is
- *  a backend fact and this screen must not compute a second opinion of it. */
+/** PRD-119 §4 payload keys. Read from the event rather than re-derived: severity
+ *  is a backend fact and this screen must not compute a second opinion of it. */
 type ExpiryCheckPayload = {
   pod_inventory_id?: string;
   product_name?: string;
   qty?: number | string;
-  expiry?: string;
-  severity?: "expired" | "expiring";
-  outcome?: "exists" | "sold" | "remove" | "skip";
+  expiration_date?: string;
+  new_expiry?: string;
+  severity?: "expired" | "expiring" | "date_unverified";
+  outcome?: "removed" | "not_there" | "date_read";
+  disposition_event_id?: string;
+};
+
+type WmQueueLine = {
+  line_id: string;
+  source: "dispatch_return" | "driver_expiry_check";
+  machine_name: string;
+  boonz_product_name: string;
+  qty: number;
+  age_hours: number;
 };
 
 type DayCloseEvent = {
@@ -129,14 +149,13 @@ const GAP_META: Record<Gap["kind"], { label: string; tone: BadgeTone }> = {
   drift: { label: "drift open", tone: "brand" },
 };
 
-/** PRD-114 §3.3. What acknowledging each disposition actually does, said in the
- *  words of the consequence rather than the enum - CS is authorising a stock
- *  write on two of these four and nothing on the other two. */
+/** PRD-119 §4. What the driver's tap already did — said in the words of the
+ *  consequence rather than the enum. This is a log of a write that already
+ *  happened at the tap, not a description of what acknowledging will do. */
 const EXPIRY_OUTCOME_LABEL: Record<string, string> = {
-  remove: "driver pulled it (write off)",
-  sold: "already sold through (close batch)",
-  exists: "still on the shelf (no stock change)",
-  skip: "skipped (no stock change)",
+  removed: "driver pulled it (written off)",
+  not_there: "not on the shelf (closed)",
+  date_read: "driver read the label (date corrected)",
 };
 
 const REVIEW_REASON_LABEL: Record<string, string> = {
@@ -162,6 +181,7 @@ type DayCloseData = {
   events: DayCloseEvent[];
   checks: CloseCheck[] | null;
   gaps: Gap[];
+  wmQueue: WmQueueLine[];
   error: string | null;
 };
 
@@ -181,6 +201,7 @@ async function loadDayClose(selectedDate: string): Promise<DayCloseData> {
     { data: driftData },
     { data: machineData },
     { data: productData },
+    { data: wmData },
   ] = await Promise.all([
     supabase
       .from("v_day_close_events")
@@ -210,6 +231,15 @@ async function loadDayClose(selectedDate: string): Promise<DayCloseData> {
     supabase
       .from("boonz_products")
       .select("product_id, boonz_product_name")
+      .limit(10000),
+    // PRD-119 §4.2: the live Warehouse Confirmations queue — not date-scoped,
+    // always "what's open right now" regardless of which day is selected above.
+    supabase
+      .from("v_wm_confirmations")
+      .select(
+        "line_id, source, machine_name, boonz_product_name, qty, age_hours",
+      )
+      .order("age_hours", { ascending: false })
       .limit(10000),
   ]);
 
@@ -322,6 +352,7 @@ async function loadDayClose(selectedDate: string): Promise<DayCloseData> {
     checks: ((checkData as { checks?: CloseCheck[] } | null)?.checks ??
       null) as CloseCheck[] | null,
     gaps: out,
+    wmQueue: (wmData as WmQueueLine[] | null) ?? [],
     error: eventErr?.message ?? checkErr?.message ?? null,
   };
 }
@@ -343,6 +374,7 @@ export default function DayCloseTab({
   const events = useMemo(() => data?.events ?? [], [data]);
   const checks = data?.checks ?? null;
   const gaps = data?.gaps ?? [];
+  const wmQueue = data?.wmQueue ?? [];
   const err = ackErr ?? data?.error ?? null;
 
   useEffect(() => {
@@ -381,6 +413,13 @@ export default function DayCloseTab({
   );
   const openCount = useMemo(
     () => events.filter((e) => !e.acknowledged).length,
+    [events],
+  );
+  // PRD-119 §4.2: driver expiry taps are a read-only log now — count them
+  // separately from the acknowledge-gated substitution/spot_buy/stock_unverified
+  // rows so the summary reads "what Jojo did" rather than "what's still open".
+  const expiryTapsApplied = useMemo(
+    () => events.filter((e) => e.kind === "expiry_check").length,
     [events],
   );
 
@@ -444,8 +483,17 @@ export default function DayCloseTab({
       )}
 
       {/* ── Summary ─────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-6">
-        <StatCard label="Changes" value={changes.length} sub={selectedDate} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 mb-6">
+        <StatCard
+          label="Driver taps applied"
+          value={expiryTapsApplied}
+          sub={selectedDate}
+        />
+        <StatCard
+          label="WM queue open"
+          value={wmQueue.length}
+          accent={wmQueue.length > 0 ? "var(--warn)" : "var(--success)"}
+        />
         <StatCard
           label="Gaps open"
           value={
@@ -469,6 +517,59 @@ export default function DayCloseTab({
           }
         />
       </div>
+
+      {/* ── Warehouse Confirmations queue (PRD-119 §4.1/§4.2) ──────────────────
+          Read-only here — the WM confirms from her own tab. This is just
+          visibility: what's still sitting in her queue, and for how long. */}
+      <Card style={{ marginBottom: 20 }}>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "var(--muted)",
+            marginBottom: 10,
+          }}
+        >
+          Warehouse Confirmations — open ({wmQueue.length})
+        </div>
+        {wmQueue.length === 0 ? (
+          <div style={{ fontSize: 13, color: "var(--muted)" }}>
+            Nothing waiting on the WM right now.
+          </div>
+        ) : (
+          <ul style={{ display: "grid", gap: 6 }}>
+            {wmQueue.map((line) => {
+              const old = line.age_hours > 48;
+              return (
+                <li
+                  key={line.line_id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    fontSize: 13,
+                  }}
+                >
+                  <span style={{ flex: 1 }}>
+                    {line.boonz_product_name} · {line.machine_name} ·{" "}
+                    {qty(line.qty)} units
+                  </span>
+                  <span
+                    style={{
+                      color: old ? "var(--danger)" : "var(--muted)",
+                      fontWeight: old ? 700 : 400,
+                    }}
+                  >
+                    {Math.round(line.age_hours)}h
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
 
       {/* ── Close checks (PRD §3.3.3) ───────────────────────────────────────── */}
       <Card style={{ marginBottom: 20 }}>
@@ -600,18 +701,20 @@ export default function DayCloseTab({
             <li key={e.id}>
               <Card>
                 <div className="flex flex-wrap items-center gap-2">
-                  {/* PRD-114: red chip for an expired batch, amber for one still
-                      in date. The severity is read off the event, never
-                      recomputed here - the backend decided it at tap time. */}
+                  {/* PRD-119 §4: red for expired/expiring, amber for a DATE?
+                      lot. Severity is read off the event, never recomputed
+                      here - the backend decided it at tap time. */}
                   {e.kind === "expiry_check" && (
                     <Badge
                       tone={
-                        e.payload?.severity === "expired" ? "danger" : "warn"
+                        e.payload?.severity === "date_unverified"
+                          ? "warn"
+                          : "danger"
                       }
                     >
-                      {e.payload?.severity === "expired"
-                        ? "expired"
-                        : "expiring"}
+                      {e.payload?.severity === "date_unverified"
+                        ? "date?"
+                        : (e.payload?.severity ?? "expiring")}
                     </Badge>
                   )}
                   <strong style={{ fontSize: 13 }}>{e.machine_name}</strong>
@@ -625,9 +728,15 @@ export default function DayCloseTab({
                         : "needs review"}
                     </Badge>
                   )}
-                  {e.acknowledged && <Badge tone="success">acknowledged</Badge>}
+                  {e.kind === "expiry_check" ? (
+                    <Badge tone="success">applied at tap</Badge>
+                  ) : (
+                    e.acknowledged && <Badge tone="success">acknowledged</Badge>
+                  )}
                   <span style={{ flex: 1 }} />
-                  {!e.acknowledged && (
+                  {/* PRD-119 §4.2: expiry_check rows already wrote the shelf
+                      record at apply_expiry_check time — nothing to acknowledge. */}
+                  {e.kind !== "expiry_check" && !e.acknowledged && (
                     <button
                       onClick={() => acknowledgeOne(e.id)}
                       disabled={busyId !== null}
@@ -667,7 +776,9 @@ export default function DayCloseTab({
                     >
                       {qty(num(e.payload?.qty ?? null))} unit
                       {Number(e.payload?.qty) === 1 ? "" : "s"} · expiry{" "}
-                      {e.payload?.expiry ?? "?"}
+                      {e.payload?.outcome === "date_read"
+                        ? (e.payload?.new_expiry ?? "?")
+                        : (e.payload?.expiration_date ?? "no date")}
                       {e.created_by_name ? ` · ${e.created_by_name}` : ""}
                     </div>
                   </>
