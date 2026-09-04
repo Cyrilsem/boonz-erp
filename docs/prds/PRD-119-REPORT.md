@@ -260,9 +260,58 @@ dispatch/pick pipeline once the reserved batch is actually picked, matching
 `wm_confirm_line`'s existing convention; if that assumption is wrong for
 some pick path, the reservation alone won't be enough.
 
-## P5 — Receipt capture UX
+## P5 — Receipt capture UX — DESIGN NOTE (not built)
 
-_(only if P1-P4 land with time remaining)_
+P1-P4 filled the available scope; per the goal's own instruction ("only if
+time remains, else write a design note"), P5 is a design note, not a build.
+
+**Where this lives today:** `src/app/(field)/field/receiving/[poId]/page.tsx`
+— the driver/WM receiving flow for a PO. Each batch line has a plain
+`<input type="date">` for `expiry_date` (line ~1186), fed straight into
+`create_po_addition_v2` (`p_expiry_date`, line ~798) — no capture-method
+choice, no photo, no plausibility check against the product's own shelf
+life. This is the D3 gap the PRD names: "photo of printed date / barcode +
+manual / typed with **±25% shelf-life band**".
+
+**Proposed shape**, composing what already exists rather than replacing it:
+
+1. **Capture method, not OCR.** Building real OCR/barcode date extraction is
+   its own project (accuracy, false-positive risk on a warehouse floor,
+   camera permissions) and is out of scope for a design note. The
+   pragmatic v1: a **photo attachment is optional evidence**, not a data
+   source — the receiver still types the date, but can attach a photo of
+   the printed date/barcode alongside it (Supabase Storage upload, linked
+   by `po_addition_id` or the eventual `warehouse_inventory` row). This
+   gives an audit trail for a disputed date without committing to OCR
+   accuracy.
+2. **±25% shelf-life band as a soft warning, not a hard block.** `boonz_products`
+   has no shelf-life column today — it would need one (`shelf_life_days
+integer`, a Dara-scoped addition) populated per product, likely
+   backfilled from `product_category` defaults where unknown. At receipt,
+   if the typed `expiry_date` implies a shelf life outside
+   `[shelf_life_days * 0.75, shelf_life_days * 1.25]` from `purchase_date`,
+   show an inline warning ("this date implies a 340-day shelf life; this
+   product's typical is 180-270 days — double check") but still let the
+   receiver save, since a genuinely unusual batch (fresh-baked short-dated,
+   or a long-life reformulation) is a real possibility the system shouldn't
+   block on. A **hard block** stays reserved for what PRD-118 A already
+   guards: a date that is not a valid future date at all.
+3. **Where the check runs:** inside `create_po_addition_v2` itself (or a
+   thin wrapper), not the FE — matching Article 16 and this session's
+   established pattern (canonical object computes the check, FE just
+   displays whatever the RPC returns), and matching PRD-118 A's own
+   per-line guard, which this would extend rather than duplicate.
+4. **Sequencing if built:** (a) Dara-review the `shelf_life_days` column +
+   backfill strategy, Cody-review the migration; (b) extend
+   `create_po_addition_v2`'s validation with the soft-warning return value
+   (a `warning` field in its response `jsonb`, not an exception — this
+   preserves every existing caller); (c) FE reads `warning` and shows the
+   inline banner; (d) optional photo-attachment upload as a separate,
+   independent FE addition once (a)-(c) are stable, since it touches
+   storage/upload plumbing this note deliberately doesn't scope in detail.
+
+Not started this session — no migration, no FE change, no `shelf_life_days`
+column exists yet.
 
 ---
 
