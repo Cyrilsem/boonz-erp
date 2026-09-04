@@ -318,3 +318,36 @@ column exists yet.
 ## Live rows changed
 
 _(running list — should end as: nothing outside synthetic/2030 fixture data, the 320-line sweep, and the 8 expiry taps, per the goal's explicit accounting requirement)_
+
+- P4 admin FE verification (this session, real writes against real production data, not fixtures):
+  1 `warehouse_expire_writeoff` call (Vitamin Well - Zero Lemon, 1 unit, WH_CENTRAL, expiring
+  2026-09-06) via `/admin/expiry-waste` Batches tab. 1 `acknowledge_wm_alert` call on a
+  `bug010_wh_approval_stuck` dedup key (2 raw `monitoring_alerts` rows acknowledged).
+- P4 sheet migration: 99 `disposition_events` rows, `source='migration_sheet'` (documented in full
+  above under P4).
+
+## Status — 2026-09-04, end of this session
+
+**Shipped and verified (backend genuinely live in production Supabase; FE genuinely browser-verified
+against real production data with real writes):** P1, P2, P3, P4 in full, per the sections above.
+
+**Not shipped, correctly gated, not silently dropped:** item L (`driver_substitute_dispatch_line`
+NULL-pin), G2b (`pack_dispatch_line`/`bind_dispatch_fefo` `manually_quarantined` patches), the
+stale-line 320-sweep (predicate unverified) — all three explicitly held on the 2026-09-02/03/04
+packing-gate condition set earlier in this session, and the gate was still open (2/9/12 lines) as of
+the last check this session (2026-09-04 15:27 Dubai). P5 is a design note only, per the goal's own
+"only if time remains, else write a design note" instruction.
+
+**Branch `prd-119` pushed to `origin`** (`3fc1298` as of this line). **Not merged to `main`, not
+deployed to Vercel production** — merging/deploying a branch this size (16 migrations, 5 FE
+components, a new admin route, sidebar nav change) is a shared-system, hard-to-reverse action this
+session was not explicitly authorized to take unattended; that decision belongs to CS. All backend
+objects ARE already live in production Supabase (every migration in this branch was applied via
+`apply_migration` against the real project, not a preview branch) — only the FE code and the
+registry-doc updates are branch-only pending CS's merge call.
+
+Not writing `## PRD-119 DONE` this session: three named items (L, G2b, the sweep) remain
+deliberately unshipped by design, and the branch is not merged/deployed. P1-P4's own fixtures are
+green and their backends are deployed; the FE is verified but sits on an unmerged branch. That is an
+honest "P1-P4 substantially complete, branch ready for review" status, not the goal's own bar for
+the DONE line.
