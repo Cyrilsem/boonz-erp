@@ -93,13 +93,49 @@ dispatch_date < today-5`) — that returns 9,173 lines / 27,254 units, ~28x larg
   every dated Active row's `current_stock` before a REAL (non-dry-run) fleet-wide run, re-checked
   after — **zero changed**; one alert correctly fired for the blocked drift.
 
-## P3 — Driver line + single queue + read-only day close
+## P3 — Driver line + single queue + read-only day close — SHIPPED
 
-_(not started)_
+**Backend:**
 
-## P3 — Driver line + single queue + read-only day close
+- **`apply_expiry_check`**: canonical tap writer, `removed | not_there | date_read`. `removed`
+  decrements/archives the pod lot, writes a `disposition_events` row (`removed_at_machine`,
+  linked via `pod_inventory_id`), one `day_close_events` log row. `not_there` archives with no
+  disposition row (no goods moved). `date_read` composes `correct_expiry_v1`. `correct_expiry_v1`'s
+  role gate widened to allow `field_staff`, scope-restricted to `p_scope='pod'` only. Payload
+  enriched with `product_name`/`severity`/`qty` after a real gap was caught (the log needs to be
+  self-describing, not join live against a row that may already be archived by view time).
+- **`v_wm_confirmations` / `wm_confirm_line` unified across two sources**: dispatch-return lines
+  (unchanged) and open driver-tap `removed_at_machine` disposition events (new). Key column
+  generalized `dispatch_id` → `line_id`. Tap-sourced confirms chain via `superseded_by_event`
+  (DEFINER-only write, disposition_events append-only preserved) instead of stamping a dispatch
+  row that doesn't exist for that source.
+- **`get_expiry_sanity_checks` re-scoped**: window 7d→3d; NULL-expiry (DATE?) rows now included
+  (`severity='date_unverified'`) — a real gap in the prior version, which excluded them entirely.
 
-_(not started)_
+**FE — all three pieces built and verified live in the browser (`driver@boonz.test`, real
+production data, real writes, not just SQL fixtures):**
+
+- **`ExpirySanityChecks.tsx`** re-scoped: category renamed "Sanity checks - expiry"; drops
+  Exists/Skip; Sold→"Not there"; dated rows answer Removed (qty pre-filled)/Not there, DATE? rows
+  answer Date read (date picker)/Not there. Tap writes immediately — a resolved row leaves the
+  list, no acknowledge-hydration logic needed anymore. Verified on MPMCC-1054: a real `date_read`
+  tap correctly archived the old NULL-expiry row and created a new one at the corrected date; the
+  row left the list; DB confirmed `removal_reason='expiry_corrected_by_<real session uid>'`.
+- **`WarehouseConfirmationsPanel.tsx`** (new): replaces `PendingRemoveApprovalsPanel` on
+  `/field/inventory` and `/app/inventory` (old component kept in the tree, unrendered, per the
+  build order). Verified on real data: 11→10 open lines after a real Confirm on a Mountain Dew /
+  HUAWEI-2003 return, `disposition_events` correctly wrote `state='waste', qty=4,
+disposal_code='Waste'` with the real session's actor id.
+- **`DayCloseTab.tsx`** reworked: `expiry_check` rows show "applied at tap", no Acknowledge
+  button (they're already-written); substitution/spot_buy/stock_unverified acknowledge flow left
+  untouched (PRD-112, out of scope). New summary stats (driver taps applied, WM queue open) and a
+  read-only Warehouse Confirmations section. Verified live: summary cards and queue section render
+  correctly against the real 13-line queue.
+
+**Not done, flagged (unchanged from earlier in this report):** stale-line 320-sweep (predicate
+unverified, do not reuse the naive 9,173-line number), item L (substitution NULL-pin bug), FE
+routing of `wh_approve_remove_receipt`/`approve_return` to the new `wm_confirm_line` door (both
+old RPCs still callable and unrouted).
 
 ## P4 — Expiry & waste module
 
