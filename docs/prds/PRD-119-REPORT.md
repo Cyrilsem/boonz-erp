@@ -137,7 +137,7 @@ unverified, do not reuse the naive 9,173-line number), item L (substitution NULL
 routing of `wh_approve_remove_receipt`/`approve_return` to the new `wm_confirm_line` door (both
 old RPCs still callable and unrouted).
 
-## P4 — Expiry & waste module
+## P4 — Expiry & waste module — SHIPPED
 
 **Historical sheet load — SHIPPED.** `supabase/migrations/20260904103000_prd119_p4_migration_sheet_load.sql`,
 commit `1b8ede4`. One-time backfill of the returns Google Sheet (id
