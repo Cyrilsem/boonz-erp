@@ -175,11 +175,90 @@ guarded (refuses if any `source='migration_sheet'` row already exists),
 writes only through the migration's own privileged role, not `authenticated`
 (the S-308 `disposition_events` REVOKE is not being bypassed).
 
-**Not yet done:** admin FE screens (write-off/redeploy actions, disposition
-ledger view, reports), alerts rewiring (`expiry_unvalidated`,
-`bug010_wh_approval_stuck`, `prd016_guardrail2_return_variant_uncorrected`
-into WM queue lines), procurement hook (waste-per-SKU last 90d beside
-proposed quantity).
+**Reporting objects + redeploy closer — SHIPPED.**
+`20260904110000_prd119_p4_disposition_reporting_and_redeploy.sql`,
+`20260904113000_prd119_p4_propose_wh_redeploy.sql`, commits `8c44e7f`/`082ae8b`.
+`v_disposition_ledger` (base ledger, names joined, `is_current` flag),
+`v_redeploy_outcomes` (canonical redeploy-success-rate object, one hop of the
+supersede chain), `v_waste_by_sku_90d` (the procurement hook's source).
+`confirm_disposition_redeploy` closes the `redeploy_pending -> redeployed`
+transition `wm_confirm_line` opens but never closed — same DEFINER-owner
+append-only chain pattern. `propose_wh_redeploy` opens a redeploy proposal
+directly off an aging `warehouse_inventory` batch (the admin-triage entry
+point, distinct from `wm_confirm_line`'s return-flow-only path). Caught in
+testing and fixed before applying: the first fixture batch carried the
+2099-12-31 consignment sentinel and `propose_wh_redeploy` silently computed
+a nonsense `waste_by` from it — added an explicit guard, re-verified against
+a real dated batch (2028-02-22) after the fix. All four objects and both
+RPCs verified in rolled-back transactions before the real `apply_migration`
+calls.
+
+**WM alert queue — SHIPPED.** `20260904111500_prd119_p4_wm_alert_queue.sql`,
+commit `8c44e7f`. Found before writing this: `monitoring_alerts.acknowledged`
+had **no writer anywhere** — 1,010 open `bug010_wh_approval_stuck` rows
+(2026-05-13 to today, one row per stuck dispatch **per day** it stays stuck,
+not 1,010 distinct dispatches) and 337 open
+`prd016_guardrail2_return_variant_uncorrected` rows, both silently
+accumulating forever. Also found: `check_expiry_unvalidated` (PRD-118 K2)
+was written but **never actually scheduled** in `cron.job` — the alert had
+literally never fired live. Fixed both: `v_wm_alert_queue` dedupes by the
+underlying condition (bug010 by `dispatch_id`, prd016 by
+`dispatch_id`+`pod_product_id`) — verified live, 1,010 raw bug010 rows
+collapse to 228 actionable lines, 337 prd016 stay 1:1 (337 = 337, no
+day-repeat pattern on that source). `acknowledge_wm_alert` is the sole
+writer of `acknowledged`, acks by (source, dedup_key) so every raw row
+sharing that key clears together — acking only the latest `alert_id` would
+leave older duplicate rows open and the line would immediately reappear at
+a stale date. Added the missing `check_expiry_unvalidated_nightly` cron job
+(20:00 UTC).
+
+**Admin FE — SHIPPED**, all three tabs browser-verified live against real
+production data with real writes (warehouse-role test user,
+`driver@boonz.test`), not just SQL fixtures:
+
+- `/admin/expiry-waste` — **Batches** tab (`ExpiryWastePanel.tsx`): reuses
+  `v_wh_inventory_provenance` (no new view needed) filtered to
+  Active/not-quarantined/dated, sorted by days-to-expiry, Write off
+  (`warehouse_expire_writeoff`) and Redeploy (`propose_wh_redeploy`) actions.
+  Verified live: wrote off a real 1-unit Vitamin Well - Zero Lemon batch
+  expiring the next day; row correctly cleared, count 4->3.
+- **Alerts** tab (`WmAlertQueuePanel.tsx`): reads `v_wm_alert_queue`. Verified
+  live: rendered exactly 565 = 228 + 337, matching the dry-run count from
+  the migration test; acknowledged one bug010 line for real, count dropped
+  to 564 and the line disappeared from the queue.
+- **Ledger & Reports** tab (`DispositionLedgerPanel.tsx`): reads
+  `v_disposition_ledger` + `v_redeploy_outcomes`, aggregates client-side
+  (top waste by product/machine/sourcing-channel, waste by month, redeploy
+  success rate) rather than minting a canonical view per report dimension
+  (Article 16 — one base object, FE-side grouping over a bounded window).
+  Verified live: 98 waste events shown = the 97 from the sheet migration
+  plus the 1 just written off in this same session.
+- Surfaced in the admin sidebar nav (`sidebar-nav.tsx`) next to WH
+  Quarantine, hidden from finance only — otherwise this would have shipped
+  orphaned like the pre-PRD-087 pages that nav file exists to prevent.
+
+**Procurement hook — SHIPPED (code + DB level; not click-verified).** Added
+a "Waste 90d" column to `/app/procurement`'s Demand tab (SKU view), reading
+`v_waste_by_sku_90d` and joining client-side on `boonz_product_id` against
+`get_procurement_demand`'s existing row shape (that RPC itself untouched —
+Article 16, one canonical object, FE joins two reads rather than the RPC
+re-deriving a second metric inline). Typecheck and lint clean. The SQL view
+was verified directly at the DB level (57 SKUs). **Could not click through
+this one in the browser** — `/app/*` is blocked for the `warehouse`-role
+test user by `middleware.ts` (`role === "warehouse"` redirects any `/app`
+path to `/field`), and no `operator_admin` browser session was available
+this session. Flagged, not silently claimed as browser-verified.
+
+**Not done, flagged for a future pass:** an `acknowledge_wm_alert` note does
+not itself fix the underlying stuck dispatch or uncorrected variant — a WM
+still has to go do that via the existing approval/correction screens; this
+was a deliberate scope choice (see the migration comment) rather than an
+oversight. `record_variant_correction`'s OLD-variant lookup site (flagged
+back in P2) remains unpatched. `propose_wh_redeploy` does not itself move
+`warehouse_inventory.warehouse_stock` — that's left to the normal
+dispatch/pick pipeline once the reserved batch is actually picked, matching
+`wm_confirm_line`'s existing convention; if that assumption is wrong for
+some pick path, the reservation alone won't be enough.
 
 ## P5 — Receipt capture UX
 
