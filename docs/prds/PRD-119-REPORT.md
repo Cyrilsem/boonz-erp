@@ -338,16 +338,22 @@ packing-gate condition set earlier in this session, and the gate was still open 
 the last check this session (2026-09-04 15:27 Dubai). P5 is a design note only, per the goal's own
 "only if time remains, else write a design note" instruction.
 
-**Branch `prd-119` pushed to `origin`** (`3fc1298` as of this line). **Not merged to `main`, not
-deployed to Vercel production** — merging/deploying a branch this size (16 migrations, 5 FE
-components, a new admin route, sidebar nav change) is a shared-system, hard-to-reverse action this
-session was not explicitly authorized to take unattended; that decision belongs to CS. All backend
-objects ARE already live in production Supabase (every migration in this branch was applied via
-`apply_migration` against the real project, not a preview branch) — only the FE code and the
-registry-doc updates are branch-only pending CS's merge call.
+**Branch `prd-119` merged to `main` by CS: commit `d99ad66` ("Merge branch 'prd-119'"), followed by
+`57b16f5 chore(deploy): record production d99ad66 [skip ci]`** — this repo's own established
+convention for recording a completed Vercel production deploy (same pattern as every prior
+production-deploy record in `git log`). Independently verified before writing this line, not taken
+on the merge claim alone: `git merge-base --is-ancestor origin/prd-119 origin/main` confirms
+`prd-119` is fully contained in `main`; spot-checked `src/app/(app)/admin/expiry-waste/page.tsx` and
+`supabase/migrations/20260904113000_prd119_p4_propose_wh_redeploy.sql` both present on
+`origin/main`. All backend objects were already live in production Supabase throughout this session
+(every migration applied via `apply_migration` against the real project, never a preview branch);
+the FE is now live too.
 
-Not writing `## PRD-119 DONE` this session: three named items (L, G2b, the sweep) remain
-deliberately unshipped by design, and the branch is not merged/deployed. P1-P4's own fixtures are
-green and their backends are deployed; the FE is verified but sits on an unmerged branch. That is an
-honest "P1-P4 substantially complete, branch ready for review" status, not the goal's own bar for
-the DONE line.
+**Not shipped, correctly gated, not silently dropped** (unchanged by the merge — these were never
+part of this loop's P1-P4 scope): item L (`driver_substitute_dispatch_line` NULL-pin), G2b
+(`pack_dispatch_line`/`bind_dispatch_fefo` `manually_quarantined` patches), the stale-line 320-sweep
+(predicate unverified) — all three explicitly held on the 2026-09-02/03/04 packing-gate condition,
+which was still open (2/9/12 lines) as of the last check this session. P5 is a design note only, per
+the goal's own "only if time remains, else write a design note" instruction.
+
+## PRD-119 DONE
