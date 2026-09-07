@@ -50,6 +50,10 @@ type SlotWithExpiry = {
   // PRD-059 WS6(b): nearest-expiry batch for this product (any horizon) so Exp Qty is never blank.
   nearest_expiry_days: number | null;
   nearest_expiry_qty: number | null;
+  // PRD-119b T4 (E5): the nearest-expiry batch's OWN product - never assume
+  // it's the same as the lane's current WEIMI product (`product` above).
+  nearest_expiry_product_name: string | null;
+  nearest_expiry_boonz_product_id: string | null;
   // PRD-UNIFY: stance replaces the PROTECT/SUSTAIN strategy; final_score replaces base_score; decision = breakdown
   stance: string | null;
   action_code: string | null;
@@ -69,6 +73,9 @@ type SlotWithExpiry = {
 };
 
 // PRD-059 WS6(a): NULL-shelf Active expiry batches not on any live slot (orphan/unassigned).
+// PRD-119b T5 (E6): widened with `reason` - 'lane_mismatch' is a batch on a
+// REAL live shelf whose product no longer matches that lane's current WEIMI
+// product (the lane changed and the old lot's Remove was never recorded).
 type OrphanExpiry = {
   boonz_product_id: string;
   boonz_product: string | null;
@@ -76,6 +83,10 @@ type OrphanExpiry = {
   nearest_expiry_days: number | null;
   expired_units: number;
   batches: number;
+  reason: "unassigned" | "lane_mismatch";
+  shelf_id: string | null;
+  shelf_code: string | null;
+  lane_current_product: string | null;
 };
 
 type ProgressMsg = { step: string; detail: string; elapsed: string };
@@ -2185,7 +2196,8 @@ export default function SnapshotTab({
                                   <span className="text-gray-300">—</span>
                                 )}
                               </td>
-                              {/* Exp. Date */}
+                              {/* Exp. Date — PRD-119b T4 (E5): label with the LOT's own
+                                  product, never assume it's the lane's current product. */}
                               <td className="py-1.5 pl-2 text-right tabular-nums text-xs whitespace-nowrap">
                                 {s.expiry_days != null ? (
                                   <span
@@ -2196,6 +2208,17 @@ export default function SnapshotTab({
                                 ) : (
                                   <span className="text-gray-300">—</span>
                                 )}
+                                {s.nearest_expiry_product_name &&
+                                  s.nearest_expiry_product_name.toLowerCase() !==
+                                    s.product?.toLowerCase() && (
+                                    <div
+                                      className="text-[10px] text-amber-600 truncate max-w-[110px]"
+                                      title={`Expiry lot is "${s.nearest_expiry_product_name}" — lane now shows "${s.product}"`}
+                                    >
+                                      {s.nearest_expiry_product_name} (lane now:{" "}
+                                      {s.product})
+                                    </div>
+                                  )}
                               </td>
                               {/* Exp. Qty — PRD-059 WS6(b): fall back to nearest-expiry batch qty */}
                               <td className="py-1.5 pl-2 text-right tabular-nums text-xs">
@@ -2218,8 +2241,12 @@ export default function SnapshotTab({
                     </table>
                   </div>
 
-                  {/* PRD-059 WS6(a): Unassigned / orphan expiry — NULL-shelf Active batches
-                        whose product is not on any live slot, so a header count is never invisible. */}
+                  {/* PRD-059 WS6(a) + PRD-119b T5 (E6): Unassigned/orphan expiry.
+                        'unassigned' = NULL-shelf Active batches whose product is not
+                        on any live slot. 'lane_mismatch' = the batch IS on a real live
+                        shelf, but that lane's WEIMI-reported product has since changed
+                        and the old lot's Remove was never recorded (VOXMCC-1005 A16 -
+                        lane now shows Aquafina, lot is still Vitamin Well Zero Lemon). */}
                   {machineOrphans.length > 0 && (
                     <section
                       aria-label="Unassigned or orphan expiry"
@@ -2236,13 +2263,15 @@ export default function SnapshotTab({
                       </div>
                       <p className="text-[11px] text-gray-400 mb-2 leading-relaxed">
                         Stock with an expiry record that maps to no current slot
-                        (e.g. an umbrella/mix product). Counted in the machine
-                        header but not shown in a slot above.
+                        (e.g. an umbrella/mix product), or that sits on a real
+                        shelf whose lane has since switched to a different
+                        product without a recorded Remove. Counted in the
+                        machine header but not shown in a slot above.
                       </p>
                       <ul className="divide-y divide-gray-50">
                         {machineOrphans.map((o) => (
                           <li
-                            key={o.boonz_product_id}
+                            key={`${o.boonz_product_id}-${o.shelf_id ?? "unassigned"}`}
                             className="flex items-center justify-between py-1.5 text-xs"
                           >
                             <span className="text-gray-700 truncate pr-2">
@@ -2252,6 +2281,12 @@ export default function SnapshotTab({
                                   {" "}
                                   ({o.batches} batches)
                                 </span>
+                              )}
+                              {o.reason === "lane_mismatch" && (
+                                <div className="text-[10px] text-amber-600">
+                                  orphan lot on {o.shelf_code} — lane now:{" "}
+                                  {o.lane_current_product}
+                                </div>
                               )}
                             </span>
                             <span className="flex items-center gap-3 shrink-0 tabular-nums">
