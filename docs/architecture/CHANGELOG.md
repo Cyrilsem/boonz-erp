@@ -1,5 +1,55 @@
 # Architecture Changelog
 
+## 2026-09-07 — PRD-119b: first-week expiry fixes + three PRD-119 held items
+
+Seven evidence items (E1-E7) found live 04-07 Sep, plus the three items PRD-119's own loop held.
+Full detail, before/after data, and Cody verdicts: `docs/prds/PRD-119b-REPORT.md`.
+
+- **T1 (E1)**: `push_plan_to_dispatch`'s two Remove-leg branches resolved the expiring lot's shelf
+  and expiry against the PLAN's assumed shelf, not the machine broadly — when the real dated lot
+  lived on a different shelf, the query returned 0 rows and fell into a "no known batch" catch-all
+  with a NULL/placeholder date, even though a real lot existed elsewhere on the machine. Fixed by
+  dropping the shelf-scoping (machine+product only, `ORDER BY expiration_date ASC NULLS LAST`
+  unchanged); new `pod_lot_id` column on `refill_dispatching` pins the exact lot. New audited
+  `repair_remove_leg_shelf_lot` RPC repaired the one still-open named E1 leg in place (4/5 had
+  already superseded to `skipped=true` by the time of repair, correctly left as history).
+- **T2 (E2)**: driver "done" on a Remove leg wrote nothing to the lot ledger or the WM queue — new
+  `record_remove_leg_outcome` composes the existing `apply_expiry_check` (the same writer the P3
+  tap uses), one writer for both paths.
+- **T3 (E3)**: verified already fully shipped by PRD-107's server-side auto-resolve
+  (`tg_default_pack_outcome_driver_legs`) + PRD-120 L1's `dispatch_action` fix — no code change
+  needed. Fixture: a machine with only a Remove leg confirms with zero driver interaction.
+- **T4 (E5) / T5 (E6)**: `get_machine_slots_with_expiry` labelled expiry rows with the lane's
+  current WEIMI product instead of the lot's own product; widened with
+  `nearest_expiry_product_name`. `get_machine_orphan_expiry` only caught batches on dead/NULL
+  shelves — new `lane_mismatch` class catches a lot stranded on a REAL live shelf whose WEIMI
+  product has since changed with no recorded Remove. New nightly `assert_no_orphan_shelf_lots`.
+  Fleet-wide: 729 genuine stranded lots / 3168 units found — a fleet-wide finding for CS, not
+  remediated by this migration (detection/surfacing only).
+- **T6 (E7)**: root cause was two-fold — `ExpirySanityChecks.tsx` only auto-expanded on
+  `severity==='expired'`, missing `expiring` (≤3d) rows; and the driver-facing
+  `field/trips/[machineId]/page.tsx` never rendered the expiry panel at all. Both fixed, plus a
+  per-stop count badge and a Submit-blocking gate on the trips page.
+- **T7 (E2+E4)**: new `create_reconcile_disposition_line` RPC (source='reconcile') creates
+  pre-filled WM Confirmations lines for physical removals with no record. 4 lines created for
+  confidently-identified lots (VOXMCC-1005 A16, VOXMCC-1011 A10/A11, IRIS-1070 A01); E4 items tied
+  to unresolved device numbers (0715/0736/0745) intentionally not created.
+- **T8(a)**: swept 306/308 stale delivered-but-unconfirmed lines (packed+picked_up, no driver
+  outcome, no receive, 6+ days old) to `driver_outcome='delivered_unconfirmed'`, released 128
+  units of stale `consumer_stock` on 48 warehouse rows. 2 rows skipped (pre-existing legacy
+  `pack_outcome=NULL` data, unrelated to this sweep).
+- **T8(b)**: `driver_substitute_dispatch_line`'s NULL-pin (PRD-120 L2) is real and still live
+  (called from the trips page) but IS captured in the edit log + day_close_events. The real
+  unverified gap was `check_unpinned_warehouse_dispatch_lines` filtering `packed=false`, blind to
+  substitution-produced NULL pins (which land on already-packed lines) — widened to catch both
+  pack states (17 → 34 violations, all synthetic 2030 golden-fixture data).
+- **T8(c) (G2b)**: `bind_dispatch_fefo`/`v_wh_pickable` already excluded `manually_quarantined`;
+  `pack_dispatch_line`'s direct-pick re-validation did not. Fixture confirmed a manually-quarantined
+  batch could be packed directly before the fix; after, it correctly falls through to the
+  `v_wh_pickable`-sourced substitution path.
+
+Cody: approve on every migration, Articles 1/4/6/12/16 (the recurring set for this codebase).
+
 ## 2026-09-07 — PRD-119 close-out audit + PRD-120: pack-screen and name-resolution integrity
 
 **PRD-119 close-out ("PRD-119 CLOSED" appended to the main design doc).** 8-item audit, live

@@ -1396,3 +1396,22 @@ acked by dedup key cleared both underlying rows in one call.
 possible successor state today (`redeployed`, written only by `confirm_disposition_redeploy`) — if a
 future change adds a second possible transition off `redeploy_pending`, this view's single `LEFT
 JOIN` stops being sufficient and must be revisited, not silently trusted.
+
+## PRD-119b (2026-09-07) — expiry lot identity + orphan-lot detection
+
+| Metric                                                                                                                                 | Canonical object                                                         | Status            | Known illegal copies to retire                                                         |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------- | -------------------------------------------------------------------------------------- |
+| **Nearest-expiry lot identity per shelf** (the LOT's own product, never the lane's current WEIMI product)                              | `get_machine_slots_with_expiry` (`nearest_expiry_product_name`)          | LIVE (2026-09-07) | none — additive columns on the existing canonical RPC, no competing derivation exists. |
+| **Orphan/stranded shelf lots** (a lot whose product no longer matches its shelf's live WEIMI product, or sits on no live shelf at all) | `get_machine_orphan_expiry` (`reason` = `unassigned` \| `lane_mismatch`) | LIVE (2026-09-07) | none.                                                                                  |
+
+⚠️ **`lane_mismatch` requires the shelf's live product to have resolved to a real `boonz_product_id`
+first.** An unresolved WEIMI name (name-drift against `pod_products`, the same bug class
+`assert_sales_names_resolved` tracks) must NOT be treated as a mismatch — the first draft of this
+view did exactly that and inflated fleet-wide counts (852 → 729 genuine rows after the fix). Any
+future reader of `get_machine_orphan_expiry` must not drop this guard.
+
+⚠️ **`v_live_shelf_stock` is not deduped to "latest only"** — it carries historical per-day snapshot
+rows per machine+slot. Any new consumer joining it for a "current" value must `DISTINCT ON` the
+shelf (see `live_shelf_product` inside `get_machine_orphan_expiry`) or risk multiplying unit/batch
+counts across every historical snapshot row, exactly as a first draft of this migration did (37x
+inflation on one real fixture before the fix).
