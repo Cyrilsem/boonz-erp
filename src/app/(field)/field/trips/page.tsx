@@ -63,6 +63,9 @@ const statusConfig: Record<StopStatus, { label: string; className: string }> = {
 export default function TripsPage() {
   const [stops, setStops] = useState<TripStop[]>([]);
   const [loading, setLoading] = useState(true);
+  // PRD-119b T6 (E7): count badge per stop so an expired/expiring lot is
+  // visible from the list, before the driver even opens the machine.
+  const [expiryCounts, setExpiryCounts] = useState<Record<string, number>>({});
 
   const fetchStops = useCallback(async () => {
     const supabase = createClient();
@@ -124,6 +127,26 @@ export default function TripsPage() {
 
     setStops(result);
     setLoading(false);
+
+    // PRD-119b T6: fire-and-forget, after the list itself has rendered - a
+    // slow expiry count must never block the stop list from showing up.
+    // One call per stop (get_expiry_sanity_checks only takes a single
+    // machine_id - no batched variant exists), which is fine at driver-day
+    // scale (a handful to a few dozen stops).
+    void Promise.all(
+      result.map(async (stop) => {
+        const { data } = await supabase.rpc("get_expiry_sanity_checks", {
+          p_machine_id: stop.machine_id,
+        });
+        const rows = (data ?? []) as { severity: string }[];
+        const redCount = rows.filter(
+          (r) => r.severity === "expired" || r.severity === "expiring",
+        ).length;
+        return [stop.machine_id, redCount] as const;
+      }),
+    ).then((entries) => {
+      setExpiryCounts(Object.fromEntries(entries));
+    });
   }, []);
 
   useEffect(() => {
@@ -193,6 +216,14 @@ export default function TripsPage() {
                 <span className="shrink-0 rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-medium dark:bg-neutral-800">
                   {stop.sku_count} lines
                 </span>
+                {!!expiryCounts[stop.machine_id] && (
+                  <span
+                    title="Expired / expiring lots need an answer at this stop"
+                    className="shrink-0 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                  >
+                    ⚠ {expiryCounts[stop.machine_id]}
+                  </span>
+                )}
                 <span
                   className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${cfg.className}`}
                 >

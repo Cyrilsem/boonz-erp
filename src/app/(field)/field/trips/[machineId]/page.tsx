@@ -8,6 +8,7 @@ import { getDubaiDate } from "@/lib/utils/date";
 import { FieldHeader } from "../../../components/field-header";
 import DriverFeedbackDialog from "@/components/field/DriverFeedbackDialog";
 import { ChangeProductDialog } from "@/components/field/ChangeProductDialog";
+import ExpirySanityChecks from "@/components/field/ExpirySanityChecks";
 
 interface MachineInfo {
   official_name: string;
@@ -54,6 +55,11 @@ export default function MachineRefillPage() {
     null,
   );
   const [subToast, setSubToast] = useState<string | null>(null);
+  // PRD-119b T6 (E7): expired/expiring lots must be answered before the
+  // driver can submit this stop - previously this screen never rendered the
+  // expiry sanity check at all, so the category was invisible for exactly
+  // the flow drivers actually use to close out a stop.
+  const [pendingExpiryCount, setPendingExpiryCount] = useState(0);
 
   const fetchData = useCallback(async () => {
     const supabase = createClient();
@@ -395,6 +401,11 @@ export default function MachineRefillPage() {
         onClose={() => setFeedbackOpen(false)}
       />
 
+      <ExpirySanityChecks
+        machineId={machineId}
+        onRedCountChange={setPendingExpiryCount}
+      />
+
       {/* Refill lines */}
       {shelves.map(([shelfCode, shelfLines]) => (
         <div key={shelfCode} className="mb-4">
@@ -526,10 +537,19 @@ export default function MachineRefillPage() {
         </div>
       )}
 
+      {/* PRD-119b T6: red expiry rows gate submit exactly like unconfirmed
+          lines do - answer them before the stop can be closed out. */}
+      {pendingExpiryCount > 0 && (
+        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-center text-xs font-medium text-red-700 dark:bg-red-950/30 dark:text-red-400">
+          Answer the {pendingExpiryCount} expired/expiring row
+          {pendingExpiryCount === 1 ? "" : "s"} above before submitting.
+        </p>
+      )}
+
       {/* Submit button */}
       <button
         onClick={handleSubmit}
-        disabled={submitting || !allConfirmed}
+        disabled={submitting || !allConfirmed || pendingExpiryCount > 0}
         className="mt-4 w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
       >
         {submitting ? "Submitting…" : "Submit refill"}

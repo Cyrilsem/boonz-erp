@@ -53,9 +53,14 @@ function expiryPhrase(days: number): string {
 export default function ExpirySanityChecks({
   machineId,
   readOnly = false,
+  onRedCountChange,
 }: {
   machineId: string;
   readOnly?: boolean;
+  /** PRD-119b T6: lets a parent screen (e.g. the "Done"/"Submit" gate) know
+   * how many expired/expiring rows are still unanswered, without duplicating
+   * this component's own fetch. Fires on every rows change, including 0. */
+  onRedCountChange?: (count: number) => void;
 }) {
   const [rows, setRows] = useState<SanityRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -87,15 +92,35 @@ export default function ExpirySanityChecks({
         });
         setQtyDraft(qd);
         setRows(r);
-        // Auto-expanded whenever any expired row exists. Amber-only stays
-        // collapsed so a routine visit does not grow a wall of chips.
-        setOpen(r.some((row) => row.severity === "expired"));
+        // Auto-expanded whenever any RED row exists (expired OR expiring -
+        // the same "isRed" grouping the render below uses for the urgent
+        // red styling). Previously this only checked severity==="expired",
+        // so a ≤3-day "expiring" row - still rendered in red, still needing
+        // an answer - left the panel collapsed. That's exactly the E7 defect:
+        // the category existed but was invisible on the ≤3d cases. Only
+        // date_unverified (amber, lower urgency) stays collapsed by default.
+        setOpen(
+          r.some(
+            (row) => row.severity === "expired" || row.severity === "expiring",
+          ),
+        );
         setLoading(false);
       });
     return () => {
       alive = false;
     };
   }, [machineId]);
+
+  useEffect(() => {
+    onRedCountChange?.(
+      rows.filter((r) => r.severity === "expired" || r.severity === "expiring")
+        .length,
+    );
+    // onRedCountChange intentionally excluded - parents pass an inline
+    // callback; keying on it would re-fire this effect every render without
+    // rows actually changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   async function submit(row: SanityRow, outcome: Outcome) {
     if (readOnly || busy) return;
