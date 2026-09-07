@@ -1,5 +1,27 @@
 # Architecture Changelog
 
+## 2026-09-07 — D3 receipt capture: backend shipped (close-out item 3)
+
+Built on PRD-119 P5's own design note (`PRD-119-REPORT.md` §P5) rather than replacing it. The
+actual warehouse-side goods-receipt writer is `receive_purchase_order(p_po_id, p_lines,
+p_additions)` — not `create_po_addition_v2` (only proposes a `po_additions` row) and not
+`receive_dispatch_line` (machine-side). PRD-118 A's hard "no NULL expiry" refusal was already live
+there for both paths (confirmed by reading the function, not assumed).
+
+New this pass: `boonz_products.typical_shelf_life_days integer` (nullable), backfilled for the top
+40 SKUs by 90-day volume from the median observed `(expiration_date - created_at::date)` in
+`warehouse_inventory` (min. 3 samples; 30/40 backfilled, 10 left NULL — venue/consignment products
+with no real receipt history). `check_receipt_shelf_life_deviation` (warns, never blocks, when the
+typed expiry is >25% off the product's typical shelf life) and `check_receipt_duplicate_expiry_dates`
+(warns when 2+ different products in one receive call share one expiry date) — both composed into
+`receive_purchase_order` next to the existing `log_expiry_entry_suspect` call, both wired through
+the existing `safe_monitoring_alert` mechanism (no new alert channel). Fixtures verified in rolled-back
+transactions: no-expiry batch still refused (pre-existing guard, unbroken), duplicate-date warns
+without blocking, 220%-off-typical expiry warns without blocking. FE spec (not built, backend only)
+added to `docs/prds/PRD-119-expiry-management-and-smart-inventory.md`.
+
+Cody: approve, Articles 1, 4, 12, 16.
+
 ## 2026-09-07 — Close-out follow-up: auto_generate_refill_plan resolved sales names (item 2, 3 of 3)
 
 `auto_generate_refill_plan` (the LIVE refill engine) matched daily sales velocity against the raw
