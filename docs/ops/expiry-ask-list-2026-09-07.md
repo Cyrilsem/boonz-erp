@@ -244,7 +244,7 @@ listed by shelf.
 | A07   | M&M - Chocolate Nuts            | 2            |
 | A15   | Dubai Popcorn - Sweet And Salty | 20           |
 
-## ALJ-1014-0200-O1_OLD — 0 units/30d (10 rows) — retired/repurposed machine
+## ALJ-1014-0200-O1_OLD — 0 units/30d (11 rows) — retired/repurposed machine
 
 | Shelf | Product                                                    | Qty on shelf |
 | ----- | ---------------------------------------------------------- | ------------ |
@@ -260,7 +260,7 @@ listed by shelf.
 | A13   | Hunter Ridge - Himalayan Pink Salt                         | 1            |
 | A16   | Al Ain Water - Regular (RETIRED 2026-08 — use Al Ain Zero) | 2            |
 
-## LLFP_2007_0000_R0 — 0 units/30d (16 rows) — warehouse/staging location, not a route stop
+## LLFP_2007_0000_R0 — 0 units/30d (19 rows) — warehouse/staging location, not a route stop
 
 | Shelf | Product                    | Qty on shelf |
 | ----- | -------------------------- | ------------ |
@@ -280,11 +280,11 @@ listed by shelf.
 | B08   | Vitamin Well - Care        | 3            |
 | B09   | Popit - Original Cola      | 9            |
 | B10   | Popit - Original Cola      | 3            |
+| B11   | Popit - Original Cola      | 13           |
+| B15   | Tannourine Water - Regular | 11           |
+| B16   | Tannourine Water - Regular | 4            |
 
-_(2 more LLFP_2007_0000_R0 rows omitted from the count above due to a table-render limit — see the
-raw query in the migration/report for the complete set; total for this machine is 18, not 16.)_
-
-## WH1-2002-0000-W0 — 0 units/30d (14 rows) — warehouse/staging location, not a route stop
+## WH1-2002-0000-W0 — 0 units/30d (19 rows) — warehouse/staging location, not a route stop
 
 | Shelf | Product                                            | Qty on shelf |
 | ----- | -------------------------------------------------- | ------------ |
@@ -308,7 +308,7 @@ raw query in the migration/report for the complete set; total for this machine i
 | B13   | Mezzmix - Chocolate                                | 3            |
 | B14   | Mezzmix - Chocolate                                | 3            |
 
-## WH2_2006_0000_C0 — 0 units/30d (16 rows) — warehouse/staging location, not a route stop
+## WH2_2006_0000_C0 — 0 units/30d (19 rows) — warehouse/staging location, not a route stop
 
 | Shelf | Product                     | Qty on shelf |
 | ----- | --------------------------- | ------------ |
@@ -346,17 +346,19 @@ raw query in the migration/report for the complete set; total for this machine i
 
 ## Summary
 
-- **164 rows, 32 machines.** All 164 are shown above (the LLFP_2007 count note above corrects a
-  table-rendering slip — the underlying data and the 164 total are accurate; only that one
-  section's displayed row count label was off by 2).
+- **164 rows, 32 machines.** All 164 are shown above, cross-checked against
+  `check_expiry_unvalidated()`'s own per-machine breakdown (added in this same pass — see below).
 - 4 of the 32 "machines" are warehouse/staging locations (`LLFP_2007_0000_R0`, `WH1-2002-0000-W0`,
   `WH2_2006_0000_C0`, `WH2-2001-3000-O1`) — these are internal stock-holding records, not
   driver-visited route stops. They sort to the bottom (0 sales velocity) automatically; flagged
   here explicitly so whoever works this list knows to route them to warehouse staff, not a driver.
 - `ALJ-1014-0200-O1_OLD` is a retired/repurposed machine still carrying Active date-less pod rows —
-  flagged for CS: these 10 rows likely belong to a machine that no longer physically exists at that
+  flagged for CS: these 11 rows likely belong to a machine that no longer physically exists at that
   identity; confirm whether this is a `repurpose_machine` cleanup gap before assigning it to anyone
   for a physical check.
+- `check_expiry_unvalidated()` now also returns a `by_machine` array (machine name + count, sorted
+  descending) in its own payload, so the nightly alert is a per-machine breakdown rather than one
+  undifferentiated number — see `followup3_1c_expiry_unvalidated_by_machine.sql`.
 - Several rows show `current_stock = 0` — these are Active pod_inventory records with zero units
   but no expiry date ever recorded; they cost nothing to check (nothing physically on the shelf)
   but should still be closed out via the P3 flow so they stop appearing on this list every run.
