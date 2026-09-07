@@ -1,5 +1,55 @@
 # Architecture Changelog
 
+## 2026-09-07 — PRD-119 close-out audit + PRD-120: pack-screen and name-resolution integrity
+
+**PRD-119 close-out ("PRD-119 CLOSED" appended to the main design doc).** 8-item audit, live
+evidence per item, no status taken on faith. 5/8 confirmed shipped (D1 batch-at-pack, D2 pod
+grain with a fresh delivery fixture, D5 field-writer permissions, D6 disposition ledger, item 7
+quarantine readers). 2/8 confirmed NOT shipped (D3 receipt capture UX, D4 pull-horizon table) —
+flagged, not built in this pass. Item 8 (nightly assertions) came back MIXED: `check_expiry_
+unvalidated` was scheduled but is dirty (175 violations); `check_consignment_sentinel_integrity`
+and `check_dispatch_batch_overcommit` both existed but were never scheduled — the identical
+"written but never wired" gap already found once for `check_expiry_unvalidated` in PRD-119 P4.
+Scheduled both; both also came back dirty (55 sentinel-bound dispatch rows, 54 overcommitted
+batches) — real, pre-existing conditions, monitored now, not blind-remediated.
+
+Two fixes came directly out of the audit: `bind_dispatch_fefo` was the one function (of 16
+matching a `quarantined` grep) still missing the `manually_quarantined` check — PRD-118 G2a's
+12-function patch had covered everything else; this closes G2b. `record_variant_correction`
+wrongly authorized `field_staff` to reassign product identity, contradicting D5 doctrine — fixed
+after confirming zero live callers anywhere in the repo.
+
+**PRD-120 — three defects hit live during the 01-07 Sep ops week, all shipped same day.**
+
+- **L1**: the pack screen (`field/packing/[machineId]/page.tsx`) collapsed a `Remove` and a
+  same-product `Refill`/`Add New` into one card — two `isRemove` checks used a
+  `recommended_qty===0` heuristic that misses real Remove rows (which carry `quantity>0`), so a
+  Remove fell into the multi-batch-slice merge and could absorb a same-product fill row, hiding
+  it and blocking Finish. Blocked the packer three times, 04-06 Sep. Fixed: both checks now key
+  on `dispatch_action`, and the merge key is scoped to the action so it only ever folds
+  same-action batch splits.
+- **L2**: `driver_substitute_dispatch_line` mutated a dispatch row's product/pod/pin fields in
+  place and could null the pin when no matching batch existed — destroying the row's own history
+  in the write that was supposed to correct it. New `substitute_dispatch_line`: never touches the
+  original row, inserts a properly-pinned replacement (via `pick_wh_batch_for_machine`), links
+  via a new `superseded_by` column. The no-batch-found edge case is deliberately preserved
+  (PRD-112's "never a hard block" doctrine, not reversed unilaterally) but now surfaced by a new
+  nightly assertion (`check_unpinned_warehouse_dispatch_lines`) instead of silently accumulating.
+  `ChangeProductDialog.tsx` swapped to the new RPC via a response-reshaping server action.
+- **L3**: sales-name drift (trailing spaces, spelling variants) against
+  `v_sales_history_resolved`. Shipped a 14-day nightly assertion
+  (`assert_sales_names_resolved`, fixture-verified against a real trailing-space case and a fake
+  unresolvable name) and a `BEFORE INSERT/UPDATE` trim trigger on `sales_history.pod_product_name`
+  (no writer to that table exists in this repo — the trigger is the documented DB-side default
+  for an external writer, per the PRD's own instruction for that case). Audited every function
+  matching sales identity outside the resolved view: `get_machine_health`,
+  `auto_generate_refill_plan` (the live refill engine), and `get_machine_slots_with_expiry` all
+  have the same gap, deliberately NOT patched in this pass given blast radius and the lack of a
+  validated failing example — flagged for a dedicated follow-up.
+
+Cody: approve on every migration this session, Articles 1/4/6/11/12/16 (the recurring set for
+this codebase).
+
 ## 2026-09-02 to 2026-09-04 — PRD-119: warehouse truth, shelf grain, single WM queue, expiry & waste module
 
 **P1 Warehouse truth.** `disposition_events` — append-only ledger replacing the returns Google Sheet,
