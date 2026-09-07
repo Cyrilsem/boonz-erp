@@ -227,3 +227,70 @@ migration file's own header comment for the specific article citations.
    defect is superseded by PRD-120 L2's `substitute_dispatch_line` — the OLD function
    (`driver_substitute_dispatch_line`) still has the original defect, but the FE no longer calls
    it (see PRD-120), and it is queued for Article 13 deprecation.
+
+## D3 — receipt capture: backend SHIPPED, FE spec (not built)
+
+Close-out follow-up (2026-09-07), built on this doc's own P5 design note (`PRD-119-REPORT.md`
+§P5) rather than replacing it. The actual warehouse-side goods-receipt writer is
+`receive_purchase_order(p_po_id, p_lines, p_additions)` — not `create_po_addition_v2` (which only
+proposes a `po_additions` row) and not the machine-side `receive_dispatch_line`. PRD-118 A's hard
+"no NULL expiry" refusal was already live in both its `p_lines`/batches path and its `p_additions`
+path (confirmed by reading the function, not assumed) — the genuinely new pieces this pass shipped:
+
+- `boonz_products.typical_shelf_life_days integer` (nullable), backfilled for the top 40 SKUs by
+  90-day volume from the median observed `(expiration_date - created_at::date)` in
+  `warehouse_inventory` (min. 3 samples; 30/40 backfilled, 10/40 left NULL — venue/consignment
+  products with no real warehouse receipt history).
+- `check_receipt_shelf_life_deviation(...)` — WARNS (never blocks) when the typed expiry implies a
+  shelf life more than 25% off `typical_shelf_life_days`, composed into `receive_purchase_order`
+  next to the existing `log_expiry_entry_suspect` call, silently a no-op when the product has no
+  `typical_shelf_life_days` yet.
+- `check_receipt_duplicate_expiry_dates(...)` — WARNS (never blocks) when 2+ DIFFERENT products in
+  ONE `receive_purchase_order` call share the exact same expiry date (the fat-finger pattern), also
+  composed in, not duplicated.
+
+Both new checks fire via the existing `safe_monitoring_alert` mechanism (sources
+`expiry_shelf_life_deviation`, `receipt_duplicate_expiry_date`) — no new alert channel invented.
+
+### FE spec (not built — backend only, this pass)
+
+**Where:** `src/app/(field)/field/receiving/[poId]/page.tsx`, the same receiving screen the P5
+design note already named. No new screen.
+
+**What's actually shipped right now:** both new checks land in `monitoring_alerts`
+(`safe_monitoring_alert`, sources `expiry_shelf_life_deviation` / `receipt_duplicate_expiry_date`)
+— the SAME channel every other soft-warning in this codebase already uses (`log_expiry_entry_suspect`,
+`assert_sales_names_resolved`, etc.). `receive_purchase_order`'s own return `jsonb` does NOT yet
+carry these warnings — a receiver looking at the immediate RPC response today sees no signal, only
+the ops/monitoring surface does.
+
+**What changes (small follow-up, not yet built):** `receive_purchase_order`'s return `jsonb` needs
+two optional array fields — `shelf_life_warnings` and `duplicate_date_warnings` — each a list of
+the same shape the alert payload already carries (product, entered date, and either the deviation
+% + typical days, or the set of products sharing one date). This is a small, low-risk addition
+(both new check functions already compute everything needed; they'd just need to also `RETURN`
+their finding instead of only alerting, and `receive_purchase_order` would accumulate the results
+into its own final `jsonb_build_object` call) — deliberately left for the FE-build pass rather than
+bundled into this backend-only one, so the FE spec below describes the END STATE this data model
+is designed for.
+
+**UX:**
+
+- The receive action ALREADY hard-refuses (toast/error banner, existing behavior) when a line has
+  no expiry — no FE change needed there, this already works.
+- After a successful receive, if `shelf_life_warnings` or `duplicate_date_warnings` is non-empty,
+  show a dismissible amber banner ABOVE the (already-saved) confirmation, listing each warning in
+  plain language: _"Nutella - Biscuit T12: entered shelf life is 340 days, this product's typical
+  is ~132 days — double check the printed date"_ / _"2 different products (Coca Cola - Zero,
+  Snickers - Regular) were both entered with expiry 2027-06-15 — check these weren't accidentally
+  copied"_. The receipt has ALREADY SAVED at this point (never a block) — the banner is purely
+  informational, dismissible, and does not gate any further action.
+- No photo-attachment capture in this pass (P5's own item 1, "capture method not OCR" — still an
+  independent, separately-scoped FE addition per that design note's own sequencing, item 4d).
+
+**Not building:** any client-side re-derivation of the 25%-band or duplicate-date logic — the FE
+only ever displays what the RPC's response already computed, per Article 16 (canonical object
+computes, FE displays).
+
+Cody: approve, Articles 1, 4, 12, 16 — see the migration files' own header comments for the full
+citation per change.
