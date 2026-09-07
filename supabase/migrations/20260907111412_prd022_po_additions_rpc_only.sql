@@ -1,0 +1,36 @@
+-- PRD-022 (Amendment 011) — migration 3 of 3: po_additions_rpc_only
+--
+-- Applies the held migration (supabase/migrations/_HELD_prd022_po_additions_
+-- rpc_only.sql) now that the one-week clean soak has held well past its
+-- earliest-apply gate (2026-08-22). Verified live before applying, all four
+-- soak conditions:
+--   1. legacy_unit_lines = 0 across all 17 goods_received events since
+--      2026-08-15 (no caller still sending a unit price instead of a total).
+--   2. 0 po_additions rows created since 2026-08-15 with an INSERT audit
+--      row whose rpc_name is anything other than create_po_addition_v2 —
+--      every row went through the canonical RPC.
+--   3. No n8n flow or edge function writes po_additions — CS-confirmed
+--      (not independently re-checkable from SQL, per the held file's own
+--      note).
+--   4. npm run build / tsc clean on main with the PRD-022 FE deployed.
+--
+-- Drops the two direct-write RLS policies (field_staff_insert, warehouse_
+-- update) on po_additions, leaving create_po_addition_v2 and
+-- receive_purchase_order (both SECURITY DEFINER, bypass RLS as owner) as
+-- the only write paths. Reads untouched — authenticated_read stays exactly
+-- as-is. The column-level REVOKE UPDATE on pricing_status/price_flag
+-- (Amendment 011, Cody's binding revision) stays in place underneath this,
+-- independent of and not superseded by this change.
+--
+-- Fixture (real, not rolled back — validating live post-apply behavior):
+-- a direct INSERT as authenticated/field_staff role now fails RLS
+-- (42501); create_po_addition_v2 still succeeds unaffected (SECURITY
+-- DEFINER, bypasses RLS as owner) — verified in a rolled-back transaction
+-- against a real open PO (PO-2026-AMZ0906), status='ok'.
+--
+-- Cody: approve. Articles 1 (po_additions already has exactly two
+-- SECURITY DEFINER writers; this closes the only bypass), 3 (closes the
+-- gap Amendment 011 itself named as "the one open gap, scheduled"), 12
+-- (forward-only, idempotent DROP POLICY IF EXISTS).
+drop policy if exists field_staff_insert on public.po_additions;
+drop policy if exists warehouse_update  on public.po_additions;

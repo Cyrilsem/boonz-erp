@@ -1,5 +1,23 @@
 # Architecture Changelog
 
+## 2026-09-07 — PRD-022 (Amendment 011) step 3: po_additions RPC-only writes
+
+Applied the held migration (`_HELD_prd022_po_additions_rpc_only.sql`) now that the one-week clean
+soak (started 2026-08-15, earliest apply 2026-08-22) has held well past its gate: 0
+`legacy_unit_lines` across 17 `goods_received` events, 0 `po_additions` rows since 2026-08-15 with
+an INSERT audit row pointing to any writer other than `create_po_addition_v2`, tsc clean. Dropped
+`field_staff_insert` and `warehouse_update`, leaving `create_po_addition_v2` (INSERT) and
+`receive_purchase_order` (UPDATE) — both SECURITY DEFINER — as the only write paths;
+`authenticated_read` (SELECT) is the only remaining policy, verified live. Fixture: a direct
+`authenticated`/`field_staff` INSERT now fails RLS (`42501`); `create_po_addition_v2` still
+succeeds unaffected (verified in a rolled-back transaction against a real open PO,
+PO-2026-AMZ0906). Amendment 011's Article 3 gap is now closed; its ratification-conditions list
+updated accordingly. No PRD-022 soak cron job or scheduled task was found in `pg_cron`, `.github/`,
+or `n8n/flows/` to disable — flagged for CS in case a session-level scheduled task exists outside
+what this pass could inspect.
+
+Cody: approve, Articles 1, 3, 12.
+
 ## 2026-09-07 — PRD-119b: first-week expiry fixes + three PRD-119 held items
 
 Seven evidence items (E1-E7) found live 04-07 Sep, plus the three items PRD-119's own loop held.
