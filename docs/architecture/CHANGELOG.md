@@ -1,5 +1,42 @@
 # Architecture Changelog
 
+## 2026-09-07 — Close-out follow-up: assertion re-scoping, ask-list, sales-name migrations
+
+Three open items from the PRD-119/120 close-out. Full detail in the goal's own report (chat
+transcript this loop, no separate PRD file — this is a maintenance pass on existing PRDs).
+
+**1) Nightly assertion violations (175/55/54) — classified, not blind-cleaned.**
+
+- **1a — 54 overcommitted batches** (`check_dispatch_batch_overcommit`): already scoped to
+  `packed=false` but not `dispatched=false`/`dispatch_date`. All 101 contributing rows across the
+  54 batches were `dispatch_date < today`, `dispatched=false` — old abandoned plan rows still
+  claiming a reservation for a day long past. Added `dispatched=false` + `dispatch_date >= today`.
+  54 → 0 live violations; nothing repinned (0 remained after the scope fix).
+- **1b — 55 sentinel-bound rows** (`check_consignment_sentinel_integrity`): same historical/live
+  split (all 55 were `dispatch_date < today`), plus a permanent exemption for
+  `source_origin='vox_at_venue'` (43 of the 55) — venue lines are DESIGNED to bind to the 2099
+  placeholder batch (`pack_dispatch_line`'s own "v2 VOX GUARD"), never a defect, same reasoning as
+  PRD-118 K1's `65681b5` vox_at_venue exemption. 55 → 0 live violations.
+- **1c — 164 expiry-unvalidated pod rows** (`check_expiry_unvalidated`, 175 at original scheduling,
+  11 since resolved independently): this is the PRD-119 ASK flow, not a code fix — no dates
+  invented. New `docs/ops/expiry-ask-list-2026-09-07.md`: machine/shelf/product/qty for all 164,
+  ordered by trailing-30d machine sales velocity. Assertion now also returns a `by_machine`
+  breakdown (name + count, sorted) instead of one undifferentiated number.
+
+**2) Raw sales-name readers migrated (2 of 3 — third handled separately, see below).**
+
+`get_machine_health` and `get_machine_slots_with_expiry` moved from raw
+`sales_history.pod_product_name` text joins to `v_sales_history_resolved` (pod_product_id), the
+canonical identity source PRD-120 L3 shipped for exactly this defect class. Byte-identical
+otherwise (md5-guarded surgical `replace()`). `get_machine_health`: real alias case isolated in a
+rolled-back transaction (0 rows → 1 row/20 qty). `get_machine_slots_with_expiry`: real live
+end-to-end fixture on ACTIVATE-2005-0000-W0 slot B6 (0 → 15 `units_sold_7d` under a real
+`product_name_conventions` alias). `auto_generate_refill_plan` (the live refill engine) is handled
+in its own follow-up pass given its blast radius — not bundled into this one.
+
+Cody: approve on every migration, Article 16 (one canonical identity source per function, no
+inline re-derivation) + Article 12 (byte-exact, forward-only patches).
+
 ## 2026-09-07 — PRD-022 (Amendment 011) step 3: po_additions RPC-only writes
 
 Applied the held migration (`_HELD_prd022_po_additions_rpc_only.sql`) now that the one-week clean
