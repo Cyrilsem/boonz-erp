@@ -1,5 +1,27 @@
 # Architecture Changelog
 
+## 2026-09-07 — Close-out follow-up: auto_generate_refill_plan resolved sales names (item 2, 3 of 3)
+
+`auto_generate_refill_plan` (the LIVE refill engine) matched daily sales velocity against the raw
+WEIMI lane name instead of the resolved `pod_product_id` -- the same defect class as
+`get_machine_health`/`get_machine_slots_with_expiry` (see the section immediately below), handled
+separately here given this function's blast radius. This one doesn't just misreport a number: it
+directly drives `v_target`/`v_refill_qty`, so an alias-recorded sale silently UNDER-PLANS refill
+quantity in production, and in the worst case (current stock already exceeding the velocity-blind
+floor) makes the engine skip proposing anything for a lane with real, alias-recorded demand.
+
+Fix: the single subquery now sources from `v_sales_history_resolved`, matched on
+`v_slot.pod_product_id` (already carried by `v_live_shelf_stock`, no new resolution CTE needed).
+Byte-identical everywhere else (md5-guarded surgical `replace()`).
+
+Fixture, live and end-to-end on `ACTIVATE-2005-0000-W0` shelf B06 (real `product_name_conventions`
+alias "Drinks" -> "Soft Drinks Mix"): isolated subquery, OLD 0.20/day -> NEW 0.867/day (a real
+alias sale added). Full engine call, `p_dry_run=true`: BEFORE the patch, shelf B06 produced NO plan
+row at all; AFTER, the engine correctly proposes a REFILL to `max_stock`. Verified whole-fleet dry
+run post-apply returns `status='ok'`.
+
+Cody: approve, Article 16, Article 12.
+
 ## 2026-09-07 — Close-out follow-up: assertion re-scoping, ask-list, sales-name migrations
 
 Three open items from the PRD-119/120 close-out. Full detail in the goal's own report (chat
