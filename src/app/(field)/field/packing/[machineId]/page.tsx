@@ -997,14 +997,23 @@ export default function PackingDetailPage() {
     const mergedList: PackLine[] = [];
 
     for (const line of mapped) {
-      const isRemove = line.recommended_qty === 0 && !line.packed;
+      // PRD-120 L1: a Remove row can carry quantity > 0 (units to remove), so
+      // the old `recommended_qty === 0` heuristic missed real Remove rows —
+      // they fell into the merge below and could absorb/be absorbed by a
+      // Refill/Add New of the same product+shelf, hiding the fill row and
+      // leaving it permanently unresolved. dispatch_action is the reliable
+      // signal (used everywhere else in this file for the same purpose).
+      const isRemove = line.dispatch_action === "Remove";
       const isMix = line.variantStocks !== null;
       // Only merge single-variant non-remove packed lines
       if (isRemove || isMix) {
         mergedList.push(line);
         continue;
       }
-      const key = `${line.boonz_product_id}|||${line.shelf_code}`;
+      // Keyed by action too: this merge exists only to fold a single Refill/
+      // Add New fill's multi-batch slices back into one card (see comment
+      // above) — it must never fold two rows of DIFFERENT actions together.
+      const key = `${line.dispatch_action}|||${line.boonz_product_id}|||${line.shelf_code}`;
       const existing = mergedMap.get(key);
       if (!existing) {
         mergedMap.set(key, line);
@@ -3741,7 +3750,11 @@ export default function PackingDetailPage() {
                     );
                   }
 
-                  const isRemove = line.recommended_qty === 0;
+                  // PRD-120 L1: dispatch_action, not the recommended_qty===0
+                  // heuristic — a Remove row can carry quantity > 0 and was
+                  // rendering here as if it were pickable stock (see
+                  // REMOVE_LEG_CHIP below, the old workaround for this).
+                  const isRemove = line.dispatch_action === "Remove";
                   const isMix = line.variantStocks !== null;
 
                   // Committed stock from other machines today (single-variant only)
