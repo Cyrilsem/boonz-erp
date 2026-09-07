@@ -1,5 +1,25 @@
 # Architecture Changelog
 
+## 2026-09-07 — D4 expiry pull-horizon table (close-out item 3)
+
+New `expiry_pull_horizon(category, pull_days_before_expiry, updated_by, reason)`, seeded by
+`category_group`: Dairy & Chilled 5, Bakery 3, Beverages 14, Snacks 21, Confectionery 21, default 14. `approve_refill_plan`'s item-K Gate-2 short-dated guard now reads this table instead of the
+hard-coded `plan_date + 7`, falling back to the table's own `default` row and then to the literal 7
+only if the table has no row at all. RLS: SELECT for all authenticated, write restricted to
+operator_admin/superadmin/manager (same posture as `product_name_conventions`).
+
+Fixture (rolled back, synthetic 2099-06-01 plan on a real machine, no live/today row touched): a
+dairy line at expiry+4d (horizon 5) refused; a beverage line at expiry+20d (horizon 14) passed.
+
+**Flagged for CS, not resolved here:** PRD-119's own original D4 decision (§3 of the main design
+doc) explicitly rejected category thresholds in favor of a pure per-product/per-machine velocity
+rule — the opposite of what this migration builds. This migration follows the CURRENT goal's own
+explicit, specific instruction (a named category table with concrete seed values and fixture
+criteria) rather than the earlier design note, but the contradiction between the two is real and
+needs a CS call, not a unilateral pick.
+
+Cody: approve, Articles 1, 2, 4, 5, 12.
+
 ## 2026-09-07 — D3 receipt capture: backend shipped (close-out item 3)
 
 Built on PRD-119 P5's own design note (`PRD-119-REPORT.md` §P5) rather than replacing it. The
