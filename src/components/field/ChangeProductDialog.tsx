@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
-  driverSubstituteDispatchLine,
+  substituteDispatchLine,
   listSubstituteProducts,
   type SubstitutionSourceTag,
 } from "@/app/(field)/field/_actions/dispatch-edits";
@@ -115,7 +115,7 @@ export function ChangeProductDialog({
       chip === "other" ? otherReason.trim() : (c?.reason ?? "substitution");
 
     startTransition(async () => {
-      const res = await driverSubstituteDispatchLine({
+      const res = await substituteDispatchLine({
         dispatchId,
         newBoonzProductId: selected.product_id,
         filledQty: qty,

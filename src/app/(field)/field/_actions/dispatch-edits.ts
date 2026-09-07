@@ -165,6 +165,67 @@ export async function driverSubstituteDispatchLine(input: {
   return { ok: true, data: data as SubstitutionResult };
 }
 
+// ─── 3c) substitute_dispatch_line (PRD-120 L2) ────────────────────────────────
+// Replaces driver_substitute_dispatch_line's in-place mutation: instead of
+// rewriting the same row (and sometimes nulling its pin), this inserts a
+// properly-pinned replacement row and links the original via superseded_by,
+// so the original's own history is never destroyed. Same never-blocks
+// doctrine for the no-batch-found case; same caller shape as the RPC it
+// replaces, reshaped to the existing SubstitutionResult so ChangeProductDialog
+// only needs to swap which action it calls.
+export async function substituteDispatchLine(input: {
+  dispatchId: string;
+  newBoonzProductId: string;
+  filledQty: number;
+  reason: string;
+  actorId?: string;
+  sourceTag?: SubstitutionSourceTag;
+  revalidate?: string;
+}): Promise<ActionResult<SubstitutionResult>> {
+  if (!input.newBoonzProductId)
+    return { ok: false, error: "Pick the product you actually filled" };
+  if (!Number.isFinite(input.filledQty) || input.filledQty <= 0)
+    return {
+      ok: false,
+      error: 'Quantity must be > 0 - use "Not filled" if nothing went in',
+    };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("substitute_dispatch_line", {
+    p_dispatch_id: input.dispatchId,
+    p_new_boonz_product_id: input.newBoonzProductId,
+    p_filled_qty: input.filledQty,
+    p_reason: input.reason || null,
+    p_actor: input.actorId ?? null,
+    p_source_tag: input.sourceTag ?? null,
+    p_dry_run: false,
+  });
+  if (error) return { ok: false, error: error.message };
+  if (input.revalidate) revalidatePath(input.revalidate);
+  const r = data as {
+    old_dispatch_id: string;
+    new_dispatch_id: string;
+    machine_name: string | null;
+    shelf_code: string | null;
+    needs_review: boolean;
+    review_reason: string | null;
+    day_close_event_id: string;
+    comment: string;
+  };
+  return {
+    ok: true,
+    data: {
+      ok: true,
+      dispatch_id: r.new_dispatch_id,
+      machine_name: r.machine_name,
+      shelf_code: r.shelf_code,
+      after: { needs_review: r.needs_review, review_reason: r.review_reason },
+      day_close_event_id: r.day_close_event_id,
+      comment: r.comment,
+    },
+  };
+}
+
 // Products offered in the Change-product picker. Only products with an Active
 // mapping the machine can actually resolve are listed, and venue_team-supplied
 // ones sort first: on a VOX machine those are the flavors the venue itself
