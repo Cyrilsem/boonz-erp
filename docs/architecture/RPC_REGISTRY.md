@@ -3144,3 +3144,19 @@ same day — see MIGRATIONS_REGISTRY and `docs/prds/PRD-119-CLOSEOUT-FOLLOWUP-RE
 ⛔ **No driver PULL screen exists yet to consume this view.** `/field/expiry` is the warehouse
 (`warehouse_inventory`) expiry page — a different table, a different concern. Building an on-machine
 PULL screen is a distinct, unscoped FE follow-up.
+
+## INCIDENT 2026-09-08/09 — `check_far_future_picked_visits`
+
+See `docs/architecture/INCIDENT_2026-09-08_K1_VISIT_FLOOR_REGRESSION.md`. The D4 correction's K1
+visit-aware floor (`approve_refill_plan`) regressed live when `machines_to_visit` turned out to carry
+`status='picked'` rows dated in 2030, refusing ~80 real warehouse lines. Fixed by capping the floor and
+excluding any next-visit row more than 60 days out (same migration, `approve_refill_plan` unchanged in
+the registry above beyond this patch — no new RPC).
+
+| function                           | reads               | notes                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `check_far_future_picked_visits()` | `machines_to_visit` | ✅ NEW, same family as `check_expiry_unvalidated`. Cron `check_far_future_picked_visits_nightly` (20:20 UTC). Alerts via `safe_monitoring_alert('far_future_picked_visit','critical',...)` when any `status='picked'` row is more than 30 days ahead — the exact defect class this incident hit. Detection-side containment; the root cause (`pick_machines_for_refill` has no upper bound on `p_plan_date`) is documented but not fixed. |
+
+⛔ **`unpick_machine_to_visit(plan_date, machine_id, reason)`** is the canonical, and only sanctioned,
+way to clear a bad `machines_to_visit` row (sets `status='cs_dropped'`) — used to unpick all 64
+poisoned rows in this incident. Never `UPDATE machines_to_visit` directly.
