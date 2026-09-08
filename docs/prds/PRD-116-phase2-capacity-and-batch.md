@@ -61,13 +61,13 @@ you want on a shelf the plan did NOT already cover. Fix: source the list from `s
 machine (or the latest WEIMI slot set), label each option with its current pod from WEIMI, and annotate
 rather than exclude the shelves already in the plan. Small, self-contained, belongs on `prd116-fe-dialogs`.
 
-*Related cleanup, not blocking:* WPP has 32 `shelf_configurations` rows against 16 live WEIMI slots. Any
+_Related cleanup, not blocking:_ WPP has 32 `shelf_configurations` rows against 16 live WEIMI slots. Any
 "all shelves" list will show 16 phantoms until that config is trimmed. Worth an audit across the fleet
 before J1 ships, or the new picker just trades one confusing list for another.
 
 **J2 — Remove is validated at flavour level against data that only exists at pod level.**
-The Add-dispatch-row modal rejected `Be-kind Cluster - Dark Chocolate ×2` with *"Source machine
-WPP-1002-4300-O1 does not carry ... no Active pod_inventory > 0"*. The message was true and the guard was
+The Add-dispatch-row modal rejected `Be-kind Cluster - Dark Chocolate ×2` with _"Source machine
+WPP-1002-4300-O1 does not carry ... no Active pod_inventory > 0"_. The message was true and the guard was
 right on its own terms: WEIMI reports only the POD product ("Be-kind Cluster", 2 of 10 on A13), while
 `pod_inventory` insists on a flavour, and A13's only Active row was **Be-kind Cluster – Hazelnut ×2**, last
 written 17 June. Nobody actually knows which flavour those 2 bars are — the flavour identity is a stale
@@ -78,6 +78,7 @@ Well expiry error, surfacing in a third place. It is a UX consequence of item F,
 or immediately after.
 
 **Proposed behaviour.** For a Remove on a shelf whose WEIMI reading is pod-level:
+
 1. Offer the POD product and quantity ("Be-kind Cluster ×2"), not a flavour dropdown.
 2. Let the driver optionally split by flavour ONLY if they can read the wrappers — the same
    "Split by variant" affordance the returns-approval panel already has.
@@ -113,7 +114,7 @@ leg (Vitamin Well – Upgrade ×5) was written, as every Remove is, as a **wareh
 the five bottles back to the office. He carried them to the next stop on the same route,
 OMDBB-1020-0P00-O1, and put them in A16 — the Vitamin Well lane, which was sitting at 1 of 16.
 
-The system had no way to say that. The screen showed *"return Vitamin Well to office"*, the warehouse
+The system had no way to say that. The screen showed _"return Vitamin Well to office"_, the warehouse
 queue was waiting to receive five bottles that were never coming, and had anyone approved that receipt
 it would have created five units of phantom warehouse stock — the same failure class as PRD-113
 (in-machine moves queued as warehouse returns) and PRD-016c (swap-outs double-quarantined), now in a
@@ -121,19 +122,19 @@ third shape: **cross-machine field redirection**.
 
 ### Why this keeps happening
 
-Every one of these is the same missing concept. A `Remove` leg records that stock *left a shelf*. The
-data model then immediately assumes it knows where the stock *went* — the warehouse — and only the
+Every one of these is the same missing concept. A `Remove` leg records that stock _left a shelf_. The
+data model then immediately assumes it knows where the stock _went_ — the warehouse — and only the
 warehouse. Reality has at least four destinations:
 
-| Destination | Today | Handled by |
-|---|---|---|
-| Back to the warehouse | default, assumed | `wh_approve_remove_receipt` |
-| Another shelf of the same machine | retrofitted | PRD-113 `is_internal_move`, `mark_internal_move_legs` |
-| Another machine, planned in advance | supported | `swap_between_machines` / `resolve_m2m_donor_legs_v3` |
-| **Another machine, decided in the field** | **not supported** | **item K** |
-| Written off (expired / damaged) | partial | quarantine + write-off |
+| Destination                               | Today             | Handled by                                            |
+| ----------------------------------------- | ----------------- | ----------------------------------------------------- |
+| Back to the warehouse                     | default, assumed  | `wh_approve_remove_receipt`                           |
+| Another shelf of the same machine         | retrofitted       | PRD-113 `is_internal_move`, `mark_internal_move_legs` |
+| Another machine, planned in advance       | supported         | `swap_between_machines` / `resolve_m2m_donor_legs_v3` |
+| **Another machine, decided in the field** | **not supported** | **item K**                                            |
+| Written off (expired / damaged)           | partial           | quarantine + write-off                                |
 
-The destination is decided *after* the plan is built, often after the row is packed and picked up.
+The destination is decided _after_ the plan is built, often after the row is packed and picked up.
 So the affordance cannot live at plan time — it has to live on the packing / driver / returns screens,
 and it has to work on a row that is already `packed = true, picked_up = true`.
 
@@ -164,7 +165,7 @@ that only show up once it is exposed.
 ### K1 — The affordance (FE, Stax)
 
 On any `Remove` line that is not yet received, on the packing screen, the driver screen and the
-warehouse returns-approval panel, add a third choice next to *Confirm return* / *Decline*:
+warehouse returns-approval panel, add a third choice next to _Confirm return_ / _Decline_:
 
 > **Went to another machine** → machine picker → shelf picker → quantity (default: driver-confirmed
 > qty) → reason → confirm
@@ -192,12 +193,12 @@ item-B branch-order bug: `is_internal_move_dispatch` branch 4 returns `false` fo
 so branch 5 — the one that would notice `source_machine_id = machine_id` — is unreachable.
 
 For a genuine cross-machine redirect the answer `is_internal_move = false` happens to be correct, so
-the 24 Aug fix is safe. But it is correct *by accident*, and it means the internal-move guard
+the 24 Aug fix is safe. But it is correct _by accident_, and it means the internal-move guard
 (`tg_block_internal_move_credit`) is not what is protecting the warehouse here — only `is_m2m` +
 the conservation assertion in `approve_m2m_transfer` are. Two things should change together:
 
 1. On the source `Remove` leg, leave `source_machine_id` NULL (a Remove has no source machine — it has
-   a *destination* machine). Add a `dest_machine_id` concept, or reuse `m2m_partner_id` as the sole
+   a _destination_ machine). Add a `dest_machine_id` concept, or reuse `m2m_partner_id` as the sole
    pointer, rather than overloading `source_machine_id` to mean two different things on two legs.
 2. Reorder `is_internal_move_dispatch` so the same-machine test runs before the `is_m2m` early-exit,
    per item B. Until then, any row where `source_machine_id = machine_id AND is_m2m` is invisible to

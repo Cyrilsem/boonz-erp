@@ -32,11 +32,11 @@ This is the single brief for one unsupervised overnight run. Everything CS has o
 
 All three cost zero stock. All three were found by a human noticing something looked wrong. That is the actual problem being fixed.
 
-| # | Symptom | Real cause |
-|---|---|---|
-| A | "WPP Popit refill not deducted from inventory" | It was deducted — at **pack**, four hours before the **receive** event that correctly reads delta 0. Underneath: FEFO picked 1 unit each from three near-expiry cartons, so no physical count can ever match the row split. |
-| B | "Starbucks was supposed to be removed, Cappuccino was removed instead" | The plan said *REMOVE Starbucks ×5 from A03* — a lane holding **3** for a week. It took product+shelf from A03 and quantity from A04 (Nescafé, 5 units). The driver did the sensible physical thing. |
-| C | (found while fixing B) | `tg_rebind_slot_lifecycle_on_add_confirm` then **rewrote what Boonz believed was on A03** from the wrong plan. A wrong lane does not stay still — it propagates into the next day's plan. |
+| #   | Symptom                                                                | Real cause                                                                                                                                                                                                                  |
+| --- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | "WPP Popit refill not deducted from inventory"                         | It was deducted — at **pack**, four hours before the **receive** event that correctly reads delta 0. Underneath: FEFO picked 1 unit each from three near-expiry cartons, so no physical count can ever match the row split. |
+| B   | "Starbucks was supposed to be removed, Cappuccino was removed instead" | The plan said _REMOVE Starbucks ×5 from A03_ — a lane holding **3** for a week. It took product+shelf from A03 and quantity from A04 (Nescafé, 5 units). The driver did the sensible physical thing.                        |
+| C   | (found while fixing B)                                                 | `tg_rebind_slot_lifecycle_on_add_confirm` then **rewrote what Boonz believed was on A03** from the wrong plan. A wrong lane does not stay still — it propagates into the next day's plan.                                   |
 
 ---
 
@@ -58,6 +58,7 @@ Three coordinated changes, all three or none:
 **Why it matters more than it reads:** a same-machine driver-split child inherits `is_m2m=true` (PRD-116b, working as specced) but gets `m2m_transfer_id = NULL`. `wh_approve_remove_receipt` refuses it → `approve_m2m_transfer` refuses it → `is_internal_move_dispatch` says false so `clear_internal_move_flag` doesn't apply. **A row with no approval path at all.**
 
 **Verification (rolled-back tx, report actual JSON):**
+
 1. Pick 5 of the 107 open mistagged rows. Confirm `is_internal_move_dispatch` returns `false` today and `true` after B2.
 2. Call `wh_approve_remove_receipt` on one — assert it raises **INTERNAL MOVE**, not the M2M message.
 3. `add_dispatch_row` with `source_kind='m2m'`, `source_machine_id = p_machine_id` → assert `is_m2m=false`.
@@ -87,11 +88,11 @@ Over the last 60 days: **25 of 149 REMOVE plan rows (17%) planned a quantity lar
 
 `tg_rebind_slot_lifecycle_on_add_confirm` re-binds a shelf to whatever an Add New confirms into it. It faithfully copied incident B's error into `slot_lifecycle`, which is what the next day's engine reads.
 
-**Fleet census run 24 Aug: only 2 shelves currently drift** (AMZ-1046 A07, HUAWEI-2003 A08 — both "Freakin Awesome Filled Dates"). So the acute damage is contained. The *mechanism* is not.
+**Fleet census run 24 Aug: only 2 shelves currently drift** (AMZ-1046 A07, HUAWEI-2003 A08 — both "Freakin Awesome Filled Dates"). So the acute damage is contained. The _mechanism_ is not.
 
 **Fix tonight — alert only, do not change the trigger's behaviour.** When the trigger is about to bind shelf X to pod P, compare against the latest WEIMI reading for that slot. On disagreement, still bind (WEIMI labels are unreliable — see the hard rules), but insert a `monitoring_alerts` row of source `slot_rebind_disagrees_with_weimi`.
 
-**Rationale for alert-only:** WEIMI labels go stale, so a hard block would have refused the *correct* A01 Sunbites binding on 24 Aug. Two unreliable sources, neither authoritative alone — the honest move is to surface the disagreement to a human, not to pick a winner in a trigger.
+**Rationale for alert-only:** WEIMI labels go stale, so a hard block would have refused the _correct_ A01 Sunbites binding on 24 Aug. Two unreliable sources, neither authoritative alone — the honest move is to surface the disagreement to a human, not to pick a winner in a trigger.
 
 **Verification:** rolled-back replay of the 24 Aug WAVEMAKER receive — assert one alert on A03 and none on A01.
 
@@ -152,13 +153,13 @@ Branch only, **no deploy**. Run `npx tsc --noEmit` and `npx eslint` on every fil
 
 ## 4. TIER 3 — DESIGN ONLY, DO NOT TOUCH
 
-| Item | Why it stays here |
-|---|---|
-| **E** — per-product lane capacity model (lane geometry × product form factor, replacing "last WEIMI reading") | Schema. Needs Dara. Open question: does a `product_form_factor` classification exist anywhere today? |
-| **F** — `pod_inventory` multi-batch (drop `unique(machine,shelf,product)`) | Schema + a writer sweep across `adjust_pod_inventory`, `record_actual_refill`, `receive_dispatch_line`, `receive_po_addition_into_machine`. **Rollback is not clean once real multi-batch data exists** — Cody must read this before it is ever applied. |
-| **G** — Red Bull Regular 0% global split; ~15 machine-scoped-only SKUs invisible to procurement | A mapping decision that affects stitch fleet-wide. CS's call in a weekly session. |
-| **J2** — Remove validated at flavour level against pod-level data | A UX consequence of F. Ships with F or immediately after, not before. |
-| **21 units of possible phantom WH stock** from 7 historically-approved internal moves (carried from 20 Aug, **re-verify before acting**) | Needs a physical count, not code. |
+| Item                                                                                                                                     | Why it stays here                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **E** — per-product lane capacity model (lane geometry × product form factor, replacing "last WEIMI reading")                            | Schema. Needs Dara. Open question: does a `product_form_factor` classification exist anywhere today?                                                                                                                                                     |
+| **F** — `pod_inventory` multi-batch (drop `unique(machine,shelf,product)`)                                                               | Schema + a writer sweep across `adjust_pod_inventory`, `record_actual_refill`, `receive_dispatch_line`, `receive_po_addition_into_machine`. **Rollback is not clean once real multi-batch data exists** — Cody must read this before it is ever applied. |
+| **G** — Red Bull Regular 0% global split; ~15 machine-scoped-only SKUs invisible to procurement                                          | A mapping decision that affects stitch fleet-wide. CS's call in a weekly session.                                                                                                                                                                        |
+| **J2** — Remove validated at flavour level against pod-level data                                                                        | A UX consequence of F. Ships with F or immediately after, not before.                                                                                                                                                                                    |
+| **21 units of possible phantom WH stock** from 7 historically-approved internal moves (carried from 20 Aug, **re-verify before acting**) | Needs a physical count, not code.                                                                                                                                                                                                                        |
 
 ---
 
@@ -188,15 +189,15 @@ If an item blocks you, record the blocker and move to the next. Do not stall the
 
 ## Appendix — the numbers, all re-verified 24 Aug 2026
 
-| Metric | Value |
-|---|---|
-| Mistagged same-machine `m2m` rows | 115 (107 open, 8 settled) |
-| REMOVE plan rows exceeding their own lane stock (60d) | 25 of 149 — **17%** |
-| Duplicate Active WH batch groups | 25 groups / 58 rows / **756 units** |
-| Slot bindings currently drifting from WEIMI | 2 |
-| Dispatch rows with impossible dates | 76 (2030) |
-| Fill rows where `filled_quantity <> quantity` (30d) | 523 of 2,251 — **23%** |
-| Remove legs driver-confirmed (30d) | 184 of 286 |
-| …**carrying who confirmed them** | **2** |
+| Metric                                                | Value                               |
+| ----------------------------------------------------- | ----------------------------------- |
+| Mistagged same-machine `m2m` rows                     | 115 (107 open, 8 settled)           |
+| REMOVE plan rows exceeding their own lane stock (60d) | 25 of 149 — **17%**                 |
+| Duplicate Active WH batch groups                      | 25 groups / 58 rows / **756 units** |
+| Slot bindings currently drifting from WEIMI           | 2                                   |
+| Dispatch rows with impossible dates                   | 76 (2030)                           |
+| Fill rows where `filled_quantity <> quantity` (30d)   | 523 of 2,251 — **23%**              |
+| Remove legs driver-confirmed (30d)                    | 184 of 286                          |
+| …**carrying who confirmed them**                      | **2**                               |
 
 That last row is the one to sit with. The system records what happened; it almost never records who did it. Every "who is complying" question is currently unanswerable from the database alone — which is the subject of the separate Operations Record audit, not this run.
