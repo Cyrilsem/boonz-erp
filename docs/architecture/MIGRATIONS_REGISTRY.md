@@ -5569,3 +5569,17 @@ migration spanning both the batch-grain change and the breakdown-exposure change
 separately in prod's own migration history. Both `prd053a` and this exception are carried in
 `scripts/check_migration_parity.sh`'s exception list (T6) so the parity check does not false-positive
 on them forever.
+
+### T4 — `set_machine_status` RPC, audit log, invariant trigger (2026-09-08)
+
+| version          | name                               | statements | note                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------- | ---------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `20260908062117` | `prd121_t4_set_machine_status_rpc` | 1          | File written and committed (`bec4231`) **before** `apply_migration` was called, per this loop's own non-negotiable rule. Creates `machine_status_events` (append-only, RLS + S-308 REVOKE), `set_machine_status` RPC, `enforce_machine_status_invariant` BEFORE UPDATE trigger, and locks `machines.status/adyen_status/adyen_inventory_in_store/installation_date` to the RPC. See RPC_REGISTRY for the signature and the table-wide-grant gotcha (a column-level REVOKE alone was proven live to be a no-op against `authenticated`'s pre-existing table-wide UPDATE grant; fixed with REVOKE-then-reallowlist). |
+
+Fixture (rolled-back transaction against prod, real `WH3_1064_0000_W0` row, before the file was
+written): direct UPDATE as `authenticated` blocked by the REVOKE, direct UPDATE to
+`status='Active'` with mismatched adyen labels rejected by the trigger, `set_machine_status` succeeds
+and writes exactly one `machine_status_events` row, `field_staff` caller forbidden, <10-char reason
+rejected, and a status-only partial update leaves `adyen_status`/`adyen_inventory_in_store`
+untouched. All six passed on the corrected (REVOKE-then-reallowlist) design; the first attempt with
+a bare column-level REVOKE silently failed to block the write and was caught by this same fixture.

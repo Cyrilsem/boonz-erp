@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { PAYMENT_FIELDS, HW_FIELDS } from "@/types/machines";
+import PromptModal from "@/components/PromptModal";
 
 interface MachineStub {
   machine_id: string;
@@ -195,9 +196,22 @@ export function MachineSetupConfigTab({
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, SetupDraft>>({});
+  const [originalDrafts, setOriginalDrafts] = useState<
+    Record<string, SetupDraft>
+  >({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saveMsg, setSaveMsg] = useState<Record<string, string>>({});
+  // PRD-121 T4: adyen_status / adyen_inventory_in_store are written
+  // exclusively via set_machine_status now.
+  const [pendingAdyenChange, setPendingAdyenChange] = useState<{
+    machineId: string;
+    adyen_status: string;
+    adyen_inventory_in_store: string;
+  } | null>(null);
+  const [statusChangeError, setStatusChangeError] = useState<string | null>(
+    null,
+  );
 
   const filtered = machines.filter((m) =>
     m.official_name.toLowerCase().includes(search.toLowerCase()),
@@ -242,12 +256,11 @@ export function MachineSetupConfigTab({
       .eq("machine_id", machineId)
       .single();
 
-    setDrafts((prev) => ({
-      ...prev,
-      [machineId]: data
-        ? rowToDraft(data as unknown as Record<string, unknown>)
-        : emptyDraft(),
-    }));
+    const loaded = data
+      ? rowToDraft(data as unknown as Record<string, unknown>)
+      : emptyDraft();
+    setDrafts((prev) => ({ ...prev, [machineId]: loaded }));
+    setOriginalDrafts((prev) => ({ ...prev, [machineId]: loaded }));
     setLoading((prev) => ({ ...prev, [machineId]: false }));
   }, []);
 
@@ -264,10 +277,7 @@ export function MachineSetupConfigTab({
     }));
   }
 
-  async function handleSave(machineId: string) {
-    const draft = drafts[machineId];
-    if (!draft) return;
-    setSaving((prev) => ({ ...prev, [machineId]: true }));
+  async function applyNonAdyenFields(machineId: string, draft: SetupDraft) {
     const supabase = createClient();
     // TODO(Batch 5 / RC-04): machine payment/hardware setup fields — no
     // canonical RPC covers these columns. Left as a direct update to preserve
@@ -277,8 +287,6 @@ export function MachineSetupConfigTab({
       .update({
         adyen_unique_terminal_id: draft.adyen_unique_terminal_id || null,
         adyen_permanent_terminal_id: draft.adyen_permanent_terminal_id || null,
-        adyen_status: draft.adyen_status || null,
-        adyen_inventory_in_store: draft.adyen_inventory_in_store || null,
         adyen_store_code: draft.adyen_store_code || null,
         adyen_store_description: draft.adyen_store_description || null,
         adyen_fridge_assigned: draft.adyen_fridge_assigned || null,
@@ -304,11 +312,14 @@ export function MachineSetupConfigTab({
         wifi_device_hostname: draft.wifi_device_hostname || null,
       })
       .eq("machine_id", machineId);
+    return error;
+  }
 
+  function finishSave(machineId: string, errorMsg: string | null) {
     setSaving((prev) => ({ ...prev, [machineId]: false }));
     setSaveMsg((prev) => ({
       ...prev,
-      [machineId]: error ? `Error: ${error.message}` : "Saved ✓",
+      [machineId]: errorMsg ? `Error: ${errorMsg}` : "Saved ✓",
     }));
     setTimeout(
       () =>
@@ -319,6 +330,66 @@ export function MachineSetupConfigTab({
         }),
       3000,
     );
+  }
+
+  // PRD-121 T4: adyen_status / adyen_inventory_in_store go through
+  // set_machine_status; everything else in this tab stays a direct update.
+  async function handleSave(machineId: string) {
+    const draft = drafts[machineId];
+    if (!draft) return;
+    const original = originalDrafts[machineId];
+    const adyenChanged =
+      !original ||
+      draft.adyen_status !== original.adyen_status ||
+      draft.adyen_inventory_in_store !== original.adyen_inventory_in_store;
+
+    if (adyenChanged) {
+      setStatusChangeError(null);
+      setPendingAdyenChange({
+        machineId,
+        adyen_status: draft.adyen_status,
+        adyen_inventory_in_store: draft.adyen_inventory_in_store,
+      });
+      return;
+    }
+
+    setSaving((prev) => ({ ...prev, [machineId]: true }));
+    const error = await applyNonAdyenFields(machineId, draft);
+    finishSave(machineId, error?.message ?? null);
+  }
+
+  async function confirmAdyenChange({
+    reason,
+  }: {
+    value: string;
+    reason: string;
+  }) {
+    if (!pendingAdyenChange) return;
+    const { machineId, adyen_status, adyen_inventory_in_store } =
+      pendingAdyenChange;
+    const draft = drafts[machineId];
+    setSaving((prev) => ({ ...prev, [machineId]: true }));
+    const supabase = createClient();
+    const { error: rpcError } = await supabase.rpc("set_machine_status", {
+      p_machine_id: machineId,
+      p_status: null,
+      p_adyen_status: adyen_status || null,
+      p_adyen_inventory_in_store: adyen_inventory_in_store || null,
+      p_installation_date: null,
+      p_reason: reason,
+    });
+    if (rpcError) {
+      setSaving((prev) => ({ ...prev, [machineId]: false }));
+      setStatusChangeError(rpcError.message);
+      return;
+    }
+    const error = draft ? await applyNonAdyenFields(machineId, draft) : null;
+    setOriginalDrafts((prev) => ({
+      ...prev,
+      [machineId]: draft ?? prev[machineId],
+    }));
+    setPendingAdyenChange(null);
+    finishSave(machineId, error?.message ?? null);
   }
 
   return (
@@ -553,6 +624,21 @@ export function MachineSetupConfigTab({
           </p>
         )}
       </div>
+
+      {pendingAdyenChange && (
+        <PromptModal
+          title="Reason for Adyen status change"
+          description="adyen_status and adyen_inventory_in_store are written via set_machine_status. A reason is required and is recorded in machine_status_events."
+          mode="reason"
+          minReasonLength={10}
+          reasonPlaceholder="Why is this changing? (min 10 characters)"
+          confirmLabel="Save"
+          busy={!!saving[pendingAdyenChange.machineId]}
+          error={statusChangeError}
+          onCancel={() => setPendingAdyenChange(null)}
+          onConfirm={confirmAdyenChange}
+        />
+      )}
     </div>
   );
 }

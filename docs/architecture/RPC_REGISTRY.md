@@ -3101,3 +3101,30 @@ statement deleted, all applied before DDL. Articles 1, 2, 3 + S-308, 4, 5, 7, 8,
 ⛔ **`v_po_price_flags` is the canonical read for the review queue** — `pricing_status` is its last
 column (appended; `CREATE OR REPLACE VIEW` cannot insert mid-list). The FE Price Review page at
 `/app/procurement/price-review` reads it and performs zero table writes.
+
+## PRD-121 (2026-09-08) — `set_machine_status`, the Article 5 writer for machines.status et al.
+
+Migration `20260908062117_prd121_t4_set_machine_status_rpc.sql`. Fixture suite (RPC success + one
+audit row, role check, reason-length check, partial-update semantics, trigger rejection, REVOKE
+enforcement) run clean in a rolled-back transaction against prod before the file was written and
+committed, then re-applied verbatim via `apply_migration` and re-verified against `pg_proc` /
+`pg_trigger` / `information_schema` (file presence is not proof of apply — see feedback memory).
+Articles 1, 3, 4, 5, 8 (via `write_audit_log`-style dedicated audit table), S-308.
+
+| function                                                 | writes                                                                                                                   | notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `set_machine_status(uuid,text,text,text,date,text,uuid)` | `machines` (`status`, `adyen_status`, `adyen_inventory_in_store`, `installation_date`), `machine_status_events` (INSERT) | ✅ NEW. **Canonical and, after the REVOKE below, exclusive writer of the four columns on an EXISTING row.** SECURITY DEFINER, `search_path=public`, roles `operator_admin / superadmin / manager`. `p_reason` mandatory, ≥ 10 chars. A `NULL` value for any of `p_status`/`p_adyen_status`/`p_adyen_inventory_in_store`/`p_installation_date` means "leave this column unchanged" (partial-update semantics) — callers that only ever touch one column (e.g. the field-config status dropdown) don't need to first fetch and re-pass the other three. Refuses if all four are NULL. Writes exactly one `machine_status_events` row per call. New-row creation (`add_new_machine`'s INSERT, the field-config "Add machine" form, CSV import) is explicitly out of scope — this RPC only governs UPDATEs to rows that already exist. |
+| `enforce_machine_status_invariant()` _(trigger)_         | raises on the NEW row of `machines`, no writes                                                                           | BEFORE UPDATE, fires only when `status`/`adyen_status`/`adyen_inventory_in_store`/`repurposed_at` actually change. Enforces: `status='Active' AND repurposed_at IS NULL` ⟹ `adyen_status='Online today' AND adyen_inventory_in_store='Live'`. `repurpose_machine` needs no change under this invariant — its old-row UPDATE sets `repurposed_at=CURRENT_DATE` in the same statement (so the `IS NULL` precondition is already false when the trigger evaluates), and its new-row INSERT already sets `adyen_status='Online today', adyen_inventory_in_store='Live'` and relies on the `status` column DEFAULT `'Active'`. Cody: stays as-is.                                                                                                                                                                                       |
+
+⛔ **`authenticated` held a table-wide `UPDATE` grant on `machines`** — a column-level `REVOKE UPDATE
+(status, ...)` alone is a no-op against that (Postgres: a whole-table UPDATE grant is sufficient to
+update any column; column grants only matter for a role that _lacks_ the table grant). Fixed by
+`REVOKE UPDATE ON machines FROM authenticated` followed by `GRANT UPDATE (<every other column>)` —
+verified live via `information_schema.table_privileges` / `column_privileges` and a `SET LOCAL ROLE
+authenticated` fixture that the four columns are now actually blocked, not just column-listed.
+
+FE writers rewired to call this RPC instead of a direct `.update()` on the four columns:
+`src/app/(app)/admin/machines/page.tsx` (single-row save + bulk set_active/set_inactive, both via
+`PromptModal`), `src/app/(app)/app/pods/page.tsx` (drawer edit diff), `src/app/(field)/field/config/machines/page.tsx`
+(status dropdown, single-column partial update), `src/components/config/MachineSetupConfigTab.tsx`
+(adyen_status/adyen_inventory_in_store only, `status`/`installation_date` not editable in that tab).

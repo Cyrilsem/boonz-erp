@@ -6,6 +6,19 @@ import type { Machine, SimCard } from "@/types/machines";
 import MachineInsights from "@/components/admin/machines/MachineInsights";
 import MachineTable from "@/components/admin/machines/MachineTable";
 import MachineEditPanel from "@/components/admin/machines/MachineEditPanel";
+import PromptModal from "@/components/PromptModal";
+
+// PRD-121 T4: status / adyen_status / adyen_inventory_in_store /
+// installation_date are set_machine_status's exclusive columns (Article 1/3
+// — direct UPDATE on them is revoked for `authenticated`). Any other field
+// on `machines` still goes through the pre-existing direct update below.
+const STATUS_RPC_FIELDS = [
+  "status",
+  "adyen_status",
+  "adyen_inventory_in_store",
+  "installation_date",
+] as const;
+type StatusRpcField = (typeof STATUS_RPC_FIELDS)[number];
 
 type BulkAction =
   "set_active" | "set_inactive" | "toggle_refill" | "export_csv";
@@ -92,6 +105,27 @@ export default function MachinesPage() {
     useState<RepurposeResult | null>(null);
   const [repurposing, setRepurposing] = useState(false);
   const [repurposeError, setRepurposeError] = useState<string | null>(null);
+
+  // PRD-121 T4: pending set_machine_status confirm (reason required).
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    machineId: string;
+    statusFields: Partial<Record<StatusRpcField, string | null>>;
+    otherUpdates: Partial<Machine>;
+  } | null>(null);
+  const [statusChangeBusy, setStatusChangeBusy] = useState(false);
+  const [statusChangeError, setStatusChangeError] = useState<string | null>(
+    null,
+  );
+
+  // PRD-121 T4: pending bulk set_machine_status confirm (fan-out, one reason).
+  const [pendingBulkStatusChange, setPendingBulkStatusChange] = useState<{
+    machineIds: string[];
+    newStatus: string;
+  } | null>(null);
+  const [bulkStatusChangeBusy, setBulkStatusChangeBusy] = useState(false);
+  const [bulkStatusChangeError, setBulkStatusChangeError] = useState<
+    string | null
+  >(null);
 
   const showToast = useCallback(
     (message: string, type: "success" | "error") => {
@@ -230,28 +264,11 @@ export default function MachinesPage() {
 
       if (action === "set_active" || action === "set_inactive") {
         const newStatus = action === "set_active" ? "Active" : "Inactive";
-        // TODO(Batch 5 / RC-04): no canonical set_machine_status RPC exists.
-        // Left as a direct update to preserve the bulk activate/deactivate
-        // capability; rewire (fan-out per row like toggle_machine_refill) once
-        // a set_machine_status RPC lands in Batch 5.
-        const { error: updateError } = await supabase
-          .from("machines")
-          .update({ status: newStatus })
-          .in("machine_id", machineIds);
-
-        if (updateError) {
-          showToast("Bulk status update failed.", "error");
-          return;
-        }
-        setMachines((prev) =>
-          prev.map((m) =>
-            machineIds.includes(m.machine_id) ? { ...m, status: newStatus } : m,
-          ),
-        );
-        showToast(
-          `${machineIds.length} machine(s) set to ${newStatus}.`,
-          "success",
-        );
+        // PRD-121 T4: status is written exclusively via set_machine_status —
+        // defer to the confirm modal so a reason can be captured, then fan
+        // out per-row (no bulk RPC variant exists).
+        setBulkStatusChangeError(null);
+        setPendingBulkStatusChange({ machineIds, newStatus });
       }
 
       if (action === "toggle_refill") {
@@ -314,21 +331,47 @@ export default function MachinesPage() {
     [machines, showToast],
   );
 
-  const handleSave = useCallback(
-    async (machineId: string, updates: Partial<Machine>) => {
+  // Writes any field on `updates` that isn't one of set_machine_status's four
+  // owned columns. TODO(Batch 5 / RC-04): still a direct update for the rest
+  // of the row — no field-scoped update_machine RPC exists yet.
+  const applyOtherUpdates = useCallback(
+    async (machineId: string, otherUpdates: Partial<Machine>) => {
+      if (Object.keys(otherUpdates).length === 0) return true;
       const supabase = createClient();
-      // TODO(Batch 5 / RC-04): arbitrary machine-field edit — no canonical
-      // update_machine RPC exists. Left as a direct update to preserve the edit
-      // capability; rewire once Batch 5 provides a field-scoped machine RPC.
       const { error: updateError } = await supabase
         .from("machines")
-        .update(updates)
+        .update(otherUpdates)
         .eq("machine_id", machineId);
-
       if (updateError) {
         showToast("Failed to save machine.", "error");
+        return false;
+      }
+      return true;
+    },
+    [showToast],
+  );
+
+  const handleSave = useCallback(
+    async (machineId: string, updates: Partial<Machine>) => {
+      const statusFields: Partial<Record<StatusRpcField, string | null>> = {};
+      const otherUpdates: Partial<Machine> = { ...updates };
+      for (const f of STATUS_RPC_FIELDS) {
+        if (f in updates) {
+          statusFields[f] = (updates as Record<string, string | null>)[f];
+          delete (otherUpdates as Record<string, unknown>)[f];
+        }
+      }
+
+      if (Object.keys(statusFields).length > 0) {
+        // PRD-121: set_machine_status requires a reason — defer to the
+        // confirm modal instead of writing here.
+        setStatusChangeError(null);
+        setPendingStatusChange({ machineId, statusFields, otherUpdates });
         return;
       }
+
+      const ok = await applyOtherUpdates(machineId, otherUpdates);
+      if (!ok) return;
 
       setMachines((prev) =>
         prev.map((m) =>
@@ -338,7 +381,114 @@ export default function MachinesPage() {
       showToast("Machine saved.", "success");
       setEditMachineId(null);
     },
-    [showToast],
+    [applyOtherUpdates, showToast],
+  );
+
+  const confirmStatusChange = useCallback(
+    async ({ reason }: { value: string; reason: string }) => {
+      if (!pendingStatusChange) return;
+      setStatusChangeBusy(true);
+      setStatusChangeError(null);
+
+      const current = machines.find(
+        (m) => m.machine_id === pendingStatusChange.machineId,
+      );
+      const sf = pendingStatusChange.statusFields;
+      const supabase = createClient();
+      const { error: rpcError } = await supabase.rpc("set_machine_status", {
+        p_machine_id: pendingStatusChange.machineId,
+        p_status: sf.status ?? current?.status ?? null,
+        p_adyen_status: sf.adyen_status ?? current?.adyen_status ?? null,
+        p_adyen_inventory_in_store:
+          sf.adyen_inventory_in_store ??
+          current?.adyen_inventory_in_store ??
+          null,
+        p_installation_date:
+          sf.installation_date ?? current?.installation_date ?? null,
+        p_reason: reason,
+      });
+
+      if (rpcError) {
+        setStatusChangeBusy(false);
+        setStatusChangeError(rpcError.message);
+        return;
+      }
+
+      const ok = await applyOtherUpdates(
+        pendingStatusChange.machineId,
+        pendingStatusChange.otherUpdates,
+      );
+      setStatusChangeBusy(false);
+      if (!ok) return;
+
+      setMachines((prev) =>
+        prev.map((m) =>
+          m.machine_id === pendingStatusChange.machineId
+            ? { ...m, ...sf, ...pendingStatusChange.otherUpdates }
+            : m,
+        ),
+      );
+      showToast("Machine saved.", "success");
+      setPendingStatusChange(null);
+      setEditMachineId(null);
+    },
+    [pendingStatusChange, machines, applyOtherUpdates, showToast],
+  );
+
+  const confirmBulkStatusChange = useCallback(
+    async ({ reason }: { value: string; reason: string }) => {
+      if (!pendingBulkStatusChange) return;
+      const { machineIds, newStatus } = pendingBulkStatusChange;
+      setBulkStatusChangeBusy(true);
+      setBulkStatusChangeError(null);
+      const supabase = createClient();
+
+      const results = await Promise.allSettled(
+        machineIds.map((machineId) =>
+          supabase.rpc("set_machine_status", {
+            p_machine_id: machineId,
+            p_status: newStatus,
+            p_adyen_status: null,
+            p_adyen_inventory_in_store: null,
+            p_installation_date: null,
+            p_reason: reason,
+          }),
+        ),
+      );
+
+      const succeededIds = machineIds.filter(
+        (_, i) =>
+          results[i].status === "fulfilled" &&
+          !(results[i] as PromiseFulfilledResult<{ error: unknown }>).value
+            .error,
+      );
+      const failedCount = machineIds.length - succeededIds.length;
+
+      if (succeededIds.length > 0) {
+        setMachines((prev) =>
+          prev.map((m) =>
+            succeededIds.includes(m.machine_id)
+              ? { ...m, status: newStatus }
+              : m,
+          ),
+        );
+      }
+
+      setBulkStatusChangeBusy(false);
+      if (failedCount > 0) {
+        showToast(
+          `${succeededIds.length} set to ${newStatus}, ${failedCount} failed.`,
+          "error",
+        );
+      } else {
+        showToast(
+          `${succeededIds.length} machine(s) set to ${newStatus}.`,
+          "success",
+        );
+      }
+      setPendingBulkStatusChange(null);
+    },
+    [pendingBulkStatusChange, showToast],
   );
 
   // CC-Article-1 (B.x.3): open the Repurpose dialog with a fresh form, seeded
@@ -511,6 +661,37 @@ export default function MachinesPage() {
           onClose={() => setEditMachineId(null)}
           onSimChange={fetchData}
           onRepurpose={openRepurpose}
+        />
+      )}
+
+      {/* PRD-121 T4: reason required to change status/adyen labels/installation_date */}
+      {pendingStatusChange && (
+        <PromptModal
+          title="Reason for status change"
+          description="status, adyen_status, adyen_inventory_in_store and installation_date are written via set_machine_status. A reason is required and is recorded in machine_status_events."
+          mode="reason"
+          minReasonLength={10}
+          reasonPlaceholder="Why is this changing? (min 10 characters)"
+          confirmLabel="Save"
+          busy={statusChangeBusy}
+          error={statusChangeError}
+          onCancel={() => setPendingStatusChange(null)}
+          onConfirm={confirmStatusChange}
+        />
+      )}
+
+      {pendingBulkStatusChange && (
+        <PromptModal
+          title="Reason for bulk status change"
+          description={`Setting ${pendingBulkStatusChange.machineIds.length} machine(s) to ${pendingBulkStatusChange.newStatus} via set_machine_status. A reason is required and is recorded in machine_status_events.`}
+          mode="reason"
+          minReasonLength={10}
+          reasonPlaceholder="Why is this changing? (min 10 characters)"
+          confirmLabel="Save"
+          busy={bulkStatusChangeBusy}
+          error={bulkStatusChangeError}
+          onCancel={() => setPendingBulkStatusChange(null)}
+          onConfirm={confirmBulkStatusChange}
         />
       )}
 

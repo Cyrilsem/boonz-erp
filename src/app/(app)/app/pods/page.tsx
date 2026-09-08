@@ -2,6 +2,16 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
+import PromptModal from "@/components/PromptModal";
+
+// PRD-121 T4: status / adyen_status / adyen_inventory_in_store /
+// installation_date are written exclusively via set_machine_status now.
+const STATUS_RPC_FIELDS = [
+  "status",
+  "adyen_status",
+  "adyen_inventory_in_store",
+  "installation_date",
+] as const;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -548,6 +558,17 @@ export default function MachinesPage() {
     type: "success" | "error";
   } | null>(null);
 
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    machineId: string;
+    statusFields: Partial<
+      Record<(typeof STATUS_RPC_FIELDS)[number], string | null>
+    >;
+    otherDiff: Record<string, unknown>;
+  } | null>(null);
+  const [statusChangeError, setStatusChangeError] = useState<string | null>(
+    null,
+  );
+
   // Venue groups (from the venue_groups lookup table)
   const [venueGroups, setVenueGroups] =
     useState<string[]>(VENUE_GROUP_FALLBACK);
@@ -743,6 +764,27 @@ export default function MachinesPage() {
     setEditValues({});
   }, []);
 
+  const applyOtherDiff = useCallback(
+    async (machineId: string, diff: Record<string, unknown>) => {
+      if (Object.keys(diff).length === 0) return true;
+      const supabase = createClient();
+      // TODO(Batch 5 / RC-04): arbitrary machine-field edit — no canonical
+      // update_machine RPC exists. Left as a direct update to preserve the edit
+      // capability; rewire once Batch 5 provides a field-scoped machine RPC.
+      const { error } = await supabase
+        .from("machines")
+        .update(diff)
+        .eq("machine_id", machineId);
+      if (error) {
+        console.error("save error:", error);
+        setToast({ message: `Save failed: ${error.message}`, type: "error" });
+        return false;
+      }
+      return true;
+    },
+    [],
+  );
+
   const handleSave = useCallback(async () => {
     if (!selected) return;
     setSaving(true);
@@ -768,36 +810,93 @@ export default function MachinesPage() {
       return;
     }
 
-    const supabase = createClient();
-    // TODO(Batch 5 / RC-04): arbitrary machine-field edit — no canonical
-    // update_machine RPC exists. Left as a direct update to preserve the edit
-    // capability; rewire once Batch 5 provides a field-scoped machine RPC.
-    const { error } = await supabase
-      .from("machines")
-      .update(diff)
-      .eq("machine_id", selected.machine_id);
+    // PRD-121 T4: status / adyen_status / adyen_inventory_in_store /
+    // installation_date go through set_machine_status, never a direct update.
+    const statusFields: Partial<
+      Record<(typeof STATUS_RPC_FIELDS)[number], string | null>
+    > = {};
+    const otherDiff: Record<string, unknown> = { ...diff };
+    for (const f of STATUS_RPC_FIELDS) {
+      if (f in diff) {
+        statusFields[f] = diff[f] as string | null;
+        delete otherDiff[f];
+      }
+    }
 
-    if (!error) {
+    if (Object.keys(statusFields).length > 0) {
+      setStatusChangeError(null);
+      setPendingStatusChange({
+        machineId: selected.machine_id,
+        statusFields,
+        otherDiff,
+      });
+      setSaving(false);
+      return;
+    }
+
+    const ok = await applyOtherDiff(selected.machine_id, otherDiff);
+    if (ok) {
       setMachines((prev) =>
         prev.map((m) =>
           m.machine_id === selected.machine_id
-            ? ({ ...m, ...diff } as Machine)
+            ? ({ ...m, ...otherDiff } as Machine)
             : m,
         ),
       );
-      setSelected({ ...selected, ...diff } as Machine);
+      setSelected({ ...selected, ...otherDiff } as Machine);
       setEditing(false);
       setEditValues({});
       setToast({ message: "Changes saved.", type: "success" });
-    } else {
-      console.error("save error:", error);
-      setToast({
-        message: `Save failed: ${error.message}`,
-        type: "error",
-      });
     }
     setSaving(false);
-  }, [selected, editValues]);
+  }, [selected, editValues, applyOtherDiff]);
+
+  const confirmStatusChange = useCallback(
+    async ({ reason }: { value: string; reason: string }) => {
+      if (!pendingStatusChange || !selected) return;
+      setSaving(true);
+      setStatusChangeError(null);
+      const sf = pendingStatusChange.statusFields;
+      const supabase = createClient();
+      const { error: rpcError } = await supabase.rpc("set_machine_status", {
+        p_machine_id: pendingStatusChange.machineId,
+        p_status: sf.status ?? selected.status ?? null,
+        p_adyen_status: sf.adyen_status ?? selected.adyen_status ?? null,
+        p_adyen_inventory_in_store:
+          sf.adyen_inventory_in_store ??
+          selected.adyen_inventory_in_store ??
+          null,
+        p_installation_date:
+          sf.installation_date ?? selected.installation_date ?? null,
+        p_reason: reason,
+      });
+      if (rpcError) {
+        setSaving(false);
+        setStatusChangeError(rpcError.message);
+        return;
+      }
+      const ok = await applyOtherDiff(
+        pendingStatusChange.machineId,
+        pendingStatusChange.otherDiff,
+      );
+      setSaving(false);
+      if (!ok) return;
+      const merged = { ...sf, ...pendingStatusChange.otherDiff };
+      setMachines((prev) =>
+        prev.map((m) =>
+          m.machine_id === pendingStatusChange.machineId
+            ? ({ ...m, ...merged } as Machine)
+            : m,
+        ),
+      );
+      setSelected({ ...selected, ...merged } as Machine);
+      setEditing(false);
+      setEditValues({});
+      setPendingStatusChange(null);
+      setToast({ message: "Changes saved.", type: "success" });
+    },
+    [pendingStatusChange, selected, applyOtherDiff],
+  );
 
   // Close drawer and cancel edit
   const closeDrawer = useCallback(() => {
@@ -1934,6 +2033,21 @@ export default function MachinesPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {pendingStatusChange && (
+        <PromptModal
+          title="Reason for status change"
+          description="status, adyen_status, adyen_inventory_in_store and installation_date are written via set_machine_status. A reason is required and is recorded in machine_status_events."
+          mode="reason"
+          minReasonLength={10}
+          reasonPlaceholder="Why is this changing? (min 10 characters)"
+          confirmLabel="Save"
+          busy={saving}
+          error={statusChangeError}
+          onCancel={() => setPendingStatusChange(null)}
+          onConfirm={confirmStatusChange}
+        />
       )}
     </div>
   );

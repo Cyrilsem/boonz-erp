@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../../components/field-header";
 import { ShelfGrid, type ShelfSlot } from "@/components/field/ShelfGrid";
 import { MachineSetupConfigTab } from "@/components/config/MachineSetupConfigTab";
+import PromptModal from "@/components/PromptModal";
 
 const ADMIN_ROLES = ["operator_admin", "superadmin", "manager", "warehouse"];
 
@@ -440,6 +441,15 @@ export default function MachinesPage() {
   const [machineSaveMsg, setMachineSaveMsg] = useState<Record<string, string>>(
     {},
   );
+  // PRD-121 T4: status is set_machine_status's exclusive column now — a
+  // status change deferred here until a reason is given.
+  const [pendingStatusChange, setPendingStatusChange] = useState<{
+    machineId: string;
+    newStatus: string;
+  } | null>(null);
+  const [statusChangeError, setStatusChangeError] = useState<string | null>(
+    null,
+  );
 
   // Add machine
   const [showAddMachine, setShowAddMachine] = useState(false);
@@ -711,10 +721,12 @@ export default function MachinesPage() {
     }));
   }
 
-  async function saveMachine(id: string) {
-    const draft = machineDrafts[id];
-    if (!draft) return;
-    setMachineSaving((p) => ({ ...p, [id]: true }));
+  // PRD-121 T4: status is written exclusively via set_machine_status now
+  // (Article 5 canonical writer for machines.status / adyen_status /
+  // adyen_inventory_in_store / installation_date). This page never edits the
+  // three adyen/installation fields, so it passes NULL for them — the RPC
+  // treats a NULL param as "leave this column unchanged".
+  async function saveOtherMachineFields(id: string, draft: MachineDraft) {
     const supabase = createClient();
     // TODO(Batch 5 / RC-04): no canonical machine-edit RPC covers this full
     // field set (add_new_machine lacks contact/venue_group/pod_address;
@@ -727,7 +739,6 @@ export default function MachinesPage() {
         pod_number: draft.pod_number.trim() || null,
         pod_location: draft.pod_location.trim() || null,
         pod_address: draft.pod_address.trim() || null,
-        status: draft.status,
         location_category: draft.location_category || null,
         contact_person: draft.contact_person.trim() || null,
         contact_email: draft.contact_email.trim() || null,
@@ -737,6 +748,20 @@ export default function MachinesPage() {
         updated_at: new Date().toISOString(),
       })
       .eq("machine_id", id);
+    return error;
+  }
+
+  async function saveMachine(id: string) {
+    const draft = machineDrafts[id];
+    if (!draft) return;
+    const currentRow = machines.find((m) => m.machine_id === id);
+    if (currentRow && draft.status !== (currentRow.status ?? "Active")) {
+      setStatusChangeError(null);
+      setPendingStatusChange({ machineId: id, newStatus: draft.status });
+      return;
+    }
+    setMachineSaving((p) => ({ ...p, [id]: true }));
+    const error = await saveOtherMachineFields(id, draft);
     if (error) {
       setMachineSaveMsg((p) => ({ ...p, [id]: `Error: ${error.message}` }));
     } else {
@@ -746,6 +771,52 @@ export default function MachinesPage() {
       setTimeout(() => setMachineSaveMsg((p) => ({ ...p, [id]: "" })), 2000);
     }
     setMachineSaving((p) => ({ ...p, [id]: false }));
+  }
+
+  async function confirmMachineStatusChange({
+    reason,
+  }: {
+    value: string;
+    reason: string;
+  }) {
+    if (!pendingStatusChange) return;
+    const { machineId, newStatus } = pendingStatusChange;
+    const draft = machineDrafts[machineId];
+    setMachineSaving((p) => ({ ...p, [machineId]: true }));
+    const supabase = createClient();
+    const { error: rpcError } = await supabase.rpc("set_machine_status", {
+      p_machine_id: machineId,
+      p_status: newStatus,
+      p_adyen_status: null,
+      p_adyen_inventory_in_store: null,
+      p_installation_date: null,
+      p_reason: reason,
+    });
+    if (rpcError) {
+      setMachineSaving((p) => ({ ...p, [machineId]: false }));
+      setStatusChangeError(rpcError.message);
+      return;
+    }
+    const otherError = draft
+      ? await saveOtherMachineFields(machineId, draft)
+      : null;
+    setMachineSaving((p) => ({ ...p, [machineId]: false }));
+    if (otherError) {
+      setMachineSaveMsg((p) => ({
+        ...p,
+        [machineId]: `Error: ${otherError.message}`,
+      }));
+      setPendingStatusChange(null);
+      return;
+    }
+    setMachineSaveMsg((p) => ({ ...p, [machineId]: "Saved ✓" }));
+    await fetchData();
+    setMachineExpanded(null);
+    setPendingStatusChange(null);
+    setTimeout(
+      () => setMachineSaveMsg((p) => ({ ...p, [machineId]: "" })),
+      2000,
+    );
   }
 
   // CC-15: Repurpose machine — Supabase Edge Function (repurpose-machine).
@@ -1527,6 +1598,21 @@ export default function MachinesPage() {
             )}
           </div>
         </div>
+      )}
+
+      {pendingStatusChange && (
+        <PromptModal
+          title="Reason for status change"
+          description="status is written via set_machine_status. A reason is required and is recorded in machine_status_events."
+          mode="reason"
+          minReasonLength={10}
+          reasonPlaceholder="Why is this changing? (min 10 characters)"
+          confirmLabel="Save"
+          busy={!!machineSaving[pendingStatusChange.machineId]}
+          error={statusChangeError}
+          onCancel={() => setPendingStatusChange(null)}
+          onConfirm={confirmMachineStatusChange}
+        />
       )}
 
       {/* ── CC-08: Repurpose machine bottom sheet (operator_admin only) ── */}
