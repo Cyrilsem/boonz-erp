@@ -5540,3 +5540,32 @@ machine_location_categories;` (forward-only preferred — write a new migration)
 | `prd119_d3_backfill_typical_shelf_life_top40`                        | 12         | ✅ Applied | 2026-09-07 | D3 backfill: top 40 SKUs by 90-day volume (via `v_sales_history_resolved`), median `(expiration_date - created_at::date)` in `warehouse_inventory`, min. 3 samples. 30/40 backfilled (38-440 days), 10/40 left NULL (no real receipt history — venue/consignment products). Cody ✅.                                                                                                                                                                                                                   |
 | `prd119_d4_expiry_pull_horizon_table`                                | 2,12       | ✅ Applied | 2026-09-07 | D4: new `expiry_pull_horizon(category, pull_days_before_expiry, ...)`, seeded by `category_group` (Dairy & Chilled 5, Bakery 3, Beverages 14, Snacks 21, Confectionery 21, default 14). RLS: SELECT all authenticated, write operator_admin/superadmin/manager. Cody ✅.                                                                                                                                                                                                                               |
 | `prd119_d4_k1_reads_expiry_pull_horizon`                             | 1,4,5,12   | ✅ Applied | 2026-09-07 | D4: `approve_refill_plan`'s item-K Gate-2 short-dated guard reads `expiry_pull_horizon` by category instead of the hard-coded `plan_date+7`, falling back to the table's `default` row then to 7. Fixture (synthetic 2099-06-01, no live rows touched): dairy at +4d (horizon 5) refused, beverage at +20d (horizon 14) passed. **Flags a real contradiction with PRD-119's own original D4 decision (§3, rejected category thresholds) — a CS call, not resolved here.** Cody ✅.                     |
+
+## PRD-121 — build parity restore (2026-09-08)
+
+The 08-21 migration-parity reconciliation lasted 17 days before drifting again. Five migrations
+were applied to prod (three via a single unfiled `apply_migration` call, two — the v2/v3 pair — via
+repeated MCP calls with no file update between them) with no matching file in
+`supabase/migrations/` at any point. T1 reconstructs each **byte-for-byte** from
+`supabase_migrations.schema_migrations.statements` — never re-authored. Both the remote and local
+md5 are printed in `docs/prds/PRD-121-REPORT.md`; all five matched on the first write, no body was
+"fixed" in the process (per the goal's own explicit stop condition — `20260907053215`'s reconstructed
+body still carries the `edit_kind='shelf_lot_repair'` value that violates
+`refill_dispatching_edit_log`'s CHECK constraint; that is what prod actually ran between v2 and v3,
+and this registry records history, not a fixed version).
+
+| version          | name                                            | statements | note                                                                                                                                                                                                                                                                                           |
+| ---------------- | ----------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `20260821094253` | `prd117_reconcile_delivered_consumer_stock`     | 1          | New `reconcile_delivered_consumer_stock` RPC + nightly cron — see the file's own header for the full incident/design/Cody rationale, reconstructed verbatim.                                                                                                                                   |
+| `20260821094348` | `prd117_1_reconcile_skip_legacy_outcome_rows`   | 1          | Same-day re-issue of the RPC above, excluding legacy `packed=true, pack_outcome IS NULL` rows from all three reconcile passes. This is the version that stayed live through PRD-119b (confirmed identical body).                                                                               |
+| `20260824081149` | `commission_iris_1070_single_door`              | 1          | Commissioned IRIS-1070-0000-O1 as single-door. Its own header documents the Article 5 gap this loop closes: "no canonical writer exists for machines.status on an existing row — follow-up: create set_machine_status." See T4/T5.                                                             |
+| `20260907053215` | `prd119b_t1_repair_remove_leg_shelf_lot_rpc_v2` | 1          | Second of three MCP-only applies of `repair_remove_leg_shelf_lot` during the PRD-119b loop — the version that hit the `edit_kind` CHECK violation. Superseded same-day by v3. This is the exact defect PRD-121's non-negotiable rules exist to prevent going forward (file first, then apply). |
+| `20260907053259` | `prd119b_t1_repair_remove_leg_shelf_lot_rpc_v3` | 1          | Third and final MCP-only apply — the version that has been live since 07 Sep (`edit_kind='shelf'`). Matches the function currently in prod.                                                                                                                                                    |
+
+**D2 exception (permanent, second of its class after `prd053a`):** `prd118_i_commitment_expose_breakdown`
+(remote version `20260831041717`) has no separate file — it is covered by the combined
+`20260831041717_prd118_i_commitment_batch_grain_and_breakdown.sql`, which was applied as one
+migration spanning both the batch-grain change and the breakdown-exposure change documented
+separately in prod's own migration history. Both `prd053a` and this exception are carried in
+`scripts/check_migration_parity.sh`'s exception list (T6) so the parity check does not false-positive
+on them forever.
