@@ -170,6 +170,64 @@ example's own logic. **Flagged, not guessed through** — see "Decisions needed"
 `20260907114522_prd119_d4_k1_reads_expiry_pull_horizon.sql`. **Cody:** ✅ Approve, Articles 1, 2, 4,
 5, 12.
 
+### D4 CORRECTION (2026-09-08, CS) — the flagged contradiction, resolved
+
+CS ruled on "Decisions needed" item 1 below: the category-horizon read in K1 was too aggressive as
+a **load-time hard block** — a 21-day Snacks/Confectionery horizon refused loading sellable
+chocolate onto a weekly-visit machine that would sell through it well before either the next visit
+or the batch's actual expiry. The resolution is a split, not a straight revert to the pre-D4
+`plan_date+7`:
+
+**The guard** (`approve_refill_plan` item-K, `20260908071626_prd119_d4_correction_k1_visit_aware_floor.sql`)
+now reads `expiry_date <= plan_date + GREATEST(7, days_to_next_planned_visit + 3)`.
+`days_to_next_planned_visit` comes from `machines_to_visit` (the machine's nearest future row with
+`status IN ('picked','cs_added')`); no future visit known → Postgres `GREATEST` ignores the NULL
+operand and the floor falls back to the bare 7-day base. `expiry_pull_horizon` (table + seed) is
+**untouched** — it no longer feeds the guard at all.
+
+**The horizon table's real job** (`20260908072418_prd119_d4_correction_pull_candidates_view.sql`):
+a new `v_expiry_pull_candidates` view honours PRD-119's own original D4 sentence — _"category sets
+the deadline, velocity decides whether the lane clears before it"_ — as an **advisory** object, not
+a gate. `within_horizon` = the category's `pull_days_before_expiry` puts the lane inside its pull
+window; `is_pull_candidate` = within that window AND `units_on_lane / (v_shelf_sales_identity.units_7d/7)`
+(days needed to sell through) exceeds `days_to_expiry` (the lane won't clear before it actually
+spoils). Consumed by a new nightly `check_expiry_pull_candidates()` (same family as
+`check_expiry_unvalidated`, cron `check_expiry_pull_candidates_nightly` at 20:10 UTC). **The driver
+PULL screen the goal also names does not exist yet as an FE surface** — `/field/expiry` is the
+warehouse-inventory expiry page, a different concern; there is no on-machine-shelf pull screen to
+wire this view into. Flagged for CS as a distinct, unscoped follow-up rather than built speculatively.
+
+**Honest limitation found while building the view, not papered over:** `v_machine_expiry_batches`
+is `boonz_product_id`-grain; `v_shelf_sales_identity` is `(machine_id, pod_product_id)`-grain, and
+per that view's own METRICS_REGISTRY row, "pods are mixes so boonz_product_id is NOT a usable
+identity key" — there is no clean FK bridge between the two domains. The only bridge available
+without a heavier, per-machine WEIMI-slot-mediated resolution (the approach
+`get_machine_slots_with_expiry` already uses) is the same `LOWER(TRIM(name))` match that function's
+own `pod_by_name` CTE uses. **Measured live: this resolves ~3% of expiry-batch rows fleet-wide
+(40/1185), and on today's data zero of the 9 real within-horizon rows resolve.** Per this schema's
+own LAW 5 convention (never fabricate a decision from missing data — see the velocity objects in
+METRICS_REGISTRY), an unresolved row gets `is_pull_candidate = NULL`, surfaced by the nightly check
+as `needs_review`, separate from confirmed `pull_candidates` — never silently defaulted to "must
+pull" (alert fatigue) or "safe to leave" (hides real risk).
+
+**Fixture** (rolled back before commit, real machine `ACTIVATE-2005-0000-W0`, synthetic
+`2099-06-01` rows; re-run live post-apply for the guard):
+
+- Dairy (`Fade Fit Balade - Greek Yogurt Blueberry`) at `expiry=plan_date+4` → **refused**,
+  regardless of visit cadence (the floor's minimum is always 7).
+- Chocolate (`Twix - Regular`, Confectionery, horizon=21 in `expiry_pull_horizon` but **not read**
+  by the guard) at `expiry=plan_date+20`, next visit known in 7 days → floor=`GREATEST(7,10)=10` →
+  **passed**.
+- Same chocolate line, no future visit known at all → floor falls back to the bare 7 → **passed**.
+- Pull-candidates view (rolled back, mutated a real Active `pod_inventory` row for
+  `AMZ-1038-3001-O1` / "Al Ain Zero", `units_7d=43`, ~6.14/day): 10 units at +5d needs 1.6d to clear
+  → **not** a pull candidate; 100 units at +5d needs 16.3d → **is** a pull candidate; 100 units at
+  +30d (outside the 14d default horizon) → not yet in the pull window regardless of velocity.
+
+**Migrations:** `20260908071626_prd119_d4_correction_k1_visit_aware_floor.sql`,
+`20260908072418_prd119_d4_correction_pull_candidates_view.sql`. **Cody:** ✅ Approve, Articles 1, 2,
+4, 5, 12, 16.
+
 ### 3b — Overlap check with PRD-119b (per instruction, done before touching K1)
 
 Read `docs/prds/PRD-119b-REPORT.md` and every migration after `65681b5` (the commit immediately
@@ -251,13 +309,13 @@ before every push); editing it risked clobbering that work. Same standing exclus
 
 ## Decisions needed (not guessed through)
 
-1. **D4's category-based design directly contradicts PRD-119's own original D4 decision** (§3 of
-   the main design doc: "No category thresholds. One rule for every product: will it sell before
-   its date in this machine (velocity there)?"). This migration implements the CURRENT goal's own
-   explicit, specific instruction (concrete seed values, concrete fixture criteria) rather than the
-   older note — but the conflict is real. A velocity-based per-product/per-machine horizon was never
-   built or compared against this category-based one. **Needs a CS call on which model is
-   authoritative going forward.**
+1. ✅ **RESOLVED 2026-09-08** — D4's category-based design directly contradicted PRD-119's own
+   original D4 decision (§3 of the main design doc: "No category thresholds. One rule for every
+   product: will it sell before its date in this machine (velocity there)?"). CS ruled: the guard
+   reverts to a visit-aware floor (not the flat `+7`, not the category horizon); the category
+   horizon keeps its own table exactly as seeded but moves to ranking the nightly pull list /
+   (not-yet-built) driver PULL screen by velocity, honouring the original decision's own spirit as
+   an advisory object instead of a load-time gate. See the "D4 CORRECTION" subsection above.
 2. **The D4 fixture wording itself is internally inconsistent** ("a drink at expiry-10d passes"
    against a stated `drinks=14` horizon — 10 ≤ 14 would refuse under the same rule the dairy example
    uses). Built and verified with consistent values instead; flagging rather than guessing which
