@@ -587,7 +587,12 @@ export default function DispatchingDetailPage() {
       prev.map((l) => ({
         ...l,
         action: "added" as LineAction,
-        filled_qty: l.quantity,
+        // PRD-120 L4: Remove lines already default filled_qty on load (or carry
+        // whatever the driver typed, including a deliberate 0 — "not on the
+        // shelf"). Resetting it to the planned quantity here silently undid a
+        // driver's zero the moment they tapped this bulk button, and that wrong
+        // qty then went straight to driver_confirm_remove on Save.
+        filled_qty: l.dispatch_action === "Remove" ? l.filled_qty : l.quantity,
       })),
     );
   }
@@ -824,8 +829,12 @@ export default function DispatchingDetailPage() {
                       (sum, l) => sum + (l.filled_qty || 0),
                       0,
                     );
+                    // PRD-120 L4: `|| l.quantity` fell back to the planned qty
+                    // whenever a driver-confirmed removal was legitimately 0
+                    // (nothing on the shelf) — same class of bug addTotal above
+                    // was already fixed for (BUG-010 / IFLY Coconut).
                     const removeTotal = removedLines.reduce(
-                      (sum, l) => sum + (l.filled_qty || l.quantity || 0),
+                      (sum, l) => sum + (l.filled_qty || 0),
                       0,
                     );
                     const returnedTotal = returnedLines.reduce(
@@ -906,7 +915,7 @@ export default function DispatchingDetailPage() {
                                   </span>
                                 ) : line.dispatch_action === "Remove" ? (
                                   <span className="text-sm font-medium text-rose-700 dark:text-rose-400">
-                                    −{line.filled_qty || line.quantity}
+                                    −{line.filled_qty || 0}
                                   </span>
                                 ) : (
                                   <span className="text-sm font-medium">
@@ -1101,6 +1110,14 @@ export default function DispatchingDetailPage() {
           (s, l) => s + (l.quantity || 0),
           0,
         );
+        // PRD-120 L4: the chip must sum what's actually being removed, not the
+        // plan — a lane fed one Remove the driver zeroed plus a driver-inserted
+        // Remove of a different flavor must show the real movement, not the
+        // planned total (same fix already applied to addFilled above).
+        const removeFilled = removeLines.reduce(
+          (s, l) => s + (l.filled_qty || 0),
+          0,
+        );
         return (
           <div
             key={shelfCode}
@@ -1144,12 +1161,19 @@ export default function DispatchingDetailPage() {
                       )}
                     </span>
                   )}
-                  {removePlanned > 0 && (
+                  {(removePlanned > 0 || removeFilled > 0) && (
                     <span
                       className="rounded bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
-                      title={`Remove ${removePlanned} across ${removeLines.length} variants`}
+                      title={
+                        removeFilled === removePlanned
+                          ? `Removing ${removeFilled} across ${removeLines.length} variants`
+                          : `Planned ${removePlanned} · removing ${removeFilled} so far across ${removeLines.length} variants`
+                      }
                     >
-                      −{removePlanned}
+                      −{removeFilled}
+                      {removeFilled !== removePlanned && (
+                        <span className="opacity-70"> / {removePlanned}</span>
+                      )}
                     </span>
                   )}
                 </div>

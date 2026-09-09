@@ -357,10 +357,12 @@ export default function PickupPage() {
                           const badgeLabel = line.is_m2m
                             ? `M2M ${line.dispatch_action}`
                             : line.dispatch_action;
-                          const qty =
-                            line.filled_quantity > 0
-                              ? line.filled_quantity
-                              : line.quantity;
+                          // PRD-120 L4: `> 0 ? ... : quantity` fell back to the
+                          // planned qty whenever a Remove was legitimately packed
+                          // as 0 (nothing on the shelf) — the fetch-time default
+                          // (line ~122-123) already resolves the untouched case
+                          // to planned, so no second fallback belongs here.
+                          const qty = line.filled_quantity;
                           const qtyDisplay =
                             line.dispatch_action === "Remove"
                               ? `−${qty}`
