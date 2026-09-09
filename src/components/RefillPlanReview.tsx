@@ -343,7 +343,7 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
           📋 Refill Plan
         </p>
 
-        {/* Blocker 2: flavor-mismatch warning — never a block, just visibility */}
+        {/* Blocker 2: flavor-mismatch warning (never a block, just visibility) */}
         {flavorMismatches.length > 0 && (
           <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
             <p className="text-xs font-semibold text-amber-800 mb-2">
@@ -362,7 +362,7 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                   <span className="font-medium">
                     {m.planned_boonz_product_name}
                   </span>{" "}
-                  ×{m.quantity} — shelf actually holds{" "}
+                  ×{m.quantity}; shelf actually holds{" "}
                   {m.shelf_actual_flavors && m.shelf_actual_flavors.length > 0
                     ? m.shelf_actual_flavors.join(", ")
                     : "nothing Active"}

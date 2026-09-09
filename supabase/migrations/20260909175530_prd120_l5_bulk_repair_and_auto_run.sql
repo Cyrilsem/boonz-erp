@@ -7,7 +7,7 @@
 --   4. "Nightly assertion: count of Remove legs on undelivered dispatch rows with
 --       NULL pod_lot_id must be 0."
 --
--- Part A — repair_remove_leg_shelf_lot_bulk(p_plan_date, p_machine_name DEFAULT NULL,
+-- Part A: repair_remove_leg_shelf_lot_bulk(p_plan_date, p_machine_name DEFAULT NULL,
 -- p_reason, p_caller DEFAULT NULL, p_dry_run DEFAULT true). Loops undelivered
 -- (NOT picked_up AND NOT dispatched, not cancelled/skipped/returned) Remove legs
 -- for the date (+machine), calling the existing single-row repair_remove_leg_shelf_lot
@@ -26,14 +26,14 @@
 -- what "repairable" means. Post-L5, push time itself should never produce a fresh NULL
 -- pod_lot_id leg -- the auto-run wiring below is a defense-in-depth safety net.
 --
--- Part B — patches push_plan_to_dispatch (again) to auto-call the bulk wrapper,
+-- Part B: patches push_plan_to_dispatch (again) to auto-call the bulk wrapper,
 -- scoped to (p_plan_date, p_machine_name), p_dry_run := false, right after the
 -- existing pair_internal_transfer_m2m call, wrapped in the same defensive
 -- exception-handling + monitoring_alerts pattern already used for that call.
 -- rpc_version bumped v14_prd120_l5_flavor_fallback -> v15_prd120_l5_autorepair
 -- (increase only, per "never downgrade a version").
 --
--- Part C — check_null_pod_lot_remove_legs(), nightly at 20:25 UTC (same family as
+-- Part C: check_null_pod_lot_remove_legs(), nightly at 20:25 UTC (same family as
 -- check_far_future_picked_visits / check_expiry_unvalidated, via safe_monitoring_alert).
 -- "Undelivered" = NOT picked_up AND NOT dispatched (packed=true is still undelivered --
 -- the driver hasn't taken it yet -- matching this repo's own repair_remove_leg_shelf_lot,

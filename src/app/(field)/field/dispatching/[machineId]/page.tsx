@@ -588,7 +588,7 @@ export default function DispatchingDetailPage() {
         ...l,
         action: "added" as LineAction,
         // PRD-120 L4: Remove lines already default filled_qty on load (or carry
-        // whatever the driver typed, including a deliberate 0 — "not on the
+        // whatever the driver typed, including a deliberate 0: "not on the
         // shelf"). Resetting it to the planned quantity here silently undid a
         // driver's zero the moment they tapped this bulk button, and that wrong
         // qty then went straight to driver_confirm_remove on Save.
@@ -831,7 +831,7 @@ export default function DispatchingDetailPage() {
                     );
                     // PRD-120 L4: `|| l.quantity` fell back to the planned qty
                     // whenever a driver-confirmed removal was legitimately 0
-                    // (nothing on the shelf) — same class of bug addTotal above
+                    // (nothing on the shelf); same class of bug addTotal above
                     // was already fixed for (BUG-010 / IFLY Coconut).
                     const removeTotal = removedLines.reduce(
                       (sum, l) => sum + (l.filled_qty || 0),
@@ -1111,7 +1111,7 @@ export default function DispatchingDetailPage() {
           0,
         );
         // PRD-120 L4: the chip must sum what's actually being removed, not the
-        // plan — a lane fed one Remove the driver zeroed plus a driver-inserted
+        // plan. A lane fed one Remove the driver zeroed plus a driver-inserted
         // Remove of a different flavor must show the real movement, not the
         // planned total (same fix already applied to addFilled above).
         const removeFilled = removeLines.reduce(
