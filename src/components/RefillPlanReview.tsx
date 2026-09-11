@@ -20,6 +20,21 @@ type FlavorMismatch = {
   shelf_actual_flavors: string[] | null;
 };
 
+/** An Add New line that relabels a lane's physical pod product, where the planned
+ * quantity exceeds the OLD product's WEIMI-reported max_stock (never a block). */
+type LaneCapacityWarning = {
+  refill_plan_output_id: string;
+  machine_name: string;
+  shelf_code: string;
+  previous_pod_product_name: string | null;
+  previous_lane_max_stock: number | null;
+  new_boonz_product_name: string;
+  new_physical_type: string | null;
+  planned_quantity: number;
+  shelf_size: string | null;
+  estimated_new_capacity: number | null;
+};
+
 /** One aggregated line in the Leg 1 staging-transfer summary */
 type Leg1Item = {
   staging_warehouse_name: string; // e.g. "WH_MM" or "WH_MCC"
@@ -80,6 +95,11 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
   const [flavorMismatches, setFlavorMismatches] = useState<FlavorMismatch[]>(
     [],
   );
+  /** PRD-120 G7: Add New lines relabeling a lane's physical pod where the
+   * planned qty exceeds the OLD product's WEIMI max_stock (warning only). */
+  const [laneCapacityWarnings, setLaneCapacityWarnings] = useState<
+    LaneCapacityWarning[]
+  >([]);
 
   const loadPlan = useCallback(async () => {
     const supabase = createClient();
@@ -106,6 +126,16 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
         p_plan_date: thisPlanDate,
       });
       setFlavorMismatches((mismatchRows as FlavorMismatch[]) ?? []);
+
+      // PRD-120 G7: surface (never block on) Add New lines that relabel a
+      // lane's physical pod where the planned qty exceeds the OLD product's
+      // WEIMI max_stock -- that number described the old product, not the new
+      // one's physical dimensions.
+      const { data: capacityRows } = await supabase.rpc(
+        "check_lane_capacity_after_relabel",
+        { p_plan_date: thisPlanDate },
+      );
+      setLaneCapacityWarnings((capacityRows as LaneCapacityWarning[]) ?? []);
 
       // Batch-fetch total Active warehouse stock for all products in the plan
       // so the operator can see zero-stock blockers before approving.
@@ -366,6 +396,36 @@ export function RefillPlanReview({ selectedDate }: { selectedDate?: string }) {
                   {m.shelf_actual_flavors && m.shelf_actual_flavors.length > 0
                     ? m.shelf_actual_flavors.join(", ")
                     : "nothing Active"}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* PRD-120 G7: lane-capacity-after-relabel warning (never a block) */}
+        {laneCapacityWarnings.length > 0 && (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="text-xs font-semibold text-amber-800 mb-2">
+              ⚠️ {laneCapacityWarnings.length} Add New line
+              {laneCapacityWarnings.length !== 1 ? "s relabel" : " relabels"} a
+              lane — re-estimate capacity from the new product
+            </p>
+            <ul className="space-y-1">
+              {laneCapacityWarnings.map((w) => (
+                <li
+                  key={w.refill_plan_output_id}
+                  className="text-xs text-amber-900"
+                >
+                  <span className="font-medium">{w.machine_name}</span> /{" "}
+                  {w.shelf_code}: was {w.previous_pod_product_name ?? "unknown"}{" "}
+                  (fit {w.previous_lane_max_stock ?? "?"}), now planned{" "}
+                  <span className="font-medium">
+                    {w.new_boonz_product_name}
+                  </span>{" "}
+                  ×{w.planned_quantity}
+                  {w.new_physical_type && w.estimated_new_capacity != null
+                    ? ` — a ${w.new_physical_type} lane at this shelf size typically fits ~${w.estimated_new_capacity}`
+                    : ""}
                 </li>
               ))}
             </ul>
