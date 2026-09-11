@@ -408,6 +408,20 @@ export default function PackingDetailPage() {
   const fetchData = useCallback(async () => {
     const supabase = createClient();
 
+    // PRD-120 G6: pins go stale as the day's packing depletes shared batches.
+    // Refresh them silently before rendering, so the packer never sees a dead
+    // pin for stock that actually moved to a sibling batch. Best-effort: a
+    // failure here must never block the page from loading.
+    try {
+      await supabase.rpc("rebind_stale_dispatch_pins", {
+        p_machine_id: machineId,
+        p_dispatch_date: selectedDate,
+        p_dry_run: false,
+      });
+    } catch (err) {
+      console.error("[packing] rebind_stale_dispatch_pins failed:", err);
+    }
+
     const { data: machineData } = await supabase
       .from("machines")
       .select(
