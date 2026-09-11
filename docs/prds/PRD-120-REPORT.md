@@ -215,11 +215,21 @@ single flavor - the true HUAWEI contribution was 2 Salted + 3 Butter, not a flat
 Butter)? I can write and Cody-review a one-off, hand-verified correction migration once you confirm
 the intended split.
 
+**Closed, 2026-09-11 - no correction.** Re-checked live: `1bd1e07a` is still `packed=true,
+picked_up=true, dispatched=true` (inside the "do not touch" rule), its comment already reads
+"POPCORN CONSOLIDATION: 3 carried from HUAWEI B16 (**any flavor**)... Lane 0->6 with VML-1003
+units" - the row itself already documents that the exact flavor was never pinned down to a single
+value. The shelf's current Active `pod_inventory` lot is Dubai Popcorn - Butter, 2 units @
+2027-03-15, matching WEIMI's own read of the shelf. There is nothing left to reconcile the dispatch
+row's recorded flavor against that isn't already either (a) inside the do-not-touch window, or (b)
+already correctly reflected in live pod_inventory. **Known historical artifact, deliberately not
+corrected.** Closing this open item.
+
 ---
 
 ## Open items - flagged for CS
 
-1. **The AMZ-1029 A11 correction above** - the one explicit decision this report asks for.
+1. **The AMZ-1029 A11 correction above** - CLOSED 2026-09-11, no correction made (see above).
 2. **4 historical `NULL pod_lot_id` Remove legs**, all dated 2026-06 (`a85b3386-...`,
    `4a6924e7-...`, `42efe575-...`, `8f8baa80-...`), all `packed=true`, none `picked_up`/
    `dispatched` - flagged live by the new `check_null_pod_lot_remove_legs()` assertion, deliberately
