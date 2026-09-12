@@ -606,8 +606,22 @@ export default function DispatchingDetailPage() {
   // ── Save dispatch ──────────────────────────────────────────────────────────
 
   async function handleSave() {
-    setSaving(true);
     setReturnNotice(null);
+
+    // PRD-121 Phase 2 P1.5: return_reason is now mandatory at the RPC (return_dispatch_line
+    // refuses without one). Pre-flight here so a driver sees a clear message instead of a
+    // raw RPC error mid-save.
+    const missingReturnReason = lines.filter(
+      (l) => l.action === "returned" && !l.return_reason.trim(),
+    );
+    if (missingReturnReason.length > 0) {
+      setReturnNotice(
+        `Select a return reason for ${missingReturnReason.length} line(s) before saving.`,
+      );
+      return;
+    }
+
+    setSaving(true);
     const supabase = createClient();
     let totalReturnDelta = 0;
 
