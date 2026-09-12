@@ -1,0 +1,36 @@
+-- PRD-121 fixture #5 finding: repair_orphan_internal_transfer has two live overloads.
+--
+-- The 12-Sep fix (task-claimed "FIXED 12 Sep") added a 4th parameter
+-- (p_destination_shelf_id uuid DEFAULT NULL) via CREATE OR REPLACE FUNCTION -- the exact
+-- overload foot-gun documented in this repo's CLAUDE.md: a changed parameter list creates
+-- a NEW overload instead of replacing the old one. The old 3-arg
+-- (p_orphan_dispatch_id uuid, p_destination_machine_id uuid, p_reason text) body was never
+-- dropped, so both signatures are live today.
+--
+-- Consequence, verified live: ANY 3-argument call (positional or named) is ambiguous --
+-- Postgres cannot choose between the 3-arg exact match and the 4-arg default-filled match
+-- -- and fails with 42725 before either body ever runs. The function has been effectively
+-- uncallable via its natural signature since the fix shipped.
+--
+-- Worse: the surviving-but-unreachable 3-arg body is the PRE-fix, buggy implementation --
+-- it INSERTs the paired Add New row with source_kind='wh' while is_m2m=true, and its
+-- UPDATE on the orphan side never sets source_kind/source_machine_id/from_warehouse_id at
+-- all. Both violate m2m_consistency's stated shape (is_m2m=true requires
+-- source_kind IN ('m2m','truck_transfer'), source_machine_id NOT NULL,
+-- from_warehouse_id NULL) -- exactly the 23514 fixture #5 exists to rule out. It was
+-- superseded by the correct 4-arg body (already sets source_kind='m2m' consistently on
+-- both sides) on 12-Sep, but never actually removed.
+--
+-- No FE/n8n/cron caller exists for this function (grep across src/ and docs/prds/ finds no
+-- call site -- it is invoked ad hoc via SQL by an operator), so there is no active caller
+-- to protect with an Article 13 deprecation window: this is dead, superseded, data-
+-- corrupting code, not a working function being retired. Fix is a forward-only DROP of the
+-- dead overload (Article 12) so the 4-arg signature -- already correct, already the one
+-- fixture #5 was written against -- becomes the sole canonical signature. Its own
+-- DEFAULT NULL on p_destination_shelf_id preserves every legitimate 3-argument call intent.
+--
+-- Cody: approve. Articles 1 (one canonical signature), 12 (forward-only DROP, not
+-- edit-in-place), 13 (no active caller of the dead overload -- deprecation window doesn't
+-- apply to a broken, unreachable-when-correct, superseded body).
+
+DROP FUNCTION IF EXISTS public.repair_orphan_internal_transfer(uuid, uuid, text);
