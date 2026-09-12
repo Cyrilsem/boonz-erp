@@ -318,6 +318,43 @@ export async function addDispatchRow(input: {
   return { ok: true, data };
 }
 
+// ─── 4a2) find_unstarted_dispatch_conflict (PRD-121 P0.3) ─────────────────────
+// Read-only lookup mirroring prevent_duplicate_unstarted_dispatch's own predicate,
+// so a caller who just hit that guard can offer "add to existing line" instead of
+// only showing the raw error text.
+export async function findUnstartedDispatchConflict(input: {
+  machineId: string;
+  shelfCode: string;
+  boonzProductId: string;
+  action: "Refill" | "Add New" | "Remove";
+  dispatchDate: string;
+}): Promise<
+  ActionResult<{
+    dispatch_id: string;
+    quantity: number;
+    is_m2m: boolean;
+  } | null>
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(
+    "find_unstarted_dispatch_conflict",
+    {
+      p_machine_id: input.machineId,
+      p_shelf_code: input.shelfCode.trim().toUpperCase(),
+      p_boonz_product_id: input.boonzProductId,
+      p_action: input.action,
+      p_dispatch_date: input.dispatchDate,
+    },
+  );
+  if (error) return { ok: false, error: error.message };
+  const rows = data as {
+    dispatch_id: string;
+    quantity: number;
+    is_m2m: boolean;
+  }[];
+  return { ok: true, data: rows?.[0] ?? null };
+}
+
 // ─── 4b) driver_add_flagged_row (PRD-053 Phase C) ─────────────────────────────
 // A driver adding a product beyond the plan on the packing page. Composes the
 // canonical add_dispatch_row (via the DEFINER wrapper) then flags the row for

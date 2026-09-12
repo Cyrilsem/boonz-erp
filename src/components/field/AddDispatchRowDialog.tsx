@@ -7,6 +7,9 @@ import {
   searchBoonzProducts,
   listWarehouses,
   listActiveMachines,
+  findUnstartedDispatchConflict,
+  editDispatchQty,
+  editTransferQty,
   type EditRole,
   type SourceKind,
 } from "@/app/(field)/field/_actions/dispatch-edits";
@@ -55,6 +58,15 @@ export function AddDispatchRowDialog({
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // PRD-121 P0.3: when the error is the duplicate-row guard, this holds the
+  // conflicting existing row so we can offer "add to existing line" instead
+  // of only pointing the driver at the (wrong-for-this-case) Change product tool.
+  const [conflict, setConflict] = useState<{
+    dispatch_id: string;
+    quantity: number;
+    is_m2m: boolean;
+  } | null>(null);
+  const [pairing, startPairing] = useTransition();
 
   const [shelfCode, setShelfCode] = useState(initialShelfCode);
   const [action, setAction] = useState<"Refill" | "Add New" | "Remove">(
@@ -128,8 +140,39 @@ export function AddDispatchRowDialog({
     if (r.ok) setProductResults(r.data);
   }
 
+  function handlePairToExisting() {
+    if (!conflict) return;
+    startPairing(async () => {
+      const combinedQty = conflict.quantity + quantity;
+      const res = conflict.is_m2m
+        ? await editTransferQty({
+            dispatchId: conflict.dispatch_id,
+            newQty: combinedQty,
+            editRole,
+            reason:
+              reason || "PRD-121 P0.3: paired into existing unstarted line",
+            revalidate,
+          })
+        : await editDispatchQty({
+            dispatchId: conflict.dispatch_id,
+            newQty: combinedQty,
+            editRole,
+            reason:
+              reason || "PRD-121 P0.3: paired into existing unstarted line",
+            revalidate,
+          });
+      if (res.ok) {
+        onSuccess?.();
+        onClose();
+      } else {
+        setError(res.error ?? "Could not update the existing line");
+      }
+    });
+  }
+
   function handleSubmit() {
     setError(null);
+    setConflict(null);
     if (!selectedProduct) {
       setError("Select a product");
       return;
@@ -175,6 +218,16 @@ export function AddDispatchRowDialog({
         onClose();
       } else {
         setError(res.error ?? "Add failed");
+        if (isDuplicateRowError(res.error ?? "")) {
+          const c = await findUnstartedDispatchConflict({
+            machineId,
+            shelfCode,
+            boonzProductId: selectedProduct.product_id,
+            action,
+            dispatchDate,
+          });
+          if (c.ok) setConflict(c.data ?? null);
+        }
       }
     });
   }
@@ -339,11 +392,30 @@ export function AddDispatchRowDialog({
         {error && (
           <div className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">
             <p>{error}</p>
-            {/* PRD-112 §3.2. The duplicate-unstarted-row guard is correct and
-              stays byte-identical; what was missing was the sentence telling the
-              driver where to go instead. Add is for a genuinely NEW line; an
-              existing line changes product through Change product. */}
-            {isDuplicateRowError(error) && (
+            {/* PRD-112 §3.2 hint stays for the different-product case (still true:
+              a genuinely different product belongs on its own line via Change
+              product). PRD-121 P0.3: when the conflict is the SAME product, the
+              real fix is adding to the existing line's quantity, not swapping
+              its product - offer that as a real action instead of only a hint. */}
+            {isDuplicateRowError(error) && conflict && (
+              <div className="mt-2 rounded border border-red-200 bg-white p-2">
+                <p className="text-slate-700">
+                  {conflict.quantity} unit(s) of this product are already
+                  pending on this shelf. Add your {quantity} unit(s) to that
+                  line instead?
+                </p>
+                <button
+                  onClick={handlePairToExisting}
+                  disabled={pairing}
+                  className="mt-2 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                >
+                  {pairing
+                    ? "Adding…"
+                    : `Add to existing line (→ ${conflict.quantity + quantity})`}
+                </button>
+              </div>
+            )}
+            {isDuplicateRowError(error) && !conflict && (
               <p className="mt-1 font-medium">
                 This product already exists on this shelf - use Change product
                 on that line.
