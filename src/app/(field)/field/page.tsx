@@ -1408,22 +1408,24 @@ export default function FieldPage() {
     fetchData();
   }, [fetchData]);
 
+  // PRD-121 Phase 2 P1.4: this was the one field list page without a `focus`
+  // listener and with a 30s cooldown gating even the visibility refetch -- a
+  // machine dispatched (push_plan_to_dispatch) while the driver sat on this
+  // page, or switched tabs/apps within the cooldown, would not appear in
+  // Stops Today until a manual reload. Matches the no-cooldown
+  // visibilitychange + focus pattern already used by
+  // field/packing/page.tsx, field/dispatching/page.tsx, field/trips/page.tsx.
   useEffect(() => {
-    const REFETCH_COOLDOWN = 30_000;
-    let lastFetch = Date.now();
-
     function handleVisibility() {
       if (document.visibilityState === "visible") {
-        const now = Date.now();
-        if (now - lastFetch > REFETCH_COOLDOWN) {
-          lastFetch = now;
-          fetchData();
-        }
+        fetchData();
       }
     }
     document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", fetchData);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", fetchData);
     };
   }, [fetchData]);
 
