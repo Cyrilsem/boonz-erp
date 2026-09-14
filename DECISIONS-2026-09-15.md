@@ -132,6 +132,37 @@ than leaving D1 partially applied and saying so.
 
 ---
 
+## D-007. Phase 4 deferred items
+
+Built and verified: `substitution_rules` table (RLS + S-308 revoke), seeded with CS's D4
+rules against real `pod_products` ids, `find_substitutes_for_shelf` rewritten to read it
+rule-first (old correlation logic retired, confirmed correct "nothing" behaviour on
+NOVO-1023 where the chain targets are already on other shelves).
+
+Not done, disclosed:
+
+- **The scarce-stock and expired-on-shelf rules are seeded as rows but not engine-enforced.**
+  They describe a cross-cutting ENGINE BEHAVIOUR (consolidate to one lane fleet-wide; pair a
+  Remove with a substitute on the expired shelf), not a single-product substitution
+  `find_substitutes_for_shelf` can express with its current signature. Wiring them requires
+  touching `engine_add_pod`'s allocation loop directly, which was not attempted tonight given
+  the engine_add_pod regression risk already noted in D-006b.
+- **`get_pod_refill_draft` `exceptions` array** (every `no_rule_matched`, every gate failure,
+  every WEIMI/lot disagreement) -- same reason as the G2/G4/G9 draft columns in D-006b: that
+  function has not been read this session and needed its own budget.
+- **FE settings table under `/refill` to list/add/deactivate rules.** Database-only session
+  scope tonight; no FE work has been attempted yet (Phase 11 covers FE build/deploy). CS can
+  manage rows via SQL against `substitution_rules` until a screen exists.
+- **"Freakin Roasted"** has no matching `pod_products` row -- left out of the seed rather than
+  guessed (see the migration file's own note).
+
+**Why:** the four items above are all things `find_substitutes_for_shelf` and the table
+schema genuinely cannot express alone -- forcing them in would mean guessing at
+`engine_add_pod`'s internals or `get_pod_refill_draft`'s shape without having read either
+carefully enough tonight to do so safely.
+
+---
+
 ## D-005. Three more Phase-1 "replacement targets" were already compliant
 
 Read before writing, per standing discipline, on the remaining three named objects:
