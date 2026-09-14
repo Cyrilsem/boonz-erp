@@ -33,9 +33,13 @@ export const getCachedMachineHealth = unstable_cache(
   async () => {
     const j = (await rpcAnon("get_machine_health_cached")) as {
       rows?: unknown[];
+      refreshed_at?: string | null;
     } | null;
-    return j?.rows ?? [];
+    // PRD-122 T6 (R6): expose the DB-side app_cache.refreshed_at alongside the
+    // rows so the FE can stamp the grid with the cache's true age instead of
+    // silently treating a stale snapshot as live data.
+    return { rows: j?.rows ?? [], refreshedAt: j?.refreshed_at ?? null };
   },
-  ["machine-health-v2"],
+  ["machine-health-v3"],
   { revalidate: 60 },
 );
