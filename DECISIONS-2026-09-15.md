@@ -163,6 +163,49 @@ carefully enough tonight to do so safely.
 
 ---
 
+## D-008. Phase 5 (picker brain): a real, fleet-wide price-data gap blocks full A3/A6 proof
+
+Built and verified: `pick_urgency_params.horizon_days` explicitly set to 3 (it already
+existed at 2 from an earlier PRD -- overwritten, not silently left), `p1_threshold_aed`/
+`p2_threshold_aed` confirmed at 150/50, `cooldown_days` confirmed at 1 (a
+`cooldown_days_v126` column was mistakenly added first when I didn't check for the
+existing column, then dropped -- caught before committing). `v_machine_priority` gains
+`daily_revenue_aed`, `s_runout_aed`, `s_gap_aed`, `expiry_penalty_aed`, `stale_penalty_aed`,
+`p_score_aed`, `p_tier_aed` as new trailing columns -- every existing column (`p_score`,
+`p_tier`, `svc_track`, etc.) is untouched, per R7. `check_priority_surface_consistency()`
+still returns 0 rows after this change.
+
+**A1 PASSES**: AMZ-1038 (169.84) and AMZ-1029 (140.53) are the top two by `p_score_aed`.
+**A2 PASSES**: GRIT/WPP/ALJLT/JET are not P1 under `p_tier_aed`.
+**A4 PASSES** (trivially): every named "visited today" machine is P3 already, at or below
+the P2 cap the rule asks for.
+
+**A3 (ACTIVATEMCC should be P1) does not currently pass**, and the root cause is not a
+formula bug: `v_current_price` returns `effective_price_aed = NULL` for Aquafina on this
+exact machine (`machine_price` and `global_default_price` both NULL there) -- Aquafina is
+this machine's highest-velocity lane (lane_dvel ~2.6/day across 3 facings, i.e. ~9/day at
+the product grain, matching the PRD's own "9/day" claim almost exactly), so its real
+revenue-at-risk is being priced at zero, and `p_score_aed` comes out 0.00. This is not
+isolated: fleet-wide, 19,686 of 119,136 `v_current_price` rows (16.5%) have a NULL
+`effective_price_aed`. An AED-denominated model is only as good as the price data under it,
+and this is a genuine, pre-existing gap this session cannot fix (fabricating a price would
+be worse than reporting a stale-priced lane as zero-risk).
+
+**Not attempted, disclosed rather than faked**: the 30-day backtest (A7) and threshold
+tuning, `pick_machines_for_refill` v12's `p_cars`/`p_per_car` cluster fill (R5, A5),
+`get_machine_health`/Machine Health card exposure of `p_score_aed` (R6, FE). Given the price
+gap just found materially affects the SAME score these all depend on, running a full
+backtest or tuning thresholds against under-priced data tonight would produce a confidently
+wrong answer rather than an honestly incomplete one.
+
+**Choice:** ship the schema/scoring work, verified where the underlying data supports it,
+and stop rather than paper over A3/A5/A6/A7 or invent price data to make them pass.
+
+**Why:** the whole point of Rule Zero's "a proof fails, the phase is not done" is to prevent
+exactly this -- reporting green on a number that is quietly built on a hole in the data.
+
+---
+
 ## D-005. Three more Phase-1 "replacement targets" were already compliant
 
 Read before writing, per standing discipline, on the remaining three named objects:
