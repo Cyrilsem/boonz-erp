@@ -206,6 +206,32 @@ exactly this -- reporting green on a number that is quietly built on a hole in t
 
 ---
 
+## D-009. Phase 7 item 5 (junk 2029+ rows): `cancel_dispatch_line` cannot be used as specified
+
+`mark_dispatched(p_dispatch_ids uuid[])` was built and verified (mirrors `mark_picked_up`
+exactly; added to `enforce_canonical_dispatch_write`'s allowlist, which it was missing from).
+
+The 76 `dispatch_date >= 2029-01-01` rows were confirmed live (matches the PRD's own count).
+25 carry a `from_wh_inventory_id` pin. But **all 76 have `dispatched = false`**, and
+`cancel_dispatch_line` explicitly requires `dispatched = true` to cancel a row, and
+separately REFUSES any row with `from_wh_inventory_id IS NOT NULL` outright ("Use a
+reverse-cancellation RPC (not yet implemented) to credit back WH stock" -- that comment is
+in the function's own live body). So the literal instruction ("release pins, cancel through
+the RPC") cannot be carried out with the RPC named: it would raise on every one of the 76
+rows, for two independent reasons.
+
+**Choice:** do not build a new bespoke writer to force this through under time pressure.
+Releasing a warehouse pin incorrectly is a real stock-integrity risk (crediting back a
+reservation that shouldn't be released, or leaving one dangling), and this is explicitly an
+S2 item, not S1. Left undone, disclosed, with the exact blocker named, rather than inventing
+a new RPC whose warehouse-reservation semantics were not verified tonight.
+
+**Why:** "the engine is wrong and must be fixed" applies here too, just to `cancel_dispatch_line`
+itself -- the fix is a genuine "reverse-cancellation RPC" as its own comment names, which is
+schema/writer design work Dara and Cody should see before it ships, not a rushed patch.
+
+---
+
 ## D-005. Three more Phase-1 "replacement targets" were already compliant
 
 Read before writing, per standing discipline, on the remaining three named objects:
