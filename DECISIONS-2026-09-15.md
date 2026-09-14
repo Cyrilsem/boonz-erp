@@ -84,6 +84,23 @@ would make the pipeline worse while "completing" a checklist line that was alrea
 
 ---
 
+## D-004b. `bind_dispatch_fefo`'s `_bind_tally` already has `ON COMMIT DROP`
+
+PRD-124 #39 / ONE-LOOP Phase 7 item 4 describe `_bind_tally already exists` warnings from a
+missing `DROP TABLE IF EXISTS` between batches in `push_plan_to_dispatch_v16`. Read the live
+body: (a) there is no function named `push_plan_to_dispatch_v16` -- the temp table lives in
+`bind_dispatch_fefo`, which `push_plan_to_dispatch` calls at the end of every push; (b) that
+`CREATE TEMP TABLE _bind_tally` already reads `... ON COMMIT DROP AS ...`. The bug as described
+does not exist in the live function.
+
+**Choice:** no change. Phase 7 item 4 is marked superseded, not done -- the underlying defect
+was already fixed in a prior session's work, before this one started.
+
+**Why:** verify before fixing; a `DROP TABLE IF EXISTS` added on top of an already-working
+`ON COMMIT DROP` would be redundant, not a correction.
+
+---
+
 ## D-005. Three more Phase-1 "replacement targets" were already compliant
 
 Read before writing, per standing discipline, on the remaining three named objects:
