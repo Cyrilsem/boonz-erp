@@ -101,6 +101,37 @@ was already fixed in a prior session's work, before this one started.
 
 ---
 
+## D-006b. Phase 3 deferred items: G2/G4/G9 as draft columns, D1's literal ceiling
+
+Two Phase 3 items are disclosed as not done, not silently dropped:
+
+1. **G2/G4/G9 as boolean columns on `get_pod_refill_draft`.** That function is a large,
+   separate object not yet read this session. Adding three informational booleans to it
+   correctly requires reading it in full first (this session's own standing discipline), which
+   the remaining time did not allow alongside everything else in Phase 3-12. The three checks
+   themselves are simply gone from `validate_refill_plan`'s gate output (per spec: they are
+   deleted, not silently blocking) -- what's missing is only their surfacing as an FE-visible
+   flag on the draft.
+2. **D1's literal "target = max_stock at velocity>=3 or venue_team, else least(10,max_stock)"
+   fully encoded inside `engine_add_pod`.** That function's actual sizing logic is a banded
+   score (`machine_band` 1/2/3 with fractional multipliers 1.00/0.60/0.30 against
+   `cover_units`), not a two-branch literal -- D1's rule doesn't map onto it as a drop-in
+   replacement, and attempting a deeper rewrite of an already-twice-modified 400+ line function
+   risked a real regression for a QUALITY concern, not a safety one: G1 (the gate that used to
+   block over-capacity fills) is already deleted from `validate_refill_plan`, so there is no
+   gate depending on this ceiling being exact tonight. `hero_velocity_floor` (default 3) was
+   added to `refill_policy_params` so this can be finished without another schema migration.
+
+**Choice:** ship both PRD-125 Phase 3 acceptance-critical pieces (the five-gate rewrite, the
+non-waivable approval) fully proven; carry these two forward as explicit open items rather
+than reporting them done or quietly cutting them from the PRD.
+
+**Why:** the checklist (Phase 12) is supposed to distinguish "done" from "open," not paper
+over a gap -- and a rushed rewrite of engine_add_pod's scoring model, untested, would be worse
+than leaving D1 partially applied and saying so.
+
+---
+
 ## D-005. Three more Phase-1 "replacement targets" were already compliant
 
 Read before writing, per standing discipline, on the remaining three named objects:
