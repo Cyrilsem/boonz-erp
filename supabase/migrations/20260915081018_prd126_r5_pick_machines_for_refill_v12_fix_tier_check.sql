@@ -1,0 +1,16 @@
+-- Ledger reconciliation (ONE-LOOP-3 Job 4): this version/name pair existed in
+-- supabase_migrations.schema_migrations with no corresponding file. It was a
+-- same-function CREATE OR REPLACE fix applied between the initial v12 build
+-- (20260915074500_prd126_r5_pick_machines_for_refill_v12.sql) and the widen
+-- of machines_to_visit.priority_score (20260915081500) -- specifically the
+-- priority_tier CHECK constraint fix (mapping p_tier_aed's P1/P2 values onto
+-- the legacy P1_RESTOCK/P2_MAINTAIN strings the constraint actually allows).
+--
+-- The fix is already folded into the final committed body of
+-- 20260915074500_prd126_r5_pick_machines_for_refill_v12.sql (the repo's git
+-- history for that file was never split into a separate "before/after" pair
+-- during this session, so there is no distinct intermediate body to write
+-- here). This file exists only so every ledger version has a matching file
+-- name in supabase/migrations/, per this session's reconciliation pass; it
+-- intentionally does not re-run the function definition a second time.
+SELECT 1;
