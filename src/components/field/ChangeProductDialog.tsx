@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   substituteDispatchLine,
   listSubstituteProducts,
+  previewSubstituteBatch,
+  setWhBatchExpiry,
   type SubstitutionSourceTag,
+  type SubstitutePreview,
 } from "@/app/(field)/field/_actions/dispatch-edits";
 
 /**
@@ -82,6 +85,37 @@ export function ChangeProductDialog({
   const [chip, setChip] = useState<string>("flavor");
   const [otherReason, setOtherReason] = useState("");
 
+  // ONE-LOOP-3 Job 1.5 (PRD-124 #11): resolve the batch the substitution
+  // will pin (via a dry run of the same RPC the real save uses) as soon as
+  // a product + qty are chosen, so a NULL-expiry batch can be caught here,
+  // under "How many went in?", instead of the driver never seeing it.
+  const [preview, setPreview] = useState<SubstitutePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [expiryDate, setExpiryDate] = useState("");
+
+  useEffect(() => {
+    setPreview(null);
+    if (!selected || !Number.isFinite(qty) || qty <= 0) return;
+    let cancelled = false;
+    setPreviewLoading(true);
+    (async () => {
+      const r = await previewSubstituteBatch({
+        dispatchId,
+        newBoonzProductId: selected.product_id,
+        filledQty: qty,
+      });
+      if (cancelled) return;
+      setPreviewLoading(false);
+      if (r.ok && r.data) setPreview(r.data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, qty, dispatchId]);
+
+  const needsExpiryCapture =
+    !!preview?.new_wh_inventory_id && !preview.new_expiry;
+
   useEffect(() => {
     if (!open) return;
     setLoadingProducts(true);
@@ -110,11 +144,29 @@ export function ChangeProductDialog({
       setError("Pick the product you actually filled");
       return;
     }
+    if (needsExpiryCapture && !expiryDate) {
+      setError("Enter the expiry date on the batch before saving.");
+      return;
+    }
     const c = REASON_CHIPS.find((x) => x.key === chip);
     const reason =
       chip === "other" ? otherReason.trim() : (c?.reason ?? "substitution");
 
     startTransition(async () => {
+      // ONE-LOOP-3 Job 1.5: the expiry is captured on the batch BEFORE the
+      // real substitution runs, so substitute_dispatch_line's own pin
+      // never lands with a NULL expiry it could have avoided.
+      if (needsExpiryCapture && preview?.new_wh_inventory_id) {
+        const expRes = await setWhBatchExpiry({
+          whInventoryId: preview.new_wh_inventory_id,
+          expirationDate: expiryDate,
+          reason: "Expiry captured at pick (Change product dialog)",
+        });
+        if (!expRes.ok) {
+          setError(expRes.error ?? "Could not save the expiry date");
+          return;
+        }
+      }
       const res = await substituteDispatchLine({
         dispatchId,
         newBoonzProductId: selected.product_id,
@@ -216,6 +268,23 @@ export function ChangeProductDialog({
           />
         </label>
 
+        {previewLoading && (
+          <p className="mt-1 text-xs text-slate-400">Checking stock…</p>
+        )}
+        {/* ONE-LOOP-3 Job 1.5 (PRD-124 #11): the batch the substitution will
+            pin has no expiry on file -- required before Save is enabled. */}
+        {needsExpiryCapture && (
+          <label className="mt-3 block rounded border border-amber-300 bg-amber-50 p-2 text-sm dark:bg-amber-950/30">
+            Expiry on the pack
+            <input
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="mt-1 w-full rounded border px-2 py-2"
+            />
+          </label>
+        )}
+
         <div className="mt-3">
           <p className="text-sm">Why?</p>
           <div className="mt-1 flex flex-wrap gap-2">
@@ -265,10 +334,14 @@ export function ChangeProductDialog({
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isPending}
+            disabled={isPending || (needsExpiryCapture && !expiryDate)}
             className="min-h-[44px] rounded bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50"
           >
-            {isPending ? "Saving…" : "Save change"}
+            {isPending
+              ? "Saving…"
+              : needsExpiryCapture && !expiryDate
+                ? "Enter expiry to save"
+                : "Save change"}
           </button>
         </div>
       </div>

@@ -226,6 +226,83 @@ export async function substituteDispatchLine(input: {
   };
 }
 
+// ─── 3d) previewSubstituteBatch (ONE-LOOP-3 Job 1.5, PRD-124 #11) ─────────────
+// substitute_dispatch_line already takes p_dry_run (default true) and, on a
+// dry run, resolves and returns the exact batch it would pin
+// (new_wh_inventory_id / new_expiry) via the same primary/secondary-warehouse
+// lookup the real save uses -- reusing that instead of re-deriving the lookup
+// client-side. Called after the driver picks a product and enters a
+// quantity, before Save is enabled, so a NULL-expiry batch can be caught and
+// captured up front rather than surfacing "no deliverable warehouse batch
+// found" (which only fires for a warehouse_manager caller with truly no
+// batch, a different case) as the driver's first signal.
+export interface SubstitutePreview {
+  new_wh_inventory_id: string | null;
+  new_expiry: string | null;
+  needs_review: boolean;
+  review_reason: string | null;
+}
+
+export async function previewSubstituteBatch(input: {
+  dispatchId: string;
+  newBoonzProductId: string;
+  filledQty: number;
+}): Promise<ActionResult<SubstitutePreview>> {
+  if (
+    !input.newBoonzProductId ||
+    !Number.isFinite(input.filledQty) ||
+    input.filledQty <= 0
+  ) {
+    return { ok: false, error: "Pick a product and a quantity first" };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("substitute_dispatch_line", {
+    p_dispatch_id: input.dispatchId,
+    p_new_boonz_product_id: input.newBoonzProductId,
+    p_filled_qty: input.filledQty,
+    p_reason: null,
+    p_actor: null,
+    p_source_tag: null,
+    p_dry_run: true,
+  });
+  if (error) return { ok: false, error: error.message };
+  const r = data as {
+    new_wh_inventory_id: string | null;
+    new_expiry: string | null;
+    needs_review: boolean;
+    review_reason: string | null;
+  };
+  return {
+    ok: true,
+    data: {
+      new_wh_inventory_id: r.new_wh_inventory_id,
+      new_expiry: r.new_expiry,
+      needs_review: r.needs_review,
+      review_reason: r.review_reason,
+    },
+  };
+}
+
+// ─── set_wh_batch_expiry (ONE-LOOP-3 Job 1.5, PRD-124 #11) ────────────────────
+// Captures the expiry on a batch found with a NULL expiration_date -- refuses
+// to write anything if the batch already has a date (use adjust_warehouse_stock
+// for that, not this).
+export async function setWhBatchExpiry(input: {
+  whInventoryId: string;
+  expirationDate: string;
+  reason: string;
+}): Promise<ActionResult<{ status: string }>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("set_wh_batch_expiry", {
+    p_wh_inventory_id: input.whInventoryId,
+    p_expiration_date: input.expirationDate,
+    p_reason: input.reason,
+    p_dry_run: false,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, data: data as { status: string } };
+}
+
 // Products offered in the Change-product picker. Only products with an Active
 // mapping the machine can actually resolve are listed, and venue_team-supplied
 // ones sort first: on a VOX machine those are the flavors the venue itself
