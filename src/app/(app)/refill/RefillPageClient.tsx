@@ -10,6 +10,7 @@ import { SignalsTab } from "./SignalsTab";
 import SnapshotTab, { type RefillInitialData } from "./SnapshotTab";
 import RefillLogTab from "./RefillLogTab";
 import DayCloseTab from "./DayCloseTab";
+import SubstitutionRulesTab from "./SubstitutionRulesTab";
 
 // PRD-087 P3: the Stock Snapshot feature (types, helpers, state, handlers and
 // JSX) lives in SnapshotTab.tsx. The snapshot types are re-exported here so
@@ -35,6 +36,7 @@ export default function RefillPageClient({
     | "signals"
     | "issues"
     | "log"
+    | "settings"
   >("snapshot");
   const [showTomorrow, setShowTomorrow] = useState(true);
 
@@ -120,6 +122,7 @@ export default function RefillPageClient({
             ["log", "Log"],
             ["signals", "Signals"],
             ["issues", "Issues"],
+            ["settings", "Settings"],
           ] as const
         ).map(([t, label]) => (
           <button
@@ -179,6 +182,9 @@ export default function RefillPageClient({
       {/* ── Issues tab — PRD-055: CS-facing bug/action board (v_action_tracker_issues);
            replaces the retired Tracker tab. Field Capture removed (folded into Signals). ── */}
       {tab === "issues" && <TrackerTab />}
+
+      {/* ── Settings tab — PRD-124 #8: substitution rules (list/add/deactivate) ── */}
+      {tab === "settings" && <SubstitutionRulesTab />}
 
       {/* ── Stock Snapshot tab — machine health + slot drill-down ────────────── */}
       <div style={{ display: tab === "snapshot" ? undefined : "none" }}>
