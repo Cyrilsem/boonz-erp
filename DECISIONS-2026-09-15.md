@@ -795,3 +795,175 @@ any future fresh-environment bootstrap.
 naming-convention gap between this session's git commits and the database's own migration
 ledger is exactly the kind of thing CS needs to know about tonight, not discover later when
 `supabase db push` behaves unexpectedly on a new environment.
+
+---
+
+## D-025. ONE-LOOP-3 Job 1 items 6-10: Split toggle, settings table, AED Machine Health, procurement fix
+
+Five FE/backend items closing out Job 1.
+
+**Item 6** -- `WarehouseConfirmationsPanel.tsx` Split toggle, reusing the variant-split pattern
+from `PendingRemoveApprovalsPanel.tsx`, calling `wm_confirm_line_split` (built in a prior
+turn) instead of the single-shot `wm_confirm_line`. Each split entry can carry its own
+outcome (restocked/redeploy_pending/waste), not just a shared one for the whole line.
+
+**Item 7** -- `StartInventorySessionBar.tsx` banner reworded from "Inventory edits are
+locked" to "Press Start Inventory Control to confirm returns" -- an instruction, not an
+error, since the read-only state was working as designed.
+
+**Item 8** -- new Settings tab on `/refill` with a substitution-rules list/add/deactivate
+screen. `substitution_rules` has RLS enabled and `authenticated` holds no write grants on
+it (confirmed via `information_schema.role_table_grants`), so two new canonical writers
+were built: `add_substitution_rule` / `deactivate_substitution_rule` (role-gated,
+input-validated). Migration `20260915072013_prd12x_pf_substitution_rules_writers.sql`.
+
+**Item 9 / PRD-126 R6** -- `get_machine_health()` gains `p_score_aed`, `car_no` (today's
+picker car assignment via `machines_to_visit`, if picked), and `top_contributors_aed`
+(top 3 of runout/gap/expiry/stale, sourced from `v_machine_priority`'s existing AED
+columns). Pulled forward from Job 2 because Job 1's Machine Health card literally cannot
+render real data without it. `refresh_app_cache()` already re-serializes every
+`get_machine_health()` column via `to_jsonb`, so the 2-min cron cache picks the new columns
+up with no further change. Required a `DROP FUNCTION` + `CREATE` (42P13, changed return
+row shape) -- verified via `pg_depend` that no view depends on the function first.
+Migration `20260915072500_prd126_r6_get_machine_health_aed_v2.sql` (file renamed to match
+the name `apply_migration` actually recorded, per the established recipe).
+
+**Item 10 / PRD-124 #36** -- investigated two candidate "count vs list" divergences.
+`allOrders.length · pending` in the header vs. the Pending-tab list: both already read the
+same `allOrders` array through the byte-identical filter predicate -- confirmed
+non-divergent, no fix needed. The real divergence: the pending-additions banner's count came
+from a separate `count`-only query with no rows behind it, so it could show a fleet-wide
+total with no way to see which POs made it up -- exactly PRD-124 #36's "header 21, list 3."
+Fixed by deriving the count from the same query that now renders a per-PO breakdown
+(clickable chips opening that PO's drawer) in the banner itself, so the total and the list
+behind it can never disagree.
+
+**Why:** items 6/8/9 each needed a real backend gap identified and closed (S-308 grants,
+missing RPC, schema shape) before the FE work was even possible; item 10 needed the actual
+divergent pair identified by tracing both candidates to their source code rather than
+guessing which one PRD-124 #36 meant.
+
+---
+
+## D-026. ONE-LOOP-3 Job 2 (PRD-126 R5/R7): pick_machines_for_refill v12, A1-A7
+
+R1-R4 (the AED score/tier formula) and the price-data gap that blocked them were already
+closed by a prior turn (D-008, D-019) -- this block is R5 (the cluster-fill picker) plus
+printing A1-A7.
+
+**R5.** `pick_machines_for_refill` v12: `p_cars`/`p_per_car` replace `p_max_total`/
+`p_max_siblings`. Three explicit passes over a temp table, not one declarative query,
+because "seed every car from a fresh cluster first" is what stops car 1 hoovering up car
+2's cluster before car 2 gets a chance to seed: (1) seed each car with the highest-scoring
+unpicked P1 whose cluster no earlier car has already claimed as a seed cluster this run,
+falling back to any-tier-fresh-cluster then any-tier-any-cluster if P1s run out; (2) fill
+each car from its own seed's cluster (P1s before P2s, then score) up to `p_per_car`; (3)
+only once every car has had its own-cluster fill attempt, top up any car still short from
+whatever is left fleet-wide. Ranks by `p_score_aed`/`p_tier_aed`, not the old points-based
+`p_score`/`p_tier`. The PRD-122 dead-branch VOX-day comment (D-011) is carried forward as an
+inline comment (the CREATE is written fresh, so `COMMENT ON FUNCTION` is no longer the
+lower-risk option D-011 chose for v11).
+
+Two real bugs caught before this could ship, both by actually running it rather than
+trusting a clean `apply_migration`: `machines_to_visit_priority_tier_check` only allows the
+legacy `P1_RESTOCK`/`P2_MAINTAIN` strings, not `p_tier_aed`'s own `P1`/`P2` -- fixed by
+mapping one to the other at insert time. `machines_to_visit.priority_score` was
+`numeric(5,2)` (max 999.99), sized for the old ~0-100 points score; real AED scores hit
+2310+ -- widened to `numeric(10,2)` (migration `20260915081500`), which required dropping
+and recreating `v_pick_decision_cohorts_v3` (the only dependent view, checked via
+`pg_depend`) around the `ALTER COLUMN TYPE`.
+
+**A1-A7, printed:**
+
+- A1 PASS -- AMZ-1038 (2310.51) and AMZ-1029 (1599.33) are the top two by `p_score_aed`.
+- A2 PASS -- GRIT/WPP/ALJLT/JET are P2 or P3, none P1.
+- A3 PASS (pre-cooldown) -- ACTIVATEMCC's raw tier (`p_tier_aed_raw`, before the
+  visited-today cooldown cap) is P1 (`hero_lane_runs_out=true`, score 291.03).
+- A4 PASS -- all 7 named "visited that day" machines are P2 or P3.
+- A5 PASS (pre-cooldown seed logic verified directly) -- with the 7 real raw-P1 machines
+  (3 AMAZON, 3 VOX, 1 ADDMIND), car 1 seeds on AMZ-1038 (AMAZON, 2310.51) and car 2 seeds on
+  VOXMCC-1005 (VOX, 294.46) -- the two next-highest P1s in the SAME cluster as an
+  already-claimed seed are correctly skipped for seeding purposes.
+- A6 PASS (pre-cooldown) -- exactly 7 machines are `p_tier_aed_raw='P1'` fleet-wide, all with
+  velocity >= 3/day (7.00 to 39.00) or expired stock.
+- A7 PASS -- 30-day backtest, hero-lane-at-zero stockouts on real `weimi_aisle_snapshots`
+  daily history (Aug 16 - Sep 15, 31 days): 27 hero-lane-zero events (trailing 30-day
+  velocity >= 3 hitting `current_stock=0`). New-rule proxy (`hero_lane_runs_out`: any hero
+  lane with runway < horizon_days the day before, using that day's real snapshot + trailing
+  velocity) catches 27/27. Old-rule ground truth (real historical
+  `machines_to_visit.priority_tier='P1_RESTOCK'` the day before -- not a recomputation)
+  catches 4/27.
+
+**Why the cooldown caveat on A3/A5/A6:** today (15 Sep) is not "14 Sep before any refill" --
+AMZ-1038/1029/1068, VOXMCC-1005, ACTIVATEMCC-1037 and ACTIVATE-2005 were all genuinely
+visited today, so the LIVE `p_tier_aed` correctly cools them to P2 (R4's own cooldown rule
+working as designed, not a bug). `v_machine_priority` has no historical-date parameter, so
+literally replaying "14 Sep morning" isn't possible from this schema. Verifying against the
+pre-cooldown raw tier is the closest honest proxy, disclosed rather than either silently
+testing against a confounded live P1 list or fabricating a historical replay.
+
+**Threshold tuning:** not retuned. `p1_threshold_aed=150` / `p2_threshold_aed=50` already
+match the PRD's stated initial values (confirmed live in `pick_urgency_params`), and A1-A7
+all pass at these values with real margin (A7's 27/27 vs 4/27 in particular) -- retuning
+with no evidence the current thresholds are wrong would be change for its own sake.
+
+**Why:** A7's methodology (real historical snapshots + real historical ground truth for the
+old rule, a disclosed, price-independent proxy for the new rule) is deliberately more work
+than a live-view spot check, because the whole point of a backtest is to test against
+outcomes the current live state cannot confound -- unlike A3/A5/A6, which the schema
+genuinely cannot de-confound from today's cooldown state.
+
+---
+
+## D-027. Two mid-turn CS instructions: align_pod_lots_to_weimi expiry inheritance, source_warehouse_id grep
+
+Two items CS added mid-turn, both real bugs in the same family as this session's ongoing
+`source_kind`/`source_warehouse_id` and expiry work.
+
+**align_pod_lots_to_weimi.** Its live 22:00 UTC run on 14 Sep created a `WEIMI-ALIGN` lot on
+AMZ-1057-2403-O1 A08 with `expiration_date` NULL, while Inactive lots for the same product
+on the same shelf carried a real `2026-09-25` -- confirmed directly against
+`pod_inventory` (the exact row, `08dc9829-...`, batch `WEIMI-ALIGN-2026-09-14`, is still
+sitting there Inactive with `expiration_date` NULL). The bug: the create-lot branch (no
+Active lot to move, lane has stock) always hardcoded `expiration_date = NULL`. Fixed to look
+up the most recent lot (any status, `ORDER BY created_at DESC`) of the same
+`boonz_product_id` on the same machine and inherit its expiry, excluding the `2099-12-31`
+sentinel (found during dry-run verification: IFLYMCC-1024 A02 and VOXMCC-1011 A14 would
+otherwise have inherited the sentinel as if it were a real date). Dry-run across all 32
+`include_in_refill` machines: 133 create-lanes total, 44 would now inherit a real date
+instead of NULL. **Written and verified, not applied live** -- CS's instruction was to apply
+after 22:00 Dubai, ahead of cron 77's 22:00 UTC live run tonight; this session cannot
+literally wait ~10 real hours mid-turn, so the migration is committed to the repo
+(`20260915080500`) but the live `CREATE OR REPLACE` is deferred to later in this same
+session, gated on the actual wall-clock time.
+
+**source_warehouse_id grep (Job 4, done early).** CS asked for every `INSERT INTO
+refill_dispatching` to be checked for the same bug class as the `insert_driver_remove_line`
+hotfix (`source_kind` set to `'wh'` without a matching `source_warehouse_id`, violating
+`refill_dispatching_source_consistency_chk`). Checked all 8 functions referencing both
+columns: `set_dispatch_source` and `add_dispatch_row` take an explicit, validated
+`p_source_warehouse_id` param (raise if `source_kind='wh'` and it's NULL) -- safe.
+`convert_removes_to_m2m_transfer`, `repair_orphan_internal_transfer`,
+`correct_packed_m2m_transfer` all hardcode `source_kind='m2m'` with a real
+`source_machine_id`, never `'wh'` -- safe. `audit_m2m_dispatch_changes` is a trigger that
+only reads `NEW.source_kind` into a log payload, never writes `refill_dispatching` -- not a
+writer. Found the real bug in `push_plan_to_dispatch`: both its Remove/Machine To Warehouse
+and Refill/Add New INSERTs compute `v_source_kind='wh'` whenever the plan line's
+`source_origin` is `'warehouse'` (or NULL, via a `COALESCE` default) but never included
+`source_warehouse_id` in either column list. Fixed by deriving it from the same warehouse
+variable each branch already uses for `from_warehouse_id` (`v_primary_warehouse_id` for
+Remove/M2W, `v_line_wh_id` for Refill/Add New), falling back to `source_kind='unknown'` if
+that resolves to NULL. Verified in a rolled-back transaction against real historical data
+(`NISSAN-0804-0000-L0`, 2026-05-10, 43 approved-but-undispatched REFILL lines): new rows
+carry `source_kind='wh'` with a matching `source_warehouse_id`, confirmed inside the same
+transaction before rolling back. Migration `20260915082749`, applied live (this one had no
+CS timing gate).
+
+**Why the fleet-wide sample of "recent 'wh' rows" was misleading at first:** the first
+spot-check (10 most recent `source_kind='wh'` rows) all happened to come from
+`add_dispatch_row` (a safe writer), which looked like proof `push_plan_to_dispatch` was
+fine. Cross-referencing `write_audit_log.rpc_name` for the actual creating RPC, then joining
+`refill_plan_output.dispatch_id` to `refill_dispatching` specifically for
+`push_plan_to_dispatch`-created rows, is what actually isolated the bug -- a reminder that
+"the sample I grabbed looks fine" is not the same claim as "the function I'm auditing is
+fine" when several writers share the same output shape.
