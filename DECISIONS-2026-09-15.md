@@ -967,3 +967,88 @@ fine. Cross-referencing `write_audit_log.rpc_name` for the actual creating RPC, 
 `push_plan_to_dispatch`-created rows, is what actually isolated the bug -- a reminder that
 "the sample I grabbed looks fine" is not the same claim as "the function I'm auditing is
 fine" when several writers share the same output shape.
+
+---
+
+## D-028. Job 3, Phase 10 rehearsal: two real bugs in approve_pod_refill_plan, one disclosed pre-existing gap
+
+Full one-transaction, rolled-back rehearsal of a 2026-09-16 day (AMZ-1029-3003-O1,
+AMZ-1038-3001-O1, ACTIVATEMCC-1037-0000-L0 -- the PRD text named
+`AMZ-1038-3003-O1`/`ACTIVATEMCC-2005-0000-L0`, neither of which exist; substituted the real
+machines closest to the named ones, verified against `machines` first).
+
+**Bug 1 (real, live-affecting): `approve_pod_refill_plan` pushed zero dispatch rows, always.**
+Its own explicit push loop queried `pod_refill_plan WHERE status = 'approved'` to decide which
+machines to push -- but `stitch_pod_to_boonz` (called one line earlier) advances those same
+rows to `'stitched'` as part of its own work, so by the time the loop ran, zero rows were still
+`'approved'` and `push_results` was always `[]`. This is a bug introduced by tonight's own
+Phase 6 migration (`20260915001300_prd12x_p6_confirm_and_build.sql`) -- 09-15's real 251
+dispatch rows predate it and were pushed via the old flow, so nothing in production was
+silently broken by this until tonight's first real 19:00 approve would have hit it. Fixed
+(`20260915084132`) by capturing the machine list from the UPDATE's own `RETURNING` clause,
+before `stitch_pod_to_boonz` runs, instead of re-querying by status afterward.
+
+**Bug 2 (real, deeper): even with the machine list fixed, `dispatch_row_count` was still 0.**
+`write_refill_plan` (called inside `stitch_pod_to_boonz`) always inserts fresh
+`refill_plan_output` rows with `operator_status` hardcoded to `'pending'` -- confirmed by
+calling it directly and reading the row back. `push_plan_to_dispatch`'s own loop only picks up
+`operator_status = 'approved'` rows. Nothing in `confirm_and_build` -> `approve_pod_refill_plan`
+-> `stitch_pod_to_boonz` ever flips it. This also explains a trigger already sitting on the
+table, `trg_refill_plan_output_approve_to_dispatch`, which fires `push_plan_to_dispatch` itself
+whenever a row's `operator_status` transitions TO `'approved'` -- the schema was clearly built
+for that UPDATE to be the trigger for dispatch; `approve_pod_refill_plan` never performed it.
+Fixed (`20260915085804`) by adding the missing `UPDATE refill_plan_output SET operator_status =
+'approved' WHERE ... operator_status = 'pending'` after stitch. This fires the existing trigger
+AND makes the function's own explicit loop find real rows -- redundant (both push the same
+lines) but harmless, since `push_plan_to_dispatch` is idempotent per line via its own
+existing-row / `ON CONFLICT` checks.
+
+**Also found and fixed inline:** `pack_dispatch_line`'s pick payload key is `wh_inventory_id`,
+not `from_wh_inventory_id` as its own error message claims (BUG-006 prevention check) -- a
+real, pre-existing, misleading-error-message bug in that function, worked around in the
+rehearsal's own pack step rather than touched, since it's out of tonight's scope and the
+workaround (use the right key) is enough to prove the phase.
+
+**Disclosed, not fixed: G3 blocking on ACTIVATEMCC-1037-0000-L0 A16 (Evian - 1L).**
+`validate_refill_plan`'s G3 gate (`current_stock = 0 AND n_lines = 0`) correctly flags this
+lane: WEIMI shows it empty and the build genuinely produced zero lines for it. Two
+substitution rules were added (Evian generic and the exact `pod_product_id` for Evian - 1L,
+both substituting Vitamin Well -- already stocked on 3 other shelves of this same machine) but
+did **not** clear the gate, because G3's SQL predicate never actually consults
+`substitution_rules` at all (its own gate name, "no substitution rule," is aspirational text,
+not what the code checks) -- the real fix would be in `_build_draft_core_v3`'s shelf-selection
+logic (why does the build engine not even attempt a line for this lane), which is a materially
+larger, untouched-by-tonight's-PRDs engine. Not blind-fixed under time pressure. This is a
+genuine, pre-existing, unrelated-to-tonight's-work gap the rehearsal correctly surfaced --
+exactly what Phase 10 is for.
+
+**Self-inflicted, not a bug:** the rehearsal's own synthetic Remove row (injected via
+`add_dispatch_row` because this specific 3-machine build produced Refill-only lines, and
+Phase 10's step 5 needs a Remove line to exercise `driver_confirm_remove`) has no paired
+replacement line, which correctly trips G7 ("Remove with no replacement on the same lane").
+Verified by re-running `validate_refill_plan` without the synthetic injection: G7 disappears,
+only G3 remains. Confirmed via `wm_confirm_line_split`'s own live use in the rehearsal that a
+plain fill-row return (`return_dispatch_line` on a Refill/Add New line) is NOT a Warehouse
+Confirmations candidate (`v_wm_confirmations` requires `action = 'Remove'`) -- Phase 10's own
+wording ("wm_confirm_line_split dry run on the returned row") is imprecise; the correct target
+is the driver-confirmed Remove row, which is what the rehearsal actually exercises.
+
+**Final rehearsal result:** confirm_and_build, approve_pod_refill_plan (23 real dispatch rows
+created), structural checks (shelf match, warehouse pin, venue no-pin), pack every line (20
+packed, 4 correctly skipped as unpinned procurement gaps), mark_picked_up, mark_dispatched,
+receive_dispatch_line, driver_confirm_remove, return_dispatch_line, and
+`wm_confirm_line_split` dry run all pass. `validate_refill_plan` still reports 1 blocking (G3,
+disclosed above) on a clean re-run without the synthetic injection. Rolled back; canary
+`rows_0915`/`packed_0915` unchanged at 251/218, but the fingerprint itself moved
+(`84af2eb7...` -> `2a67d03a...`) between the pre-Phase-10 baseline and the post-Phase-10
+recheck -- same explanation as D-017: today (15 Sep) is a live business day with drivers
+actively packing/dispatching against the 09-15 plan while this rehearsal ran, and every one of
+this session's own operations against 09-16 data was rolled back and verified as such. New
+running canary reference: `2a67d03ad398c782a1dc6e36942d6742` (251 rows).
+
+**Why:** Rule Zero says fix and re-prove real bugs, which the two `approve_pod_refill_plan`
+fixes are -- proven by dropping from a structurally-broken 0-dispatch-rows state to a fully
+working 23-row push, live driver lifecycle, and dry-run WM confirmation. G3 is a different
+class of finding (a pre-existing business/build-engine gap, not a regression from tonight's
+work) and forcing a blind fix to a large, untouched engine under time pressure would risk
+exactly the kind of "confidently wrong" result this session's whole discipline exists to avoid.
