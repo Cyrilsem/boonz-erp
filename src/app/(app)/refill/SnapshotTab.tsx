@@ -159,6 +159,11 @@ export type MachineHealth = {
   pct_ab_empty_or_quasi: number | null;
   hero_runway_days: number | null;
   s_gap: number | null;
+  // ONE-LOOP-3 Job 1.9 / PRD-126 R6: AED-denominated priority score, today's
+  // picker car assignment (if picked), and its top-3 AED contributors.
+  p_score_aed: number | null;
+  car_no: number | null;
+  top_contributors_aed: { label: string; aed: number }[] | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -304,6 +309,18 @@ function metricCardColors(
   return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
 }
 
+// ONE-LOOP-3 Job 1.9: higher AED score = more urgent, opposite direction from
+// metricCardColors (which treats a low value as bad).
+function aedScoreCardColors(value: number): CardStyle {
+  if (value >= 500)
+    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (value >= 200)
+    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
+  if (value >= 50)
+    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
+}
+
 function expiryCardColors(daysToExpiry: number | null): CardStyle {
   const d = daysToExpiry ?? 9999;
   if (d <= 7) return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
@@ -367,7 +384,7 @@ export default function SnapshotTab({
     initialData?.machineHealthRefreshedAt ?? null,
   );
   const [sortBy, setSortBy] = useState<
-    "priority" | "status" | "stock" | "fill" | "expiry"
+    "priority" | "priority_aed" | "status" | "stock" | "fill" | "expiry"
   >("priority");
 
   // Card-grid filters: search box + clickable legend pills + swaps/dead chips.
@@ -703,6 +720,8 @@ export default function SnapshotTab({
       switch (sort) {
         case "priority":
           return tierCardColors(m);
+        case "priority_aed":
+          return aedScoreCardColors(m.p_score_aed ?? 0);
         case "status":
           return statusCardColors(m.machine_health_label ?? "");
         case "stock":
@@ -734,6 +753,15 @@ export default function SnapshotTab({
               Number(b.service_track === "vox") ||
             tierRank(a.priority_tier) - tierRank(b.priority_tier) ||
             refillUrgency(b) - refillUrgency(a),
+        );
+        break;
+      case "priority_aed":
+        // PRD-126 R6: sort purely by AED urgency, main track before vox.
+        sorted.sort(
+          (a, b) =>
+            Number(a.service_track === "vox") -
+              Number(b.service_track === "vox") ||
+            (b.p_score_aed ?? 0) - (a.p_score_aed ?? 0),
         );
         break;
       case "status":
@@ -1412,20 +1440,30 @@ export default function SnapshotTab({
             </div>
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <span>Sort:</span>
-              {(["priority", "status", "stock", "fill", "expiry"] as const).map(
-                (opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => setSortBy(opt)}
-                    className={`px-2.5 py-1 rounded-md transition-colors ${
-                      sortBy === opt
-                        ? "bg-gray-900 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {opt === "priority"
-                      ? "Priority"
+              {(
+                [
+                  "priority",
+                  "priority_aed",
+                  "status",
+                  "stock",
+                  "fill",
+                  "expiry",
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setSortBy(opt)}
+                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                    sortBy === opt
+                      ? "bg-gray-900 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {opt === "priority"
+                    ? "Priority"
+                    : opt === "priority_aed"
+                      ? "Priority (AED)"
                       : opt === "status"
                         ? "Status"
                         : opt === "stock"
@@ -1433,9 +1471,8 @@ export default function SnapshotTab({
                           : opt === "fill"
                             ? "Fill %"
                             : "Expiry"}
-                  </button>
-                ),
-              )}
+                </button>
+              ))}
             </div>
           </div>
           {/* Search + attribute filters */}
@@ -1643,6 +1680,31 @@ export default function SnapshotTab({
                           📌 {m.pending_swap_count} swaps
                         </span>
                       )}
+                      {/* ONE-LOOP-3 Job 1.9 / PRD-126 R6: car assignment (from
+                          today's picker) + AED urgency score + top-3 AED
+                          contributors, so the card shows why in AED terms. */}
+                      {m.car_no != null && (
+                        <span className="text-blue-600 font-medium">
+                          🚗 car {m.car_no}
+                        </span>
+                      )}
+                      {sortBy === "priority_aed" &&
+                        m.p_score_aed != null &&
+                        m.p_score_aed > 0 && (
+                          <span
+                            className="font-semibold text-gray-700"
+                            title={(m.top_contributors_aed ?? [])
+                              .map((c) => `${c.label}: ${c.aed} AED`)
+                              .join(", ")}
+                          >
+                            AED {m.p_score_aed.toFixed(0)}
+                            {m.top_contributors_aed &&
+                              m.top_contributors_aed.length > 0 &&
+                              ` (${m.top_contributors_aed
+                                .map((c) => `${c.label} ${c.aed.toFixed(0)}`)
+                                .join(", ")})`}
+                          </span>
+                        )}
                       {/* PRD-122 T6 (R6): lane-grain signals. Rendered as the
                           percentages v_machine_priority actually computes and
                           exposes (there is no raw lane-count column) — the same
