@@ -78,3 +78,16 @@ One line per migration, oldest first. Started per PRD-124 #13 / ONE-LOOP Phase 7
 
 See `DECISIONS-2026-09-15.md` and `OVERNIGHT-REPORT-2026-09-15.md` for the reasoning behind
 each change and what was verified, deferred, or found already fixed.
+
+## 2026-09-15 (continued) -- ONE LOOP 3, Job 1/2/3
+
+- `20260915072013_prd12x_pf_substitution_rules_writers.sql` -- `add_substitution_rule` / `deactivate_substitution_rule` (Job 1 item 8, FE settings table).
+- `20260915072500_prd126_r6_get_machine_health_aed_v2.sql` -- `get_machine_health()` gains `p_score_aed`, `car_no`, `top_contributors_aed` (Job 1 item 9 / PRD-126 R6).
+- `20260915074500_prd126_r5_pick_machines_for_refill_v12.sql` -- `pick_machines_for_refill` v12: `p_cars`/`p_per_car`, three-phase cluster-fill picker, `car_no` output (PRD-126 R5). Two follow-up fixes applied to the same function under separate `apply_migration` calls: `priority_tier` CHECK constraint (maps `p_tier_aed` P1/P2 to the legacy P1_RESTOCK/P2_MAINTAIN strings) and `machines_to_visit.priority_score` overflow (see next line).
+- `20260915081500_prd126_r5_widen_priority_score.sql` -- `machines_to_visit.priority_score` widened `numeric(5,2)` -> `numeric(10,2)` (AED scores exceed the old 999.99 ceiling); `v_pick_decision_cohorts_v3` dropped/recreated verbatim around the ALTER.
+- `20260915075948_prd124_hotfix_insert_driver_remove_line_source_warehouse.sql` -- CS hotfix applied live at 11:55 Dubai via the dashboard, pulled into the repo here: `insert_driver_remove_line`'s plain branch now derives `source_warehouse_id` from the parent instead of blindly copying `source_kind`, fixing a `refill_dispatching_source_consistency_chk` violation the Phase 2 `source_kind` backfill had created.
+- `20260915080500_prd12x_pg_align_pod_lots_inherit_expiry.sql` -- `align_pod_lots_to_weimi`'s create-lot branch inherits `expiration_date` from the most recent lot (any status) of the same product on the same machine instead of hardcoding NULL (excludes the 2099-12-31 sentinel). Written and dry-run-verified (44/133 create-lanes across the fleet would now inherit a real date); **not yet applied live** -- CS asked for this after 22:00 Dubai, ahead of cron 77's 22:00 UTC live run.
+- `20260915082749_prd12x_j4_push_plan_to_dispatch_source_warehouse_id.sql` -- same bug class as the `insert_driver_remove_line` hotfix, found by grepping every `INSERT INTO refill_dispatching`: `push_plan_to_dispatch`'s Remove/M2W and Refill/Add New legs computed `source_kind='wh'` but never wrote `source_warehouse_id`. Fixed by deriving it from the same warehouse variable each branch already uses for `from_warehouse_id`. The other 6 writers touching `source_kind` were checked and are safe (explicit validated param, or hardcoded `'m2m'` with a real machine id). Verified in a rolled-back transaction against real historical data.
+
+See `DECISIONS-2026-09-15.md` and `OVERNIGHT-REPORT-2026-09-15.md` for the reasoning behind
+each change and what was verified, deferred, or found already fixed.
