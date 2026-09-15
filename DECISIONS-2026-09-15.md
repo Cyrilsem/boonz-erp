@@ -641,3 +641,28 @@ remains, given the volume of work still open across Blocks B/D-I.
 **Why:** built to the literal spec where a gate existed to match against; where the prompt's
 "canonical writer allowlist" premise did not correspond to a real object for this table, said
 so rather than inventing one.
+
+## D-021. Block C FE items 2-4 deferred: live, driver-facing surfaces during business hours
+
+`src/app/(field)/field/packing/[machineId]/page.tsx` (the pack screen named in item 2) is a
+5,320-line file with an existing, intricate FIFO batch-allocation system (it already has an
+`expiry_warning` type of `'no_expiry'` wired through its data model) and four separate,
+near-duplicated card-rendering sections each with their own "Age" column. It is the actual
+screen field staff are using live, today, during business hours, to pack the real 09-15 (and
+now 09-16) dispatch. The Change Product dialog and the Warehouse Inventory screen (items 3-4)
+are the same category: live, driver/warehouse-facing UI, not backend.
+
+**Choice:** deferred all three FE items, left OPEN. The backend half of this ask
+(`set_wh_batch_expiry`, its audit table, the nightly alert) is done and proven and does not
+depend on any FE change to be safely callable later. Editing a 5,320-line live packing screen
+blind, without the ability to visually test in a real browser against the live driver
+workflow, carries a real risk of breaking what the field team is using right now -- a risk
+category this session has otherwise avoided all day (the daytime rule's named RPC list is the
+letter of that constraint; a live 5,000-line packing UI mid-shift is its spirit). Time
+remaining in this session is better spent on the large amount of still-open backend scope
+(Blocks D, E, F, G, H, I) than on a high-blast-radius UI change this pass cannot verify
+visually.
+
+**Why:** matches the standing risk discipline used throughout this session (verify before
+touching anything live) applied to FE, not just DB; a backend-complete, FE-pending state is
+honestly reported as such rather than claimed done.
