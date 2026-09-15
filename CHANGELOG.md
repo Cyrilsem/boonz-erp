@@ -58,5 +58,23 @@ One line per migration, oldest first. Started per PRD-124 #13 / ONE-LOOP Phase 7
 - `20260915001300_prd12x_p6_confirm_and_build.sql` -- `confirm_and_build`, `approve_pod_refill_plan` runs stitch+push, cron 13 alerts on no confirm. Replaces PRD-125 D5, Phase 6.
 - `20260915001400_prd12x_p7_mark_dispatched.sql` -- `mark_dispatched(dispatch_ids)`. PRD-124 #35, Phase 7.
 
+## 2026-09-15 (continued) -- ONE LOOP 2, daytime continuation
+
+- `20260915002000_prd122_r4_horizon_days_4.sql` -- `pick_urgency_params.horizon_days` 3 -> 4.
+- `20260915002100_prd122_r4_vox_day_branch_dead_code_comment.sql` -- documents the unreachable VOX-day branch in `pick_machines_for_refill`, no behaviour change.
+- `20260915002200_prd12x_pa1_engine_add_pod_d1_target_and_expired_sub.sql` -- `engine_add_pod` D1 real target (hero/venue fill-to-cap, else cap 10) and expired-on-shelf substitution pass.
+- `20260915002300_prd12x_pa1_pod_swaps_reason_expired_on_shelf.sql` -- `pod_swaps_reason_check` extended for `'expired_on_shelf'`.
+- `20260915002400_prd12x_pa1_get_pod_refill_draft_flags_and_exceptions.sql` -- `get_pod_refill_draft` gains `g2_flag`/`g4_flag`/`g9_flag`; new `get_pod_refill_draft_exceptions`.
+- `20260915002500_prd12x_pa1_confirm_and_build_real_exceptions.sql` -- `confirm_and_build` returns real exceptions instead of a hard-coded `[]`.
+- `20260915002600_prd12x_pa1_confirm_and_build_timeout_margin.sql` -- `confirm_and_build` timeout 120s -> 180s, engine perf risk disclosed.
+- `20260915002700_prd12x_pa2_stitch_pod_to_boonz_already_stitched.sql` -- `stitch_pod_to_boonz` returns `already_stitched` instead of raising, fixing a real collision with `commit_refill_plan_atomic`.
+- `20260915002800_prd12x_pa3_confirm_machines_to_visit_cs_added.sql` -- `confirm_machines_to_visit` confirms `cs_added` rows too (PRD-124 #37).
+- `20260915002900_prd12x_pb_v_current_price_filled.sql` -- new price-fallback view, closes the 16.5% price gap that blocked PRD-126 A3/A5-A7.
+- `20260915003000_prd12x_pb_v_machine_priority_price_filled.sql` -- `v_machine_priority` reads the filled price view (includes a mid-flight perf fix).
+- `20260915003100_prd12x_pc_set_wh_batch_expiry.sql` -- `set_wh_batch_expiry` RPC + audit log + nightly no-expiry alert (PRD-124 #11).
+- `20260915003200_prd12x_pe1_reverse_cancel_dispatch_line.sql` -- clears 19 of the 76 junk 2030-dated dispatch rows (PRD-124 #41); 57 packed=true rows correctly refused.
+- `20260915003300_prd12x_pd_wm_confirm_line_split.sql` -- `wm_confirm_line_split` RPC, multi-batch/flavour return confirmation with variance recording (PRD-123 P1/P2).
+- `20260915003400_prd12x_pe2_migration_window_alert.sql` -- migration-in-window alert cron; surfaced a real gap between committed migration filenames and the database's own `schema_migrations.version` values (D-024).
+
 See `DECISIONS-2026-09-15.md` and `OVERNIGHT-REPORT-2026-09-15.md` for the reasoning behind
 each change and what was verified, deferred, or found already fixed.
