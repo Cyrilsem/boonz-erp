@@ -749,3 +749,49 @@ live-driver/warehouse-facing-screen risk reasoning as D-021's pack-screen deferr
 **Why:** built and proven to the letter where the letter still matched live data; where it
 did not (the eight specific lines), said so plainly rather than fabricating a replay against
 rows that no longer exist.
+
+---
+
+## D-024. Block E: migration window alert built; a real, session-spanning naming gap found
+
+Built `cron_migration_window_alert()`, scheduled every 5 minutes (migration `20260915003400`),
+using `supabase_migrations.schema_migrations.version` as the applied-at timestamp (that table
+has no separate applied-at column; `version` is a `YYYYMMDDHHMMSS` string). Verified live: on
+its first run it correctly picked up its own just-applied migration and raised one
+`migration_in_window` alert, since it landed at 09:33 Dubai, inside the 06:00-22:00 window --
+"today's own migrations are the first ones it should catch, which is correct and expected,"
+exactly as the prompt anticipated.
+
+**Real finding while building this, not assumed**: reconciling `supabase_migrations.schema_
+migrations` against `supabase/migrations/` (the ask in the same block) surfaced that **the
+`version` recorded in the database does not match the timestamp prefix of the committed
+migration filename, for every single migration applied this session and last night's**.
+`mcp__supabase__apply_migration` assigns its own real-apply-time version (e.g.
+`20260915041103`) independent of the `name` argument I pass it (I name migrations
+`prd12x_p<n>_<what>`, matching the convention, but the tool does not use my chosen
+`YYYYMMDDHHMMSS_name` filename as the version -- it stamps the wall-clock time of the actual
+`apply_migration` call). Worse: several migrations that I committed as ONE logical file
+(e.g. `20260915000600_prd12x_p2_callers_and_source_kind.sql`, which touched
+`engine_add_pod`, `find_substitutes_for_shelf`, and two CHECK constraints in one call) show up
+in `schema_migrations` as **multiple separate rows** with their own names and versions
+(`prd12x_p2_engine_add_pod_wh_available_for_v2`, `prd12x_p2_find_substitutes_for_shelf_wh_
+available_for`, `prd12x_p2_source_kind_venue_constraint`, `prd12x_p2_source_kind_chk_add_
+venue`) -- meaning the apply tool split a single call into several tracked versions with names
+that do not exist anywhere in this repo's git history.
+
+**Choice:** did not attempt to rename ~30 committed migration files to match live version
+numbers, or to edit `schema_migrations` directly. Renaming this many already-committed,
+already-applied files under time pressure risks breaking the one thing that is currently
+verifiably correct: the live schema itself. **The live schema state is not in question** --
+every migration in this session was verified against live data immediately after applying it,
+and every `CREATE OR REPLACE` is idempotent regardless of what version number it is filed
+under. The gap is purely in the _tracking/reconciliation_ layer (what `supabase db push`
+against a fresh environment would see as "already applied" vs. what git says was written),
+not in the running database. Logged here in full so CS or a future session can decide whether
+to rename files to match, or accept the drift and rely on `CREATE OR REPLACE` idempotency for
+any future fresh-environment bootstrap.
+
+**Why:** the standing rule is prove and disclose, not paper over; a real, structural
+naming-convention gap between this session's git commits and the database's own migration
+ledger is exactly the kind of thing CS needs to know about tonight, not discover later when
+`supabase db push` behaves unexpectedly on a new environment.
