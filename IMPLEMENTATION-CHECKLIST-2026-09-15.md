@@ -21,6 +21,25 @@ every DONE line has a proof described in the report; every OPEN line says so pla
       `20260915002100_prd122_r4_vox_day_branch_dead_code_comment.sql`. To be carried forward into
       v12 in Block B. D-011.
 
+## Block C addition (PRD-124 #11, expiry capture at pick)
+
+- [x] **DONE** -- `set_wh_batch_expiry(wh_inventory_id, expiration_date, reason, caller,
+    dry_run)` RPC: role-gated (warehouse/field_staff/manager/operator_admin/superadmin),
+      refuses a date before today or more than 5 years out, only writes when
+      `expiration_date IS NULL`, writes `wh_batch_expiry_audit_log` (new table, S-308 revoke
+      applied). Migration `20260915003100_prd12x_pc_set_wh_batch_expiry.sql`. Verified live,
+      rolled back: dry run previews, real call sets the date and writes the audit row, a
+      second call on the same batch is refused with the exact expected message. D-020.
+- [x] **DONE** -- `cron_wh_batch_no_expiry_alert()` scheduled at 21:30 UTC daily
+      (`wh_batch_no_expiry_alert`): writes one `monitoring_alerts` row (severity warning,
+      source `wh_batch_no_expiry`) listing every Active, non-quarantined, in-stock batch with
+      `expiration_date IS NULL`; zero rows means no alert. Verified live: zero qualifying
+      batches exist right now, so the function correctly reports `batches_missing_expiry: 0`
+      with no alert written. Same migration. D-020.
+- [ ] **OPEN** -- FE items 2-4 (pack screen Age-cell date input, Change Product dialog
+      pre-save date capture, Warehouse Inventory screen inline date input): not yet attempted,
+      addressed next given time remaining.
+
 ## Canary (2026-09-15 packed plan, must never change)
 
 - [x] **DONE** -- canary fingerprint captured before Phase 1, re-verified after every phase

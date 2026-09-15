@@ -601,3 +601,43 @@ sane (P1=1, P2=11, P3=20, PRD-126 `p_tier_aed`). Canary unchanged
 **Why:** the standing rule says prove, don't assume; a view that applies without error is not
 proof it runs correctly or fast, and this session's discipline of re-running the actual check
 immediately after each change is what caught this before it reached the checklist as "done."
+
+---
+
+## D-020. Block C addition (PRD-124 #11): set_wh_batch_expiry, no allowlist to add to
+
+Built `set_wh_batch_expiry(wh_inventory_id, expiration_date, reason, caller, dry_run)` exactly
+per spec, plus a new `wh_batch_expiry_audit_log` table (S-308 revoke applied) since the
+existing generic `auto_audit_warehouse_inventory` trigger only fires on
+`warehouse_stock`/`consumer_stock` changes, never on `expiration_date` alone -- there was
+nowhere else this write's audit trail could land. Migration `20260915003100`.
+
+**"Add it to the canonical writer allowlist"**: no such gate exists for `warehouse_inventory`.
+`refill_dispatching` has `enforce_canonical_dispatch_write` with a hard allowlist array;
+`warehouse_inventory` has `detect_silent_warehouse_inventory_write`, which only watches one
+specific Inactive->Active reactivation pattern and blocks nothing. There is no equivalent list
+to add a name to. The RPC still sets `app.via_rpc`/`app.rpc_name` per Article 4, and two
+pre-existing triggers (`enforce_warehouse_expiry_sanity`, the real hard date-sanity ceiling at
+`created_at` +3y/-2y, tighter than this RPC's own 5-year check in the common case; and
+`enforce_provenance_on_warehouse_inventory_insert`, warn-only in its current phase) both still
+run unmodified.
+
+**Verified live**, rolled back: a synthetic batch (a real `warehouse_inventory` row inserted
+with `provenance_reason='manual_adjust'` to satisfy `wh_provenance_event_required` and
+`batch_id` prefix `ADHOC-` to satisfy `enforce_warehouse_batch_id_vocabulary` -- both
+pre-existing guards, worked with rather than around) confirmed: dry run previews without
+writing; the real call sets the date and writes one audit row (old NULL, new date, correct
+reason and `changed_by`); a second real call on the same batch is refused with the exact
+expected message, caught via a `DO` block's `EXCEPTION WHEN OTHERS` (a bare second call would
+have aborted the whole proof transaction). Canary unchanged; test row confirmed rolled back.
+
+**FE items 2-4** (pack screen Age-cell date input, Change Product dialog's pre-save date
+capture, Warehouse Inventory screen inline date input) and the pg_cron schedule (item 5,
+`cron_wh_batch_no_expiry_alert` at 21:30 UTC, applied and scheduled) -- the cron is done and
+proven (zero real Active/non-quarantined/in-stock batches with NULL expiry exist right now, so
+it correctly fires zero alerts today); the three FE items are addressed next, in whatever time
+remains, given the volume of work still open across Blocks B/D-I.
+
+**Why:** built to the literal spec where a gate existed to match against; where the prompt's
+"canonical writer allowlist" premise did not correspond to a real object for this table, said
+so rather than inventing one.
