@@ -540,3 +540,21 @@ blindly trusting a matching hash or blindly rolling back on a mismatch.
 **Why:** the standing rule's intent is to catch damage a phase causes, not to freeze the real
 business day; audit-log provenance is the correct instrument to tell the two apart, and using
 it here avoided a false-alarm rollback of migrations that never touched the table at all.
+
+---
+
+## D-018. Block A step 3 (PRD-124 #37): confirm_machines_to_visit found and fixed directly
+
+PRD-124 #37 speculated the `/refill` hiding-packing-rows defect was "likely
+`machines_to_visit.status = 'picked'` filter hides `cs_added`." Searched function bodies
+directly (`pg_get_functiondef ... ilike '%machines_to_visit%' and ilike '%''picked''%' and not
+ilike '%cs_added%'`) rather than guessing from the FE, since the FE (`RefillPlanningTab.tsx`)
+has no client-side status filter at all -- the filtering lives server-side.
+`confirm_machines_to_visit(plan_date)` was exactly this: `WHERE status = 'picked' AND
+confirmed_at IS NULL`, silently never confirming `cs_added` rows, so a machine an operator
+explicitly added to the pick list never passed gate_zero. Fixed to `status IN ('picked',
+'cs_added')`, migration `20260915002800`. Verified in a rolled-back transaction: one `picked`
+and one `cs_added` row both got `confirmed_at` set by the same call.
+
+**Why:** PRD-124's own speculation turned out correct once verified against the actual
+function bodies instead of the FE; confirmed by direct search, not assumed from the PRD text.
