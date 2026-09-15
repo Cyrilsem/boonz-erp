@@ -194,6 +194,20 @@ export default function InventoryPage() {
   const [view, setView] = useState<"batches" | "overview">("batches");
   const [fetchKey, setFetchKey] = useState(0);
 
+  // ONE-LOOP-3 Job 1.5 (PRD-124 #11): inline expiry capture for a batch row
+  // with NULL expiration_date. Separate from the drawer's editExpiry (which
+  // routes an EXISTING date's change through adjust_warehouse_stock) --
+  // this is the NULL-only path, via set_wh_batch_expiry.
+  const [inlineExpiryDraft, setInlineExpiryDraft] = useState<
+    Record<string, string>
+  >({});
+  const [inlineExpirySaving, setInlineExpirySaving] = useState<string | null>(
+    null,
+  );
+  const [inlineExpiryError, setInlineExpiryError] = useState<
+    Record<string, string>
+  >({});
+
   // Drawer state
   const [selectedBatch, setSelectedBatch] = useState<WHRow | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -357,6 +371,45 @@ export default function InventoryPage() {
   useEffect(() => {
     fetchInventory();
   }, [fetchInventory, fetchKey]);
+
+  // ONE-LOOP-3 Job 1.5 (PRD-124 #11): inline expiry capture for a NULL-expiry
+  // batch row, via set_wh_batch_expiry (not adjust_warehouse_stock, which is
+  // for changing an EXISTING date -- the RPC itself refuses a non-NULL row).
+  const saveInlineExpiry = useCallback(
+    async (whInventoryId: string) => {
+      const date = inlineExpiryDraft[whInventoryId];
+      if (!date) {
+        setInlineExpiryError((prev) => ({
+          ...prev,
+          [whInventoryId]: "Pick a date first.",
+        }));
+        return;
+      }
+      setInlineExpirySaving(whInventoryId);
+      const supabase = createClient();
+      const { error } = await supabase.rpc("set_wh_batch_expiry", {
+        p_wh_inventory_id: whInventoryId,
+        p_expiration_date: date,
+        p_reason: "Expiry captured inline (Warehouse Inventory screen)",
+        p_dry_run: false,
+      });
+      setInlineExpirySaving(null);
+      if (error) {
+        setInlineExpiryError((prev) => ({
+          ...prev,
+          [whInventoryId]: error.message,
+        }));
+        return;
+      }
+      setInlineExpiryError((prev) => {
+        const next = { ...prev };
+        delete next[whInventoryId];
+        return next;
+      });
+      await fetchInventory();
+    },
+    [inlineExpiryDraft, fetchInventory],
+  );
 
   // Warehouse tab counts
   const warehouseCounts = useMemo(() => {
@@ -1114,7 +1167,63 @@ export default function InventoryPage() {
                       className="px-4 py-3"
                       style={expiryStyle(r.expiration_date)}
                     >
-                      {expiryLabel(r.expiration_date)}
+                      {r.expiration_date == null ? (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="date"
+                            value={inlineExpiryDraft[r.wh_inventory_id] ?? ""}
+                            onChange={(e) =>
+                              setInlineExpiryDraft((prev) => ({
+                                ...prev,
+                                [r.wh_inventory_id]: e.target.value,
+                              }))
+                            }
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 4px",
+                              border: "1px solid #e1b460",
+                              borderRadius: 4,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            disabled={inlineExpirySaving === r.wh_inventory_id}
+                            onClick={() => saveInlineExpiry(r.wh_inventory_id)}
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              padding: "2px 6px",
+                              borderRadius: 4,
+                              background: "#e1b460",
+                              color: "#0a0a0a",
+                              border: "none",
+                              cursor: "pointer",
+                              opacity:
+                                inlineExpirySaving === r.wh_inventory_id
+                                  ? 0.5
+                                  : 1,
+                            }}
+                          >
+                            {inlineExpirySaving === r.wh_inventory_id
+                              ? "…"
+                              : "Save"}
+                          </button>
+                          {inlineExpiryError[r.wh_inventory_id] && (
+                            <span style={{ fontSize: 10, color: "#b3261e" }}>
+                              {inlineExpiryError[r.wh_inventory_id]}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        expiryLabel(r.expiration_date)
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span
