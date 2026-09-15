@@ -1534,7 +1534,7 @@ export function RefillPlanningTab({
             className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             {pickListOpen ? "▾" : "▸"} Confirm and Build ({pickList.length} on
-            today's list)
+            today&apos;s list)
           </button>
           {pickListOpen && (
             <button

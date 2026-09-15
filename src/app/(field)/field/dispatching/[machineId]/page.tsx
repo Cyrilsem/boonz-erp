@@ -115,6 +115,31 @@ export default function DispatchingDetailPage() {
   const lineCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const lastScrolledTo = useRef<string | null>(null);
 
+  // Reactive, not just an on-click check inside handleSave, so the Save
+  // button can be disabled and relabelled live. Declared here (before any
+  // early return below, e.g. `if (loading) return`) because its useEffect
+  // must run in the same order on every render -- placing it after those
+  // returns is a real Rules-of-Hooks violation (caught by lint, fixed here).
+  const missingReturnReason = lines.filter(
+    (l) => l.action === "returned" && !l.return_reason.trim(),
+  );
+
+  // Scroll the first offending card into view as soon as it becomes the
+  // blocker -- once per distinct line, not on every keystroke while the
+  // driver is still working on that same card.
+  useEffect(() => {
+    const first = missingReturnReason[0];
+    if (first && lastScrolledTo.current !== first.dispatch_id) {
+      lineCardRefs.current[first.dispatch_id]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      lastScrolledTo.current = first.dispatch_id;
+    }
+    if (!first) lastScrolledTo.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingReturnReason.map((l) => l.dispatch_id).join(",")]);
+
   // Phase F dispatch-editing wiring (2026-05-19): driver can edit qty/shelf/product
   // and add ad-hoc rows mid-route. Pre-receive only (item_added=false).
   const [editingDispatch, setEditingDispatch] = useState<{
@@ -976,28 +1001,6 @@ export default function DispatchingDetailPage() {
   const allActioned = lines.length > 0 && lines.every((l) => l.action !== null);
   const addedCount = lines.filter((l) => l.action === "added").length;
   const returnedCount = lines.filter((l) => l.action === "returned").length;
-
-  // ONE-LOOP-3 Job 1.4: reactive, not just an on-click check inside
-  // handleSave, so the Save button can be disabled and relabelled live.
-  const missingReturnReason = lines.filter(
-    (l) => l.action === "returned" && !l.return_reason.trim(),
-  );
-
-  // Scroll the first offending card into view as soon as it becomes the
-  // blocker -- once per distinct line, not on every keystroke while the
-  // driver is still working on that same card.
-  useEffect(() => {
-    const first = missingReturnReason[0];
-    if (first && lastScrolledTo.current !== first.dispatch_id) {
-      lineCardRefs.current[first.dispatch_id]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-      lastScrolledTo.current = first.dispatch_id;
-    }
-    if (!first) lastScrolledTo.current = null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [missingReturnReason.map((l) => l.dispatch_id).join(",")]);
 
   const isReadOnly = saved && !editingAfterSave;
 

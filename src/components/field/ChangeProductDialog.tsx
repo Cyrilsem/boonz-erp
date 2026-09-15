@@ -94,6 +94,7 @@ export function ChangeProductDialog({
   const [expiryDate, setExpiryDate] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset the preview on product/qty change, same pattern as sibling panels
     setPreview(null);
     if (!selected || !Number.isFinite(qty) || qty <= 0) return;
     let cancelled = false;
