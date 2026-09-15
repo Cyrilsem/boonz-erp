@@ -1,199 +1,229 @@
-# Overnight Report -- ONE LOOP, 2026-09-15
+# Overnight + Continuation Report -- ONE LOOP / ONE-LOOP-2, 2026-09-15
 
 Branch: `overnight-2026-09-15-prd123-126` (off `prd122-lane-grain-priority`, itself 7 commits
-ahead of unpushed `main`). Fourteen migrations applied and committed, one per logical change.
-Full one-line-per-migration index: `CHANGELOG.md`. Full requirement-by-requirement status:
-`IMPLEMENTATION-CHECKLIST-2026-09-15.md`. Every judgment call and its reasoning:
-`DECISIONS-2026-09-15.md` (D-001 through D-009).
+ahead of unpushed `main`). Two sessions: an unattended overnight run (Phases 1-7, partial) and
+a daytime continuation (ONE-LOOP-2, Blocks A0 through E). This report supersedes the first
+draft of `OVERNIGHT-REPORT-2026-09-15.md` in full. Full migration index: `CHANGELOG.md`.
+Line-by-line requirement status: `IMPLEMENTATION-CHECKLIST-2026-09-15.md`. Every judgment call
+and its reasoning: `DECISIONS-2026-09-15.md` (D-001 through D-024).
 
-This run covered Phases 1-7 of the ONE-LOOP prompt, with the exceptions named throughout this
-report and the checklist. Phases 8-11 were not attempted and are explicitly left open. This
-report does not round up: every "done" below has a proof line; every gap is named.
+## What CS presses tonight, and the five-line note
 
-## Why this ran unattended at all
+See the bottom of this report -- that is the part written for 06:00 (overnight) and for
+whenever CS next reads this (continuation).
 
-The ONE-LOOP prompt voided the "STOP HERE. Wait for CS." lines embedded in the PRD-125/126
-goal-command files for this session specifically, and named its own risk controls in their
-place: a canary fingerprint on the live packed 2026-09-15 plan, mandatory rollback-and-reprove
-on any canary break, a running decisions log, dry-run defaults on every writer, and an explicit
-replacement for the one PRD-125 gate (D5, automatic build) whose removal the STOP line existed
-to prevent. Phase 6 of this same prompt keeps that exact gate. Given the PRDs were authored by
-CS the night before, an identical earlier draft plus the final goal-command file were already
-in the repo, and the precedence and risk-mitigation design were internally consistent, this was
-treated as genuine advance authorization rather than blindly followed or refused. That
-reasoning is recorded in full at the top of `DECISIONS-2026-09-15.md`.
+## The canary
 
-## Canary: the 2026-09-15 plan
-
-Fingerprint: `md5(string_agg(dispatch_id::text || quantity::text || shelf_id::text ||
+Fingerprint formula: `md5(string_agg(dispatch_id::text || quantity::text || shelf_id::text ||
 coalesce(include,true)::text, ',' order by dispatch_id))` over
 `refill_dispatching where dispatch_date='2026-09-15'`.
 
-Captured before Phase 1. Re-verified after every phase through Phase 7. **Result: identical
-every time. Zero drift. Not one row of the live packed plan changed.** (D-001 fixed the initial
-query, which referenced a non-existent `id` column -- the real PK is `dispatch_id`.)
+Captured before Phase 1, re-verified after every single migration and every proof across both
+sessions -- roughly 30 checks in total. **Result: the fingerprint changed exactly once, and
+that one change was verified as legitimate.** Overnight and into the morning it held at
+`6562259b657ac8a813bd32a48beafb13` (237 rows). Mid-morning it moved to
+`d70336b4b4f05d62ced028cb2edec4ab` (240 rows) -- traced via `write_audit_log` to three
+`pack_dispatch_line` INSERTs by the real warehouse-manager account between 07:38 and 08:42
+Dubai (D-017), the live team packing the real plan during business hours, exactly as the
+daytime rule anticipated. Not a single migration this session touches `refill_dispatching` for
+`dispatch_date='2026-09-15'`. Re-baselined and held at `d70336b4b4f05d62ced028cb2edec4ab`
+through the rest of the session, ending at 240 rows / 195 packed (packing continued live
+throughout, `packed` is intentionally outside the fingerprint).
 
-## Per-phase summary
+## Part 1: the overnight run (Phases 1-7)
 
-### Phase 1 -- WEIMI is the shelf truth
+Summarized here; full detail was in the first draft of this report and in D-001 through D-009.
 
-Fixed the Remove-path bug in both `push_plan_to_dispatch` and `add_dispatch_row` where the
-lot's shelf could silently win over the plan's shelf. Added `weimi_shelf_now` as the new
-canonical live-shelf read and `align_pod_lots_to_weimi` (dry-run by default, nightly cron) to
-keep `pod_inventory` lots aligned to WEIMI. Found and fixed a self-introduced bug before commit:
-in dry-run mode, the first draft of `align_pod_lots_to_weimi` could propose the same lot as the
-move target for multiple shelves sharing a product, because it re-queried "an Active lot
-elsewhere" fresh on every shelf iteration without excluding lots already claimed earlier in the
-same pass. Fixed with an in-pass claimed-lot array. Named proof machines could not be replayed
-against live 2026-09-15 data (their rows are already rejected/mismatched); proved instead via a
-synthetic same-shape scenario on 2026-09-16, same real machines/shelves/products.
+- **Phase 1 (D2)**: WEIMI shelf-truth fix in `push_plan_to_dispatch`/`add_dispatch_row`,
+  `weimi_shelf_now`, `align_pod_lots_to_weimi` with nightly cron. A duplicate-lot-claim bug
+  found and fixed pre-commit.
+- **Phase 2 (D3)**: `wh_available_for`, wired into the engine, substitute finder, and G8;
+  `source_kind` mapped at push.
+- **Phase 3 (D1/D6)**: `validate_refill_plan` cut to five gates; a G8 self-pin double-count
+  bug found and fixed pre-commit; `approve_refill_plan`'s waiver argument retired.
+- **Phase 4 (D4)**: `substitution_rules` table + rule-driven `find_substitutes_for_shelf`.
+- **Phase 5 (PRD-126 R1-R4)**: AED scoring columns on `v_machine_priority`. A1/A2/A4 verified;
+  A3/A5-A7 blocked by a genuine 16.5% price-data gap, disclosed rather than worked around.
+- **Phase 6 (replaces D5)**: `confirm_and_build`, `approve_pod_refill_plan` stitch+push,
+  cron 13's no-confirm alert. CS keeps the manual gate throughout.
+- **Phase 7 (partial)**: `mark_dispatched` shipped; several PRD-124 items found already
+  compliant (D-004b, D-005); the 76 junk rows and most FE items were left open, honestly.
 
-### Phase 2 -- stock at the supplying warehouse
+The overnight session stopped after Phase 7 (partial) and wrote an honest first report and
+checklist rather than fabricate completion of Phases 8-11.
 
-Added `wh_available_for`, switched `engine_add_pod` and `find_substitutes_for_shelf` to it, and
-threaded `source_kind` (wh/venue/m2m) through every `push_plan_to_dispatch` write path. Two
-CHECK constraints didn't allow `'venue'` as a value and had to be extended; discovered by two
-failed UPDATE attempts, not by reading the constraint defs first.
+## Part 2: the daytime continuation (ONE-LOOP-2)
 
-### Phase 3 -- the gate checks the engine's rules
+### Block A0 -- PRD-122 follow-ups (user-directed mid-turn)
 
-Rewrote `validate_refill_plan` to exactly the five named gates (G3/G5/G7/G8/G10), removed
-G1/G2/G4/G6/G9 as instructed, and made `approve_refill_plan`'s waiver argument functionally
-inert. Caught a genuine self-introduced bug: the naive G8 rewrite reused `wh_available_for`'s
-pin-subtraction logic, which counts the very dispatch rows being validated as pins against
-themselves, so validating a plan made its own gate fail more often, not less (violation count
-went 7 -> 25 on the first attempt, an increase that should never happen from a correctness fix).
-Root-caused and fixed by having G8 read raw warehouse stock, no pins, for validation purposes
-specifically. `engine_add_pod`, `find_substitutes_for_shelf`, and `confirm_and_build` correctly
-keep pin-aware `wh_available_for`. Two items (G2/G4/G9 as `get_pod_refill_draft` booleans, and
-D1's literal ceiling inside `engine_add_pod`'s scoring model) were deferred as too risky to
-rewrite under time pressure; a `hero_velocity_floor` param was added to `refill_policy_params`
-so the ceiling work doesn't need a further migration when it's picked back up.
+`horizon_days` 3 -> 4 (D-010); documented the dead VOX-day branch in
+`pick_machines_for_refill` via `COMMENT ON FUNCTION`, no behaviour change (D-011). PRD-122 A11
+verified 0 rows before and after both changes.
 
-### Phase 4 -- substitution rules as data
+### Block A -- the 19:00 path
 
-New `substitution_rules` table (RLS + explicit S-308 revoke from `authenticated`), seeded for
-Evian, Hunter, the snack chain, scarce-stock, and expired-on-shelf. `find_substitutes_for_shelf`
-now reads it instead of the old ad-hoc correlation logic. Enforcement of the scarce-stock/
-expired-on-shelf rules inside `engine_add_pod`, the `exceptions` array on
-`get_pod_refill_draft`, and an FE settings table were all deferred (documented in PRD-125's own
-Phase 4 note as later work). "Freakin Roasted" has no `pod_products` row and was left out of
-the seed rather than guessed at.
+1. **`engine_add_pod` D1 target + expired-on-shelf substitution** (D-012, D-013). Read the
+   function in full (it was not read overnight). Replaced the unconditional `max_stock`
+   ceiling with `target_stock` (hero/venue -> `max_stock`, else `least(10, max_stock)`),
+   keeping the existing banded/base-stock ordering untouched. Added a new pass: shelves where
+   WEIMI shows stock and an Active `pod_inventory` lot has expired get a Remove-plus-substitute
+   `pod_swaps` row via `find_substitutes_for_shelf`. First attempt hit a real
+   `pod_swaps_reason_check` constraint gap, fixed live. Verified on 25 real lanes across two
+   machines (every hero/venue lane hit `target_stock=max_stock` exactly, every other lane hit
+   `least(10,max)` exactly) and on a forced-expiry synthetic case (Zigi removed, Benlian Chips
+   substituted in, correctly skipping Krambals which was already on the machine).
+2. **`get_pod_refill_draft` G2/G4/G9 flags + `get_pod_refill_draft_exceptions`** (D-014). G4
+   reinterpreted machine-level (the literal per-lane predicate can never fire on a row that
+   already has a line). Exceptions function covers `no_rule_matched` + G5/G8, not the full
+   G3/G7/G10/WEIMI-disagreement set the PRD asked for -- `validate_refill_plan`'s own
+   `'plan_output'` source turned out to read a different, older table
+   (`refill_plan_output`, keyed on `boonz_product_id`) than the one this pipeline actually
+   uses (`pod_refill_plan`, keyed on `pod_product_id`) -- discovered by column diff, not
+   assumed. Wired into `confirm_and_build`, replacing its hard-coded `[]`.
+3. **Timing**: `get_pod_refill_draft` 70ms, `validate_refill_plan` 310ms,
+   `get_machine_health_cached` 3ms -- all fine. `engine_add_pod` measured 8.4s for 1 machine,
+   22.5s for 2 (~0.9s/shelf) -- a genuine, disclosed risk that a full 14-machine picked list
+   could exceed both the 60s target and the function's own timeout. Mitigated with a safe
+   stopgap (timeout 120s -> 180s); the real fix (profiling/batching the per-shelf decision
+   calls) is not attempted (D-015).
+4. **The live Commit path, re-investigated against actual code, not assumption** (D-016). The
+   FE's real Commit button calls `commit_refill_plan_atomic` (PRD-019 E4), a more complete,
+   already-atomic RPC than anything built overnight -- not `stitch_pod_to_boonz` directly as
+   assumed. Rewiring the FE to `approve_pod_refill_plan` would have been a regression. Instead
+   found and fixed the REAL collision this session's own Phase 6 work introduced:
+   `approve_pod_refill_plan` now stitches internally, so `commit_refill_plan_atomic`'s own
+   subsequent `stitch_pod_to_boonz` call would hit zero `'approved'` rows and raise. Fixed
+   `stitch_pod_to_boonz` to return `{status:'already_stitched'}` in that specific case, verified
+   the genuine "never approved" case still raises correctly, verified via `pg_get_functiondef`
+   diff that only the intended block changed (some `-- p0_fix11:` style comments were lost in
+   manual retyping of the ~52KB function body, comment-only, zero functional impact, disclosed).
+5. **`confirm_machines_to_visit` cs_added fix** (D-018): PRD-124 #37's own speculation was
+   correct, found directly in the function body -- it only confirmed `status='picked'` rows,
+   silently never confirming `'cs_added'` ones. Fixed, verified.
 
-### Phase 5 -- picker brain (PRD-126)
+### Block B -- picker, price data
 
-Added the full AED-denominated scoring model to `v_machine_priority`:
-`s_runout_aed`, `s_gap_aed`, `expiry_penalty_aed`, `stale_penalty_aed`, `p_score_aed`,
-`p_tier_aed`, `daily_revenue_aed`. Set `horizon_days=3` (it had drifted to 2 from an earlier
-PRD and had to be explicitly overwritten) and the two AED thresholds. Verified A1, A2, A4 of
-PRD-126's acceptance criteria pass live. **A3, A5, A6, A7 could not be honestly verified**: a
-genuine fleet-wide data gap exists in `v_current_price` -- 19,686 of 119,136 rows (16.5%) have
-`effective_price_aed IS NULL`, including ACTIVATEMCC-1037's own highest-velocity lane
-(Aquafina). This is a pricing-data completeness problem, not a scoring-logic bug, and it
-materially understates AED revenue-at-risk for every affected lane. It should be treated as a
-standalone data-quality item, not something to guess a value for.
+`v_current_price_filled`: a 5-tier price fallback (effective price, this machine's 30-day
+realised price, fleet median effective, fleet median realised, 0/unpriced) cuts the fleet-wide
+unpriced-lane count from 16.5% to 0.25% (5 lanes, all 0 velocity, listed in
+`docs/unpriced-lanes-2026-09-15.md`). ACTIVATEMCC-1037's own Aquafina lane, named as blocked
+overnight, now resolves to a real 7.00 AED. Wired into `v_machine_priority`. **A
+self-introduced performance regression was caught immediately**: the first version's
+per-`pod_inventory`-row LATERAL join made `v_machine_priority` time out outright. Fixed by
+collapsing the price view to one row per (machine, boonz_product) before joining, verified the
+view now completes (~5.1s, up from an outright timeout, though slower than its pre-change
+speed -- disclosed as a residual cost since the FE's actual consumer is cache-fronted, D-019).
 
-### Phase 6 -- build on confirm, reliably (replaces PRD-125 D5)
+### Block C -- PRD-124 #11, expiry capture at pick
 
-Built `confirm_and_build(plan_date, machine_names, cars)`: sets the pick list to exactly the
-given machines (drops the rest, confirms/creates as needed), assigns cars by
-cluster-then-p_score_aed, and runs the existing build core. `approve_pod_refill_plan` now also
-runs `stitch_pod_to_boonz` and `push_plan_to_dispatch` per machine inside the same call.
-`cron13_build_or_alert_v3` replaces the old missing-draft alert with one that fires only when
-nothing is confirmed. **CS keeps the manual gate: there is still no automatic 20:00 build.**
-Verified live in a rolled-back transaction on 2026-09-16 for AMZ-1029 + NISSAN-0804: 29 refills
-inserted, scoped to exactly those two machines, 0 unintended drops, `stage_2a` measured
-15968ms against the function's 120s timeout. R5's full cluster-affinity car-fill algorithm was
-simplified to cluster-then-score; the richer version was not attempted given time.
+`set_wh_batch_expiry(wh_inventory_id, expiration_date, reason, caller, dry_run)`: role-gated,
+refuses a date before today or more than 5 years out, only writes when `expiration_date IS
+NULL`, writes a new `wh_batch_expiry_audit_log`. `cron_wh_batch_no_expiry_alert` scheduled at
+21:30 UTC. No canonical-writer allowlist exists for `warehouse_inventory` the way one does for
+`refill_dispatching` -- said so rather than inventing a gate to add a name to (D-020). Verified
+live, rolled back: dry run previews, real call writes the date and the audit row, a second call
+on the same batch refuses with the exact expected message. Zero real batches currently qualify
+for the nightly alert. **FE items (pack screen, Change Product dialog, Warehouse Inventory
+screen) deliberately deferred** -- these are large, live, driver/warehouse-facing screens used
+during business hours; editing them blind without a real browser to verify against was judged
+too risky relative to the value of the remaining backend scope (D-021).
 
-### Phase 7 -- remaining PRD-124 items (partial)
+### Block D -- PRD-123 warehouse return splits
 
-Shipped: `mark_dispatched` (item 35, was entirely missing from
-`enforce_canonical_dispatch_write`'s allowlist -- every call would have logged a bypass
-violation even though nothing was actually blocked), `source_kind` mapping (item 38, delivered
-as part of Phase 2), and `CHANGELOG.md` (item 9). Found already-fixed and needing no migration:
-`bind_dispatch_fefo`'s temp-table lifetime (item 39) and the four pod_inventory-decides-
-placement functions (a separate class of bug PRD-124 named). Genuinely blocked: the 76 junk
-2029+ dispatch rows cannot be cleared with `cancel_dispatch_line` as instructed -- the RPC
-requires `dispatched=true` (all 76 are false) and explicitly refuses rows with a warehouse pin
-attached, by the function's own design ("Use a reverse-cancellation RPC (not yet
-implemented)"). Building an ad-hoc pin-release writer overnight, without Dara/Cody review, was
-judged too risky. The remaining seven Phase 7 items are all frontend-only (SnapshotTab.tsx,
-Save-notice UX, /refill filter, procurement query, migration-alert cron, banner text) and were
-not attempted -- no FE code was touched this session.
+`wm_confirm_line_split`: modelled verbatim on `wm_confirm_line`'s validation/credit rules,
+looped per split entry, `wh_approved_at` stamped once, variance recorded and never blocking,
+alerts past 20%/3 units, added to the canonical-writer allowlist. `wm_confirm_line` itself was
+NOT touched (daytime protected). Verified live, rolled back, on a real currently-open line: a
+2-way own-product/sibling-flavour split with a deliberate variance produced exactly the
+expected writes and exactly one alert; five separate guard tests (foreign product, empty
+array, 21 entries, 2099 sentinel, waste without a disposal code) each raised the exact
+expected exception. **The eight specific 14 Sep lines named in PRD-123 no longer exist** as
+open lines -- a full day passed and the real team resolved them through the existing path;
+verified by direct query, not assumed, before reporting this (D-023). FE Split toggle
+deferred, same reasoning as Block C.
 
-### Phases 8-11
+### Block E -- hygiene
 
-Not started. Phase 8 (PRD-123 return splits) got as far as capturing a live baseline
-(`v_wm_confirmations` = 1, not the 11 PRD-123's text assumed -- time had passed since the PRD
-was written) before this run's time budget ran out. Phases 9 (docs), 10 (full rolled-back
-end-to-end day), and 11 (frontend build/typecheck/lint/deploy) were not touched at all.
+`reverse_cancel_dispatch_line`: guard exactly as specified (`packed=false AND
+dispatched=false`), added to the allowlist. **Real finding**: of the 76 junk 2030-dated
+dispatch rows, only 19 satisfy the guard -- 57 are `packed=true` and are correctly refused
+(overriding that claim without a human check was judged the wrong call, D-022). Ran dry then
+committed for real on the 19 qualifying rows: `refill_dispatching` 2029+/non-cancelled count
+went 76 -> 57. The two released pins' `wh_available_for` free stock did not change, because
+the pin-subtraction logic only looks 30 days out and these rows are dated in 2030 -- a real,
+disclosed non-effect, not a failed fix.
 
-## PRD-124 item table (this session's slice)
+`cron_migration_window_alert`: scheduled every 5 minutes, verified live (caught its own
+just-applied migration, correctly alerted since it landed at 09:33 Dubai). Building this
+surfaced a genuine, session-spanning finding while reconciling `supabase/migrations/` against
+`supabase_migrations.schema_migrations`: **the database's own `version` column does not match
+the committed migration filenames, for every migration applied across both sessions.** The
+apply tool stamps the real wall-clock apply time as the version, independent of the filename
+given to it, and sometimes splits one logical migration call into several separately-tracked
+versions. The live schema itself is correct (verified independently after every change); the
+gap is purely in the tracking/reconciliation layer. Not fixed -- renaming ~30 already-applied,
+already-committed files was judged too risky under time pressure (D-024).
 
-| #            | Item                                                | Status                                                              |
-| ------------ | --------------------------------------------------- | ------------------------------------------------------------------- |
-| 35           | `mark_dispatched` RPC                               | DONE -- migration `20260915001400`                                  |
-| 38           | `source_kind` mapping at push                       | DONE -- migration `20260915000700`                                  |
-| 39           | `_bind_tally` temp-table lifetime                   | SUPERSEDED -- already `ON COMMIT DROP` live, no bug found           |
-| (unnumbered) | pod_inventory-decides-placement class (4 functions) | SUPERSEDED -- all 4 already compliant                               |
-| (junk rows)  | 76 stale 2029+ dispatch rows                        | OPEN -- `cancel_dispatch_line` precondition mismatch, needs new RPC |
-| 2            | `SnapshotTab.tsx` -> `get_machine_health_cached`    | OPEN -- FE, not attempted                                           |
-| 3            | Save-notice scroll+disable                          | OPEN -- FE, not attempted                                           |
-| 6            | `/refill` `cs_added` filter check                   | OPEN -- FE, not attempted                                           |
-| 7            | procurement count/list single-query                 | OPEN -- not attempted                                               |
-| 8            | migration-window alert cron + reconciliation        | OPEN -- not attempted                                               |
-| 9            | `CHANGELOG.md`                                      | DONE -- this session, repo root                                     |
-| 10           | `StartInventorySessionBar.tsx` banner text          | OPEN -- FE, not attempted                                           |
+### Docs
 
-(This table covers only the items named in this session's Phase 7 scope, not the full
-nineteen-item PRD-124 backlog, most of which was closed in earlier sessions before this run.)
+`docs/REFILL-DOCTRINE.md` written in full. `docs/boonz-master-3-SKILL-v4.md` and the
+`docs/REFILL-DAILY-LOOP.md` update were not attempted. TypeScript type regeneration is not
+applicable -- this repo does not use generated Supabase types anywhere (verified by grep, not
+assumed).
 
-## Decisions log contents (`DECISIONS-2026-09-15.md`)
+### Not attempted
 
-- D-001: canary PK fix (`dispatch_id`, not `id`).
-- D-002: used `'dispatch'` as `validate_refill_plan`'s real regression surface, since
-  `'plan_output'` is vacuous for 09-12/09-15 (both 100% approved/rejected already).
-- D-003: `v_wm_confirmations` live baseline is 1, not PRD-123's stated 11.
-- D-004: `v_live_shelf_stock` left untouched, already WEIMI-only.
-- D-004b: `bind_dispatch_fefo`'s described bug does not exist live.
-- D-005: four pod_inventory-decides-placement functions already compliant.
-- D-006: Phase 1 named-proof machines replayed synthetically instead of on live rows.
-- D-006b: G2/G4/G9 booleans and D1's literal ceiling deferred, `hero_velocity_floor` param
-  added for later.
-- D-007: Phase 4 enforcement wiring, exceptions array, FE settings table, and "Freakin
-  Roasted" all deferred/excluded with reasons.
-- D-008: `horizon_days` overwrite from 2 to 3; redundant `cooldown_days_v126` column added
-  then dropped before commit.
-- D-009: the 76 junk rows cannot be cleared with the existing RPC; needs a new one.
+The full 2026-09-16 end-to-end rehearsal (Phase 10) as one continuous rolled-back sequence;
+the frontend build, typecheck, lint, push, PR, and production merge (Phase 11 / Block H); the
+PRD-126 R5/R6 picker/FE work and its 30-day backtest; every FE surface named across Blocks
+C/D. Each is disclosed above with its specific reason, not silently dropped.
 
-## Timing (where measured)
+## Timing table
 
-| Operation                      | Machines                  | Time                                  |
-| ------------------------------ | ------------------------- | ------------------------------------- |
-| `confirm_and_build` `stage_2a` | 2 (AMZ-1029, NISSAN-0804) | 15968ms                               |
-| `confirm_and_build` full call  | 2                         | well under the 120s statement timeout |
+| Function                                 | Scenario                                    | Time                                         |
+| ---------------------------------------- | ------------------------------------------- | -------------------------------------------- |
+| `get_pod_refill_draft`                   | 09-15, 13 draft rows                        | 70ms                                         |
+| `validate_refill_plan('dispatch')`       | 09-15                                       | 310ms                                        |
+| `get_machine_health_cached`              | cached                                      | 3ms                                          |
+| `engine_add_pod`                         | 1 machine (~13 shelves), 09-16 rolled back  | 8.4s                                         |
+| `engine_add_pod`                         | 2 machines (~25 shelves), 09-16 rolled back | 22.5s                                        |
+| `confirm_and_build` total (2 machines)   | 09-16 rolled back                           | ~22.9s                                       |
+| `v_machine_priority` (`SELECT count(*)`) | after price-fill fix                        | ~5.1s (was: outright timeout before the fix) |
 
-No fleet-wide timing run was performed (that belongs to Phase 10, not attempted).
+## PRD-124 nineteen-item table
 
-## Git
+See the table in `IMPLEMENTATION-CHECKLIST-2026-09-15.md`'s PRD-124 section -- fixed,
+superseded, partial, or open, item by item, with decision ids.
 
-Branch `overnight-2026-09-15-prd123-126`, 14 migration commits (`prd12x p1` through `p7`,
-prefixed by phase), each with its own `git add` + `git commit` (kept separate and terse after
-the commit-message classifier rejected longer/HEREDOC messages three times this session). Plus
-this report, the checklist, `CHANGELOG.md`, and `DECISIONS-2026-09-15.md`. Not pushed to a
-remote; not merged; not deployed. No frontend commit exists this session.
+## Decisions log contents
+
+`DECISIONS-2026-09-15.md`, D-001 through D-024. D-001 to D-009 are the overnight run's
+judgment calls (canary PK fix, live-data mismatches found and worked around in the
+doctrine-consistent direction, the synthetic Phase 1 proof, deferred scope). D-010 through
+D-024 are this continuation's: PRD-122 follow-ups, D1/expired-substitution verification, the
+G2/G4/G9 flags and reduced-scope exceptions, timing risk, the `commit_refill_plan_atomic`
+discovery and the `stitch_pod_to_boonz` fix it required, the `confirm_machines_to_visit` fix,
+the price-fill view and the performance regression it briefly caused, `set_wh_batch_expiry`
+and the FE deferral, `reverse_cancel_dispatch_line`'s real 19-of-76 finding,
+`wm_confirm_line_split` and the eight-lines-are-gone finding, and the migration
+window alert plus the filename/version reconciliation gap.
 
 ## Note for CS (5 lines)
 
-Backend is solid through Phase 7 with the exceptions listed above; canary never moved.
-Two real gaps need your call, not more engineering: the 16.5% AED price-data hole (blocks
-PRD-126 A3/A5-A7) and the 76 junk 2029+ dispatch rows (needs a new reverse-cancellation RPC,
-Dara/Cody review first). Phases 8-11 (return splits, docs, full e2e day, FE deploy) are
-untouched -- next session should start there, in that order. Nothing was pushed or deployed;
-this branch is safe to review before merging.
+Backend is in very good shape: all six PRD-125 decisions, PRD-126's scoring plus the price
+gap that blocked it, and new PRD-123/124 RPCs are live and proven, with the canary never
+moving except for your own team's real packing today. What's still missing is entirely on the
+FE side (Confirm and Build button, expiry-capture inputs, the Split toggle) plus the full
+rehearsal and deploy -- none were touched today because each is a live, driver-facing screen
+this session couldn't verify visually, a call made deliberately rather than risk breaking
+what the team is using right now. Two real things need your call: 57 of the 76 junk rows are
+`packed=true` and need a human decision, not code, to clear; and the migration filenames in
+git don't match what's actually in the database's migration ledger (schema itself is fine,
+just the paper trail), worth deciding whether to reconcile before anyone runs `supabase db
+push` against a fresh environment. Nothing was pushed, merged, or deployed; this branch is
+safe to review before anyone touches production.
 
 ## Final action
 
-One `monitoring_alerts` row will be written now (source `overnight_2026_09_15`, severity
-`info`), summarizing this run, as the closing action of Phase 12.
+One `monitoring_alerts` row will be written now (source `overnight_2026_09_15_part2`,
+severity `info`), summarizing this continuation, as the closing action of Block I.
