@@ -213,6 +213,60 @@ export default function PackingDetailPage() {
   const [machine, setMachine] = useState<MachineInfo | null>(null);
   const [lines, setLines] = useState<PackLine[]>([]);
   const [loading, setLoading] = useState(true);
+  // ONE-LOOP-3 Job 1.5 (PRD-124 #11): expiry capture at pick. When the
+  // pinned batch (line.allocations[0]) has a NULL expiry, the packer must
+  // set it before packing -- keyed by wh_inventory_id so the same batch
+  // shows the same state everywhere it's pinned on this screen.
+  const [expiryDraft, setExpiryDraft] = useState<Record<string, string>>({});
+  const [savingExpiryFor, setSavingExpiryFor] = useState<string | null>(null);
+  const [expirySavedFor, setExpirySavedFor] = useState<Set<string>>(new Set());
+  const [expiryErrorFor, setExpiryErrorFor] = useState<Record<string, string>>(
+    {},
+  );
+
+  const saveWhBatchExpiry = useCallback(
+    async (whInventoryId: string) => {
+      const date = expiryDraft[whInventoryId];
+      if (!date) {
+        setExpiryErrorFor((prev) => ({
+          ...prev,
+          [whInventoryId]: "Enter a date first.",
+        }));
+        return false;
+      }
+      setSavingExpiryFor(whInventoryId);
+      setExpiryErrorFor((prev) => {
+        const next = { ...prev };
+        delete next[whInventoryId];
+        return next;
+      });
+      const supabase = createClient();
+      const { error } = await supabase.rpc("set_wh_batch_expiry", {
+        p_wh_inventory_id: whInventoryId,
+        p_expiration_date: date,
+        p_reason: "Expiry captured at pick (pack screen)",
+        p_dry_run: false,
+      });
+      setSavingExpiryFor(null);
+      if (error) {
+        setExpiryErrorFor((prev) => ({
+          ...prev,
+          [whInventoryId]: error.message,
+        }));
+        return false;
+      }
+      setExpirySavedFor((prev) => new Set(prev).add(whInventoryId));
+      return true;
+    },
+    [expiryDraft],
+  );
+
+  // True when this batch needs an expiry captured before it can be packed:
+  // NULL expiry AND not already saved this session.
+  function needsExpiryCapture(whInventoryId: string | null | undefined) {
+    if (!whInventoryId) return false;
+    return !expirySavedFor.has(whInventoryId);
+  }
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
@@ -1481,12 +1535,26 @@ export default function PackingDetailPage() {
 
   function handleMarkAllPacked() {
     setLines((prev) =>
-      prev.map((l) => ({
-        ...l,
-        action: "packed" as LineAction,
-        // For single-variant lines keep recommended_qty; mix lines use variantQtys
-        packed_qty: l.variantStocks ? l.packed_qty : l.recommended_qty,
-      })),
+      prev.map((l) => {
+        // ONE-LOOP-3 Job 1.5 (PRD-124 #11): a line whose pinned batch still
+        // needs an expiry captured is left untouched by the bulk action --
+        // it stays disabled until the packer saves a date on it directly.
+        const pinnedWhId = l.allocations[0]?.wh_inventory_id ?? null;
+        if (
+          l.variantStocks === null &&
+          l.fifo_expiry === null &&
+          pinnedWhId &&
+          needsExpiryCapture(pinnedWhId)
+        ) {
+          return l;
+        }
+        return {
+          ...l,
+          action: "packed" as LineAction,
+          // For single-variant lines keep recommended_qty; mix lines use variantQtys
+          packed_qty: l.variantStocks ? l.packed_qty : l.recommended_qty,
+        };
+      }),
     );
   }
 
@@ -1496,6 +1564,25 @@ export default function PackingDetailPage() {
   // marks completed); p_final=false = Save & come back (commits resolved-so-far, leaves
   // the machine in_progress, no all-resolved requirement). Lossless resume.
   async function handleConfirmPacking(p_final = true) {
+    // ONE-LOOP-3 Job 1.5 (PRD-124 #11): the real safety backstop -- a line
+    // actioned "packed" whose pinned batch still has no captured expiry is
+    // refused here, at the point pack_dispatch_line would actually run,
+    // not only in the bulk-mark UI convenience above.
+    const unresolvedExpiry = lines.filter((l) => {
+      if (l.action !== "packed" || l.variantStocks !== null) return false;
+      const pinnedWhId = l.allocations[0]?.wh_inventory_id ?? null;
+      return (
+        l.fifo_expiry === null && pinnedWhId && needsExpiryCapture(pinnedWhId)
+      );
+    });
+    if (unresolvedExpiry.length > 0) {
+      setWhWarnMsg(
+        `Expiry on the pack: ${unresolvedExpiry.length} line(s) still need a date saved before packing (${unresolvedExpiry
+          .map((l) => l.shelf_code)
+          .join(", ")}).`,
+      );
+      return;
+    }
     setSaving(true);
     setWhWarnMsg("");
     setPlanDrift(0);
@@ -3932,6 +4019,54 @@ export default function PackingDetailPage() {
                           !isMix &&
                           (() => {
                             const expiry = line.fifo_expiry;
+                            const pinnedWhId =
+                              line.allocations[0]?.wh_inventory_id ?? null;
+                            if (
+                              expiry === null &&
+                              pinnedWhId &&
+                              needsExpiryCapture(pinnedWhId)
+                            ) {
+                              // ONE-LOOP-3 Job 1.5 (PRD-124 #11): the Age
+                              // cell becomes a required date input until
+                              // set_wh_batch_expiry saves it; Packed and
+                              // Mark all as packed stay disabled for this
+                              // line until then (see the pack handlers).
+                              return (
+                                <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 dark:bg-amber-900/30">
+                                  <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                                    Expiry on the pack:
+                                  </span>
+                                  <input
+                                    type="date"
+                                    value={expiryDraft[pinnedWhId] ?? ""}
+                                    onChange={(e) =>
+                                      setExpiryDraft((prev) => ({
+                                        ...prev,
+                                        [pinnedWhId]: e.target.value,
+                                      }))
+                                    }
+                                    className="rounded border border-amber-300 bg-white px-1 py-0.5 text-xs dark:bg-neutral-900"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={savingExpiryFor === pinnedWhId}
+                                    onClick={() =>
+                                      saveWhBatchExpiry(pinnedWhId)
+                                    }
+                                    className="rounded bg-amber-600 px-1.5 py-0.5 text-xs font-semibold text-white disabled:opacity-50"
+                                  >
+                                    {savingExpiryFor === pinnedWhId
+                                      ? "Saving…"
+                                      : "Save"}
+                                  </button>
+                                  {expiryErrorFor[pinnedWhId] && (
+                                    <span className="text-xs text-red-600">
+                                      {expiryErrorFor[pinnedWhId]}
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            }
                             if (expiry === null) {
                               return (
                                 <span className="rounded px-1 py-0.5 text-xs font-normal bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
