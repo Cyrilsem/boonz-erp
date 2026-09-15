@@ -13,20 +13,24 @@ import { createBrowserClient } from "@supabase/ssr";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// ONE-LOOP-3 Job 1.3 (PRD-124 #42): field names match the deployed
+// refresh-stage1 edge function (v48) exactly -- verified against its live
+// source, not assumed. It emits `aisles` and `machines_covered`, never
+// `aisle` or `machines_online`/`machines_total`.
 type RefreshResult = {
   status: string;
   duration_seconds: number;
   sales: { status: string; upserted: number; skipped: number; total: number };
   device_status: { status: string; upserted: number; skipped: number };
-  aisle: {
+  aisles: {
     status: string;
     upserted?: number;
     skipped?: number;
+    machines?: number;
     reason?: string;
     message?: string;
   } | null;
-  machines_online: number;
-  machines_total: number;
+  machines_covered: number;
   lookback_days: number;
   timestamp: string;
   error?: string;
@@ -357,8 +361,8 @@ export default function SnapshotTab({
     initialData?.machineHealth ?? [],
   );
   // PRD-122 T6 (R6): age of the machineHealth data currently on screen. Starts
-  // as the SSR app_cache stamp; once loadData() pulls get_machine_health live,
-  // the on-screen data's true age becomes "now" at that fetch.
+  // as the SSR app_cache stamp; loadData() also reads the cached RPC (ONE-LOOP-3
+  // Job 1.3), so this is always the app_cache's own refreshed_at, never "now".
   const [healthAsOf, setHealthAsOf] = useState<string | null>(
     initialData?.machineHealthRefreshedAt ?? null,
   );
@@ -439,19 +443,26 @@ export default function SnapshotTab({
       .select("*", { count: "exact", head: true });
     setSalesCount(count);
 
-    // Machine health cards
-    const { data: healthData } = await supabase
-      .rpc("get_machine_health")
-      .limit(10000);
-    if (healthData) {
+    // ONE-LOOP-3 Job 1.3 (PRD-124 #42): loadData used to call live
+    // get_machine_health (2-5s) as `authenticated` (8s timeout) -- the
+    // refresh looked like it completed but the cards never actually
+    // updated. get_machine_health_cached reads the 2-min pg_cron-refreshed
+    // app_cache snapshot instead: instant, timeout-proof. It returns
+    // {refreshed_at, rows}, not a bare row set, so healthAsOf is stamped
+    // from the cache's own refreshed_at (the data's true age), not "now".
+    const { data: cached } = await supabase.rpc("get_machine_health_cached");
+    const cachedResult = cached as {
+      rows?: MachineHealth[];
+      refreshed_at?: string | null;
+    } | null;
+    if (cachedResult?.rows) {
       // Filter out WH warehouse machines — not field machines, should not appear in refill view
       setMachineHealth(
-        (healthData as MachineHealth[]).filter(
+        cachedResult.rows.filter(
           (m) => !m.machine_name.toUpperCase().startsWith("WH"),
         ),
       );
-      // This is a live get_machine_health call, so the data on screen is now fresh.
-      setHealthAsOf(new Date().toISOString());
+      setHealthAsOf(cachedResult.refreshed_at ?? null);
     }
   }, [getSupabase]);
 
@@ -1321,17 +1332,17 @@ export default function SnapshotTab({
               <div className="bg-white rounded px-3 py-2 border border-green-100">
                 <div className="text-gray-500 text-xs">Machines</div>
                 <div className="font-semibold text-gray-900">
-                  {result.machines_online}/{result.machines_total} synced
+                  {result.machines_covered} covered
                 </div>
               </div>
               <div className="bg-white rounded px-3 py-2 border border-green-100">
                 <div className="text-gray-500 text-xs">Aisle snapshot</div>
                 <div className="font-semibold text-gray-900">
-                  {result.aisle?.status === "ok"
-                    ? `${result.aisle.upserted} slots`
-                    : result.aisle?.reason === "skip_aisle_param"
+                  {result.aisles?.status === "ok"
+                    ? `${result.aisles.upserted} slots`
+                    : result.aisles?.reason === "skip_aisle_param"
                       ? "Skipped (manual)"
-                      : result.aisle?.reason === "endpoint_not_confirmed"
+                      : result.aisles?.reason === "endpoint_not_confirmed"
                         ? "Endpoint TBD"
                         : "N/A"}
                 </div>
@@ -1340,7 +1351,7 @@ export default function SnapshotTab({
             <p className="text-xs text-gray-500 mt-3">
               Pulled {result.lookback_days} days of sales →{" "}
               {result.sales?.upserted?.toLocaleString()} transactions synced.
-              Device status updated for {result.machines_total} machines.
+              Device status updated for {result.machines_covered} machines.
               {result.sales?.skipped > 0 &&
                 ` ${result.sales.skipped} skipped (unknown machine).`}
             </p>
