@@ -666,3 +666,44 @@ visually.
 **Why:** matches the standing risk discipline used throughout this session (verify before
 touching anything live) applied to FE, not just DB; a backend-complete, FE-pending state is
 honestly reported as such rather than claimed done.
+
+---
+
+## D-022. Block E: reverse_cancel_dispatch_line clears 19 of the 76 junk rows, not 76
+
+Built `reverse_cancel_dispatch_line(dispatch_id, reason, caller, dry_run)` exactly per spec
+(guard: `packed=false AND dispatched=false`; clears `from_wh_inventory_id` and
+`from_warehouse_id`; sets `cancelled`/`cancelled_at`/`cancelled_by`/`cancellation_reason`
+(pre-existing columns built for exactly this) and `include=false`; appends the reason to
+`comment`). Added to `enforce_canonical_dispatch_write`'s allowlist. Migration
+`20260915003200`.
+
+**Real finding**: of the 76 junk 2030-dated rows, only 19 satisfy the guard -- **57 are
+`packed=true`**. The guard, exactly as specified, refuses those 57. Only 2 of the 19
+qualifying rows were pinned (`from_wh_inventory_id` set), not the "25 previously pinned" the
+prompt anticipated -- most of the 25 pins sit on the 57 packed rows this RPC correctly does
+not touch.
+
+**Choice:** ran dry then committed for real (not rolled back -- this is a genuine, permanent
+data cleanup, per the prompt's own intent) on the 19 qualifying rows only. Did not loosen the
+guard to reach all 76: `packed=true` is a claim that a real physical warehouse action
+occurred, and overriding that claim without a human check would risk crediting or discarding
+real physical stock incorrectly -- exactly the kind of decision Rule Zero says to make in the
+doctrine-consistent (conservative) direction and log, not force through. The 57 remaining junk
+rows need a separate, human-reviewed process; left OPEN.
+
+**Verified**: 19/19 committed `status: 'ok'`. `SELECT count(*) FROM refill_dispatching WHERE
+dispatch_date >= '2029-01-01' AND cancelled=false` went 76 -> 57, exactly the 19 cleared.
+`wh_available_for` free stock for the 2 released products (7 Days - Hazelnut, 7Up - Diet) was
+**unchanged** (13 and 999 respectively, before and after) -- not because the release failed,
+but because `wh_available_for`'s pin-subtraction only counts dispatch rows with
+`dispatch_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30`, and these rows are dated
+2030-11-05, far outside that window. These pins were never actually suppressing today's
+available stock in the first place; releasing them is real cleanup (fewer junk rows burying
+the approval queue, per PRD-123 section 5) but does not move today's numbers, and reporting
+otherwise would be fabricating an effect that did not happen. Canary unchanged
+(`d70336b4b4f05d62ced028cb2edec4ab`).
+
+**Why:** literal spec, real data, honest arithmetic -- 19 of 76, not 76 of 76, and a stock
+number that didn't move because the mechanism it runs through doesn't reach two-years-out
+dates, not because anything failed.
