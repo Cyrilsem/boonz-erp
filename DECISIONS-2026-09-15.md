@@ -558,3 +558,46 @@ and one `cs_added` row both got `confirmed_at` set by the same call.
 
 **Why:** PRD-124's own speculation turned out correct once verified against the actual
 function bodies instead of the FE; confirmed by direct search, not assumed from the PRD text.
+
+---
+
+## D-019. Block B: v_current_price_filled closes the price gap; a real perf regression caught and fixed
+
+Built `v_current_price_filled` (migration `20260915002900`) exactly per spec: 1
+`effective_price_aed` when present, 2 this machine's own 30-day realised price (from
+`sales_history.total_amount` joined back onto `v_sales_history_resolved`, which resolves
+`pod_product_id` but does not itself carry an amount column) when at least 3 units sold, 3
+fleet median `effective_price_aed` for that pod product, 4 fleet median realised price, 5 `0`
+with `price_source='unpriced'`. Result: 2,033 merchandised lanes, only 5 (0.25%, down from
+16.5%) still `unpriced` -- none with velocity >= 1 (all 0.00/day), written up in
+`docs/unpriced-lanes-2026-09-15.md`. ACTIVATEMCC-1037's Aquafina lane, the exact one named in
+D-008 as blocked, now resolves to 7.00 AED via `realized_machine_30d`.
+
+Wired `v_machine_priority`'s `lane_price` and `expiry_agg_aed` CTEs to read it (migration
+`20260915003000`). **First version broke the view**: `expiry_agg_aed` joined
+`v_current_price_filled` via `LEFT JOIN LATERAL ... LIMIT 1` per `pod_inventory` row, which
+forced Postgres to re-evaluate the entire `v_current_price_filled` CTE chain (including a
+`percentile_cont` aggregate) once per row instead of once total -- `SELECT count(*) FROM
+v_machine_priority` timed out outright. Caught immediately by running that exact query before
+declaring the migration done, not by assuming a view compiles correctly just because it
+applied without a syntax error. **Fixed** by collapsing `v_current_price_filled` to one row
+per `(machine_id, boonz_product_id)` in a `DISTINCT ON` CTE (`price_by_boonz`) evaluated once,
+then a plain hash join against `pod_inventory` -- migration
+`20260915003000_prd12x_pb_v_machine_priority_price_filled_fix` (re-applied under the same
+migration name after the fix, both the broken and fixed SQL are in the committed file's
+history via this log, only the fixed version is live and in the file on disk).
+
+**Verified after the fix:** `SELECT count(*) FROM v_machine_priority` completes in ~5.1s (down
+from timeout, i.e. >many seconds). This is still slower than the view's likely pre-price-fill
+speed (it returned near-instantly in every earlier check today), and sits at the edge of the
+5s FE-facing threshold -- but the FE's actual consumer, `get_machine_health_cached()`, is
+cache-fronted (measured 3ms earlier, D-015) so this does not block the FE directly; it affects
+whatever refreshes that cache and any direct query of the view. Not optimized further given
+time; disclosed as a residual perf cost of the price-fill rather than claimed as free.
+`check_priority_surface_consistency()` (PRD-122 A11) returns 0 rows after the fix; tier counts
+sane (P1=1, P2=11, P3=20, PRD-126 `p_tier_aed`). Canary unchanged
+(`d70336b4b4f05d62ced028cb2edec4ab`, the D-017 re-baseline).
+
+**Why:** the standing rule says prove, don't assume; a view that applies without error is not
+proof it runs correctly or fast, and this session's discipline of re-running the actual check
+immediately after each change is what caught this before it reached the checklist as "done."
