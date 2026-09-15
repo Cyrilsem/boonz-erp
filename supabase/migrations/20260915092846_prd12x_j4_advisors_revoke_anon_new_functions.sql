@@ -1,0 +1,12 @@
+-- ONE-LOOP-3 Job 4: mcp__supabase__get_advisors (security) flagged
+-- anon_security_definer_function_executable on pick_machines_for_refill v12
+-- (new tonight). Its own internal role check (`IF v_user_id IS NOT NULL AND
+-- NOT EXISTS(...)`) deliberately lets a NULL auth.uid() through, since that
+-- same call also has to work from a trusted cron/service-role context
+-- (auto_generate_draft, build_draft_for_confirmed) where there genuinely is
+-- no signed-in user. That is also exactly what let an anon REST caller
+-- through, since PostgREST resolves the anon key to the same NULL
+-- auth.uid(). The correct fix is the grant, not the internal check:
+-- revoking anon's EXECUTE stops PostgREST from ever reaching the function
+-- for an anon caller, while leaving the internal service/cron path intact.
+REVOKE EXECUTE ON FUNCTION public.pick_machines_for_refill(date, integer, integer) FROM anon;
