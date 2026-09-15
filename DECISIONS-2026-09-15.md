@@ -707,3 +707,45 @@ otherwise would be fabricating an effect that did not happen. Canary unchanged
 **Why:** literal spec, real data, honest arithmetic -- 19 of 76, not 76 of 76, and a stock
 number that didn't move because the mechanism it runs through doesn't reach two-years-out
 dates, not because anything failed.
+
+---
+
+## D-023. Block D (PRD-123): wm_confirm_line_split built and proven; the 8 named lines are gone
+
+Built `wm_confirm_line_split(line_id, splits, reason, caller, dry_run)` (migration
+`20260915003300`), modelled verbatim on `wm_confirm_line`'s validation and credit logic (role
+check, outcome enum, 2099 sentinel refusal, disposal_code rules, redeploy_pending
+requirements, top-up-else-insert), looped once per split entry, `wh_approved_at`/`by` stamped
+once after the loop, variance computed once (sum of entry qty vs the line's own planned qty),
+never blocking, alerting past 20%/3 units. Added to `enforce_canonical_dispatch_write`'s
+allowlist. `wm_confirm_line` itself was NOT touched -- it is on today's do-not-touch list, and
+R2.3 (giving it the same variance recording) is deferred, not attempted live.
+
+**Verified live, rolled back**, on a real currently-open line (Coca Cola - Zero /
+IFLYMCC-1024 A08, planned qty 3, part of the same multi-variant soft-drinks pod the 8 named
+lines belonged to): a 2-way split (2 units restocked as the line's own product, 2 units
+restocked as a sibling variant, 7Up - Diet, via an explicit `boonz_product_id`) produced
+`counted_qty=4` against `planned_qty=3` (variance +1, 33.3%); the real call wrote exactly 2
+`disposition_events` rows, stamped `wh_approved_at` once, and raised exactly one
+`return_count_variance` alert (33.3% > the 20% threshold). Five guard tests in the same
+transaction (a foreign `boonz_product_id` not mapped to the line's pod product; an empty
+`p_splits` array; 21 entries; the 2099-12-31 sentinel; `waste` with no `disposal_code`) each
+raised the exact expected exception, none silently passed. Canary unchanged; `wh_approved_at`
+confirmed rolled back to NULL afterward.
+
+**The eight named 14 Sep lines (PRD-123 section 1.1) no longer exist as open lines** -- checked
+`v_wm_confirmations` for all five machine/shelf combinations (WPP A01, VML-1004 A15, VML-1003
+A06, USH A13, NOVO A15): zero rows. A full day has passed since PRD-123 was written; the real
+warehouse team (D-017's live `pack_dispatch_line` activity is the same team) has evidently
+already confirmed or otherwise resolved every one of them through the existing single-batch
+path. The literal replay ("replay all eight ... do not re-confirm them") cannot be run against
+data that is gone; the mechanism those eight lines were meant to exercise (multi-expiry split,
+flavour re-attribution, variance recording, atomic all-or-nothing writes) was proven instead
+against a different, currently-real open line, exercising the same code paths.
+
+**Deferred, OPEN**: the FE Split toggle on `WarehouseConfirmationsPanel.tsx`, for the same
+live-driver/warehouse-facing-screen risk reasoning as D-021's pack-screen deferral.
+
+**Why:** built and proven to the letter where the letter still matched live data; where it
+did not (the eight specific lines), said so plainly rather than fabricating a replay against
+rows that no longer exist.
