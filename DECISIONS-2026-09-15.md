@@ -284,3 +284,45 @@ shelf winning over the plan's shelf), reproduced from real current drift, not in
 either report a false failure (blocked by the leak guard) or require weakening that guard
 inside the test, which risks touching the canary. A synthetic same-shape scenario on a dead
 date proves the same code path without either risk.
+
+---
+
+## D-010. ONE-LOOP-2 Block A0 (1): horizon_days 3 to 4
+
+`pick_urgency_params.horizon_days` was 3 (set last night in `prd12x_p5`, PRD-126 R1-R4), not
+the 2 that a PRD-122 note assumed when it was written. Set to 4 per explicit CS instruction,
+migration `20260915002000_prd122_r4_horizon_days_4.sql`. Both `s_runout_hero` (PRD-122) and
+`s_runout_aed` (PRD-126) read this single row, so one change applies to both scores.
+
+**Verified before/after:** `check_priority_surface_consistency()` (PRD-122 A11) returned 0
+rows before and 0 rows after. `v_machine_priority` tier counts moved P1_RESTOCK 15 -> 16,
+P2_MAINTAIN 0 -> 2, P3_OK 17 -> 14 (32 machines total, unchanged). `s_runout_hero` is nonzero
+and tier improved (P3->P1 or into P2) for all four named machines: ALJLT-1015-0200-O1
+(s_runout_hero 10.00, P1_RESTOCK), AMZ-1029-3003-O1 (79.17, P1_RESTOCK), AMZ-1038-3001-O1
+(58.72, P1_RESTOCK), VOXMCC-1005-0201-B0 (23.11, P2_MAINTAIN).
+
+**Why:** explicit CS instruction, and the doctrine reason holds: a longer horizon widens the
+runout window, which should only ever pull machines up in priority, never down, so this
+result is exactly the expected direction and the two consistency gates (A11) still pass.
+Block B's backtest tunes `p1_threshold_aed` / `p2_threshold_aed` against horizon 4, not the
+old horizon 3.
+
+## D-011. ONE-LOOP-2 Block A0 (2): VOX-day dead-branch documentation
+
+`pick_machines_for_refill`'s VOX-day branch (`vox_centroid`, the `hero_runway_days` off-day
+gate, the `vox_emergency_offday` tag, its `ORDER BY`) is unreachable: the 3 `partner_filled`
+machines have zero rows in `v_machine_priority`, so `svc_track='vox'` matches nothing,
+`bool_and` over the empty set is NULL, `COALESCE(...,true)` makes `v_vox_all_equip` true, and
+`IF v_is_vox_day AND NOT v_vox_all_equip` never fires. MCC clustering still works via
+`sibling_ranked` on `r_cluster='VOX'` capped at `p_max_siblings`.
+
+**Choice:** documented via `COMMENT ON FUNCTION` (migration
+`20260915002100_prd122_r4_vox_day_branch_dead_code_comment.sql`) rather than an inline code
+comment requiring a full `CREATE OR REPLACE` of the function body, because `COMMENT ON` is
+metadata-only and carries zero risk of a transcription error in a large existing function.
+Removal is out of scope, a separate later PRD. This comment will be carried forward verbatim
+into v12 when Block B rebuilds `pick_machines_for_refill`, this time as an inline comment
+since that CREATE is being written fresh anyway.
+
+**Why:** CS asked for documentation only, no behaviour change; a metadata comment is the
+lowest-risk way to satisfy that literally.

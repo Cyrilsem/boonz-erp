@@ -10,6 +10,17 @@ Phase 10, and Phase 11 were not attempted -- see the OPEN lines below and
 `OVERNIGHT-REPORT-2026-09-15.md` for the full account. Nothing in this document is fabricated:
 every DONE line has a proof described in the report; every OPEN line says so plainly.
 
+## Block A0 (ONE-LOOP-2, PRD-122 follow-ups)
+
+- [x] **DONE** -- `pick_urgency_params.horizon_days` set to 4 (was 3, set to 3 in `prd12x_p5`
+      overnight, superseding the PRD-122 note that assumed 2). Migration
+      `20260915002000_prd122_r4_horizon_days_4.sql`. PRD-122 A11
+      (`check_priority_surface_consistency()`) verified 0 rows before and after. D-010.
+- [x] **DONE** -- documented the unreachable VOX-day branch inside `pick_machines_for_refill`
+      via `COMMENT ON FUNCTION` (no behaviour change). Migration
+      `20260915002100_prd122_r4_vox_day_branch_dead_code_comment.sql`. To be carried forward into
+      v12 in Block B. D-011.
+
 ## Canary (2026-09-15 packed plan, must never change)
 
 - [x] **DONE** -- canary fingerprint captured before Phase 1, re-verified after every phase
