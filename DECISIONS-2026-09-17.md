@@ -172,6 +172,33 @@ bug the rest of this session has been keeping an eye out for (drift between two 
 were supposed to be interchangeable) -- caught here because the function was actually run
 against real data before being called done, not because the design was reviewed harder.
 
+## D-013. Block C applied live (Dubai time passed 22:00 mid-turn)
+
+Dubai time crossed 22:00 partway through this turn (session-elapsed real time, not a
+manipulated clock -- verified via `now() AT TIME ZONE 'Asia/Dubai'` returning 2026-09-18 02:13
+at the point of the check). Per the goal's own instruction, wrote all three Block C migrations
+first, then re-checked the clock and applied all three since it had passed:
+
+- **Bug #1** (`bind_dispatch_fefo` idempotent `_bind_tally`): verified live inside a rolled-back
+  transaction with two sequential calls to `bind_dispatch_fefo` against different machine-name
+  arrays -- the second call previously would have raised `relation "_bind_tally" already
+exists`; it now returns a clean `status: ok` result.
+- **Bug #2** (`insert_driver_remove_line` drops the `item_added` filter): verified via
+  `pg_get_functiondef` regex that the specific filter clause `NOT COALESCE(rd.item_added` no
+  longer appears in the live function body.
+- **Bug #3** (`engine_add_pod` sums `wh_available_for` across all flavours): verified the
+  applied function body diffs from the pre-change live body in exactly the three places
+  intended (the `wh_avail` expression, the `engine_version` string, a trailing semicolon) via
+  a byte-for-byte `diff` before applying. Then proved the fix changes real behaviour in the
+  intended direction: scanning every multi-flavour pod product against one real WH_CENTRAL
+  machine, several products that the OLD single-flavour-`LIMIT 1` computation reported as
+  `0` free stock (which would trigger a false `blocked_no_wh`) resolve to real stock under the
+  NEW sum-across-all-flavours computation -- e.g. one pod product went from `old=0` to
+  `new=113` units, another from `0` to `114`, another from `39` to `2236`.
+
+Canary re-checked after each of the three applies and once more after all three: unchanged
+throughout (167 rows, fingerprint `9a7f47322e4e2d50585094d81d704ce0`).
+
 ## D-011. `propose_refill_plan`'s default scope is the plan date's confirmed pick list, not the whole fleet
 
 The goal's Block D says "Time `propose_refill_plan` on the full confirmed set," implying
