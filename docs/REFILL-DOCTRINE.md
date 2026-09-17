@@ -1,6 +1,6 @@
 # Refill doctrine
 
-The one page a new session reads first. Last updated 2026-09-15 (ONE-LOOP-2).
+The one page a new session reads first. Last updated 2026-09-17/18 (PRD-127).
 
 ## The six decisions (PRD-125), as they now stand
 
@@ -99,22 +99,59 @@ runout window). `p1_threshold_aed = 150`, `p2_threshold_aed = 50`, `hero_velocit
 machine's own 30-day realised price (from `sales_history`) when at least 3 units sold, else
 the fleet median effective price for that pod product, else the fleet median realised price,
 else 0 with `price_source='unpriced'` (5 lanes remain unpriced as of this writing, all at
-0 velocity -- see `docs/unpriced-lanes-2026-09-15.md`). `pick_machines_for_refill` v12 (cluster
-fill by car, R5) and the Machine Health FE surface (R6) were not built this session.
+0 velocity -- see `docs/unpriced-lanes-2026-09-15.md`). Not unique per `(machine_id,
+pod_product_id, boonz_product_id)` -- its own fallback tiers can surface several rows for the
+same triple; any caller joining onto it needs a `DISTINCT ON` collapse first (`v_machine_priority`'s
+own `price_by_boonz` CTE does this; `propose_refill_plan`'s `lane_price` CTE does the same,
+the hard way, after shipping without it first -- see PRD-127 below). `pick_machines_for_refill`
+v12 (cluster fill by car, R5) and the Machine Health FE surface (R6) shipped 2026-09-15
+(ONE-LOOP-3).
 
-## What is NOT yet done (as of 2026-09-15, ONE-LOOP-2)
+## PRD-127 -- propose_refill_plan (2026-09-17/18)
 
-- PRD-126 R5 (cluster-fill picker v12) and R6 (Machine Health card AED display) -- backend
-  scoring is live, the picker/FE consumers are not built.
+A read-only, chat-native "what would happen" proposal, sitting _before_ `confirm_and_build` in
+the daily loop, not replacing it: `propose_refill_plan(p_plan_date, p_machine_names,
+p_overrides)` builds from the full WEIMI lane list of every in-scope machine (default: the
+plan date's confirmed pick list), never from a velocity ranking, and returns pre-rendered chat
+strings, never raw lane rows. Every lane gets exactly one of ten `reason_code`s (see
+`PRD-127-propose-refill-plan.md` section 6); an unclassified lane is a hard `RAISE`, not a
+silent default. Genuinely writes nothing -- proven with real per-table DML guard triggers in
+`docs/prd127-acceptance.sql` A1, not merely declared `STABLE` (that keyword is an optimizer hint,
+not an enforced guarantee).
+
+`refill_directives` (`directive_type='block'` only) lets CS durably tell the engine "never
+recommend this again" -- on a `machine`, `pod_product`, or `boonz_product` -- via
+`add_refill_directive`/`retire_refill_directive`, resolved by exact name match against
+`machines`/`pod_products`/`boonz_products`, raising on zero or more than one match rather than
+guessing (some real names collide across those three tables, e.g. "Evian - 1L" is both a
+pod_product and a boonz_product name). `refill_swap_params` holds the two tunable constants the
+allocation logic needs (`expired_priority_boost_aed`, `min_substitute_stock_units`) so CS can
+retune without a migration.
+
+The warehouse pool for contended allocation is built by calling `wh_available_for` directly
+(once per distinct routing class present, summed) -- never a second copy of its
+phantom/reservation/quarantine predicates, which is the only way to guarantee they can never
+drift apart. Global allocation sorts by `aed_at_risk` (PRD-126 R1's own per-lane formula,
+reused verbatim) descending, one running ledger per `boonz_product_id`, identical in shape to
+`engine_add_pod`'s own `prior_need`/`final_qty` window.
+
+Full spec: `PRD-127-propose-refill-plan.md` (reconstructed 2026-09-17 -- the file did not exist
+anywhere in the repo or its git history when that turn started; see its own closing note and
+`DECISIONS-2026-09-17.md` D-002). Daily-loop placement: `docs/REFILL-DAILY-LOOP.md`.
+
+## What is NOT yet done (as of 2026-09-17/18, PRD-127)
+
 - PRD-125 Phase 4's `exceptions` array on `get_pod_refill_draft` covers `no_rule_matched` and
   G5/G8 only, not the full G3/G7/G10/WEIMI-vs-lot-disagreement set the PRD asked for.
-- FE work: the `/refill` Confirm and Build button, the substitution-rules settings table, the
-  pack-screen/Change-Product/Warehouse-Inventory expiry-capture inputs (PRD-124 #11), and the
-  WarehouseConfirmationsPanel Split toggle (PRD-123) are all backend-complete, FE-pending.
+- PRD-124 PRD-116 leftovers and the 8-named-lines PRD-123 item (resolved by the real team
+  before this session reached them).
 - 57 of the 76 junk 2030-dated dispatch rows (all `packed=true`) still need a human-reviewed
   cleanup path; `reverse_cancel_dispatch_line` deliberately refuses them.
 - A structural gap between committed migration filenames and the database's own
-  `schema_migrations.version` values (see DECISIONS-2026-09-15.md D-024).
+  `schema_migrations.version` values, historical (~30 files from before 2026-09-15) --
+  reconciled going forward each session since (see DECISIONS-2026-09-15.md D-024).
+- `align_pod_lots_to_weimi`'s expiry-inheritance fix (D-027, ONE-LOOP-3): written and
+  dry-run-verified, gated on CS's own requested apply time.
 
-Full detail on every decision, proof, and deferral: `DECISIONS-2026-09-15.md` and
-`OVERNIGHT-REPORT-2026-09-15.md`.
+Full detail on every decision, proof, and deferral: `DECISIONS-2026-09-15.md`,
+`DECISIONS-2026-09-17.md`, `OVERNIGHT-REPORT-2026-09-15.md`.
