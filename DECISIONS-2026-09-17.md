@@ -152,6 +152,26 @@ same shape as `refill_policy_params`/`pick_urgency_params`). No other "swap weig
 this function to extract — did not invent additional parameters purely to make the table look
 more substantial.
 
+## D-012. Real bug caught on first live test run: lane fan-out from non-unique join keys
+
+Running `propose_refill_plan('2026-09-18', null, '[]')` against the day's real 11-machine
+confirmed pick list first returned `lanes_total: 1112` against an independently-counted true
+value of 192 real lanes -- a ~5.8x duplication, visible immediately as the same fill/exception
+line repeated dozens of times for one shelf. Root-caused to two non-unique join keys: (1)
+`v_lane_grain` has one row per PHYSICAL SHELF, not per (machine, pod_product) -- a pod product
+sitting on N shelves of one machine produces N identical-velocity rows, and joining a single
+WEIMI lane onto it by `(machine_id, pod_product_id)` alone fans that lane out N-fold; (2)
+`v_current_price_filled` is independently not unique per `(machine_id, pod_product_id,
+boonz_product_id)` either -- its own fallback-tier logic can surface 5-15 rows for the exact
+same triple. Fixed by collapsing both to exactly one row per join key before joining
+(`AVG(lane_dvel) GROUP BY machine_id, pod_product_id` for velocity; the same `DISTINCT ON (...)
+ORDER BY ..., effective_price_aed DESC NULLS LAST` collapse `v_machine_priority`'s own
+`price_by_boonz` CTE already uses, for price). Re-ran: `lanes_total` now matches the
+independently-counted 192 exactly, `by_reason_code` sums to 192. This is exactly the class of
+bug the rest of this session has been keeping an eye out for (drift between two things that
+were supposed to be interchangeable) -- caught here because the function was actually run
+against real data before being called done, not because the design was reviewed harder.
+
 ## D-011. `propose_refill_plan`'s default scope is the plan date's confirmed pick list, not the whole fleet
 
 The goal's Block D says "Time `propose_refill_plan` on the full confirmed set," implying
