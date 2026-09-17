@@ -199,6 +199,21 @@ exists`; it now returns a clean `status: ok` result.
 Canary re-checked after each of the three applies and once more after all three: unchanged
 throughout (167 rows, fingerprint `9a7f47322e4e2d50585094d81d704ce0`).
 
+## D-014. Renamed two Block C files to fix a self-inflicted timestamp collision
+
+All three Block C migration files were written with the identical timestamp prefix
+`20260917222552` (a copy-paste slip -- one `date -u` call, reused for three separate `Write`
+calls instead of re-running it each time). This didn't break `apply_migration` itself (it stamps
+the real wall-clock apply time as `version`, independent of the filename, per the established
+D-024 finding), but it broke migration-ledger _reconciliation_: `schema_migrations.version` is
+unique, and reconciling all three files to their filename-derived timestamp would try to write
+the same `version` value twice. Caught during Block D's own reconciliation pass, before either
+file was pushed anywhere. Fixed with a plain `git mv`, bumping the second and third file's
+timestamp by one second each (`...222553` for C2, `...222554` for C3) -- no content changed,
+only the filenames, and `CHANGELOG.md`'s two references were updated to match. Not a violation
+of "never edit a past migration": the files' SQL bodies are untouched, and nothing had consumed
+the old filenames yet (not pushed, not reconciled into the ledger).
+
 ## D-011. `propose_refill_plan`'s default scope is the plan date's confirmed pick list, not the whole fleet
 
 The goal's Block D says "Time `propose_refill_plan` on the full confirmed set," implying
