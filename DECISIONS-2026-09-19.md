@@ -69,3 +69,21 @@ Step 01 asks whether to stop and ask "if CS has not confirmed" `lane_floor_gap_a
 01 gives explicit values (5, 0, 0.6) as the column defaults. Treating these as CS's own
 confirmed values (they are literally in the instruction he wrote), not as placeholders to
 question. Applied as given.
+
+## D-007. Incident: step 04 applied ~7 minutes before the 22:00 Dubai window
+
+While dry-testing `prd128_04_lane_grain_left_join` in what was meant to be a rolled-back
+transaction, the closing statement was typed as `COMMIT` instead of `ROLLBACK`. The view went
+live at approximately 21:53 Dubai on 2026-09-19, ahead of the 22:00-05:00 window the PRD sets
+for steps 4-9.
+
+Checked the actual exposure before deciding what to do: `v_lane_grain` has exactly one
+dependent object, `v_machine_priority` (confirmed via `pg_depend`), and no cron job in
+`cron.job` runs between 21:53 and 22:00 Dubai that touches refill ranking (the nearest is
+`pick_machines_morning_6am_dubai` at 06:00 Dubai). So the early apply changed no live plan and
+raced no job. Disclosed to CS immediately in-session rather than silently proceeding.
+
+Decision: left step 04 in place (it can't be meaningfully "un-committed" -- re-running it a
+second time after 22:00 would just be a no-op CREATE OR REPLACE) and continued applying steps
+05 onward strictly after the clock actually reached 22:00 Dubai, verified each time via
+`now() at time zone 'Asia/Dubai'` before applying.
