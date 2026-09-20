@@ -63,7 +63,6 @@ type SlotWithExpiry = {
   action_code: string | null;
   global_product_status: string | null;
   local_performance_role: string | null;
-  suggested_product: string | null;
   units_sold_7d: number | null;
   final_score: number | null;
   decision: {
@@ -2324,9 +2323,6 @@ export default function SnapshotTab({
                           >
                             Final Score
                           </th>
-                          <th className="text-left py-2 px-2 font-medium">
-                            Suggestion
-                          </th>
                           <th className="text-right py-2 pl-2 font-medium">
                             Exp. Date
                           </th>
@@ -2494,26 +2490,6 @@ export default function SnapshotTab({
                                   </span>
                                 ) : (
                                   "—"
-                                )}
-                              </td>
-                              {/* Suggestion */}
-                              {/* PRD-122 Q4/T6: refill_instructions (the old writer
-                                  of suggested_product) is a dead table, abandoned
-                                  since 2026-03-31 — this is not a broken join, so a
-                                  blank here is never "nothing to swap". Say so
-                                  explicitly rather than rendering a silent dash. */}
-                              <td className="py-1.5 px-2 text-xs max-w-[140px]">
-                                {s.suggested_product ? (
-                                  <span className="text-amber-700 truncate block">
-                                    {s.suggested_product}
-                                  </span>
-                                ) : (
-                                  <span
-                                    className="text-gray-300 italic truncate block"
-                                    title="No suggestion source is wired up for this slot yet (refill_instructions is deprecated)"
-                                  >
-                                    no suggestion source
-                                  </span>
                                 )}
                               </td>
                               {/* Exp. Date — PRD-119b T4 (E5): label with the LOT's own
