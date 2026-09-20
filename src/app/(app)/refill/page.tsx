@@ -29,7 +29,8 @@ export default async function RefillPage() {
     supabase.from("sales_history").select("*", { count: "exact", head: true }),
     getCachedMachineHealth().catch(() => null),
   ]);
-  const healthRes = { data: (healthRaw ?? []) as MachineHealth[] };
+  const healthRes = { data: (healthRaw?.rows ?? []) as MachineHealth[] };
+  const healthRefreshedAt = healthRaw?.refreshedAt ?? null;
 
   // Latest device snapshot only (same logic as the client refresher)
   let devices: DeviceRow[] = [];
@@ -65,6 +66,7 @@ export default async function RefillPage() {
     devices,
     lastRefresh,
     machineHealth,
+    machineHealthRefreshedAt: healthRefreshedAt,
     salesCount: countRes.count ?? null,
   };
 

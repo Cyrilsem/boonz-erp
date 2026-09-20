@@ -161,11 +161,15 @@ export function StartInventorySessionBar(props: StartInventorySessionBarProps) {
         className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950"
       >
         <div className="text-sm text-amber-900 dark:text-amber-200">
-          <span className="font-semibold">Inventory edits are locked.</span>
+          {/* ONE-LOOP-3 Job 1.7 (PRD-124): rewritten as an instruction, not
+              an error -- the reads that stopped this from being an error
+              were correct by design, but the wording read as a fault. */}
+          <span className="font-semibold">
+            Press Start Inventory Control to confirm returns.
+          </span>
           <span className="ml-2">
-            Start an inventory-control session to begin editing
-            {warehouseLabel ? ` (${warehouseLabel})` : ""}. Every change will be
-            logged.
+            {warehouseLabel ? `${warehouseLabel}: ` : ""}quantities stay
+            read-only until a session is open. Every change will be logged.
           </span>
         </div>
         <button

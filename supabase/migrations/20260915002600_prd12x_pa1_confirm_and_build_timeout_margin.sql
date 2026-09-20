@@ -1,0 +1,13 @@
+-- ONE-LOOP-2 Block A step 1d: measured engine_add_pod at ~0.9s/shelf inside
+-- confirm_and_build (8.4s for 1 machine/~13 shelves, 22.45s for 2
+-- machines/~25 shelves, both rolled back, 2026-09-16). A full 14-machine
+-- picked list could plausibly need 120-200+ shelves of compute, which risks
+-- exceeding the function's existing 120s statement_timeout. The real fix is
+-- profiling and likely batching engine_add_pod's per-shelf
+-- compute_refill_decision / compute_base_stock_decision calls -- real
+-- optimization work, not attempted here given time. This is a safe,
+-- low-risk stopgap only: raise the timeout margin so a normal-sized picked
+-- list does not fail outright while that real fix is pending. Logged as a
+-- disclosed risk in DECISIONS-2026-09-15.md, not a claim that this solves
+-- the underlying performance problem.
+ALTER FUNCTION public.confirm_and_build(date, text[], int) SET statement_timeout TO '180s';

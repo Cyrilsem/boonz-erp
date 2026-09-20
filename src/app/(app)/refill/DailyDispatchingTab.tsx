@@ -191,6 +191,11 @@ export function DailyDispatchingTab({
     new Set(),
   );
   const [updatingMachine, setUpdatingMachine] = useState<string | null>(null);
+  // ONE-LOOP-3 Job 1.2: per-machine result of the last bulk action, shown on
+  // the row instead of console-only. Cleared when a new action starts.
+  const [machineActionResult, setMachineActionResult] = useState<
+    Record<string, { ok: boolean; msg: string }>
+  >({});
 
   const queryDate = selectedDate || getDubaiDate();
 
@@ -332,6 +337,11 @@ export function DailyDispatchingTab({
   ) {
     const machineId = m.machine_id;
     setUpdatingMachine(machineId);
+    setMachineActionResult((prev) => {
+      const next = { ...prev };
+      delete next[machineId];
+      return next;
+    });
     try {
       const supabase = createClient();
 
@@ -373,23 +383,67 @@ export function DailyDispatchingTab({
           console.error("[DailyDispatching] mark_picked_up error:", error);
         }
       } else if (field === "dispatched") {
-        // Canonical receive: credits pod_inventory from the ACTUAL filled
-        // quantity and moves warehouse stock (drains consumer_stock / returns
-        // the unfilled delta). Only processes lines drivers already marked
-        // dispatched=true. NEVER a planned-qty pod credit.
-        const { error } = await supabase.rpc(
-          "receive_all_dispatches_for_machine",
-          {
-            p_machine_id: machineId,
-            p_dispatch_date: queryDate,
-            p_use_filled_as_received: true,
-          },
+        // ONE-LOOP-3 Job 1.2 (PRD-124 #35): Mark All Dispatched used to call
+        // only receive_all_dispatches_for_machine, whose own filter is
+        // WHERE dispatched=true — nothing was ever dispatched=true yet, so
+        // the button silently did nothing. mark_dispatched flips
+        // picked_up=true rows to dispatched=true first (mirroring
+        // mark_picked_up's shape), then receive runs on rows that now
+        // qualify. Both results are shown on the row, not console-only.
+        const dispatchIds = m.lines.map((l) => l.dispatch_id);
+        const { data: markData, error: markErr } = await supabase.rpc(
+          "mark_dispatched",
+          { p_dispatch_ids: dispatchIds },
         );
-        if (error) {
-          console.error(
-            "[DailyDispatching] receive_all_dispatches_for_machine error:",
-            error,
+        if (markErr) {
+          console.error("[DailyDispatching] mark_dispatched error:", markErr);
+          setMachineActionResult((prev) => ({
+            ...prev,
+            [machineId]: {
+              ok: false,
+              msg: `Mark dispatched failed: ${markErr.message}`,
+            },
+          }));
+        } else {
+          const markResult = markData as {
+            dispatched_count?: number;
+            not_picked_up_ids?: string[];
+          } | null;
+
+          const { data: recvData, error: recvErr } = await supabase.rpc(
+            "receive_all_dispatches_for_machine",
+            {
+              p_machine_id: machineId,
+              p_dispatch_date: queryDate,
+              p_use_filled_as_received: true,
+            },
           );
+          if (recvErr) {
+            console.error(
+              "[DailyDispatching] receive_all_dispatches_for_machine error:",
+              recvErr,
+            );
+            setMachineActionResult((prev) => ({
+              ...prev,
+              [machineId]: {
+                ok: false,
+                msg: `Dispatched ${markResult?.dispatched_count ?? 0} line(s), but receive failed: ${recvErr.message}`,
+              },
+            }));
+          } else {
+            const notPickedUp = markResult?.not_picked_up_ids?.length ?? 0;
+            setMachineActionResult((prev) => ({
+              ...prev,
+              [machineId]: {
+                ok: true,
+                msg: `Dispatched ${markResult?.dispatched_count ?? 0} line(s) and received.${
+                  notPickedUp > 0
+                    ? ` ${notPickedUp} line(s) not yet picked up, skipped.`
+                    : ""
+                }`,
+              },
+            }));
+          }
         }
       }
 
@@ -459,31 +513,47 @@ export function DailyDispatchingTab({
     };
 
     const c = config[stage];
+    const result = machineActionResult[m.machine_id];
 
     return (
-      <button
-        disabled={isUpdating}
-        onClick={(e) => {
-          e.stopPropagation();
-          handleBulkUpdate(m, c.field);
-        }}
-        style={{
-          fontSize: 12,
-          fontWeight: 600,
-          fontFamily: "'Plus Jakarta Sans', sans-serif",
-          color: c.color,
-          background: c.bg,
-          border: `1px solid ${c.border}`,
-          borderRadius: 6,
-          padding: "5px 12px",
-          cursor: isUpdating ? "wait" : "pointer",
-          opacity: isUpdating ? 0.6 : 1,
-          whiteSpace: "nowrap",
-          transition: "opacity 0.15s ease",
-        }}
-      >
-        {isUpdating ? "Updating..." : c.label}
-      </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <button
+          disabled={isUpdating}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleBulkUpdate(m, c.field);
+          }}
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            color: c.color,
+            background: c.bg,
+            border: `1px solid ${c.border}`,
+            borderRadius: 6,
+            padding: "5px 12px",
+            cursor: isUpdating ? "wait" : "pointer",
+            opacity: isUpdating ? 0.6 : 1,
+            whiteSpace: "nowrap",
+            transition: "opacity 0.15s ease",
+          }}
+        >
+          {isUpdating ? "Updating..." : c.label}
+        </button>
+        {/* ONE-LOOP-3 Job 1.2: the RPC result shown on the row, error as text. */}
+        {result && (
+          <span
+            style={{
+              fontSize: 11,
+              color: result.ok ? "#24544a" : "#b3261e",
+              maxWidth: 220,
+              whiteSpace: "normal",
+            }}
+          >
+            {result.msg}
+          </span>
+        )}
+      </div>
     );
   }
 

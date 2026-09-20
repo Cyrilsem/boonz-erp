@@ -44,6 +44,20 @@ export type PlanRow = {
   source_origin?: string;
   has_intent?: boolean;
   status?: string;
+  // ONE-LOOP-3: retired-gate informational flags from get_pod_refill_draft.
+  g2_flag?: boolean;
+  g4_flag?: boolean;
+  g9_flag?: boolean;
+};
+
+// ONE-LOOP-3: one row of get_pod_refill_draft_exceptions -- no_rule_matched
+// (expired-on-shelf, no substitute found) or gate_failure (G5/G8 today).
+export type DraftException = {
+  machine: string | null;
+  shelf: string | null;
+  product: string | null;
+  exception_type: string;
+  detail: string;
 };
 
 type PlanAlert = {
@@ -396,6 +410,100 @@ export function RefillPlanningTab({
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   );
 
+  // ONE-LOOP-3 Job 1.1/1.2: Confirm and Build. There is no separate "pick
+  // list" screen anywhere in this codebase (machines_to_visit is populated
+  // server-side by pick_machines_for_refill / chat, never through a FE
+  // form) -- this panel is the pick-list surface: it lists today's
+  // picked/cs_added machines_to_visit rows with checkboxes, a car count,
+  // and calls confirm_and_build, which both sets the final pick list AND
+  // runs the build for it in one call. get_pod_refill_draft_exceptions is
+  // fetched alongside every draft load, not only after Confirm and Build,
+  // so the exceptions list is accurate even when a draft already exists.
+  type PickListRow = {
+    machine_id: string;
+    official_name: string;
+    status: string;
+    car_no: number | null;
+  };
+  const [pickListOpen, setPickListOpen] = useState(false);
+  const [pickList, setPickList] = useState<PickListRow[]>([]);
+  const [pickListLoading, setPickListLoading] = useState(false);
+  const [pickListSel, setPickListSel] = useState<Set<string>>(new Set());
+  const [cbCars, setCbCars] = useState(2);
+  const [cbBusy, setCbBusy] = useState(false);
+  const [cbResult, setCbResult] = useState<{ ok: boolean; msg: string } | null>(
+    null,
+  );
+  const [exceptions, setExceptions] = useState<DraftException[]>([]);
+
+  const loadPickList = useCallback(async () => {
+    setPickListLoading(true);
+    const { data, error } = await supabase
+      .from("machines_to_visit")
+      .select("machine_id, status, car_no, machines(official_name)")
+      .eq("plan_date", selectedDate)
+      .in("status", ["picked", "cs_added"]);
+    setPickListLoading(false);
+    if (error || !data) {
+      setPickList([]);
+      return;
+    }
+    const rows: PickListRow[] = (
+      data as unknown as Array<{
+        machine_id: string;
+        status: string;
+        car_no: number | null;
+        machines:
+          { official_name: string } | { official_name: string }[] | null;
+      }>
+    ).map((r) => ({
+      machine_id: r.machine_id,
+      status: r.status,
+      car_no: r.car_no,
+      official_name: Array.isArray(r.machines)
+        ? (r.machines[0]?.official_name ?? "")
+        : (r.machines?.official_name ?? ""),
+    }));
+    setPickList(rows);
+    setPickListSel(new Set(rows.map((r) => r.official_name)));
+  }, [supabase, selectedDate]);
+
+  const runConfirmAndBuild = useCallback(async () => {
+    if (pickListSel.size === 0) {
+      setCbResult({ ok: false, msg: "Select at least one machine." });
+      return;
+    }
+    setCbBusy(true);
+    setCbResult(null);
+    const { data, error } = await supabase.rpc("confirm_and_build", {
+      p_plan_date: selectedDate,
+      p_machine_names: Array.from(pickListSel),
+      p_cars: cbCars,
+    });
+    setCbBusy(false);
+    if (error) {
+      setCbResult({
+        ok: false,
+        msg: `confirm_and_build failed: ${error.message}`,
+      });
+      return;
+    }
+    const r = data as {
+      dropped?: number;
+      confirmed?: number;
+      created_cs_added?: number;
+      exceptions?: DraftException[];
+    } | null;
+    setExceptions(r?.exceptions ?? []);
+    setCbResult({
+      ok: true,
+      msg: `Confirmed ${r?.confirmed ?? 0}, added ${r?.created_cs_added ?? 0}, dropped ${r?.dropped ?? 0} across ${cbCars} car(s). Reloading draft…`,
+    });
+    await loadPickList();
+    await loadDraft();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, selectedDate, pickListSel, cbCars, loadPickList]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -416,6 +524,11 @@ export function RefillPlanningTab({
       cancelled = true;
     };
   }, [supabase]);
+
+  // ONE-LOOP-3: hydrate the pick list whenever the plan date changes.
+  useEffect(() => {
+    loadPickList();
+  }, [loadPickList]);
 
   // ── Auto-load draft on mount ──────────────────────────────────────────────
   // Fires once when the tab opens. If the 8pm cron has already generated a
@@ -482,12 +595,23 @@ export function RefillPlanningTab({
       source_origin: r.source_origin as string | undefined,
       has_intent: r.has_intent as boolean | undefined,
       status: r.status as string | undefined,
+      g2_flag: r.g2_flag as boolean | undefined,
+      g4_flag: r.g4_flag as boolean | undefined,
+      g9_flag: r.g9_flag as boolean | undefined,
     }));
 
     setPlanRows(rows);
     setGenerated(true);
     setViewMode("draft");
     setAccuracy(null); // accuracy applies to the dispatched (pending) plan only
+
+    // ONE-LOOP-3: exceptions are fetched on every draft load, not only after
+    // Confirm and Build, so a page refresh still shows what needs attention.
+    const { data: excData } = await supabase.rpc(
+      "get_pod_refill_draft_exceptions",
+      { p_plan_date: planDateFromDraft },
+    );
+    setExceptions((excData as DraftException[] | null) ?? []);
 
     // PRD-015 AC#13: hydrate include/exclude state from machines_to_visit.
     // Graceful: if is_included is not yet deployed, default every machine to included.
@@ -1053,6 +1177,13 @@ export function RefillPlanningTab({
       // It runs in a single DB transaction that rolls back entirely on any
       // failure, so the pipeline can never land "stitched but dispatch empty".
       // The RPC resolves names -> ids and verifies counts server-side.
+      // ONE-LOOP-3: this FE never calls approve_pod_refill_plan directly (grep
+      // confirms it) -- only commit_refill_plan_atomic, which calls it
+      // internally -- and a second approve_pod_refill_plan call for the same
+      // plan_date pushes nothing new regardless, because it only acts on
+      // pod_refill_plan rows still in status='draft', and the first call
+      // already flipped them to 'approved' (then 'stitched'); status
+      // transition, not a lock, is what stops a double push.
       const { data: commitData, error: commitErr } = await supabase.rpc(
         "commit_refill_plan_atomic",
         { p_plan_date: planDate, p_machine_names: includedMachineNames },
@@ -1395,6 +1526,116 @@ export function RefillPlanningTab({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
+      {/* ── ONE-LOOP-3: Confirm and Build (the pick list surface) ─────────── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+        <div className="flex items-center gap-3 flex-wrap mb-3">
+          <button
+            onClick={() => setPickListOpen((v) => !v)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            {pickListOpen ? "▾" : "▸"} Confirm and Build ({pickList.length} on
+            today&apos;s list)
+          </button>
+          {pickListOpen && (
+            <button
+              onClick={loadPickList}
+              disabled={pickListLoading}
+              className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {pickListLoading ? "Loading…" : "↻ Refresh"}
+            </button>
+          )}
+        </div>
+        {pickListOpen && (
+          <div className="space-y-3">
+            {pickList.length === 0 ? (
+              <p className="text-xs text-gray-500">
+                No picked or cs_added machines for {selectedDate} yet.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {pickList.map((m) => {
+                  const on = pickListSel.has(m.official_name);
+                  return (
+                    <button
+                      key={m.machine_id}
+                      onClick={() =>
+                        setPickListSel((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(m.official_name))
+                            next.delete(m.official_name);
+                          else next.add(m.official_name);
+                          return next;
+                        })
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-xs border ${
+                        on
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "border-gray-200 text-gray-500"
+                      }`}
+                      title={m.status}
+                    >
+                      {m.official_name}
+                      {m.car_no != null ? ` · car ${m.car_no}` : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-gray-500 flex items-center gap-1">
+                Cars
+                <input
+                  type="number"
+                  min={1}
+                  max={9}
+                  value={cbCars}
+                  onChange={(e) =>
+                    setCbCars(Math.max(1, Number(e.target.value) || 1))
+                  }
+                  className="w-14 border border-gray-200 rounded px-2 py-1"
+                />
+              </label>
+              <button
+                onClick={runConfirmAndBuild}
+                disabled={cbBusy || pickListSel.size === 0}
+                className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {cbBusy
+                  ? "Building…"
+                  : `Confirm and Build (${pickListSel.size} machine${pickListSel.size === 1 ? "" : "s"})`}
+              </button>
+            </div>
+            {cbResult && (
+              <p
+                className={`text-xs ${cbResult.ok ? "text-green-700" : "text-red-600"}`}
+              >
+                {cbResult.msg}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── ONE-LOOP-3: exceptions, on top of the draft ───────────────────── */}
+      {exceptions.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
+          <p className="text-xs font-semibold text-amber-800 mb-2">
+            {exceptions.length} exception{exceptions.length === 1 ? "" : "s"} --
+            the engine could not resolve these, review before commit:
+          </p>
+          <ul className="space-y-1">
+            {exceptions.map((e, i) => (
+              <li key={i} className="text-xs text-amber-900">
+                <span className="font-mono">[{e.exception_type}]</span>{" "}
+                {e.machine ?? "?"} {e.shelf ?? ""} {e.product ?? ""} --{" "}
+                {e.detail}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* ── PRD-019 C2: compact all-rows planning view ──────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
         <div className="flex items-center gap-3 flex-wrap mb-3">
@@ -2298,6 +2539,30 @@ export function RefillPlanningTab({
                           {isDraft && (
                             <td className="px-4 py-2.5">
                               {signalBadge(row.signal)}
+                              {row.g2_flag && (
+                                <span
+                                  title="G2: lane already holding >= 9 was refilled"
+                                  className="ml-1 text-[9px] font-bold text-amber-600"
+                                >
+                                  G2
+                                </span>
+                              )}
+                              {row.g4_flag && (
+                                <span
+                                  title="G4: this machine has another low-fill lane with no line today"
+                                  className="ml-1 text-[9px] font-bold text-amber-600"
+                                >
+                                  G4
+                                </span>
+                              )}
+                              {row.g9_flag && (
+                                <span
+                                  title="G9: best available batch expires within 21 days"
+                                  className="ml-1 text-[9px] font-bold text-red-600"
+                                >
+                                  G9
+                                </span>
+                              )}
                             </td>
                           )}
                           <td className="px-4 py-2.5 text-right text-gray-500 whitespace-nowrap">

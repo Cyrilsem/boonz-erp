@@ -286,7 +286,19 @@ export default function ProcurementPage() {
   const [cancellingLine, setCancellingLine] = useState<PODetail | null>(null);
 
   // Field additions state
-  const [pendingAdditionsCount, setPendingAdditionsCount] = useState(0);
+  // ONE-LOOP-3 Job 1.10 (PRD-124 #36): the header count used to come from a
+  // separate count-only query with no rows behind it, so it could show a
+  // fleet-wide total ("21 pending") with no way to see which POs made it up
+  // -- a user opening any one PO's drawer would see a much smaller number
+  // (that PO's own pending additions) and read it as a bug. Now the header
+  // count AND the per-PO breakdown it links to come from the SAME query.
+  const [pendingAdditionsRows, setPendingAdditionsRows] = useState<
+    { po_id: string; po_number: string; count: number }[]
+  >([]);
+  const pendingAdditionsCount = pendingAdditionsRows.reduce(
+    (sum, r) => sum + r.count,
+    0,
+  );
   const [poAdditions, setPoAdditions] = useState<POAddition[]>([]);
 
   // PRD-003 (CS ruling Q3) - recoverable input-VAT report state.
@@ -665,11 +677,32 @@ export default function ProcurementPage() {
     fetchOrders();
     (async () => {
       const supabase = createClient();
-      const { count } = await supabase
+      // ONE-LOOP-3 Job 1.10: one query for both the header count and the
+      // per-PO breakdown it links to -- see the pendingAdditionsRows comment.
+      const { data: pendingRows } = await supabase
         .from("po_additions")
-        .select("addition_id", { count: "exact", head: true })
-        .eq("status", "pending_receive");
-      setPendingAdditionsCount(count ?? 0);
+        .select("po_id, purchase_orders(po_number)")
+        .eq("status", "pending_receive")
+        .limit(10000);
+      const byPo = new Map<string, { po_number: string; count: number }>();
+      for (const r of (pendingRows ?? []) as unknown as {
+        po_id: string;
+        purchase_orders: { po_number: string } | { po_number: string }[] | null;
+      }[]) {
+        const po = Array.isArray(r.purchase_orders)
+          ? r.purchase_orders[0]
+          : r.purchase_orders;
+        const existing = byPo.get(r.po_id);
+        if (existing) existing.count += 1;
+        else
+          byPo.set(r.po_id, {
+            po_number: po?.po_number ?? "(unknown)",
+            count: 1,
+          });
+      }
+      setPendingAdditionsRows(
+        Array.from(byPo.entries()).map(([po_id, v]) => ({ po_id, ...v })),
+      );
 
       // PRD-002: fetch caller role so the per-line lock + Cancel buttons can
       // gate themselves. EDIT_ROLES drives Cancel; received-line edits via
@@ -1793,7 +1826,17 @@ export default function ProcurementPage() {
           : a,
       ),
     );
-    setPendingAdditionsCount((prev) => Math.max(0, prev - 1));
+    if (selectedPO) {
+      setPendingAdditionsRows((prev) =>
+        prev
+          .map((r) =>
+            r.po_id === selectedPO.po_id
+              ? { ...r, count: Math.max(0, r.count - 1) }
+              : r,
+          )
+          .filter((r) => r.count > 0),
+      );
+    }
     setReceivingAddition(null);
     setReceiveAddition(null);
     setAdditionToast(
@@ -2316,9 +2359,41 @@ export default function ProcurementPage() {
             marginBottom: 14,
           }}
         >
-          {"\u26A0"} {pendingAdditionsCount} field addition
-          {pendingAdditionsCount > 1 ? "s" : ""} pending warehouse receive
-          &mdash; review in PO detail
+          <div>
+            {"\u26A0"} {pendingAdditionsCount} field addition
+            {pendingAdditionsCount > 1 ? "s" : ""} pending warehouse receive
+            across {pendingAdditionsRows.length} PO
+            {pendingAdditionsRows.length > 1 ? "s" : ""}:
+          </div>
+          {/* ONE-LOOP-3 Job 1.10 (PRD-124 #36): the breakdown is built from the
+              SAME query as the total above, so this list can never disagree
+              with the header count the way the old count-only query could. */}
+          <div
+            style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}
+          >
+            {pendingAdditionsRows.map((r) => {
+              const group = allOrders.find((o) => o.po_id === r.po_id);
+              return (
+                <button
+                  key={r.po_id}
+                  type="button"
+                  onClick={() => group && openPODrawer(group)}
+                  disabled={!group}
+                  style={{
+                    background: "white",
+                    border: "1px solid #e1b460",
+                    borderRadius: 6,
+                    padding: "2px 8px",
+                    fontSize: 12,
+                    color: "#92400e",
+                    cursor: group ? "pointer" : "default",
+                  }}
+                >
+                  PO {r.po_number}: {r.count}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 

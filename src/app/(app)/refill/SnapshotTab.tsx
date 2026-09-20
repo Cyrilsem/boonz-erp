@@ -13,20 +13,24 @@ import { createBrowserClient } from "@supabase/ssr";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// ONE-LOOP-3 Job 1.3 (PRD-124 #42): field names match the deployed
+// refresh-stage1 edge function (v48) exactly -- verified against its live
+// source, not assumed. It emits `aisles` and `machines_covered`, never
+// `aisle` or `machines_online`/`machines_total`.
 type RefreshResult = {
   status: string;
   duration_seconds: number;
   sales: { status: string; upserted: number; skipped: number; total: number };
   device_status: { status: string; upserted: number; skipped: number };
-  aisle: {
+  aisles: {
     status: string;
     upserted?: number;
     skipped?: number;
+    machines?: number;
     reason?: string;
     message?: string;
   } | null;
-  machines_online: number;
-  machines_total: number;
+  machines_covered: number;
   lookback_days: number;
   timestamp: string;
   error?: string;
@@ -149,6 +153,17 @@ export type MachineHealth = {
   last_plan_days: number | null;
   urgency_breakdown: { label: string; pts: number }[] | null;
   reasons_arr: string[] | null;
+  // PRD-122 T6: lane-grain signals (v_lane_grain via v_machine_priority)
+  pct_empty_lanes: number | null;
+  pct_quasi_lanes: number | null;
+  pct_ab_empty_or_quasi: number | null;
+  hero_runway_days: number | null;
+  s_gap: number | null;
+  // ONE-LOOP-3 Job 1.9 / PRD-126 R6: AED-denominated priority score, today's
+  // picker car assignment (if picked), and its top-3 AED contributors.
+  p_score_aed: number | null;
+  car_no: number | null;
+  top_contributors_aed: { label: string; aed: number }[] | null;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -294,6 +309,18 @@ function metricCardColors(
   return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
 }
 
+// ONE-LOOP-3 Job 1.9: higher AED score = more urgent, opposite direction from
+// metricCardColors (which treats a low value as bad).
+function aedScoreCardColors(value: number): CardStyle {
+  if (value >= 500)
+    return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
+  if (value >= 200)
+    return { card: "bg-amber-50 border-amber-300", bar: "bg-amber-400" };
+  if (value >= 50)
+    return { card: "bg-yellow-50 border-yellow-200", bar: "bg-yellow-400" };
+  return { card: "bg-green-50 border-green-200", bar: "bg-green-400" };
+}
+
 function expiryCardColors(daysToExpiry: number | null): CardStyle {
   const d = daysToExpiry ?? 9999;
   if (d <= 7) return { card: "bg-red-50 border-red-300", bar: "bg-red-400" };
@@ -310,6 +337,10 @@ export type RefillInitialData = {
   devices: DeviceRow[];
   lastRefresh: string | null;
   machineHealth: MachineHealth[];
+  // PRD-122 T6 (R6): app_cache.refreshed_at for the SSR-served machineHealth
+  // snapshot, so the grid can show how stale the cached RPC is (the grid
+  // reads the 60s-cached RPC; the modal always reads get_machine_health live).
+  machineHealthRefreshedAt: string | null;
   salesCount: number | null;
 };
 
@@ -346,8 +377,14 @@ export default function SnapshotTab({
   const [machineHealth, setMachineHealth] = useState<MachineHealth[]>(
     initialData?.machineHealth ?? [],
   );
+  // PRD-122 T6 (R6): age of the machineHealth data currently on screen. Starts
+  // as the SSR app_cache stamp; loadData() also reads the cached RPC (ONE-LOOP-3
+  // Job 1.3), so this is always the app_cache's own refreshed_at, never "now".
+  const [healthAsOf, setHealthAsOf] = useState<string | null>(
+    initialData?.machineHealthRefreshedAt ?? null,
+  );
   const [sortBy, setSortBy] = useState<
-    "priority" | "status" | "stock" | "fill" | "expiry"
+    "priority" | "priority_aed" | "status" | "stock" | "fill" | "expiry"
   >("priority");
 
   // Card-grid filters: search box + clickable legend pills + swaps/dead chips.
@@ -423,17 +460,27 @@ export default function SnapshotTab({
       .select("*", { count: "exact", head: true });
     setSalesCount(count);
 
-    // Machine health cards
-    const { data: healthData } = await supabase
-      .rpc("get_machine_health")
-      .limit(10000);
-    if (healthData)
+    // ONE-LOOP-3 Job 1.3 (PRD-124 #42): loadData used to call live
+    // get_machine_health (2-5s) as `authenticated` (8s timeout) -- the
+    // refresh looked like it completed but the cards never actually
+    // updated. get_machine_health_cached reads the 2-min pg_cron-refreshed
+    // app_cache snapshot instead: instant, timeout-proof. It returns
+    // {refreshed_at, rows}, not a bare row set, so healthAsOf is stamped
+    // from the cache's own refreshed_at (the data's true age), not "now".
+    const { data: cached } = await supabase.rpc("get_machine_health_cached");
+    const cachedResult = cached as {
+      rows?: MachineHealth[];
+      refreshed_at?: string | null;
+    } | null;
+    if (cachedResult?.rows) {
       // Filter out WH warehouse machines — not field machines, should not appear in refill view
       setMachineHealth(
-        (healthData as MachineHealth[]).filter(
+        cachedResult.rows.filter(
           (m) => !m.machine_name.toUpperCase().startsWith("WH"),
         ),
       );
+      setHealthAsOf(cachedResult.refreshed_at ?? null);
+    }
   }, [getSupabase]);
 
   // Skip the first client fetch when the server already provided the data
@@ -673,6 +720,8 @@ export default function SnapshotTab({
       switch (sort) {
         case "priority":
           return tierCardColors(m);
+        case "priority_aed":
+          return aedScoreCardColors(m.p_score_aed ?? 0);
         case "status":
           return statusCardColors(m.machine_health_label ?? "");
         case "stock":
@@ -704,6 +753,15 @@ export default function SnapshotTab({
               Number(b.service_track === "vox") ||
             tierRank(a.priority_tier) - tierRank(b.priority_tier) ||
             refillUrgency(b) - refillUrgency(a),
+        );
+        break;
+      case "priority_aed":
+        // PRD-126 R6: sort purely by AED urgency, main track before vox.
+        sorted.sort(
+          (a, b) =>
+            Number(a.service_track === "vox") -
+              Number(b.service_track === "vox") ||
+            (b.p_score_aed ?? 0) - (a.p_score_aed ?? 0),
         );
         break;
       case "status":
@@ -1302,17 +1360,17 @@ export default function SnapshotTab({
               <div className="bg-white rounded px-3 py-2 border border-green-100">
                 <div className="text-gray-500 text-xs">Machines</div>
                 <div className="font-semibold text-gray-900">
-                  {result.machines_online}/{result.machines_total} synced
+                  {result.machines_covered} covered
                 </div>
               </div>
               <div className="bg-white rounded px-3 py-2 border border-green-100">
                 <div className="text-gray-500 text-xs">Aisle snapshot</div>
                 <div className="font-semibold text-gray-900">
-                  {result.aisle?.status === "ok"
-                    ? `${result.aisle.upserted} slots`
-                    : result.aisle?.reason === "skip_aisle_param"
+                  {result.aisles?.status === "ok"
+                    ? `${result.aisles.upserted} slots`
+                    : result.aisles?.reason === "skip_aisle_param"
                       ? "Skipped (manual)"
-                      : result.aisle?.reason === "endpoint_not_confirmed"
+                      : result.aisles?.reason === "endpoint_not_confirmed"
                         ? "Endpoint TBD"
                         : "N/A"}
                 </div>
@@ -1321,7 +1379,7 @@ export default function SnapshotTab({
             <p className="text-xs text-gray-500 mt-3">
               Pulled {result.lookback_days} days of sales →{" "}
               {result.sales?.upserted?.toLocaleString()} transactions synced.
-              Device status updated for {result.machines_total} machines.
+              Device status updated for {result.machines_covered} machines.
               {result.sales?.skipped > 0 &&
                 ` ${result.sales.skipped} skipped (unknown machine).`}
             </p>
@@ -1382,20 +1440,30 @@ export default function SnapshotTab({
             </div>
             <div className="flex items-center gap-1 text-xs text-gray-500">
               <span>Sort:</span>
-              {(["priority", "status", "stock", "fill", "expiry"] as const).map(
-                (opt) => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => setSortBy(opt)}
-                    className={`px-2.5 py-1 rounded-md transition-colors ${
-                      sortBy === opt
-                        ? "bg-gray-900 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {opt === "priority"
-                      ? "Priority"
+              {(
+                [
+                  "priority",
+                  "priority_aed",
+                  "status",
+                  "stock",
+                  "fill",
+                  "expiry",
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setSortBy(opt)}
+                  className={`px-2.5 py-1 rounded-md transition-colors ${
+                    sortBy === opt
+                      ? "bg-gray-900 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}
+                >
+                  {opt === "priority"
+                    ? "Priority"
+                    : opt === "priority_aed"
+                      ? "Priority (AED)"
                       : opt === "status"
                         ? "Status"
                         : opt === "stock"
@@ -1403,9 +1471,8 @@ export default function SnapshotTab({
                           : opt === "fill"
                             ? "Fill %"
                             : "Expiry"}
-                  </button>
-                ),
-              )}
+                </button>
+              ))}
             </div>
           </div>
           {/* Search + attribute filters */}
@@ -1459,23 +1526,49 @@ export default function SnapshotTab({
           </div>
           <p className="text-xs text-gray-400 mb-3">
             Click a machine to see slot inventory
+            {/* PRD-122 T6 (R6): the grid reads the 60s-cached RPC while the
+                modal always reads get_machine_health live — that mismatch is
+                what surfaced this whole investigation, so stamp the grid with
+                its true age instead of leaving it implicit. */}
+            {healthAsOf && (
+              <span className="ml-1 text-gray-300">
+                · data as of {timeAgo(healthAsOf)}
+              </span>
+            )}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
             {displayedMachines.map((m, i) => {
               const tc = getCardColors(m, sortBy);
               const prev = displayedMachines[i - 1];
-              // v7: dashed separator at the main→vox boundary (priority sort only)
+              // v7: dashed separator at the main→vox boundary (priority sort only).
+              // PRD-122 T6 (R6): relabelled — this sink is svc_track='vox'
+              // (partner-filled / VOX concession machines), not a VOX ownership tag.
               const showVoxDivider =
                 sortBy === "priority" &&
+                m.health_tier !== "excluded" &&
                 m.service_track === "vox" &&
                 prev?.service_track !== "vox";
+              // PRD-122 T6 (R6): excluded (include_in_refill=false) machines are
+              // always sorted to the true end of the grid (below the sortedMachines
+              // final sort), in every sort mode — never nested under the
+              // partner-filled divider above.
+              const showExcludedDivider =
+                m.health_tier === "excluded" &&
+                prev?.health_tier !== "excluded";
 
               return (
                 <Fragment key={m.machine_id}>
                   {showVoxDivider && (
                     <div className="col-span-full mt-2 mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
                       <span className="flex-1 border-t border-dashed border-slate-300" />
-                      VOX · refilled daily on the spot
+                      PARTNER-FILLED (VOX concession)
+                      <span className="flex-1 border-t border-dashed border-slate-300" />
+                    </div>
+                  )}
+                  {showExcludedDivider && (
+                    <div className="col-span-full mt-2 mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                      <span className="flex-1 border-t border-dashed border-slate-300" />
+                      EXCLUDED FROM REFILL
                       <span className="flex-1 border-t border-dashed border-slate-300" />
                     </div>
                   )}
@@ -1587,6 +1680,53 @@ export default function SnapshotTab({
                           📌 {m.pending_swap_count} swaps
                         </span>
                       )}
+                      {/* ONE-LOOP-3 Job 1.9 / PRD-126 R6: car assignment (from
+                          today's picker) + AED urgency score + top-3 AED
+                          contributors, so the card shows why in AED terms. */}
+                      {m.car_no != null && (
+                        <span className="text-blue-600 font-medium">
+                          🚗 car {m.car_no}
+                        </span>
+                      )}
+                      {sortBy === "priority_aed" &&
+                        m.p_score_aed != null &&
+                        m.p_score_aed > 0 && (
+                          <span
+                            className="font-semibold text-gray-700"
+                            title={(m.top_contributors_aed ?? [])
+                              .map((c) => `${c.label}: ${c.aed} AED`)
+                              .join(", ")}
+                          >
+                            AED {m.p_score_aed.toFixed(0)}
+                            {m.top_contributors_aed &&
+                              m.top_contributors_aed.length > 0 &&
+                              ` (${m.top_contributors_aed
+                                .map((c) => `${c.label} ${c.aed.toFixed(0)}`)
+                                .join(", ")})`}
+                          </span>
+                        )}
+                      {/* PRD-122 T6 (R6): lane-grain signals. Rendered as the
+                          percentages v_machine_priority actually computes and
+                          exposes (there is no raw lane-count column) — the same
+                          currency as s_gap below. */}
+                      {(m.pct_empty_lanes ?? 0) > 0 ||
+                      (m.pct_quasi_lanes ?? 0) > 0 ? (
+                        <span className="text-slate-500">
+                          lanes {(m.pct_empty_lanes ?? 0).toFixed(0)}% empty /{" "}
+                          {(m.pct_quasi_lanes ?? 0).toFixed(0)}% quasi
+                        </span>
+                      ) : null}
+                      {(m.s_gap ?? 0) > 0 && (
+                        <span
+                          className={
+                            (m.s_gap ?? 0) >= 40
+                              ? "text-red-600 font-medium"
+                              : "text-slate-500"
+                          }
+                        >
+                          gap {(m.s_gap ?? 0).toFixed(0)}%
+                        </span>
+                      )}
                     </div>
                     {/* Expiry badge */}
                     {m.expired_units > 0 ? (
@@ -1684,6 +1824,33 @@ export default function SnapshotTab({
                   {(selectedHealth?.expiring_7d_units ?? 0) > 0 && (
                     <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded">
                       ⏰ {selectedHealth!.expiring_7d_units} expiring 7d
+                    </span>
+                  )}
+                  {/* PRD-122 T6 (R6): hero_runway_days + pct_ab_empty_or_quasi,
+                      next to the unit-based runway above — the modal always
+                      reads get_machine_health live, so these are never stale. */}
+                  {selectedHealth?.hero_runway_days != null && (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        selectedHealth.hero_runway_days <= 3
+                          ? "bg-red-100 text-red-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      🕐 {selectedHealth.hero_runway_days.toFixed(1)}d hero
+                      runway
+                    </span>
+                  )}
+                  {(selectedHealth?.pct_ab_empty_or_quasi ?? 0) > 0 && (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded ${
+                        (selectedHealth!.pct_ab_empty_or_quasi ?? 0) >= 25
+                          ? "bg-red-100 text-red-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      {(selectedHealth!.pct_ab_empty_or_quasi ?? 0).toFixed(0)}%
+                      A/B empty or quasi
                     </span>
                   )}
                 </div>
@@ -1862,15 +2029,19 @@ export default function SnapshotTab({
                     (() => {
                       const h = selectedHealth;
                       const urgScore = refillUrgency(h);
-                      // PRD-074: chips render the SERVER-built urgency_breakdown
-                      // verbatim (pts sum exactly to v_machine_priority.urgency).
-                      // Zero client-side priority math (Article 16); the old 8
-                      // hardcoded formulas are gone. Info tags (reasons_arr,
-                      // dead stock, heroes) carry pts 0.
-                      // PRD-075: breakdown arrives split (runout/capacity/
-                      // expiry/stale + empty/low-fill) - colors only, no math.
+                      // PRD-074/PRD-122 T6 (R6 fix): chips render the
+                      // SERVER-built urgency_breakdown verbatim (pts sum
+                      // exactly to v_machine_priority.p_score, i.e. h.priority_score
+                      // — NOT the separate raw `urgency` column, which this
+                      // component never reads). Zero client-side priority math
+                      // (Article 16); the old 8 hardcoded formulas are gone.
+                      // Info tags (reasons_arr, dead stock, heroes) carry pts 0.
+                      // PRD-075: breakdown arrives split (runout/gap/holes/
+                      // expiry/stale) - colors only, no math.
                       const chipColor = (label: string) =>
-                        label.startsWith("empty") || label === "expiry"
+                        label.startsWith("empty") ||
+                        label === "expiry" ||
+                        label === "gap"
                           ? "text-red-600"
                           : label.startsWith("low-fill") || label === "capacity"
                             ? "text-amber-600"
@@ -1886,6 +2057,21 @@ export default function SnapshotTab({
                         pts: c.pts,
                         color: chipColor(c.label),
                       }));
+                      // R6: assert the chips actually sum to p_score — catches
+                      // drift instead of silently rendering a wrong total.
+                      if (process.env.NODE_ENV !== "production") {
+                        const chipSum = (h.urgency_breakdown ?? []).reduce(
+                          (sum, c) => sum + c.pts,
+                          0,
+                        );
+                        if (
+                          Math.abs(chipSum - (h.priority_score ?? 0)) > 0.02
+                        ) {
+                          console.warn(
+                            `[SnapshotTab] urgency_breakdown chips (${chipSum}) do not sum to p_score (${h.priority_score}) for ${h.machine_name}`,
+                          );
+                        }
+                      }
                       for (const tag of h.reasons_arr ?? [])
                         reasons.push({
                           label: tag.replaceAll("_", " "),
@@ -2187,13 +2373,23 @@ export default function SnapshotTab({
                                 )}
                               </td>
                               {/* Suggestion */}
+                              {/* PRD-122 Q4/T6: refill_instructions (the old writer
+                                  of suggested_product) is a dead table, abandoned
+                                  since 2026-03-31 — this is not a broken join, so a
+                                  blank here is never "nothing to swap". Say so
+                                  explicitly rather than rendering a silent dash. */}
                               <td className="py-1.5 px-2 text-xs max-w-[140px]">
                                 {s.suggested_product ? (
                                   <span className="text-amber-700 truncate block">
                                     {s.suggested_product}
                                   </span>
                                 ) : (
-                                  <span className="text-gray-300">—</span>
+                                  <span
+                                    className="text-gray-300 italic truncate block"
+                                    title="No suggestion source is wired up for this slot yet (refill_instructions is deprecated)"
+                                  >
+                                    no suggestion source
+                                  </span>
                                 )}
                               </td>
                               {/* Exp. Date — PRD-119b T4 (E5): label with the LOT's own

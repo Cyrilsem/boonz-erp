@@ -1,0 +1,14 @@
+-- Ledger reconciliation placeholder. This version/name pair exists in
+-- supabase_migrations.schema_migrations with no corresponding file of its own: it was the
+-- first of two same-function CREATE OR REPLACE fixes applied to propose_refill_plan between
+-- the initial Block B build (20260917221402_prd127_b_propose_refill_plan.sql) and the second
+-- fix (see 20260917222445 below) -- specifically the lane-fan-out fix (v_lane_grain velocity
+-- collapsed to one row per (machine_id, pod_product_id) via AVG before joining; see
+-- DECISIONS-2026-09-17.md D-012).
+--
+-- The fix is already folded into the final committed body of
+-- 20260917221402_prd127_b_propose_refill_plan.sql -- this file exists only so every ledger
+-- version has a matching filename in supabase/migrations/, per this session's own
+-- reconciliation discipline (D-024's precedent). It intentionally does not re-run the function
+-- definition a second time.
+SELECT 1;

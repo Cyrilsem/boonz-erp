@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
@@ -104,6 +104,41 @@ export default function DispatchingDetailPage() {
   const [saved, setSaved] = useState(false);
   const [editingAfterSave, setEditingAfterSave] = useState(false);
   const [returnNotice, setReturnNotice] = useState<string | null>(null);
+
+  // ONE-LOOP-3 Job 1.4 (PRD-124): a returned line with no reason used to
+  // silently block Save -- the notice only rendered in a different branch
+  // (the read-only "already saved" summary), never in the active editing
+  // view the driver is actually looking at when they press Save. Computed
+  // reactively (not only inside handleSave) so it can drive the button's
+  // disabled state and label, and a ref per card so the offending one can
+  // be scrolled into view.
+  const lineCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const lastScrolledTo = useRef<string | null>(null);
+
+  // Reactive, not just an on-click check inside handleSave, so the Save
+  // button can be disabled and relabelled live. Declared here (before any
+  // early return below, e.g. `if (loading) return`) because its useEffect
+  // must run in the same order on every render -- placing it after those
+  // returns is a real Rules-of-Hooks violation (caught by lint, fixed here).
+  const missingReturnReason = lines.filter(
+    (l) => l.action === "returned" && !l.return_reason.trim(),
+  );
+
+  // Scroll the first offending card into view as soon as it becomes the
+  // blocker -- once per distinct line, not on every keystroke while the
+  // driver is still working on that same card.
+  useEffect(() => {
+    const first = missingReturnReason[0];
+    if (first && lastScrolledTo.current !== first.dispatch_id) {
+      lineCardRefs.current[first.dispatch_id]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      lastScrolledTo.current = first.dispatch_id;
+    }
+    if (!first) lastScrolledTo.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingReturnReason.map((l) => l.dispatch_id).join(",")]);
 
   // Phase F dispatch-editing wiring (2026-05-19): driver can edit qty/shelf/product
   // and add ad-hoc rows mid-route. Pre-receive only (item_added=false).
@@ -610,13 +645,12 @@ export default function DispatchingDetailPage() {
 
     // PRD-121 Phase 2 P1.5: return_reason is now mandatory at the RPC (return_dispatch_line
     // refuses without one). Pre-flight here so a driver sees a clear message instead of a
-    // raw RPC error mid-save.
-    const missingReturnReason = lines.filter(
-      (l) => l.action === "returned" && !l.return_reason.trim(),
-    );
+    // raw RPC error mid-save. missingReturnReason is the same reactive value the Save
+    // button itself is disabled on (ONE-LOOP-3 Job 1.4) -- this is a defensive second
+    // check, not the primary guard anymore.
     if (missingReturnReason.length > 0) {
       setReturnNotice(
-        `Select a return reason for ${missingReturnReason.length} line(s) before saving.`,
+        `Pick a reason on ${missingReturnReason[0].shelf_code ?? "?"}${missingReturnReason.length > 1 ? ` (+${missingReturnReason.length - 1} more)` : ""}.`,
       );
       return;
     }
@@ -1211,6 +1245,9 @@ export default function DispatchingDetailPage() {
                 return (
                   <li
                     key={line.dispatch_id}
+                    ref={(el) => {
+                      lineCardRefs.current[line.dispatch_id] = el;
+                    }}
                     className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                   >
                     {/* Product name + expiry + remove (driver-added only) */}
@@ -1646,14 +1683,20 @@ export default function DispatchingDetailPage() {
                 (the designed safety net); they are never auto-returned. */}
             <button
               onClick={handleSave}
-              disabled={addedCount + returnedCount === 0 || saving}
+              disabled={
+                addedCount + returnedCount === 0 ||
+                saving ||
+                missingReturnReason.length > 0
+              }
               className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
-              {saving
-                ? "Saving…"
-                : allActioned
-                  ? `Save dispatch (${addedCount} added, ${returnedCount} returned)`
-                  : `Save ${addedCount + returnedCount} actioned line${addedCount + returnedCount === 1 ? "" : "s"} (${lines.filter((l) => l.action === null).length} untouched left for EOD release)`}
+              {missingReturnReason.length > 0
+                ? `Pick a reason on ${missingReturnReason[0].shelf_code ?? "?"}`
+                : saving
+                  ? "Saving…"
+                  : allActioned
+                    ? `Save dispatch (${addedCount} added, ${returnedCount} returned)`
+                    : `Save ${addedCount + returnedCount} actioned line${addedCount + returnedCount === 1 ? "" : "s"} (${lines.filter((l) => l.action === null).length} untouched left for EOD release)`}
             </button>
           </div>
         )}
