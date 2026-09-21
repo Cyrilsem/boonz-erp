@@ -1,0 +1,21 @@
+-- REPO HYGIENE RECONSTRUCTION (see the reconciliation audit that added this file).
+--
+-- supabase_migrations.schema_migrations records this exact version (20260919185810) under the
+-- name "prd128_09_delivery_alert_job", applied live. No file for it existed anywhere in the
+-- repo -- the file that carried this name locally (formerly at this same path under a different
+-- timestamp) turned out, on content inspection, to already include the severity-mapping fix
+-- ('critical'/'warning' instead of the PRD's illustrative 'high'/'medium', required because
+-- monitoring_alerts.severity has a CHECK constraint that does not allow those values) that a
+-- LATER migration (20260919185949, prd128_09b_delivery_alert_severity_fix) introduced, so it was
+-- renamed to that later version instead of this one.
+--
+-- The true original body of run_delivery_verification_alerts() as first created here is not
+-- recoverable: schema_migrations retains only the version and name, not the SQL body, and this
+-- content was superseded within about 2.3 minutes of being applied, before ever being saved to
+-- a file.
+--
+-- This file exists to satisfy the one-file-per-applied-version rule. Do not treat it as an
+-- executable reconstruction. The accurate, verified-by-content terminal definition is:
+--   see 20260919185949_prd128_09b_delivery_alert_severity_fix.sql
+--
+-- No SQL is executed by this file. It is a documentation-only placeholder.

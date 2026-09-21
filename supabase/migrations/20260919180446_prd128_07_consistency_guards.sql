@@ -1,0 +1,25 @@
+-- REPO HYGIENE RECONSTRUCTION (see the reconciliation audit that added this file).
+--
+-- supabase_migrations.schema_migrations records this exact version (20260919180446) under the
+-- name "prd128_07_consistency_guards", applied live. No file for it existed anywhere in the
+-- repo -- the file that carried this name locally (formerly at this same path under a different
+-- timestamp) turned out, on content inspection, to already include the round(...)::text numeric
+-- formatting fix that a LATER migration (20260919180628, prd128_07b_surface_check_numeric_format_fix)
+-- introduced, so it was renamed to that later version instead of this one.
+--
+-- The true original body of this migration (check_priority_surface_consistency() and
+-- check_machine_health_integrity() as first created, before the 07b numeric-format fix and
+-- before the 07c materialization perf fix) is not recoverable: schema_migrations retains only
+-- the version and name, not the SQL body, and this content was never saved to a file at the
+-- time it was applied.
+--
+-- This file exists to satisfy the one-file-per-applied-version rule. Do not treat it as an
+-- executable reconstruction -- both functions were replaced wholesale by later migrations
+-- within hours of this one. The accurate, verified-by-content definitions are:
+--   * check_priority_surface_consistency() -- current live definition, unchanged since 07b:
+--     see 20260919180628_prd128_07b_surface_check_numeric_format_fix.sql
+--   * check_machine_health_integrity() -- current live definition as of the 07c perf fix:
+--     see 20260919181312_prd128_07c_integrity_check_perf_fix.sql (further evolved since by
+--     20260920182302_add_g_lane_sales_guard.sql and 20260921132825_prd129_04_guard_and_cron_note.sql)
+--
+-- No SQL is executed by this file. It is a documentation-only placeholder.
