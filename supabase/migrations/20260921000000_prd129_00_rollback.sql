@@ -1,0 +1,78 @@
+-- PRD-129 rollback snapshot. Captured via pg_get_functiondef/pg_get_viewdef before any
+-- prd129 change was applied. NOT APPLIED -- reference only.
+--
+-- Note on spec context: this goal cites "docs/PRD-128b" for the D-012 sales-resolution fix
+-- ("already written and proven"). That file does not exist anywhere in this repository --
+-- checked via `git log --all` across every commit and a full-tree filename search, both
+-- came back empty. The prd128d session (the immediately preceding turn) is real and its own
+-- migrations are already committed on this branch; it never touched v_sales_history_resolved.
+-- Proceeding on 02_sales_resolution_perf by designing an equivalent fix from the exact
+-- specification given (name_map / nm shape, NOT EXISTS precedence gate) and verifying it
+-- against the stated bar (P3: identical pod_product_id to the pre-change view for every sales
+-- row in the last 90 days) rather than blocking on a file that is not there to copy.
+--
+-- get_machine_health() execution time before any prd129 change (plain call, no filters):
+-- 29168 ms (EXPLAIN ANALYZE, `select count(*) from get_machine_health()`).
+
+-- ============================================================================
+-- get_machine_health(boolean) -- before prd129
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.get_machine_health(p_include_inactive boolean DEFAULT false)
+--  RETURNS TABLE(machine_name text, machine_id uuid, is_online boolean, total_stock integer, max_capacity integer, fill_pct numeric, total_slots integer, slots_at_zero integer, slots_below_25pct integer, daily_velocity numeric, days_until_empty numeric, has_sensor_errors boolean, machine_status text, include_in_refill boolean, recently_offline boolean, expired_units integer, expiring_7d_units integer, expiring_30d_units integer, days_to_earliest_expiry integer, machine_health_label text, machine_strategy text, machine_days_active integer, dead_stock_count integer, local_hero_count integer, health_tier text, health_sort integer, days_since_visit integer, pending_swap_count integer, is_picked_tomorrow boolean, picker_reasons text[], service_track text, priority_tier text, priority_score numeric, last_plan_date date, last_plan_days integer, urgency_breakdown jsonb, reasons_arr text[], pct_empty_lanes numeric, pct_quasi_lanes numeric, pct_ab_empty_or_quasi numeric, hero_runway_days numeric, s_gap numeric, p_score_aed numeric, car_no integer, top_contributors_aed jsonb, priority_tier_structural text, priority_score_structural numeric, unresolved_lane_count integer, machine_cohort text, cohort_sort integer, operating_model text, service_model text, is_boonz_serviced boolean, last_seen_at timestamp with time zone, last_delivery_verdict text, lanes_not_landed integer)
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   -- machine_name is COALESCE(ld.device_name, m.official_name) -- this is the D-011 bug
+--   -- (01_name_identity targets this line specifically). Full body otherwise unchanged from
+--   -- 20260920190200_prd128d_02_cohort_by_operating_model.sql.
+-- $function$;
+
+-- ============================================================================
+-- v_sales_history_resolved -- before prd129 (per-row correlated subqueries, no set join)
+-- ============================================================================
+-- CREATE OR REPLACE VIEW public.v_sales_history_resolved AS
+--  SELECT sh.transaction_id,
+--     sh.machine_id,
+--     COALESCE(( SELECT pp.pod_product_id
+--            FROM pod_products pp
+--           WHERE lower(TRIM(BOTH FROM pp.pod_product_name)) = lower(TRIM(BOTH FROM sh.pod_product_name))
+--          LIMIT 1), ( SELECT pp.pod_product_id
+--            FROM product_name_conventions pnc
+--              JOIN pod_products pp ON lower(TRIM(BOTH FROM pp.pod_product_name)) = lower(TRIM(BOTH FROM pnc.official_name))
+--           WHERE lower(TRIM(BOTH FROM pnc.original_name)) = lower(TRIM(BOTH FROM sh.pod_product_name))
+--          LIMIT 1)) AS pod_product_id,
+--     sh.transaction_date,
+--     sh.qty,
+--     sh.delivery_status
+--    FROM sales_history sh;
+
+-- ============================================================================
+-- compute_refill_decision -- before prd129 (untouched by this PRD; captured for the record
+-- since 03_decision_identity reasons about it explicitly)
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.compute_refill_decision(p_machine_id uuid, p_shelf_id uuid, p_boonz_product_id uuid, p_days_cover integer DEFAULT 10)
+--  RETURNS jsonb
+--  LANGUAGE plpgsql
+--  STABLE
+--  SET search_path TO 'public'
+-- AS $function$
+--   -- full body unchanged -- see the live database or 20260920190100_prd128d_01_expiry_identity.sql's
+--   -- comment block for the exact text. v_u7d/v_u15d are computed from a goods_slot string
+--   -- transform (03_decision_identity's target); v_velocity/v_target_units/v_refill come from
+--   -- slot_lifecycle.velocity_7d/velocity_30d, an entirely separate path.
+-- $function$;
+
+-- ============================================================================
+-- check_machine_health_integrity -- before prd129
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.check_machine_health_integrity()
+--  RETURNS TABLE(check_name text, severity text, machine_name text, detail text)
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   -- full body unchanged from 20260920180100_add_g_lane_sales_guard.sql -- G-REV, G-FANOUT,
+--   -- G-TIER, G-CHIPS, G-LANES, G-COHORT, G-LANE-SALES. 04_guards_and_docs adds G-NAME as a
+--   -- new UNION ALL branch; nothing here is removed or altered.
+-- $function$;

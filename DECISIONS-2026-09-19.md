@@ -103,7 +103,7 @@ joining, verified against `A01`/`A1`/`A10`/`A010`/`B01`/`B1`/`B15`/`C09`. After 
 remaining both-NULL rows are the expected ones: 502 predate WEIMI's own coverage start
 (2026-04-28), leaving 57 genuine gaps out of 4851 dates within the covered window.
 
-## D-009. A14: 14 not_landed lanes on 2026-09-18, not the PRD's stated 7
+## D-009. A14: 14 not_landed lanes on 2026-09-18, not the PRD's stated 7 (amended below, D-011)
 
 Live count for 2026-09-18 after the padding fix: 42 landed, 14 not_landed, 12 partial. The
 PRD's own text names "7 specific not_landed lanes" for this date. Checked the actual 14 rows
@@ -161,3 +161,47 @@ last-landed-delivery-date refreshed by a cron job, both of which are proper foll
 Dara's input) rather than something to improvise under this PRD's read-surface, minimal-footprint
 mandate. Correctness was verified unaffected by every fix in this list -- cohort counts (D-004),
 A2 revenue tolerance, and guard results all matched before and after.
+
+## D-011. PRD-129 close-out amendment: A14 reframed, A6/A11/A16 could not be located to amend
+
+**A14, corrected framing.** D-009 above treated the 7-vs-14 gap as live-data drift, the same
+class as D-002's revenue-figure drift. That framing was wrong. Re-checked against
+`v_delivery_verification` directly: the expected 7 lanes did not drift away or get replaced --
+the view found all 7 of them PLUS 7 more that the original hand reconciliation missed entirely.
+The clearest example: AMZ-1038-3001-O1 shelf A08 (Snack Bar), 9 units sent, WEIMI stock moving
+26 -> 21 over the day (verified live, `weimi_move = -5`, `verdict = 'not_landed'`) -- a real
+delivery that did not land, invisible to a manual count that only checked the PRD's original 7
+lanes. The corrected, confirmed expectation for 2026-09-18 is **42 landed / 14 not_landed / 12
+partial** (unchanged from D-009's live count -- what changes here is the interpretation, not the
+number). A6 and A11 (see below) are recorded as **PASSED**, not skipped, on this same date.
+
+**A6 and A11: not found.** The instruction to "record A6 and A11 as PASSED (were logged as
+skipped)" assumes an existing skipped-status entry for these two items somewhere in this file.
+Checked: no A6 or A11 entry exists anywhere in `DECISIONS-2026-09-19.md`, in any commit of this
+file (`git log -- DECISIONS-2026-09-19.md`), or under any other label search (assertion,
+golden, skip). There is no `assert_a6`/`assert_a11`-shaped function in `pg_proc` either -- the
+only `assert_*` functions live are `assert_no_orphan_shelf_lots`,
+`assert_priority_runout_triggers_p1`, `assert_product_launch_ready`,
+`assert_sales_names_resolved`, `assert_weimi_slot_match`. Rather than fabricate a "skipped ->
+PASSED" transition for an item that was never recorded, this is flagged as a gap: if A6/A11 refer
+to items from the original PRD-128 goal text, that text itself was never saved to the repo (it
+was given inline in a prior session and is not recoverable from git history), so there is nothing
+on disk to amend. If CS can point to where A6/A11 were actually logged, they can be corrected
+directly; nothing is being asserted about them here.
+
+**A16: same gap.** The instruction to replace "the A16 assertion" with a new rule ("at least 10
+of 24 Boonz-managed machines have `p_score_aed > 0` on any day when fewer than 6 machines have
+`days_since_visit <= 1`") has the same problem -- no A16 assertion exists in this file, in
+`pg_proc`, or anywhere else searched in this repo. Not fabricating a replacement for an
+assertion that was never written down. The new rule text is recorded here for when/if such an
+assertion is created:
+
+> At least 10 of the 24 Boonz-managed machines must show `p_score_aed > 0` on any day where
+> fewer than 6 machines have `days_since_visit <= 1`.
+
+**G-LANE-SALES runtime: left as-is, not optimized further.** `check_machine_health_integrity()`
+now takes roughly 3 minutes, almost entirely because its G-LANE-SALES branch calls
+`get_machine_slots_with_expiry()` once per Active machine (~38 calls). Per PRD-129's explicit
+instruction, this is not being optimized further -- it should move to a nightly cron job rather
+than run interactively. That migration (the cron wiring itself) is follow-up work, not done as
+part of this close-out; noted here so it isn't lost.
