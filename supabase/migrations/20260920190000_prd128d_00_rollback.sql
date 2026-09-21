@@ -1,0 +1,179 @@
+-- PRD-128d rollback snapshot. Captured via pg_get_functiondef before any prd128d change was
+-- applied. NOT APPLIED -- reference only, restore by running the relevant block below if a
+-- prd128d migration needs to be reverted.
+--
+-- Captured objects: machine_cohort (prd128d_02 target), its two live callers
+-- (get_machine_health, check_machine_health_integrity -- both call machine_cohort()
+-- directly; there is no separate function literally named get_machine_cohort),
+-- and get_machine_slots_with_expiry (prd128d_01 target).
+
+-- ============================================================================
+-- machine_cohort (before prd128d_02)
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.machine_cohort(p_operating_model text, p_service_model text)
+-- RETURNS text
+-- LANGUAGE sql
+-- IMMUTABLE
+-- AS $function$
+--   SELECT CASE
+--     WHEN p_operating_model = 'partner_managed' OR p_service_model = 'partner_filled' THEN 'partner'
+--     WHEN p_operating_model = 'co_managed' THEN 'vox'
+--     WHEN p_operating_model = 'fully_managed' THEN 'boonz'
+--     ELSE 'unclassified'
+--   END;
+-- $function$;
+
+-- ============================================================================
+-- get_machine_health (caller of machine_cohort() -- before prd128d_02)
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.get_machine_health()
+--  RETURNS TABLE(machine_name text, machine_id uuid, is_online boolean, total_stock integer, max_capacity integer, fill_pct numeric, total_slots integer, slots_at_zero integer, slots_below_25pct integer, daily_velocity numeric, days_until_empty numeric, has_sensor_errors boolean, machine_status text, include_in_refill boolean, recently_offline boolean, expired_units integer, expiring_7d_units integer, expiring_30d_units integer, days_to_earliest_expiry integer, machine_health_label text, machine_strategy text, machine_days_active integer, dead_stock_count integer, local_hero_count integer, health_tier text, health_sort integer, days_since_visit integer, pending_swap_count integer, is_picked_tomorrow boolean, picker_reasons text[], service_track text, priority_tier text, priority_score numeric, last_plan_date date, last_plan_days integer, urgency_breakdown jsonb, reasons_arr text[], pct_empty_lanes numeric, pct_quasi_lanes numeric, pct_ab_empty_or_quasi numeric, hero_runway_days numeric, s_gap numeric, p_score_aed numeric, car_no integer, top_contributors_aed jsonb, priority_tier_structural text, priority_score_structural numeric, unresolved_lane_count integer, machine_cohort text, cohort_sort integer, operating_model text, service_model text, is_boonz_serviced boolean, last_seen_at timestamp with time zone, last_delivery_verdict text, lanes_not_landed integer)
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   -- ... full body unchanged from 20260919220600_prd128_perf_view_materialization.sql ...
+--   -- The only lines prd128d_02 touches are the row-set source (adds a p_include_inactive
+--   -- parameter and filters `machines m` to status = 'Active' unless it is true) and the two
+--   -- machine_cohort(we.operating_model, we.service_model) call sites, which are unchanged in
+--   -- themselves (machine_cohort's own body is what changes, in prd128d_02).
+--   -- See 20260919220600_prd128_perf_view_materialization.sql for the exact pre-image.
+-- $function$;
+
+-- ============================================================================
+-- check_machine_health_integrity (caller of machine_cohort() -- before prd128d_02)
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.check_machine_health_integrity()
+--  RETURNS TABLE(check_name text, severity text, machine_name text, detail text)
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+--   -- ... full body unchanged from 20260920180100_add_g_lane_sales_guard.sql ...
+--   -- prd128d_02 does not touch this function's own body at all -- only machine_cohort()'s
+--   -- and get_machine_health()'s change; check_machine_health_integrity calls both but its
+--   -- own SQL text is untouched. Listed here because it is a live caller of machine_cohort().
+--   -- See 20260920180100_add_g_lane_sales_guard.sql for the exact pre-image.
+-- $function$;
+
+-- ============================================================================
+-- get_machine_slots_with_expiry (before prd128d_01)
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.get_machine_slots_with_expiry(p_machine_name text)
+--  RETURNS TABLE(slot text, product text, current_stock integer, max_stock integer, fill_pct integer, expiry_days integer, expiry_qty numeric, target_stock numeric, refill_qty numeric, stance text, action_code text, global_product_status text, local_performance_role text, suggested_product text, units_sold_7d numeric, final_score numeric, decision jsonb, shelf_id uuid, pod_product_id uuid, suggested_pod_product_id uuid, nearest_expiry_days integer, nearest_expiry_qty numeric, nearest_expiry_product_name text, nearest_expiry_boonz_product_id uuid)
+--  LANGUAGE sql
+--  STABLE
+-- AS $function$
+--   WITH
+--   pod_by_name AS (
+--     SELECT DISTINCT ON (LOWER(TRIM(pp.pod_product_name)))
+--       LOWER(TRIM(pp.pod_product_name)) AS product_lower, pp.pod_product_id
+--     FROM public.pod_products pp
+--     ORDER BY LOWER(TRIM(pp.pod_product_name)), pp.pod_product_id
+--   ),
+--   pod_alias AS (
+--     VALUES ('168aeb7e-fc0c-441b-94df-6d8cc185945d'::uuid, '51e4600f-2c15-428b-92ef-85fdc783c3af'::uuid)
+--   ),
+--   dubai AS (SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dubai')::date AS today),
+--   machine AS (
+--     SELECT machine_id FROM public.weimi_device_status
+--     WHERE device_name = p_machine_name
+--       AND snapshot_date = (SELECT MAX(snapshot_date) FROM public.weimi_device_status WHERE device_name = p_machine_name)
+--     LIMIT 1
+--   ),
+--   aisles AS (
+--     SELECT v.slot_name AS slot, TRIM(v.goods_name_raw) AS product,
+--       GREATEST(v.current_stock, 0) AS current_stock, GREATEST(v.max_stock, 1) AS max_stock,
+--       v.machine_id, sc.shelf_id, v.pod_product_id,
+--       COALESCE(pa.column2, v.pod_product_id) AS canonical_pod_product_id
+--     FROM public.v_live_shelf_stock v
+--     LEFT JOIN public.shelf_configurations sc
+--       ON sc.machine_id = v.machine_id AND sc.is_phantom = false
+--      AND v.slot_name = LEFT(sc.shelf_code,1) || (SUBSTR(sc.shelf_code,2)::int)::text
+--     LEFT JOIN pod_alias pa ON pa.column1 = v.pod_product_id
+--     WHERE v.machine_id = (SELECT machine_id FROM machine)
+--   ),
+--   shelf_expiry AS (
+--     SELECT b.shelf_id, MIN(b.expiration_date) AS min_exp
+--     FROM public.v_machine_expiry_batches b
+--     WHERE b.machine_id = (SELECT machine_id FROM machine)
+--       AND b.shelf_id IS NOT NULL AND b.expiration_date IS NOT NULL
+--     GROUP BY b.shelf_id
+--   ),
+--   shelf_min_batch AS (
+--     SELECT se.shelf_id, se.min_exp, SUM(b.current_stock) AS min_exp_qty
+--     FROM shelf_expiry se
+--     JOIN public.v_machine_expiry_batches b
+--       ON b.shelf_id = se.shelf_id AND b.expiration_date = se.min_exp
+--      AND b.machine_id = (SELECT machine_id FROM machine)
+--     GROUP BY se.shelf_id, se.min_exp
+--   ),
+--   shelf_min_batch_product AS (
+--     -- BUG (prd128d_01): picks whatever product had the earliest-expiring batch on the
+--     -- shelf, with no filter tying it to the lane's own pod_product_id. A shelf carrying
+--     -- stale batch rows from a since-replaced product surfaces that old product's expiry
+--     -- instead of the current lane's.
+--     SELECT DISTINCT ON (b.shelf_id) b.shelf_id, b.boonz_product_id
+--     FROM shelf_expiry se
+--     JOIN public.v_machine_expiry_batches b
+--       ON b.shelf_id = se.shelf_id AND b.expiration_date = se.min_exp
+--      AND b.machine_id = (SELECT machine_id FROM machine)
+--     ORDER BY b.shelf_id, b.current_stock DESC, b.boonz_product_id
+--   ),
+--   shelf_top_boonz AS (
+--     SELECT DISTINCT ON (b.shelf_id) b.shelf_id, b.boonz_product_id
+--     FROM public.v_machine_expiry_batches b
+--     WHERE b.machine_id = (SELECT machine_id FROM machine)
+--       AND b.shelf_id IS NOT NULL
+--     ORDER BY b.shelf_id, b.current_stock DESC, b.boonz_product_id
+--   ),
+--   lane_sales AS (
+--     SELECT vsi.machine_id, vsi.pod_product_id,
+--       vsi.units_7d / NULLIF(vsi.facings, 0)::numeric AS units_7d
+--     FROM public.v_shelf_sales_identity vsi
+--     WHERE vsi.machine_id = (SELECT machine_id FROM machine)
+--   ),
+--   latest_ri AS (
+--     SELECT ri.* FROM refill_instructions ri
+--     WHERE ri.machine_id = (SELECT machine_id FROM machine)
+--       AND ri.report_timestamp = (SELECT MAX(report_timestamp) FROM refill_instructions WHERE machine_id = (SELECT machine_id FROM machine))
+--   )
+--   SELECT
+--     ai.slot, ai.product, ai.current_stock, ai.max_stock,
+--     CASE WHEN ai.max_stock > 0 THEN ROUND((ai.current_stock::numeric / ai.max_stock) * 100)::int ELSE 0 END,
+--     (sx.min_exp - (SELECT today FROM dubai))::int,
+--     sx.min_exp_qty,
+--     COALESCE((d.decision->>'target_units')::numeric, ai.current_stock),
+--     COALESCE((d.decision->>'refill_qty')::numeric, 0),
+--     COALESCE(d.decision->>'stance', 'KEEP'),
+--     compute_action_code(
+--       compute_local_role(COALESCE(ls.units_7d * 4, 0), 0),
+--       COALESCE(d.decision->>'global_badge', gps.global_status, '📦 Core Range')),
+--     COALESCE(d.decision->>'global_badge', gps.global_status, '📦 Core Range'),
+--     COALESCE(d.decision->>'local_badge', '✅ Standard'),
+--     ri.suggested_product,
+--     COALESCE(ls.units_7d, 0),
+--     COALESCE((d.decision->>'final_score')::numeric, 0),
+--     d.decision,
+--     ai.shelf_id,
+--     ai.pod_product_id,
+--     sbn.pod_product_id,
+--     (sx.min_exp - (SELECT today FROM dubai))::int,
+--     sx.min_exp_qty,
+--     nebp.boonz_product_name,
+--     smbp.boonz_product_id
+--   FROM aisles ai
+--   LEFT JOIN shelf_min_batch sx ON sx.shelf_id = ai.shelf_id
+--   LEFT JOIN shelf_min_batch_product smbp ON smbp.shelf_id = ai.shelf_id
+--   LEFT JOIN public.boonz_products nebp ON nebp.product_id = smbp.boonz_product_id
+--   LEFT JOIN shelf_top_boonz stb ON stb.shelf_id = ai.shelf_id
+--   LEFT JOIN lane_sales ls ON ls.machine_id = ai.machine_id AND ls.pod_product_id = ai.canonical_pod_product_id
+--   LEFT JOIN mv_global_product_scores gps ON LOWER(TRIM(gps.product)) = LOWER(ai.product)
+--   LEFT JOIN latest_ri ri ON normalize_slot(ri.slot_name) = normalize_slot(ai.slot)
+--   LEFT JOIN pod_by_name sbn ON sbn.product_lower = LOWER(TRIM(ri.suggested_product))
+--   LEFT JOIN LATERAL (
+--     SELECT public.compute_refill_decision(ai.machine_id, ai.shelf_id, stb.boonz_product_id, 10) AS decision
+--     WHERE ai.shelf_id IS NOT NULL
+--   ) d ON true
+--   ORDER BY COALESCE((d.decision->>'final_score')::numeric, 0) DESC, ai.slot;
+-- $function$;
