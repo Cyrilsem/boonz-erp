@@ -1,0 +1,21 @@
+-- REPO HYGIENE RECONSTRUCTION (see the reconciliation audit that added this file).
+--
+-- supabase_migrations.schema_migrations records this exact version (20260920183837) under the
+-- name "backfill_refunded_amount_jul_aug_2026", applied live. No file for it existed anywhere in
+-- the repo, and no trace of it exists in git history or docs -- this predates every session with
+-- a visible transcript.
+--
+-- This is a one-time DATA backfill, not a schema/function/view change, so there is no "live
+-- object definition" to reconstruct from -- a completed UPDATE has no persistent definition the
+-- way a function or view does. sales_history has a refunded_amount column but no updated_at (or
+-- equivalent audit) column, so unlike the Red Bull repair above there is no way to fingerprint
+-- which specific rows this touched or what the pre-backfill values were.
+--
+-- The name states the scope plainly: sales_history.refunded_amount was backfilled for
+-- transactions in July-August 2026. The exact original UPDATE statement (source of the refund
+-- figures, exact date-range boundaries, join logic if any) is not recoverable from current
+-- state.
+--
+-- This file exists to satisfy the one-file-per-applied-version rule and to record that this
+-- migration is a completed, already-applied data change with no schema footprint remaining to
+-- verify against. No SQL is executed by this file.

@@ -1,0 +1,21 @@
+-- REPO HYGIENE RECONSTRUCTION (see the reconciliation audit that added this file).
+--
+-- supabase_migrations.schema_migrations records this exact version (20260919183318) under the
+-- name "prd128_08d_delivery_verification_perf_rewrite", applied live. No file for it existed
+-- anywhere in the repo -- it was superseded by 08e (materialized last_visit) about three minutes
+-- later, before ever being saved to a file.
+--
+-- Per DECISIONS-2026-09-19.md D-010 fix #2: this step rewrote the weimi_prev/weimi_next lookups
+-- in v_delivery_verification from DISTINCT ON over a pre-joined range set to a per-row LATERAL
+-- "ORDER BY snapshot_at DESC LIMIT 1", paired with the index added in 08c
+-- (idx_weimi_aisle_snapshots_norm_slot_at).
+--
+-- The exact original migration body is not recoverable: schema_migrations retains only the
+-- version and name, not the SQL body.
+--
+-- This file exists to satisfy the one-file-per-applied-version rule. Do not treat it as an
+-- executable reconstruction. The accurate, verified-by-content terminal definition (which
+-- includes this rewrite, still live and unchanged) is:
+--   see 20260919183602_prd128_08e_machine_health_signals_last_visit_perf_fix.sql
+--
+-- No SQL is executed by this file. It is a documentation-only placeholder.

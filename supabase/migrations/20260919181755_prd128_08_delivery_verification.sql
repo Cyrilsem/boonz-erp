@@ -1,0 +1,20 @@
+-- REPO HYGIENE RECONSTRUCTION (see the reconciliation audit that added this file).
+--
+-- supabase_migrations.schema_migrations records this exact version (20260919181755) under the
+-- name "prd128_08_delivery_verification", applied live. No file for it existed anywhere in the
+-- repo -- the file that carried this name locally (formerly at this same path under a different
+-- timestamp) turned out, on content inspection, to already include the shelf_code padding fix
+-- (08b), the LATERAL rewrite (08d), the CREATE INDEX (08c), and the MATERIALIZED last_visit fix
+-- (08e), so it was renamed to that final version (20260919183602) instead of this one.
+--
+-- The true original body of v_delivery_verification / v_machine_health_signals / get_machine_health
+-- as first created here (before the 08b/08c/08d/08e perf and correctness fixes, all applied
+-- within about two hours of this one) is not recoverable: schema_migrations retains only the
+-- version and name, not the SQL body, and this content was never saved to a file at the time it
+-- was applied.
+--
+-- This file exists to satisfy the one-file-per-applied-version rule. Do not treat it as an
+-- executable reconstruction. The accurate, verified-by-content terminal definition is:
+--   see 20260919183602_prd128_08e_machine_health_signals_last_visit_perf_fix.sql
+--
+-- No SQL is executed by this file. It is a documentation-only placeholder.

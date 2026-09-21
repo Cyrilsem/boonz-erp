@@ -1,0 +1,20 @@
+-- REPO HYGIENE RECONSTRUCTION (see the reconciliation audit that added this file).
+--
+-- supabase_migrations.schema_migrations records this exact version (20260919182006) under the
+-- name "prd128_08b_delivery_verification_shelf_code_padding_fix", applied live. No file for it
+-- existed anywhere in the repo. Per DECISIONS-2026-09-19.md D-008, this step fixed a join between
+-- shelf_configurations.shelf_code (zero-padded, "A01".."A16") and
+-- weimi_aisle_snapshots.slot_code (unpadded, "A1".."A9" then "A10".."A16") by normalizing both
+-- sides with regexp_replace(code, '^([A-Za-z]+)0*(\d+)$', '\1\2') before joining.
+--
+-- The exact original migration body is not recoverable: schema_migrations retains only the
+-- version and name, not the SQL body, and this content was superseded (08c index, 08d LATERAL
+-- rewrite, 08e materialization) within about 90 minutes of being applied, before ever being
+-- saved to a file.
+--
+-- This file exists to satisfy the one-file-per-applied-version rule. Do not treat it as an
+-- executable reconstruction. The accurate, verified-by-content terminal definition (which
+-- includes this fix, still live and unchanged) is:
+--   see 20260919183602_prd128_08e_machine_health_signals_last_visit_perf_fix.sql
+--
+-- No SQL is executed by this file. It is a documentation-only placeholder.
