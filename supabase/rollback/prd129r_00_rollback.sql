@@ -1,0 +1,53 @@
+-- PRD-129R rollback snapshot. Captured via pg_get_functiondef before any prd129r change was
+-- applied. NOT APPLIED -- reference only.
+--
+-- Root cause (already established, not re-investigated here): receive_dispatch_line computes
+-- v_return_delta = planned - filled and adds it to warehouse_stock inline (either via the
+-- v_consumer_row branch's combined UPDATE, or the v_wh_row fallback branches). It never sets
+-- remainder_credited. It then sets item_added = true in its closing UPDATE on
+-- refill_dispatching, which fires trg_credit_dispatch_remainder (AFTER UPDATE OF item_added),
+-- which calls tg_credit_dispatch_remainder_on_receive(), which sees remainder_credited still
+-- false and calls credit_dispatch_remainder(), which credits the identical remainder a second
+-- time. 208 of 208 partial-fill events since 2026-07-06 doubled. 537 phantom units, 59 products.
+
+-- ============================================================================
+-- receive_dispatch_line -- before prd129r
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.receive_dispatch_line(p_dispatch_id uuid, p_filled_quantity numeric, p_received_by uuid DEFAULT NULL::uuid, p_batch_breakdown jsonb DEFAULT NULL::jsonb, p_override boolean DEFAULT false, p_override_reason text DEFAULT NULL::text)
+--  RETURNS jsonb
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- ... full body unchanged from live -- see the live database for the exact text. The change
+-- targeted by prd129r_01 is the closing UPDATE on refill_dispatching:
+--   UPDATE refill_dispatching
+--      SET filled_quantity = p_filled_quantity, item_added = true, dispatched = true,
+--          packed = true, picked_up = true,
+--          pack_outcome = CASE
+--            WHEN v_dispatch.action IN ('Refill','Add New','Add') AND NOT COALESCE(v_dispatch.is_m2m, false)
+--              THEN (CASE WHEN p_filled_quantity < v_planned THEN 'partial' ELSE 'packed' END)::public.pack_outcome_enum
+--            ELSE pack_outcome
+--          END
+--    WHERE dispatch_id = p_dispatch_id;
+-- -- remainder_credited is NOT set here before prd129r_01.
+-- $function$;
+
+-- ============================================================================
+-- credit_dispatch_remainder -- before prd129r
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.credit_dispatch_remainder(p_dispatch_id uuid, p_caller_id uuid DEFAULT NULL::uuid)
+--  RETURNS jsonb
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- ... full body unchanged from live. The change targeted by prd129r_02 is this explicit insert,
+-- which duplicates the row auto_audit_warehouse_inventory() already writes via the
+-- app.mutation_reason this function sets before its own UPDATE:
+--   INSERT INTO public.inventory_audit_log (wh_inventory_id, boonz_product_id, adjusted_by, old_qty, new_qty, reason)
+--   VALUES (v_wh.wh_inventory_id, v_wh.boonz_product_id, v_user_id, v_old, v_old + v_remainder,
+--           format('A3 partial remainder credit: dispatch %s filled %s of %s [warehouse_stock]',
+--                  p_dispatch_id, v_d.filled_quantity, v_d.quantity));
+-- prd129r_02 removes this INSERT. Nothing else in this function changes.
+-- $function$;
