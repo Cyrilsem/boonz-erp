@@ -79,9 +79,11 @@ In the split path (`wm_confirm_line_split` and the app's driver split, PRD-053):
 
 Pair rows with `source_kind='m2m'` as well as `source_origin='internal_transfer'`, and set `source_origin='internal_transfer'` on both legs when it pairs. Backfill: run once for the 21 Sep rows so the 4 forced legs and their 4 Remove legs get a real transfer id (the receipts are done, the pairing is for history and for the phantom cleanup in F8).
 
-### F7. Lock `pod_inventory_edits` to the RPC
+### F7. Lock `pod_inventory_edits` to the RPC — MOVED TO PRD-131 B2b
 
 RLS: revoke INSERT/UPDATE for `field_staff` and `authenticated` on `pod_inventory_edits`; the app calls the propose RPC. Verify what the 11:45 row was and whether the app still has a direct insert path.
+
+**2026-09-22 status:** root cause confirmed (the 11:45 row was a genuine direct INSERT, `write_audit_log` shows `via_rpc=false, rpc_name=null, actor_role=field_staff`), but the literal fix does not hold as scoped: no existing RPC covers `edit_type='return_to_warehouse'`, the exact type field staff use today for a warehouse-return recheck (`propose_pod_inventory_add` only covers `add_new_product`; `create_field_add_edit` is a separate add-path). Revoking direct INSERT as written would break that live flow with no replacement. CS decision: fold F7 into PRD-131 as **B2b** — add `propose_pod_inventory_edit(p_machine_id, p_shelf_code, p_boonz_product_id, p_edit_type, p_qty, p_reason)` covering `return_to_warehouse` and the other edit_types field staff use today, switch the app to it, then revoke direct INSERT/UPDATE. Not applied here.
 
 ### F8. Phantom cleanup for 21 Sep
 
