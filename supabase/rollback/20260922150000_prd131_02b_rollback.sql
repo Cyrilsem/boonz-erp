@@ -1,0 +1,3 @@
+-- PRD-131 B2b rollback. propose_pod_inventory_edit is a NEW function (nothing existed at this
+-- signature before). NOT APPLIED -- reference only. To roll back:
+-- DROP FUNCTION IF EXISTS public.propose_pod_inventory_edit(uuid,text,uuid,text,numeric,text,uuid,uuid);
