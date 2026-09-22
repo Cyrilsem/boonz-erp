@@ -166,6 +166,7 @@ DECLARE
   v_partner           refill_dispatching%ROWTYPE;
   v_transfer_id       uuid;
   v_movement_kind     text;
+  v_return_wh_id      uuid;
 BEGIN
   PERFORM set_config('app.via_rpc','true',true);
   PERFORM set_config('app.rpc_name','add_dispatch_row',true);
@@ -211,6 +212,13 @@ BEGIN
     WHEN p_source_kind IN ('m2m','truck_transfer') THEN 'transfer_in'
     ELSE 'warehouse_fill'
   END;
+
+  -- PRD-131 F5 VOX rule: a warehouse_return always settles against
+  -- machines.primary_warehouse_id, never a caller-supplied warehouse, and never carries
+  -- from_warehouse_id (that column is warehouse_fill-only per F1).
+  IF v_movement_kind = 'warehouse_return' THEN
+    SELECT primary_warehouse_id INTO v_return_wh_id FROM public.machines WHERE machine_id = p_machine_id;
+  END IF;
 
   IF p_source_kind = 'm2m' THEN
     IF NOT EXISTS (
@@ -367,7 +375,7 @@ BEGIN
     (machine_id, shelf_id, pod_product_id, boonz_product_id, dispatch_date, action,
      quantity, packed, dispatched, picked_up, returned, item_added, include, comment,
      source_kind, source_warehouse_id, source_machine_id, is_m2m, created_by_edit,
-     from_warehouse_id, expiry_date, pod_lot_id, source_origin, movement_kind,
+     from_warehouse_id, expiry_date, pod_lot_id, source_origin, movement_kind, return_warehouse_id,
      last_edited_by, last_edited_by_role, last_edited_at, edit_count)
   VALUES
     (p_machine_id, v_shelf_id, v_pod_product_id, p_boonz_product_id, p_dispatch_date, p_action,
@@ -375,8 +383,8 @@ BEGIN
      CASE WHEN v_lot_expiry IS NULL THEN '[EXPIRY-TO-CONFIRM — remainder not attributable to a known batch (PRD-053)]' ELSE NULL END,
      p_source_kind, p_source_warehouse_id, p_source_machine_id,
      (p_source_kind = 'truck_transfer' OR p_source_kind = 'm2m'), true,
-     CASE WHEN p_source_kind = 'wh' THEN p_source_warehouse_id ELSE NULL END, v_lot_expiry, v_lot_id,
-     v_source_origin, v_movement_kind,
+     NULL, v_lot_expiry, v_lot_id,
+     v_source_origin, v_movement_kind, v_return_wh_id,
      auth.uid(), p_edit_role, now(), 0)
   RETURNING dispatch_id INTO v_new_id;
   v_first_id := v_new_id;
@@ -867,7 +875,7 @@ BEGIN
      dispatch_date, action, quantity, filled_quantity, expiry_date,
      packed, picked_up, dispatched, returned, item_added, include, comment,
      source_kind, source_machine_id, is_m2m, is_internal_move, from_warehouse_id, source_warehouse_id,
-     movement_kind)
+     movement_kind, return_warehouse_id)
   VALUES
     (p_machine_id, p_boonz_product_id, p_pod_product_id, p_shelf_id,
      CURRENT_DATE, 'Remove', p_quantity, 0, p_expiry_date,
@@ -878,10 +886,10 @@ BEGIN
           THEN 'unknown' ELSE COALESCE(v_parent.source_kind, 'unknown') END,
      v_parent.source_machine_id,
      COALESCE(v_parent.is_m2m, false), COALESCE(v_parent.is_internal_move, false),
-     v_parent.from_warehouse_id,
+     NULL,
      CASE WHEN COALESCE(v_parent.source_kind, 'unknown') = 'wh'
           THEN COALESCE(v_parent.source_warehouse_id, v_parent.from_warehouse_id) ELSE NULL END,
-     'warehouse_return')
+     'warehouse_return', (SELECT primary_warehouse_id FROM machines WHERE machine_id = p_machine_id))
   RETURNING dispatch_id INTO v_dispatch_id;
 
   IF v_parent.dispatch_id IS NOT NULL THEN
@@ -1479,6 +1487,7 @@ BEGIN
         dispatch_date, action, quantity, include, comment,
         from_warehouse_id, from_wh_inventory_id, expiry_date, pinned_at_plan_time,
         source_origin, from_machine_id, pod_lot_id, source_kind, source_warehouse_id, movement_kind,
+        return_warehouse_id,
         packed, picked_up, dispatched, returned, item_added
       ) VALUES (
         v_machine_id, v_shelf_id, v_pod_product_id, v_boonz_product_id,
@@ -1486,13 +1495,14 @@ BEGIN
         CASE WHEN v_remove_lot_expiry IS NULL THEN
           COALESCE(NULLIF(v_dispatch_comment,'') || E'\n', '') || '[EXPIRY-TO-CONFIRM — remainder not attributable to a known batch (PRD-053)]'
         ELSE v_dispatch_comment END,
-        v_primary_warehouse_id, NULL, v_remove_lot_expiry, false,
+        NULL, NULL, v_remove_lot_expiry, false,
         COALESCE(line.source_origin, 'warehouse'::public.source_origin_enum),
         CASE WHEN line.source_origin='internal_transfer' THEN line.from_machine_id ELSE NULL END,
         v_remove_lot_id,
         CASE WHEN v_source_kind = 'wh' AND v_primary_warehouse_id IS NULL THEN 'unknown' ELSE v_source_kind END,
         CASE WHEN v_source_kind = 'wh' THEN v_primary_warehouse_id ELSE NULL END,
         'warehouse_return',
+        v_primary_warehouse_id,
         false, false, false, false, false
       ) RETURNING dispatch_id INTO v_new_dispatch_id;
       v_count := v_count + 1; v_remove_split := v_remove_split + 1;
