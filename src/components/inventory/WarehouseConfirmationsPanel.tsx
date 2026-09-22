@@ -1,21 +1,22 @@
 "use client";
 
-// PRD-119 §4.1 — the single Warehouse Confirmations queue. Replaces
-// PendingRemoveApprovalsPanel (BUG-010 driver-return approvals) and the
-// returns-awaiting-approval path (approve_return, which never had an FE call
-// site). Every field action that moved goods lands here as one line, pre-filled
-// from v_wm_confirmations with a system-proposed outcome; the WM counts, edits
-// if needed, and taps Confirm. Her confirm — wm_confirm_line — is the only
-// write to warehouse_inventory and disposition_events for that line.
+// PRD-119 4.1, rebuilt per PRD-131 section 4b (2026-09-22). One lots table per line, always.
+// Driver count is read only. Received is editable and accepts clear, overwrite and 0. Sum of
+// the lots table must equal Received or Confirm is disabled. A gap between Received and driver
+// count requires a reason. Confirm credits exactly the lots table via wm_confirm_line_split,
+// nothing else. wm_confirm_line (the old single-line path) is removed: every confirm is now a
+// one-or-more-row lots table, so there is exactly one Confirm code path instead of two.
 //
-// Both source panels stay in the tree (not deleted) per the PRD-119 build
-// order — only their render call is removed from the page — until P4 sign-off.
+// Still calling the existing wm_confirm_line_split RPC, per PRD-131 F5 instruction: the new
+// wm_confirm_return RPC (with structured receipt_gap_qty/receipt_gap_reason columns and the
+// VOX/venue-warehouse routing) is spec'd in PRD-131 section 4c and lands in a later session.
+// Until then, the gap reason is appended to p_reason as free text so it is not lost, but it is
+// not yet a queryable column -- see docs/PRD-131-movement-kind.md section 4c.
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
-type ProposedOutcome = "redeploy" | "waste";
-type ConfirmOutcome = "restocked" | "redeploy_pending" | "waste";
+type LotOutcome = "restocked" | "redeploy_pending" | "waste";
 
 interface QueueLine {
   line_id: string;
@@ -31,7 +32,7 @@ interface QueueLine {
   qty: number;
   expiry_date: string | null;
   dispatch_date: string;
-  proposed_outcome: ProposedOutcome;
+  proposed_outcome: "redeploy" | "waste";
   proposed_target_machine_id: string | null;
   proposed_target_machine_name: string | null;
   proposed_waste_by: string | null;
@@ -43,12 +44,12 @@ interface VariantOption {
   boonz_product_name: string;
 }
 
-interface SplitEntry {
+interface LotEntry {
+  key: string;
   boonz_product_id: string;
-  boonz_product_name: string;
-  qty: number;
+  qty: number | "";
   expiry: string;
-  outcome: ConfirmOutcome;
+  outcome: LotOutcome;
   target_machine_id: string;
   disposal_code: string;
 }
@@ -59,10 +60,28 @@ const DISPOSAL_CODES = [
   "Returned to supplier",
 ] as const;
 
+const GAP_REASONS = [
+  "Miscount by driver",
+  "Damaged",
+  "Consumed",
+  "Not found",
+  "Other",
+] as const;
+
+let lotKeySeq = 0;
+function newLotKey(): string {
+  lotKeySeq += 1;
+  return `lot-${lotKeySeq}`;
+}
+
 function formatDMY(iso: string | null): string {
   if (!iso) return "no date";
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+}
+
+function sourceLabel(source: QueueLine["source"]): string {
+  return source === "driver_expiry_check" ? "expiry check" : "planned return";
 }
 
 export default function WarehouseConfirmationsPanel() {
@@ -71,27 +90,25 @@ export default function WarehouseConfirmationsPanel() {
   const [acting, setActing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [qtyEdit, setQtyEdit] = useState<Record<string, number>>({});
-  const [expiryEdit, setExpiryEdit] = useState<Record<string, string>>({});
-  const [outcomeEdit, setOutcomeEdit] = useState<
-    Record<string, ConfirmOutcome>
+  // Received count per line. "" is a valid, deliberate transient state -- it must never be
+  // silently coerced to a fallback number, that coercion is exactly what broke the old input
+  // (typing over a coerced-back "1" produced "133" in Simran's video).
+  const [receivedEdit, setReceivedEdit] = useState<Record<string, number | "">>(
+    {},
+  );
+  const [gapReasonEdit, setGapReasonEdit] = useState<
+    Record<string, (typeof GAP_REASONS)[number] | "">
   >({});
-  const [targetEdit, setTargetEdit] = useState<Record<string, string>>({});
-  const [disposalEdit, setDisposalEdit] = useState<Record<string, string>>({});
-  const [machineOptions, setMachineOptions] = useState<
-    { machine_id: string; official_name: string }[]
-  >([]);
-
-  // ONE-LOOP-3 Job 1.6: Split toggle -- reuses the variant/expiry-batch split
-  // pattern from PendingRemoveApprovalsPanel.tsx, but calls wm_confirm_line_split
-  // (one RPC, one entry per row, each entry may carry its own outcome).
-  const [splitMode, setSplitMode] = useState<Record<string, boolean>>({});
+  const [gapReasonOtherEdit, setGapReasonOtherEdit] = useState<
+    Record<string, string>
+  >({});
+  const [lots, setLots] = useState<Record<string, LotEntry[]>>({});
   const [variantOptions, setVariantOptions] = useState<
     Record<string, VariantOption[]>
   >({});
-  const [splitEntries, setSplitEntries] = useState<
-    Record<string, SplitEntry[]>
-  >({});
+  const [machineOptions, setMachineOptions] = useState<
+    { machine_id: string; official_name: string }[]
+  >([]);
 
   const fetchRows = useCallback(async () => {
     const supabase = createClient();
@@ -108,41 +125,32 @@ export default function WarehouseConfirmationsPanel() {
     }
     const r = (data ?? []) as QueueLine[];
     setRows(r);
-    setQtyEdit((prev) => {
+    setReceivedEdit((prev) => {
       const next = { ...prev };
       r.forEach((row) => {
         if (!(row.line_id in next)) next[row.line_id] = row.qty;
       });
       return next;
     });
-    setExpiryEdit((prev) => {
+    setLots((prev) => {
       const next = { ...prev };
       r.forEach((row) => {
-        if (!(row.line_id in next)) next[row.line_id] = row.expiry_date ?? "";
-      });
-      return next;
-    });
-    setOutcomeEdit((prev) => {
-      const next = { ...prev };
-      r.forEach((row) => {
-        if (!(row.line_id in next))
-          next[row.line_id] =
-            row.proposed_outcome === "redeploy" ? "redeploy_pending" : "waste";
-      });
-      return next;
-    });
-    setTargetEdit((prev) => {
-      const next = { ...prev };
-      r.forEach((row) => {
-        if (!(row.line_id in next) && row.proposed_target_machine_id)
-          next[row.line_id] = row.proposed_target_machine_id;
-      });
-      return next;
-    });
-    setDisposalEdit((prev) => {
-      const next = { ...prev };
-      r.forEach((row) => {
-        if (!(row.line_id in next)) next[row.line_id] = "Waste";
+        if (!(row.line_id in next)) {
+          next[row.line_id] = [
+            {
+              key: newLotKey(),
+              boonz_product_id: row.boonz_product_id,
+              qty: row.qty,
+              expiry: row.expiry_date ?? "",
+              outcome:
+                row.proposed_outcome === "redeploy"
+                  ? "redeploy_pending"
+                  : "waste",
+              target_machine_id: row.proposed_target_machine_id ?? "",
+              disposal_code: "Waste",
+            },
+          ];
+        }
       });
       return next;
     });
@@ -168,58 +176,23 @@ export default function WarehouseConfirmationsPanel() {
       });
   }, []);
 
-  async function confirm(row: QueueLine) {
-    setActing(row.line_id);
-    setError(null);
-    const supabase = createClient();
-    const outcome = outcomeEdit[row.line_id] ?? "waste";
-    const qty = qtyEdit[row.line_id] ?? row.qty;
-    const expiry = expiryEdit[row.line_id] || null;
-
-    if (
-      outcome === "redeploy_pending" &&
-      (!targetEdit[row.line_id] || !expiry)
-    ) {
-      setActing(null);
-      setError("Redeploy needs a target machine and a batch expiry.");
-      return;
-    }
-    if (outcome === "waste" && !disposalEdit[row.line_id]) {
-      setActing(null);
-      setError("Pick a disposal code for waste.");
-      return;
-    }
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { error: rpcErr } = await supabase.rpc("wm_confirm_line", {
-      p_line_id: row.line_id,
-      p_qty: qty,
-      p_expiry: expiry,
-      p_outcome: outcome,
-      p_target_machine_id:
-        outcome === "redeploy_pending" ? targetEdit[row.line_id] : null,
-      p_disposal_code: outcome === "waste" ? disposalEdit[row.line_id] : null,
-      p_reason: `WM confirmed via Warehouse Confirmations queue (${row.source})`,
-      p_caller: user?.id ?? null,
-      p_dry_run: false,
-    });
-
-    if (rpcErr) {
-      setError(rpcErr.message);
-      setActing(null);
-      return;
-    }
-    setActing(null);
-    await fetchRows();
-  }
-
   const loadVariantsForRow = useCallback(
     async (row: QueueLine) => {
-      if (!row.pod_product_id) return;
       if (variantOptions[row.line_id]) return;
+      if (!row.pod_product_id) {
+        // Expiry-check lines carry no pod_product_id -- the only lot option is the row's own
+        // product, not a flavour family. Never leave this row with zero addable options.
+        setVariantOptions((prev) => ({
+          ...prev,
+          [row.line_id]: [
+            {
+              product_id: row.boonz_product_id,
+              boonz_product_name: row.boonz_product_name,
+            },
+          ],
+        }));
+        return;
+      }
       const supabase = createClient();
       const { data, error: lookupErr } = await supabase
         .from("product_mapping")
@@ -233,6 +206,15 @@ export default function WarehouseConfirmationsPanel() {
           "[WarehouseConfirmations] variant lookup failed:",
           lookupErr,
         );
+        setVariantOptions((prev) => ({
+          ...prev,
+          [row.line_id]: [
+            {
+              product_id: row.boonz_product_id,
+              boonz_product_name: row.boonz_product_name,
+            },
+          ],
+        }));
         return;
       }
       const opts: VariantOption[] = [];
@@ -259,74 +241,122 @@ export default function WarehouseConfirmationsPanel() {
         a.boonz_product_name.localeCompare(b.boonz_product_name),
       );
       setVariantOptions((prev) => ({ ...prev, [row.line_id]: opts }));
-      const seedExpiry = expiryEdit[row.line_id] || row.expiry_date || "";
-      setSplitEntries((prev) => ({
-        ...prev,
-        [row.line_id]: opts.map((v) => ({
-          boonz_product_id: v.product_id,
-          boonz_product_name: v.boonz_product_name,
-          qty: 0,
-          expiry: seedExpiry,
-          outcome: "waste" as ConfirmOutcome,
-          target_machine_id: "",
-          disposal_code: "Waste",
-        })),
-      }));
     },
-    [variantOptions, expiryEdit],
+    [variantOptions],
   );
 
-  function toggleSplitMode(row: QueueLine) {
-    const willOpen = !splitMode[row.line_id];
-    if (willOpen) void loadVariantsForRow(row);
-    setSplitMode((prev) => ({ ...prev, [row.line_id]: willOpen }));
+  useEffect(() => {
+    rows.forEach((row) => {
+      void loadVariantsForRow(row);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  function addLotRow(row: QueueLine) {
+    const opts = variantOptions[row.line_id] ?? [];
+    const defaultProduct = opts[0]?.product_id ?? row.boonz_product_id;
+    setLots((prev) => ({
+      ...prev,
+      [row.line_id]: [
+        ...(prev[row.line_id] ?? []),
+        {
+          key: newLotKey(),
+          boonz_product_id: defaultProduct,
+          qty: 0,
+          expiry: "",
+          outcome: "waste",
+          target_machine_id: "",
+          disposal_code: "Waste",
+        },
+      ],
+    }));
   }
 
-  function updateSplitEntry(
-    lineId: string,
-    idx: number,
-    patch: Partial<SplitEntry>,
-  ) {
-    setSplitEntries((prev) => {
+  function removeLotRow(lineId: string, key: string) {
+    setLots((prev) => {
       const list = prev[lineId] ?? [];
-      return {
-        ...prev,
-        [lineId]: list.map((e, i) => (i === idx ? { ...e, ...patch } : e)),
-      };
+      if (list.length <= 1) return prev; // always at least one row
+      return { ...prev, [lineId]: list.filter((l) => l.key !== key) };
     });
   }
 
-  async function confirmSplit(row: QueueLine) {
-    const entries = (splitEntries[row.line_id] ?? []).filter((e) => e.qty > 0);
-    const target = qtyEdit[row.line_id] ?? row.qty;
-    if (entries.length === 0) {
-      setError("Add at least one variant with qty > 0, or close split mode.");
+  function updateLot(lineId: string, key: string, patch: Partial<LotEntry>) {
+    setLots((prev) => ({
+      ...prev,
+      [lineId]: (prev[lineId] ?? []).map((l) =>
+        l.key === key ? { ...l, ...patch } : l,
+      ),
+    }));
+  }
+
+  function lotSum(lineId: string): number {
+    return (lots[lineId] ?? []).reduce(
+      (s, l) => s + (typeof l.qty === "number" ? l.qty : 0),
+      0,
+    );
+  }
+
+  function receivedValue(row: QueueLine): number | "" {
+    return receivedEdit[row.line_id] ?? row.qty;
+  }
+
+  function gapFor(row: QueueLine): number | null {
+    const received = receivedValue(row);
+    if (received === "") return null;
+    return received - row.qty;
+  }
+
+  async function confirm(row: QueueLine) {
+    const received = receivedValue(row);
+    if (received === "" || received < 0) {
+      setError("Received must be a number, 0 or more.");
       return;
     }
-    const sum = entries.reduce((s, e) => s + e.qty, 0);
-    if (sum !== target) {
+    const rowLots = (lots[row.line_id] ?? []).filter(
+      (l) => typeof l.qty === "number" && l.qty > 0,
+    );
+    if (rowLots.length === 0) {
+      setError("Add at least one lot with qty > 0.");
+      return;
+    }
+    const sum = rowLots.reduce((s, l) => s + (l.qty as number), 0);
+    if (sum !== received) {
       setError(
-        `Split breakdown sums to ${sum}, but qty is ${target}. Adjust so they total ${target}.`,
+        `Lots table sums to ${sum}, but Received is ${received}. They must match exactly.`,
       );
       return;
     }
-    const missingExpiry = entries.find(
-      (e) => e.outcome !== "waste" && !e.expiry,
+    const missingExpiry = rowLots.find(
+      (l) => l.outcome !== "waste" && !l.expiry,
     );
     if (missingExpiry) {
-      setError(
-        `"${missingExpiry.boonz_product_name}" needs a batch expiry (waste lines are the only exception).`,
-      );
+      setError("Every non-waste lot needs a batch expiry.");
       return;
     }
-    const missingTarget = entries.find(
-      (e) => e.outcome === "redeploy_pending" && !e.target_machine_id,
+    const missingTarget = rowLots.find(
+      (l) => l.outcome === "redeploy_pending" && !l.target_machine_id,
     );
     if (missingTarget) {
-      setError(
-        `"${missingTarget.boonz_product_name}" is set to redeploy but has no target machine.`,
-      );
+      setError("A redeploy lot needs a target machine.");
       return;
+    }
+    const gap = gapFor(row);
+    let gapNote = "";
+    if (gap !== null && gap !== 0) {
+      const reason = gapReasonEdit[row.line_id];
+      if (!reason) {
+        setError(
+          `Received (${received}) differs from driver count (${row.qty}) by ${gap}. Pick a gap reason.`,
+        );
+        return;
+      }
+      if (reason === "Other" && !gapReasonOtherEdit[row.line_id]?.trim()) {
+        setError('Describe the "Other" gap reason.');
+        return;
+      }
+      const reasonText =
+        reason === "Other" ? gapReasonOtherEdit[row.line_id].trim() : reason;
+      gapNote = ` | gap ${gap > 0 ? "+" : ""}${gap} vs driver count ${row.qty}: ${reasonText}`;
     }
 
     setActing(row.line_id);
@@ -336,20 +366,20 @@ export default function WarehouseConfirmationsPanel() {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const p_splits = entries.map((e) => ({
-      boonz_product_id: e.boonz_product_id,
-      qty: e.qty,
-      expiry: e.expiry || null,
-      outcome: e.outcome,
+    const p_splits = rowLots.map((l) => ({
+      boonz_product_id: l.boonz_product_id,
+      qty: l.qty,
+      expiry: l.expiry || null,
+      outcome: l.outcome,
       target_machine_id:
-        e.outcome === "redeploy_pending" ? e.target_machine_id : null,
-      disposal_code: e.outcome === "waste" ? e.disposal_code : null,
+        l.outcome === "redeploy_pending" ? l.target_machine_id : null,
+      disposal_code: l.outcome === "waste" ? l.disposal_code : null,
     }));
 
     const { error: rpcErr } = await supabase.rpc("wm_confirm_line_split", {
       p_line_id: row.line_id,
       p_splits,
-      p_reason: `WM confirmed split via Warehouse Confirmations queue (${row.source})`,
+      p_reason: `WM confirmed via Warehouse Confirmations queue (${row.source})${gapNote}`,
       p_caller: user?.id ?? null,
       p_dry_run: false,
     });
@@ -360,16 +390,6 @@ export default function WarehouseConfirmationsPanel() {
       return;
     }
     setActing(null);
-    setSplitMode((prev) => {
-      const next = { ...prev };
-      delete next[row.line_id];
-      return next;
-    });
-    setSplitEntries((prev) => {
-      const next = { ...prev };
-      delete next[row.line_id];
-      return next;
-    });
     await fetchRows();
   }
 
@@ -386,8 +406,8 @@ export default function WarehouseConfirmationsPanel() {
       </div>
       <p className="mb-3 text-xs text-amber-700/80 dark:text-amber-400/80">
         Goods physically left a machine and are waiting on your receipt. Count
-        what arrived, confirm or edit the proposed outcome — this is the only
-        write to stock and the disposition ledger for these lines.
+        what arrived as one or more lots, confirm this is the only write to
+        stock and the disposition ledger for these lines.
       </p>
 
       {error && (
@@ -399,13 +419,21 @@ export default function WarehouseConfirmationsPanel() {
       <ul className="space-y-2">
         {rows.map((row) => {
           const isOld = row.age_hours > 48;
-          const outcome = outcomeEdit[row.line_id] ?? "waste";
           const isBusy = acting === row.line_id;
-          const isSplit = !!splitMode[row.line_id];
-          const splits = splitEntries[row.line_id] ?? [];
-          const splitSum = splits.reduce((s, e) => s + (e.qty || 0), 0);
-          const splitTarget = qtyEdit[row.line_id] ?? row.qty;
+          const rowLots = lots[row.line_id] ?? [];
+          const sum = lotSum(row.line_id);
+          const received = receivedValue(row);
+          const gap = gapFor(row);
+          const gapReason = gapReasonEdit[row.line_id] ?? "";
           const vOpts = variantOptions[row.line_id] ?? [];
+          const sumMatches = received !== "" && sum === received;
+          const gapOk =
+            gap === null ||
+            gap === 0 ||
+            (!!gapReason &&
+              (gapReason !== "Other" ||
+                !!gapReasonOtherEdit[row.line_id]?.trim()));
+          const canConfirm = sumMatches && gapOk && !isBusy;
 
           return (
             <li
@@ -424,9 +452,7 @@ export default function WarehouseConfirmationsPanel() {
                   <p className="text-xs text-neutral-500">
                     {row.machine_name}
                     {row.shelf_code ? ` / ${row.shelf_code}` : ""} ·{" "}
-                    {row.source === "driver_expiry_check"
-                      ? "expiry check"
-                      : "return"}
+                    {sourceLabel(row.source)}
                   </p>
                 </div>
                 <span
@@ -437,257 +463,235 @@ export default function WarehouseConfirmationsPanel() {
               </div>
 
               <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+                <span className="flex items-center gap-2 text-neutral-500">
+                  Driver count:{" "}
+                  <strong className="text-neutral-700 dark:text-neutral-300">
+                    {row.qty}
+                  </strong>
+                </span>
                 <label className="flex items-center gap-2 text-neutral-500">
-                  Qty:
+                  Received:
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     disabled={isBusy}
-                    value={qtyEdit[row.line_id] ?? row.qty}
-                    onChange={(e) =>
-                      setQtyEdit((prev) => ({
+                    value={received}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setReceivedEdit((prev) => ({
                         ...prev,
-                        [row.line_id]: Math.max(1, Number(e.target.value) || 1),
-                      }))
-                    }
+                        [row.line_id]: v === "" ? "" : Number(v),
+                      }));
+                    }}
                     className="w-16 rounded border border-neutral-300 px-2 py-1 text-center dark:border-neutral-600 dark:bg-neutral-900"
                   />
                 </label>
-                {!isSplit && (
-                  <label className="flex items-center gap-2 text-neutral-500">
-                    Batch expiry:
-                    <input
-                      type="date"
-                      disabled={isBusy}
-                      value={expiryEdit[row.line_id] ?? ""}
-                      onChange={(e) =>
-                        setExpiryEdit((prev) => ({
-                          ...prev,
-                          [row.line_id]: e.target.value,
-                        }))
-                      }
-                      className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                    />
-                  </label>
+                {gap !== null && gap !== 0 && (
+                  <span className="font-semibold text-rose-700 dark:text-rose-400">
+                    Gap: {gap > 0 ? "+" : ""}
+                    {gap}
+                  </span>
                 )}
               </div>
 
-              {row.pod_product_id && (
-                <div className="mb-3">
-                  <button
-                    type="button"
-                    disabled={isBusy}
-                    onClick={() => toggleSplitMode(row)}
-                    className="text-xs font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
-                  >
-                    {isSplit
-                      ? "← Cancel split, confirm as single line"
-                      : `↳ Split by variant (this return covers multiple flavours)`}
-                  </button>
-                  {isSplit && (
-                    <div className="mt-2 rounded border border-amber-200 bg-amber-50/50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
-                      <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-300">
-                        Enter qty, batch expiry, and outcome for each flavour.
-                        Total must equal <strong>{splitTarget}</strong>.
-                      </p>
-                      {vOpts.length === 0 ? (
-                        <p className="text-xs text-neutral-500">
-                          Loading variants…
-                        </p>
-                      ) : (
-                        <ul className="space-y-2">
-                          {splits.map((entry, idx) => (
-                            <li
-                              key={entry.boonz_product_id}
-                              className="flex flex-wrap items-center gap-2 text-xs"
-                            >
-                              <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-300">
-                                {entry.boonz_product_name}
-                              </span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={entry.qty}
-                                onChange={(e) =>
-                                  updateSplitEntry(row.line_id, idx, {
-                                    qty: parseFloat(e.target.value) || 0,
-                                  })
-                                }
-                                placeholder="0"
-                                className="w-14 rounded border border-neutral-300 px-2 py-1 text-center dark:border-neutral-600 dark:bg-neutral-900"
-                              />
-                              <input
-                                type="date"
-                                value={entry.expiry}
-                                onChange={(e) =>
-                                  updateSplitEntry(row.line_id, idx, {
-                                    expiry: e.target.value,
-                                  })
-                                }
-                                className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                              />
-                              <select
-                                value={entry.outcome}
-                                onChange={(e) =>
-                                  updateSplitEntry(row.line_id, idx, {
-                                    outcome: e.target.value as ConfirmOutcome,
-                                  })
-                                }
-                                className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                              >
-                                <option value="restocked">Back to stock</option>
-                                <option value="redeploy_pending">
-                                  Redeploy
-                                </option>
-                                <option value="waste">Waste</option>
-                              </select>
-                              {entry.outcome === "redeploy_pending" && (
-                                <select
-                                  value={entry.target_machine_id}
-                                  onChange={(e) =>
-                                    updateSplitEntry(row.line_id, idx, {
-                                      target_machine_id: e.target.value,
-                                    })
-                                  }
-                                  className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                                >
-                                  <option value="">target…</option>
-                                  {machineOptions.map((m) => (
-                                    <option
-                                      key={m.machine_id}
-                                      value={m.machine_id}
-                                    >
-                                      {m.official_name}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {entry.outcome === "waste" && (
-                                <select
-                                  value={entry.disposal_code}
-                                  onChange={(e) =>
-                                    updateSplitEntry(row.line_id, idx, {
-                                      disposal_code: e.target.value,
-                                    })
-                                  }
-                                  className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                                >
-                                  {DISPOSAL_CODES.map((c) => (
-                                    <option key={c} value={c}>
-                                      {c}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      <div className="mt-2 flex items-center justify-between text-xs">
-                        <span
-                          className={
-                            splitSum === splitTarget
-                              ? "font-semibold text-green-700 dark:text-green-400"
-                              : "font-semibold text-rose-700 dark:text-rose-400"
-                          }
-                        >
-                          Sum: {splitSum} / {splitTarget}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!isSplit && (
-                <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+              {gap !== null && gap !== 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
                   <label className="flex items-center gap-2 text-neutral-500">
-                    Outcome:
+                    Gap reason:
                     <select
                       disabled={isBusy}
-                      value={outcome}
+                      value={gapReason}
                       onChange={(e) =>
-                        setOutcomeEdit((prev) => ({
+                        setGapReasonEdit((prev) => ({
                           ...prev,
-                          [row.line_id]: e.target.value as ConfirmOutcome,
+                          [row.line_id]: e.target
+                            .value as (typeof GAP_REASONS)[number],
                         }))
                       }
                       className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
                     >
-                      <option value="restocked">Back to stock</option>
-                      <option value="redeploy_pending">Redeploy</option>
-                      <option value="waste">Waste</option>
+                      <option value="">select…</option>
+                      {GAP_REASONS.map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
                     </select>
                   </label>
-
-                  {outcome === "redeploy_pending" && (
-                    <label className="flex items-center gap-2 text-neutral-500">
-                      Target machine:
-                      <select
-                        disabled={isBusy}
-                        value={targetEdit[row.line_id] ?? ""}
-                        onChange={(e) =>
-                          setTargetEdit((prev) => ({
-                            ...prev,
-                            [row.line_id]: e.target.value,
-                          }))
-                        }
-                        className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                      >
-                        <option value="">select…</option>
-                        {machineOptions.map((m) => (
-                          <option key={m.machine_id} value={m.machine_id}>
-                            {m.official_name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-
-                  {outcome === "waste" && (
-                    <label className="flex items-center gap-2 text-neutral-500">
-                      Disposal code:
-                      <select
-                        disabled={isBusy}
-                        value={disposalEdit[row.line_id] ?? "Waste"}
-                        onChange={(e) =>
-                          setDisposalEdit((prev) => ({
-                            ...prev,
-                            [row.line_id]: e.target.value,
-                          }))
-                        }
-                        className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
-                      >
-                        {DISPOSAL_CODES.map((c) => (
-                          <option key={c} value={c}>
-                            {c}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                  {gapReason === "Other" && (
+                    <input
+                      type="text"
+                      disabled={isBusy}
+                      placeholder="describe"
+                      value={gapReasonOtherEdit[row.line_id] ?? ""}
+                      onChange={(e) =>
+                        setGapReasonOtherEdit((prev) => ({
+                          ...prev,
+                          [row.line_id]: e.target.value,
+                        }))
+                      }
+                      className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                    />
                   )}
                 </div>
               )}
 
-              {!isSplit && (
-                <p className="mb-2 text-[11px] text-neutral-400">
-                  System proposed:{" "}
-                  {row.proposed_outcome === "redeploy"
-                    ? `redeploy → ${row.proposed_target_machine_name ?? "?"}, waste by ${formatDMY(row.proposed_waste_by)}`
-                    : "waste"}
+              <div className="mb-3 rounded border border-amber-200 bg-amber-50/50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
+                <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-300">
+                  Lots table -- one row per (flavour, expiry). Sum must equal
+                  Received (<strong>{received === "" ? "?" : received}</strong>
+                  ).
                 </p>
-              )}
+                {vOpts.length === 0 ? (
+                  <p className="text-xs text-neutral-500">Loading…</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {rowLots.map((lot) => (
+                      <li
+                        key={lot.key}
+                        className="flex flex-wrap items-center gap-2 text-xs"
+                      >
+                        <select
+                          disabled={isBusy}
+                          value={lot.boonz_product_id}
+                          onChange={(e) =>
+                            updateLot(row.line_id, lot.key, {
+                              boonz_product_id: e.target.value,
+                            })
+                          }
+                          className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                        >
+                          {vOpts.map((v) => (
+                            <option key={v.product_id} value={v.product_id}>
+                              {v.boonz_product_name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={0}
+                          disabled={isBusy}
+                          value={lot.qty}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateLot(row.line_id, lot.key, {
+                              qty: v === "" ? "" : Number(v),
+                            });
+                          }}
+                          placeholder="0"
+                          className="w-14 rounded border border-neutral-300 px-2 py-1 text-center dark:border-neutral-600 dark:bg-neutral-900"
+                        />
+                        <input
+                          type="date"
+                          disabled={isBusy}
+                          value={lot.expiry}
+                          onChange={(e) =>
+                            updateLot(row.line_id, lot.key, {
+                              expiry: e.target.value,
+                            })
+                          }
+                          className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                        />
+                        <select
+                          disabled={isBusy}
+                          value={lot.outcome}
+                          onChange={(e) =>
+                            updateLot(row.line_id, lot.key, {
+                              outcome: e.target.value as LotOutcome,
+                            })
+                          }
+                          className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                        >
+                          <option value="restocked">Back to stock</option>
+                          <option value="redeploy_pending">Redeploy</option>
+                          <option value="waste">Waste</option>
+                        </select>
+                        {lot.outcome === "redeploy_pending" && (
+                          <select
+                            disabled={isBusy}
+                            value={lot.target_machine_id}
+                            onChange={(e) =>
+                              updateLot(row.line_id, lot.key, {
+                                target_machine_id: e.target.value,
+                              })
+                            }
+                            className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                          >
+                            <option value="">target…</option>
+                            {machineOptions.map((m) => (
+                              <option key={m.machine_id} value={m.machine_id}>
+                                {m.official_name}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {lot.outcome === "waste" && (
+                          <select
+                            disabled={isBusy}
+                            value={lot.disposal_code}
+                            onChange={(e) =>
+                              updateLot(row.line_id, lot.key, {
+                                disposal_code: e.target.value,
+                              })
+                            }
+                            className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                          >
+                            {DISPOSAL_CODES.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          type="button"
+                          disabled={isBusy || rowLots.length <= 1}
+                          onClick={() => removeLotRow(row.line_id, lot.key)}
+                          className="text-neutral-400 hover:text-rose-600 disabled:opacity-30"
+                          aria-label="Remove lot row"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="mt-2 flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => addLotRow(row)}
+                    className="font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
+                  >
+                    + add lot row
+                  </button>
+                  <span
+                    className={
+                      sumMatches
+                        ? "font-semibold text-green-700 dark:text-green-400"
+                        : "font-semibold text-rose-700 dark:text-rose-400"
+                    }
+                  >
+                    Sum: {sum} / {received === "" ? "?" : received}
+                  </span>
+                </div>
+              </div>
+
+              <p className="mb-2 text-[11px] text-neutral-400">
+                System proposed:{" "}
+                {row.proposed_outcome === "redeploy"
+                  ? `redeploy → ${row.proposed_target_machine_name ?? "?"}, waste by ${formatDMY(row.proposed_waste_by)}`
+                  : "waste"}
+              </p>
 
               <button
-                onClick={() => (isSplit ? confirmSplit(row) : confirm(row))}
-                disabled={isBusy || (isSplit && splitSum !== splitTarget)}
+                onClick={() => confirm(row)}
+                disabled={!canConfirm}
                 className="w-full rounded-lg bg-green-600 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
               >
                 {isBusy
                   ? "Confirming…"
-                  : isSplit
-                    ? `✓ Confirm ${splitSum} units across ${splits.filter((e) => e.qty > 0).length} variants`
-                    : "✓ Confirm"}
+                  : `✓ Confirm ${sum} unit${sum === 1 ? "" : "s"} across ${rowLots.filter((l) => typeof l.qty === "number" && l.qty > 0).length} lot(s)`}
               </button>
             </li>
           );
