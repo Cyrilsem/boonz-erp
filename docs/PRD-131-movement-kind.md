@@ -12,7 +12,14 @@ Three real bugs found and fixed while drafting F1 and F2, none asked for by this
 
 1. `refill_dispatching_source_kind_chk` (fully validated, enforced on every row) did not allow `intra_machine`, only `wh, venue, m2m, truck_transfer, unknown`. `add_intra_machine_move` (PRD-130 F5, applied 2026-09-22 morning) has therefore never been able to insert a row successfully since it shipped. Confirmed with a rolled-back probe insert before and after. Fixed same day, daytime, in prd130_11 (purely additive, no historical-row risk).
 2. `refill_dispatching` carries four pre-existing NOT VALID CHECK constraints (`chk_dispatch_qty_nonnegative`, `chk_packed_requires_outcome`, `m2m_consistency`, `refill_dispatching_source_consistency_chk`). NOT VALID only skips the one-time bulk scan at creation, it does not exempt existing non-compliant rows from being re-validated on every future UPDATE. The F1 backfill UPDATE (a blanket UPDATE across all 42,054 rows) aborted on the first of 2,272 negative-quantity rows it touched. Fixed by dropping all four inside the F1 migration, running the classification UPDATE untouched by their semantics, then restoring all four verbatim (same definition, still NOT VALID) so the exact same protective posture exists after the migration as before it.
-3. In the F2 draft itself, found during the required second-pass proof of `push_plan_to_dispatch`: the Remove-leg insert still set `from_warehouse_id` and never set `return_warehouse_id`, so the very rule this PRD exists to enforce (return_warehouse_id set, from_warehouse_id NULL, on every warehouse_return row) failed its own first real test. A related near-miss caught in the same pass: nulling `from_warehouse_id` on the Remove leg without checking `source_warehouse_id` separately broke `refill_dispatching_source_consistency_chk`, which requires `source_kind='wh'` to carry a non-null `source_warehouse_id` regardless of `from_warehouse_id`/`return_warehouse_id`. Fixed in `push_plan_to_dispatch`, `add_dispatch_row`, and `insert_driver_remove_line`; re-verified with a minimal faithful reproduction of the Remove/Refill insert paths (a rolled-back transaction against WAVEMAKER, plan_date 2031-01-04) since the full 250-line `push_plan_to_dispatch` body repeatedly hit the query tool's own timeout when pasted whole. The corrected value-assignment pattern is byte-identical between the reproduction and the committed migration file.
+3. In the F2 draft itself, found during the required second-pass proof of `push_plan_to_dispatch`: the Remove-leg insert still set `from_warehouse_id` and never set `return_warehouse_id`, so the very rule this PRD exists to enforce (return_warehouse_id set, from_warehouse_id NULL, on every warehouse_return row) failed its own first real test. A related near-miss caught in the same pass: nulling `from_warehouse_id` on the Remove leg without checking `source_warehouse_id` separately broke `refill_dispatching_source_consistency_chk`, which requires `source_kind='wh'` to carry a non-null `source_warehouse_id` regardless of `from_warehouse_id`/`return_warehouse_id`. Fixed in `push_plan_to_dispatch`, `add_dispatch_row`, and `insert_driver_remove_line`; re-verified twice more, once with a minimal faithful reproduction of the Remove/Refill insert paths and once with the full real `push_plan_to_dispatch` body itself (a rolled-back transaction against WAVEMAKER, plan_date 2031-02-02), both green: every Refill/Add New warehouse_fill with from_warehouse_id set, every Remove warehouse_return with return_warehouse_id set and from_warehouse_id NULL.
+
+**Standing rule from this session, effective immediately:** every migration that creates or
+replaces a function must end with one rolled-back smoke call of that function using realistic
+arguments, and the migration is not considered done until that call is shown green. All three
+bugs above (the overload ambiguity, the missing intra_machine constraint value, the NOT VALID
+constraint revalidation) passed `apply_migration` cleanly and only broke on first real use. Add
+this line to the top of every future migration template in this repo.
 
 ## 1. The rule
 
@@ -141,6 +148,82 @@ The two Activia lines on 22 Sep (AMZ-1029 A05, Honey & Oats 2, Strawberries 6, e
 - The expiry-check tap is only enabled for a field_staff session with the machine open in the field app during a visit (a dispatch for that machine and date exists and is picked up), and it records who tapped and from which dispatch.
 - From any other role or context the same button creates an `expiry_action_request` (proposed), which becomes a take-out line on the machine's next plan, not a `removed_at_machine` event.
 - Repair for 22 Sep: supersede the two Activia events (`superseded_by_event`), restore the two pod lots, and put a Remove for Activia x8 with reason expiring on AMZ-1029's next visit. AMZ-1029 was visited today, so the next visit is the one to catch it; if the product will expire before, flag it on the daily story.
+
+## 4c. wm_confirm_return, the real F5 RPC (spec only, tomorrow's session implements)
+
+The receipt card ships tonight calling the existing `wm_confirm_line_split`. That RPC has no
+structured gap fields and no VOX/venue-warehouse routing. `wm_confirm_return` replaces it once
+written.
+
+**Signature:**
+
+```
+wm_confirm_return(
+  p_dispatch_id uuid,
+  p_lots jsonb,       -- array of {boonz_product_id, expiry, qty, outcome, target_machine_id, disposal_code}
+  p_gap_reason text,  -- required only when sum(p_lots.qty) <> driver_confirmed_qty, else NULL
+  p_caller uuid
+) RETURNS jsonb
+```
+
+**Validations, in order:**
+
+1. `p_dispatch_id` resolves to a `refill_dispatching` row with `movement_kind = 'warehouse_return'`. Any other kind is refused by name (transfer_out/transfer_in/intra_out/intra_in go through F6's receipt path instead, never this one).
+2. Row is not already settled: `wh_approved_at IS NULL` and `item_added = false`.
+3. `p_lots` is a non-empty array. Every entry's `qty > 0`.
+4. Every lot's `boonz_product_id` maps to the parent row's `pod_product_id` via an Active `product_mapping` row. A lot naming a product with no such mapping is refused, naming the product and the parent pod product.
+5. Every non-waste lot has a non-null `expiry` (waste lots may omit it, matching the existing `wm_confirm_line_split` rule).
+6. `sum(p_lots.qty)` compared against `driver_confirmed_qty` (or `quantity` if the driver never confirmed): if they differ, `p_gap_reason` must be non-null and at least 10 characters. If they match, `p_gap_reason` must be NULL (no fabricated reason for a clean count).
+7. VOX rule: `return_warehouse_id` on the parent row decides where credit lands, always. The function never re-derives a warehouse from the caller or from any lot entry. If `return_warehouse_id IS NULL` (should not happen post-F1 backfill, but refuse loudly rather than guess), raise naming the dispatch id.
+
+**What it writes, one call, one transaction:**
+
+- One `inventory_audit_log` row per lot (the credit), `source_event_id = p_dispatch_id`, warehouse = the parent row's `return_warehouse_id`.
+- One `disposition_events` row per lot (`source = 'return_receipt'`, `state` = the lot's outcome), same shape `wm_confirm_line_split` already writes today.
+- `receipt_gap_qty = sum(p_lots.qty) - driver_confirmed_qty` and `receipt_gap_reason = p_gap_reason` on the parent `refill_dispatching` row (NULL/NULL when the count matched exactly).
+- `wh_approved_at = now()`, `wh_approved_by = p_caller` on the parent row, once, at the end, after every lot has been written successfully.
+- Nothing to `inventory_control` or `pod_inventory` directly. Acceptance 9's "zero inventory_control writes" holds by construction, this function never touches that table, same as `wm_confirm_line_split` today.
+
+**Office vs venue queue split (the VOX rule from CS, 2026-09-22):** `v_wm_confirmations` gets a
+`return_warehouse_id` column (copied straight from the dispatch row) and the office screen
+(`WarehouseConfirmationsPanel`) filters `return_warehouse_id = WH_CENTRAL` only. A second,
+separate view or filter (`v_wm_confirmations_venue` or a query param) shows
+`return_warehouse_id <> WH_CENTRAL` rows, one venue at a time, for the VOX visit day, so a venue
+return never sits in the office queue accumulating hundreds of hours the way the two IFLYMCC
+returns did on 22 Sep (678h and 176h).
+
+## 4d. Field app: Not-found flow and intra-pair cards (spec only, tomorrow's session implements)
+
+Not done tonight. The button text change ("Put in" / "Take out") ships tonight since it uses only
+today's `dispatch_action` field and changes no behavior. Everything below needs a proper spec,
+implementation, and a test account against the preview before it goes anywhere near a driver.
+
+**Why not tonight:** removing the existing "Could not remove" / "Returned" fallback button
+without a tested replacement removes a working safety net for drivers mid-shift. This screen
+(`field/dispatching/[machineId]/page.tsx`) is 1747 lines with deep conditional branching on
+`dispatch_action` and `is_internal_move`; a same-day rewrite of its behavior, untestable against
+the SSO-gated preview interactively, is not a responsible risk to take alongside everything else
+landing tonight.
+
+**Not-found flow, take-out cards (movement_kind IN warehouse_return, transfer_out, intra_out):**
+
+- Remove the "↩ Returned" / "↩ Could not remove" button from any card whose `movement_kind` is
+  not `warehouse_fill`. Replace with a "Not found" action: count defaults to 0, a reason is
+  required (dropdown: not on shelf, wrong product, already gone, other + text), and the RPC
+  behind it must still be `driver_confirm_remove`/its transfer or intra equivalent with
+  `p_qty_removed = 0` and the reason logged to `refill_dispatching_edit_log`, not silently
+  dropped. Confirm-count stays the primary action, unchanged.
+- `movement_kind = warehouse_fill` keeps exactly today's "↩ Returned" button and behavior
+  unchanged (unfilled goods coming back is still a real, needed path).
+
+**Intra pairs as one card:**
+
+- Group `intra_out` and `intra_in` legs sharing an `m2m_transfer_id` into a single card, labelled
+  "Move {from_shelf} to {to_shelf}", one Confirm-count input (the same physical count applies to
+  both legs, they cannot diverge). Today these render as two separate, unrelated-looking lines.
+- Test account: needs a real field_staff login against the preview (not SSO-gated for a
+  field_staff role, per the login flow) so this can actually be clicked through before shipping,
+  unlike the operator_admin-only receipt card screens.
 
 ## 5. Out of scope
 
