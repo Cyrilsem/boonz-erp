@@ -10,15 +10,16 @@ Window rule: migrations touching field-app or warehouse-confirmation functions r
 
 Every line in `refill_dispatching` is exactly one kind of physical movement, decided when the line is created, never inferred later from `action`, `from_warehouse_id` or button presses:
 
-| movement_kind    | What it is                                               | Packing screen     | Field app                  | Warehouse receipt                                                |
-| ---------------- | -------------------------------------------------------- | ------------------ | -------------------------- | ---------------------------------------------------------------- |
-| warehouse_fill   | units picked in a warehouse and put in a machine         | yes, pick and pack | Put in, confirm count      | no (unfilled remainder handled by the existing return flow)      |
-| warehouse_return | units taken out of a machine and brought to a warehouse  | no                 | Take out, confirm count    | yes, validated per flavour and expiry, credited only on approval |
-| transfer_out     | units taken out of machine A for machine B               | no                 | Take out, confirm count    | never                                                            |
-| transfer_in      | the same units put in machine B                          | no                 | Put in, confirm count      | never                                                            |
-| intra_out        | units taken out of lane X for lane Y of the same machine | no                 | Move X to Y, confirm count | never                                                            |
-| intra_in         | the same units put in lane Y                             | no                 | (same card as intra_out)   | never                                                            |
-| write_off        | units taken out and destroyed on site (expired, damaged) | no                 | Take out, reason required  | no, logged to write-off report                                   |
+| movement_kind    | What it is                                                                                                        | Packing screen     | Field app                  | Warehouse receipt                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------- | ---------------------------------------------------------------- |
+| warehouse_fill   | units picked in a warehouse and put in a machine                                                                  | yes, pick and pack | Put in, confirm count      | no (unfilled remainder handled by the existing return flow)      |
+| warehouse_return | units taken out of a machine and brought to a warehouse                                                           | no                 | Take out, confirm count    | yes, validated per flavour and expiry, credited only on approval |
+| transfer_out     | units taken out of machine A for machine B                                                                        | no                 | Take out, confirm count    | never                                                            |
+| transfer_in      | the same units put in machine B                                                                                   | no                 | Put in, confirm count      | never                                                            |
+| intra_out        | units taken out of lane X for lane Y of the same machine                                                          | no                 | Move X to Y, confirm count | never                                                            |
+| intra_in         | the same units put in lane Y                                                                                      | no                 | (same card as intra_out)   | never                                                            |
+| write_off        | units taken out and destroyed on site (expired, damaged)                                                          | no                 | Take out, reason required  | no, logged to write-off report                                   |
+| legacy_noop      | pre-2026-05-04 row that never moved stock (historical action values with no real movement); backfill-only, see F1 | no                 | no                         | no                                                               |
 
 Stock effects, one place each:
 
@@ -27,6 +28,7 @@ Stock effects, one place each:
 - transfer_out / transfer_in: machine A debited at driver confirm, machine B credited at item_added, no warehouse touch, same lot id carried.
 - intra_out / intra_in: lot moves lane on item_added, no warehouse touch.
 - write_off: machine debited, nothing credited, row in write-off report.
+- legacy_noop: no stock effect, ever. Excluded from every screen and every guard. The F2 insert trigger rejects it on any new row (check constraint allows the value to exist for backfilled history; nothing may be created with it going forward).
 
 Nothing else. If a screen cannot tell what a line is from `movement_kind` alone, the screen is wrong.
 
@@ -42,9 +44,23 @@ Nothing else. If a screen cannot tell what a line is from `movement_kind` alone,
 
 ### F1. Column and constraint
 
-- `refill_dispatching.movement_kind text NOT NULL` with the seven values above, check constraint.
+- `refill_dispatching.movement_kind text NOT NULL` with the eight values above, check constraint.
 - `action` stays for compatibility but is derived: warehouse_fill and transfer_in and intra_in map to Refill or Add New; everything else maps to Remove. `Machine To Warehouse` is retired: the check constraint on `action` no longer accepts it.
-- Backfill for all existing rows: `is_m2m` or `source_kind in ('m2m','truck_transfer')` with action Remove → transfer_out, with action Refill/Add New → transfer_in; `source_kind='intra_machine'` → intra_out / intra_in; action in (Remove, Machine To Warehouse) → warehouse_return; return_reason in the write-off set → write_off; else warehouse_fill. Print the counts per kind before and after, and list any row the rules cannot classify (expect 0, stop if not).
+- Backfill for all existing rows, matched case-insensitively throughout (`lower(action)`), in this order:
+  1. `is_m2m` or `source_kind in ('m2m','truck_transfer')`, action Remove → transfer_out; action in (Refill, Add New, Add) → transfer_in.
+  2. `source_kind='intra_machine'`, action Remove → intra_out; action in (Refill, Add New, Add) → intra_in.
+  3. action in (Remove, Machine To Warehouse) → warehouse_return.
+  4. action in (Refill, Add New, Add) → warehouse_fill (`'Add' = 'Add New' = warehouse_fill`, a pre-2026-05-04 naming convention, always `source_kind='wh'` — confirmed on all 18,064 rows).
+  5. action in (Move, Transfer): `source_machine_id is not null or from_machine_id is not null` → transfer_out when `from_wh_inventory_id is null`, else transfer_in; when neither machine field is set → warehouse_fill. (Live data: all 78 Move/Transfer rows have neither machine field set, so all resolve to warehouse_fill.)
+  6. action = Replace → warehouse_fill.
+  7. action in (Keep, Backup, Calibrate) → legacy_noop.
+  8. action is NULL: `item_added = true` → warehouse_fill; `returned = true or quantity < 0` → warehouse_return; else → legacy_noop.
+  - `return_reason` is never scanned for this backfill (see F1a).
+  - Print the counts per kind before and after, and list any row the rules cannot classify (expect 0, stop if not). Dry run 2026-09-22 on all 42,054 rows: warehouse_fill 38,368, warehouse_return 3,289, legacy_noop 216, transfer_out 95, transfer_in 86, intra_out/intra_in 0/0, unclassifiable 0.
+
+### F1a. write_off is forward-only
+
+`write_off` gets zero backfilled rows. It is set only going forward, by two writers: the F4 field app take-out flow (driver marks the units destroyed on site, reason expired or damaged) and the F10 expiry-check tap when the driver marks units destroyed at the machine. Historical `return_reason` text is never scanned to infer write_off — the 43 distinct historical values in that column carry no reliable, enumerable write-off signal (mostly one-off CS operational notes), and guessing a subset would misclassify real returns.
 
 ### F2. Writers set it
 
