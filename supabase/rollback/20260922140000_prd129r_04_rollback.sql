@@ -1,0 +1,9 @@
+-- PRD-129R step 04 rollback snapshot. Captured before prd129r_04 was applied, 2026-09-22
+-- ~14:00 UTC. NOT APPLIED -- reference only. To roll back: DROP FUNCTION
+-- close_abandoned_warehouse_audit(date,text,uuid); leave the three abandoned_* columns in
+-- place (harmless if unused) or DROP them; then re-apply the prd130_08 body of
+-- check_machine_health_integrity() (G-AUDIT-STALE without the abandoned_at IS NULL clause) --
+-- see supabase/rollback/... prd130_08 was never separately captured since it was applied and
+-- superseded within the same session; its body is identical to this file's function minus the
+-- "AND wab.abandoned_at IS NULL" line in the G-AUDIT-STALE block and minus the G-OVERLOAD block
+-- if prd130_10 has also been applied by the time this rollback is used.
