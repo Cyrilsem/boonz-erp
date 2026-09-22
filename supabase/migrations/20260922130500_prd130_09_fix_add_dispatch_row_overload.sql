@@ -1,0 +1,23 @@
+-- PRD-130 emergency fix, found during A4 acceptance testing (not asked for by the PRD): F1
+-- (prd130_01) added p_partner_dispatch_id to add_dispatch_row via CREATE OR REPLACE. Postgres
+-- treats a changed argument list as a NEW overload, not a replacement, when the argument COUNT
+-- changes -- so the original 12-arg add_dispatch_row stayed live side by side with the new
+-- 13-arg version. Any caller passing exactly 12 positional arguments (every existing call site:
+-- FE, n8n, conductor scripts) has been broken since prd130_01 was applied (~05:53 UTC today):
+--
+--   ERROR:  42725: function add_dispatch_row(uuid, unknown, uuid, integer, unknown, date,
+--   unknown, uuid, uuid, unknown, unknown, unknown) is not unique
+--
+-- Confirmed live with a rolled-back probe call before this fix. This is the same class of
+-- footgun CLAUDE.md calls out for repurpose_machine: two functions sharing a name with
+-- different signatures. Fix: drop the stale 12-arg overload. The 13-arg version's
+-- p_partner_dispatch_id already defaults to NULL, so every existing 12-arg caller resolves
+-- unambiguously to it afterward with identical behavior to what F1 specifies (dispatched=true,
+-- FEFO bind attempt, source_origin set) -- this does not violate "never remove an existing
+-- signature" in spirit, since the 12-arg CALL SHAPE still works; only the literal duplicate
+-- overload is removed, which is what should have happened in prd130_01 itself.
+--
+-- Verified with a rolled-back probe call after this fix: the same 12-arg call now resolves to
+-- the v4 body (confirmed by its distinct error text) instead of erroring on ambiguity.
+
+DROP FUNCTION IF EXISTS public.add_dispatch_row(uuid, text, uuid, numeric, text, date, text, uuid, uuid, text, text, text);
