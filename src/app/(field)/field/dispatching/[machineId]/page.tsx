@@ -1409,8 +1409,8 @@ export default function DispatchingDetailPage() {
                           line.dispatch_action === "Remove"
                             ? "✓ Moved to its new shelf"
                             : line.dispatch_action === "Remove"
-                              ? "✓ Removed from machine"
-                              : "✓ Added to machine"}
+                              ? "✓ Take out"
+                              : "✓ Put in"}
                         </button>
                         <button
                           disabled={
