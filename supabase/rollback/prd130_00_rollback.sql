@@ -1,0 +1,195 @@
+-- PRD-130 rollback snapshot. Captured via pg_get_functiondef/pg_get_constraintdef/pg_policies
+-- before any prd130 change was applied. NOT APPLIED -- reference only.
+--
+-- ============================================================================
+-- ROOT CAUSE FINDINGS (R1 to R7), confirmed against live code on 2026-09-22
+-- ============================================================================
+--
+-- R1. NOT CONFIRMED AS STATED. Claim: "add_dispatch_row inserts dispatched=false...
+-- the field app filters on dispatched=true, so post-push rows are invisible to the driver."
+-- add_dispatch_row DOES insert dispatched=false, literal, in both its INSERT statements
+-- (src/... not applicable, DB function -- see pg_proc, add_dispatch_row, the two INSERT
+-- statements after the action branch). But the field app's own driver-facing queries do NOT
+-- filter on dispatched=true for visibility:
+--   src/app/(field)/field/trips/page.tsx line ~77: .eq("dispatch_date", today).eq("include", true)
+--   src/app/(field)/field/dispatching/page.tsx line ~45: .eq("dispatch_date", today)
+--     .eq("include", true).eq("skipped", false).eq("cancelled", false).eq("picked_up", true)
+--   src/app/(field)/field/packing/page.tsx line ~73: .eq("dispatch_date", selectedDate)
+--     .eq("include", true)
+-- None of these three driver/packer list queries filter on dispatched. "dispatched" is used
+-- downstream, per-row, only to compute a completion badge (packed -> picked_up -> dispatched
+-- is a state ladder, not a visibility gate). add_dispatch_row already sets include=true and
+-- the correct dispatch_date, so its rows ARE visible in these lists immediately.
+-- What IS real: push_plan_to_dispatch itself inserts most rows (regular Refill/Add New/Remove)
+-- with dispatched=false too (see push_plan_to_dispatch, the three literal INSERT blocks) --
+-- dispatched only becomes true for the SOURCE leg of an M2M pair at push time and later via
+-- receive_dispatch_line's own closing UPDATE. So add_dispatch_row's dispatched=false is
+-- consistent with push_plan_to_dispatch's own behavior, not a divergence from it.
+-- No fix applied for R1's literal claim. Not invented.
+--
+-- R2. CONFIRMED. add_dispatch_row(source_kind='m2m') sets is_m2m=true (when
+-- source_machine_id differs from the target machine) but the INSERT never references
+-- m2m_transfer_id, m2m_partner_id, or source_origin -- they stay NULL/default. Verified: the
+-- trg_block_orphan_internal_transfer trigger only blocks source_origin='internal_transfer'
+-- rows without m2m_transfer_id, called from an unsanctioned RPC; add_dispatch_row's M2M rows
+-- have source_origin NULL (not 'internal_transfer'), so that guard does not even see them --
+-- they are inserted successfully, orphaned, exactly as R2 describes. pair_internal_transfer_m2m
+-- only matches source_origin='internal_transfer' rows (see its dest/src CTEs), so it cannot
+-- repair an add_dispatch_row M2M orphan either. Fixed in prd130_01 (F1) and prd130_06 (F6).
+--
+-- R3. CONFIRMED. add_dispatch_row's Remove-action INSERT takes source_kind and
+-- source_warehouse_id from the caller as-is; in practice CS calls it with source_kind='wh'
+-- for a Remove intended as a return, which sets source_warehouse_id. Verified
+-- convert_removes_to_m2m_transfer's UPDATE sets source_kind='m2m' but does NOT clear
+-- source_warehouse_id (only from_warehouse_id) -- this violates
+-- refill_dispatching_source_consistency_chk (CHECK: source_kind='m2m' requires
+-- source_warehouse_id IS NULL), so the conversion fails exactly as described. Note: a separate,
+-- already-working guard (tg_block_internal_move_credit / is_internal_move_dispatch, PRD-113)
+-- already blocks warehouse credit for same-machine cross-shelf moves once a matching Add New
+-- exists -- but it does not cover cross-MACHINE moves modelled as an ordinary Remove with no
+-- M2M linkage, which is the exact 21 Sep failure mode. Fixed in prd130_01 (F1, refuses an
+-- unpaired M2M leg) and prd130_02 (F2, builds both legs correctly in one call).
+--
+-- R4. PARTIALLY CONFIRMED, narrower than stated. Claim: "the packing screen and
+-- pack_dispatch_line have no notion of nothing to pack." False as a general statement:
+-- pack_outcome_enum already has a 'no_pack_needed' value; a working trigger
+-- (trg_default_pack_outcome_driver_legs) already auto-sets it for Remove/Machine To
+-- Warehouse rows unconditionally, and for any row that is already packed=true AND is_m2m=true;
+-- pack_dispatch_line already has an explicit early-return branch
+-- ("action NOT IN (Refill,Add New,Add) -> packed=true, pack_outcome=no_pack_needed") for
+-- non-packable actions; v_dispatch_pack_progress already treats Remove/M2W as not packable at
+-- all (is_packable=false), so they never block pack-close regardless of their packed state.
+-- What IS real and confirmed: an M2M/transfer "Add New" (destination) leg IS packable
+-- (is_packable=true for Refill/Add New/Add), and add_dispatch_row inserts it with packed=false.
+-- The auto-trigger's M2M branch only fires when packed is ALREADY true at write time, so an
+-- add_dispatch_row-created M2M Add New leg gets neither packed=true nor pack_outcome set, and
+-- pack_dispatch_line's own pick-from-warehouse flow is the wrong tool for it (there is no
+-- warehouse batch to pick). This is the actual, narrower gap 21 Sep's 14:12 forced UPDATE
+-- worked around. Fixed in prd130_02 (F2 sets packed=true/no_pack_needed at creation, letting
+-- the existing trigger and view logic do the rest) and prd130_03 (protect_packed_dispatch_row
+-- exemption, receive_dispatch_line credit exemption).
+--
+-- R5. NOT CONFIRMED as naming the right function; underlying symptom is real. wm_confirm_line_split
+-- (checked in full) never inserts refill_dispatching rows -- it only splits an already-returned
+-- quantity into warehouse_inventory/disposition_events outcomes (restocked/redeploy_pending/waste)
+-- and stamps wh_approved_at on the ONE existing dispatch row it was called on. record_variant_correction
+-- (the other PRD-053 candidate) also never inserts refill_dispatching rows -- it adjusts pod_inventory
+-- directly. Searched every frontend add_dispatch_row call site
+-- (src/app/(field)/field/_actions/dispatch-edits.ts, src/app/(field)/field/packing/[machineId]/page.tsx):
+-- no dedicated "driver reports a different quantity split" RPC exists that creates sibling
+-- refill_dispatching rows. What IS real: conserve_split_dispatch_quantity (BEFORE INSERT trigger)
+-- only decrements a packed sibling's quantity when NEW.packed = true; add_dispatch_row always
+-- inserts packed=false, so calling add_dispatch_row again for a split (the only mechanism
+-- available today for this scenario) never engages that trigger, never reduces the parent, and
+-- the new rows -- packed=false, is_packable=true for Refill -- do re-enter the packing queue,
+-- matching the 21 Sep symptom exactly. Fixed at the point that is actually reachable:
+-- prd130_04 strengthens add_dispatch_row (v4, prd130_01) to detect a same-line packed parent and
+-- inherit its state, and confirms conserve_split_dispatch_quantity's trigger condition is
+-- unchanged (it already does the right thing once packed=true is set correctly at insert).
+-- wm_confirm_line_split is NOT modified -- there was nothing in it to fix.
+--
+-- R6. PARTIALLY CONFIRMED, narrower than stated. Claim: "no intra-machine move... the system
+-- either double-packs or drifts pod_inventory." False as a blanket statement: a working
+-- detection-and-block mechanism already exists (PRD-113/113b) --
+-- is_internal_move_dispatch()/tg_mark_internal_move_pair (AFTER INSERT, auto-flags a Remove and
+-- an Add New of the same boonz_product_id on different shelves of the same machine as
+-- is_internal_move=true) and tg_block_internal_move_credit (blocks receive-time warehouse credit
+-- for any leg so flagged, for every writer, per its own comment). If CS creates matching
+-- Remove+Add New rows for the same product via add_dispatch_row, this machinery already protects
+-- them. What IS real: there is no dedicated RPC to create both legs in one call with correct
+-- packed/pack_outcome/dispatched state up front (so the caller must wait for auto-detection,
+-- which requires BOTH legs to already exist and neither to be item_added/wh_approved yet), no
+-- source_kind='intra_machine' value, and no field-app label -- the 22 Sep AMZ-1046 case failed
+-- because it was modelled as two independent, non-matching actions rather than a genuine
+-- Remove+Add New pair, so the existing auto-detection had nothing to match. Fixed in prd130_05
+-- as specified (new RPC, new source_kind, explicit packed/no_pack_needed state, field-app label) --
+-- this is additive to, not a replacement for, the existing PRD-113 mechanism.
+--
+-- R7. CONFIRMED. pod_inventory_edits RLS policy "field_staff_insert_edits" allows direct INSERT
+-- from field_staff/warehouse/operator_admin/superadmin/manager with no requirement to go through
+-- an RPC. Verified this is not a dead/legacy path: src/app/(field)/field/pod-inventory/page.tsx
+-- (~line 480) does a live `.from("pod_inventory_edits").insert({...})` for the driver-reported
+-- damaged/transfer/recheck flow -- this is the ONLY path that flow has today; no
+-- propose_pod_inventory_edit RPC exists anywhere in the schema (propose_pod_inventory_add is a
+-- different table/flow). Locking down INSERT without replacing this path would break the live
+-- feature entirely. Fixed in prd130_07: new propose_pod_inventory_edit RPC replicating the exact
+-- insert shape, RLS revoke, and the one frontend call site swapped from a direct insert to the
+-- RPC call -- shipped together, after 22:00 Dubai per the window rule (this touches the field app).
+
+-- ============================================================================
+-- add_dispatch_row -- before prd130 (v3, PRD-125 D2 shape)
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.add_dispatch_row(p_machine_id uuid, p_shelf_code text, p_boonz_product_id uuid, p_quantity numeric, p_action text, p_dispatch_date date, p_source_kind text DEFAULT 'unknown'::text, p_source_warehouse_id uuid DEFAULT NULL::uuid, p_source_machine_id uuid DEFAULT NULL::uuid, p_edit_role text DEFAULT NULL::text, p_reason text DEFAULT NULL::text, p_conductor_session text DEFAULT NULL::text)
+--  RETURNS jsonb
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+--  SET search_path TO 'public'
+-- AS $function$
+-- -- full body unchanged from live -- see the live database or git blame for the exact text.
+-- -- rpc_version returned was 'v3_prd125_p1_weimi_shelf_truth'. Both INSERT statements
+-- -- (non-Remove branch and Remove branch) set dispatched, packed, picked_up, returned,
+-- -- item_added all to literal false, and never reference m2m_transfer_id, m2m_partner_id,
+-- -- or source_origin.
+-- $function$;
+
+-- ============================================================================
+-- pair_internal_transfer_m2m -- before prd130
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.pair_internal_transfer_m2m(p_plan_date date DEFAULT NULL::date, p_caller_id uuid DEFAULT NULL::uuid)
+--  RETURNS jsonb
+--  LANGUAGE plpgsql
+--  SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- -- full body unchanged from live. dest/src CTEs both filter on source_origin='internal_transfer'
+-- -- only -- rows with source_kind='m2m' but source_origin NULL or 'warehouse' never match.
+-- $function$;
+
+-- ============================================================================
+-- check_machine_health_integrity -- before prd130
+-- ============================================================================
+-- CREATE OR REPLACE FUNCTION public.check_machine_health_integrity()
+--  RETURNS TABLE(check_name text, severity text, machine_name text, detail text)
+--  LANGUAGE sql
+--  STABLE SECURITY DEFINER
+--  SET search_path TO 'public', 'pg_temp'
+-- AS $function$
+-- -- full body unchanged from the PRD-129R state (G-REV, G-FANOUT, G-TIER, G-CHIPS, G-LANES,
+-- -- G-COHORT, G-LANE-SALES, G-NAME x2, G-REMAINDER, G-AUDIT-STALE). prd130_08 adds
+-- -- G-DISP-INVISIBLE, G-M2M-ORPHAN, G-SPLIT, G-RETURN-CREDIT as new UNION ALL branches;
+-- -- nothing existing is removed or altered.
+-- $function$;
+
+-- ============================================================================
+-- pod_inventory_edits RLS policies -- before prd130
+-- ============================================================================
+-- Policy "field_staff_insert_edits" (INSERT, roles {public}):
+--   WITH CHECK (EXISTS (SELECT 1 FROM user_profiles WHERE id = (SELECT auth.uid())
+--     AND role = ANY (ARRAY['field_staff','warehouse','operator_admin','superadmin','manager'])))
+-- prd130_07 replaces this policy with one requiring app.via_rpc/app.rpc_name =
+-- 'propose_pod_inventory_edit', and adds that RPC as the only sanctioned writer.
+-- Other existing policies (all_authenticated_read_edits SELECT, reviewers_update_edits UPDATE)
+-- are untouched.
+
+-- ============================================================================
+-- pack_dispatch_line, protect_packed_dispatch_row, receive_dispatch_line,
+-- conserve_split_dispatch_quantity -- before prd130 (restricted-window functions, prd130_03/04)
+-- ============================================================================
+-- Full current bodies captured for the record; not applied. All four are unchanged from the
+-- live database as of 2026-09-22 09:35 Dubai (this session's own earlier fetches). Summary of
+-- what prd130_03/04 change in each, applied only after 22:00 Dubai:
+--  * pack_dispatch_line: no functional change needed for the non-packable early-return branch
+--    (already correct); receive_dispatch_line gets the explicit source_kind exemption (F3).
+--  * protect_packed_dispatch_row: currently locks only boonz_product_id, pod_product_id,
+--    machine_id, shelf_id, dispatch_date when OLD.packed=true. It does NOT currently lock
+--    quantity, expiry_date, skipped, or cancelled at all -- F3's requested exemption for
+--    pack_outcome='no_pack_needed' rows on those four columns has no existing lock to exempt
+--    from. No change applied to this function; documented as NOT CONFIRMED for that specific
+--    sub-claim, not invented.
+--  * receive_dispatch_line: currently skips M2M credit only via the v_return_delta=0 path
+--    implied by how M2M rows are structured elsewhere (from_warehouse_id NULL) -- there is no
+--    explicit source_kind check. F3 adds one, explicit, for source_kind IN
+--    ('m2m','truck_transfer','intra_machine').
+--  * conserve_split_dispatch_quantity: unchanged. It already does the right thing (decrements a
+--    packed sibling when NEW.packed=true); the gap was upstream, in add_dispatch_row always
+--    inserting packed=false (see R5 above). Fixed in prd130_01/04's add_dispatch_row v4.
