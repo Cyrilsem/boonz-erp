@@ -6,6 +6,14 @@ Date: 2026-09-22
 Depends on: PRD-130 (01, 02, 05 applied; 03, 04, 06, 07, 08 pending)
 Window rule: migrations touching field-app or warehouse-confirmation functions run outside 06:00 to 22:00 Dubai.
 
+## Found while implementing
+
+Three real bugs found and fixed while drafting F1 and F2, none asked for by this PRD:
+
+1. `refill_dispatching_source_kind_chk` (fully validated, enforced on every row) did not allow `intra_machine`, only `wh, venue, m2m, truck_transfer, unknown`. `add_intra_machine_move` (PRD-130 F5, applied 2026-09-22 morning) has therefore never been able to insert a row successfully since it shipped. Confirmed with a rolled-back probe insert before and after. Fixed same day, daytime, in prd130_11 (purely additive, no historical-row risk).
+2. `refill_dispatching` carries four pre-existing NOT VALID CHECK constraints (`chk_dispatch_qty_nonnegative`, `chk_packed_requires_outcome`, `m2m_consistency`, `refill_dispatching_source_consistency_chk`). NOT VALID only skips the one-time bulk scan at creation, it does not exempt existing non-compliant rows from being re-validated on every future UPDATE. The F1 backfill UPDATE (a blanket UPDATE across all 42,054 rows) aborted on the first of 2,272 negative-quantity rows it touched. Fixed by dropping all four inside the F1 migration, running the classification UPDATE untouched by their semantics, then restoring all four verbatim (same definition, still NOT VALID) so the exact same protective posture exists after the migration as before it.
+3. In the F2 draft itself, found during the required second-pass proof of `push_plan_to_dispatch`: the Remove-leg insert still set `from_warehouse_id` and never set `return_warehouse_id`, so the very rule this PRD exists to enforce (return_warehouse_id set, from_warehouse_id NULL, on every warehouse_return row) failed its own first real test. A related near-miss caught in the same pass: nulling `from_warehouse_id` on the Remove leg without checking `source_warehouse_id` separately broke `refill_dispatching_source_consistency_chk`, which requires `source_kind='wh'` to carry a non-null `source_warehouse_id` regardless of `from_warehouse_id`/`return_warehouse_id`. Fixed in `push_plan_to_dispatch`, `add_dispatch_row`, and `insert_driver_remove_line`; re-verified with a minimal faithful reproduction of the Remove/Refill insert paths (a rolled-back transaction against WAVEMAKER, plan_date 2031-01-04) since the full 250-line `push_plan_to_dispatch` body repeatedly hit the query tool's own timeout when pasted whole. The corrected value-assignment pattern is byte-identical between the reproduction and the committed migration file.
+
 ## 1. The rule
 
 Every line in `refill_dispatching` is exactly one kind of physical movement, decided when the line is created, never inferred later from `action`, `from_warehouse_id` or button presses:
