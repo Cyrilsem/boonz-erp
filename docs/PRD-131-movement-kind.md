@@ -104,6 +104,8 @@ The receipt screen and `wh_approve_remove_receipt` / `wh_approve_remove_receipt_
 
 Reclassify the six stuck rows (WAVEMAKER A04 Red Bull 5 + 4, MINDSHARE A16 Krambals 2 + 3 + 3 + 1) to warehouse_return with `returned=false`, driver count = quantity, via `reclassify_dispatch_movement`. Then they appear on the receipt screen for Simran to confirm. Also check WAVEMAKER A01 Sunbites: approved as 6, driver reported 2; produce the variance for the recount list, do not change the approval.
 
+**Verified 2026-09-23** (`scripts/prd131_f7_repair_20260922.sql`, read-only, run against live data): all six rows already carry `action='Remove'` and a non-null `wh_approved_at` (approved between 10:38 and 11:47 on 2026-09-22, as part of Part 1 of this session's work). Nothing left to reclassify. The Sunbites variance check found no live discrepancy: both WAVEMAKER A01 Sunbites Remove rows show `driver_confirmed_qty` exactly equal to the approved `quantity` (4=4, 2=2) as of today. The "driver reported 2" figure in the paragraph above does not match current data; not fabricated to match it. If a real variance is still expected, it is not visible via `driver_confirmed_qty` today and needs a different signal named explicitly.
+
 ### F8. Guards, nightly on jobid 82
 
 - G-KIND-NULL: rows with movement_kind NULL. Expect 0.
@@ -151,6 +153,8 @@ The two Activia lines on 22 Sep (AMZ-1029 A05, Honey & Oats 2, Strawberries 6, e
 - The expiry-check tap is only enabled for a field_staff session with the machine open in the field app during a visit (a dispatch for that machine and date exists and is picked up), and it records who tapped and from which dispatch.
 - From any other role or context the same button creates an `expiry_action_request` (proposed), which becomes a take-out line on the machine's next plan, not a `removed_at_machine` event.
 - Repair for 22 Sep: supersede the two Activia events (`superseded_by_event`), restore the two pod lots, and put a Remove for Activia x8 with reason expiring on AMZ-1029's next visit. AMZ-1029 was visited today, so the next visit is the one to catch it; if the product will expire before, flag it on the daily story.
+
+**Partially done, discovered 2026-09-23** (`scripts/prd131_f10_activia_repair_20260922.sql`): the pod_inventory restore was already carried out earlier in this session, before writing this script, via `adjust_pod_inventory` -- but not to 2 and 6 as this section assumed. WEIMI (real physical shelf state) showed only 4 units actually on A05, not 8, so the restore was pro rata to the original 2:6 split: Honey & Oats 0 -> 1, Strawberries 5 -> 3 (`pod_inventory_audit_log`, reference `adjust-AMZ-1029-3003-O1-A05-2026-09-22`). Restoring the full tapped 8 units would have created 4 units of phantom stock; not done. Still outstanding as of 2026-09-23: the two original events (`03027dc0`, `f0e117f6`) still self-reference their own `superseded_by_event` rather than pointing at a real correction event, and no Remove has been scheduled yet for the next visit. The rewritten script does both, at the corrected 1 + 3 quantities, tested green in a rolled-back transaction; not yet applied.
 
 ## 4c. wm_confirm_return, the real F5 RPC (spec only, tomorrow's session implements)
 
