@@ -1,31 +1,61 @@
 -- PRD-131 F8: guards on check_machine_health_integrity() (jobid 82).
 --
 -- NOT APPLIED YET. Additive (new UNION ALL branches on a read-only SECURITY DEFINER function),
--- no window-rule dependency, but held to the same 22:00 Dubai batch as the rest of PRD-131 so
--- all F8 guards land together instead of in scattered small migrations.
+-- no window-rule dependency, but held to the same 22:00 Dubai batch as the rest of PRD-131.
 --
--- This migration implements two of the eight guards F8 calls for: G-KIND-NULL and G-M2W. They
--- are included now because they are named explicitly in tonight's 22:00 batch order (guards to
--- run for 21 and 22 Sep). The remaining six guards
--- (G-KIND-PACK, G-KIND-CREDIT, G-RETURN-STALE, G-RETURN-GAP, G-EXPIRY-TAP-OFFSITE, and
--- G-M2M-ORPHAN/G-OVERLOAD which already exist from prd130_08/prd130_10) are TODO stubs below,
--- each with the exact SQL shape it needs and what live schema still needs verifying before it
--- can be written for real -- deferred per budget, not forgotten.
+-- All eight F8 guards are implemented below: G-KIND-NULL, G-M2W, G-KIND-PACK, G-KIND-CREDIT,
+-- G-RETURN-STALE, G-RETURN-GAP, G-EXPIRY-TAP-OFFSITE (G-M2M-ORPHAN and G-OVERLOAD already exist
+-- from prd130_08/prd130_10, unchanged here).
+--
+-- CS correction, 2026-09-23: the first version of this migration's G-M2W fired on 3 real rows
+-- (AMZ-1046-2406-O1 shelf A11, dispatch_date 2026-09-22, action='Machine To Warehouse') that
+-- turned out to be leftovers of a G&H A11->A15 move CS cancelled on 22 Sep -- all three have
+-- skipped=true. Not a data bug, a guard bug: G-M2W (and every other PRD-131 guard that scans
+-- refill_dispatching directly) must exclude skipped/cancelled/excluded rows, the same way the
+-- pre-existing G-DISP-INVISIBLE and G-M2M-ORPHAN guards already do for cancelled. Every guard
+-- below that scans refill_dispatching directly now excludes
+-- COALESCE(skipped,false)=false AND COALESCE(cancelled,false)=false AND COALESCE(include,true)=true.
+-- G-EXPIRY-TAP-OFFSITE scans disposition_events (joining refill_dispatching only to check for a
+-- matching picked-up dispatch) and does not need this same filter -- a cancelled/skipped dispatch
+-- line is not what that guard is checking for.
 --
 -- Standing rule check: this migration ends with a rolled-back smoke call of
--- check_machine_health_integrity() (rolled back, applied together with prd131_01 in the same
--- test transaction so movement_kind exists). Result on 2026-09-22, scanning today/tomorrow/
--- 2026-09-21/2026-09-22: G-KIND-NULL = 0 (as expected, structurally impossible once movement_kind
--- is NOT NULL). G-M2W = 3, NOT zero -- a real, previously unknown live gap: dispatch_ids
--- b583b7f0-d3ab-4195-93e4-bf78f2e9f115, 77e4ed7c-679d-47ee-8b63-e5a9d5db256d,
--- ecd5928c-406d-4062-a48a-6bb230d56b20, all on AMZ-1046-2406-O1 shelf A11, dispatch_date
--- 2026-09-22, action='Machine To Warehouse', picked_up=false, wh_approved_at=NULL,
--- item_added=false, returned=false (G&H Popped Chips Sweet And Salty x2, x1; Sweet BBQ x1). This
--- is separate from the six WAVEMAKER/MINDSHARE rows fixed earlier today (Part 1 of this session),
--- which no longer carry action='Machine To Warehouse'. Not touched by this migration -- flagged
--- to CS for a decision (same pattern as F7: reclassify via reclassify_dispatch_movement once
--- prd131_02 is live, or investigate why a writer is still producing this legacy action value).
--- The guard itself is proven correct: it found real data, not a false positive.
+-- check_machine_health_integrity() (applied together with prd131_01 in the same test transaction
+-- so movement_kind exists). Verified live before shipping, found THREE more false-positive guard
+-- shapes the same way G-M2W's first version did -- all fixed before shipping, not left as
+-- follow-ups:
+--   G-KIND-PACK found 1 row (VML-1003-0400-O1 A03 Coca Cola Zero, dispatch_date 2026-04-03,
+--     movement_kind=legacy_noop, pack_outcome=packed) -- a row from five months before this
+--     system existed, not a live violation. F1 already says legacy_noop is "excluded from every
+--     screen/guard"; this guard simply hadn't applied that rule yet. Added the exclusion.
+--   G-RETURN-STALE found 16 rows with no recency scope, spanning dispatch_date 2026-06-02 to
+--     2026-09-14 -- pre-existing backlog, not a fresh nightly signal. Scoped to the last 14 days.
+--   G-KIND-CREDIT's first shape (whitelist "legitimate" warehouse_fill credit reasons by string
+--     prefix, mirroring G-REMAINDER) found 596 false positives -- warehouse_fill can legitimately
+--     be credited back for a reason taxonomy this session never enumerated (return_dispatch_line,
+--     inline_qty_edit, pod_edit_approval return_to_warehouse, manual CS corrections). Rewritten to
+--     use the model's own semantics instead of a reason-string whitelist: flag ANY warehouse
+--     credit on a transfer_out/transfer_in/intra_out/intra_in/write_off dispatch (kinds the model
+--     already says must never touch the warehouse ledger, F2's stock-effects table), nothing else.
+-- Final results, scanning today/tomorrow (2026-09-23/24) plus 2026-09-21/22 where the guard
+-- scopes by date:
+--   G-KIND-NULL: 0. G-M2W: 0 (AMZ-1046 rows now correctly excluded). G-KIND-PACK: 0 (after the
+--   legacy_noop exclusion). G-RETURN-GAP: 0 (nothing populates receipt_gap_qty yet --
+--   wm_confirm_return is spec-only, section 4c).
+--   G-RETURN-STALE: 1 within the 14-day scope, and it is a REAL, legitimate warn (not a guard
+--   bug, not tuned away): WPP-1002-4300-O1 A12, Sunbites Olive And Oregano x2, dispatch_date
+--   2026-09-14, driver confirmed 2026-09-14, never approved by the warehouse -- 9 days stale.
+--   This is exactly the operational signal G-RETURN-STALE exists to surface; expected to show 1
+--   in tonight's guard table unless someone approves it first, not a bug to chase to 0.
+--   G-KIND-CREDIT: 1 after the rewrite, also real and also old: NOVO-1023-0000-W0 A16,
+--   transfer_out, dispatch_date 2026-06-23, a 'B3 receive:' warehouse credit on a transfer leg --
+--   three months old, not something tonight's batch caused, not scoped away either. Flagged for
+--   CS, no repair attempted (out of scope for tonight).
+--   G-EXPIRY-TAP-OFFSITE: 2, the two AMZ-1029-3003-O1 A05 Activia tap events from F10
+--     (03027dc0, f0e117f6) -- EXPECTED to still show here until the F10 script runs tonight and
+--     properly supersedes them (superseded_by_event IS NULL is part of this guard's WHERE, so it
+--     stops firing on these two the moment F10 lands). Re-run after F10 in tonight's batch and
+--     confirm 0.
 
 CREATE OR REPLACE FUNCTION public.check_machine_health_integrity()
  RETURNS TABLE(check_name text, severity text, machine_name text, detail text)
@@ -256,74 +286,169 @@ AS $function$
 
   UNION ALL
 
-  -- PRD-131 F8, G-KIND-NULL: movement_kind is NOT NULL-constrained by prd131_01, so this is a
-  -- backstop against the constraint ever being dropped or bypassed by a direct table write that
-  -- somehow slips past RLS -- not something that should ever legitimately fire.
+  -- G-KIND-NULL: movement_kind is NOT NULL-constrained by prd131_01, so this is a backstop
+  -- against the constraint ever being dropped or bypassed -- not something that should ever
+  -- legitimately fire. Excludes skipped/cancelled/excluded rows per CS's 2026-09-23 correction.
   SELECT 'G-KIND-NULL'::text, 'block'::text, m.official_name,
     format('dispatch %s dispatch_date=%s has movement_kind IS NULL', rd.dispatch_id, rd.dispatch_date)
   FROM refill_dispatching rd
   JOIN machines m ON m.machine_id = rd.machine_id
   WHERE rd.movement_kind IS NULL
+    AND COALESCE(rd.skipped, false) = false
+    AND COALESCE(rd.cancelled, false) = false
+    AND COALESCE(rd.include, true) = true
+    -- movement_kind IS NULL can never equal 'legacy_noop', so no exclusion needed here; kept
+    -- structurally parallel to the other five guards below on purpose.
 
   UNION ALL
 
-  -- PRD-131 F8, G-M2W: 'Machine To Warehouse' is retired as of prd131_02 (push_plan_to_dispatch
-  -- maps the plan action to 'Remove' at push; add_dispatch_row's CHECK already refuses it).
-  -- Scoped to today/tomorrow like G-DISP-INVISIBLE, since the legacy backfill (prd131_01) leaves
-  -- plenty of historical 'Machine To Warehouse' rows by design (F1) and those must not trip this.
+  -- G-M2W: 'Machine To Warehouse' is retired as of prd131_02. Scoped to today/tomorrow like
+  -- G-DISP-INVISIBLE, since the legacy backfill (prd131_01) leaves plenty of historical
+  -- 'Machine To Warehouse' rows by design (F1) and those must not trip this. CS's 2026-09-23
+  -- correction: also excludes skipped/include=false, not just cancelled -- the first version of
+  -- this guard fired on 3 rows that were leftovers of a cancelled G&H A11->A15 move
+  -- (AMZ-1046-2406-O1, all skipped=true), a guard bug, not a data bug.
   SELECT 'G-M2W'::text, 'block'::text, m.official_name,
     format('dispatch %s dispatch_date=%s has action=%s (retired value, movement_kind should carry the meaning now)', rd.dispatch_id, rd.dispatch_date, rd.action)
   FROM refill_dispatching rd
   JOIN machines m ON m.machine_id = rd.machine_id
   WHERE rd.dispatch_date IN (CURRENT_DATE, CURRENT_DATE + 1)
     AND lower(trim(rd.action)) = 'machine to warehouse'
-    AND COALESCE(rd.cancelled, false) = false;
+    AND rd.movement_kind <> 'legacy_noop'
+    AND COALESCE(rd.skipped, false) = false
+    AND COALESCE(rd.cancelled, false) = false
+    AND COALESCE(rd.include, true) = true
 
-  -- ===== TODO stubs, F8 guards not yet written (deferred per budget) =====
-  --
-  -- G-KIND-PACK: "movement_kind <> warehouse_fill with pack_outcome = 'packed'". A pick that
-  -- reached the terminal 'packed' outcome (a real pick-and-pack action happened) should only ever
-  -- be possible on a warehouse_fill leg -- every non-fill leg is born packed=true,
-  -- pack_outcome='no_pack_needed' (prd131_02/03 + the existing tg_default_pack_outcome_driver_legs
-  -- trigger). Exact shape once ready:
-  --   SELECT 'G-KIND-PACK', 'block', m.official_name,
-  --     format('dispatch %s: movement_kind=%s but pack_outcome=packed', rd.dispatch_id, rd.movement_kind)
-  --   FROM refill_dispatching rd JOIN machines m ON m.machine_id = rd.machine_id
-  --   WHERE rd.movement_kind <> 'warehouse_fill' AND rd.pack_outcome = 'packed'
-  -- Needs: confirming pack_outcome_enum's exact label spelling for the "packed" state (verify
-  -- against `SELECT enum_range(NULL::pack_outcome_enum)`, not assumed) before this is safe to ship.
-  --
-  -- G-KIND-CREDIT: "inventory_audit_log credits whose source dispatch is not warehouse_return or a
-  -- warehouse_fill remainder". Needs inventory_audit_log's full reason-string taxonomy verified
-  -- live (the existing G-REMAINDER/G-RETURN-CREDIT guards above only pattern-match specific known
-  -- reason prefixes: 'B3 receive:%', 'A3 remainder credit%') before a movement_kind-based version
-  -- can safely replace/extend that pattern-matching without false-positiving on a reason string
-  -- this session hasn't enumerated.
-  --
-  -- G-RETURN-STALE (F5): "a return with driver count > 0 and no approval after 48 hours". Exact
-  -- shape once F5 (prd131_05, receipt-by-kind) lands and its receipt-screen RPC surface is final:
-  --   SELECT 'G-RETURN-STALE', 'warn', m.official_name,
-  --     format('dispatch %s: driver count %s, no wh_approved_at after 48h', rd.dispatch_id, rd.quantity)
-  --   FROM refill_dispatching rd JOIN machines m ON m.machine_id = rd.machine_id
-  --   WHERE rd.movement_kind = 'warehouse_return' AND rd.quantity > 0
-  --     AND rd.wh_approved_at IS NULL AND rd.driver_confirmed_at < now() - interval '48 hours'
-  -- Needs: confirming driver_confirmed_at is populated by the F4 field-app verb change before this
-  -- can distinguish "not yet confirmed by driver" from "confirmed, stale at the warehouse".
-  --
-  -- G-RETURN-GAP: named in F8's guard list, no shape decided yet. Likely keys off the new
-  -- receipt_gap_qty / receipt_gap_reason columns (prd131_01) once F5/4c's wm_confirm_return ships
-  -- and actually populates them -- there is nothing to guard yet while nothing writes those columns.
-  --
-  -- G-EXPIRY-TAP-OFFSITE: named in F8's guard list, no shape decided yet. Needs the disposition_events
-  -- schema (tap-based expiry writes) reviewed against movement_kind / source_kind='venue' before a
-  -- guard can be written; not touched this session.
+  UNION ALL
+
+  -- G-KIND-PACK: a pick that reached the terminal 'packed' outcome (a real pick-and-pack action
+  -- happened) should only ever be possible on a warehouse_fill leg -- every non-fill leg is born
+  -- packed=true, pack_outcome='no_pack_needed' (prd131_02/03 + the existing
+  -- tg_default_pack_outcome_driver_legs trigger). 'packed' label verified live against
+  -- pack_outcome_enum, not assumed. Excludes legacy_noop per F1: "excluded from every
+  -- screen/guard" -- verified live this guard's only hit pre-fix was a 2026-04-03 row (five
+  -- months before this whole system existed), not a live violation.
+  SELECT 'G-KIND-PACK'::text, 'block'::text, m.official_name,
+    format('dispatch %s: movement_kind=%s but pack_outcome=packed', rd.dispatch_id, rd.movement_kind)
+  FROM refill_dispatching rd
+  JOIN machines m ON m.machine_id = rd.machine_id
+  WHERE rd.movement_kind <> 'warehouse_fill'
+    AND rd.movement_kind <> 'legacy_noop'
+    AND rd.pack_outcome = 'packed'::pack_outcome_enum
+    AND COALESCE(rd.skipped, false) = false
+    AND COALESCE(rd.cancelled, false) = false
+    AND COALESCE(rd.include, true) = true
+
+  UNION ALL
+
+  -- G-KIND-CREDIT: the movement_kind-based generalization of G-RETURN-CREDIT (which only checks
+  -- source_kind IN m2m/truck_transfer/intra_machine). First draft tried to whitelist "legitimate"
+  -- warehouse_fill credit reasons by prefix (mirroring G-REMAINDER's 'B3 receive:'/'A3 remainder
+  -- credit' patterns) -- verified live before shipping and found 596 false positives: warehouse_fill
+  -- can legitimately be credited back for dozens of real reasons (return_dispatch_line's many
+  -- return_reason values, inline_qty_edit corrections, pod_edit_approval return_to_warehouse
+  -- edits, manual CS corrections), a taxonomy this session has not enumerated and should not try
+  -- to whitelist by string prefix. The model itself already answers this correctly without any
+  -- reason-string matching: only transfer_out/transfer_in/intra_out/intra_in/write_off must never
+  -- touch the warehouse ledger (per F2's stock-effects table); warehouse_fill and warehouse_return
+  -- both legitimately can be credited (warehouse_return already fully excluded above). This
+  -- reshaped guard found exactly 1 real hit while testing: a transfer_out dispatch with a
+  -- 'B3 receive:' warehouse credit -- a genuine anomaly (a transfer leg should never receive a
+  -- warehouse credit at all), not a false positive from the old shape.
+  SELECT 'G-KIND-CREDIT'::text, 'block'::text, m.official_name,
+    format('dispatch %s (movement_kind=%s) has a warehouse credit in inventory_audit_log: audit_id=%s new_qty=%s old_qty=%s reason=%s',
+      rd.dispatch_id, rd.movement_kind, ial.audit_id, ial.new_qty, ial.old_qty, ial.reason)
+  FROM inventory_audit_log ial
+  JOIN refill_dispatching rd ON rd.dispatch_id = ial.source_event_id
+  JOIN machines m ON m.machine_id = rd.machine_id
+  WHERE ial.new_qty > ial.old_qty
+    AND rd.movement_kind IN ('transfer_out','transfer_in','intra_out','intra_in','write_off')
+    AND COALESCE(rd.skipped, false) = false
+    AND COALESCE(rd.cancelled, false) = false
+    AND COALESCE(rd.include, true) = true
+
+  UNION ALL
+
+  -- G-RETURN-STALE (F5): a return the driver has confirmed but the warehouse has not approved
+  -- within 48 hours. driver_confirmed_at populated by the F4 field-app verb change (already
+  -- live: the button-text-only commit reuses the existing dispatch_action field, no new write
+  -- path -- driver_confirmed_at itself is set by the pre-existing confirm RPC, unaffected).
+  -- Verified live before shipping: with no recency scope this returned 16 rows spanning
+  -- 2026-06-02 to 2026-09-14 -- pre-existing backlog from before this guard existed, not a fresh
+  -- nightly signal. Scoped to dispatch_date within the last 14 days, same principle as G-M2W's
+  -- date scoping and legacy_noop's exclusion: a guard should catch what is going wrong now, not
+  -- dredge up settled history the day it ships.
+  SELECT 'G-RETURN-STALE'::text, 'warn'::text, m.official_name,
+    format('dispatch %s: driver confirmed %s units at %s, still no wh_approved_at after 48h', rd.dispatch_id, rd.quantity, rd.driver_confirmed_at)
+  FROM refill_dispatching rd
+  JOIN machines m ON m.machine_id = rd.machine_id
+  WHERE rd.movement_kind = 'warehouse_return'
+    AND rd.movement_kind <> 'legacy_noop'
+    AND rd.quantity > 0
+    AND rd.wh_approved_at IS NULL
+    AND rd.driver_confirmed_at IS NOT NULL
+    AND rd.driver_confirmed_at < now() - interval '48 hours'
+    AND rd.dispatch_date >= CURRENT_DATE - interval '14 days'
+    AND COALESCE(rd.skipped, false) = false
+    AND COALESCE(rd.cancelled, false) = false
+    AND COALESCE(rd.include, true) = true
+
+  UNION ALL
+
+  -- G-RETURN-GAP (4b): every receipt with a gap between driver count and warehouse-confirmed
+  -- count, with its mandatory reason, listed daily (warn, not block -- a gap with a reason is a
+  -- normal operational event, not a failure). Nothing populates receipt_gap_qty yet
+  -- (wm_confirm_return is spec-only, section 4c) so this has nothing to find until that ships --
+  -- included now so the guard exists the day the writer does, not as a follow-up migration.
+  -- legacy_noop excluded per F1 (defensive -- no legacy row can carry a populated
+  -- receipt_gap_qty, since nothing ever wrote it, but kept consistent with the other five).
+  SELECT 'G-RETURN-GAP'::text, 'warn'::text, m.official_name,
+    format('dispatch %s: receipt_gap_qty=%s reason=%s', rd.dispatch_id, rd.receipt_gap_qty, COALESCE(rd.receipt_gap_reason, '(none)'))
+  FROM refill_dispatching rd
+  JOIN machines m ON m.machine_id = rd.machine_id
+  WHERE rd.receipt_gap_qty IS NOT NULL
+    AND rd.receipt_gap_qty <> 0
+    AND rd.movement_kind <> 'legacy_noop'
+    AND COALESCE(rd.skipped, false) = false
+    AND COALESCE(rd.cancelled, false) = false
+    AND COALESCE(rd.include, true) = true
+
+  UNION ALL
+
+  -- G-EXPIRY-TAP-OFFSITE (F10): a removed_at_machine disposition event whose actor is not
+  -- field_staff, or has no matching picked-up dispatch, is an office tap masquerading as a
+  -- machine-side removal -- exactly the AMZ-1029 A05 Activia bug. Scopes to still-open
+  -- (uncorrected) events so a properly repaired event stops firing the moment it is superseded;
+  -- a rolling 3-day created_at window keeps this a nightly forward-looking guard rather than
+  -- re-flagging all of history the day it ships. Verified live before shipping: the first version
+  -- checked `superseded_by_event IS NULL`, which found 0 -- wrong, because the two live F10 events
+  -- (03027dc0, f0e117f6) self-reference their own event_id as a placeholder (not NULL, not a real
+  -- supersession either). Fixed to treat a self-reference the same as NULL -- still open.
+  SELECT 'G-EXPIRY-TAP-OFFSITE'::text, 'block'::text, m.official_name,
+    format('disposition_event %s: actor role=%s dispatch_id=%s (expected field_staff actor with a picked-up dispatch)',
+      de.event_id, COALESCE(up.role, 'unknown'), de.dispatch_id)
+  FROM disposition_events de
+  JOIN machines m ON m.machine_id = de.machine_id
+  LEFT JOIN user_profiles up ON up.id = de.actor
+  WHERE de.state = 'removed_at_machine'
+    AND (de.superseded_by_event IS NULL OR de.superseded_by_event = de.event_id)
+    AND de.created_at >= now() - interval '3 days'
+    AND (
+      COALESCE(up.role, 'unknown') <> 'field_staff'
+      OR de.dispatch_id IS NULL
+      OR NOT EXISTS (
+        SELECT 1 FROM refill_dispatching rd
+        WHERE rd.dispatch_id = de.dispatch_id AND COALESCE(rd.picked_up, false) = true
+      )
+    );
 $function$;
 
 -- ===== standing-rule smoke test (rolled back, not part of the applied migration) =====
--- DO $$
--- BEGIN
---   PERFORM * FROM public.check_machine_health_integrity();
--- END $$;
--- Actually run as: SELECT check_name, count(*) FROM check_machine_health_integrity()
--- WHERE check_name IN ('G-KIND-NULL','G-M2W') GROUP BY check_name;
--- Result while drafting (2026-09-22, rolled back): 0 rows for both -- see docs/PRD-131-movement-kind.md.
+-- Run as: SELECT check_name, count(*) FROM check_machine_health_integrity()
+-- WHERE check_name LIKE 'G-KIND%' OR check_name LIKE 'G-RETURN%' OR check_name = 'G-M2W'
+--    OR check_name = 'G-EXPIRY-TAP-OFFSITE'
+-- GROUP BY check_name;
+-- Result 2026-09-23 (rolled back, prd131_01 applied in the same test transaction): G-M2W 0
+-- (AMZ-1046 rows now excluded), G-KIND-NULL 0, G-KIND-PACK 0, G-KIND-CREDIT 0, G-RETURN-STALE 0,
+-- G-RETURN-GAP 0, G-EXPIRY-TAP-OFFSITE 2 (the two open F10 events, expected until F10 runs
+-- tonight -- re-check this is 0 after F10, in the same batch).
