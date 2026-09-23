@@ -114,6 +114,16 @@ Reclassify the six stuck rows (WAVEMAKER A04 Red Bull 5 + 4, MINDSHARE A16 Kramb
 - G-RETURN-STALE: per F5.
 - G-M2W: any row with action = 'Machine To Warehouse'. Expect 0 after backfill.
 - G-RETURN-GAP: per 4b, every gap with its reason, listed daily.
+
+**All eight implemented and verified live 2026-09-23** (`prd131_08_guards_kind_null_m2w.sql`, not yet applied). Every guard that scans `refill_dispatching` directly excludes `coalesce(skipped,false)`, `coalesce(cancelled,false)`, `include=false`, and `movement_kind='legacy_noop'` (CS correction: G-M2W's first version fired on 3 rows that were leftovers of a cancelled G&H A11->A15 move on AMZ-1046-2406-O1, all `skipped=true` -- a guard bug, not a data bug).
+
+Two guards needed real shape changes after testing against live data, not just the exclusion fix:
+
+- G-KIND-CREDIT's first draft tried to whitelist "legitimate" warehouse_fill credit reasons by string prefix and found 596 false positives -- warehouse_fill has a wide legitimate credit-reason taxonomy (`return_dispatch_line`, `inline_qty_edit`, `pod_edit_approval return_to_warehouse`, manual CS corrections) this session never enumerated. Rewritten to flag any warehouse credit on a transfer_out/transfer_in/intra_out/intra_in/write_off leg instead (the model's own stock-effects rule: those kinds must never touch the warehouse ledger), no reason-string matching needed.
+- G-EXPIRY-TAP-OFFSITE's first draft checked `superseded_by_event IS NULL` and found 0 -- wrong: the two live F10 events self-reference their own `event_id` as a placeholder, not NULL. Fixed to treat a self-reference as still-open too.
+
+Real findings that survived testing (not guard bugs, not fabricated, not scoped away): G-RETURN-STALE = 1 (WPP-1002-4300-O1 A12, Sunbites Olive And Oregano x2, driver confirmed 2026-09-14, still unapproved 9 days later -- 14-day recency scope keeps this from also surfacing 16 rows of older, pre-existing backlog). G-KIND-CREDIT = 1 (NOVO-1023-0000-W0 A16, transfer_out, dispatch_date 2026-06-23, a `B3 receive:` warehouse credit on a transfer leg -- three months old, flagged, not repaired, out of scope tonight). G-EXPIRY-TAP-OFFSITE = 2 (the two open F10 events; expected to drop to 0 once F10 runs in tonight's batch).
+
 - G-EXPIRY-TAP-OFFSITE: `removed_at_machine` events whose actor is not field_staff or has no matching picked-up dispatch. Expect 0.
 
 ## 4. Acceptance
