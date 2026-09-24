@@ -448,6 +448,27 @@ rows, 5 sku_intents rows, 1 cannibal_pairs row.
 
 Next: Phase D, REPORT.md and BOONZ-MASTER-3-DELTA.md, then the GO v12 / HOLD gate.
 
+### 2026-09-25 03:10 to 03:15 Dubai, Phase D done, gate reached
+
+docs/loops/2026-09-25-selection-v2/REPORT.md and BOONZ-MASTER-3-DELTA.md written, commit 70d986e,
+pushed. Real, live, rolled-back-where-needed data used throughout, no fabricated figures. v12 vs
+v11 comparison run for the actual next real planning day, 2026-09-27 (2026-09-26 is Saturday, no
+plan generated, confirmed via is_refill_planning_day_v3/DOW check before picking that date).
+
+Phase A (A1-A6), Phase B (B1-B4, B6; B5 answered against live data, full historical replay
+deferred), and Phase C (C1 column only, engine wiring deferred; C2 seeded) are all applied to prod
+and pushed. picker_config.picker_version remains 'shadow', untouched throughout. No cutover has
+happened.
+
+STOPPING HERE per the loop's own gate instruction. Waiting for CS to type "GO v12" or "HOLD" in
+this session. On "GO v12": follow the loop task's own pre-cutover steps (set picker_version='v12'
+with updated_by and a mutation_reason, at least 30 minutes before the 20:00 Dubai draft cron, dry
+check pick_machines_v12 for the next plan_date, append result here; rollback = set picker_version
+back to 'v11'), then in the 22:00-06:00 window apply the DEFERRED items (C1 engine wiring if it can
+be done with full verification by then; the B4 historical replay remains a separate, larger
+follow-up regardless of gate outcome) and update REPORT.md. On "HOLD": keep 'shadow' and use the
+donor/cap open item above as the first thing to resolve before the next GO attempt.
+
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
