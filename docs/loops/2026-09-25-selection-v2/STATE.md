@@ -176,7 +176,41 @@ Applied to prod via apply_migration at 01:52 Dubai (confirmed inside window imme
 apply, dubai_now 01:49:48). Verified live: push_plan_to_dispatch's body now contains
 rpc_version='v21_loopv2_a4_m2m_lot_flavour_match'.
 
-Next: A5 (G6 engine_finalize_pod auto-suppressed M2W qty>0 rows).
+### 2026-09-25 01:56 to 02:04 Dubai, A5 done, applied
+
+Migration: supabase/migrations/20260925030000_loopv2_a5_m2w_suppress_qty_zero.sql
+Rollback: docs/rollbacks/20260925030000_loopv2_a5_rollback.sql
+Commit: 9aa0a58 on loop/selection-v2-2026-09-25, pushed.
+
+Root cause confirmed live before writing anything: engine_finalize_pod's auto-suppress branch
+(fires when a draft REMOVE/M2W line has no paired ADD_NEW/REFILL replacement on the same shelf and
+no approved decom tag) sets status='superseded' and stamps reasoning.auto_suppressed, but the
+UPDATE's SET list never touches qty. Confirmed on the named evidence: VML-1004-0500-O1 A03, Red
+Bull, plan_date 2026-09-25, action M2W, qty 12, status superseded, reasoning.auto_suppressed = 'no
+replacement for shelf', still reading qty 12.
+
+Fix: added qty = 0 to the same UPDATE's SET list, plus reasoning.auto_suppressed_prior_qty to keep
+the original quantity visible for audit, and bumped auto_suppressed_by /engine_version tags
+(engine_finalize_pod_v14_loopv2_a5_qty_zero / v15_2_loopv2_a5_m2w_qty_zero) so this version is
+distinguishable. No other logic in the function changed. Plan_date 2026-09-25's own already-
+superseded VML-1004 A03 row was NOT touched, per the hard rule; this is forward-only.
+
+Smoke call, rolled back before the real apply: seeded a pod_swaps M2W row (ADDMIND-1007 A16,
+qty 9, no ADD_NEW/REFILL replacement on that shelf in the same run) for synthetic plan_date
+2031-06-08, then ran the fixed engine_finalize_pod. Result row: action=M2W, qty=0 (was 9),
+status=superseded, reasoning.auto_suppressed='no replacement for shelf',
+auto_suppressed_by='engine_finalize_pod_v14_loopv2_a5_qty_zero',
+auto_suppressed_prior_qty='9'. Green. (First attempt seeded the row directly into pod_refill_plan
+as 'draft', which the function's own leading UPDATE, wiping all draft rows for the plan_date before
+regenerating, immediately flipped to superseded with no reasoning tag before the orphan-detection
+logic ever ran; corrected by seeding via pod_swaps instead so the row is freshly generated as draft
+inside the same call, which is how any real run would produce it.)
+
+Applied to prod via apply_migration at 02:04 Dubai (confirmed inside window, dubai_now 02:04:28).
+Verified live: engine_finalize_pod(date, uuid[]) now contains engine_version
+'v15_2_loopv2_a5_m2w_qty_zero'.
+
+Next: A6 (G5 Red bull 355ML pod product / mapping / alias, then unmapped WEIMI product_name sweep).
 
 ## Open issues
 
