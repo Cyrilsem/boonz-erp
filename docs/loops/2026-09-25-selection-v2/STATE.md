@@ -291,8 +291,77 @@ Deferred deliberately: wiring the switch read into _build_draft_core_v3 itself. 
 branch to pick_machines_v12 before that function exists; this wiring lands together with B2 in the
 next step, not as a half-reference to a function that isn't there yet.
 
-Next: B2, pick_machines_v12 itself (the full engine: P1/P2/P3 tiers, VOX rule, cluster, donor,
-visit_value_aed scoring), then wire the switch into _build_draft_core_v3.
+### 2026-09-25 02:24 to 02:48 Dubai, B2 done, applied (picker function, not gated)
+
+Migration: supabase/migrations/20260925060000_loopv2_b2_pick_machines_v12.sql
+Rollback: docs/rollbacks/20260925060000_loopv2_b2_rollback.sql (prior _build_draft_core_v3 body;
+pick_rhythm_params and pick_machines_v12 are new, rollback is DROP).
+Commit: 12d50c5 on loop/selection-v2-2026-09-25, pushed.
+
+Investigated before writing anything:
+
+- machines.building_id is text, NULL for every machine. v11's own cluster fallback
+  (COALESCE(venue_group, building_id, official_name)) already skips past it to venue_group, so
+  v11 clusters a whole venue, not a building. Confirmed the "building 24" grouping the acceptance
+  evidence names is real and derivable: AMZ-1046-2406-O1, AMZ-1057-2403-O1, AMZ-1068-2401-O1 share
+  digit pair "24" in the second hyphenated segment of official_name; AMZ-1029-3003-O1 and
+  AMZ-1038-3001-O1 share "30". v12 derives building_code this way rather than backfilling the
+  protected machines table.
+- svc_track does not read 'vox' for VOXMCC-1005-0201-B0 (reads 'main'); venue_group='VOX' is the
+  reliable signal used instead. product_mapping.source_of_supply for that machine is a mix of
+  venue_team and boonz, not uniformly venue_team as PRD-133's literal text suggests.
+- Reused v_machine_priority (fill_pct, empty_shelves_count, days_since_visit, daily_revenue_aed,
+  runway_days, hero_runway_days) rather than re-deriving those metrics (Article 16). Lane grain
+  from v_lane_grain, warehouse pickable from v_wh_pickable, effective product_mapping resolution
+  (machine-scoped Active overrides global default) matching engine_finalize_pod's own pattern.
+
+Two real bugs found and fixed while smoke testing against live data:
+
+1. donor_value_aed summed once per qualifying RECEIVER instead of once per donor lot. AMZ-1068's
+   single Vitamin Well lane alone matched 146 donor/receiver combinations, inflating its own
+   visit_value_aed into the tens of thousands of AED. Fixed by taking one best-priced receiver per
+   (donor, pod_product) for the value sum; donor_for still lists every qualifying receiver.
+2. The cap was first applied as one global fill order across P1/P2/P3. On live data (32 eligible
+   machines) P1 (3) plus an uncapped P2 boolean (11-17 depending on run) already filled all 8
+   slots before any P3 cluster/donor candidate was reached, even though PRD-133 says P1 is
+   "always picked". Fixed: P1 never competes for the cap; the cap of 8 governs P2, then
+   cluster/donor-tagged P3, then plain P3.
+   Also caught mid-smoke-test: machines_to_visit.priority_tier has a closed CHECK (NULL,
+   'P1_RESTOCK','P2_MAINTAIN' only, v11's vocabulary). v12's picks written into the real table map
+   P1 to P1_RESTOCK, P2 to P2_MAINTAIN, P3 to NULL; v12's own richer tier/cluster_role/donor_for are
+   preserved in full in machines_to_visit_shadow.
+
+Smoke calls, all rolled back before the real apply:
+
+1. pick_machines_v12(2026-09-25) called directly (read-only, no writes) against real live data.
+   AMZ-1029-3003-O1 correctly P1 (Activia-driven expiry trigger). AMZ-1068-2401-O1 and
+   VML-1004-0500-O1 correctly identified as donors with real, sane visit_value_aed (452.45 and
+   298.70 AED respectively) once the cap is relaxed past 8. AMZ-1046-2406-O1 independently
+   qualifies P2 on its own need (not via cluster pull-in) once AMZ-1068 is in the candidate pool.
+2. _build_draft_core_v3, three branches, synthetic plan_date 2026-10-15 (Thursday, no real data):
+   'shadow' (real config value): v11 picked into machines_to_visit as before; v12's full candidate
+   set (25 rows, P1 uncapped + 8 within cap) written to machines_to_visit_shadow tagged 'v12'.
+   Green. 'v12' (temporarily set inside the rolled-back transaction only): v12 became
+   authoritative, wrote 17 P1_RESTOCK + 5 P2_MAINTAIN + 3 NULL rows into the real machines_to_visit
+   with no constraint violation, v11's own run archived into machines_to_visit_shadow tagged
+   'v11'. Green. 'v11': machines_to_visit_shadow stayed empty (0 rows), matching plain v11-only
+   behaviour. Green.
+
+Applied to prod via apply_migration at 02:48 Dubai (confirmed inside window, dubai_now 02:48:20).
+Verified live: picker_config.picker_version still 'shadow' (untouched by this migration, as
+intended), pick_rhythm_params has its 3 seeded rows.
+
+Open finding, NOT fixed, carried into the loop report rather than swept under the rug: even with
+both bug fixes, today's real fleet has 17 of 32 eligible machines independently qualifying as P2
+under the literal PRD-133 rules (days_since_visit >= rhythm, hero lane running out before next
+visit, or any empty lane). Those 17 alone exceed the cap of 8, so AMZ-1068 and VML-1004 (donor
+value verified correct) do not make today's actual cap-8 selection; they are outranked by
+machines with a more urgent own need. Whether a 32-machine fleet this overdue should really be
+served by only 8 stops a day, or whether P2's boolean gate should become a softer ranking signal,
+is a product question for CS, not something this loop's surgical scope should decide unilaterally.
+
+Next: B3 (v_picker_shadow_diff view), then a pragmatic call on B4-B6 given remaining scope and
+budget (24-day backtest infrastructure and a full pgTAP suite are each substantial on their own).
 
 ## Open issues
 
