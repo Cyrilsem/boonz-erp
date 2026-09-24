@@ -65,12 +65,46 @@ Applied to prod via apply_migration at 01:06 Dubai (confirmed inside window imme
 apply). Verified live: cancel_m2m_transfer exists with exactly one overload; the edit_kind check
 constraint now includes 'cancel_m2m_transfer'.
 
-Next: A2 (repair the real stuck transfer 91240fab-0c1e-4b96-853a-0b887e5a2c62).
+### 2026-09-25 01:17 to 01:20 Dubai, A2 done
+
+Migration: supabase/migrations/20260925011500_loopv2_a2_fix_cancel_dest_lookup.sql
+Rollback: docs/rollbacks/20260925011500_loopv2_a2_rollback.sql
+Commit: 404d0c9 on loop/selection-v2-2026-09-25, pushed.
+
+Checked transfer 91240fab-0c1e-4b96-853a-0b887e5a2c62 first, before touching anything. Source leg
+(VML-1004-0500-O1 A03, Remove, Red Bull, qty 7, dispatch_id b9cc6aed...) had no driver activity
+(driver_confirmed_at, driver_outcome, returned, filled_quantity all clear) but was packed=true,
+picked_up=true, dispatched=true from before A1's fix, exactly the scenario A1 exists to prevent
+going forward. Dest leg (AMZ-1029-3003-O1 A14, dispatch_id 917a479a...) was already skipped=true,
+include=false, as A2's own text said, but not yet zeroed (quantity still 7) and still carrying
+action='Refill', not 'Add New'.
+
+Real bug found before running anything for real: cancel_m2m_transfer's destination lookup filtered
+on action IN ('Add New','Add'), which does not match this real leg's action='Refill'.
+push_plan_to_dispatch's v_action mapping preserves whatever the plan's own action label was onto
+the M2M destination leg, so 'Refill' is a legitimate destination action, not just 'Add New'. Fixed
+by looking up the partner via m2m_partner_id instead (migration
+20260925011500_loopv2_a2_fix_cancel_dest_lookup.sql), tested in a rolled-back dry run against this
+exact real transfer first (green: both legs resolved correctly, dest_already_skipped=true, no
+driver-activity block), then applied to prod at 01:17 Dubai (confirmed inside window).
+
+Ran cancel_m2m_transfer live: dry run again (green, same result), then the real call
+(convert_source_to_return=true, reason "CS 24 Sep: Red Bull 7 back to WH, AMZ-1029 355ML lane
+being depleted"). Result: status=cancelled, new Remove dispatch_id 61310768-b5ef-4d70-bff3-143a2ebc7301
+created. Read back and verified: source leg quantity=0/skipped=true/include=false; dest leg
+quantity=0/skipped=true/include=false; new Remove row quantity=7/skipped=false/include=true,
+source_kind=wh, source_warehouse_id=4bebef68-9e36-4a5c-9c2c-142f8dbdae85 (VML-1004's own
+primary_warehouse_id, WH_CENTRAL), m2m_transfer_id=NULL (standalone, not part of any transfer).
+Mutation reason set: "cancel_m2m_transfer 91240fab-0c1e-4b96-853a-0b887e5a2c62 by=system: CS 24
+Sep: Red Bull 7 back to WH, AMZ-1029 355ML lane being depleted" plus add_dispatch_row's own
+"cancel_m2m_transfer ... converted to warehouse return: ..." reason on the new row.
+
+Next: A3 (G3 write_refill_plan preflight false-block fix).
 
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
   prompt's own Phase B/C text before B1 starts (not done yet).
-- Scope of remaining work (A2 through A6, all of Phase B including a 24-day backtest, Phase C,
+- Scope of remaining work (A3 through A6, all of Phase B including a 24-day backtest, Phase C,
   Phase D report) is large. This is being worked in checkpointed steps across multiple turns, per
   the loop skill's dynamic mode, not attempted in one continuous pass.
