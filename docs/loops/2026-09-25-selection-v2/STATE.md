@@ -360,8 +360,50 @@ machines with a more urgent own need. Whether a 32-machine fleet this overdue sh
 served by only 8 stops a day, or whether P2's boolean gate should become a softer ranking signal,
 is a product question for CS, not something this loop's surgical scope should decide unilaterally.
 
-Next: B3 (v_picker_shadow_diff view), then a pragmatic call on B4-B6 given remaining scope and
-budget (24-day backtest infrastructure and a full pgTAP suite are each substantial on their own).
+### 2026-09-25 02:54 to 02:58 Dubai, B3 done, applied (read-only function, not gated)
+
+Migration: supabase/migrations/20260925070000_loopv2_b3_picker_shadow_diff.sql
+Commit: 0530f6f on loop/selection-v2-2026-09-25, pushed. No rollback file: pure read-only function,
+no prior version existed; rollback is DROP FUNCTION if ever needed.
+
+Implemented as a function, not a plain view, since it takes a plan_date argument. Neither picker's
+full data always lives in the same table for a given historical date (B2's write logic archives
+whichever picker was NOT authoritative into machines_to_visit_shadow); this function reconstructs
+both sides by preferring the shadow-table row for each version and falling back to the live
+machines_to_visit row only for whichever version has no shadow row for that date.
+
+Verified in a rolled-back transaction (synthetic plan_date 2026-10-15, reusing B2's own shadow-mode
+test): correctly flagged VOXMCC-1005-0201-B0 as v11_only (v12 does not pick it at all under
+today's rules), correctly listed AMZ-1068/VML-1004/etc as v12-only P1/donor picks. Found and fixed
+one real cosmetic bug during that same test: v11 and v12 use different tier vocabularies
+(P1_RESTOCK/P2_MAINTAIN vs P1/P2/P3), so a naive string-equality agreement check reported every
+genuine tier match as "different_tier" (e.g. AMZ-1029 P1_RESTOCK vs P1). Fixed by normalizing v11's
+vocabulary to v12's for the agreement column only; the raw native strings still show in
+v11_tier/v12_tier.
+
+Applied to prod at 02:58 Dubai.
+
+## Scope decision on B4-B6 (2026-09-25 02:58 Dubai)
+
+B4 (backtest_priority, a 24-day historical replay) cannot be built as a thin wrapper: pick_machines_
+v12 and pick_machines_for_refill both read v_machine_priority and v_lane_grain, which reflect only
+the LATEST WEIMI snapshot, not a chosen point in time. A true 24-day replay needs a parallel
+"as-of-date" version of those inputs (or of the pickers themselves), which is a substantial,
+separate build, not a thin backtest wrapper around the existing engines. Building that properly
+within this loop's remaining budget would mean rushing it without the same verification discipline
+used everywhere else in this loop, so it is deferred rather than faked. What ships instead:
+
+- picker_backtest_results table (the structure PRD-133 specifies), created and ready, currently
+  empty pending the replay capability above.
+- B5's four acceptance checks answered directly against real live data instead (see REPORT.md):
+  live data at the time of this loop already approximates the named "22:00 Dubai, 24 Sep" snapshot
+  closely (the session started at 00:48 on 25 Sep, WEIMI refreshes every 4 hours), so this is a
+  faithful proxy for the intended replay, not a fabrication, but it is a proxy, not the literal
+  24-day backtest B4 was meant to feed it from.
+- B6 ships as real, live-data assertions against pick_machines_v12's actual current behaviour
+  (supabase/tests/selection_v2.sql), not a historical-replay test suite.
+  This is recorded here and in the loop report as an explicit, honest scope cut, not silently
+  dropped.
 
 ## Open issues
 
