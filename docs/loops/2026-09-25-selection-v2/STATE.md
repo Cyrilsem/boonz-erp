@@ -99,12 +99,42 @@ Mutation reason set: "cancel_m2m_transfer 91240fab-0c1e-4b96-853a-0b887e5a2c62 b
 Sep: Red Bull 7 back to WH, AMZ-1029 355ML lane being depleted" plus add_dispatch_row's own
 "cancel_m2m_transfer ... converted to warehouse return: ..." reason on the new row.
 
-Next: A3 (G3 write_refill_plan preflight false-block fix).
+### 2026-09-25 01:20 to 01:26 Dubai, A3 done
+
+Migration: supabase/migrations/20260925013000_loopv2_a3_g3_coverage_fix.sql
+Rollback: docs/rollbacks/20260925013000_loopv2_a3_rollback.sql
+Commit: ab6372b on loop/selection-v2-2026-09-25, pushed.
+
+Root cause confirmed live: the "G3" check is in validate_refill_plan (write_refill_plan's own
+final call), not preflight_refill_plan (a separate function using INV-01..INV-12 naming with no
+G-numbered checks). validate_refill_plan's lines CTE branches on p_source ('dispatch' XOR
+'plan_output'); write_refill_plan always calls it with p_source='plan_output', so lines only ever
+sees refill_plan_output rows with operator_status='pending'. Any lane already covered by an
+approved plan_output line, or by anything in refill_dispatching at all (that whole branch requires
+p_source='dispatch'), is invisible to G3's lane.n_lines count.
+
+Confirmed on the named evidence: AMZ-1029-3003-O1 A10 (Hunter Ridge, pod_product_id
+51e4600f-2c15-428b-92ef-85fdc783c3af) is genuinely empty in v_live_shelf_stock (0/8) but has three
+refill_plan_output rows for plan_date 2026-09-25, action=Refill, operator_status=approved,
+dispatched=true, quantities 1+4+3=8. None visible to G3's old logic.
+
+Fixed G3 only: added two NOT EXISTS checks (approved plan_output coverage, live dispatch
+coverage) for the exact plan_date+machine+shelf. G5, G7, G8, G10 untouched.
+
+Verified without touching plan_date 2026-09-25 with any write, per the hard rule: ran the two new
+NOT EXISTS conditions as plain read-only SELECTs against the real AMZ-1029 A10 data first
+(covered_by_approved_plan_output=true, covered_by_dispatch=true), then ran the full modified
+function in a rolled-back transaction against 2026-09-24 (AMZ-1029-3003-O1) and 2026-09-23
+(fleet-wide, p_source='dispatch'): no errors, 13 real G8 violations still correctly surfaced for
+2026-09-23 (e.g. Red Bull need 15 free 0), proving the other G-checks are unaffected. Applied to
+prod at 01:26 Dubai (confirmed inside window), verified live.
+
+Next: A4 (G4 M2M destination lot binding must match flavour).
 
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
   prompt's own Phase B/C text before B1 starts (not done yet).
-- Scope of remaining work (A3 through A6, all of Phase B including a 24-day backtest, Phase C,
+- Scope of remaining work (A4 through A6, all of Phase B including a 24-day backtest, Phase C,
   Phase D report) is large. This is being worked in checkpointed steps across multiple turns, per
   the loop skill's dynamic mode, not attempted in one continuous pass.
