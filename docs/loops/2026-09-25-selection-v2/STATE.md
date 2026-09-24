@@ -129,12 +129,63 @@ function in a rolled-back transaction against 2026-09-24 (AMZ-1029-3003-O1) and 
 2026-09-23 (e.g. Red Bull need 15 free 0), proving the other G-checks are unaffected. Applied to
 prod at 01:26 Dubai (confirmed inside window), verified live.
 
-Next: A4 (G4 M2M destination lot binding must match flavour).
+### 2026-09-25 01:34 to 01:52 Dubai, A4 done, applied
+
+Migration: supabase/migrations/20260925020000_loopv2_a4_m2m_lot_flavour_match.sql
+Rollback: docs/rollbacks/20260925020000_loopv2_a4_rollback.sql
+Commit: b225b86 on loop/selection-v2-2026-09-25, pushed.
+
+Root cause confirmed live before writing anything: push_plan_to_dispatch's M2M source (Remove) leg
+lot lookup and add_m2m_transfer's Remove leg lot lookup both select the earliest-expiry Active
+pod_inventory row on the source shelf via v_pod_inventory_latest, filtered only on machine_id,
+shelf_id, status, current_stock, with no boonz_product_id filter even though the view carries that
+column.
+
+Confirmed on the named evidence: ADDMIND-1007 A16 (machine_id 60a64b01-483a-48c9-a842-
+ca09468452a6, shelf_id fa98304f-c0da-4a03-abdb-b1418672332c) carries three Active lots on one
+shelf: Zero peach (expires 2027-01-10), Zero Lemon (expiry NULL), Antioxidant (expires
+2026-09-27). The unfiltered query always returns Antioxidant regardless of which product is being
+moved. Read-only confirmation before any code change: unfiltered query returned Antioxidant
+2026-09-27; filtered to Zero peach's boonz_product_id returned 2027-01-10; filtered to Zero
+Lemon's returned NULL; filtered to a nonexistent product returned no row (correct NULL fallback).
+
+Fix: added AND pil.boonz_product_id = <the product being transferred> to both lookups. Left the
+equivalent shelf-only lookup for the plain (non-M2M) Remove/Machine To Warehouse leg further down
+in push_plan_to_dispatch untouched, out of A4's named scope (listed below as an open issue).
+
+Incidental fix in the same migration, same function: add_m2m_transfer hardcoded edited_by_role to
+a literal NULL in its own edit_log insert (not even COALESCE(v_role,...)), which violates
+refill_dispatching_edit_log's NOT NULL constraint on every call, authenticated or not. Found while
+smoke testing (23502 on first attempt, with a real auth.uid() NULL test caller). Fixed with the
+same COALESCE(v_role,'system') fallback A1 established for cancel_m2m_transfer, since this
+function's body was already being replaced for A4 and the bug blocks any real use of it.
+
+Smoke calls, both rolled back before the real apply:
+
+1. add_m2m_transfer, real ADDMIND-1007 A16 -> MC-2004-0100-O1 B16, Zero peach qty 1: after the fix,
+   the Remove leg's expiry_date=2027-01-10 and pod_lot_id=4fecca07-6577-4563-9d78-de9e99bcd2b6
+   (Zero peach's own lot), not Antioxidant's. Before the incidental fix this call failed with
+   23502 on edited_by_role; after, it succeeded end to end. Green.
+2. push_plan_to_dispatch, full M2M pairing path with synthetic approved refill_plan_output rows
+   (ADDMIND-1007 A16 Remove -> MC-2004-0100-O1 B16 Add New, Zero peach qty 1, plan_date
+   2031-06-06): resulting Remove leg expiry_date=2027-01-10, pod_lot_id=4fecca07-...; the paired
+   destination Add New leg correctly inherited expiry_date=2027-01-10 via the grouped insert, not
+   Antioxidant's 2026-09-27. Green.
+
+Applied to prod via apply_migration at 01:52 Dubai (confirmed inside window immediately before
+apply, dubai_now 01:49:48). Verified live: push_plan_to_dispatch's body now contains
+rpc_version='v21_loopv2_a4_m2m_lot_flavour_match'.
+
+Next: A5 (G6 engine_finalize_pod auto-suppressed M2W qty>0 rows).
 
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
   prompt's own Phase B/C text before B1 starts (not done yet).
-- Scope of remaining work (A4 through A6, all of Phase B including a 24-day backtest, Phase C,
+- The plain (non-M2M) Remove/Machine To Warehouse leg lot lookup in push_plan_to_dispatch has the
+  same missing-boonz_product_id-filter shape as the bug A4 fixed, but is a separate code path
+  outside A4's named scope (G4 names M2M destination binding specifically). Left unfixed; worth a
+  follow-up PRD item if a similar wrong-flavour expiry is ever reported on a plain Remove/M2W leg.
+- Scope of remaining work (A5 through A6, all of Phase B including a 24-day backtest, Phase C,
   Phase D report) is large. This is being worked in checkpointed steps across multiple turns, per
   the loop skill's dynamic mode, not attempted in one continuous pass.
