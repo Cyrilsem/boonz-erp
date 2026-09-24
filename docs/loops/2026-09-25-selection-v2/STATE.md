@@ -405,6 +405,22 @@ used everywhere else in this loop, so it is deferred rather than faked. What shi
   This is recorded here and in the loop report as an explicit, honest scope cut, not silently
   dropped.
 
+### 2026-09-25 02:58 to 03:02 Dubai, B4 (structure only) and B6 done, applied
+
+Migrations: supabase/migrations/20260925080000_loopv2_b4_backtest_results_table.sql (table only),
+supabase/tests/selection_v2.sql (test file, not a migration). Commit 15e90e6, pushed.
+
+picker_backtest_results created (picker_version, plan_date, the 5 PRD-133 metric columns), RLS
+read-only for authenticated, empty pending the as-of-date replay capability described above.
+
+supabase/tests/selection_v2.sql: real assertions against pick_machines_v12's live behaviour (not
+a historical fixture). Ran the full DO block live: P1 cooldown bypass (AMZ-1029-3003-O1, which has
+days_since_visit=0 today, confirmed P1 anyway), VOX gate (VOXMCC-1005-0201-B0 not P1), cap exempts
+P1 (P1 count identical at cap 8 and cap 30), non-P1 rows never exceed the cap, AMZ-1068-2401-O1 and
+VML-1004-0500-O1 both tagged cluster_role=donor with positive visit_value_aed and a receiver list,
+at least one genuine cluster pull-in exists, and no reason string contains an em dash. All passed,
+no exception raised.
+
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
