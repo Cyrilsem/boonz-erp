@@ -421,6 +421,33 @@ VML-1004-0500-O1 both tagged cluster_role=donor with positive visit_value_aed an
 at least one genuine cluster pull-in exists, and no reason string contains an em dash. All passed,
 no exception raised.
 
+### 2026-09-25 03:04 to 03:10 Dubai, C1 and C2 done, applied
+
+C1: supabase/migrations/20260925090000_loopv2_c1_slow_lane_fill_cap_column.sql, commit bab292d.
+Added refill_policy_params.slow_lane_fill_cap_pct (NULL default, off). Engine wiring into
+engine_add_pod (roughly 25KB, already battle-tested) deliberately NOT built this loop: doing it
+safely needs reading and understanding that whole function first, and the flag must stay off
+regardless, so this is an honest scope cut, not a shortcut on something that needed to ship.
+Backtest evidence (read-only analysis against 2026-09-25's real dispatch, using today's live
+v_lane_grain velocity as the best available proxy, not a true historical replay): exactly one lane
+would have been affected by a 60% cap, OMDBB-1020-0P00-O1 A15 Dubai Popcorn, velocity 0.27/day
+(well under hero_velocity_floor/3 = 1.0), 5 units dispatched against max_stock 6 (83.3 percent),
+would have been capped to 4 units, trimming 1 unit fleet-wide that day.
+
+C2: supabase/migrations/20260925100000_loopv2_c2_knowledge_tables.sql, commit 7758cf9. Created and
+seeded product_lane_fit (Dubai Popcorn, A15/A16), sku_intents (Red Bull 355ML deplete on
+AMZ-1029-3003-O1 threshold 4; Zigi temp_out fleet-wide ETA 2026-10-02; Smart Gourmet Hummus
+temp_out fleet-wide; Krambals keep; Vitamin Well push to top machines), cannibal_pairs (Nutella
+Biscuits T3 vs T12). Every id checked live against pod_products/boonz_products before writing, none
+guessed. Zigi and Krambals intents recorded at the pod (product line) level, not pinned to one of
+their several boonz flavour variants, since the stated intent is fleet-wide for the whole line.
+RLS here deliberately differs from B1/B4's no-client-write posture: authenticated keeps its
+default write grant, and an RLS policy restricts real writes to operator_admin/superadmin, per the
+task's explicit ask for a working operator_admin write path. Verified post-apply: 2 product_lane_fit
+rows, 5 sku_intents rows, 1 cannibal_pairs row.
+
+Next: Phase D, REPORT.md and BOONZ-MASTER-3-DELTA.md, then the GO v12 / HOLD gate.
+
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
