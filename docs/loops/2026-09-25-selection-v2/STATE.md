@@ -254,6 +254,46 @@ case above; the rest left unfixed per "fix only exact, unambiguous ones":
 Next: Phase B (B1 picker_config switch), starting with authoring
 docs/prds/PRD-133-135-selection-strategist-learning.md.
 
+### 2026-09-25 02:15 Dubai, PRD-133-135 authored
+
+Wrote docs/prds/PRD-133-135-selection-strategist-learning.md from the loop task brief's own Phase
+B/C text (not found in repo or BOONZ BRAIN prior to this loop, as already noted above). Commit
+7d9025f, pushed. No code change, no smoke call applicable.
+
+### 2026-09-25 02:17 to 02:20 Dubai, B1 done, applied (picker table, not gated)
+
+Migration: supabase/migrations/20260925050000_loopv2_b1_picker_config.sql
+Commit: ddb92e1 on loop/selection-v2-2026-09-25, pushed. No rollback file: this migration only
+creates two new tables and seeds one row; rollback is DROP TABLE machines_to_visit_shadow, DROP
+TABLE picker_config, both empty of any real business data (safe drops if ever needed).
+
+Read the actual call chain before wiring anything: pick_machines_for_refill is called from exactly
+one place, _build_draft_core_v3 (line "IF p_repick THEN PERFORM public.pick_machines_for_refill
+(p_plan_date); ..."), which is itself the shared internal entry point for both
+build_draft_for_confirmed and the 6am pre-pick job (auto_generate_draft), confirmed via
+pg_get_functiondef search across all functions referencing pick_machines_for_refill by name.
+
+Created picker_config(key, value, updated_at, updated_by), seeded picker_version='shadow', and
+machines_to_visit_shadow (plan_date, picker_version, machine_id, official_name, tier,
+visit_value_aed, reasons, building_id, cluster_role, donor_for, created_at), shaped like
+pick_machines_v12's own PRD-133 return columns rather than cloned from the much larger, v11-
+specific machines_to_visit table, since this table only ever holds whichever picker is NOT
+authoritative for a given plan_date.
+
+Both tables: RLS enabled, authenticated granted SELECT only, INSERT/UPDATE/DELETE/TRUNCATE
+explicitly revoked from authenticated (S-308: REVOKE ALL FROM anon, PUBLIC does not touch a grant
+held by authenticated; a new table is otherwise born writable by any signed-in user). No write RLS
+policy added for authenticated since the grant is revoked, an RLS write policy would be inert.
+Verified post-apply via information_schema.role_table_grants: authenticated holds only
+SELECT/REFERENCES/TRIGGER on both tables, nothing granted to anon/PUBLIC.
+
+Deferred deliberately: wiring the switch read into _build_draft_core_v3 itself. The switch cannot
+branch to pick_machines_v12 before that function exists; this wiring lands together with B2 in the
+next step, not as a half-reference to a function that isn't there yet.
+
+Next: B2, pick_machines_v12 itself (the full engine: P1/P2/P3 tiers, VOX rule, cluster, donor,
+visit_value_aed scoring), then wire the switch into _build_draft_core_v3.
+
 ## Open issues
 
 - docs/prds/PRD-133-135-selection-strategist-learning.md needs to be authored from the /loop
