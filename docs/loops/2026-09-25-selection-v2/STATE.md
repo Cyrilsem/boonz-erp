@@ -210,7 +210,49 @@ Applied to prod via apply_migration at 02:04 Dubai (confirmed inside window, dub
 Verified live: engine_finalize_pod(date, uuid[]) now contains engine_version
 'v15_2_loopv2_a5_m2w_qty_zero'.
 
-Next: A6 (G5 Red bull 355ML pod product / mapping / alias, then unmapped WEIMI product_name sweep).
+### 2026-09-25 02:09 to 02:14 Dubai, A6 done, applied (data, not gated)
+
+Migration: supabase/migrations/20260925040000_loopv2_a6_red_bull_355ml_alias.sql
+Commit: d01f0c2 on loop/selection-v2-2026-09-25, pushed. No rollback file: a single-row reference
+table INSERT with ON CONFLICT DO NOTHING, not a function change; rollback is DELETE FROM
+weimi_product_alias WHERE weimi_name='Red bull 355ML' AND pod_product_id='a602c923-c4c0-4ecc-b5f7-
+3c13a1960beb' if ever needed.
+
+Investigated the task's own premise against live data before creating anything, per this loop's
+standing discipline. Findings, in order:
+
+1. A generic pod product "Red Bull" (a602c923-c4c0-4ecc-b5f7-3c13a1960beb) already exists.
+2. boonz_products already has "Red Bull - 355ML" (e21bae75-cdeb-42a9-b6ad-df8f5d4166dc) with an
+   Active, machine-scoped product_mapping to that same pod product, for machine_id f1a528fb-15e8-
+   4f20-b4e2-ebb2e6852198 (AMZ-1029-3003-O1), exactly the machine named in the sku_intents evidence.
+3. pod_inventory history for AMZ-1029-3003-O1 A14 shows three different boonz_product variants
+   (Red Bull Diet, Regular, 355ML) have occupied that lane over time, all correctly sharing the
+   one generic "Red Bull" pod product. That is the intended model: pod identity is the physical
+   can, boonz_product_id is the SKU/flavour sold from it.
+4. v_shelf_slot_identity already resolves this shelf's raw WEIMI string ("Red bull 355ML") to
+   pod_product_id a602c923 via match_method='conventions' (a fuzzy matcher), not 'unmatched'.
+
+Conclusion: creating a new, separate pod product literally named "Red bull 355ML" would have
+fragmented an identity that is already correct and already shared correctly across three real SKU
+variants. Did NOT create a new pod product and did NOT change product_mapping (the existing Active
+mapping is already correct). Instead added one explicit weimi_product_alias row (Red bull 355ML ->
+a602c923) so this shelf's resolution stops depending on the fuzzy conventions matcher. Verified
+live: row present with the expected pod_product_id.
+
+WEIMI unmatched sweep (v_shelf_slot_identity.match_method='unmatched'), fixed only the Red Bull
+case above; the rest left unfixed per "fix only exact, unambiguous ones":
+
+- "C4 Energy Drink" (LVLUP-1018-0000-G0 A05 stock 2, LVLUP-1048-0000-P0 A09 stock 4): no C4 pod
+  product exists at all. LVLUP machines are excluded from planning entirely per this loop's own
+  hard rules, so even a correct mapping would never be used by a plan. Not fixed, not unambiguous.
+- "Plaay Cylinder" (WH1-2002-0000-W0, shelves B05/B06/B07, stock 2 to 4): several existing Plaay
+  pod products (Truffle 2pcs, Tablet Chocolate, Tablet Chocolate 35g) but none named or shaped
+  like a "Cylinder" format. Ambiguous, not fixed.
+- "Product for testing only" (WH1-2002-0000-W0, shelves A12/A14, stock 0): a test fixture, not a
+  real product. Correctly left unmapped.
+
+Next: Phase B (B1 picker_config switch), starting with authoring
+docs/prds/PRD-133-135-selection-strategist-learning.md.
 
 ## Open issues
 
