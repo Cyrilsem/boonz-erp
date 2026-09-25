@@ -480,3 +480,110 @@ donor/cap open item above as the first thing to resolve before the next GO attem
 - Scope of remaining work (A5 through A6, all of Phase B including a 24-day backtest, Phase C,
   Phase D report) is large. This is being worked in checkpointed steps across multiple turns, per
   the loop skill's dynamic mode, not attempted in one continuous pass.
+
+## CS HOLD (2026-09-25), F1-F5 fixes
+
+CS replied HOLD to the gate above, keeping picker_config.picker_version='shadow', with five named
+defects in pick_machines_v12 to fix before the next GO attempt, verified live before this loop
+touches anything.
+
+### F2 CLUSTER, data fix
+
+Migration: supabase/migrations/20260925110000_loopv2_f2_seed_building_id.sql (tracked as
+supabase_migrations version 20260925060841). No rollback file: plain UPDATE of machines.building_id
+from NULL, rollback is UPDATE machines SET building_id=NULL WHERE official_name IN (the 18 names)
+if ever needed.
+
+Root cause confirmed live before writing anything: B2's pick_machines_v12 derived a building_code
+from official_name's naming convention (first two digits of the second hyphenated segment), not
+from machines.building_id (confirmed NULL fleet-wide). Several unrelated machines share the
+placeholder "0000" second segment (no specific unit number), colliding onto the same fallback code
+"00": confirmed live for IRIS-1070-0000-O1, ADDMIND-1007-0000-W0, ACTIVATEMCC-1037-0000-L0, and
+MPMCC-1058-0000-R0 simultaneously, which is exactly why GRIT-1022, ADDMIND-1007, and AMZ-1029 were
+coming back tagged cluster with no real shared location.
+
+Seeded machines.building_id for the 18 machines CS named, in 6 real groups (AMZ_B24, AMZ_B30, VML,
+ALJLT, MIRDIF_CC, WPP_TOWER). Verified post-apply: all 18 correctly grouped, counts match exactly
+(ALJLT 2, AMZ_B24 3, AMZ_B30 2, MIRDIF_CC 6, VML 2, WPP_TOWER 3).
+
+### F1, F2 (function), F3, F4, F5, one combined migration
+
+Migration: supabase/migrations/20260925120000_loopv2_f1f5_pick_machines_v12_fixes.sql (tracked as
+supabase_migrations version 20260925062726).
+Rollback: docs/rollbacks/20260925120000_loopv2_f1f5_rollback.sql (prior B2 live function body,
+captured via pg_get_functiondef directly from the database before this migration ran).
+
+F1 CAP root cause confirmed live: pick_machines_v12(2026-09-27, 8) returned 12 rows before this fix,
+because the cap only ever governed the non-P1 fill order; P1 rows were fully exempt from the cap AND
+non-P1 rows separately got their own full v_cap allocation, so the true total could be
+p1_count + v_cap. Fixed: the cap now governs the whole output (non_p1 slots = v_cap - p1_count). If
+P1 alone reaches or exceeds the cap, only P1 rows are returned (no P2/P3), and each such row's
+reasons array gets 'p1_overflow: cap exceeded, all P1 rows returned, no P2 or P3 filled' appended,
+so an overflow is visible, never silently dropped.
+
+F2 CLUSTER (function side): switched base's building_id from a derived naming-convention value to
+mp.building_id, a confirmed direct passthrough of machines.building_id via v_machine_priority's own
+view definition (traced live: view -> v_machine_health_signals -> s.building_id). cluster_role is
+now only ever layered on top of a tier the machine already has on its own merits (own_tier or
+is_donor); it can never manufacture or change a tier, and the EXISTS check that finds a
+co-clustered machine now requires building_id IS NOT NULL on both sides.
+
+F3 DONOR tightened to the four conditions CS gave: (a) v_wh_pickable checked specifically at the
+donor machine's own primary_warehouse_id, not summed fleet-wide; (b) donor lane velocity < 0.4/day
+AND current_stock >= 4 (was velocity alone); (c) receiver lane of the same pod product in the top
+quartile of FLEET-WIDE velocity (percent_rank unpartitioned, not partitioned by product, since a
+2-machine product group could otherwise trivially put its single faster machine in its own "top
+quartile") with fill < 50%; (d) the receiver's own tier (from base_tier, computed earlier in the CTE
+chain than in B2 specifically to make this check possible) is P1 or P2. donor_value_aed now sums
+only LEAST(donor_units, receiver_capacity) per receiver, where receiver_capacity =
+GREATEST(max_stock - current_stock, 0), never more than the receiver can actually take.
+
+F4 EXPIRY PHANTOM LOTS root cause confirmed live: IRIS-1070-0000-O1 (machine_id d5628a72-807a-4a64-
+9976-5d76139ae354) carries an Active pod_inventory row for "Activia Mix & Go - Greek Yogurt
+Strawberries" on shelf A01, current_stock 2, expiring 2026-09-25, but v_shelf_slot_identity shows
+WEIMI currently reports "Keen Health Dipped Crackers" on that same physical lane (match_method
+'conventions', stock 5). The Activia batch is a phantom, no longer physically present. Fixed: the
+expiry trigger now resolves each Active pod_inventory row to its pod_product_id (same effective
+product_mapping resolution pattern used throughout this loop) and requires
+EXISTS(v_shelf_slot_identity row with that same machine_id + pod_product_id + current_stock > 0)
+before counting it toward has_expired_now / has_expiring_by_plan. Fleet-wide sweep for phantom lots
+expiring on or before 2026-09-27 (read-only, scoped to eligible machines): exactly ONE phantom lot
+found, the IRIS-1070 Activia batch above. None archived or otherwise modified, per the loop's
+surgical scope; that is a separate cleanup.
+
+F5 FILL<50% P1 root cause confirmed live: GRIT-1022-0100-W0 was triggering P1 on fill<50% alone at
+roughly 6 AED/day of revenue, a machine CS deliberately half-fills. Fixed: fill<50% now only counts
+toward P1 when the machine has at least one lane with velocity >= 0.3/day AND daily_revenue_aed at
+or above the fleet's own 25th percentile (percentile_cont(0.25) over all eligible machines' daily
+revenue). When either gate fails, the same fill<50% signal now contributes to P2 instead
+(fill_low_downgraded) rather than being dropped.
+
+Smoke calls, all rolled back before the real apply (tested live via execute_sql first, then
+formally applied via apply_migration):
+
+1. pick_machines_v12('2026-09-27', 8): exactly 8 rows (F1 fixed, was 12). AMZ-1029/AMZ-1038 real
+   AMZ_B30 cluster pair; AMZ-1068/NOOK-1019/NOVO-1023/VML-1003/WPP-1002 real donors (5 of 8);
+   ADDMIND-1007 correctly not cluster-tagged (building_id NULL, F2 fixed).
+2. pick_machines_v12('2026-09-27', 100), uncapped: P1=2, P2=10 (5 donors), P3=18 (14 donors). P2's
+   own-merit count (10) directly answers F6's "how many machines qualify P2 (was 17)".
+3. B5 re-verification against 2026-09-25 at uncapped cap under the new stricter rules: AMZ-1029
+   still P1/cluster/AMZ_B30 (pass), VOXMCC-1005-0201-B0 still not P1 (pass), AMZ-1068 (donor, AMZ_B24,
+   134.00 AED) and VML-1004 (donor, VML, positive value) still real donors (pass), AMZ-1046 and
+   AMZ-1057 both correctly grouped with AMZ-1068 in the real AMZ_B24 building (pass, now via a real
+   building assignment instead of B2's naming-convention coincidence).
+4. supabase/tests/selection_v2.sql, updated with 3 new assertions (total-cap, cluster-null-building,
+   phantom-expiry, fill-gate) alongside the original 6, run against 2026-09-25: all passed, no
+   exception raised.
+5. Fleet-wide phantom-lot sweep for plan_date 2026-09-27: exactly one phantom lot (IRIS-1070,
+   Activia Mix & Go, qty 2, expiring 2026-09-25).
+
+Applied to prod via apply_migration (both the F2 building_id seed and the F1/F3/F4/F5 function
+fix), tracked as supabase_migrations versions 20260925060841 and 20260925062726. Verified live:
+picker_config.picker_version still 'shadow' (untouched throughout this HOLD fix, confirmed by direct
+query after both migrations).
+
+REPORT.md updated with F6's exact content (P1/P2/P3 counts for 2026-09-27, the 8 actual picks with
+reasons, donor count before/after, P2-qualifying count before/after, the phantom lot list).
+
+STOPPING HERE again per CS's own instruction ("Then STOP again and wait for GO v12"). Waiting for
+CS to type "GO v12" or give further HOLD feedback in this session.
