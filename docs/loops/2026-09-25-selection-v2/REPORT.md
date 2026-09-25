@@ -235,7 +235,49 @@ Queued after the cutover, not blocking it:
   rhythm does not inflate its shortage sum relative to a fast machine's 3-day rhythm. Before/after
   ranking for 2026-09-27 to be reported once this lands.
 
+## R1-R6 (CS ADD TO LOOP)
+
+Confirmed before writing anything: none of R1, R2, R3, R4 existed in this codebase before this
+session (searched pg_proc for every named function, and refill_dispatching for
+needs_variant_confirmation; none found).
+
+**R1** (insert_driver_remove_line non-M2M parent selection): drafted, not yet applied.
+Migration supabase/migrations/20260925150000_loopv2_r1_variant_split_parent_fix.sql. Root cause:
+the old query grabbed only the newest sibling Remove line on a shelf+pod (ORDER BY created_at DESC
+LIMIT 1), so on ADDMIND-1007 A16 it grabbed the empty Antioxidant line and refused a Care x8 split
+even though 9 real units existed across the other two sibling lines. Fixed to lock and sum every
+eligible sibling, draw largest-first, and list every sibling in the error if the total is short.
+Smoke test queued for tonight's window (Care x8 must succeed, Zero Lemon to 0, Zero peach stays 1;
+a 10-unit split must fail listing both siblings).
+
+**R3** (push_plan_to_dispatch plain Remove lot binding): drafted, not yet applied. Migration
+supabase/migrations/20260925160000_loopv2_r3_plain_remove_lot_flavour_match.sql. This closes an
+open issue this loop already named in A4 and deferred. Same root cause shape as A4's M2M fix: the
+plain non-M2M Remove/M2W lot lookup had no boonz_product_id filter, binding all three ADDMIND A16
+lines to the Antioxidant lot regardless of flavour. Fixed with the same filter A4 and
+repair_remove_leg_shelf_lot (already correct) use.
+
+**R2** (stitch_pod_to_boonz flavour guessing): investigated, root cause location confirmed
+(remove_lines_raw/remove_lines CTEs derive both which flavours exist and how to split quantity from
+pod_inventory.current_stock), but NOT yet drafted. This is a 50KB core dispatch-writer function and
+a structural fix needs full downstream tracing first; rushing this risked a bad fix on the nightly
+plan generator. Continuing investigation rather than guessing.
+
+**R4** (FE readable error): not started, depends on R1's exception shape (known) and R2's new
+column (not yet created).
+
+**R6** (FE packing screen, no DB change): done, committed (75fd85b on this branch, not deployed).
+Root cause confirmed against the real evidence rows (OMDBB-1020-0P00-O1 A16): a driver-added WH
+line and an M2M destination leg shared the FE's merge key (action+product+shelf), so the WH line
+was silently absorbed into the M2M card and never rendered as its own packable row, leaving Finish
+blocked with no way to resolve it. Fixed by excluding M2M lines from that merge entirely. Also added
+qty and a jump-to-card button on the Finish-blocked list, matched client-side, no RPC change.
+`tsc --noEmit` clean; not yet visually verified in a browser this session.
+
+Queue for tonight's window: R1, R3, then R5a, R5c (R2/R4 not ready; will follow in a later pass).
+
 ## Gate
 
 v12 is now live/authoritative as of 2026-09-25 12:26 Dubai. Continuing into tonight's gated window
-for R5a/R5c, then F10 in a later pass. Report will be updated again after the window.
+for R1, R3, R5a, R5c, then F10 and R2/R4 in a later pass. Report will be updated again after the
+window.
