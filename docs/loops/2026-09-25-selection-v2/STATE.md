@@ -688,3 +688,63 @@ function bug, found and fixed while re-running B6 against the new ranking. All 1
 Verified live: picker_config.picker_version still 'shadow'.
 
 STOPPING HERE again. Waiting for CS to type "GO v12" or give further HOLD feedback in this session.
+
+## R5, queued for the gated window (2026-09-25 11:11 Dubai)
+
+CS added R5 (driver-entered expiry/variant breakdown on Remove, matching WH multivariant approval)
+mid-turn, explicitly scoped to the 22:00-06:00 Dubai window. `select now() at time zone
+'Asia/Dubai'` = 11:11, well outside the window, so nothing here is applied yet. Investigated and
+drafted now so it is ready the moment the window opens, per the hard rule ("write the migration
+file, mark DEFERRED in STATE.md, and continue").
+
+Migration (DEFERRED, NOT APPLIED):
+supabase/migrations/20260925140000_loopv2_r5a_require_expiry_breakdown.sql.
+
+Investigation before writing anything, per this loop's standing discipline: R5a and R5b are NOT a
+greenfield build. Both already exist live:
+
+- driver_confirm_remove(p_dispatch_id, p_qty_removed, p_batch_breakdown jsonb, p_driver_id,
+  p_notes) already accepts a JSONB batch breakdown and stages it verbatim into
+  refill_dispatching.driver_confirmed_breakdown. It does not yet require one; that is the real gap.
+- wh_approve_remove_receipt_multivariant(p_parent_dispatch_id, p_variant_breakdown jsonb,
+  p_approved_by, p_reason) already exists: validates the variant total against
+  driver_confirmed_qty, creates one child refill_dispatching row per variant (its own
+  boonz_product_id and expiry_date), and calls receive_dispatch_line per child with a single-entry
+  batch array [{expiry, qty}].
+- receive_dispatch_line's Remove-action branch, given a batch breakdown, already does exactly what
+  R5b asks: for each {expiry, qty} entry it looks for an Active warehouse_inventory row at the
+  target warehouse with that exact boonz_product_id and expiration_date, credits it if found
+  (credit_summary mode='existing'), or INSERTs a new batch row if none exists (mode='inserted').
+  This is R5b's "WH credit must land on the batch matching the entered expiry; create the batch if
+  none exists", already live and already correct on read of the function body.
+
+So the one real gap is enforcement: driver_confirm_remove currently accepts p_batch_breakdown as
+fully optional with no rule requiring it. The drafted migration (not applied) adds: refuse to
+confirm a Remove line with no breakdown when the dispatch's own bound expiry_date is NULL or within
+7 days of today (Dubai), forcing the driver to enter what they read off the pack in exactly the
+cases R5a names. A line with a safely-distant bound expiry still confirms without a breakdown,
+unchanged from today's behaviour.
+
+Incidental finding, fixed in the same drafted migration since the function body is already being
+rewritten: driver_confirm_remove's own mutation_reason format string used a literal em dash (U+2014)
+before p_notes, predating this loop. Replaced with a plain hyphen.
+
+Syntax-verified in a rolled-back CREATE OR REPLACE (compiled cleanly, no error); not invoked against
+any real dispatch row, and not applied to the live function, since driver_confirm_remove is a
+field-app dispatch function under the loop's own gate.
+
+R5c (the ADDMIND-1007 A16 rolled-back test) not yet run: CS scoped all of R5 (a, b, c) to the
+22:00-06:00 window in the same message, so this is queued for that window alongside the real apply,
+not run early even as a read-only dry run.
+
+Remaining for the window: apply
+supabase/migrations/20260925140000_loopv2_r5a_require_expiry_breakdown.sql (capture a rollback of
+today's live driver_confirm_remove body into docs/rollbacks/ first, per the hard rule), then run
+R5c as a rolled-back transaction against the real ADDMIND-1007 A16 2026-09-25 lines (Zero Lemon 8 +
+Zero peach 1) approved as Care 8 exp 2026-12-27 + Zero peach 1 exp 2027-01-10, confirming WH batches
+credit accordingly through the already-existing wh_approve_remove_receipt_multivariant /
+receive_dispatch_line pipeline, then record the result here and in REPORT.md. No FE work is in this
+session's scope (no browser/FE tooling available in this loop); R5b's "expose an editable per-variant
+table, prefilled from the driver breakdown" is a frontend task that reads
+refill_dispatching.driver_confirmed_breakdown and calls the already-existing RPC, not a new backend
+requirement beyond what is drafted here.
