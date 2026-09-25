@@ -748,3 +748,36 @@ session's scope (no browser/FE tooling available in this loop); R5b's "expose an
 table, prefilled from the driver breakdown" is a frontend task that reads
 refill_dispatching.driver_confirmed_breakdown and calls the already-existing RPC, not a new backend
 requirement beyond what is drafted here.
+
+## GO v12 (2026-09-25 12:26 Dubai)
+
+CS typed "GO v12". `select now() at time zone 'Asia/Dubai'` = 12:26:38, well more than 30 minutes
+before the 20:00 Dubai draft cron.
+
+Cutover applied directly (picker_config is a plain data row, not a function; not subject to the
+dispatch/field-app/warehouse-confirmation gate): `UPDATE picker_config SET value='v12',
+updated_at=now() WHERE key='picker_version'`, with `app.mutation_reason` set to "GO v12 (CS
+2026-09-25 12:26 Dubai): cutover picker_version shadow -> v12 after F1-F9 HOLD fixes verified.
+by=CS via loop session" before the write. updated_by left NULL (no real auth.uid() session in this
+context; mutation_reason carries full attribution instead, consistent with every other direct write
+in this loop). Verified post-write: picker_config.value='v12'.
+
+Dry check, pick_machines_v12('2026-09-27', 8), read-only, rolled back: same 8 picks already
+reconfirmed under F7-F9 (AMZ-1029, AMZ-1038 P1; VML-1003, NOOK-1019, AMZ-1068, WPP-1002, NOVO-1023,
+USH-1008 P2). Read _build_draft_core_v3's own body to confirm the v12 branch: on p_repick, when
+picker_version='v12' it archives v11's own picks into machines_to_visit_shadow (tagged 'v11'),
+supersedes the existing 'picked' rows in machines_to_visit, then inserts v12's picks mapped to the
+v11-compatible priority_tier vocabulary (P1 to P1_RESTOCK, P2 to P2_MAINTAIN, P3 to NULL), exactly
+the behaviour already smoke-tested in B2 against a synthetic date. No live draft was triggered here;
+the real cutover takes effect at tonight's 20:00 Dubai draft cron for plan_date 2026-09-27.
+
+Rollback if needed: `UPDATE picker_config SET value='v11', updated_at=now() WHERE
+key='picker_version'` with a mutation_reason naming the regression.
+
+CS also queued, not blocking this cutover:
+
+- R5a apply + R5c test in tonight's 22:00-06:00 Dubai window (already drafted, see above).
+- F10 (next pass, not blocking): visit_value_aed must use ONE common horizon for every machine
+  (min(rhythm_days, 5)), not each machine's own rhythm_days, so a slow machine's 10-day rhythm does
+  not inflate its shortage sum relative to a fast machine's 3-day rhythm. Report the before/after
+  ranking for 2026-09-27. Not started yet; queued for the next work pass, after R5.

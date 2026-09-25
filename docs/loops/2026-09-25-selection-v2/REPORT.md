@@ -206,10 +206,36 @@ genuine 2026-09-25 cluster example to position 31 of 31. All 11 checks pass live
 CS added a third request: driver-entered expiry/variant breakdown on Remove lines
 (driver_confirm_remove p_batch_breakdown) and a matching multivariant WH returns approval
 (wh_approve_remove_receipt_multivariant), both dispatch/warehouse-confirmation functions under the
-loop's 22:00-06:00 Dubai gate. Current Dubai time is well outside that window (11:11), so this is
-being investigated and drafted now, marked DEFERRED, and applied in the gated window per the
-loop's own hard rules; see STATE.md for progress.
+loop's 22:00-06:00 Dubai gate. Investigated before writing anything: R5b is largely already live.
+wh_approve_remove_receipt_multivariant and receive_dispatch_line already implement per-variant
+expiry-to-batch matching (credit an existing warehouse_inventory batch at the entered expiry, or
+create one if none exists). The one real gap is that driver_confirm_remove does not yet require a
+breakdown when the line's bound expiry is missing or within 7 days. That fix is drafted
+(supabase/migrations/20260925140000_loopv2_r5a_require_expiry_breakdown.sql), syntax-verified in a
+rolled-back transaction, not yet applied (outside the gated window at investigation time). Applying
+it plus running R5c (the ADDMIND-1007 A16 rolled-back test) is queued for tonight's 22:00-06:00
+Dubai window, per CS's own GO v12 instruction below.
+
+## GO v12 (2026-09-25 12:26 Dubai)
+
+CS typed "GO v12". picker_config.picker_version set from 'shadow' to 'v12' at 12:26 Dubai (more
+than 30 minutes before the 20:00 Dubai draft cron), mutation_reason recorded, verified live. Dry
+check of pick_machines_v12('2026-09-27', 8) re-confirmed the same 8 picks already verified under
+F1-F9. _build_draft_core_v3's own v12 branch (archive v11's picks to machines_to_visit_shadow,
+supersede the live picks, insert v12's picks mapped to the existing priority_tier vocabulary) was
+re-read to confirm it matches the behaviour already smoke-tested in B2. No live draft was triggered;
+the real cutover takes effect at tonight's 20:00 Dubai draft cron for plan_date 2026-09-27.
+Rollback: set picker_version back to 'v11' with a mutation_reason naming the regression.
+
+Queued after the cutover, not blocking it:
+
+- R5a apply + R5c test, in tonight's 22:00-06:00 Dubai window.
+- F10 (next pass, not blocking): visit_value_aed must use one common horizon for every machine
+  (min(rhythm_days, 5)) instead of each machine's own rhythm_days, so a slow machine's 10-day
+  rhythm does not inflate its shortage sum relative to a fast machine's 3-day rhythm. Before/after
+  ranking for 2026-09-27 to be reported once this lands.
 
 ## Gate
 
-Waiting for CS to type "GO v12" or give further HOLD feedback in this session.
+v12 is now live/authoritative as of 2026-09-25 12:26 Dubai. Continuing into tonight's gated window
+for R5a/R5c, then F10 in a later pass. Report will be updated again after the window.

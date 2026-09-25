@@ -23,18 +23,29 @@ Exact changes the boonz-master-3 skill's knowledge needs to pick up from this lo
 
 ## Cutover
 
-No cutover has happened. picker_config.picker_version is still 'shadow'. Do not flip it to 'v12'
-without an explicit CS "GO v12" and the pre-cutover checklist in the loop task (dry check on the
-next plan_date, mutation_reason logged, at least 30 minutes before the 20:00 Dubai draft cron).
+CS typed "GO v12" on 2026-09-25 after F1-F9 HOLD fixes (see STATE.md/REPORT.md for the fix detail
+and the two rounds of HOLD feedback). picker_config.picker_version is now 'v12', set 2026-09-25
+12:26 Dubai, more than 30 minutes before the 20:00 Dubai draft cron. v12 is authoritative from
+tonight's draft for plan_date 2026-09-27 onward. Rollback: set picker_version back to 'v11' with a
+mutation_reason naming the regression.
 
-## Known open item on v12 before cutover
+The F1-F9 fixes changed pick_machines_v12's real behaviour from what B2 first shipped: the cap now
+governs the whole output including P1 (not just non-P1 rows); clustering reads real
+machines.building_id (seeded for named building groups) instead of a naming-convention guess and
+never applies to a machine that already independently qualifies P1/P2; donor criteria are tightened
+to a primary-warehouse pickable check, a stock floor, fleet-wide top-quartile receiver velocity, and
+a real receiver tier; expiry P1 requires WEIMI to confirm the same product on the lane with stock;
+fill<50% P1 requires real velocity and above-median revenue, else downgrades to P2; and
+visit_value_aed's sales_saved component is a real per-lane shortage sum, not a machine-level
+runway approximation.
 
-With today's real fleet (32 eligible machines), 17 independently qualify P2 under the literal
-rules, filling the cap of 8 before any cluster/donor pick is reached. The donor/cluster logic
-itself is verified correct on real data (AMZ-1068-2401-O1 and VML-1004-0500-O1 both correctly
-computed as donors with positive value once the cap allows it). Whether the cap should be larger,
-or P2's boolean gate should become a ranked signal instead of an admit/reject gate, needs a CS
-decision before cutover; do not silently change either without one.
+## Open item queued after cutover (not blocking)
+
+F10 (CS, next pass): visit_value_aed's sales_saved component uses each machine's own rhythm_days as
+its horizon, so a slow machine (10-day rhythm) sums shortage over a longer window than a fast
+machine (3-day rhythm), which can inflate its ranking relative to faster machines with a shorter
+horizon. CS asked for a single common horizon, min(rhythm_days, 5), applied to every machine, with
+a before/after ranking report for 2026-09-27. Not started; queued for the next work pass.
 
 ## G3 (validate_refill_plan)
 
