@@ -1073,8 +1073,14 @@ export default function PackingDetailPage() {
       // signal (used everywhere else in this file for the same purpose).
       const isRemove = line.dispatch_action === "Remove";
       const isMix = line.variantStocks !== null;
-      // Only merge single-variant non-remove packed lines
-      if (isRemove || isMix) {
+      // R6: an M2M line must never absorb, or be absorbed into, a non-M2M card
+      // that happens to share the same shelf+product+action. M2M legs render in
+      // their own dedicated section below (m2mByTransfer) and are a functionally
+      // different kind of line; merging them here silently hid a driver-added WH
+      // line on the same shelf as an M2M destination leg (OMDBB-1020 A16,
+      // dispatch 982f846f... absorbed into M2M card 7718d31f..., never rendered
+      // as its own packable row, Finish blocked with no way to resolve it).
+      if (isRemove || isMix || line.is_m2m) {
         mergedList.push(line);
         continue;
       }
@@ -3960,6 +3966,7 @@ export default function PackingDetailPage() {
                   return (
                     <li
                       key={line.dispatch_id}
+                      id={`pack-card-${line.dispatch_id}`}
                       className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                     >
                       {/* Primary label */}
@@ -4846,15 +4853,56 @@ export default function PackingDetailPage() {
           </p>
           {confirmBlock.unresolved.length > 0 && (
             <ul className="space-y-1">
-              {confirmBlock.unresolved.map((u, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400"
-                >
-                  <span className="font-mono">{u.shelf_code ?? "—"}</span>
-                  <span className="truncate">{u.pod_product_name ?? "—"}</span>
-                </li>
-              ))}
+              {confirmBlock.unresolved.map((u, i) => {
+                // R6: match the server's unresolved entry (shelf_code +
+                // pod_product_name) back to the on-screen card so we can show
+                // its qty and jump to it, with no change to
+                // confirm_machine_packed's own return shape.
+                const match = lines.find(
+                  (l) =>
+                    l.shelf_code === u.shelf_code &&
+                    l.pod_product_name === u.pod_product_name,
+                );
+                return (
+                  <li
+                    key={i}
+                    className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400"
+                  >
+                    <span className="font-mono">{u.shelf_code ?? "-"}</span>
+                    <span className="truncate">
+                      {u.pod_product_name ?? "-"}
+                    </span>
+                    {match && (
+                      <span className="text-amber-500">
+                        qty {match.recommended_qty}
+                      </span>
+                    )}
+                    {match && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById(
+                            `pack-card-${match.dispatch_id}`,
+                          );
+                          el?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          });
+                          el?.classList.add("ring-2", "ring-amber-500");
+                          setTimeout(
+                            () =>
+                              el?.classList.remove("ring-2", "ring-amber-500"),
+                            2000,
+                          );
+                        }}
+                        className="ml-auto rounded bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-300 dark:bg-amber-900 dark:text-amber-200"
+                      >
+                        Jump to line
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
