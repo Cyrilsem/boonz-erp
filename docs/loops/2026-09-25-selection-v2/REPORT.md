@@ -155,6 +155,61 @@ raised. B5's four acceptance checks re-verified live under the stricter rules: A
 AMZ-1046 and AMZ-1057 both genuinely grouped with AMZ-1068 in the real AMZ_B24 building (pass, now
 via a real building assignment, not a naming coincidence).
 
+## CS HOLD (second), F7-F9 fixes
+
+CS held again after reviewing the F1-F6 report, keeping picker_config.picker_version='shadow'.
+
+F7 VISIT VALUE: sales_saved_aed was computed from a machine-level average runway_days against the
+machine's rhythm, which flattened to zero whenever the average across every lane exceeded rhythm,
+even when a single high-value lane was genuinely empty. AMZ-1038-3001-O1 (228.98 AED/day, an empty
+top lane) showed visit_value_aed=0 before the fix. Checked CS's netting hypothesis directly against
+v_lane_grain and v_live_shelf_stock's own definitions: neither nets any planned or unconfirmed
+dispatch quantity into current_stock, so that was not the cause here. Fixed: sales_saved_aed is now
+summed per lane, GREATEST(0, lane_dvel * horizon_days - current_stock) * lane price, horizon_days =
+GREATEST(rhythm_days, 3). AMZ-1038 now shows 88.36 AED; AMZ-1029 (also P1) went from 47.80 to 137.09.
+
+F8 COSMETIC: cluster_role='cluster' was applying to machines that already independently qualified
+P1 or P2 on their own merits (AMZ-1029, AMZ-1038, AMZ-1046 all carried a redundant cluster tag and
+reason). Fixed: cluster_role='cluster' now only applies when the machine's own tier is not already
+P1 or P2. AMZ-1029 and AMZ-1038 no longer show the cluster tag; genuine cluster pull-ins (own tier
+P3, added because the building already qualifies) still exist and are verified working.
+
+F9 report, pick_machines_v12('2026-09-27', 8) after F7/F8, all 12 P1/P2 candidates:
+
+| Machine              | Tier | Visit value (AED) | Cut status                                                     |
+| -------------------- | ---- | ----------------- | -------------------------------------------------------------- |
+| AMZ-1029-3003-O1     | P1   | 137.09            | In (P1, never capped)                                          |
+| AMZ-1038-3001-O1     | P1   | 88.36             | In (P1, never capped)                                          |
+| VML-1003-0400-O1     | P2   | 144.48            | In (1st by P2 value)                                           |
+| NOOK-1019-0200-B1    | P2   | 144.47            | In (2nd by P2 value)                                           |
+| AMZ-1068-2401-O1     | P2   | 134.00            | In (3rd by P2 value)                                           |
+| WPP-1002-4300-O1     | P2   | 93.05             | In (4th by P2 value)                                           |
+| NOVO-1023-0000-W0    | P2   | 65.70             | In (5th by P2 value)                                           |
+| USH-1008-0000-W1     | P2   | 46.29             | In (6th by P2 value, last slot)                                |
+| OMDBB-1020-0P00-O1   | P2   | 26.80             | Out (7th, one slot short)                                      |
+| AMZ-1046-2406-O1     | P2   | 13.75             | Out (8th)                                                      |
+| ADDMIND-1007-0000-W0 | P2   | 5.27              | Out (9th)                                                      |
+| GRIT-1022-0100-W0    | P2   | 0.00              | Out (10th, real value, not a bug: CS runs it deliberately low) |
+
+2 P1 rows are never capped; the cap of 8 leaves exactly 6 P2 slots, filled by the 6 highest
+visit_value_aed candidates. OMDBB-1020-0P00-O1, the machine CS asked about directly, now scores a
+real 26.80 AED shortage value (was 6 under the old approximation) and still, correctly, misses the
+cut by one slot on real numbers, not a formula artifact.
+
+B6 tests updated with 2 more assertions (cluster tag never on an independently-qualifying P1/P2
+tier; every P1 machine above the fleet median daily revenue must show a positive visit value), and
+the existence checks moved from cap 30 to cap 100 after the F7 re-ranking pushed the loop's one
+genuine 2026-09-25 cluster example to position 31 of 31. All 11 checks pass live.
+
+## R5 (queued, gated window)
+
+CS added a third request: driver-entered expiry/variant breakdown on Remove lines
+(driver_confirm_remove p_batch_breakdown) and a matching multivariant WH returns approval
+(wh_approve_remove_receipt_multivariant), both dispatch/warehouse-confirmation functions under the
+loop's 22:00-06:00 Dubai gate. Current Dubai time is well outside that window (11:11), so this is
+being investigated and drafted now, marked DEFERRED, and applied in the gated window per the
+loop's own hard rules; see STATE.md for progress.
+
 ## Gate
 
 Waiting for CS to type "GO v12" or give further HOLD feedback in this session.

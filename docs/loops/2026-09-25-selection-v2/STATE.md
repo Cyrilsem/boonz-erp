@@ -587,3 +587,104 @@ reasons, donor count before/after, P2-qualifying count before/after, the phantom
 
 STOPPING HERE again per CS's own instruction ("Then STOP again and wait for GO v12"). Waiting for
 CS to type "GO v12" or give further HOLD feedback in this session.
+
+## CS HOLD (second, 2026-09-25 11:11 Dubai), F7-F9
+
+CS held again, keeping picker_config.picker_version='shadow', with two more defects (F7, F8) and a
+reporting request (F9), all confirmed live before fixing.
+
+Migration: supabase/migrations/20260925130000_loopv2_f7f8_pick_machines_v12_fixes.sql (tracked in
+supabase_migrations).
+Rollback: docs/rollbacks/20260925130000_loopv2_f7f8_rollback.sql (prior F1-F5 live function body,
+captured via pg_get_functiondef before this migration ran).
+
+### F7 VISIT VALUE root cause
+
+Confirmed live before writing anything. AMZ-1038-3001-O1 (daily revenue 228.98 AED, hero_runway_days
+0.77, an empty top lane) had visit_value_aed=0 for 2026-09-27 under the prior formula:
+sales_saved_aed = daily_revenue_aed * GREATEST(rhythm_days - runway_days, 0) / rhythm_days.
+AMZ-1038's own machine-level runway_days (4.2, an average across every lane on the machine) sits
+above its rhythm (3, top revenue tercile), so GREATEST(3 - 4.2, 0) = 0 regardless of how urgent the
+single empty top lane actually is. The machine-level average masks the real per-lane shortage. Same
+shape of bug for ADDMIND-1007-0000-W0 (runway_days 36.4 against rhythm 7 or 10).
+
+Checked CS's netting hypothesis directly against the schema before ruling on it, per this loop's
+standing discipline of confirming root cause against live code, not assuming: read
+pg_get_viewdef for both v_lane_grain and v_live_shelf_stock. Neither computes a "stock after
+netting planned/unconfirmed dispatch" figure anywhere; current_stock is the live WEIMI snapshot
+value with no adjustment for refill_dispatching or refill_plan_output rows at all. So same-day
+netting of the in-progress 2026-09-25 plan is not happening in this code path. Root cause is the
+machine-level runway_days formula above, not netting; recorded here rather than silently assumed
+either way.
+
+Fix: sales_saved_aed is now a per-lane sum: for each lane, GREATEST(0, lane_dvel * horizon_days -
+current_stock) * lane price_aed, summed per machine. horizon_days = GREATEST(rhythm_days, 3).
+lane_all now also carries price_aed (joined from v_live_shelf_stock on machine_id + slot_name, the
+same physical-slot grain already used for donor/receiver pricing). Since no netting exists
+anywhere upstream, stock_after_netting in the formula CS specified is simply each lane's own live
+current_stock.
+
+Verified live: AMZ-1038-3001-O1 visit_value_aed went from 0.00 to 88.36 AED for 2026-09-27.
+AMZ-1029-3003-O1 (also P1) went from 47.80 to 137.09 AED. ADDMIND-1007-0000-W0 went from 0.00 to
+5.27 AED (still low and correctly outranked, since its own shortage really is small; it never
+independently claimed a large per-lane deficit).
+
+### F8 COSMETIC root cause
+
+Confirmed live: with_cluster tagged cluster_role='cluster' (and the reasoned CTE then added the
+cluster reason) on any machine sharing a building with another tiered machine, including machines
+that already independently qualify P1 or P2 on their own merits. Confirmed on AMZ-1029, AMZ-1038
+(both P1 via their own expiry/empty-lane triggers) and AMZ-1046 (independently P2), all of which
+carried a redundant, misleading cluster tag and reason alongside their own real reasons.
+
+Fix: cluster_role='cluster' now only applies when the machine's own_tier is NOT P1 or P2 (its own
+merit is at most a P3 ride-along need, or none) AND it shares a real building_id with another
+tiered machine. Verified live for 2026-09-27: AMZ-1029 and AMZ-1038 (both P1) now show
+cluster_role=null; genuine cluster pull-ins still exist and are visible at a wider cap
+(AMZ-1057-2403-O1, MPMCC-1054-0000-M0, MINDSHARE-1009-4500-O1, VOXMCC-1005-0201-B0, all P3 own-tier
+grouped into a building where another machine already has a tier).
+
+### F9 report, pick_machines_v12('2026-09-27', 8) after F7/F8
+
+Re-running the cap-8 pick changed which 8 machines are selected, since ranking is now by the
+corrected visit_value_aed: ADDMIND-1007 (previously in the F1-F5 result at value 0.00) drops out,
+replaced by USH-1008-0000-W1 (46.29 AED, real per-lane shortage). Full P1/P2 candidate list (all 12
+machines that qualify P1 or P2 for 2026-09-27, uncapped), with tier, daily revenue, visit_value_aed,
+and cut status at the real cap of 8:
+
+- AMZ-1029-3003-O1, P1, revenue n/a (expiry-driven), visit_value 137.09. In the 8 (P1, never capped).
+- AMZ-1038-3001-O1, P1, revenue 228.98, visit_value 88.36. In the 8 (P1, never capped).
+- VML-1003-0400-O1, P2, visit_value 144.48. In the 8 (1st by P2 value).
+- NOOK-1019-0200-B1, P2, visit_value 144.47. In the 8 (2nd by P2 value).
+- AMZ-1068-2401-O1, P2, visit_value 134.00. In the 8 (3rd by P2 value).
+- WPP-1002-4300-O1, P2, visit_value 93.05. In the 8 (4th by P2 value).
+- NOVO-1023-0000-W0, P2, visit_value 65.70. In the 8 (5th by P2 value).
+- USH-1008-0000-W1, P2, visit_value 46.29. In the 8 (6th by P2 value, the last slot: 8 cap minus 2
+  P1 leaves exactly 6 P2 slots).
+- OMDBB-1020-0P00-O1, P2, revenue 84.29, visit_value 26.80. OUTSIDE the 8: 7th by P2 value, one
+  slot short. This is the machine CS specifically flagged as "misses the cut"; confirmed its real
+  shortage value (26.80 AED) is genuinely below the 6 machines that filled the P2 slots, not an
+  artifact of the old formula (which gave it a much smaller, less defensible 6 AED under the
+  pre-F7 approximation).
+- AMZ-1046-2406-O1, P2, visit_value 13.75. OUTSIDE the 8: 8th by P2 value.
+- ADDMIND-1007-0000-W0, P2, visit_value 5.27. OUTSIDE the 8: 9th by P2 value (the machine that
+  incorrectly held a slot before F7, now correctly ranked behind machines with a real shortage).
+- GRIT-1022-0100-W0, P2, visit_value 0.00. OUTSIDE the 8: 10th by P2 value (this machine's only P2
+  trigger is the F5 fill-downgrade; it has no real per-lane shortage since CS runs it deliberately
+  low, so 0.00 is the correct, not the buggy, value here).
+
+Every machine outside the 8 lost strictly on visit_value_aed rank among P2 candidates (6 P2 slots
+available, 10 P2 candidates total); none lost to a bug, all reconfirmed against their own real
+per-lane shortage and price data.
+
+B6 (supabase/tests/selection_v2.sql) updated with 2 more assertions (cluster tag never on an
+independently-qualifying P1/P2 tier for F8; every P1 machine above the fleet median daily revenue
+must show visit_value_aed > 0 for F7), alongside the existing 9. Also switched the "existence"
+checks (donor, cluster, cluster-null-building) from cap=30 to cap=100, since the F7 re-ranking
+pushed the one genuine 2026-09-25 cluster pull-in (MINDSHARE-1009-4500-O1) to position 31 of 31
+qualifying machines, one past the old cap=30 test boundary; this was a test fragility, not a
+function bug, found and fixed while re-running B6 against the new ranking. All 11 checks pass live.
+
+Verified live: picker_config.picker_version still 'shadow'.
+
+STOPPING HERE again. Waiting for CS to type "GO v12" or give further HOLD feedback in this session.
