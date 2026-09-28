@@ -1106,3 +1106,29 @@ before any commit):
 Confirmed no synthetic rows persisted (count=0 at dispatch_date=2099-06-01 after both rollbacks).
 
 Committed and pushed.
+
+### W2 R3 push_plan_to_dispatch, APPLIED
+
+Migration: supabase/migrations/20260925160000_loopv2_r3_plain_remove_lot_flavour_match.sql
+Rollback: docs/rollbacks/20260928221500_loopv2_r3_rollback.sql (captured live via pg_get_functiondef
+immediately before applying; the R3 migration file is itself a full CREATE OR REPLACE, so the
+rollback was built by reverting just the one lookup block and rpc_version tag back to the pre-R3
+shape, avoiding hand-transcription of the escaped pg_get_functiondef text).
+
+Applied as drafted (see the R3 section above for the fix description: adds the same
+boonz_product_id filter A4 already applies on the M2M leg to the plain non-M2M Remove/Machine To
+Warehouse leg's lot lookup). Verified live: rpc_version now
+'v22_loopv2_r3_plain_remove_lot_flavour_match'.
+
+Smoke test, in a rolled-back transaction (set app.via_rpc/app.mutation_reason/app.rpc_name before
+any direct write, per the hard rule): seeded two synthetic pod_inventory rows on the real
+ADDMIND-1007-0000-W0 A16 shelf, Zero Lemon (expiry 2030-01-01) and Antioxidant (expiry
+2026-09-27, i.e. the EARLIER expiry, reproducing the exact shape that triggered the original bug),
+plus a synthetic approved refill_plan_output Remove line for Zero Lemon qty 2, plan_date
+2099-06-03. Called push_plan_to_dispatch('2099-06-03', 'ADDMIND-1007-0000-W0'): the resulting
+refill_dispatching Remove line bound to pod_lot_id 87dcb661-... with expiry_date=2030-01-01 (Zero
+Lemon's own lot), not Antioxidant's 2026-09-27 lot the pre-fix unfiltered query would have picked.
+Confirmed no rows persisted in refill_dispatching, refill_plan_output, or pod_inventory at the
+synthetic date after rollback.
+
+Committed and pushed.
