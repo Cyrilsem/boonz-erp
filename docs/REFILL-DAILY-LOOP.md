@@ -27,3 +27,10 @@ to close a machine. Restore venue lines.
 **Once a week, Sunday.** Read `v_pod_weimi_drift` for the fleet, read the substitution rules
 table, add or retire rules. Read `refill_directives` (active blocks) and retire anything that's
 stopped being true (a product is back in stock, a machine is no longer paused). Ten minutes.
+
+**Final mandatory step, every loop.** Parity check: every migration applied to prod this run is
+on main before the run is called done. A migration applied directly against prod (via the
+Supabase MCP or otherwise) and never landed as a file on main is not finished work, it is drift
+waiting to bite the next person who reads the repo instead of the database. Confirm each one
+against `pg_get_functiondef` (or the equivalent for the object touched) before checking this off,
+not just that a file with the right name exists.
