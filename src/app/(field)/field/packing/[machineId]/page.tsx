@@ -113,6 +113,9 @@ interface PackLine {
   m2m_transfer_id: string | null;
   /** Bidirectional link to the partner dispatch line */
   m2m_partner_id: string | null;
+  /** Raw source_kind from refill_dispatching. 'venue' = vox_at_venue supply,
+   *  never warehouse-pinned by design (loop 2026-09-25/28 W5). */
+  source_kind: string | null;
 }
 
 interface MachineInfo {
@@ -551,6 +554,7 @@ export default function PackingDetailPage() {
         expiry_date,
         expiry_warning,
         from_warehouse_id,
+        source_kind,
         action,
         comment,
         original_boonz_product_id,
@@ -974,9 +978,34 @@ export default function PackingDetailPage() {
       }
 
       const isRemoveLine = (line.quantity ?? 0) === 0;
+      // W5 (loop 2026-09-25/28): a venue-supplied line is never WH-pinned by
+      // design (see push_plan_to_dispatch's v_pin_eligible / R3+W4 investigation) —
+      // batchMap only ever holds REAL warehouse_inventory rows, so a venue line
+      // always got an EMPTY singleBatches array here. That emptiness then had two
+      // effects downstream: fillBatches() never allocated the planned qty into
+      // batchPickQtys (silently defaulting to 0), and the save loop's per-batch
+      // pick-building saw zero picks and called pack_dispatch_line with qty=0,
+      // auto-stamping pack_outcome='not_filled' with no visibility to the packer.
+      // Fix: synthesize one always-available "take at site" batch row instead, so
+      // the line renders the normal editable Pick Qty input defaulted to the
+      // planned quantity. Its wh_inventory_id is never a real warehouse_inventory
+      // row — pack_dispatch_line's own v2 VOX GUARD (source_origin='vox_at_venue')
+      // already discards whatever wh_inventory_id a positive-qty pick carries and
+      // resolves the real 2099-12-31 venue placeholder batch itself.
+      const isVenueSource =
+        ((line as Record<string, unknown>).source_kind as string | null) ===
+        "venue";
       const singleBatches =
         !isMix && !isRemoveLine
-          ? (batchMap.get(line.boonz_product_id ?? "") ?? [])
+          ? isVenueSource
+            ? [
+                {
+                  wh_inventory_id: `venue-${line.dispatch_id}`,
+                  expiry: (line.expiry_date as string | null) ?? null,
+                  stock: line.quantity ?? 0,
+                },
+              ]
+            : (batchMap.get(line.boonz_product_id ?? "") ?? [])
           : null;
 
       return {
@@ -1051,6 +1080,9 @@ export default function PackingDetailPage() {
         m2m_partner_id:
           ((line as Record<string, unknown>).m2m_partner_id as string | null) ??
           null,
+        source_kind:
+          ((line as Record<string, unknown>).source_kind as string | null) ??
+          null,
       };
     });
 
@@ -1073,8 +1105,14 @@ export default function PackingDetailPage() {
       // signal (used everywhere else in this file for the same purpose).
       const isRemove = line.dispatch_action === "Remove";
       const isMix = line.variantStocks !== null;
-      // Only merge single-variant non-remove packed lines
-      if (isRemove || isMix) {
+      // R6: an M2M line must never absorb, or be absorbed into, a non-M2M card
+      // that happens to share the same shelf+product+action. M2M legs render in
+      // their own dedicated section below (m2mByTransfer) and are a functionally
+      // different kind of line; merging them here silently hid a driver-added WH
+      // line on the same shelf as an M2M destination leg (OMDBB-1020 A16,
+      // dispatch 982f846f... absorbed into M2M card 7718d31f..., never rendered
+      // as its own packable row, Finish blocked with no way to resolve it).
+      if (isRemove || isMix || line.is_m2m) {
         mergedList.push(line);
         continue;
       }
@@ -1767,6 +1805,17 @@ export default function PackingDetailPage() {
             rpcErr.message,
           );
           warnings.push(`${line.pod_product_name}: ${rpcErr.message}`);
+          continue;
+        }
+        // W5: pack_dispatch_line's vox guard returns a normal (non-error) jsonb
+        // result with status='bind_failed' when a venue line has no matching
+        // 2099 placeholder warehouse_inventory row for its product — this must
+        // surface to the packer, not disappear (the whole point of this fix is
+        // that a venue line never silently resolves to 0/not_filled).
+        if ((rpcData as { status?: string } | null)?.status === "bind_failed") {
+          warnings.push(
+            `${line.pod_product_name}: no venue placeholder stock row set up for this product yet — ask WH to create it, then re-pack`,
+          );
           continue;
         }
         console.log(`[B3.1] Packed via RPC: ${line.pod_product_name}`, rpcData);
@@ -3960,6 +4009,7 @@ export default function PackingDetailPage() {
                   return (
                     <li
                       key={line.dispatch_id}
+                      id={`pack-card-${line.dispatch_id}`}
                       className={`rounded-lg border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950 ${borderClass}`}
                     >
                       {/* Primary label */}
@@ -4499,15 +4549,23 @@ export default function PackingDetailPage() {
                                   b.wh_inventory_id,
                                 );
                                 const oversub = pickQty > batchAvailable;
-                                const days = b.expiry
-                                  ? Math.ceil(
-                                      (new Date(
-                                        b.expiry + "T00:00:00",
-                                      ).getTime() -
-                                        Date.now()) /
-                                        86400000,
-                                    )
-                                  : null;
+                                // W5: a venue batch's expiry is a fictitious
+                                // 2099-12-31 placeholder once packed (the real
+                                // 2099 placeholder row pack_dispatch_line's vox
+                                // guard resolves to) — an "age" against it is
+                                // meaningless, so suppress it for this row.
+                                const isVenueBatch =
+                                  line.source_kind === "venue";
+                                const days =
+                                  b.expiry && !isVenueBatch
+                                    ? Math.ceil(
+                                        (new Date(
+                                          b.expiry + "T00:00:00",
+                                        ).getTime() -
+                                          Date.now()) /
+                                          86400000,
+                                      )
+                                    : null;
                                 const urgencyColor =
                                   days === null
                                     ? "text-neutral-600 dark:text-neutral-300"
@@ -4525,9 +4583,11 @@ export default function PackingDetailPage() {
                                       <span
                                         className={`font-mono text-xs ${urgencyColor}`}
                                       >
-                                        {b.expiry
-                                          ? formatExpiry(b.expiry)
-                                          : "—"}
+                                        {isVenueBatch
+                                          ? "Venue"
+                                          : b.expiry
+                                            ? formatExpiry(b.expiry)
+                                            : "—"}
                                       </span>
                                       <span
                                         className="truncate text-[10px] text-neutral-500 dark:text-neutral-400"
@@ -4545,7 +4605,9 @@ export default function PackingDetailPage() {
                                       </span>
                                     </div>
                                     <span className="text-xs text-neutral-600 dark:text-neutral-400">
-                                      {b.stock}u
+                                      {isVenueBatch
+                                        ? "take at site"
+                                        : `${b.stock}u`}
                                     </span>
                                     <div className="flex flex-col items-center gap-0.5">
                                       <input
@@ -4846,15 +4908,56 @@ export default function PackingDetailPage() {
           </p>
           {confirmBlock.unresolved.length > 0 && (
             <ul className="space-y-1">
-              {confirmBlock.unresolved.map((u, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400"
-                >
-                  <span className="font-mono">{u.shelf_code ?? "—"}</span>
-                  <span className="truncate">{u.pod_product_name ?? "—"}</span>
-                </li>
-              ))}
+              {confirmBlock.unresolved.map((u, i) => {
+                // R6: match the server's unresolved entry (shelf_code +
+                // pod_product_name) back to the on-screen card so we can show
+                // its qty and jump to it, with no change to
+                // confirm_machine_packed's own return shape.
+                const match = lines.find(
+                  (l) =>
+                    l.shelf_code === u.shelf_code &&
+                    l.pod_product_name === u.pod_product_name,
+                );
+                return (
+                  <li
+                    key={i}
+                    className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400"
+                  >
+                    <span className="font-mono">{u.shelf_code ?? "-"}</span>
+                    <span className="truncate">
+                      {u.pod_product_name ?? "-"}
+                    </span>
+                    {match && (
+                      <span className="text-amber-500">
+                        qty {match.recommended_qty}
+                      </span>
+                    )}
+                    {match && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById(
+                            `pack-card-${match.dispatch_id}`,
+                          );
+                          el?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          });
+                          el?.classList.add("ring-2", "ring-amber-500");
+                          setTimeout(
+                            () =>
+                              el?.classList.remove("ring-2", "ring-amber-500"),
+                            2000,
+                          );
+                        }}
+                        className="ml-auto rounded bg-amber-200 px-2 py-0.5 text-xs font-medium text-amber-900 hover:bg-amber-300 dark:bg-amber-900 dark:text-amber-200"
+                      >
+                        Jump to line
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
