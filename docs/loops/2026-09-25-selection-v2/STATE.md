@@ -1063,3 +1063,46 @@ re-verify this quickly before applying, per the hard rule.
 Ready to apply, in order: R1, R3, W4 (after R3), R5a, R5c. W5 (FE, packing screen venue lines) and
 W6 (R7, add_intra_machine_move fix) are window tasks not yet drafted; will be investigated and
 applied in the window per CS's own task list. R2 and F10 remain explicitly out of scope.
+
+## 2026-09-28 night window (CS ONE LOOP, tonight)
+
+Window confirmed open at dubai_now 22:02:12 before doing anything. Branch confirmed
+loop/selection-v2-2026-09-25, working tree clean.
+
+### W1 R1 insert_driver_remove_line, APPLIED
+
+Migration: supabase/migrations/20260925150000_loopv2_r1_variant_split_parent_fix.sql
+Rollback: docs/rollbacks/20260928220000_loopv2_r1_rollback.sql
+
+Re-queried the named ADDMIND-1007-0000-W0 A16 evidence rows first, since real days had passed
+since plan_date 2026-09-25: all three lines (Zero Lemon qty 8, Zero peach qty 1, Antioxidant qty 0)
+now show driver_confirmed_at set (Zero peach and Zero Lemon also wh_approved_at set, dispatched).
+The evidence moved on -- the driver worked around the original bug by confirming each line
+individually rather than splitting -- so the real rows can no longer exercise
+insert_driver_remove_line (which only selects against un-superseded, non-cancelled, include=true
+Remove lines on the current plan_date; these are historical and already resolved). Per the CS
+instruction, adapted to a synthetic rolled-back scenario instead.
+
+Applied the migration as drafted (see the R1 section above for the fix description). Verified live
+via pg_get_functiondef that the new p_dispatch_date param and sibling-summing logic are in the
+deployed body.
+
+Smoke tests, both in rolled-back transactions (impersonated a real field_staff user via
+request.jwt.claim.sub, since insert_driver_remove_line requires an authorized role; rolled back
+before any commit):
+
+1. Synthetic siblings on the real ADDMIND-1007-0000-W0 A16 shelf/pod, synthetic dispatch_date
+   2099-06-01 (Zero Lemon qty 8, Zero peach qty 1, Antioxidant qty 0, mirroring the original
+   evidence shape): requested a Care split of 8. Succeeded; drew the full 8 from Zero Lemon (the
+   largest sibling) leaving Zero peach untouched, exactly one refill_dispatching_edit_log row
+   (edit_kind='variant_split', before quantity=8, after quantity=0). Matches CS's own acceptance
+   evidence (Zero Lemon to 0, Zero peach stays 1, new Care line = 8).
+2. Same synthetic siblings, requested a Care split of 10 (total sibling remaining is only 9):
+   failed with "insert_driver_remove_line: only 9 units remaining across the planned Remove lines
+   on this shelf, cannot absorb a 10 unit split. Planned: Vitamin Well - Zero Lemon: 8 remaining;
+   Vitamin well - Zero peach: 1 remaining; Vitamin Well - Antioxidant: 0 remaining;" -- lists every
+   eligible sibling by name and remaining qty, as designed.
+
+Confirmed no synthetic rows persisted (count=0 at dispatch_date=2099-06-01 after both rollbacks).
+
+Committed and pushed.
