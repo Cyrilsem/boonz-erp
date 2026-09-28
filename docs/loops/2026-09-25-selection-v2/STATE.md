@@ -1218,3 +1218,75 @@ Confirmed no synthetic rows persisted (refill_plan_output and the synthetic moni
 both 0 at the synthetic plan_date after rollback).
 
 Committed and pushed.
+
+### W5 Pack screen venue lines, FE FIXED (no backend migration needed)
+
+File: src/app/(field)/field/packing/[machineId]/page.tsx. No pack_dispatch_line change (confirmed
+not needed, see below). Committed to loop/selection-v2-2026-09-25, NOT deployed.
+
+Root cause confirmed against live code before writing anything, in three layers:
+
+1. v_dispatch_availability (the availability view backing v_dispatch_pickable) ALREADY handles
+   vox_at_venue correctly: available_qty = the full planned quantity (not clamped to WH stock),
+   pack_status='ready', oversubscribed=false. Not a backend bug.
+2. pack_dispatch_line ALREADY has a "v2 VOX GUARD": for any dispatch with source_origin=
+   'vox_at_venue', it discards whatever wh_inventory_id a positive-qty pick carries and resolves
+   the real 2099-12-31 venue placeholder warehouse_inventory row for that product itself (or
+   returns status='bind_failed'/'no_venue_placeholder' if none exists yet). Not a backend bug
+   either -- confirmed this exists and works via a rolled-back live call (below).
+3. The actual bug is purely FE: the packing screen's `singleBatches` (the per-batch FIFO list
+   driving both the init-time pick defaulting and the save-time picks array) is built from
+   `batchMap`, which only ever holds REAL warehouse_inventory rows queried by boonz_product_id.
+   For a venue line whose product has zero real WH stock (the exact incident condition), this is
+   an EMPTY array. That emptiness silently defaulted batchPickQtys to nothing at page load (never
+   the planned qty) and, at save time, iterating an empty singleBatches array produced zero picks,
+   which the existing "B3.1 zero-pick" branch correctly-per-its-own-logic reads as "packer
+   intentionally packed 0" and calls pack_dispatch_line with qty=0 -- auto-stamping
+   pack_outcome='not_filled' with no error, no warning, and no interactive input ever shown for
+   the packer to act on. This IS the "packing not showing to the team" incident mechanism named in
+   CS's own context note.
+
+Fix: added `source_kind` to the refill_dispatching select and to PackLine. For a line with
+source_kind='venue', singleBatches is no longer sourced from batchMap at all; instead it
+synthesizes exactly one always-available "take at site" batch row (wh_inventory_id = a fake
+`venue-<dispatch_id>` string, stock = the planned quantity, expiry = the line's own expiry_date so
+a re-opened already-packed line still matches its saved pick on edit). This flows through every
+existing downstream mechanism unchanged (fillBatches defaults the Pick Qty input to the full
+planned quantity; batchPlanCap/setGroupedPick cap at the plan, not WH stock; the save loop builds
+a real nonzero pick). The synthetic wh_inventory_id is never sent to a real warehouse table lookup
+directly -- pack_dispatch_line's own v2 VOX GUARD (point 2 above) already replaces it before any
+real lookup happens, for any dispatch with source_origin='vox_at_venue'. Render: the batch row's
+Expiry/In Stock columns read "Venue" / "take at site" instead of a real date/stock number for this
+row (never a numeric 0 that could read as "no stock"); the fictitious 2099-12-31 age computation is
+suppressed. Also added: a `status==='bind_failed'` check right after the pack_dispatch_line RPC
+call, surfacing the (until now completely unsurfaced) no_venue_placeholder response as a visible
+warning instead of silently looking like a no-op success -- the same "must never disappear with no
+visibility" requirement this whole fix is about, in the exact code path already being touched.
+
+pack_dispatch_line was NOT touched: its v2 VOX GUARD already does everything needed; confirmed by
+reading its body live before writing anything, and confirmed working end to end in rolled-back
+tests below.
+
+Smoke tests, in rolled-back transactions, simulating exactly what the fixed FE now sends
+(a positive-qty pick with a synthetic non-UUID-shaped wh_inventory_id):
+
+1. Synthetic vox_at_venue Refill line, VOXDFC-1001-0100-V0, Snickers - Regular, qty 4. Called
+   pack_dispatch_line with pick [{wh_inventory_id: "venue-<id>", qty: 4, boonz_product_id:
+   Snickers}]. Result: packed=true, filled_quantity=4 (the FULL planned qty, not 0),
+   pack_outcome='packed' (not 'not_filled'), expiry_date=2099-12-31, from_wh_inventory_id resolved
+   to the REAL Snickers venue placeholder row at WH_MM (51f3e914-...).
+2. Same shape, M&M Bag - Yellow Bag, qty 3 (a product feared to have no placeholder row from the
+   earlier W4 gap check): also resolved cleanly to a real placeholder
+   (batch_id VOXSOURCE-WH_MM-MMYELLOWBAG-999) -- turned out a placeholder DOES exist for this
+   product at a warehouse not seen in an earlier limited query, so this ended up proving the happy
+   path a second time rather than the bind_failed path. The bind_failed branch itself was verified
+   by reading pack_dispatch_line's live body directly (not empirically triggered), and the FE's new
+   handling of that status was written from that same reading.
+
+Confirmed no synthetic rows persisted after rollback. npx tsc --noEmit and npm run build both
+clean; npm run lint shows zero new issues in this file (the one pre-existing warning at line 1477,
+`fetchData()` inside a bare useEffect, predates this change and is the standard page-load-fetch
+pattern used throughout this codebase).
+
+Not deployed -- FE change lives only on loop/selection-v2-2026-09-25, per the hard rule. CS decides
+when to deploy (see FINAL GATE below).
