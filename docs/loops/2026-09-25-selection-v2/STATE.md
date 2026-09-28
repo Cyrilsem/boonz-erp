@@ -1183,3 +1183,38 @@ Confirmed no synthetic rows persisted after rollback (one leftover row found at 
 date was verified to be unrelated real production data - different boonz_product_id, batch_id
 WM-CONFIRM-..., created 2026-09-23, pure date coincidence). Recorded here, no commit needed (no
 files changed beyond this STATE.md entry, folded into the same commit as W3 R5a).
+
+### W4 Venue binding guard, APPLIED
+
+Migration: supabase/migrations/20260928200000_loopv2_w4_venue_binding_guard.sql
+Rollback: docs/rollbacks/20260928223500_loopv2_w4_rollback.sql (restores push_plan_to_dispatch to
+its post-R3 body; does not roll back part (a), which is additive-only per its own header note).
+
+Re-verified the patch anchor before applying: `position(old_anchor in pg_get_functiondef(...))` on
+the live post-R3 push_plan_to_dispatch body returned 23509 (nonzero), confirming R3 did not disturb
+the pin-eligible/plain-INSERT section this patch targets, exactly as predicted when R3 was drafted.
+
+Applied both parts together (part (a) is unrestricted timing but bundled per CS's own instruction;
+part (b) required the window). Verified live: check_venue_binding_gaps() exists,
+check_venue_binding_gaps_nightly registered in cron.job at '30 20 * * *'; push_plan_to_dispatch's
+body now contains 'vox_at_venue_no_wh_pin' (position 23686, nonzero).
+
+Smoke tests:
+
+1. Called check_venue_binding_gaps() live (read-only check plus its own intended alert write, not
+   rolled back since this IS the real monitoring function, matching the D4 daytime verification
+   pattern): found 57 gap rows across LVLUP-1048-0000-P0, LVLUP-2015-0000-R0, LVLUP-1018-0000-G0,
+   and VOXDFC-1001-0100-V0 -- consistent with the D4 daytime finding (same 4 machines), confirming
+   the check still correctly detects this class of gap after R3/R5a were applied earlier tonight.
+2. Part (b), rolled-back transaction: seeded a synthetic vox_at_venue Refill line for VOXDFC-1001-
+   0100-V0 (M&M Bag - Yellow Bag, shelf B01, chosen because it has no weimi_aisle_snapshots row for
+   this machine so assert_weimi_slot_match's guard does not block it; pod_product_id supplied
+   directly since no pod_products row matches "M&M Bag" by name). Called push_plan_to_dispatch:
+   monitoring_alerts gained exactly one 'vox_at_venue_no_wh_pin' row, severity 'info', title "VOX
+   at-venue line, no WH-side stock pin: M&M Bag - Yellow Bag @ VOXDFC-1001-0100-V0", matching the
+   patch's design exactly.
+
+Confirmed no synthetic rows persisted (refill_plan_output and the synthetic monitoring_alerts row
+both 0 at the synthetic plan_date after rollback).
+
+Committed and pushed.
