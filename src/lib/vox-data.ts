@@ -77,6 +77,15 @@ export interface VoxSiteSummary {
   units: number;
   captured: number;
 }
+export interface VoxBySiteSummary extends VoxSiteSummary {
+  site: string;
+}
+// Dropdown source: one row per active site in the vox_sites registry.
+export interface VoxSite {
+  site: string;
+  sort_order: number;
+  active_machines: number;
+}
 export interface VoxSummary {
   total_sales: number;
   total_txns: number;
@@ -100,8 +109,11 @@ export interface VoxSummary {
   disc_count: number;
   adyen_txn_count: number;
   total_paid: number;
+  // Legacy two-site keys, kept for compatibility; no longer read by the FE.
   mercato: VoxSiteSummary;
   mirdif: VoxSiteSummary;
+  // One entry per site in the registry, whatever the count. Read this instead.
+  by_site?: VoxBySiteSummary[];
 }
 export interface VoxMeta {
   generated_at: string;
@@ -126,23 +138,25 @@ export interface VoxConsumerReport {
   meta: VoxMeta;
 }
 
-// Pod buckets are derived in the RPC from machines.venue_group='VOX' + pod_location.
-// The FE keeps colour + label only; machine list is no longer hardcoded here.
-export const VOX_PODS: Record<
-  string,
-  { color: string; label: string; inception: string }
-> = {
-  Mercato: {
-    color: "#3B82F6",
-    label: "Mercato Mall",
-    inception: "06 Feb 2026",
-  },
-  Mirdif: {
-    color: "#10B981",
-    label: "Mirdif City Centre",
-    inception: "19 Mar 2026",
-  },
-};
+// Sites are data now (the vox_sites registry, loaded via get_vox_sites()), not a fixed
+// two-entry map. Colour is assigned by position in the site list, not by name, so a new
+// site opened in vox_sites gets a colour with no FE code change.
+const SITE_COLOR_PALETTE = [
+  "#3B82F6", // was Mercato's fixed colour
+  "#10B981", // was Mirdif's fixed colour
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+  "#F97316",
+];
+export function siteColor(site: string, sites: VoxSite[]): string {
+  const idx = sites.findIndex((s) => s.site === site);
+  return idx >= 0
+    ? SITE_COLOR_PALETTE[idx % SITE_COLOR_PALETTE.length]
+    : "#555";
+}
 // Machine display label = first two segments of the official_name.
 // VOXMM-1009-0100-V0 → VOXMM-1009, ACTIVATE-2005-0000-W0 → ACTIVATE-2005, etc.
 // Drops the trailing pod-slot/serial segments so the label stays compact and consistent.
@@ -276,37 +290,39 @@ export interface VoxCommercialReport {
 }
 
 export async function fetchVoxCommercialReport(
-  pods: string[] = ["Mercato", "Mirdif"],
+  // null = every active site in the vox_sites registry (resolved server-side).
+  pods: string[] | null = null,
   dateFrom: string = "2026-02-06",
   dateTo: string = new Date().toISOString().split("T")[0],
   includeTransactions: boolean = true,
 ): Promise<VoxCommercialReport> {
   const params = new URLSearchParams({
-    pods: pods.join(","),
     date_from: dateFrom,
     date_to: dateTo,
     // PRD-023j: cards/waterfall fetch with include_transactions=false is ~1 KB and never
     // cold-start 504s on wide windows; the transaction table fills via a second call.
     include_transactions: String(includeTransactions),
   });
+  if (pods) params.set("pods", pods.join(","));
   const res = await fetch(`/api/vox/commercial?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch commercial: ${res.status}`);
   return res.json();
 }
 
 export async function fetchVoxConsumerReport(
-  pods: string[] = ["Mercato", "Mirdif"],
+  // null = every active site in the vox_sites registry (resolved server-side).
+  pods: string[] | null = null,
   consolidated: boolean = true,
   dateFrom: string = "2026-02-06",
   dateTo: string = new Date().toISOString().split("T")[0],
   machine: string | null = null, // AC3: machine_id to scope to, or null for all
 ): Promise<VoxConsumerReport> {
   const params = new URLSearchParams({
-    pods: pods.join(","),
     consolidated: String(consolidated),
     date_from: dateFrom,
     date_to: dateTo,
   });
+  if (pods) params.set("pods", pods.join(","));
   if (machine) params.set("machine", machine);
   const res = await fetch(`/api/vox/consumers?${params}`);
   if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);

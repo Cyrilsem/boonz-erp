@@ -9,11 +9,15 @@ export const revalidate = 300;
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const podsParam = searchParams.get("pods") || "Mercato,Mirdif";
+    // No pods param = every active site in the vox_sites registry (p_pods NULL,
+    // resolved server-side). Never hardcode site names here.
+    const podsParam = searchParams.get("pods");
     const pods = podsParam
-      .split(",")
-      .map((p) => p.trim())
-      .filter(Boolean);
+      ? podsParam
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean)
+      : null;
     const dateFrom = searchParams.get("date_from") || "2026-02-06";
     const dateTo =
       searchParams.get("date_to") || new Date().toISOString().slice(0, 10);

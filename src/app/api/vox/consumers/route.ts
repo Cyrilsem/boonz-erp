@@ -11,12 +11,14 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
     const { searchParams } = new URL(request.url);
-    const podsParam = searchParams.get("pods") || "Mercato,Mirdif";
+    // No pods param = every active site in the vox_sites registry (p_pods NULL,
+    // resolved server-side). Never hardcode site names here.
+    const podsParam = searchParams.get("pods");
     const consolidated = searchParams.get("consolidated") !== "false";
     const dateFrom = searchParams.get("date_from") || "2026-02-06";
     const dateTo =
       searchParams.get("date_to") || new Date().toISOString().split("T")[0];
-    const pods = podsParam.split(",").filter(Boolean);
+    const pods = podsParam ? podsParam.split(",").filter(Boolean) : null;
     const machine = searchParams.get("machine"); // AC3: machine_id scope, null = all
 
     const { data, error } = await supabase.rpc("get_vox_consumer_report", {

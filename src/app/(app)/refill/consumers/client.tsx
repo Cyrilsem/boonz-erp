@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import {
   type VoxConsumerReport,
   type VoxCommercialReport,
-  VOX_PODS,
+  type VoxSite,
+  siteColor,
   MACHINE_LABELS,
   shortMachine,
   WALLET_NAMES,
@@ -54,6 +55,95 @@ function useChart(
       }
     };
   }, deps);
+}
+
+// One instance per site (see the "sites" tab). Each gets its own ref/chart instance,
+// which is what actually makes an arbitrary number of sites work: a single shared pair
+// of refs (as this used to be, one for Mercato and one for Mirdif) can only ever chart
+// two sites no matter how the data is filtered.
+function VoxSiteTrendCard({
+  site,
+  color,
+  dailyPoints,
+  machines,
+  cjs,
+}: {
+  site: string;
+  color: string;
+  dailyPoints: { date: string; amount: number }[];
+  machines: { machine: string; amount: number }[];
+  cjs: boolean;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const total = machines.reduce((a, m) => a + m.amount, 0);
+  const sorted = [...dailyPoints].sort((a, b) => a.date.localeCompare(b.date));
+  useChart(
+    ref,
+    cjs
+      ? {
+          type: "line",
+          data: {
+            labels: sorted.map((d) => d.date.slice(5)),
+            datasets: [
+              {
+                data: sorted.map((d) => d.amount),
+                borderColor: color,
+                backgroundColor: `${color}1a`,
+                fill: true,
+                tension: 0.3,
+                pointRadius: 3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: PLUG,
+            scales: {
+              x: { grid: { color: GRID } },
+              y: { grid: { color: GRID }, beginAtZero: true },
+            },
+          },
+        }
+      : null,
+    [cjs, dailyPoints, color],
+  );
+  return (
+    <div className="cd" style={{ display: "flex", flexDirection: "column" }}>
+      <h3>{site} - Performance</h3>
+      <div style={{ marginBottom: 16 }}>
+        <div className="sl" style={{ marginBottom: 10 }}>
+          Daily trend
+        </div>
+        <div className="cw" style={{ height: 140 }}>
+          <canvas ref={ref} />
+        </div>
+      </div>
+      <div style={{ marginTop: "auto" }}>
+        <div className="sl" style={{ marginBottom: 8 }}>
+          Machine Breakdown
+        </div>
+        {machines.map((m) => (
+          <div key={m.machine} className="pr">
+            <span className="pl">
+              {MACHINE_LABELS[m.machine] || shortMachine(m.machine)}
+            </span>
+            <div className="pb">
+              <div
+                className="pf"
+                style={{
+                  width: `${total > 0 ? (m.amount / total) * 100 : 0}%`,
+                  background: color,
+                }}
+              />
+            </div>
+            <span className="pv">{aed(m.amount)}</span>
+            <span className="pp">{pct(m.amount, total)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 const CSS = `@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
@@ -107,7 +197,13 @@ export default function ConsumerDashboardClient({
   hideInternalLinks = false,
 }: Props) {
   const [cjs, setCjs] = useState(false);
-  const [pods, setPods] = useState<string[]>(["Mercato", "Mirdif"]);
+  // Sites come from the vox_sites registry (get_vox_sites RPC), never hardcoded.
+  // pods holds the resolved site names for local rendering; isAllSites tracks whether
+  // the user picked "All sites" specifically, so fetches can pass p_pods: null (the
+  // backend's own "every active registry site" resolution) instead of a frozen list.
+  const [sites, setSites] = useState<VoxSite[]>([]);
+  const [pods, setPods] = useState<string[]>([]);
+  const [isAllSites, setIsAllSites] = useState(true);
   const [vm, setVm] = useState<"consolidated" | "by-machine">("consolidated");
   const [tab, setTab] = useState("overview");
   const [D, setD] = useState<VoxConsumerReport | null>(null);
@@ -163,6 +259,28 @@ export default function ConsumerDashboardClient({
         .eq("id", user.id)
         .maybeSingle();
       if (active) setUserRole((profile?.role as string) ?? null);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Dropdown source: whatever sites are active in the vox_sites registry today.
+  // Default is All sites (isAllSites=true); pods is kept resolved to the real names
+  // so per-site UI can iterate over it without waiting on a second round-trip.
+  useEffect(() => {
+    const supabase = createClient();
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase.rpc("get_vox_sites");
+      if (!active) return;
+      if (error) {
+        console.error("get_vox_sites RPC error:", error);
+        return;
+      }
+      const list = (data ?? []) as VoxSite[];
+      setSites(list);
+      setPods(list.map((s) => s.site));
     })();
     return () => {
       active = false;
@@ -260,14 +378,17 @@ export default function ConsumerDashboardClient({
       setCrOpen(false);
       // Refresh transactions to reflect new captured / closed disc state.
       // Refresh consumer always; refresh commercial too if it's loaded.
+      const podsArg = isAllSites ? null : pods;
       const refreshes: Promise<void>[] = [
-        fetchVoxConsumerReport(pods, isC, dateFrom, dateTo).then((d) =>
+        fetchVoxConsumerReport(podsArg, isC, dateFrom, dateTo).then((d) =>
           setD(d),
         ),
       ];
       if (tab === "commercial" || C !== null) {
         refreshes.push(
-          fetchVoxCommercialReport(pods, dateFrom, dateTo).then((c) => setC(c)),
+          fetchVoxCommercialReport(podsArg, dateFrom, dateTo).then((c) =>
+            setC(c),
+          ),
         );
       }
       await Promise.all(refreshes);
@@ -283,6 +404,7 @@ export default function ConsumerDashboardClient({
     crCollector,
     crTender,
     pods,
+    isAllSites,
     isC,
     dateFrom,
     dateTo,
@@ -302,8 +424,6 @@ export default function ConsumerDashboardClient({
     dowR = useRef<HTMLCanvasElement>(null),
     hourlyR = useRef<HTMLCanvasElement>(null),
     splitR = useRef<HTMLCanvasElement>(null);
-  const mdR = useRef<HTMLCanvasElement>(null),
-    miR = useRef<HTMLCanvasElement>(null);
   const bubR = useRef<HTMLCanvasElement>(null),
     pbR = useRef<HTMLCanvasElement>(null);
   const fuR = useRef<HTMLCanvasElement>(null),
@@ -315,11 +435,14 @@ export default function ConsumerDashboardClient({
     brR = useRef<HTMLCanvasElement>(null);
 
   const load = useCallback(async () => {
+    // Wait for the site registry to load first; an empty pods here would mean
+    // "no sites", not "not loaded yet".
+    if (pods.length === 0) return;
     setLoading(true);
     setErr(null);
     try {
       const d = await fetchVoxConsumerReport(
-        pods,
+        isAllSites ? null : pods,
         isC,
         dateFrom,
         dateTo,
@@ -358,19 +481,22 @@ export default function ConsumerDashboardClient({
     } finally {
       setLoading(false);
     }
-  }, [pods, vm, dateFrom, dateTo, selectedMachine]);
+  }, [pods, isAllSites, vm, dateFrom, dateTo, selectedMachine]);
   useEffect(() => {
     load();
   }, [load]);
 
   const loadCommercial = useCallback(async () => {
+    // Wait for the site registry to load first (see load(), same reasoning).
+    if (pods.length === 0) return;
+    const podsArg = isAllSites ? null : pods;
     setCLoading(true);
     setCErr(null);
     try {
       // PRD-023j: fetch cards/waterfall first WITHOUT the heavy transactions[] (~1 KB),
       // so the page renders instantly and never cold-start 504s on wide windows.
       const cards = await fetchVoxCommercialReport(
-        pods,
+        podsArg,
         dateFrom,
         dateTo,
         false,
@@ -379,7 +505,7 @@ export default function ConsumerDashboardClient({
       setCLoading(false);
       // Then fill the Transaction Detail table with a second, non-blocking fetch.
       // A slow/huge window only spins this panel; cards are already on screen.
-      fetchVoxCommercialReport(pods, dateFrom, dateTo, true)
+      fetchVoxCommercialReport(podsArg, dateFrom, dateTo, true)
         .then((full) =>
           setC((prev) =>
             prev ? { ...prev, transactions: full.transactions } : full,
@@ -392,14 +518,15 @@ export default function ConsumerDashboardClient({
       setCErr(e.message);
       setCLoading(false);
     }
-  }, [pods, dateFrom, dateTo]);
+  }, [pods, isAllSites, dateFrom, dateTo]);
   // AC1 (P1): load the commercial report on mount and whenever (pods, period) change,
   // not only when the Commercial tab opens, so the green ribbon never shows a stale window.
   useEffect(() => {
     loadCommercial();
   }, [loadCommercial]);
 
-  const tog = (p: string) =>
+  const tog = (p: string) => {
+    setIsAllSites(false);
     setPods((v) => {
       if (v.includes(p)) {
         if (v.length === 1) return v;
@@ -407,6 +534,11 @@ export default function ConsumerDashboardClient({
       }
       return [...v, p];
     });
+  };
+  const selectAllSites = () => {
+    setIsAllSites(true);
+    setPods(sites.map((s) => s.site));
+  };
 
   const S = D?.summary,
     ha = S?.has_adyen_data ?? false,
@@ -467,12 +599,12 @@ export default function ConsumerDashboardClient({
           const e = raw.find((d) => d[kf] === k && d.site === s);
           return e ? e[vf] : 0;
         }),
-        backgroundColor: VOX_PODS[s]?.color || "#555",
-        borderColor: VOX_PODS[s]?.color || "#555",
+        backgroundColor: siteColor(s, sites),
+        borderColor: siteColor(s, sites),
         borderRadius: 3,
       }));
     },
-    [isC, pods],
+    [isC, pods, sites],
   );
 
   useChart(
@@ -608,7 +740,7 @@ export default function ConsumerDashboardClient({
                     .filter((m) => m.site === s)
                     .reduce((a, m) => a + m.amount, 0),
                 ),
-                backgroundColor: pods.map((s) => VOX_PODS[s]?.color || "#555"),
+                backgroundColor: pods.map((s) => siteColor(s, sites)),
                 borderColor: "#ffffff",
                 borderWidth: 2,
               },
@@ -634,82 +766,7 @@ export default function ConsumerDashboardClient({
           },
         }
       : null,
-    [D, cjs, pods, tab, vm],
-  );
-
-  useChart(
-    mdR,
-    D && cjs && tab === "sites"
-      ? {
-          type: "line",
-          data: {
-            labels: D.daily
-              .filter((d) => d.site === "Mercato")
-              .sort((a, b) => a.date.localeCompare(b.date))
-              .map((d) => d.date.slice(5)),
-            datasets: [
-              {
-                data: D.daily
-                  .filter((d) => d.site === "Mercato")
-                  .sort((a, b) => a.date.localeCompare(b.date))
-                  .map((d) => d.amount),
-                borderColor: MERC,
-                backgroundColor: "rgba(59,130,246,0.1)",
-                fill: true,
-                tension: 0.3,
-                pointRadius: 3,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: PLUG,
-            scales: {
-              x: { grid: { color: GRID } },
-              y: { grid: { color: GRID }, beginAtZero: true },
-            },
-          },
-        }
-      : null,
-    [D, cjs, tab],
-  );
-  useChart(
-    miR,
-    D && cjs && tab === "sites"
-      ? {
-          type: "line",
-          data: {
-            labels: D.daily
-              .filter((d) => d.site === "Mirdif")
-              .sort((a, b) => a.date.localeCompare(b.date))
-              .map((d) => d.date.slice(5)),
-            datasets: [
-              {
-                data: D.daily
-                  .filter((d) => d.site === "Mirdif")
-                  .sort((a, b) => a.date.localeCompare(b.date))
-                  .map((d) => d.amount),
-                borderColor: MIRD,
-                backgroundColor: "rgba(16,185,129,0.1)",
-                fill: true,
-                tension: 0.3,
-                pointRadius: 3,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: PLUG,
-            scales: {
-              x: { grid: { color: GRID } },
-              y: { grid: { color: GRID }, beginAtZero: true },
-            },
-          },
-        }
-      : null,
-    [D, cjs, tab],
+    [D, cjs, pods, sites, tab, vm],
   );
 
   const gpd = useCallback(() => {
@@ -1303,8 +1360,19 @@ export default function ConsumerDashboardClient({
             </div>
           ))}
           <div className="nm">
-            <span className="sb sbm">Mercato</span>
-            <span className="sb sbi">Mirdif</span>
+            {sites.map((s) => (
+              <span
+                key={s.site}
+                className="sb"
+                style={{
+                  background: `${siteColor(s.site, sites)}20`,
+                  color: siteColor(s.site, sites),
+                  border: `1px solid ${siteColor(s.site, sites)}4d`,
+                }}
+              >
+                {s.site}
+              </span>
+            ))}
           </div>
         </nav>
 
@@ -1324,26 +1392,46 @@ export default function ConsumerDashboardClient({
             min={dateFrom}
           />
           <div className="csep" />
-          <span className="cbl">Pods</span>
-          {Object.entries(VOX_PODS).map(([n, p]) => (
-            <button
-              key={n}
-              className="cbb"
-              style={
-                pods.includes(n)
-                  ? {
-                      borderColor: p.color,
-                      color: p.color,
-                      background: `${p.color}18`,
-                    }
-                  : {}
-              }
-              onClick={() => tog(n)}
-            >
-              {pods.includes(n) ? "\u2713 " : ""}
-              {n}
-            </button>
-          ))}
+          <span className="cbl">Sites</span>
+          <button
+            className="cbb"
+            style={
+              isAllSites
+                ? {
+                    borderColor: "#0a0a0a",
+                    color: "#0a0a0a",
+                    background: "rgba(10,10,10,0.06)",
+                  }
+                : {}
+            }
+            onClick={selectAllSites}
+          >
+            {isAllSites ? "\u2713 " : ""}
+            All sites
+          </button>
+          {sites.map((s) => {
+            const color = siteColor(s.site, sites);
+            const active = !isAllSites && pods.includes(s.site);
+            return (
+              <button
+                key={s.site}
+                className="cbb"
+                style={
+                  active
+                    ? {
+                        borderColor: color,
+                        color,
+                        background: `${color}18`,
+                      }
+                    : {}
+                }
+                onClick={() => tog(s.site)}
+              >
+                {active ? "\u2713 " : ""}
+                {s.site}
+              </button>
+            );
+          })}
           <div className="csep" />
           <span className="cbl">View</span>
           {(["consolidated", "by-machine"] as const).map((m) => (
@@ -1533,20 +1621,17 @@ export default function ConsumerDashboardClient({
                           vc: "vc",
                           s: `${S!.total_txns} txns`,
                         },
-                        {
-                          l: "Mercato",
-                          v: aed(S!.mercato.total),
-                          c: "km",
-                          vc: "vm",
-                          s: `${S!.mercato.txns} txns \u00B7 ${S!.mercato.units} units`,
-                        },
-                        {
-                          l: "Mirdif",
-                          v: aed(S!.mirdif.total),
-                          c: "ki",
-                          vc: "vi",
-                          s: `${S!.mirdif.txns} txns \u00B7 ${S!.mirdif.units} units`,
-                        },
+                        // One card per site, coloured by position in the registry
+                        // (not by a fixed Mercato/Mirdif class pair).
+                        ...pods.map((p) => {
+                          const sm = S!.by_site?.find((x) => x.site === p);
+                          return {
+                            l: p,
+                            v: aed(sm?.total ?? 0),
+                            color: siteColor(p, sites),
+                            s: `${sm?.txns ?? 0} txns \u00B7 ${sm?.units ?? 0} units`,
+                          };
+                        }),
                         {
                           l: "Units",
                           v: String(S!.total_units),
@@ -1571,13 +1656,38 @@ export default function ConsumerDashboardClient({
                           s: ha ? "Linked" : "Pending",
                         },
                       ]
-                  ).map((k, i) => (
-                    <div key={i} className={`kp ${k.c}`}>
-                      <div className="kl">{k.l}</div>
-                      <div className={`kv ${k.vc}`}>{k.v}</div>
-                      <div className="ks">{k.s}</div>
-                    </div>
-                  ))}
+                  ).map(
+                    (
+                      k: {
+                        l: string;
+                        v: string;
+                        c?: string;
+                        vc?: string;
+                        s: string;
+                        color?: string;
+                      },
+                      i,
+                    ) => (
+                      <div
+                        key={i}
+                        className={`kp ${k.c ?? ""}`}
+                        style={
+                          k.color
+                            ? { borderTop: `2px solid ${k.color}` }
+                            : undefined
+                        }
+                      >
+                        <div className="kl">{k.l}</div>
+                        <div
+                          className={`kv ${k.vc ?? ""}`}
+                          style={k.color ? { color: k.color } : undefined}
+                        >
+                          {k.v}
+                        </div>
+                        <div className="ks">{k.s}</div>
+                      </div>
+                    ),
+                  )}
                 </div>
                 <div className="gr g2" style={{ marginBottom: 14 }}>
                   <div className="cd">
@@ -1588,7 +1698,7 @@ export default function ConsumerDashboardClient({
                           <div key={s} className="li">
                             <div
                               className="ld"
-                              style={{ background: VOX_PODS[s]?.color }}
+                              style={{ background: siteColor(s, sites) }}
                             />
                             {s}
                           </div>
@@ -1668,40 +1778,38 @@ export default function ConsumerDashboardClient({
                   <div className="sl">By Location</div>
                   <h2>Sites &amp; Machine Performance</h2>
                 </div>
-                <div className="ss">
+                <div
+                  className="ss"
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.max(pods.length, 1)}, 1fr)`,
+                  }}
+                >
                   {pods.map((s) => {
-                    const sm = s === "Mercato" ? S!.mercato : S!.mirdif;
-                    const p = VOX_PODS[s];
+                    const sm = S!.by_site?.find((x) => x.site === s);
+                    const color = siteColor(s, sites);
                     return (
                       <div
                         key={s}
-                        className={`si ${s === "Mercato" ? "sm" : "sd"}`}
+                        className="si"
+                        style={{
+                          background: `${color}18`,
+                          border: `1px solid ${color}40`,
+                        }}
                       >
                         <div>
-                          <div
-                            className={`sn ${s === "Mercato" ? "snm" : "sni"}`}
-                          >
-                            {s.toUpperCase()} {"\u2014"} {p.label}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 10,
-                              color: "var(--grey)",
-                              marginTop: 2,
-                            }}
-                          >
-                            Since {p.inception}
+                          <div className="sn" style={{ color }}>
+                            {s.toUpperCase()}
                           </div>
                         </div>
                         <div className="st">
                           <span>
-                            Rev <strong>{aed(sm.total)}</strong>
+                            Rev <strong>{aed(sm?.total ?? 0)}</strong>
                           </span>
                           <span>
-                            Txns <strong>{sm.txns}</strong>
+                            Txns <strong>{sm?.txns ?? 0}</strong>
                           </span>
                           <span>
-                            Units <strong>{sm.units}</strong>
+                            Units <strong>{sm?.units ?? 0}</strong>
                           </span>
                         </div>
                       </div>
@@ -1709,55 +1817,16 @@ export default function ConsumerDashboardClient({
                   })}
                 </div>
                 <div className="gr g2" style={{ marginBottom: 14 }}>
-                  {pods.map((s) => {
-                    const ms = D.machines.filter((m) => m.site === s);
-                    const st2 = ms.reduce((a, m) => a + m.amount, 0);
-                    const p = VOX_PODS[s];
-                    const cr = s === "Mercato" ? mdR : miR;
-                    return (
-                      <div
-                        key={s}
-                        className="cd"
-                        style={{ display: "flex", flexDirection: "column" }}
-                      >
-                        <h3>
-                          {s} {"\u2014"} Performance
-                        </h3>
-                        <div style={{ marginBottom: 16 }}>
-                          <div className="sl" style={{ marginBottom: 10 }}>
-                            Daily trend
-                          </div>
-                          <div className="cw" style={{ height: 140 }}>
-                            <canvas ref={cr} />
-                          </div>
-                        </div>
-                        <div style={{ marginTop: "auto" }}>
-                          <div className="sl" style={{ marginBottom: 8 }}>
-                            Machine Breakdown
-                          </div>
-                          {ms.map((m) => (
-                            <div key={m.machine} className="pr">
-                              <span className="pl">
-                                {MACHINE_LABELS[m.machine] ||
-                                  shortMachine(m.machine)}
-                              </span>
-                              <div className="pb">
-                                <div
-                                  className="pf"
-                                  style={{
-                                    width: `${st2 > 0 ? (m.amount / st2) * 100 : 0}%`,
-                                    background: p.color,
-                                  }}
-                                />
-                              </div>
-                              <span className="pv">{aed(m.amount)}</span>
-                              <span className="pp">{pct(m.amount, st2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {pods.map((s) => (
+                    <VoxSiteTrendCard
+                      key={s}
+                      site={s}
+                      color={siteColor(s, sites)}
+                      cjs={cjs}
+                      dailyPoints={D.daily.filter((d) => d.site === s)}
+                      machines={D.machines.filter((m) => m.site === s)}
+                    />
+                  ))}
                 </div>
               </div>
             )}
@@ -1809,19 +1878,23 @@ export default function ConsumerDashboardClient({
                       }}
                     >
                       <option value="">All machines</option>
-                      {["Mercato", "Mirdif"].map((site) => {
-                        const opts = allMachines.filter((m) => m.site === site);
-                        if (!opts.length) return null;
-                        return (
-                          <optgroup key={site} label={site}>
-                            {opts.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        );
-                      })}
+                      {sites
+                        .map((s) => s.site)
+                        .map((site) => {
+                          const opts = allMachines.filter(
+                            (m) => m.site === site,
+                          );
+                          if (!opts.length) return null;
+                          return (
+                            <optgroup key={site} label={site}>
+                              {opts.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          );
+                        })}
                     </select>
                   </div>
                 </div>
@@ -1874,15 +1947,22 @@ export default function ConsumerDashboardClient({
                             <tr key={p.name}>
                               <td style={{ fontWeight: 500 }}>{p.name}</td>
                               <td>
-                                {[...new Set(p.sites)].map((s) => (
-                                  <span
-                                    key={s}
-                                    className={`sp ${s === "Mercato" ? "spm" : "spd"}`}
-                                    style={{ marginRight: 4 }}
-                                  >
-                                    {s}
-                                  </span>
-                                ))}
+                                {[...new Set(p.sites)].map((s) => {
+                                  const color = siteColor(s, sites);
+                                  return (
+                                    <span
+                                      key={s}
+                                      className="sp"
+                                      style={{
+                                        marginRight: 4,
+                                        background: `${color}20`,
+                                        color,
+                                      }}
+                                    >
+                                      {s}
+                                    </span>
+                                  );
+                                })}
                               </td>
                               <td
                                 className="r"
@@ -2098,18 +2178,31 @@ export default function ConsumerDashboardClient({
                   </div>
                 )}
                 <div className="fb">
-                  {["all", ...pods].map((s) => (
-                    <button
-                      key={s}
-                      className={`fn ${s === "Mirdif" ? "mb" : ""} ${tsf === s ? "a" : ""}`}
-                      onClick={() => {
-                        setTsf(s);
-                        setTxnPage(0);
-                      }}
-                    >
-                      {s === "all" ? "All Sites" : s}
-                    </button>
-                  ))}
+                  {["all", ...pods].map((s) => {
+                    const color = s === "all" ? null : siteColor(s, sites);
+                    const active = tsf === s;
+                    return (
+                      <button
+                        key={s}
+                        className={`fn ${active ? "a" : ""}`}
+                        style={
+                          active && color
+                            ? {
+                                borderColor: color,
+                                color: "#0a0a0a",
+                                background: `${color}20`,
+                              }
+                            : undefined
+                        }
+                        onClick={() => {
+                          setTsf(s);
+                          setTxnPage(0);
+                        }}
+                      >
+                        {s === "all" ? "All Sites" : s}
+                      </button>
+                    );
+                  })}
                   {["all", "DEBIT", "CREDIT", "PREPAID"].map((f) => (
                     <button
                       key={f}
@@ -2186,16 +2279,18 @@ export default function ConsumerDashboardClient({
                           </td>
                           <td
                             className="tm"
-                            style={{
-                              color: t2.site === "Mercato" ? MERC : MIRD,
-                            }}
+                            style={{ color: siteColor(t2.site, sites) }}
                           >
                             {MACHINE_LABELS[t2.machine] ||
                               shortMachine(t2.machine)}
                           </td>
                           <td>
                             <span
-                              className={`sp ${t2.site === "Mercato" ? "spm" : "spd"}`}
+                              className="sp"
+                              style={{
+                                background: `${siteColor(t2.site, sites)}20`,
+                                color: siteColor(t2.site, sites),
+                              }}
                             >
                               {t2.site}
                             </span>
@@ -2649,12 +2744,12 @@ export default function ConsumerDashboardClient({
                               }}
                             >
                               {C.by_site.map((s, i) => {
-                                const isMerc = s.site === "Mercato";
+                                const color = siteColor(s.site, sites);
                                 return (
                                   <div
                                     key={i}
                                     style={{
-                                      borderLeft: `3px solid ${isMerc ? MERC : MIRD}`,
+                                      borderLeft: `3px solid ${color}`,
                                       paddingLeft: 12,
                                     }}
                                   >
@@ -2667,7 +2762,7 @@ export default function ConsumerDashboardClient({
                                     >
                                       <span
                                         style={{
-                                          color: isMerc ? MERC : MIRD,
+                                          color,
                                           fontWeight: 600,
                                           fontSize: 13,
                                         }}
@@ -3176,7 +3271,7 @@ export default function ConsumerDashboardClient({
                                             ? { opacity: 0.6 }
                                             : {}),
                                         };
-                                        const isMerc = t.site === "Mercato";
+                                        const siteC = siteColor(t.site, sites);
                                         const status = isDisc
                                           ? "DEFAULT"
                                           : isUnmatched
@@ -3200,16 +3295,18 @@ export default function ConsumerDashboardClient({
                                             </td>
                                             <td>
                                               <span
-                                                className={`sp ${isMerc ? "spm" : "spd"}`}
+                                                className="sp"
+                                                style={{
+                                                  background: `${siteC}20`,
+                                                  color: siteC,
+                                                }}
                                               >
                                                 {t.site}
                                               </span>
                                             </td>
                                             <td
                                               className="tm"
-                                              style={{
-                                                color: isMerc ? MERC : MIRD,
-                                              }}
+                                              style={{ color: siteC }}
                                             >
                                               {MACHINE_LABELS[t.machine] ||
                                                 shortMachine(t.machine)}
