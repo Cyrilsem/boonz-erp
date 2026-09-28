@@ -1132,3 +1132,54 @@ Confirmed no rows persisted in refill_dispatching, refill_plan_output, or pod_in
 synthetic date after rollback.
 
 Committed and pushed.
+
+### W3 R5a driver_confirm_remove, APPLIED
+
+Migration: supabase/migrations/20260925140000_loopv2_r5a_require_expiry_breakdown.sql
+Rollback: docs/rollbacks/20260928223000_loopv2_r5a_rollback.sql (captured live via
+pg_get_functiondef immediately before applying; small function body, transcribed directly, no
+escaping ambiguity).
+
+Applied as drafted (see the R5a section above: requires a per-variant expiry/qty breakdown when
+the line's bound expiry is NULL or within 7 days of Dubai today; incidentally fixes an em dash in
+the mutation_reason format string). Verified live via pg_get_functiondef.
+
+Smoke tests, both in rolled-back transactions:
+
+1. Synthetic Remove line, bound expiry 2026-10-01 (within 7 days of 2026-09-28), packed+picked_up,
+   unconfirmed. Called driver_confirm_remove with p_batch_breakdown=NULL: correctly refused with
+   "this line's bound expiry is 2026-10-01 (or missing) - enter the expiry and quantity read off
+   the pack for each variant via p_batch_breakdown before confirming".
+2. Same line, called WITH a 2-entry breakdown ([{expiry 2026-10-02, qty 2},{expiry 2026-10-05, qty
+   1}]): succeeded, driver_confirmed_breakdown persisted correctly, driver_confirmed_at set.
+3. A second synthetic Remove line, bound expiry 2026-12-01 (safely distant), called with
+   p_batch_breakdown=NULL: succeeded unchanged (confirms the fix does not affect the
+   safely-distant-expiry case CS did not ask to change).
+
+Confirmed no synthetic rows persisted after rollback. Committed and pushed.
+
+### W3 R5c wh_approve_remove_receipt_multivariant + receive_dispatch_line, PROVEN (no migration needed)
+
+No fix drafted or applied here: per the earlier investigation (R5b section above), this backend
+logic was already correct live. R5c's task was purely to prove it with a rolled-back test, adapted
+to synthetic data since the real ADDMIND-1007-0000-W0 A16 evidence has moved on (see W1 above).
+
+Test, in a rolled-back transaction: pre-seeded one existing Active warehouse_inventory batch for
+Vitamin well - Zero peach at ADDMIND-1007-0000-W0's primary warehouse (stock 5, expiry 2028-04-04,
+batch_id RECOUNT-R5C-SMOKE-EXISTING), and a synthetic parent Remove dispatch line (driver_confirmed_qty
+9, packed+picked_up, unapproved, from_warehouse_id = the primary warehouse). Called
+wh_approve_remove_receipt_multivariant with a 2-variant breakdown: Zero Lemon qty 8 expiry
+2028-03-03 (no existing batch at that expiry - insert path), Zero peach qty 1 expiry 2028-04-04
+(matches the pre-seeded batch - credit path).
+
+Result: Zero peach's existing batch credited 5 -> 6 (mode 'existing'). Zero Lemon got a brand new
+warehouse_inventory row, batch_id REMOVE-RECEIVE-2099-06-05, stock 8 (mode 'inserted'). Two child
+refill_dispatching rows created (one per variant, each with its own boonz_product_id and expiry,
+wh_approved_at set), parent row marked returned=true with return_reason
+split_into_2_variants_see_children. Confirms the split-and-credit behaviour named in R5b/R5c works
+correctly on live code, no fix needed.
+
+Confirmed no synthetic rows persisted after rollback (one leftover row found at the same expiry
+date was verified to be unrelated real production data - different boonz_product_id, batch_id
+WM-CONFIRM-..., created 2026-09-23, pure date coincidence). Recorded here, no commit needed (no
+files changed beyond this STATE.md entry, folded into the same commit as W3 R5a).
