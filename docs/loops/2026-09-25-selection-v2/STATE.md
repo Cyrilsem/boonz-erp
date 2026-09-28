@@ -1290,3 +1290,79 @@ pattern used throughout this codebase).
 
 Not deployed -- FE change lives only on loop/selection-v2-2026-09-25, per the hard rule. CS decides
 when to deploy (see FINAL GATE below).
+
+### W6 R7 add_intra_machine_move, APPLIED
+
+Migration: supabase/migrations/20260928224500_loopv2_w6_r7_intra_machine_move_role_fix.sql
+Rollback: docs/rollbacks/20260928224500_loopv2_w6_r7_rollback.sql (a reverse DO-block replace(),
+byte-exact by construction, no transcription risk).
+
+Confirmed against the live function body before writing anything: both rows of the
+refill_dispatching_edit_log INSERT hardcoded edited_by_role to a literal NULL
+("auth.uid(), NULL, 'add', NULL,"), never even COALESCE(v_role, ...) -- the exact same bug class
+already fixed once this loop (A1/add_m2m_transfer, and the D1-backfilled insert_driver_remove_line
+M2M predicate). Confirmed live: refill_dispatching_edit_log.edited_by_role is NOT NULL, so every
+real call to add_intra_machine_move failed with 23502 -- the function was completely unusable as
+deployed. v_role is already computed earlier in the function (used for the caller-role
+authorization check), so the fix just reuses it: COALESCE(v_role, 'system'), matching this loop's
+own established pattern. Surgical: only the two edited_by_role literals touched; the
+refill_dispatching rows' own last_edited_by_role columns (nullable, non-erroring) left unchanged,
+out of R7's named scope.
+
+Applied via the same DO-block replace() pattern used for D1/A1 (byte-exact, no manual
+transcription of the ~90-line function body). Verified live: position('auth.uid(),
+COALESCE(v_role' in the function definition) = 7106 (nonzero).
+
+Smoke test, rolled back: called add_intra_machine_move on the real ADDMIND-1007-0000-W0, moving
+Loacker - Napolitaner qty 1 from shelf A01 (real Active stock) to shelf B01 (unmatched/empty
+per v_shelf_slot_identity, so the WEIMI slot guard does not fire), impersonating a real field_staff
+user. Succeeded end to end (no 23502): both refill_dispatching_edit_log rows show
+edited_by_role='field_staff' (the real caller's role, not NULL). Confirmed no synthetic rows
+persisted after rollback.
+
+Committed and pushed.
+
+## FINAL GATE
+
+D1-D4 and W1-W6 are all done. Summary, one line each:
+
+- D1 backfill (2 prod-only migrations): DONE.
+- D2 prd131-packing-screen: DONE (branch pushed, findings recorded; deploying its FE now would
+  break the packing screen -- movement_kind column missing without migration 01).
+- D3 "9 picks for cap 8": INVESTIGATED, no fix -- could not reproduce against a fresh
+  pick_machines_v12 call (returns 8 correctly). Open item for CS, no action taken.
+- D4/W4 venue binding guard: APPLIED (check_venue_binding_gaps + nightly cron + push_plan_to_
+  dispatch visibility alert). 57 live gaps found across LVLUP + VOXDFC-1001-0100-V0.
+- W1/R1 insert_driver_remove_line non-M2M sibling split: APPLIED, smoke-tested (synthetic, real
+  evidence had moved on).
+- W2/R3 push_plan_to_dispatch plain Remove/M2W lot flavour filter: APPLIED, smoke-tested.
+- W3/R5a driver_confirm_remove expiry breakdown requirement: APPLIED, smoke-tested.
+- W3/R5c wh_approve_remove_receipt_multivariant + receive_dispatch_line split/credit: PROVEN
+  already correct, no fix needed.
+- W5 pack screen venue lines: FE FIXED on this branch, NOT deployed. No backend change needed
+  (pack_dispatch_line's existing v2 VOX GUARD already does the real work).
+- W6/R7 add_intra_machine_move edited_by_role NULL: APPLIED, smoke-tested.
+
+Explicitly held, per CS's own instruction (do not start without being asked): R2 (stitch_pod_to_
+boonz Remove flavour derivation fix), R4 (FE readable error for the R2 class of failure), F10
+(visit_value common horizon).
+
+### What CS must deploy or decide
+
+1. **R6 FE (packing screen merge-key fix)**: committed on this branch earlier in the loop
+   (commit 75fd85b), confirmed via AskUserQuestion to keep the narrower fix (exclude M2M lines
+   from the merge, not remove the merge entirely). Not deployed. CS deploy decision.
+2. **W5 FE (venue line "take at site" fix)**: committed this window, not deployed. CS deploy
+   decision -- same branch as R6, same deploy event would ship both FE changes together.
+3. **prd131-packing-screen**: DO NOT deploy as-is (would break packing screen, missing migration
+   01). CS decision: finish migrations 01-03 and merge, or roll the branch back.
+4. **loop/selection-v2-2026-09-25 merge**: all backend migrations (D1, A1-A5, F1-F9, R1, R3, R5a,
+   W4) are already applied directly to prod via the Supabase MCP tonight and on prior nights --
+   the migration FILES on this branch are a record of what's live, not pending changes. Merging
+   this branch to main is a repo-hygiene step (keeps supabase/migrations/ in sync with prod) plus
+   ships the two FE-only changes (R6, W5) that are NOT yet deployed. CS decision on timing.
+5. **D3 (9-picks report)**: no root cause found. If this recurs, capture the exact machines_to_
+   visit snapshot and plan_date before the next automated re-run overwrites it.
+6. **R2/R4/F10**: explicitly out of scope this loop, awaiting CS's go-ahead.
+
+Loop complete. Stopping per FINAL GATE instruction.
