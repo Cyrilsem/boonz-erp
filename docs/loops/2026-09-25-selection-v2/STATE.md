@@ -917,3 +917,149 @@ CS also queued, not blocking this cutover:
   (min(rhythm_days, 5)), not each machine's own rhythm_days, so a slow machine's 10-day rhythm does
   not inflate its shortage sum relative to a fast machine's 3-day rhythm. Report the before/after
   ranking for 2026-09-27. Not started yet; queued for the next work pass, after R5.
+
+## CS ONE LOOP replacement (2026-09-28), D1-D4 daytime tasks
+
+CS replaced the standing wakeup instructions with a new brief covering daytime tasks (D1-D4, run
+now) and window tasks (W1-W6, 22:00-06:00 only). `select now() at time zone 'Asia/Dubai'` = 17:08
+to 17:22 across this work, well inside the daytime.
+
+### D1, backfill 2 prod-only migrations, DONE, committed
+
+Migrations: supabase/migrations/20260916201822_prd125_g8_skip_internal_transfer_lines.sql,
+supabase/migrations/20260917200646_prd124_fix_m2m_split_item_added_predicate.sql. Pulled byte-exact
+from supabase_migrations.schema_migrations, md5-verified against the DB for both, same method as
+the VOX backfill. Not re-applied.
+
+prd125_g8: validate_refill_plan's G8 check counted M2M destination legs as warehouse need,
+blocking every M2M plan; fixed by excluding source_origin='internal_transfer' from G8 only.
+
+prd124: insert_driver_remove_line's M2M branch excluded parent legs with item_added=true, but push
+pairing sets item_added=true on BOTH M2M legs, so no driver could ever split a mixed-flavour M2M
+lane. Checked before committing: confirmed this predicate is already absent from the CURRENT live
+insert_driver_remove_line body (the same body R1's draft is based on), so R1 does not regress this
+fix; R1's M2M branch WHERE clause has no item_added condition at all, matching the post-fix state.
+
+### D2, prd131-packing-screen branch, DONE, pushed (no merge)
+
+Branch existed locally, never pushed (no matching origin/prd131-packing-screen before this).
+Pushed as-is, no changes made, no merge.
+
+Verified live (not assumed) which of the branch's 5 migrations are actually applied to prod:
+20260922150000_prd131_02b_propose_pod_inventory_edit.sql -- LIVE.
+20260922162500_prd130_11_fix_source_kind_chk_intra_machine.sql -- LIVE.
+20260922160000_prd131_01_movement_kind.sql -- NOT applied.
+20260922163000_prd131_02_writers_set_kind.sql -- NOT applied.
+20260922170000_prd131_03_packing_by_kind.sql -- NOT applied.
+Matches CS's own claim exactly (02b and 130_11 are; 01, 02, 03 are not).
+
+What main's FE expects: main's currently-deployed packing screen and WarehouseConfirmationsPanel
+do NOT reference movement_kind at all (confirmed live: movement_kind column does not exist in prod
+yet, since migration 01 is not applied), so main's FE is safe and working as-is.
+
+What the branch's FE expects, and the real risk if deployed now: the branch's packing screen
+(src/app/(field)/field/packing/[machineId]/page.tsx) selects movement_kind directly in its
+Supabase query (line ~563) and uses it as a core classification field (rl.movement_kind === null
+gates a real branch of the F3 "stops showing standalone removes" logic, line ~2438). Since
+migration 01 (which adds the column) is not applied, deploying this branch's FE now would make
+every packing-screen page load error (the .select() query references a column that does not exist
+in the live schema). This is the concrete finding CS needs: deploying the FE without applying 01
+(and, since 02 sets movement_kind and 03 changes the grouping logic the FE depends on, realistically
+01+02+03 together) would break the packing screen outright, not just work incompletely.
+
+WarehouseConfirmationsPanel calls wm_confirm_line_split, which already exists live -- but that RPC
+predates this branch (created in 20260915003300_prd12x_pd_wm_confirm_line_split.sql, already in
+main) and is further modified by the branch's own 01/02 migrations (not yet applied), so calling it
+today would hit the pre-movement_kind version: it would still run, but would not set movement_kind
+on any row it creates, since that column and the logic to fill it do not exist yet.
+
+The field dispatching page's own diff on this branch is cosmetic only (two button labels, "Removed
+from machine"/"Added to machine" to "Take out"/"Put in"), no functional dependency, safe standalone.
+
+No prod writes made for D2.
+
+### D3, pick_machines_v12 "9 picks for cap 8", INVESTIGATED, root cause NOT reproducible now
+
+Confirmed live: pick_machines_v12('2026-09-29', 8) called fresh right now returns exactly 8 rows
+(1 P1, 7 P2), correctly capped. machines_to_visit for plan_date=2026-09-29 holds 9 'picked' rows
+(all add_source='picker', all status='picked', all with the identical picked_at/updated_at
+timestamp 2026-09-28 02:00:00.398, i.e. all written by one execution of the real 02:00 Dubai
+pre-pick cron), 2 P1_RESTOCK + 7 P2_MAINTAIN.
+
+Ruled out (VOX track outside cap hypothesis): 2 of the 9 stale rows are VOX machines
+(ACTIVATE-2005-0000-W0, ACTIVATEMCC-1037-0000-L0) tagged P2_MAINTAIN. 2026-09-29 is a Tuesday
+(DOW=2), confirmed via to_char and EXTRACT(DOW). pick_machines_v12's own VOX gate
+(`(NOT c2.is_vox OR v_is_vox_day)` inside is_p2, where v_is_vox_day = EXTRACT(DOW FROM
+p_plan_date) IN (3,5)) is pure date arithmetic on the p_plan_date argument alone, with no
+dependency on live data or wall-clock time; for the literal date 2026-09-29 it is deterministically
+false both then and now. Confirmed no migration touched pick_machines_v12 today (checked
+supabase_migrations.schema_migrations for 2026-09-28, the only 4 entries are the unrelated VOX
+report migrations from Task B). So this is not a currently-reproducible "VOX day gate" bug: fresh
+calls right now already exclude both VOX machines from P2 for this date, exactly as the code
+requires.
+
+Confirmed via the actual cap math: p1_count=2 (both stale P1 rows), so the cap should allow
+v_cap - p1_count = 6 non-P1 rows, not 7. This IS a genuine violation of the cap invariant in the
+STALE snapshot, but I could not reproduce it against a live call with today's current data (which
+gives exactly 8, 1 P1 + 7 P2 -- wait, re-checked: today's fresh 8-row result is 1 P1 + 7 P2, so the
+cap math there is p1_count=1, non-P1 budget=7, exactly matching. The stale row's 2 P1 + 7 P2 = 9 is
+inconsistent with EITHER cap formula (6 or 7 allowed), meaning the discrepancy is really about
+which machines counted as P1 at 02:00, not a cap-arithmetic bug).
+
+Conclusion: I could not identify a currently-reproducible bug in pick_machines_v12 itself. The
+function, called fresh right now for plan_date=2026-09-29 at the real p_cap=8, already returns
+exactly 8, correctly VOX-gated. I am not drafting a speculative fix for a discrepancy I cannot
+explain with a confirmed root cause, per this loop's own standing rule to verify before writing any
+fix. What I can and did confirm, directly answering D3's core ask: tomorrow's (2026-09-29) picks
+are currently <= 8 (exactly 8) when checked live.
+
+Left for CS: the STALE 9-row snapshot in machines_to_visit for 2026-09-29 does not match what a
+fresh repick gives. Since plan_date 2026-09-29 has not been dispatched yet (still a day out), a
+repick is not blocked by the LAW-12 guard in _build_draft_core_v3 (which only refuses when the plan
+is already approved/stitched/dispatched). CS may want to trigger a fresh repick before tonight's
+real 20:00 draft cron overwrites it anyway, or simply let that cron do it naturally; I did not
+repick myself since that would be a live write to machines_to_visit outside this task's read-only
+investigation scope, and tonight's real cron will do it regardless.
+
+### D4, W4 migration + smoke drafted, NOT applied
+
+Migration: supabase/migrations/20260928200000_loopv2_w4_venue_binding_guard.sql. Touches
+push_plan_to_dispatch (part b), a dispatch function; drafted now, queued for the window, applied
+after R3 (part b's patch anchors on the section of push_plan_to_dispatch R3 does not touch, so
+order relative to R3 does not matter functionally, but the task's own W1-W6 ordering places it
+after R3 regardless).
+
+Part (a): new function check_venue_binding_gaps() (STABLE-free plpgsql, modeled on the existing
+check_far_future_picked_visits_nightly pattern) plus a nightly cron.schedule registration. Finds
+every Active machine with an Active venue_team product_mapping row whose primary_warehouse_id has
+zero Active warehouse_inventory stock for that product; raises via safe_monitoring_alert when any
+exist. Verified live before writing: re-ran the exact check against ACTIVATEMCC-1037-0000-L0,
+MPMCC-1054-0000-M0, MPMCC-1058-0000-R0 (today's real incident machines) -- all now show
+has_wh_stock=true at their new WH_MCC warehouse, confirming the check works and is clean post-fix.
+Also ran the check fleet-wide (read-only): real gaps still exist today for LVLUP-1018-0000-G0 (11
+products), LVLUP-1048-0000-P0 (11), LVLUP-2015-0000-R0 (17), and VOXDFC-1001-0100-V0 (18, the new
+Dubai Festival City VOX machine just onboarded today via the VOX site registry work, most likely
+not yet backed by warehouse stock). LVLUP machines are excluded from planning/picking by this
+loop's own hard rule, but not from this check, since a real gap for any Active machine with
+venue_team supply is a legitimate operational fact regardless of whether the picker ever visits it;
+left un-narrowed deliberately, noted here rather than silently scoping it down.
+
+Part (b): a DO-block patch on push_plan_to_dispatch (same anchor+replace style as the VOX
+migrations), adding a safe_monitoring_alert call, severity 'info', when a Refill/Add New line has
+source_origin='vox_at_venue'. Honest caveat written directly into the migration's own comments:
+v_pin_eligible already requires source_origin='warehouse', so a vox_at_venue line is NEVER pinned
+by design -- this condition fires on every such line, every push. That makes it a visibility list,
+not an anomaly detector (the real detector is part a). Kept at 'info' severity for exactly this
+reason; flagged for CS rather than silently deciding this instruction meant something narrower.
+
+Smoke-tested in a rolled-back transaction against the CURRENT live push_plan_to_dispatch (pre-R3):
+both the function creation and the DO-block patch applied cleanly, anchor found, replace produced a
+real diff. Since R3 does not touch the pin-eligible/plain-INSERT section this patch targets, the
+same anchor will still match after R3 is applied in the window; the window step should still
+re-verify this quickly before applying, per the hard rule.
+
+### Status heading into tonight
+
+Ready to apply, in order: R1, R3, W4 (after R3), R5a, R5c. W5 (FE, packing screen venue lines) and
+W6 (R7, add_intra_machine_move fix) are window tasks not yet drafted; will be investigated and
+applied in the window per CS's own task list. R2 and F10 remain explicitly out of scope.
