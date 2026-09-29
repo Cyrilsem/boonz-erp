@@ -1,6 +1,10 @@
 # PRD-131: One movement kind per dispatch leg, and what each screen may show
 
-Status: PARKED 2026-09-29: 01/02/03/08 never applied; 03 conflicts with W5 venue packing lines. Rescope before any apply.
+Status: KILLED 2026-09-30 (PRD-137 Phase 2 close-out, CS decision). Was PARKED 2026-09-29:
+01/02/03/08 never applied; 03 conflicts with W5 venue packing lines. Killed rather than rescoped;
+01/02/03/08 not reopened. This doc's own "Found while implementing" section records real bugs
+found while drafting this PRD's migrations; whether each was separately fixed forward elsewhere
+was not re-verified as part of this closure and should not be assumed from this note alone.
 Owner: CS
 Date: 2026-09-22
 Depends on: PRD-130 (01, 02, 05 applied; 03, 04, 06, 07, 08 pending)

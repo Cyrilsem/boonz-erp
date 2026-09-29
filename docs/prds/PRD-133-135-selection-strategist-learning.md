@@ -133,6 +133,10 @@ must pass before any cutover.
 
 ## PRD-134: Knowledge tables (seed only, this loop; no scoring logic yet)
 
+Status: CLOSED 2026-09-30 (PRD-137 Phase 2 close-out). Seed-only scope shipped as written below;
+no scoring logic was ever added under this PRD. Any future scoring work against these tables is
+tracked under a new PRD-136 stub, not reopened here.
+
 - `product_lane_fit(pod_product_id, machine_id, shelf_code, ...)`: which physical lanes a product
   is allowed to occupy. Seed: Dubai Popcorn fits A15 and A16 only.
 - `sku_intents(boonz_product_id, machine_id, intent, threshold, note, ...)`: operator-declared
@@ -148,6 +152,10 @@ No scoring or picker logic reads these yet in this loop; they exist so PRD-134's
 work has real seeded data to build against.
 
 ## PRD-135: Engine safety flags (this loop: evidence only, default OFF)
+
+Status: CLOSED 2026-09-30 (PRD-137 Phase 2 close-out). `slow_lane_fill_cap_pct` column confirmed
+live on `refill_policy_params`, still NULL (off) as designed. No further work planned under this
+PRD; enabling the flag, if ever wanted, is a fresh CS decision, not a reopening of this PRD.
 
 `refill_policy_params.slow_lane_fill_cap_pct` (default NULL, meaning off). When set,
 `engine_add_pod` caps the fill target for any lane with velocity below
