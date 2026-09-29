@@ -1,0 +1,11 @@
+-- CS approved 2026-09-29: drop the 5-arg propose_decommission_plan overload found by
+-- check_ambiguous_function_overloads(). Confirmed dead before dropping: no strategic_intents row
+-- has ever recorded this version's engine_version tag ('phase_f_e2_reframe', 0 rows), no FE code
+-- calls propose_decommission_plan at all (grep of src/ found only a comment in DivestTab.tsx
+-- noting it is called out of band by an upstream strategic session, never from this app). The
+-- 6-arg version (decommission_v2_with_tags) stays live; it has 2 real rows using it.
+--
+-- Body captured to docs/rollbacks/20260929082500_drop_propose_decommission_plan_5arg_rollback.sql
+-- before this drop, verified byte-identical to the live function (whitespace-stripped compare
+-- against pg_get_functiondef) before capturing.
+DROP FUNCTION public.propose_decommission_plan(uuid, date, integer, uuid[], text);
