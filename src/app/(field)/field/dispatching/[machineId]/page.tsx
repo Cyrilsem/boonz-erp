@@ -70,6 +70,7 @@ interface DispatchLine {
 
 const RETURN_REASONS = [
   "Not added to machine",
+  "Could not remove",
   "Machine full",
   "Product damaged",
   "Wrong product",
@@ -1426,6 +1427,9 @@ export default function DispatchingDetailPage() {
                           onClick={() => {
                             // PRD-028 3c: returns are an explicit per-line act
                             // with a confirm naming qty + destination WH.
+                            const isPlainRemove =
+                              line.dispatch_action === "Remove" &&
+                              !line.is_internal_move;
                             if (line.action !== "returned") {
                               const qty =
                                 line.dispatch_action === "Remove"
@@ -1437,12 +1441,27 @@ export default function DispatchingDetailPage() {
                               // PRD-113: an in-machine move has no warehouse leg.
                               // Promising a credit here is the phantom stock this
                               // PRD exists to stop, and the backend refuses it.
+                              // PRD-137 F2: "Could not remove" means the driver
+                              // never got the product off the shelf at all —
+                              // nothing physical happened, so nothing is credited.
                               const prompt = line.is_internal_move
                                 ? `This is a MOVE WITHIN THE MACHINE — ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} go to another shelf, not back to ${dest}. Mark it as not done? No warehouse stock is credited.`
-                                : `Return ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} to ${dest}? This credits warehouse stock when you save.`;
+                                : isPlainRemove
+                                  ? `Mark ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} as could not remove? You never got it off the shelf — no warehouse stock is credited.`
+                                  : `Return ${qty} unit${qty === 1 ? "" : "s"} of ${line.pod_product_name} to ${dest}? This credits warehouse stock when you save.`;
                               if (!confirm(prompt)) return;
                             }
                             updateAction(line.dispatch_id, "returned");
+                            // Default the reason for a plain Remove to "Could not
+                            // remove" (PRD-137 F2) — the driver can still change it
+                            // in the dropdown below if a real removal happened for
+                            // a different reason (e.g. Wrong product).
+                            if (isPlainRemove && !line.return_reason) {
+                              updateReturnReason(
+                                line.dispatch_id,
+                                "Could not remove",
+                              );
+                            }
                           }}
                           className={`flex-1 rounded-lg border py-1.5 text-xs font-semibold transition-colors ${
                             line.is_internal_move &&
