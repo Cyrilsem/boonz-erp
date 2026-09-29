@@ -11,7 +11,9 @@
 -- still marked returned=true / return_reason so it leaves the driver's open queue, but neither
 -- inventory table is touched.
 --
--- Rollback: supabase/rollback/20260930000500_prd137_f2_return_dispatch_line_could_not_remove_rollback.sql
+-- Rollback: supabase/rollback/20260929201947_prd137_f2_return_dispatch_line_could_not_remove_rollback.sql
+-- Filename renamed 2026-09-30 to match the timestamp apply_migration actually recorded (see F9's
+-- note in that migration for why).
 CREATE OR REPLACE FUNCTION public.return_dispatch_line(p_dispatch_id uuid, p_return_reason text DEFAULT NULL::text, p_returned_by uuid DEFAULT NULL::uuid, p_batch_breakdown jsonb DEFAULT NULL::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql

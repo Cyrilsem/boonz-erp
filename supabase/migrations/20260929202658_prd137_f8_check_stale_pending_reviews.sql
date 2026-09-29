@@ -9,7 +9,9 @@
 -- older_duplicate_ids) for a WM/CS decision, the same way item i's ALJLT duplicate was resolved
 -- by hand earlier tonight, not auto-collapsed by a migration.
 --
--- Rollback: supabase/rollback/20260930002700_prd137_f8_check_stale_pending_reviews_rollback.sql
+-- Rollback: supabase/rollback/20260929202658_prd137_f8_check_stale_pending_reviews_rollback.sql
+-- Filename renamed 2026-09-30 to match the timestamp apply_migration actually recorded (see F9's
+-- note in that migration for why).
 CREATE OR REPLACE FUNCTION public.check_stale_pending_reviews()
 RETURNS jsonb
 LANGUAGE plpgsql

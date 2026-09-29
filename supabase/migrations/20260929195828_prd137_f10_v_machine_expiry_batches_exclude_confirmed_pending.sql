@@ -12,7 +12,9 @@
 -- excludes any batch that already has a live, driver-confirmed, WH-pending Remove or Machine To
 -- Warehouse line for that exact (machine, shelf, product, expiry).
 --
--- Rollback: supabase/rollback/20260929195500_prd137_f10_v_machine_expiry_batches_exclude_confirmed_pending_rollback.sql
+-- Rollback: supabase/rollback/20260929195828_prd137_f10_v_machine_expiry_batches_exclude_confirmed_pending_rollback.sql
+-- Filename renamed 2026-09-30 to match the timestamp apply_migration actually recorded (see F9's
+-- note above for why).
 -- (byte-verified against pg_get_viewdef, whitespace-stripped, before this change).
 CREATE OR REPLACE VIEW public.v_machine_expiry_batches AS
  WITH ranked AS (

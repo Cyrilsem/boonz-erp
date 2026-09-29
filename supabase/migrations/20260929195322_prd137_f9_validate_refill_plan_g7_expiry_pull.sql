@@ -4,7 +4,10 @@
 -- for that machine/shelf) AND the current WEIMI shelf stock exceeds the remove qty, so the lane
 -- is never actually emptied by the pull.
 --
--- Rollback: supabase/rollback/20260929194500_prd137_f9_validate_refill_plan_g7_expiry_pull_rollback.sql
+-- Rollback: supabase/rollback/20260929195322_prd137_f9_validate_refill_plan_g7_expiry_pull_rollback.sql
+-- Filename renamed 2026-09-30 to match the timestamp apply_migration actually recorded in
+-- supabase_migrations.schema_migrations (20260929195322), not the intended-time name it was
+-- first written with -- same fix as the Round 2.5 filename bug documented in CLAUDE.md.
 -- (byte-verified against pg_get_functiondef, whitespace-stripped, before this change).
 CREATE OR REPLACE FUNCTION public.validate_refill_plan(p_plan_date date, p_machines text[] DEFAULT NULL::text[], p_source text DEFAULT 'dispatch'::text)
  RETURNS jsonb

@@ -11,7 +11,9 @@
 -- picked_up=true too. Invariant target: no row packed=true, picked_up=false for a machine that
 -- already has a picked_up=true row that day.
 --
--- Rollback: supabase/rollback/20260929200500_prd137_f1_auto_pickup_after_first_pickup_rollback.sql
+-- Rollback: supabase/rollback/20260929200429_prd137_f1_auto_pickup_after_first_pickup_rollback.sql
+-- Filename renamed 2026-09-30 to match the timestamp apply_migration actually recorded (see F9's
+-- note in that migration for why).
 CREATE OR REPLACE FUNCTION public.tg_auto_pickup_after_first_pickup()
  RETURNS trigger
  LANGUAGE plpgsql
