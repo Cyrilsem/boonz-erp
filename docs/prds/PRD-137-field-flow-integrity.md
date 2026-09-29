@@ -103,6 +103,15 @@ difference becomes a WH return line automatically.
 
 F8. **Driver Pending Reviews.** Collapse duplicates, escalate items older than 48h.
 
+F9. **Added mid-run by CS, 2026-09-29 ~23:35 Dubai.** `validate_refill_plan` gate G7: allow a
+Remove with no matching Add on the lane when it is an expiry pull and WEIMI current_stock exceeds
+the remove qty (lane stays non-empty after the pull).
+
+F10. **Added mid-run by CS, 2026-09-29 ~23:35 Dubai.** Picker P1 "expired stock on shelf" must
+ignore pod lots that already have a driver-confirmed Remove pending WH approval
+(driver_confirmed_at not null, wh_approved_at null). Evidence: ALJLT-1015-0200 P1 flagged 30 Sep on
+a McVities lot already pulled 29 Sep.
+
 ## Phase 2, close-out (from the earlier plan, still not run)
 
 - PRD-123 VAT on every PO receipt (wire `receive_purchase_order` to `set_po_document_totals`;
