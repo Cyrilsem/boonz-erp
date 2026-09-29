@@ -39,6 +39,24 @@ an open gate.
    `pg_get_functiondef` (or the equivalent for the object touched) before checking this off, not
    just that a file with the right name exists.
 
+   **Filename-vs-applied-timestamp check (added 2026-09-30, PRD-137).** The `apply_migration`
+   tool records each migration's version in `supabase_migrations.schema_migrations` as the
+   timestamp it actually ran, not the filename it was given. If you pick a filename in advance
+   (e.g. to match "now" when you started drafting it) and the apply happens later, the recorded
+   version and the filename drift apart -- the same class of bug as the "Round 2.5" filename
+   incident already documented in CLAUDE.md, just triggered a different way. Before checking off
+   the parity gate, run:
+
+   ```sql
+   select version from supabase_migrations.schema_migrations
+   where version >= '<start of this run, UTC>' order by version;
+   ```
+
+   and confirm each returned version matches the filename timestamp of the corresponding file on
+   main exactly. If any differ, rename the file (migration and its rollback) to the recorded
+   version and update any "Rollback:" comment inside it that references the old name, then
+   re-commit before calling the run done.
+
 2. **Overload gate.** Run this query. Any row returned means the run FAILS: roll back the
    migration that caused it before doing anything else.
 

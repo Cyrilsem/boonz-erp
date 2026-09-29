@@ -3,6 +3,15 @@
 Started 2026-09-29 23:08 Dubai. Branch: main (direct, no loop branch used, per this run's own
 instruction "every migration committed to main in the same run").
 
+Stopped 2026-09-30 00:50 Dubai, well inside the window. See docs/loops/2026-09-29-prd137/REPORT.md
+for the final report: Phase 0 (a-l) done, F1/F2/F8/F9/F10 done and tested, F3-F7 held (feature
+builds or cross-cutting changes judged too large/risky to rush), Phase 2 mostly held except the
+three paper closes (PRD-131/134/135), gates G1/G2/G4 pass, G3 partial (SQL-level testing done for
+every migration, live browser click-through not completed -- see report for why and what CS should
+verify). A real migration-filename parity bug was found and fixed along the way (apply_migration
+records the actual apply timestamp as the version, not the filename given in advance); added a
+check for it to docs/REFILL-DAILY-LOOP.md.
+
 PRD doc: docs/prds/PRD-137-field-flow-integrity.md, committed 8631b64.
 
 ## Plan
