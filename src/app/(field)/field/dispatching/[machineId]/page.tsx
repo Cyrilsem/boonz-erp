@@ -153,6 +153,12 @@ export default function DispatchingDetailPage() {
   } | null>(null);
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
 
+  // A7: driver-entered expiry read off the pack for a Remove line, keyed by dispatch_id.
+  // Prefilled from the line's bound expiry_date but always editable and always sent —
+  // driver_confirm_remove requires a per-variant qty+expiry breakdown once the bound
+  // expiry is missing or within 7 days, so this can never be left out of the RPC call.
+  const [removeExpiry, setRemoveExpiry] = useState<Record<string, string>>({});
+
   // BUG-010 #3: Driver can add extra Remove rows when planned line collapses
   // multi-variant returns (e.g. YoPro Vanilla 6u plan but actual is 2 Van + 2 Choco + 2 Straw).
   // Modal scope = boonz_products mapped to the SAME pod_product as the source line.
@@ -667,6 +673,13 @@ export default function DispatchingDetailPage() {
         // which stamps driver_confirmed_qty WITHOUT yet crediting warehouse_stock
         // or archiving pod_inventory. WH manager approves later in Inventory tab.
         const isRemove = line.dispatch_action === "Remove";
+        // A7: always send a per-variant qty+expiry breakdown for Remove lines — the RPC
+        // requires one whenever the line's bound expiry is missing or within 7 days, and
+        // sending it unconditionally (rather than only when the guard would otherwise fire)
+        // means the driver's actual read-off-the-pack expiry is recorded every time, not
+        // just when the RPC would otherwise 400.
+        const removeExpiryValue =
+          removeExpiry[line.dispatch_id]?.trim() || null;
         const rpcName = isRemove
           ? "driver_confirm_remove"
           : "receive_dispatch_line";
@@ -674,7 +687,9 @@ export default function DispatchingDetailPage() {
           ? {
               p_dispatch_id: line.dispatch_id,
               p_qty_removed: line.filled_qty,
-              p_batch_breakdown: null,
+              p_batch_breakdown: [
+                { qty: line.filled_qty, expiry: removeExpiryValue },
+              ],
               p_driver_id: null,
               p_notes: line.comment.trim() || null,
             }
@@ -690,14 +705,21 @@ export default function DispatchingDetailPage() {
 
         if (rpcErr) {
           const msg = rpcErr.message ?? "";
-          if (msg.includes("already received")) {
-            // Idempotent — line was already received in a prior submit
-            console.info("[Dispatch] line already received:", line.dispatch_id);
+          if (
+            msg.includes("already received") ||
+            msg.includes("already driver-confirmed")
+          ) {
+            // Idempotent — line was already received/confirmed in a prior submit
+            console.info(
+              "[Dispatch] line already received/confirmed:",
+              line.dispatch_id,
+            );
           } else {
-            console.error("[Dispatch] receive_dispatch_line error:", rpcErr);
+            console.error(`[Dispatch] ${rpcName} error:`, rpcErr);
             setInvWarnings((prev) => ({
               ...prev,
-              [line.dispatch_id]: "⚠ Receive failed: " + msg,
+              [line.dispatch_id]:
+                (isRemove ? "⚠ Remove failed: " : "⚠ Receive failed: ") + msg,
             }));
             continue;
           }
@@ -1362,6 +1384,35 @@ export default function DispatchingDetailPage() {
                         className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
                       />
                     </div>
+
+                    {/* A7: Remove lines always collect the expiry actually read off the pack,
+                        prefilled from the bound lot but editable — driver_confirm_remove needs
+                        this whenever the bound expiry is missing or within 7 days, and we now
+                        send it every time rather than only when the RPC would otherwise 400. */}
+                    {line.dispatch_action === "Remove" &&
+                      !line.is_internal_move && (
+                        <div className="mb-2 flex items-center gap-2">
+                          <label className="text-xs text-neutral-500">
+                            Expiry on pack:
+                          </label>
+                          <input
+                            type="date"
+                            value={
+                              removeExpiry[line.dispatch_id] ??
+                              line.expiry_date ??
+                              ""
+                            }
+                            onChange={(e) =>
+                              setRemoveExpiry((prev) => ({
+                                ...prev,
+                                [line.dispatch_id]: e.target.value,
+                              }))
+                            }
+                            disabled={isReadOnly}
+                            className="rounded border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                          />
+                        </div>
+                      )}
 
                     {/* Action badge — show planned action type so driver knows what's expected */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
