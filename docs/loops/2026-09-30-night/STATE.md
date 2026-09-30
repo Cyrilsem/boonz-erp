@@ -506,6 +506,14 @@ live, safety-relevant driver tool -- rewriting its grouping key to `parent_dispa
 dispatch_id` needs real browser testing of the actual packing flow, not a rushed edit. Applying
 just the DB half tonight is safe on its own and unblocks that FE work for a dedicated follow-up.
 
+**Cody review (16:5x Dubai): Approve.** Articles 2, 4, 8, 12, 14 checked -- ADD COLUMN on an
+existing table needs no new RLS policy (row-level, already covers every column); `pack_dispatch_line`
+already sets via_rpc/rpc_name and validates role/inputs unchanged; the generic audit trigger
+picks up the new column on the same INSERT it already audits. One non-blocking note: the
+self-referencing FK has no `ON DELETE` clause (defaults to `NO ACTION`) -- inert since
+`refill_dispatching` rows are never hard-deleted in this codebase (cancelled/skipped are the soft
+states used everywhere), but worth a comment if this migration is ever revisited.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
