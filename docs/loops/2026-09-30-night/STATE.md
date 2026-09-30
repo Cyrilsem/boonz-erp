@@ -4,6 +4,20 @@ Started 2026-09-30 14:51 Dubai (well before the 22:00-06:00 window; using the pr
 for read-only investigation and drafting/rolled-back testing only, per this run's own hard rule
 that dispatch/pickup/plan/mapping migrations apply only inside the window).
 
+## Cody review, pre-window (16:36 Dubai)
+
+Ran Cody on the full batch of 7 tonight's DRAFT migrations (G11 x3, F4, F3, F5, F7) plus a
+reference back to last night's still-pending F1b. **Verdict: Approve.** Checked Articles 1, 4, 6,
+8, 12, 16 -- no violations. Notable strength: F3 extends the EXISTING canonical
+`v_wm_confirmations` object (METRICS_REGISTRY.md's registered "Warehouse Confirmations queue" row)
+instead of forking a parallel view; G11/F4 read the existing canonical `v_wh_pickable`/
+`v_live_shelf_stock` objects rather than re-deriving inline. One pre-existing registry gap
+surfaced (not introduced tonight): `wm_confirm_line`, `add_m2m_transfer`, and
+`validate_refill_plan` were never in `RPC_REGISTRY.md` at all -- since all three are touched
+tonight, close that gap when updating the registries post-apply. Full registry updates
+(`MIGRATIONS_REGISTRY.md`, `RPC_REGISTRY.md`, `CHANGELOG.md`) still need doing after applying
+inside the window -- not done yet, tracked as a post-apply step.
+
 ## STEP 0, done (max 15 min, read-only)
 
 | Item                                            | Status        | Evidence                                                                                                                                                                                                                                                                                                                                                |
