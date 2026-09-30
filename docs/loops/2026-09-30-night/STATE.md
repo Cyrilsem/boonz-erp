@@ -460,6 +460,27 @@ gets left half-written. Recommend doing this INSIDE the window by piggybacking o
 2026-10-01 planning cycle (if one runs tonight) rather than as a separate synthetic call, or as a
 dedicated follow-up with more investigation time.
 
+## F1b pickup-logic replay against real 30 Sep data (pre-window, 16:5x Dubai)
+
+Task D's own gate ("Backtest the pickup logic by replaying 29 and 30 Sep field events") re-run
+fresh, since the original 08:14 incident had already been resolved manually by the time I checked
+(all 10 AMZ-1038-3001-O1 lines now show `picked_up=true`) -- so I reproduced BOTH real incident
+shapes directly against today's real rows, in a rolled-back transaction (nothing committed):
+
+- **Completion trigger:** reset AMZ-1038-3001-O1's 10 real packed 2026-09-30 rows to
+  `picked_up=false` and the 11th real row (`85bcacbb-9ff5-45f4-8eb7-aa9f98a3fa26`, the actual
+  `not_filled` line from the incident) back to `pack_outcome=NULL` -- confirmed this exactly
+  reproduces the incident shape (`10 packed_not_picked, 1 still_undecided`). Then recorded that
+  line's real decision (`not_filled`) and confirmed the trigger auto-flips all 10 to
+  `picked_up=true` with zero manual presses (`after_packed_not_picked: 0`).
+- **Stale-array widening:** reset two of AMZ-1038-3001-O1's real packed rows (A03, A05) to
+  `picked_up=false`, then ran the F1b widened `mark_picked_up` UPDATE logic passing only ONE of
+  their two dispatch_ids (simulating the FE's stale client array that never learned about the
+  second pack event) -- both rows correctly flip to `picked_up=true`, confirming the widening
+  catches the one the caller's array missed.
+  Both replays confirm F1b's design against real data reproducing the exact real incident shapes,
+  not just synthetic approximations.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
