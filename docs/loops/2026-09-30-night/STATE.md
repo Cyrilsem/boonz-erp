@@ -359,15 +359,33 @@ GENERATED column derived from `provenance_reason`, PRD-098).
    (`supabase/rollback/DRAFT_prd137_f3_wm_confirmations_single_inbox_rollback.sql`) verified
    byte-exact against live before drafting.
 
+## F5 drafting status (pre-window)
+
+`supabase/migrations/DRAFT_prd137_f5_ad_hoc_m2m_role_allowlist.sql` -- one-line role allowlist fix:
+`add_m2m_transfer` already fully implements ad hoc M2M (inserts both legs pre-packed/dispatched,
+conservation by construction) but excluded `field_staff` from its own role check. Added
+`field_staff` to the allowlist; no other logic touched. Rollback
+(`supabase/rollback/DRAFT_prd137_f5_ad_hoc_m2m_role_allowlist_rollback.sql`) verified byte-exact
+against live (including two inline "Loop 2026-09-25 A4" comments in the body that a first
+whitespace-stripped diff attempt missed -- comments count as literal text in that comparison, not
+whitespace). TESTED the actual boolean change directly: `'field_staff' NOT IN (...)` is `true`
+under the old 4-role list and `false` under the new 5-role list; an unrelated role (`anon_role`)
+stays blocked under both. FE wiring for a driver-facing "record ad hoc M2M" button is HELD, same
+reasoning as A8 and last night's held items -- confirmed zero existing call site anywhere in
+src/ (the pickup page only shows M2M qty as static read-only text); a net-new safety-relevant
+driver flow is not something to design and ship blind under time pressure. The DB-side fix alone
+is safe to apply now on its own merits (it only widens who may call an RPC operator_admin/
+warehouse already exercise today).
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
 2. F4 -- DONE, drafted+tested, ready to apply.
 3. F3 -- DONE, drafted+tested, ready to apply.
-4. F7 DB side (confirm_m2m_delivery) -- mechanism already exists, just wiring.
-5. F5 ad hoc M2M -- role allowlist fix + FE wiring (assess FE risk before committing to ship it).
+4. F5 (DB side only) -- DONE, drafted+tested, ready to apply. FE wiring held.
+5. F7 DB side (confirm_m2m_delivery) -- mechanism already exists, just wiring. NEXT.
 6. F1b -- already drafted and tested last night, just needs applying + renaming.
-7. F6 -- once that fork lands.
-8. F5's variant-return/swap-on-spot, F7's driver UI -- holding, same reasoning as last night
-   (net-new safety-critical FE, not tractable to rush).
+7. F6 bug 3 (parent_dispatch_id merge-key) -- needs a schema change + Cody review.
+8. F5's variant-return/swap-on-spot, A8's unplanned-Remove writer, F7's driver UI -- holding,
+   same reasoning as last night (net-new safety-critical FE, not tractable to rush).
 9. Block C (PRD-133/123/130/R2) -- only if A+B fully green with time left, cut at 04:30 regardless.
