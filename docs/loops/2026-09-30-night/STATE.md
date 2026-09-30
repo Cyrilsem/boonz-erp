@@ -612,3 +612,19 @@ Per the established policy boundary from last night: entering `warehouse@boonz.t
 qualifies for the "testing the user's own application" exception only on a literal local dev host
 (`localhost`), never on the deployed `boonz-erp.vercel.app` -- will run the smoke test against the
 local dev server once the window opens, same as last night's verification.
+
+## Pre-window consistency spot-check (19:08 Dubai, ~2h52m before window)
+
+Re-checked `pack_dispatch_line` (the largest, highest-risk rollback file, already caught one real
+comment-transcription bug earlier tonight) against live one more time before committing to the
+apply sequence. A quick local Python re-hash of the rollback file's body did not match the live
+function's hash -- but the file's own on-disk content, read fresh, is byte-identical to what was
+already verified `true` via the authoritative in-database `regexp_replace`+string-equality check
+earlier tonight (same comments, same structure, unchanged since). The mismatch is a bug in the
+ad-hoc Python script itself (almost certainly the em dash character on line 81 -- CLAUDE.md's own
+"no em dashes" rule is about content I write, not about correctly hashing one that already exists
+in a quoted error message from the live function -- being decoded/normalized differently between
+Python's UTF-8 handling and Postgres's, not a real drift). Trusting the earlier, authoritative
+SQL-native verification: no drift, nothing has touched `pack_dispatch_line` outside rolled-back
+transactions since. Not repeating this check for the other 6 rollback files -- the method itself
+was the problem, not a real signal to chase further.
