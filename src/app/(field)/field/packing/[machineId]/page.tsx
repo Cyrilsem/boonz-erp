@@ -383,7 +383,12 @@ export default function PackingDetailPage() {
     source_kind: "wh" | "m2m" | "truck_transfer" | "unknown";
     picked_up: boolean;
     allowed_tabs: ("qty" | "shelf" | "product" | "source" | "remove")[];
+    /** PRD-137 F6: free WH stock for this product, right now — caps the qty-edit input. Only set for source_kind "wh". */
+    maxAvailable?: number;
   } | null>(null);
+  /** PRD-137 F6: per-card pack RPC error, keyed by dispatch_id, so a failed pack shows on
+   * the specific card instead of only the page-top banner. */
+  const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
   // PRD-112 §3.2: the driver swaps the product on a line he is standing in front
   // of. Deliberately NOT gated on isReadOnly - a packed, picked-up line is the
@@ -1627,6 +1632,9 @@ export default function PackingDetailPage() {
     setPickErrors([]);
     const supabase = createClient();
     const warnings: string[] = [];
+    // PRD-137 F6: same errors as `warnings`, but keyed by dispatch_id so each one can
+    // also render on its own card instead of only the page-top banner.
+    const newLineErrors: Record<string, string> = {};
     // PRD-115 §2.3: counted, not narrated. See the planDrift state comment.
     let driftLines = 0;
     const overPicks: string[] = [];
@@ -1805,6 +1813,7 @@ export default function PackingDetailPage() {
             rpcErr.message,
           );
           warnings.push(`${line.pod_product_name}: ${rpcErr.message}`);
+          newLineErrors[line.dispatch_id] = rpcErr.message;
           continue;
         }
         // W5: pack_dispatch_line's vox guard returns a normal (non-error) jsonb
@@ -1813,9 +1822,10 @@ export default function PackingDetailPage() {
         // surface to the packer, not disappear (the whole point of this fix is
         // that a venue line never silently resolves to 0/not_filled).
         if ((rpcData as { status?: string } | null)?.status === "bind_failed") {
-          warnings.push(
-            `${line.pod_product_name}: no venue placeholder stock row set up for this product yet — ask WH to create it, then re-pack`,
-          );
+          const msg =
+            "no venue placeholder stock row set up for this product yet — ask WH to create it, then re-pack";
+          warnings.push(`${line.pod_product_name}: ${msg}`);
+          newLineErrors[line.dispatch_id] = msg;
           continue;
         }
         console.log(`[B3.1] Packed via RPC: ${line.pod_product_name}`, rpcData);
@@ -1829,6 +1839,13 @@ export default function PackingDetailPage() {
     if (warnings.length > 0) {
       setWhWarnMsg(warnings.join(" · "));
     }
+    // PRD-137 F6: clear every attempted line's previous per-card error, then reapply
+    // this round's failures — a line that packed fine this time loses its stale error.
+    setLineErrors((prev) => {
+      const merged = { ...prev };
+      for (const line of lines) delete merged[line.dispatch_id];
+      return { ...merged, ...newLineErrors };
+    });
     // PRD-115 §2.3: one banner for the drift, a named list for the over-picks.
     setPlanDrift(driftLines);
     setPickErrors(overPicks);
@@ -3634,6 +3651,15 @@ export default function PackingDetailPage() {
                                     : "unknown",
                                   picked_up: false,
                                   allowed_tabs: ["product", "qty"],
+                                  maxAvailable: addLine.from_warehouse_name
+                                    ? Math.max(
+                                        0,
+                                        addLine.warehouse_stock -
+                                          (committedByProduct.get(
+                                            addLine.boonz_product_id,
+                                          ) ?? 0),
+                                      )
+                                    : undefined,
                                 })
                               }
                               title="Change product / edit qty"
@@ -4432,6 +4458,12 @@ export default function PackingDetailPage() {
                               Enter at least 1 unit across variants
                             </p>
                           )}
+                          {/* PRD-137 F6: per-card pack error, not just the page-top banner */}
+                          {lineErrors[line.dispatch_id] && (
+                            <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                              {lineErrors[line.dispatch_id]}
+                            </p>
+                          )}
                         </div>
                       ) : (
                         /* Single-variant — per-batch pick table (same layout as mix) */
@@ -4733,6 +4765,12 @@ export default function PackingDetailPage() {
                               Enter at least 1 unit
                             </p>
                           )}
+                          {/* PRD-137 F6: per-card pack error, not just the page-top banner */}
+                          {lineErrors[line.dispatch_id] && (
+                            <p className="mt-1 text-xs font-medium text-red-600 dark:text-red-400">
+                              {lineErrors[line.dispatch_id]}
+                            </p>
+                          )}
                         </div>
                       )}
 
@@ -4790,6 +4828,15 @@ export default function PackingDetailPage() {
                                   : "unknown",
                                 picked_up: false,
                                 allowed_tabs: ["qty", "source", "remove"],
+                                maxAvailable: line.from_warehouse_name
+                                  ? Math.max(
+                                      0,
+                                      line.warehouse_stock -
+                                        (committedByProduct.get(
+                                          line.boonz_product_id,
+                                        ) ?? 0),
+                                    )
+                                  : undefined,
                               })
                             }
                             title="Edit qty / source / remove"
@@ -5113,6 +5160,7 @@ export default function PackingDetailPage() {
           }
           editRole="warehouse_manager"
           allowedTabs={editingDispatch.allowed_tabs}
+          maxAvailable={editingDispatch.maxAvailable}
           revalidate={`/field/packing/${machineId}`}
           onSuccess={() => {
             setEditingDispatch(null);

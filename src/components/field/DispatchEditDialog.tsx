@@ -31,6 +31,8 @@ interface Props {
   editRole: EditRole;
   /** Which tabs to enable (depends on packed/picked_up/item_added state and editor role) */
   allowedTabs: EditTab[];
+  /** PRD-137 F6: free WH stock for this product right now, if source_kind is "wh". Caps the qty input. */
+  maxAvailable?: number;
   /** Path to revalidate after a successful edit */
   revalidate?: string;
   /** Callback after successful edit so parent can refetch */
@@ -47,6 +49,7 @@ export function DispatchEditDialog({
   currentSourceKind = "wh",
   editRole,
   allowedTabs,
+  maxAvailable,
   revalidate,
   onSuccess,
 }: Props) {
@@ -103,6 +106,12 @@ export function DispatchEditDialog({
       let res;
       switch (tab) {
         case "qty":
+          // PRD-137 F6: catch an over-cap qty client-side before ever calling the RPC,
+          // so the driver sees the real limit instead of a raised error after the fact.
+          if (maxAvailable != null && qty > maxAvailable) {
+            setError(`Max available: ${maxAvailable}`);
+            return;
+          }
           // PRD-049 Phase C: an M2M transfer is a paired Remove+Add New. Editing one
           // leg via edit_dispatch_qty desyncs the pair, so route M2M rows to the
           // atomic both-leg edit_transfer_qty. Non-transfer rows use edit_dispatch_qty.
@@ -221,10 +230,18 @@ export function DispatchEditDialog({
                 type="number"
                 value={qty}
                 min={0}
+                max={maxAvailable}
                 onChange={(e) => setQty(Number(e.target.value))}
                 className="mt-1 w-full rounded border px-2 py-1"
               />
             </label>
+            {maxAvailable != null && (
+              <p
+                className={`text-xs ${qty > maxAvailable ? "font-medium text-red-600" : "text-slate-500"}`}
+              >
+                Max available: {maxAvailable}
+              </p>
+            )}
           </div>
         )}
 
