@@ -3438,3 +3438,44 @@ Remove legs now render adjacent to their refill carrying a "counts separately" c
 rolled-back subtransaction (`a01_live` 1 → 0, `a01_total` 2 → 1), not assumed.
 `scripts/prd115-fe-string-assertions.mjs` 18/18. Cody: approve with revisions, C-1..C-7 all
 satisfied and none waived.
+
+## 2026-09-30 night — PRD-137 (G11 machine-mapping gate, F3/F4/F5/F6/F7, pickup completion)
+
+ONE LOOP overnight window, 22:00-06:00 Dubai. Full narrative: `docs/loops/2026-09-30-night/STATE.md`.
+9 migrations applied live, all Cody-approved, overload gate re-verified 0 after every apply.
+
+**G11 (new).** `validate_refill_plan` and `write_refill_plan` now flag/reject Refill and Add-New
+lines for a product with no Active `product_mapping` row on the target machine, via the new
+`g11_check_machine_mapping` helper. An explicit override is still allowed but is now logged to
+`monitoring_alerts`; `approve_refill_plan` sweeps and logs any override that slipped through.
+Block D backtest against real 2026-09-16..30 data: 87 violations across 15 machines.
+
+**F4.** `write_refill_plan` rejects a Remove/Machine-To-Warehouse line whose quantity exceeds the
+live WEIMI shelf stock (skipped when no WEIMI row exists at all — a separate defect class).
+
+**F3.** `v_wm_confirmations` (the canonical warehouse-confirmations inbox) gains two new sources:
+`refill_return_ack` (a Refill/Add-New return `return_dispatch_line` credited with zero review) and
+`quarantine_batch` (quarantined stock pending manual review). **Live scope turned out far larger
+than pre-window tested: 775 rows / 2280 units, a genuine ~6-month backlog, not 11/31** — not
+rolled back (the view is doing exactly what it was built to do), disclosed to CS mid-window, a
+scope recommendation to follow (same shape as the A9/A10 fleet-audit finding).
+
+**F5.** `add_m2m_transfer`'s role allowlist now includes `field_staff` (was
+operator_admin/superadmin/manager/warehouse only).
+
+**F7 (new).** `confirm_m2m_delivery` — confirms an M2M transfer's actual delivered quantity per
+leg, crediting any shortfall back to the source machine's warehouse.
+
+**F6 (DB half only).** `refill_dispatching` gains `parent_dispatch_id`; `pack_dispatch_line`'s
+multi-batch split child rows now record it. The FE packing-screen defect this was meant to help
+diagnose — cards silently merging by `${action}|||${boonz_product_id}|||${shelf_code}` — was
+reproduced live and unprompted during tonight's smoke test; still held for a dedicated fix.
+
+**F1b.** A machine/date with zero remaining unresolved lines now auto-flips its packed rows to
+picked-up via a new trigger; `mark_picked_up` widened to sweep every packed-not-picked-up row
+sharing the same machine/date as any input ID, not just the literal IDs passed in. Confirmed firing
+correctly live during tonight's smoke test.
+
+**Gate 4 (app smoke test, mandatory before 06:00 Dubai): GREEN.** Pack a line, add a return, add a
+return variant, add an intra-machine move — all 4 run end-to-end via the real canonical RPCs under
+`warehouse@boonz.test` on the local dev server.
