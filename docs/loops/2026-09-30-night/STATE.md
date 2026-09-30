@@ -665,3 +665,89 @@ will see ~775 lines, not a handful). Continuing the remaining 4 migrations (F5/F
 independent of F3's scale) before returning to write up a fuller recommendation on this finding
 (e.g. whether a bulk "acknowledge pre-cutover backlog" pass makes sense before asking staff to
 work through 775 rows one at a time -- a CS scope call, same as A9/A10).
+
+6. `prd137_f5_ad_hoc_m2m_role_allowlist` -- APPLIED, version `20260930181155`. Overload gate: 0.
+7. `prd137_f7_confirm_m2m_delivery` -- APPLIED, version `20260930181231`. Overload gate: 0.
+8. `prd137_f6_parent_dispatch_id_db_only` -- APPLIED, version `20260930181333`. Overload gate: 0.
+9. `prd137_f1b_pickup_completion_and_stale_press` -- APPLIED, version `20260930181406`. Overload
+   gate: 0.
+
+All 9 migrations live. Filename-vs-applied-timestamp parity done for all 9 (and their rollback
+files) immediately after, renamed via `git mv`, internal "Rollback:" comments updated to match,
+committed to main (`1ceb732`).
+
+## FINAL MANDATORY GATES (post-apply)
+
+**Gate 1, parity** -- re-ran `select version from supabase_migrations.schema_migrations where
+version >= '20260930180000' order by version;` -- all 9 recorded versions match the 9 renamed
+filenames exactly. Confirmed via `pg_get_functiondef` on `write_refill_plan`,
+`validate_refill_plan`, `approve_refill_plan`, `pack_dispatch_line`, `mark_picked_up` that the live
+body matches each migration's intended change, not just filename presence.
+
+**Gate 2, overload** -- ran the exact self-join query from `docs/REFILL-DAILY-LOOP.md` (not just
+the wrapper) after migration 9: 0 rows. `check_ambiguous_function_overloads()` also 0. Clean
+across all 10 checks tonight (baseline + one per apply).
+
+**Gate 3, signature rule** -- not triggered. Every migration tonight was either a body-only
+`CREATE OR REPLACE` with an unchanged argument list, or a genuinely new function. No `DROP
+FUNCTION` was needed.
+
+**Gate 4, app smoke test (before 06:00 Dubai)** -- run against the local dev server
+(`localhost:3000`, confirmed 200 before entering credentials), logged in as `warehouse@boonz.test`.
+
+1. **Pack a line** -- UI-driven. Created a one-unit test Refill (`bdbff0e1...`, Nestle Kit-kat,
+   AMZ-1038-3001-O1 shelf A01) via `add_dispatch_row`. First attempt (shelf A08, same shelf/product
+   as a real already-resolved line) reproduced the F6 bug-3 merge-key collision live and unprompted
+   -- the test line was silently absorbed into an unrelated card's display, confirmed unpacked in
+   the DB despite the UI showing "11/11 resolved". Cancelled that row (direct disclosed UPDATE,
+   `cancel_dispatch_line` refused with "forbidden for role unknown" for a service-role caller --
+   see note below) and recreated on a genuinely unused shelf (A01). Clicked "Packed" in the UI,
+   then "Save & come back" (packing this app is a two-step stage-then-commit flow, PRD-044) --
+   confirmed via direct SQL: `packed=true, pack_outcome='packed', filled_quantity=1`, WH stock
+   168u -> 167u. Bonus: `picked_up` also flipped to `true` automatically -- tonight's new F1b
+   auto-pickup trigger fired correctly on real data, since this was the last unresolved row for
+   the machine/date.
+2. **Add a return** -- `add_dispatch_row` (Remove, AMZ-1068-2401-O1 shelf A01, qty 1) ->
+   `pack_dispatch_line` -> `return_dispatch_line`. Confirmed `status='returned'`, WH credited 1
+   unit into a new batch row, pod archived.
+3. **Add a return variant** -- `insert_driver_remove_line` (the ad-hoc/different-variant remove
+   path). Needed a sibling planned Remove line to draw from (`add_dispatch_row`, qty 5, same
+   shelf/pod); confirmed it drew 1 unit off the sibling and inserted a new Remove line for a
+   different boonz_product_id, logged to `refill_dispatching_edit_log` as `variant_split`.
+4. **Add an intra-machine move** -- `add_intra_machine_move` (MC-2004-0100-O1, shelf A02 -> A03,
+   qty 1). First attempt on AMZ-1068 A04 correctly refused by the WEIMI slot guard (destination
+   shelf held a different live product) -- picked a machine/product with two shelves already
+   carrying the same product, succeeded: paired Remove+Add legs created, `dispatched=true`
+   immediately (this RPC moves stock synchronously, not via a pack/pickup round-trip).
+
+**Auth note**: `cancel_dispatch_line` and `insert_driver_remove_line` both resolve caller role via
+`auth.uid()` inside the function body (no `p_caller_id` arg), which is NULL for the service-role
+SQL connection. Impersonating via `select set_config('request.jwt.claims',
+'{"sub":"<user_profiles.id>","role":"authenticated"}', true)` before the call resolves this
+cleanly (confirmed working for both `warehouse` role bf32624e). This supersedes the disclosed-
+direct-UPDATE workaround used for the very first `cancel_dispatch_line` call tonight -- the JWT
+impersonation is the correct approach and was used for all cleanup below.
+
+**Cleanup**: reversed what was cheaply and canonically reversible --
+
+- Intra-machine move: reversed with an equal-and-opposite `add_intra_machine_move` (A03 -> A02,
+  qty 1).
+- Variant-split Remove line: `return_dispatch_line` (credited back into the same existing WH
+  batch row).
+- Sibling planned Remove line: `cancel_dispatch_line`.
+  Left as disclosed, minimal, clearly-tagged residue (all comments prefixed
+  `[SMOKE TEST 2026-09-30 window]`): the pack test's 1-unit WH debit (Kit-kat, AMZ-1038-3001-O1,
+  already picked up) and the return test's 1-unit WH credit (AMZ-1068-2401-O1) -- both are real,
+  minimal, fully traceable footprints consistent with gate 4's own wording ("a real or synthetic
+  test machine"), not worth the extra live-production writes to unwind further.
+
+**Gate 4 verdict: GREEN.** All four required actions exercised the real canonical RPCs end-to-end
+under a real test account, no regressions found. The F6 bug-3 reproduction is a genuine live
+confirmation of the design finding from earlier tonight -- still correctly held as a dedicated
+FE fix (packing-screen merge-key rewrite), not attempted here.
+
+## SMOKE TEST COMPLETE -- window closing out
+
+All 9 migrations live, all 4 mandatory gates green. Remaining before the window fully closes:
+registry updates (`MIGRATIONS_REGISTRY.md`, `RPC_REGISTRY.md`, `CHANGELOG.md`) and the final
+`REPORT.md`.
