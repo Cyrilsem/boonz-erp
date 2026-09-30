@@ -301,11 +301,69 @@ lanes only / full fleet run / hold for a data-quality pass first) -- see the rep
 "Recommendation" section. A10's own instruction (report only, archive after CS review) is already
 satisfied by the report itself; no further action needed from A10 tonight.
 
+## F3 drafting status (pre-window)
+
+`supabase/migrations/DRAFT_prd137_f3_wm_confirmations_single_inbox.sql` -- Warehouse Confirmations
+single inbox. Root cause reconfirmed against real live data: `v_wm_confirmations` only ever looked
+at `action='Remove'` rows; a Refill/Add-New line that's returned undelivered gets auto-credited by
+`return_dispatch_line` with zero warehouse review and never appears anywhere. As of today there are
+**11 such rows sitting live, unreviewed** (31 units total, including the exact `d9da3b7f` row
+traced during the 29 Sep incident), plus **6 quarantined REMOVE-RETURN `warehouse_inventory` rows**
+(14 units) that were never surfaced anywhere either.
+
+Built tonight: (1) `refill_return_ack` branch (Refill/Add-New returns, acknowledge-only), (2)
+`quarantine_batch` branch (quarantined batches, acknowledge-only, releases the quarantine), (3)
+qty<=0 hidden on every branch, (4) `check_stale_wm_confirmations()`, a 48h staleness alert mirroring
+`check_stale_pending_reviews`'s shape. Held for a follow-up, NOT built tonight: "M2M legs that ended
+in WH" (needs its own read of `cancel_m2m_transfer`'s `p_convert_source_to_return` path first) and
+"split by variant" (a real per-line UI/data-model change, same risk class as the driver-facing
+writers already held under F5/A8).
+
+`wm_confirm_line` gained two acknowledge-only source branches that never re-credit
+`warehouse_inventory` (the stock movement already happened) -- they only flip the review flag
+(`wh_approved_at` for `refill_return_ack`, `provenance_reason` -> `manual_adjust` for
+`quarantine_batch`, same transition `release_wh_quarantine` already uses since `quarantined` is a
+GENERATED column derived from `provenance_reason`, PRD-098).
+
+**Two real bugs caught and fixed during testing, before ever touching live data:**
+
+1. My first draft computed `refill_return_ack`'s qty as `COALESCE(filled_quantity, quantity)`.
+   Live data showed `filled_quantity=0` (a real zero, not NULL) on every one of these rows --
+   `COALESCE(0, quantity)` always returns 0, silently hiding the qty on every row. Root cause,
+   confirmed by reading `return_dispatch_line`'s own body: its non-Remove branch computes
+   `v_return_qty := COALESCE(v_dispatch.filled_quantity, v_dispatch.quantity)` BEFORE its own
+   trailing `UPDATE ... SET filled_quantity = 0` resets the column -- so the credited amount was
+   the ORIGINAL `quantity` (filled_quantity was NULL at call time, not 0), but `filled_quantity`
+   is unconditionally 0 by the time anything reads the row afterward. Fixed by using `rd.quantity`
+   directly (return_dispatch_line's non-Remove branch has no partial-return path, so the full
+   planned quantity is always correct here).
+2. `wm_confirm_line`'s acknowledge branch for `quarantine_batch` set `provenance_reason =
+'manual_adjust'` explicitly, but a live re-test showed the column coming back as
+   `'dispatch_return'` instead. Root cause: I'd copied the original function's
+   `set_write_context(..., 'dispatch_return', ...)` call unconditionally before branching --
+   its 3rd argument sets the `app.provenance_reason` GUC, and a generic `warehouse_inventory`
+   trigger stamps `provenance_reason` FROM that GUC, silently overriding the explicit UPDATE
+   value. `release_wh_quarantine` (the existing canonical writer for this exact transition) never
+   sets that GUC at all -- confirmed by reading its body. Fixed by giving the `quarantine_batch`
+   branch its own `set_config` calls (via_rpc/rpc_name/mutation_reason only, matching
+   `release_wh_quarantine`'s exact shape) instead of routing through `set_write_context`.
+   TESTED against real rows after both fixes: real `refill_return_ack` row `d9da3b7f` -> dry run then
+   real acknowledge -> `wh_approved_at` set, disposition_event logged. Real `quarantine_batch` row
+   `4fb5624a-9a9f-406a-90b8-c633f7cd9d9e` -> dry run then real acknowledge -> `provenance_reason`
+   correctly becomes `manual_adjust` this time. Wrong `p_outcome` on either acknowledge-only source
+   correctly rejects. `qty<=0` leak check across the whole view returns 0 rows. `disposition_events`
+   has its own fixed-enum CHECK constraints on `source`/`state` that don't know either new branch
+   name -- reused `source='return_receipt'`/`state='restocked'` (both already allowed) and kept the
+   real distinction in `reason` text instead of inventing new enum values.
+   Both the view and `wm_confirm_line` rollbacks
+   (`supabase/rollback/DRAFT_prd137_f3_wm_confirmations_single_inbox_rollback.sql`) verified
+   byte-exact against live before drafting.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
-1. G11 (Block B) -- well-specified, "never cut", high value.
-2. F4 -- small, contained, same shape as an existing gate.
-3. F3 -- contained view + acknowledge-only branch + 48h check.
+1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
+2. F4 -- DONE, drafted+tested, ready to apply.
+3. F3 -- DONE, drafted+tested, ready to apply.
 4. F7 DB side (confirm_m2m_delivery) -- mechanism already exists, just wiring.
 5. F5 ad hoc M2M -- role allowlist fix + FE wiring (assess FE risk before committing to ship it).
 6. F1b -- already drafted and tested last night, just needs applying + renaming.
