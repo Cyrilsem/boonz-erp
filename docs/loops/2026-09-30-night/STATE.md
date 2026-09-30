@@ -128,6 +128,179 @@ own words say "WH return line" not "writeoff" -- disclosing this call clearly ra
 on it). FE: confirmed zero existing UI (pickup page shows M2M qty as static read-only text) --
 100% new driver UI, flagged as the risky-to-rush part, same as F5's ad hoc M2M UI.
 
+## G11 drafting status (pre-window, as of 15:36 Dubai)
+
+Three migrations, one per function, per spec:
+
+1. `supabase/migrations/DRAFT_prd137_f11a_g11_helper_and_validate.sql` -- shared helper
+   `g11_check_machine_mapping(machine, pod_product, boonz_product, comment)` returning
+   `(is_violation, is_override, mapped_ids)`, plus `validate_refill_plan`'s new G11 blocking row
+   (uses the helper via `CROSS JOIN LATERAL`, only on `action IN ('Refill','Add New')`). FULLY
+   TESTED: real Kit-kat violation (AMZ-1038-3001-O1 A08, dispatch 27dee694) confirms
+   `is_violation=true` and surfaces as a G11 blocking violation via `validate_refill_plan`; 5 real
+   McVities Dark rows all clean; synthetic override ([sub] + zero WH_CENTRAL stock on mapped set)
+   and synthetic on-mapping-product-passes cases both confirmed. Rollback verified byte-exact
+   against live before drafting.
+2. `supabase/migrations/DRAFT_prd137_f11b_write_refill_plan_v7.sql` -- write-time V7 gate inside
+   the existing per-line loop (only for Refill/Add New, only once machine/product/pod all resolve
+   by name so it never stacks a second confusing error on an unresolved-name V4/V5 hit). Rejects
+   into `v_errors` on violation; logs to `monitoring_alerts` (source `g11_mapping_override`) on
+   override. FULLY TESTED, all three paths, using a synthetic fixture (pod `f0000005-...001`,
+   mapped boonz product `f0000005-...002`, off-mapping `f0000005-...003`, `product_mapping` row
+   scoped to AMZ-1038-3001-O1's real machine_id `a75b847a-e920-4a94-bb2f-600280ff8b3c`):
+   - Off-mapping + `[sub]` comment + zero real WH_CENTRAL stock on the mapped set -> `status:'ok'`,
+     line written, 1 `monitoring_alerts` row logged. Override respected correctly.
+   - Off-mapping + no `[sub]` comment -> `status:'validation_error'`, `G11_not_in_machine_mapping`,
+     0 lines written, 0 alerts. Reject path correct.
+   - On-mapping product itself -> `status:'ok'`, line written, 0 alerts (no override needed).
+     Correct.
+     Rollback (`supabase/rollback/DRAFT_prd137_f11_write_refill_plan_g11_rollback.sql`) verified
+     byte-exact against live before drafting.
+
+   **Debugging note (resolved):** the override path first appeared to log 0 alerts on two
+   consecutive attempts. First attempt was a genuine test-setup bug (product_mapping fixture
+   scoped to the wrong machine_id, a leftover from reusing last night's ALJLT-1015 machine_id).
+   After fixing the machine_id, a second attempt STILL showed `alerts_after: 0` even though the
+   helper independently confirmed `is_override=true` for the identical inputs. Root cause: the
+   test combined `write_refill_plan(...)` and `(SELECT count(*) FROM monitoring_alerts ...)` in
+   the SAME SELECT's target list -- PostgreSQL does not guarantee a data dependency between two
+   expressions in one target list forces sequential evaluation, so the count subquery is not
+   reliably guaranteed to see the write's own side effect. Fix: write the function's result into a
+   temp table as its own statement, THEN read `monitoring_alerts` in a later statement. Sequenced
+   this way, the alert appears every time. **Lesson for the rest of tonight's testing: never
+   combine a side-effecting function call and a read of its own side effect in one SELECT target
+   list inside these rolled-back-transaction tests -- always split via a temp table or separate
+   statement.**
+
+3. `supabase/migrations/DRAFT_prd137_f11c_approve_refill_plan_audit.sql` -- override-audit safety
+   net in `approve_refill_plan`. G11 itself is already enforced here via `validate_refill_plan`'s
+   existing blocking-count check (no separate reject path needed in this function). What this adds:
+   a scan of `refill_dispatching` rows for the batch being approved, catching Refill/Add-New rows
+   with `is_override=true` that never passed through `write_refill_plan`'s V7 (written before V7
+   existed, or via a path like `inject_swap`), logging them to `monitoring_alerts` with the same
+   shape, deduped by `dispatch_id` in the payload so re-approving or a row already caught at write
+   time is never double-logged. Positioned after the existing blocking-violation check, before the
+   `operator_status = 'approved'` update. WRITTEN AND TESTED:
+   - Full-function test (synthetic override fixture, same as migration 2's) hit unrelated,
+     pre-existing gates first (G5 -- the off-mapping product has no product_mapping row of its own
+     under any pod_product; G8 -- zero free warehouse stock; G10 -- the real WEIMI shelf shows a
+     different product with no Remove line) -- correctly proved G11 itself did NOT add to the
+     blocking count for an override, but the batch still correctly failed on those orthogonal,
+     unrelated gates (expected: a real [sub] override in production still needs its own G5 mapping
+     and available stock/WEIMI-state to clear approval; G11 overriding never bypasses those).
+   - Isolated the audit-scan's own query (exact WHERE/LATERAL shape from the migration) to verify
+     it directly, sidestepping the unrelated gates: before any alert exists, the scan finds the
+     override dispatch row and `g11_check_machine_mapping` returns `is_override=true,
+is_violation=false` for it (1 row). After pre-seeding a `monitoring_alerts` row keyed to that
+     same `dispatch_id` (simulating "already caught at write time"), the identical scan query
+     returns 0 rows -- the dedupe clause works.
+     Rollback (`supabase/rollback/DRAFT_prd137_f11_approve_refill_plan_audit_rollback.sql`) verified
+     byte-exact against live before drafting.
+
+   **All three G11 migrations are now fully drafted and tested. Ready to apply once the window
+   opens, in order f11a -> f11b -> f11c (helper/validate must exist before write_refill_plan or
+   approve_refill_plan reference it).**
+
+## F4 drafting status (pre-window)
+
+`supabase/migrations/DRAFT_prd137_f4_weimi_remove_qty_gate.sql` -- write_refill_plan gets V8,
+stacked on top of V7 (G11): a Remove/Machine To Warehouse line can't request more than
+`v_live_shelf_stock.current_stock` currently shows on that machine/shelf. Skipped (not blocked)
+when WEIMI has no live row at all for that machine/shelf. Confirms the fork's finding: the 4 refill
+engines already source Remove qty from WEIMI correctly; the real gap was write_refill_plan itself
+being a pure pass-through writer. WRITTEN AND TESTED against real live WEIMI data (AMZ-1038-3001-O1
+A08, `current_stock=16` today):
+
+- Remove qty 20 (> 16) -> blocked, `V8_weimi_remove_qty`, correct message naming both quantities.
+- Remove qty 10 (<= 16) -> `status: ok`.
+- Remove qty 999999 on a shelf code with no WEIMI row (`Z99`) -> `status: ok` (fails open on
+  absent data, as designed).
+  Rollback (`supabase/rollback/DRAFT_prd137_f4_weimi_remove_qty_gate_rollback.sql`) restores the
+  exact pre-V8 (V7/G11-only) body -- must apply AFTER `DRAFT_prd137_f11b_write_refill_plan_v7.sql`
+  in the window, since it stacks on that version.
+
+## Block A+ (added mid-run by CS, "never cut", do right after Block A)
+
+A7. Driver Remove card must always collect qty + expiry per variant (prefill from the bound lot)
+and show every RPC error -- `driver_confirm_remove` must never 400 silently. Evidence: 6x 400
+on 2026-09-30 06:29-10:17.
+
+**DONE, SHIPPED (FE-only, no window gating needed, same as F6 bugs 1&2), commit `4f0792c`.**
+Fork confirmed root cause exactly: the only call site
+(`src/app/(field)/field/dispatching/[machineId]/page.tsx` `handleSave()`) hardcoded
+`p_batch_breakdown: null`, so `driver_confirm_remove`'s R5a guard (`IF
+COALESCE(jsonb_array_length(p_batch_breakdown),0)=0 AND (expiry_date IS NULL OR expiry_date <=
+today+7) THEN RAISE EXCEPTION`) fired on every line whose bound expiry was missing or within 7
+days -- and there was no UI on this card to collect an expiry at all (it was read-only), so the
+driver had no way to recover. Fix: added a per-line, editable "Expiry on pack" date input
+(prefilled from `line.expiry_date`, state `removeExpiry` keyed by `dispatch_id`), and the RPC call
+now always sends a single-entry breakdown `[{qty: line.filled_qty, expiry: <that value or null>}]`
+-- built from the canonical `{qty, expiry, wh_inventory_id?}` shape already used by
+`receive_dispatch_line`/`set_dispatch_line_breakdown` (PRD-053B). Also fixed the error banner,
+which was copy-pasted from the `receive_dispatch_line` branch and mislabeled every Remove RPC
+failure as "Receive failed" -- now reads "Remove failed" for Remove lines, and the "already
+received" idempotency check now also matches driver_confirm_remove's own "already
+driver-confirmed" message.
+TESTED against real data in rolled-back transactions: (1) reproduced the exact bug -- calling with
+the OLD `p_batch_breakdown: null` payload against a real eligible Remove dispatch
+(`e4fb039e-4238-4cc9-8aee-795869c67370`, `expiry_date NULL`) raises the exact quoted exception; (2)
+the NEW payload shape with a null expiry (driver left the date blank) succeeds --
+`status:'driver_confirmed_pending_wh_approval'`; (3) the NEW payload shape with a real driver-typed
+expiry (`2027-06-01`) on a different real dispatch (`41f648f1-071f-44a3-8467-7ba114802e0a`) also
+succeeds and `driver_confirmed_breakdown` stores exactly `[{"qty":4,"expiry":"2027-06-01"}]`.
+`npx tsc --noEmit` and `npm run build` both clean before commit.
+
+A8. Driver "Add return" on a shelf with no planned Remove line: today `insert_driver_remove_line`
+refuses ("only 0 units remaining across the planned Remove lines"). Needs a path to create the
+Remove line itself via `add_dispatch_row` (auto packed + picked up), capture variant + qty +
+expiry, and land it in Warehouse Confirmations. INVESTIGATED, DESIGNED, NOT YET CODED.
+Confirmed root cause: `insert_driver_remove_line` is a **reclassify-an-existing-planned-total**
+writer, not a create-new-Remove writer -- it sums sibling Remove lines on the same
+machine+shelf+pod+date, requires `sibling_total >= p_quantity`, then draws down siblings by
+exactly the amount it inserts as the new variant (conservation: total planned Remove volume for
+that shelf never changes, only which variant it's attributed to). When NO Remove was planned at
+all (`sibling_total = 0`), there is nothing to reclassify, so it correctly refuses -- by design,
+not a bug. `add_dispatch_row`'s existing `action='Remove'` branch is close but not quite it: it
+inserts with `packed=false, picked_up=false` (a NEW planned line for a FUTURE pack/pickup cycle),
+and resolves expiry automatically from `v_pod_inventory_latest`'s FEFO batch rather than from a
+driver-entered reading -- wrong shape for "I already physically removed this, unplanned, right
+now." Confirmed `v_wm_confirmations`'s Remove branch only requires `action='Remove' AND
+picked_up=true AND wh_approved_at IS NULL AND COALESCE(driver_confirmed_qty, filled_quantity,
+quantity, 0) > 0 AND NOT returned/item_added/cancelled/skipped` -- it does NOT check `packed`, so
+a new row landing with `picked_up=true` + `driver_confirmed_qty` set + `driver_confirmed_at` set
+lands in Warehouse Confirmations correctly without any further step.
+**Design for a new RPC** (name TBD, e.g. `driver_report_unplanned_remove`): same
+role/validation shape as `insert_driver_remove_line` (field_staff+ roles,
+`p_reason` >= 10 chars, `p_quantity > 0`), but skips the sibling-sum/draw-down logic entirely --
+always a pure additive INSERT into `refill_dispatching`: `action='Remove', packed=true,
+picked_up=true, dispatched=true, driver_confirmed_qty=p_quantity, driver_confirmed_at=now(),
+driver_confirmed_by=p_driver_id, expiry_date=p_expiry_date` (driver-entered, not FEFO-resolved),
+`comment='[DRIVER-UNPLANNED] '||p_reason`. Same class of risk as last night's held "swap on the
+spot" and "variant return with zero prior line" items -- genuinely new writer, no existing RPC to
+extend safely -- but the design is now fully concrete and low-risk (single INSERT, additive only,
+lands in an existing, already-reviewed WH queue). Tractable tonight if Block A time allows; hold
+for a dedicated follow-up if not, per the same judgment call as last night's similar items.
+A9. Legacy-variant sweep: any lane whose Active pod rows hold a boonz variant not mapped to the
+lane's WEIMI pod product should get an automatic Remove line in the next plan, before any
+Refill. CS expects USH A6, NOOK A6, VML-1003 A8 (all under 35g-labelled lanes, Plaay Tablets -
+Dark Chocolate 50g) to show up.
+A10. Report Active pod rows whose product is not mapped to the lane at all (e.g. WPP A06 Coca Cola
+Zero x6, x9 on a Plaay lane). Read-only report; archive only after CS review -- no automatic
+writes for this item.
+
+**A9/A10 REPORT DONE, DECISION NEEDED BEFORE ANY WRITE.** Full fleet audit in
+`docs/loops/2026-09-30-night/A9-A10-legacy-variant-fleet-audit.md`. CS's own example confirmed
+exactly (Plaay Tablets - Dark Chocolate on USH A06/NOOK A06/VML-1003 A08, WPP A06 Coca Cola Zero
+x6+x9) -- but the real fleet-wide scope is far bigger than the example: **380 mismatched rows, 132
+lanes, 29 machines, 1692 units**. Recommending AGAINST auto-generating ~380 Remove lines tonight
+sight-unseen (observation in the report: much of this looks like WEIMI-recognition drift, not
+purely bad physical stock -- e.g. whole different snack categories cycling through the same bin
+fleet-wide, plus a likely `Vitamin Well`/`Vitamin well` duplicate-boonz-product data-hygiene issue
+mixed in). A9's Remove-generation logic is HELD pending a CS scope decision (pilot on the 3 named
+lanes only / full fleet run / hold for a data-quality pass first) -- see the report's
+"Recommendation" section. A10's own instruction (report only, archive after CS review) is already
+satisfied by the report itself; no further action needed from A10 tonight.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- well-specified, "never cut", high value.
