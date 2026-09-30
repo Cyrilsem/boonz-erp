@@ -377,15 +377,45 @@ driver flow is not something to design and ship blind under time pressure. The D
 is safe to apply now on its own merits (it only widens who may call an RPC operator_admin/
 warehouse already exercise today).
 
+## F7 drafting status (pre-window)
+
+`supabase/migrations/DRAFT_prd137_f7_confirm_m2m_delivery.sql` -- new RPC
+`confirm_m2m_delivery(p_transfer_id, p_source_actual_qty, p_dest_actual_qty, p_caller_id,
+p_reason)`. Confirmed by reading `receive_dispatch_line`'s body: it already runs its full
+`pod_inventory` update for an M2M leg (`is_m2m=true`) regardless -- deactivates the source shelf's
+row, increments the dest shelf's row -- it only skips `warehouse_inventory` credit/debit for M2M,
+which is correct (M2M never touches the warehouse on its own). So calling it on both legs with the
+REAL actual quantities already gets `pod_inventory` right at both ends; the one thing it can't do
+per-leg is notice a mismatch between the two real quantities. That mismatch handling is this RPC's
+entire job: reject `dest_actual > source_actual` outright (physically impossible), and for a
+shortfall, credit `warehouse_inventory` for exactly the difference as a disclosed direct write
+(own reasoned default per the fork's earlier note: attributed to the SOURCE machine's primary
+warehouse, since that's what a physical audit would check against -- the spec text says "WH
+return line", not "writeoff", and doesn't resolve this itself).
+TESTED against a real fixture (two ad hoc M2M transfers of "Coca Cola - Zero" via `add_m2m_transfer`,
+AMZ-1029-3003-O1 A13 -> AMZ-1038-3001-O1 A13, 5 units each):
+
+- Exact match (source=5, dest=5) -> `shortfall: 0`, no warehouse_inventory change.
+- Shortfall (source=5, dest=3) -> `shortfall: 2`, credited to WH_CENTRAL
+  (`4bebef68-9e36-4a5c-9c2c-142f8dbdae85`) -- real stock went `346 -> 348`.
+- `dest_actual (5) > source_actual (3)` -> correctly rejected before any write.
+  Hit one real constraint along the way: `warehouse_inventory.batch_id` has its own vocabulary CHECK
+  (`enforce_warehouse_batch_id_vocabulary`) -- `M2M-SHORTFALL-...` isn't an allowed prefix, fixed to
+  `TRANSFER-SHORTFALL-...` (`TRANSFER-` is allowed).
+  Rollback (`supabase/rollback/DRAFT_prd137_f7_confirm_m2m_delivery_rollback.sql`) is a plain
+  `DROP FUNCTION` -- net-new function, nothing to restore.
+  FE: zero existing call site anywhere in src/ (the pickup page shows M2M qty as static read-only
+  text) -- held for a follow-up, same reasoning as A8/F5's held items.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
 2. F4 -- DONE, drafted+tested, ready to apply.
 3. F3 -- DONE, drafted+tested, ready to apply.
 4. F5 (DB side only) -- DONE, drafted+tested, ready to apply. FE wiring held.
-5. F7 DB side (confirm_m2m_delivery) -- mechanism already exists, just wiring. NEXT.
+5. F7 DB side (confirm_m2m_delivery) -- DONE, drafted+tested, ready to apply. FE held.
 6. F1b -- already drafted and tested last night, just needs applying + renaming.
-7. F6 bug 3 (parent_dispatch_id merge-key) -- needs a schema change + Cody review.
+7. F6 bug 3 (parent_dispatch_id merge-key) -- needs a schema change + Cody review. NEXT (if time).
 8. F5's variant-return/swap-on-spot, A8's unplanned-Remove writer, F7's driver UI -- holding,
    same reasoning as last night (net-new safety-critical FE, not tractable to rush).
 9. Block C (PRD-133/123/130/R2) -- only if A+B fully green with time left, cut at 04:30 regardless.
