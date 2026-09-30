@@ -481,6 +481,31 @@ shapes directly against today's real rows, in a rolled-back transaction (nothing
   Both replays confirm F1b's design against real data reproducing the exact real incident shapes,
   not just synthetic approximations.
 
+## F6 bug 3 drafting status (pre-window) -- DB half only
+
+`supabase/migrations/DRAFT_prd137_f6_parent_dispatch_id_db_only.sql` -- adds a nullable
+`parent_dispatch_id uuid REFERENCES refill_dispatching(dispatch_id)` column and stamps it on
+`pack_dispatch_line`'s multi-batch split child INSERT (the exact spot that already computes
+`v_new_child_id` and already returns `child_dispatch_id` per pick in its own response -- it just
+never persisted the relationship on the row itself). Purely additive: NULL for every unsplit line
+and for the parent row itself; no existing behavior changes until something reads it.
+TESTED against a real unpacked Refill line (`308adc6c-d492-405c-9368-a1571d1aeb34`, qty 6, Coca
+Cola - Zero on WPP-1002-4300-O1) split across two real warehouse_inventory batches (3+3): the
+first pick updates the parent row in place (as designed, `child_dispatch_id: null`), the second
+pick creates exactly one child row, and that child's `parent_dispatch_id` correctly equals the
+parent's `dispatch_id` (`children_with_correct_parent: 1`).
+Rollback (`supabase/rollback/DRAFT_prd137_f6_parent_dispatch_id_db_only_rollback.sql`) verified
+byte-exact against live before drafting -- caught and fixed a real transcription gap along the
+way (4 inline `-- v2 VOX GUARD` comments dropped when first copying the 200+ line function body;
+the whitespace-stripped diff check correctly caught it since comments count as literal text, not
+whitespace).
+**FE half deliberately HELD**, same reasoning as A8/F5/F7's held items: the packing screen's card-
+merge block (grouping by a `${action}|||${boonz_product_id}|||${shelf_code}` heuristic today) also
+drives `extraSliceIds`/`extraSlicePacked` accumulation and `batchPickQtys` initialization on a
+live, safety-relevant driver tool -- rewriting its grouping key to `parent_dispatch_id ??
+dispatch_id` needs real browser testing of the actual packing flow, not a rushed edit. Applying
+just the DB half tonight is safe on its own and unblocks that FE work for a dedicated follow-up.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
@@ -489,7 +514,8 @@ shapes directly against today's real rows, in a rolled-back transaction (nothing
 4. F5 (DB side only) -- DONE, drafted+tested, ready to apply. FE wiring held.
 5. F7 DB side (confirm_m2m_delivery) -- DONE, drafted+tested, ready to apply. FE held.
 6. F1b -- already drafted and tested last night, just needs applying + renaming.
-7. F6 bug 3 (parent_dispatch_id merge-key) -- needs a schema change + Cody review. NEXT (if time).
-8. F5's variant-return/swap-on-spot, A8's unplanned-Remove writer, F7's driver UI -- holding,
-   same reasoning as last night (net-new safety-critical FE, not tractable to rush).
+7. F6 bug 3 (parent_dispatch_id, DB half) -- DONE, drafted+tested, ready to apply. FE held.
+8. F5's variant-return/swap-on-spot, A8's unplanned-Remove writer, F7's driver UI, F6's FE
+   merge-key rewrite -- holding, same reasoning as last night (net-new/regression-risky FE work
+   on live driver tools, not tractable to rush without real browser testing).
 9. Block C (PRD-133/123/130/R2) -- only if A+B fully green with time left, cut at 04:30 regardless.
