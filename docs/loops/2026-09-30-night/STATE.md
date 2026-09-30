@@ -18,6 +18,34 @@ tonight, close that gap when updating the registries post-apply. Full registry u
 (`MIGRATIONS_REGISTRY.md`, `RPC_REGISTRY.md`, `CHANGELOG.md`) still need doing after applying
 inside the window -- not done yet, tracked as a post-apply step.
 
+## READY-TO-APPLY SUMMARY (consolidated, 16:58 Dubai, ~5h before window)
+
+Everything below is drafted, tested in rolled-back transactions against real/synthetic data, and
+either Cody-approved or (F1b) already approved and tested last night. Apply in this exact order
+once the 22:00-06:00 Dubai window is confirmed open (each is its own migration; rename every
+DRAFT_ file to match whatever version `apply_migration` actually records, per the standing rule):
+
+1. `DRAFT_prd137_f11a_g11_helper_and_validate.sql` -- g11_check_machine_mapping + validate_refill_plan G11 gate.
+2. `DRAFT_prd137_f11b_write_refill_plan_v7.sql` -- write_refill_plan V7 (G11 reject/override).
+3. `DRAFT_prd137_f4_weimi_remove_qty_gate.sql` -- write_refill_plan V8, stacks on V7.
+4. `DRAFT_prd137_f11c_approve_refill_plan_audit.sql` -- approve_refill_plan override-audit scan.
+5. `DRAFT_prd137_f3_wm_confirmations_single_inbox.sql` -- v_wm_confirmations + wm_confirm_line + check_stale_wm_confirmations.
+6. `DRAFT_prd137_f5_ad_hoc_m2m_role_allowlist.sql` -- add_m2m_transfer role fix.
+7. `DRAFT_prd137_f7_confirm_m2m_delivery.sql` -- new RPC confirm_m2m_delivery.
+8. `DRAFT_prd137_f6_parent_dispatch_id_db_only.sql` -- schema column + pack_dispatch_line stamp.
+9. `DRAFT_prd137_f1b_pickup_completion_and_stale_press.sql` -- from last night, apply last (touches mark_picked_up/pickup triggers, independent of the G11/F3/F4/F5/F7/F6 batch above, no ordering dependency either way).
+
+After all 9 applied: re-run `check_ambiguous_function_overloads()` (baseline confirmed 0 at 16:58
+Dubai before any of this applied), run the 12-item smoke test list from Task D's own GATES
+section, update `MIGRATIONS_REGISTRY.md` + `RPC_REGISTRY.md` (closing the pre-existing
+`wm_confirm_line`/`add_m2m_transfer`/`validate_refill_plan` registration gap Cody flagged) +
+`CHANGELOG.md`, commit every renamed migration + rollback file to main, then Block D's
+`mark_picked_up` residue sweep, then write the final `docs/loops/2026-09-30-night/REPORT.md` +
+WhatsApp summary. Block C (PRD-133/123/130/R2) only if time remains after all of that -- explicitly
+lowest priority, cut at 04:30 regardless. (PRD-133's own "G1-G7 P0 tooling" label in Task D's
+prompt doesn't map to any gate numbering found in `docs/prds/PRD-133-135-selection-strategist-learning.md`
+-- STEP 0's own PRD-133 assessment below is the closest available read of what's actually open.)
+
 ## STEP 0, done (max 15 min, read-only)
 
 | Item                                            | Status        | Evidence                                                                                                                                                                                                                                                                                                                                                |
