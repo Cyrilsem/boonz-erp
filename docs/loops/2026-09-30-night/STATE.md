@@ -421,6 +421,45 @@ AMZ-1029-3003-O1 A13 -> AMZ-1038-3001-O1 A13, 5 units each):
   FE: zero existing call site anywhere in src/ (the pickup page shows M2M qty as static read-only
   text) -- held for a follow-up, same reasoning as A8/F5's held items.
 
+## B5 backtest (2026-09-16..30) and Block D report, pre-window (16:42 Dubai)
+
+Ran the final, fully-tested `g11_check_machine_mapping` against every real `refill_dispatching`
+Refill/Add-New row, `dispatch_date` 2026-09-16..30 (rolled-back transaction, read-only against
+real data): **1529 lines scanned, 87 would-block (non-override) violations, 0 overrides** (no
+historical line ever carried a `[sub]` comment -- that convention starts tonight). All 4 of Task
+D's named examples confirmed present exactly: AMZ-1038 A08 Nestle Kit-kat, AMZ-1029 A08/A14/A15
+Nutella - Biscuit T3 (+others), VML-1004 A02 Coca Cola - Regular, WPP-1002-4300-O1 A06 Plaay
+Tablets - Dark Chocolate 35g (n=1, exact match). Grouped by machine (15 machines total, worst
+offenders AMZ-1038-3001-O1 n=18, AMZ-1029-3003-O1 n=11, USH-1008-0000-W1 n=11) -- full list is in
+the fork's original detail plus this final count; not re-pasted here since the earlier fork
+investigation already carries the per-line detail and this run's helper is unchanged from what it
+tested except the machine_id/product resolution paths, which only affect write_refill_plan/
+validate_refill_plan, not this direct dispatch-row scan.
+
+**Block D (30 Sep dispatched lines failing G11):** 11 lines, none `[sub]`-commented (all would
+flat-reject under G11 today): AMZ-1029-3003-O1 A08 Nutella-Biscuit-T3 x7, AMZ-1038-3001-O1 A08
+Nestle Kit-kat x7 + A08 Kinder Delice-Cake x8 (unpacked) + A15 Al Ain Water x8, MC-2004-0100-O1
+A11 Coca Cola-Regular x6 (unpacked) + A13 Al Ain Water x3 + A14 Al Ain Water x4 (unpacked) + B14
+Evian-330ML x2 (unpacked), VML-1003-0400-O1 A14 Al Ain Water x15, VML-1004-0500-O1 A02 Coca
+Cola-Regular x2, WPP-1002-4300-O1 A06 Plaay Tablets-Dark Chocolate 35g x3. Per Block D's own
+instruction: report only, no edits to packed rows -- none made. The "run the new `mark_picked_up`
+once for 2026-09-30 residue and report the count" half of Block D depends on F1b actually being
+applied, so it happens inside the window, after F1b applies.
+
+**Held, not attempted pre-window:** the "fresh engine dry-run for 2026-10-01 must show 0 non-[sub]
+violations" half of B5. Investigated the entry point first: the function named in the spec
+(`auto_generate_refill_plan`) is itself DEPRECATED (RPC_REGISTRY.md, PRD-074, Article 13 --
+EXECUTE revoked, zero callers, DROP-eligible 2026-10-04). The real current engine is a multi-stage
+orchestrator (`orchestrate_refill_plan` -> `propose_add`/`propose_swap` -> `engine_finalize` ->
+`engine_publish_to_refill_plan` -> `reconcile_intent_progress`) that writes real intermediate
+drafts (`daily_plan_drafts`, `strategic_intents` reconciliation) at each stage -- not a single
+function with a simple dry-run flag. Running that pipeline for a date (2026-10-01) that the real
+operations team may run for real once the window opens is not something to improvise pre-window
+without first understanding its exact dry-run semantics (if any) well enough to be sure nothing
+gets left half-written. Recommend doing this INSIDE the window by piggybacking on the real
+2026-10-01 planning cycle (if one runs tonight) rather than as a separate synthetic call, or as a
+dedicated follow-up with more investigation time.
+
 ## Build order for tonight (pre-window drafting now, apply in window)
 
 1. G11 (Block B) -- DONE, drafted+tested, ready to apply.
