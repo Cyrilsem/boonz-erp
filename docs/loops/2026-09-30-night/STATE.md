@@ -589,3 +589,26 @@ treatment tonight. Not attempted. `backtest_priority` (the genuinely missing PRD
 substantial multi-metric historical-replay function needing deep understanding of both v11 and
 v12's full tier/cluster/donor logic -- also correctly held, not something to build under time
 pressure alongside everything else tonight.
+
+## Smoke-test prep (18:05 Dubai, ~3h55m before window)
+
+Gate 4 in `docs/REFILL-DAILY-LOOP.md` (pack a line, add a return, add a return variant, add an
+intra-machine move, using the deployed app's real test accounts) needs one account that can do
+all four. Checked role gates directly: `pack_dispatch_line` and `return_dispatch_line` have no
+role restriction in their body at all (any authenticated caller); `insert_driver_remove_line`
+(return variant) and `add_intra_machine_move` both allow `field_staff`, `warehouse`,
+`operator_admin`, `superadmin`, `manager`. So `warehouse@boonz.test` (password documented in
+CLAUDE.md as `Test1234!`) covers all four actions on its own -- no need to track down
+`anthony001@boonz.test`'s undocumented real password (confirmed live: `anthony001@boonz.test` is
+the real `field_staff` account, `driver@boonz.test` is `warehouse`, matching project memory
+exactly, CLAUDE.md's own test-user table is stale on this point).
+
+No dedicated test machine exists in the fleet (`official_name ilike '%test%'` returns nothing) --
+per the gate's own wording ("a real or synthetic test machine"), will pick a real, low-traffic
+machine live during the window and use small, clearly-commented quantities for the four actions,
+same discipline as every other real-data test tonight.
+
+Per the established policy boundary from last night: entering `warehouse@boonz.test`'s credentials
+qualifies for the "testing the user's own application" exception only on a literal local dev host
+(`localhost`), never on the deployed `boonz-erp.vercel.app` -- will run the smoke test against the
+local dev server once the window opens, same as last night's verification.
