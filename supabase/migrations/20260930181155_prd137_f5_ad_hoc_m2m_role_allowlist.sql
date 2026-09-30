@@ -12,7 +12,7 @@
 -- ship blind under time pressure. The DB side is safe to apply now on its own: it only widens who
 -- may call an RPC that already exists and is already exercised by operator_admin/warehouse today.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f5_ad_hoc_m2m_role_allowlist_rollback.sql
+-- Rollback: supabase/rollback/20260930181155_prd137_f5_ad_hoc_m2m_role_allowlist_rollback.sql
 CREATE OR REPLACE FUNCTION public.add_m2m_transfer(p_source_machine_id uuid, p_source_shelf_code text, p_dest_machine_id uuid, p_dest_shelf_code text, p_boonz_product_id uuid, p_quantity numeric, p_dispatch_date date, p_reason text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql

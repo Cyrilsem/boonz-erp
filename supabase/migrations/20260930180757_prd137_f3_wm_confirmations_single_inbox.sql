@@ -29,7 +29,7 @@
 --                            GENERATED column derived from provenance_reason, PRD-098) and logs a
 --                            disposition_event. Also never credits warehouse_inventory again.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f3_wm_confirmations_single_inbox_rollback.sql
+-- Rollback: supabase/rollback/20260930180757_prd137_f3_wm_confirmations_single_inbox_rollback.sql
 
 CREATE OR REPLACE VIEW public.v_wm_confirmations AS
 WITH dubai AS (

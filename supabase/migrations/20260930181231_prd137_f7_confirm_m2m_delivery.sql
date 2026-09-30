@@ -23,7 +23,7 @@
 -- FE: zero existing UI (the pickup page shows M2M qty as static read-only text) -- net-new driver
 -- flow, held for a follow-up per the same reasoning as A8/F5's held items.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f7_confirm_m2m_delivery_rollback.sql (DROP FUNCTION,
+-- Rollback: supabase/rollback/20260930181231_prd137_f7_confirm_m2m_delivery_rollback.sql (DROP FUNCTION,
 -- this is a net-new function with nothing to restore).
 CREATE OR REPLACE FUNCTION public.confirm_m2m_delivery(
   p_transfer_id uuid,

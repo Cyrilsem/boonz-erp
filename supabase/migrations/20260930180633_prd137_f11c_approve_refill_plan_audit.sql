@@ -14,7 +14,7 @@
 -- Touches a dispatch/approval function -- apply only inside the 22:00-06:00 Dubai window, then
 -- rename to match whatever version apply_migration actually records.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f11_approve_refill_plan_audit_rollback.sql
+-- Rollback: supabase/rollback/20260930180633_prd137_f11c_approve_refill_plan_audit_rollback.sql
 CREATE OR REPLACE FUNCTION public.approve_refill_plan(p_plan_date date, p_machine_names text[], p_waive jsonb DEFAULT '[]'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql

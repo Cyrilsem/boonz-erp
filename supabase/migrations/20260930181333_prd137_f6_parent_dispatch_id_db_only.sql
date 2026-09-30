@@ -18,7 +18,7 @@
 -- NULL for every line that was never split, and NULL for the parent row itself (it has no parent).
 -- No existing behavior changes until the FE reads it.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f6_parent_dispatch_id_db_only_rollback.sql
+-- Rollback: supabase/rollback/20260930181333_prd137_f6_parent_dispatch_id_db_only_rollback.sql
 ALTER TABLE public.refill_dispatching
   ADD COLUMN IF NOT EXISTS parent_dispatch_id uuid REFERENCES public.refill_dispatching(dispatch_id);
 

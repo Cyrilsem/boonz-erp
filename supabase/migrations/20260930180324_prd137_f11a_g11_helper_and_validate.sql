@@ -11,7 +11,7 @@
 -- approve_refill_plan), and approve_refill_plan's own override-audit scan all use identical
 -- logic -- no risk of the three drifting apart.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f11_g11_helper_and_validate_rollback.sql
+-- Rollback: supabase/rollback/20260930180324_prd137_f11a_g11_helper_and_validate_rollback.sql
 CREATE OR REPLACE FUNCTION public.g11_check_machine_mapping(
   p_machine_id uuid, p_pod_product_id uuid, p_boonz_product_id uuid, p_comment text
 ) RETURNS TABLE(is_violation boolean, is_override boolean, mapped_ids uuid[])

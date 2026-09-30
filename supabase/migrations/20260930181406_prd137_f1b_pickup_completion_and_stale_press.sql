@@ -42,7 +42,7 @@
 -- pairs the input array touches -- so a line packed a second before the press, or missed by a
 -- stale client list, is picked up in the same call regardless.
 --
--- Rollback: supabase/rollback/20260930_prd137_f1b_pickup_completion_and_stale_press_rollback.sql
+-- Rollback: supabase/rollback/20260930181406_prd137_f1b_pickup_completion_and_stale_press_rollback.sql
 CREATE OR REPLACE FUNCTION public.tg_auto_pickup_on_machine_complete()
  RETURNS trigger
  LANGUAGE plpgsql

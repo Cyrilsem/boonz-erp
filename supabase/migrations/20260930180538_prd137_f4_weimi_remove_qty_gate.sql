@@ -1,12 +1,23 @@
--- PRD-137 F11, drafted 2026-09-30 daytime, NOT YET APPLIED. Migration 2 of 3: write_refill_plan
--- gets V7, the write-time half of G11 (rejects a Refill/Add New line whose boonz_product is not
--- in its machine's Active machine-scoped product_mapping set, using the shared
--- g11_check_machine_mapping helper from migration 1 of 3 -- apply that one first). Logs every
--- override to monitoring_alerts at write time (the earliest point a "[sub]"-commented line is
--- seen). Touches a dispatch/plan function -- apply only inside the 22:00-06:00 Dubai window, then
--- rename to match whatever version apply_migration actually records.
+-- PRD-137 F4, drafted 2026-09-30 daytime, NOT YET APPLIED. write_refill_plan gets V8: a
+-- Remove/Machine To Warehouse line's quantity must not exceed what WEIMI currently shows
+-- physically on that machine/shelf (v_live_shelf_stock.current_stock). Builds on top of the V7
+-- (G11) body from DRAFT_prd137_f11b_write_refill_plan_v7.sql -- apply that one first.
 --
--- Rollback: supabase/rollback/DRAFT_prd137_f11_write_refill_plan_g11_rollback.sql
+-- Investigation finding (this run, daytime): the 4 refill engines (auto_generate_refill_plan,
+-- engine_swap_pod, engine_add_pod, propose_swap_plan) already source their OWN Remove-qty
+-- decisions from v_live_shelf_stock -- one engine has an inline comment noting this exact class of
+-- bug was already fixed there. The real remaining gap is that write_refill_plan itself is a pure
+-- pass-through writer: it inserts whatever quantity is in the JSONB payload with zero validation
+-- against WEIMI, so a hand-edited or stale-caller-supplied Remove/M2W line can still request more
+-- than physically exists on the shelf right now. This is the minimal, surgical fix: one new gate,
+-- same shape as V1-V7, no changes to the 4 engines (they are already correct).
+--
+-- If WEIMI has no live row at all for the machine/shelf (unmatched device, offline, or the shelf
+-- genuinely has no WEIMI mapping yet), the gate is skipped rather than blocking -- consistent with
+-- how the rest of write_refill_plan and validate_refill_plan already treat "no WEIMI data" as
+-- "can't validate this, don't block on an absence."
+--
+-- Rollback: supabase/rollback/20260930180538_prd137_f4_weimi_remove_qty_gate_rollback.sql
 CREATE OR REPLACE FUNCTION public.write_refill_plan(p_plan_date date, p_lines jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -30,12 +41,13 @@ DECLARE
   v_valid_actions text[] := ARRAY['Refill','Add New','Remove','Machine To Warehouse'];
   v_stale_pending int := 0;
   v_validation    jsonb;
-  -- PRD-137 F11 (V7, G11 machine-scoped mapping gate)
   v_g11_machine_id      uuid;
   v_g11_pod_product_id  uuid;
   v_g11_boonz_product_id uuid;
   v_g11_comment         text;
   v_g11                 record;
+  -- PRD-137 F4 (V8, WEIMI-vs-Remove-qty gate)
+  v_weimi_stock  int;
 BEGIN
   PERFORM set_config('app.via_rpc',  'true', true);
   PERFORM set_config('app.rpc_name', 'write_refill_plan', true);
@@ -147,6 +159,23 @@ BEGIN
         END IF;
       END IF;
     END IF;
+
+    -- PRD-137 F4 V8: a Remove/Machine To Warehouse line can't ask for more than WEIMI currently
+    -- shows physically on that shelf. Skipped (not blocked) when WEIMI has no live row at all for
+    -- this machine/shelf -- an absence isn't evidence of anything to validate against.
+    IF v_action IN ('Remove','Machine To Warehouse') AND v_shelf IS NOT NULL AND v_qty IS NOT NULL THEN
+      SELECT vls.current_stock INTO v_weimi_stock
+      FROM public.v_live_shelf_stock vls
+      WHERE vls.machine_name = v_machine
+        AND upper(left(vls.slot_name,1))||lpad(regexp_replace(vls.slot_name,'^[A-Za-z]',''),2,'0') = v_shelf;
+
+      IF v_weimi_stock IS NOT NULL AND v_qty > v_weimi_stock THEN
+        v_errors := v_errors || jsonb_build_object(
+          'line',v_line_idx,'check','V8_weimi_remove_qty',
+          'message',format('Remove/M2W quantity %s exceeds WEIMI-shown physical stock %s on %s/%s', v_qty, v_weimi_stock, v_machine, v_shelf),
+          'machine',v_machine,'product',v_product);
+      END IF;
+    END IF;
   END LOOP;
 
   IF jsonb_array_length(v_errors) > 0 THEN
@@ -255,7 +284,7 @@ BEGIN
     'plan_date', p_plan_date,
     'lines_written', v_count,
     'machines_affected', v_machine_names,
-    'preflight_version', 'g11_id_keyed',
+    'preflight_version', 'v8_weimi_remove_gate',
     'validation', v_validation
   ) || jsonb_build_object('stale_pending_preserved', v_stale_pending);
 END;
