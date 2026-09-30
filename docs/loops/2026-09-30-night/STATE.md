@@ -628,3 +628,40 @@ Python's UTF-8 handling and Postgres's, not a real drift). Trusting the earlier,
 SQL-native verification: no drift, nothing has touched `pack_dispatch_line` outside rolled-back
 transactions since. Not repeating this check for the other 6 rollback files -- the method itself
 was the problem, not a real signal to chase further.
+
+## WINDOW OPENED 22:00 Dubai -- apply sequence in progress
+
+Confirmed window open at 22:02 Dubai. `check_ambiguous_function_overloads()` confirmed 0
+immediately before starting. Applying migrations 1-9 in the order recorded above, verifying the
+overload gate after each apply.
+
+1. `prd137_f11a_g11_helper_and_validate` -- APPLIED, version `20260930180324`. Overload gate: 0.
+2. `prd137_f11b_write_refill_plan_v7` -- APPLIED. Overload gate: 0.
+3. `prd137_f4_weimi_remove_qty_gate` -- APPLIED. Overload gate: 0.
+4. `prd137_f11c_approve_refill_plan_audit` -- APPLIED. Overload gate: 0. G11 block (Block B)
+   fully live.
+5. `prd137_f3_wm_confirmations_single_inbox` -- APPLIED. Overload gate: 0.
+
+**CRITICAL CORRECTION, found immediately after applying #5 (22:08 Dubai).** Live
+`v_wm_confirmations` shows `refill_return_ack: 775 rows, 2280 units` -- NOT the `11 rows, 31 units`
+recorded earlier tonight and reported to CS. Verified with a plain direct query against
+`refill_dispatching` (no view, no CTE) -- confirmed genuine: `action IN ('Refill','Add','Add New')
+AND returned=true AND wh_approved_at IS NULL AND quantity>0 AND cancelled=false AND
+boonz_product_id IS NOT NULL` returns 775 rows right now, spanning `dispatch_date` 2026-03-16
+through 2026-09-29/30 across 105 distinct dates, `created_at` as old as 2026-03-16 and as recent
+as 2026-09-29 19:30 -- this is a genuine ~6-month-old historical backlog, not anything created by
+tonight's migrations and not a live-data change since the earlier test. `dispatch_return` (1 row)
+and `quarantine_batch` (6 rows) both still match their earlier-tested counts exactly -- whatever
+caused the undercount was isolated to the `refill_return_ack` test path specifically; the earlier
+pre-window test result of 11 was simply wrong, root cause not yet identified (the CTE logic
+itself, re-verified just now with a bare equivalent query, is correct).
+
+**Not rolling back F3 over this.** The view is doing exactly what F3 was specified to do --
+surfacing every Refill/Add-New return that `return_dispatch_line` credited with zero review. The
+true scope (6 months, 2280 units) is far larger than the tiny slice that prompted the fix, same
+shape of surprise as A9/A10's fleet audit. Disclosed to CS immediately, mid-sequence, rather than
+waiting for the final report, given the operational impact (warehouse staff opening Confirmations
+will see ~775 lines, not a handful). Continuing the remaining 4 migrations (F5/F7/F6/F1b, all
+independent of F3's scale) before returning to write up a fuller recommendation on this finding
+(e.g. whether a bulk "acknowledge pre-cutover backlog" pass makes sense before asking staff to
+work through 775 rows one at a time -- a CS scope call, same as A9/A10).
