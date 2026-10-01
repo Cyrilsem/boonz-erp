@@ -15,11 +15,25 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type ProposedOutcome = "redeploy" | "waste";
-type ConfirmOutcome = "restocked" | "redeploy_pending" | "waste";
+type ConfirmOutcome =
+  "restocked" | "redeploy_pending" | "waste" | "acknowledged";
+
+// PRD-137 F3 bug, 2026-10-01: these two sources are acknowledge-only on the backend
+// (wm_confirm_line raises if p_outcome isn't 'acknowledged' for them) -- the stock
+// movement already happened before the row ever reaches this queue. No dropdown, no
+// disposal code, no split: just confirm it was received.
+const ACK_ONLY_SOURCES = new Set(["refill_return_ack", "quarantine_batch"]);
+function isAckOnly(row: QueueLine): boolean {
+  return ACK_ONLY_SOURCES.has(row.source);
+}
 
 interface QueueLine {
   line_id: string;
-  source: "dispatch_return" | "driver_expiry_check";
+  source:
+    | "dispatch_return"
+    | "driver_expiry_check"
+    | "refill_return_ack"
+    | "quarantine_batch";
   dispatch_id: string | null;
   machine_id: string;
   machine_name: string;
@@ -70,6 +84,7 @@ export default function WarehouseConfirmationsPanel() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
 
   const [qtyEdit, setQtyEdit] = useState<Record<string, number>>({});
   const [expiryEdit, setExpiryEdit] = useState<Record<string, string>>({});
@@ -126,8 +141,11 @@ export default function WarehouseConfirmationsPanel() {
       const next = { ...prev };
       r.forEach((row) => {
         if (!(row.line_id in next))
-          next[row.line_id] =
-            row.proposed_outcome === "redeploy" ? "redeploy_pending" : "waste";
+          next[row.line_id] = isAckOnly(row)
+            ? "acknowledged"
+            : row.proposed_outcome === "redeploy"
+              ? "redeploy_pending"
+              : "waste";
       });
       return next;
     });
@@ -171,22 +189,37 @@ export default function WarehouseConfirmationsPanel() {
   async function confirm(row: QueueLine) {
     setActing(row.line_id);
     setError(null);
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      delete next[row.line_id];
+      return next;
+    });
     const supabase = createClient();
-    const outcome = outcomeEdit[row.line_id] ?? "waste";
+    const ackOnly = isAckOnly(row);
+    const outcome = ackOnly
+      ? "acknowledged"
+      : (outcomeEdit[row.line_id] ?? "waste");
     const qty = qtyEdit[row.line_id] ?? row.qty;
     const expiry = expiryEdit[row.line_id] || null;
 
     if (
+      !ackOnly &&
       outcome === "redeploy_pending" &&
       (!targetEdit[row.line_id] || !expiry)
     ) {
       setActing(null);
-      setError("Redeploy needs a target machine and a batch expiry.");
+      setRowErrors((prev) => ({
+        ...prev,
+        [row.line_id]: "Redeploy needs a target machine and a batch expiry.",
+      }));
       return;
     }
-    if (outcome === "waste" && !disposalEdit[row.line_id]) {
+    if (!ackOnly && outcome === "waste" && !disposalEdit[row.line_id]) {
       setActing(null);
-      setError("Pick a disposal code for waste.");
+      setRowErrors((prev) => ({
+        ...prev,
+        [row.line_id]: "Pick a disposal code for waste.",
+      }));
       return;
     }
 
@@ -200,15 +233,18 @@ export default function WarehouseConfirmationsPanel() {
       p_expiry: expiry,
       p_outcome: outcome,
       p_target_machine_id:
-        outcome === "redeploy_pending" ? targetEdit[row.line_id] : null,
-      p_disposal_code: outcome === "waste" ? disposalEdit[row.line_id] : null,
+        !ackOnly && outcome === "redeploy_pending"
+          ? targetEdit[row.line_id]
+          : null,
+      p_disposal_code:
+        !ackOnly && outcome === "waste" ? disposalEdit[row.line_id] : null,
       p_reason: `WM confirmed via Warehouse Confirmations queue (${row.source})`,
       p_caller: user?.id ?? null,
       p_dry_run: false,
     });
 
     if (rpcErr) {
-      setError(rpcErr.message);
+      setRowErrors((prev) => ({ ...prev, [row.line_id]: rpcErr.message }));
       setActing(null);
       return;
     }
@@ -355,7 +391,7 @@ export default function WarehouseConfirmationsPanel() {
     });
 
     if (rpcErr) {
-      setError(rpcErr.message);
+      setRowErrors((prev) => ({ ...prev, [row.line_id]: rpcErr.message }));
       setActing(null);
       return;
     }
@@ -426,7 +462,11 @@ export default function WarehouseConfirmationsPanel() {
                     {row.shelf_code ? ` / ${row.shelf_code}` : ""} ·{" "}
                     {row.source === "driver_expiry_check"
                       ? "expiry check"
-                      : "return"}
+                      : row.source === "quarantine_batch"
+                        ? "quarantine"
+                        : row.source === "refill_return_ack"
+                          ? "return (needs review)"
+                          : "return"}
                   </p>
                 </div>
                 <span
@@ -435,6 +475,12 @@ export default function WarehouseConfirmationsPanel() {
                   {Math.round(row.age_hours)}h ago
                 </span>
               </div>
+
+              {rowErrors[row.line_id] && (
+                <p className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-400">
+                  {rowErrors[row.line_id]}
+                </p>
+              )}
 
               <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
                 <label className="flex items-center gap-2 text-neutral-500">
@@ -472,7 +518,7 @@ export default function WarehouseConfirmationsPanel() {
                 )}
               </div>
 
-              {row.pod_product_id && (
+              {row.pod_product_id && !isAckOnly(row) && (
                 <div className="mb-3">
                   <button
                     type="button"
@@ -599,7 +645,18 @@ export default function WarehouseConfirmationsPanel() {
                 </div>
               )}
 
-              {!isSplit && (
+              {!isSplit && isAckOnly(row) && (
+                <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+                  <span className="flex items-center gap-2 text-neutral-500">
+                    Outcome:
+                    <span className="rounded border border-neutral-300 bg-neutral-50 px-2 py-1 font-medium text-neutral-700 dark:border-neutral-600 dark:bg-neutral-900 dark:text-neutral-200">
+                      Received in warehouse
+                    </span>
+                  </span>
+                </div>
+              )}
+
+              {!isSplit && !isAckOnly(row) && (
                 <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
                   <label className="flex items-center gap-2 text-neutral-500">
                     Outcome:
@@ -669,7 +726,7 @@ export default function WarehouseConfirmationsPanel() {
                 </div>
               )}
 
-              {!isSplit && (
+              {!isSplit && !isAckOnly(row) && (
                 <p className="mb-2 text-[11px] text-neutral-400">
                   System proposed:{" "}
                   {row.proposed_outcome === "redeploy"
