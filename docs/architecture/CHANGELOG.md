@@ -3479,3 +3479,27 @@ correctly live during tonight's smoke test.
 **Gate 4 (app smoke test, mandatory before 06:00 Dubai): GREEN.** Pack a line, add a return, add a
 return variant, add an intra-machine move — all 4 run end-to-end via the real canonical RPCs under
 `warehouse@boonz.test` on the local dev server.
+
+## 2026-10-01 — fix(wm-confirmations): ack-only sources no longer send an invalid outcome
+
+`wm_confirm_line` (F3) only accepts `p_outcome='acknowledged'` for `refill_return_ack` and
+`quarantine_batch`, but the Warehouse Confirmations card still offered the full
+restocked/redeploy/waste dropdown for them, causing a 400 that looked like a silent reset. FE-only
+fix: these two sources now get a fixed "Received in warehouse" option that always sends
+`acknowledged`, disposal code and the variant-split button (which has no handling for these
+sources either, and would have double-credited stock) no longer render for them, and RPC/
+validation errors now show on the specific card instead of a single shared banner. Tested live
+against a real `refill_return_ack` line: closes cleanly, warehouse stock unchanged. No backend
+change needed, deployed same day.
+
+## 2026-10-01 — PART 1: close_return_backlog, the F3 confirmations-inbox forward rule
+
+The one-time >14d historical backlog (730 rows / 2165 units, everything before 2026-09-16) was
+closed the same morning via individual `wm_confirm_line(...,'acknowledged')` calls. This ships
+`close_return_backlog` as the ongoing forward rule: a reusable admin tool, role-gated to
+operator_admin/superadmin/manager, called with a rolling `p_before = CURRENT_DATE - 14`. It never
+touches `warehouse_inventory`, so `quarantine_batch` rows can never be acknowledged by it, and it
+carries a hard-coded exclusion list of five specific suspect `refill_return_ack` rows (double
+credits/anomalies CS flagged) that need manual reversal, never acknowledgment. First run
+(`p_before=2026-09-17`): 4 rows / 7 units closed, 0 bypass-log pollution, the five excluded rows
+and all 7 quarantine rows confirmed untouched.
