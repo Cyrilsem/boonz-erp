@@ -30,6 +30,28 @@ interface ReceiveBatch {
   batch_key: string;
   received_qty: number;
   expiry_date: string;
+  // Units of this batch damaged on arrival. Still counted in received_qty
+  // (the full physically-arrived amount still lands in warehouse_inventory
+  // via receive_purchase_order unchanged) - after receipt, this amount is
+  // split off into its own Inactive 'Damaged' sibling row via
+  // warehouse_damage_writeoff, with p_source='supplier'.
+  damaged_qty: number;
+}
+
+/** One batch, post-receive, that needs its damaged portion written off. */
+interface DamageQueueEntry {
+  po_line_id: string;
+  boonz_product_id: string;
+  boonz_product_name: string;
+  batch_index: number; // 1-based, matches receive_purchase_order's v_batch_idx
+  damaged_qty: number;
+}
+
+interface DamageResult {
+  productName: string;
+  qty: number;
+  status: "ok" | "failed";
+  error?: string;
 }
 
 /** PRD-022: the advisory flag procurement_price_sync_and_flag stamps. */
@@ -199,6 +221,10 @@ export default function ReceivingDetailPage() {
   >([]);
   const [error, setError] = useState<string | null>(null);
 
+  // "Damaged on arrival" write-off results, shown as a supplier-claim summary
+  // on the success screen. Populated after receive_purchase_order succeeds.
+  const [damageResults, setDamageResults] = useState<DamageResult[]>([]);
+
   // Driver outcome report — parsed from driver_tasks.outcome_comment for this PO
   // keyed by po_line_id for O(1) lookup
   const [driverOutcomes, setDriverOutcomes] = useState<
@@ -363,6 +389,7 @@ export default function ReceivingDetailPage() {
             batch_key: generateKey(),
             received_qty: line.ordered_qty ?? 0,
             expiry_date: (line.expiry_date as string | null) ?? "",
+            damaged_qty: 0,
           },
         ],
       };
@@ -491,7 +518,12 @@ export default function ReceivingDetailPage() {
               ...l,
               batches: [
                 ...l.batches,
-                { batch_key: generateKey(), received_qty: 0, expiry_date: "" },
+                {
+                  batch_key: generateKey(),
+                  received_qty: 0,
+                  expiry_date: "",
+                  damaged_qty: 0,
+                },
               ],
             },
       ),
@@ -514,7 +546,7 @@ export default function ReceivingDetailPage() {
   function updateBatch(
     poLineId: string,
     batchKey: string,
-    field: "received_qty" | "expiry_date",
+    field: "received_qty" | "expiry_date" | "damaged_qty",
     value: string | number,
   ) {
     setLines((prev) =>
@@ -553,11 +585,30 @@ export default function ReceivingDetailPage() {
   // ── Confirm receipt via RPC ─────────────────────────────────────────────────
 
   async function handleConfirm() {
-    setSubmitting(true);
     setError(null);
+
+    // Damaged qty can never exceed what physically arrived on that batch.
+    for (const l of lines) {
+      for (const b of l.batches) {
+        if (b.damaged_qty > 0 && b.damaged_qty > b.received_qty) {
+          setError(
+            `${l.boonz_product_name}: damaged qty (${b.damaged_qty}) cannot exceed received qty (${b.received_qty}) on the same batch.`,
+          );
+          return;
+        }
+      }
+    }
+
+    setSubmitting(true);
 
     const supabase = createClient();
     const today = getDubaiDate();
+
+    // Damage queue: mirrors receive_purchase_order's own per-line batch
+    // filtering (received_qty > 0 only) and 1-based indexing exactly, so the
+    // batch_id computed here after receipt matches what the RPC actually
+    // wrote (batch_id = po_id + '-' + left(po_line_id, 8) + '-B' + index).
+    const damageQueue: DamageQueueEntry[] = [];
 
     // Build lines payload for the RPC
     // Each unreceived line is either: closed as not_purchased, or has batches to receive
@@ -584,18 +635,31 @@ export default function ReceivingDetailPage() {
         // the trigger flags it UNPRICED_RECEIPT - advisory, never blocking.
         const isFreeGoods = freeGoodsLines.has(l.po_line_id);
 
+        // received_qty > 0 batches only, in array order - same filter
+        // receive_purchase_order applies before it assigns v_batch_idx.
+        const receivedBatches = l.batches.filter((b) => b.received_qty > 0);
+        receivedBatches.forEach((b, idx) => {
+          if (b.damaged_qty > 0) {
+            damageQueue.push({
+              po_line_id: l.po_line_id,
+              boonz_product_id: l.boonz_product_id,
+              boonz_product_name: l.boonz_product_name,
+              batch_index: idx + 1,
+              damaged_qty: b.damaged_qty,
+            });
+          }
+        });
+
         return {
           po_line_id: l.po_line_id,
           total_price_aed: isFreeGoods ? 0 : (lineTotal ?? null),
           pricing_status: isFreeGoods ? "free_goods" : "priced",
           wh_location: l.wh_location || null,
           close_as_not_purchased: false,
-          batches: l.batches
-            .filter((b) => b.received_qty > 0)
-            .map((b) => ({
-              received_qty: b.received_qty,
-              expiry_date: b.expiry_date || null,
-            })),
+          batches: receivedBatches.map((b) => ({
+            received_qty: b.received_qty,
+            expiry_date: b.expiry_date || null,
+          })),
         };
       })
       // Include both not_purchased lines AND lines with actual batches
@@ -683,6 +747,71 @@ export default function ReceivingDetailPage() {
         });
       }
     }
+
+    // "Damaged on arrival" - the good quantity already landed as a normal
+    // Active warehouse_inventory row via receive_purchase_order above (that
+    // RPC does not accept a damaged split, and is not modified here). Now
+    // split the damaged portion of each affected batch off into its own
+    // Inactive 'Damaged' sibling row via warehouse_damage_writeoff. A
+    // failure here never undoes the receipt - the good stock already landed
+    // - it only means that one batch's damage report needs a retry via the
+    // Warehouse Inventory page's "Report damage" action instead.
+    const damageOutcomes: DamageResult[] = [];
+    if (damageQueue.length > 0) {
+      const {
+        data: { user: damageUser },
+      } = await supabase.auth.getUser();
+
+      for (const entry of damageQueue) {
+        const expectedBatchId = `${poId}-${entry.po_line_id.slice(0, 8)}-B${entry.batch_index}`;
+        const { data: whRow, error: whLookupErr } = await supabase
+          .from("warehouse_inventory")
+          .select("wh_inventory_id, boonz_product_id")
+          .eq("batch_id", expectedBatchId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (whLookupErr || !whRow) {
+          damageOutcomes.push({
+            productName: entry.boonz_product_name,
+            qty: entry.damaged_qty,
+            status: "failed",
+            error: `Could not find the just-received batch (${expectedBatchId}) to write off. Use "Report damage" on the Warehouse Inventory page instead.`,
+          });
+          continue;
+        }
+        if (whRow.boonz_product_id !== entry.boonz_product_id) {
+          damageOutcomes.push({
+            productName: entry.boonz_product_name,
+            qty: entry.damaged_qty,
+            status: "failed",
+            error: `Batch ${expectedBatchId} matched a different product than expected. Use "Report damage" on the Warehouse Inventory page instead.`,
+          });
+          continue;
+        }
+
+        const { error: damageErr } = await supabase.rpc(
+          "warehouse_damage_writeoff",
+          {
+            p_wh_inventory_id: whRow.wh_inventory_id,
+            p_qty: entry.damaged_qty,
+            p_source: "supplier",
+            p_reason: `Damaged on arrival, PO ${poId} line ${entry.po_line_id}`,
+            p_caller: damageUser?.id ?? null,
+            p_dry_run: false,
+          },
+        );
+
+        damageOutcomes.push({
+          productName: entry.boonz_product_name,
+          qty: entry.damaged_qty,
+          status: damageErr ? "failed" : "ok",
+          error: damageErr?.message,
+        });
+      }
+    }
+    setDamageResults(damageOutcomes);
 
     // PRD-003 §6.1: document totals go in a SECOND call, after the receipt has
     // landed. If this fails the receipt still stands - a driver at the warehouse
@@ -869,6 +998,23 @@ export default function ReceivingDetailPage() {
                   className="py-1 text-xs text-green-800 dark:text-green-300"
                 >
                   ✓ {r.qty} units of {r.productName}
+                </p>
+              ))}
+            </div>
+          )}
+          {damageResults.length > 0 && (
+            <div className="mb-4 w-full max-w-sm rounded-lg border border-amber-200 bg-amber-50 p-3 text-left dark:border-amber-900 dark:bg-amber-950/30">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                Damaged on arrival - supplier claim
+              </p>
+              {damageResults.map((r, i) => (
+                <p
+                  key={i}
+                  className="py-1 text-xs text-amber-800 dark:text-amber-300"
+                >
+                  {r.status === "ok" ? "⚠" : "✕"} {r.qty} units of{" "}
+                  {r.productName}
+                  {r.status === "failed" && r.error ? ` - ${r.error}` : ""}
                 </p>
               ))}
             </div>
@@ -1157,7 +1303,7 @@ export default function ReceivingDetailPage() {
                           )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-3 gap-2">
                           <div>
                             <label className="mb-0.5 block text-xs text-neutral-500">
                               Qty
@@ -1195,7 +1341,32 @@ export default function ReceivingDetailPage() {
                               className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
                             />
                           </div>
+                          <div>
+                            <label className="mb-0.5 block text-xs text-neutral-500">
+                              Damaged on arrival
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={batch.received_qty}
+                              value={batch.damaged_qty}
+                              onChange={(e) =>
+                                updateBatch(
+                                  line.po_line_id,
+                                  batch.batch_key,
+                                  "damaged_qty",
+                                  parseFloat(e.target.value) || 0,
+                                )
+                              }
+                              className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800"
+                            />
+                          </div>
                         </div>
+                        {batch.damaged_qty > batch.received_qty && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                            Damaged qty cannot exceed received qty
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>

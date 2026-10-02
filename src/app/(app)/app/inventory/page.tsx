@@ -46,6 +46,7 @@ interface WHRowRaw {
   expiration_date: string | null;
   status: string;
   warehouse_id: string | null;
+  disposal_reason: string | null;
   boonz_products: {
     boonz_product_name: string;
     physical_type: string | null;
@@ -68,6 +69,20 @@ interface WHRow {
   status: string;
   warehouse_id: string | null;
   warehouse_name: string;
+  disposal_reason: string | null;
+}
+
+// PRD damage write-off (2026-10-02): the disposal reason badge label.
+// 'Returned to supplier' and 'Returning to supplier' both read as the same
+// badge -- the distinction is a timing detail (claim filed vs confirmed),
+// not something this list view needs to split into two labels.
+function disposalReasonLabel(reason: string | null): string | null {
+  if (!reason) return null;
+  if (reason === "Waste") return "Waste";
+  if (reason === "Damaged") return "Damaged";
+  if (reason === "Returning to supplier" || reason === "Returned to supplier")
+    return "Returning to supplier";
+  return null;
 }
 
 type StatusFilter = "All" | "Active" | "Inactive";
@@ -241,6 +256,16 @@ export default function InventoryPage() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
+  // Damage write-off (2026-10-02): "Report damage" inline form in the drawer.
+  const [showReportDamage, setShowReportDamage] = useState(false);
+  const [damageQty, setDamageQty] = useState<number>(1);
+  const [damageSource, setDamageSource] = useState<"supplier" | "handling">(
+    "handling",
+  );
+  const [damageNote, setDamageNote] = useState("");
+  const [damageBusy, setDamageBusy] = useState(false);
+  const [damageError, setDamageError] = useState<string | null>(null);
+
   // Phase G P1: inventory-control session context + caller role.
   const { session } = useInventorySession();
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -340,7 +365,7 @@ export default function InventoryPage() {
     const { data, error } = await supabase
       .from("warehouse_inventory")
       .select(
-        "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, consumer_stock, expiration_date, status, warehouse_id, boonz_products!inner(boonz_product_name, physical_type, product_category), warehouses(name)",
+        "wh_inventory_id, boonz_product_id, batch_id, wh_location, warehouse_stock, consumer_stock, expiration_date, status, warehouse_id, disposal_reason, boonz_products!inner(boonz_product_name, physical_type, product_category), warehouses(name)",
       )
       .order("expiration_date", { ascending: true, nullsFirst: false })
       .limit(10000);
@@ -362,6 +387,7 @@ export default function InventoryPage() {
         status: r.status,
         warehouse_id: r.warehouse_id ?? null,
         warehouse_name: r.warehouses?.name ?? "WH_CENTRAL",
+        disposal_reason: r.disposal_reason ?? null,
       }),
     );
     setRows(mapped);
@@ -637,6 +663,49 @@ export default function InventoryPage() {
       setSaveError(`Unexpected error: ${msg}`);
       setSaveBusy(false);
     }
+  };
+
+  // Damage write-off (2026-10-02): calls warehouse_damage_writeoff directly
+  // (p_dry_run: false) -- the RPC itself validates qty/source/free-stock and
+  // raises a clear error on failure, surfaced here rather than pre-empted
+  // with a stricter client-side rule.
+  const handleReportDamage = async () => {
+    if (!selectedBatch) return;
+    if (!damageQty || damageQty <= 0) {
+      setDamageError("Enter a quantity greater than 0.");
+      return;
+    }
+    if (damageQty > Number(selectedBatch.warehouse_stock)) {
+      setDamageError("Quantity cannot exceed this batch's warehouse stock.");
+      return;
+    }
+    setDamageBusy(true);
+    setDamageError(null);
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const reason = `Damage reported (${damageSource}) via Warehouse Inventory${damageNote.trim() ? ": " + damageNote.trim() : ""}`;
+    const { error } = await supabase.rpc("warehouse_damage_writeoff", {
+      p_wh_inventory_id: selectedBatch.wh_inventory_id,
+      p_qty: damageQty,
+      p_source: damageSource,
+      p_reason: reason,
+      p_caller: user?.id ?? null,
+      p_dry_run: false,
+    });
+    if (error) {
+      setDamageError(error.message);
+      setDamageBusy(false);
+      return;
+    }
+    setDamageBusy(false);
+    setShowReportDamage(false);
+    setDamageQty(1);
+    setDamageSource("handling");
+    setDamageNote("");
+    setSelectedBatch(null);
+    setFetchKey((k) => k + 1);
   };
 
   const handleExportCsv = () => {
@@ -1240,6 +1309,28 @@ export default function InventoryPage() {
                       >
                         {r.status}
                       </span>
+                      {disposalReasonLabel(r.disposal_reason) && (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            marginLeft: 6,
+                            padding: "2px 8px",
+                            borderRadius: 20,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            background:
+                              r.disposal_reason === "Damaged"
+                                ? "#fef2f2"
+                                : "#fffbeb",
+                            color:
+                              r.disposal_reason === "Damaged"
+                                ? "#b91c1c"
+                                : "#92400e",
+                          }}
+                        >
+                          {disposalReasonLabel(r.disposal_reason)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -1391,29 +1482,57 @@ export default function InventoryPage() {
                     <Field
                       label="Status"
                       value={
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "2px 10px",
-                            borderRadius: 20,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            background:
-                              selectedBatch.status === "Active"
-                                ? "#f0fdf4"
-                                : selectedBatch.status === "Expired"
-                                  ? "#fef2f2"
-                                  : "#f5f2ee",
-                            color:
-                              selectedBatch.status === "Active"
-                                ? "#065f46"
-                                : selectedBatch.status === "Expired"
-                                  ? "#dc2626"
-                                  : "#6b6860",
-                          }}
-                        >
-                          {selectedBatch.status}
-                        </span>
+                        <>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "2px 10px",
+                              borderRadius: 20,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              background:
+                                selectedBatch.status === "Active"
+                                  ? "#f0fdf4"
+                                  : selectedBatch.status === "Expired"
+                                    ? "#fef2f2"
+                                    : "#f5f2ee",
+                              color:
+                                selectedBatch.status === "Active"
+                                  ? "#065f46"
+                                  : selectedBatch.status === "Expired"
+                                    ? "#dc2626"
+                                    : "#6b6860",
+                            }}
+                          >
+                            {selectedBatch.status}
+                          </span>
+                          {disposalReasonLabel(
+                            selectedBatch.disposal_reason,
+                          ) && (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                marginLeft: 6,
+                                padding: "2px 10px",
+                                borderRadius: 20,
+                                fontSize: 12,
+                                fontWeight: 600,
+                                background:
+                                  selectedBatch.disposal_reason === "Damaged"
+                                    ? "#fef2f2"
+                                    : "#fffbeb",
+                                color:
+                                  selectedBatch.disposal_reason === "Damaged"
+                                    ? "#b91c1c"
+                                    : "#92400e",
+                              }}
+                            >
+                              {disposalReasonLabel(
+                                selectedBatch.disposal_reason,
+                              )}
+                            </span>
+                          )}
+                        </>
                       }
                     />
                     <Field
@@ -1647,6 +1766,195 @@ export default function InventoryPage() {
                           )}
                         </div>
                       )}
+                    {/* Damage write-off (2026-10-02): report a partial-qty
+                        damage against this batch. Decrements this batch and
+                        creates an Inactive 'Damaged' sibling row via
+                        warehouse_damage_writeoff. */}
+                    <div
+                      style={{
+                        marginBottom: 20,
+                        padding: 12,
+                        background: "#fef2f2",
+                        border: "1px solid #fca5a5",
+                        borderRadius: 8,
+                      }}
+                    >
+                      {!showReportDamage ? (
+                        <button
+                          type="button"
+                          disabled={!canEdit}
+                          title={
+                            !canEdit
+                              ? session
+                                ? "Your role cannot report damage"
+                                : "Start an inventory-control session above to enable this"
+                              : "Report damage on this batch"
+                          }
+                          onClick={() => {
+                            setDamageQty(1);
+                            setDamageSource("handling");
+                            setDamageNote("");
+                            setDamageError(null);
+                            setShowReportDamage(true);
+                          }}
+                          style={{
+                            padding: "6px 12px",
+                            border: "1px solid #b91c1c",
+                            borderRadius: 6,
+                            background: canEdit ? "#b91c1c" : "#e5a3a3",
+                            color: "white",
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: canEdit ? "pointer" : "not-allowed",
+                          }}
+                        >
+                          Report damage
+                        </button>
+                      ) : (
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: "#991b1b",
+                            }}
+                          >
+                            Report damage
+                          </div>
+                          <label
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: "#7f1d1d",
+                            }}
+                          >
+                            Qty damaged
+                            <input
+                              type="number"
+                              min={1}
+                              max={Number(selectedBatch.warehouse_stock)}
+                              value={damageQty}
+                              onChange={(e) =>
+                                setDamageQty(Number(e.target.value))
+                              }
+                              style={{
+                                width: "100%",
+                                marginTop: 4,
+                                padding: "6px 10px",
+                                border: "1px solid #fca5a5",
+                                borderRadius: 6,
+                                fontSize: 13,
+                              }}
+                            />
+                          </label>
+                          <label
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: "#7f1d1d",
+                            }}
+                          >
+                            Source
+                            <select
+                              value={damageSource}
+                              onChange={(e) =>
+                                setDamageSource(
+                                  e.target.value as "supplier" | "handling",
+                                )
+                              }
+                              style={{
+                                width: "100%",
+                                marginTop: 4,
+                                padding: "6px 10px",
+                                border: "1px solid #fca5a5",
+                                borderRadius: 6,
+                                fontSize: 13,
+                                background: "white",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <option value="supplier">Supplier</option>
+                              <option value="handling">Handling</option>
+                            </select>
+                          </label>
+                          <label
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: "#7f1d1d",
+                            }}
+                          >
+                            Note (optional)
+                            <textarea
+                              value={damageNote}
+                              onChange={(e) => setDamageNote(e.target.value)}
+                              rows={2}
+                              style={{
+                                width: "100%",
+                                marginTop: 4,
+                                padding: "6px 10px",
+                                border: "1px solid #fca5a5",
+                                borderRadius: 6,
+                                fontSize: 13,
+                                resize: "vertical",
+                              }}
+                            />
+                          </label>
+                          {damageError && (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "#b91c1c",
+                                padding: "4px 8px",
+                                background: "#fee2e2",
+                                borderRadius: 4,
+                              }}
+                            >
+                              {damageError}
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              type="button"
+                              disabled={damageBusy}
+                              onClick={handleReportDamage}
+                              style={{
+                                padding: "6px 12px",
+                                border: "1px solid #b91c1c",
+                                borderRadius: 6,
+                                background: damageBusy ? "#e5a3a3" : "#b91c1c",
+                                color: "white",
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: damageBusy ? "not-allowed" : "pointer",
+                              }}
+                            >
+                              {damageBusy ? "Saving..." : "Confirm damage"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={damageBusy}
+                              onClick={() => {
+                                setShowReportDamage(false);
+                                setDamageError(null);
+                              }}
+                              style={{
+                                padding: "6px 12px",
+                                border: "1px solid #d1d5db",
+                                borderRadius: 6,
+                                background: "white",
+                                color: "#374151",
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     {/* PRD-Phase-G v2 B.4: per-row movement trail drawer */}
                     <MovementTrail
                       whInventoryId={selectedBatch.wh_inventory_id}
