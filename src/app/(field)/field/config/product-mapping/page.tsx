@@ -58,6 +58,13 @@ interface SplitDraft {
   toDelete: boolean;
 }
 
+// Read-only fleet-default hint: Active, machine_id IS NULL rows for a pod product.
+// Never counted into any machine's total - a separate, informational set only.
+interface GlobalDefaultRow {
+  boonz_product_name: string;
+  split_pct: number;
+}
+
 interface RawRow {
   mapping_id: string;
   pod_product_id: string;
@@ -117,11 +124,14 @@ export default function ProductMappingPage() {
   );
   const [search, setSearch] = useState("");
 
-  // Accordion — compound key: podId|||machineId
+  // Accordion - compound key: podId|||machineId
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [splitDrafts, setSplitDrafts] = useState<Record<string, SplitDraft[]>>(
     {},
   );
+  const [globalDefaults, setGlobalDefaults] = useState<
+    Record<string, GlobalDefaultRow[]>
+  >({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -347,6 +357,30 @@ export default function ProductMappingPage() {
   );
 
   // ── Accordion handlers ────────────────────────────────────────────────────
+  // Fleet default hint: Active, machine_id IS NULL rows for this pod product.
+  // Read-only, fetched once per pod product, never merged into any machine's
+  // editable list or percentage total.
+  async function loadGlobalDefault(podId: string) {
+    if (globalDefaults[podId]) return;
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("product_mapping")
+      .select("split_pct, boonz_products!inner(boonz_product_name)")
+      .eq("pod_product_id", podId)
+      .is("machine_id", null)
+      .eq("status", "Active");
+    const rows: GlobalDefaultRow[] = (
+      (data ?? []) as unknown as {
+        split_pct: number;
+        boonz_products: { boonz_product_name: string };
+      }[]
+    ).map((r) => ({
+      boonz_product_name: r.boonz_products.boonz_product_name,
+      split_pct: r.split_pct ?? 0,
+    }));
+    setGlobalDefaults((prev) => ({ ...prev, [podId]: rows }));
+  }
+
   function toggleAccordion(podId: string, machineId: string | null) {
     const key = aKey(podId, machineId);
     if (expandedKey === key) {
@@ -377,6 +411,9 @@ export default function ProductMappingPage() {
         toDelete: false,
       })),
     }));
+    if (machineId !== null) {
+      void loadGlobalDefault(podId);
+    }
   }
 
   function patchSplit(
@@ -394,7 +431,7 @@ export default function ProductMappingPage() {
 
   function addSplitRow(draftKey: string) {
     // Always init boonz_product_id to '' so the user must explicitly choose a product.
-    // Never inherit boonzProducts[0] — that caused wrong products being saved to DB.
+    // Never inherit boonzProducts[0] - that caused wrong products being saved to DB.
     setSplitDrafts((prev) => ({
       ...prev,
       [draftKey]: [
@@ -432,98 +469,49 @@ export default function ProductMappingPage() {
     const draftTotal = active.reduce((sum, s) => sum + (s.split_pct || 0), 0);
     if (Math.round(draftTotal) !== 100) {
       setSaveError(
-        `Total is ${draftTotal.toFixed(0)}% — adjust splits to reach exactly 100% before saving`,
+        `Total is ${draftTotal.toFixed(0)}% - adjust splits to reach exactly 100% before saving`,
       );
+      return;
+    }
+
+    if (!machineId) {
+      setSaveError("A specific machine is required to save splits");
       return;
     }
 
     setSaving(true);
     setSaveError(null);
     const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-    // TODO(Batch 5 / RC-04): product_mapping has NO canonical write RPC today
-    // (delete / insert / update / upsert below). These direct writes are LEFT
-    // AS-IS to avoid breaking mapping edits. Rewire every product_mapping write
-    // in this file to the canonical mapping RPC (e.g. set_product_mapping /
-    // upsert_product_mapping) once it lands in Batch 5.
     try {
-      for (const line of lines) {
-        if (line.toDelete) {
-          // Case A: marked for deletion
-          if (line.mapping_id) {
-            const { error } = await supabase
-              .from("product_mapping")
-              .delete()
-              .eq("mapping_id", line.mapping_id);
-            if (error) {
-              console.error("[ProductMapping] delete error:", error.message);
-              throw error;
-            }
-          }
-        } else if (
-          line.mapping_id &&
-          line.boonz_product_id !== line.original_boonz_id
-        ) {
-          // Case C: boonz product changed — boonz_product_id is part of the unique key,
-          // so we must DELETE the old row and INSERT a new one
-          const { error: delErr } = await supabase
-            .from("product_mapping")
-            .delete()
-            .eq("mapping_id", line.mapping_id);
-          if (delErr) {
-            console.error(
-              "[ProductMapping] case-C delete error:",
-              delErr.message,
-            );
-            throw delErr;
-          }
-          const { error: insErr } = await supabase
-            .from("product_mapping")
-            .insert({
-              pod_product_id: podId,
-              boonz_product_id: line.boonz_product_id,
-              machine_id: machineId,
-              split_pct: line.split_pct,
-              status: "Active",
-            });
-          if (insErr) {
-            console.error(
-              "[ProductMapping] case-C insert error:",
-              insErr.message,
-            );
-            throw insErr;
-          }
-        } else if (line.mapping_id) {
-          // Case B: existing row, boonz product unchanged — update split_pct only
-          const { error } = await supabase
-            .from("product_mapping")
-            .update({ split_pct: line.split_pct })
-            .eq("mapping_id", line.mapping_id);
-          if (error) {
-            console.error("[ProductMapping] update error:", error.message);
-            throw error;
-          }
-        } else {
-          // Case D: brand new row
-          const { error } = await supabase.from("product_mapping").upsert(
-            {
-              pod_product_id: podId,
-              boonz_product_id: line.boonz_product_id,
-              machine_id: machineId,
-              split_pct: line.split_pct,
-              status: "Active",
-            },
-            { onConflict: "pod_product_id,boonz_product_id,machine_id" },
-          );
-          if (error) {
-            console.error("[ProductMapping] upsert error:", error.message);
-            throw error;
-          }
-        }
+      // set_product_mapping_splits is the sole canonical write path for a
+      // pod+machine's Active split set: true upsert by (pod, boonz, machine)
+      // so reactivating an existing Inactive row never hits the unique
+      // constraint, archives (never hard-deletes) any row dropped from the
+      // set, and refuses server-side unless the splits total exactly 100.
+      const { error } = await supabase.rpc("set_product_mapping_splits", {
+        p_pod_product_id: podId,
+        p_machine_id: machineId,
+        p_splits: active.map((s) => ({
+          boonz_product_id: s.boonz_product_id,
+          split_pct: s.split_pct,
+        })),
+        p_reason: "Edited via Product Mapping (By product view)",
+        p_caller_id: user?.id ?? null,
+      });
+      if (error) {
+        console.error(
+          "[ProductMapping] set_product_mapping_splits error:",
+          error.message,
+        );
+        throw error;
       }
 
       // Targeted re-fetch: reload only this pod+machine from DB so the accordion
-      // stays open and shows exactly what was saved — no stale local state.
+      // stays open and shows exactly what was saved - no stale local state.
       const baseQ = supabase
         .from("product_mapping")
         .select(MAPPING_SEL)
@@ -580,26 +568,44 @@ export default function ProductMappingPage() {
   async function applyBulk(podId: string, machineId: string | null) {
     const key = aKey(podId, machineId);
     const active = (splitDrafts[key] ?? []).filter((s) => !s.toDelete);
+    if (active.length === 0) {
+      setSaveError(
+        "Add at least one split row before applying to other machines",
+      );
+      return;
+    }
+    const draftTotal = active.reduce((sum, s) => sum + (s.split_pct || 0), 0);
+    if (Math.round(draftTotal) !== 100) {
+      setSaveError(
+        `Total is ${draftTotal.toFixed(0)}% - adjust splits to reach exactly 100% before applying`,
+      );
+      return;
+    }
     setBulkSaving(true);
+    setSaveError(null);
     const supabase = createClient();
-    // TODO(Batch 5 / RC-04): direct product_mapping delete+insert — no canonical
-    // mapping RPC exists yet. Left as-is; rewire when the RPC lands.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const splits = active.map((s) => ({
+      boonz_product_id: s.boonz_product_id,
+      split_pct: s.split_pct,
+    }));
     for (const mid of bulkSelected) {
-      await supabase
-        .from("product_mapping")
-        .delete()
-        .eq("pod_product_id", podId)
-        .eq("machine_id", mid);
-      if (active.length > 0) {
-        await supabase.from("product_mapping").insert(
-          active.map((s) => ({
-            pod_product_id: podId,
-            boonz_product_id: s.boonz_product_id,
-            machine_id: mid,
-            split_pct: s.split_pct,
-            status: "Active",
-          })),
+      const { error } = await supabase.rpc("set_product_mapping_splits", {
+        p_pod_product_id: podId,
+        p_machine_id: mid,
+        p_splits: splits,
+        p_reason: "Applied via Product Mapping bulk apply",
+        p_caller_id: user?.id ?? null,
+      });
+      if (error) {
+        console.error(
+          `[ProductMapping] bulk apply to ${mid} failed:`,
+          error.message,
         );
+        setSaveError(`Bulk apply stopped: ${error.message}`);
+        break;
       }
     }
     setBulkSaving(false);
@@ -624,26 +630,30 @@ export default function ProductMappingPage() {
     const addTotalCheck = addSplits.reduce((s, r) => s + (r.split_pct || 0), 0);
     if (Math.round(addTotalCheck) !== 100) {
       setAddError(
-        `Total is ${addTotalCheck.toFixed(0)}% — adjust splits to reach exactly 100% before saving`,
+        `Total is ${addTotalCheck.toFixed(0)}% - adjust splits to reach exactly 100% before saving`,
       );
+      return;
+    }
+    if (!addMachineId) {
+      setAddError("A specific machine is required");
       return;
     }
     setAdding(true);
     setAddError(null);
     const supabase = createClient();
-    const machineId = addMachineId || null;
-    // TODO(Batch 5 / RC-04): direct product_mapping upsert — no canonical
-    // mapping RPC exists yet. Left as-is; rewire when the RPC lands.
-    const { error } = await supabase.from("product_mapping").upsert(
-      addSplits.map((s) => ({
-        pod_product_id: addPodId,
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const { error } = await supabase.rpc("set_product_mapping_splits", {
+      p_pod_product_id: addPodId,
+      p_machine_id: addMachineId,
+      p_splits: addSplits.map((s) => ({
         boonz_product_id: s.boonz_product_id,
-        machine_id: machineId,
         split_pct: s.split_pct,
-        status: "Active",
       })),
-      { onConflict: "pod_product_id,boonz_product_id,machine_id" },
-    );
+      p_reason: "Created via Product Mapping new-mapping modal",
+      p_caller_id: user?.id ?? null,
+    });
     if (error) {
       setAddError(error.message);
       setAdding(false);
@@ -762,6 +772,24 @@ export default function ProductMappingPage() {
                 : "Global mapping (applies to all machines)"}
             </p>
 
+            {/* Fleet default hint: Active, machine_id IS NULL rows for this pod
+                product. Read-only, informational only, never counted into this
+                machine's total. */}
+            {machineId &&
+              (globalDefaults[g.pod_product_id]?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-dashed border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900">
+                  <p className="mb-1 font-medium text-neutral-400">
+                    Fleet default (read-only, not part of this machine&apos;s
+                    total)
+                  </p>
+                  {globalDefaults[g.pod_product_id]!.map((r, i) => (
+                    <p key={i}>
+                      {r.boonz_product_name}: {r.split_pct}%
+                    </p>
+                  ))}
+                </div>
+              )}
+
             {/* Split rows */}
             <div className="space-y-2">
               {activeDrafts.map((s) => (
@@ -837,10 +865,10 @@ export default function ProductMappingPage() {
               }`}
             >
               {totalOk
-                ? `${total}% of 100% — ✓`
+                ? `${total}% of 100% - ok`
                 : total < 100
-                  ? `${total}% of 100% — ${100 - total}% remaining`
-                  : `${total}% of 100% — Over by ${total - 100}%`}
+                  ? `${total}% of 100% - ${100 - total}% remaining`
+                  : `${total}% of 100% - over by ${total - 100}%`}
             </div>
 
             {saveError && (
@@ -983,7 +1011,7 @@ export default function ProductMappingPage() {
 
       {/* Controls: machine selector + group-by pills */}
       <div className="sticky top-0 z-10 space-y-2 border-b border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-950">
-        {/* Machine selector — hidden when groupBy = 'machine' */}
+        {/* Machine selector - hidden when groupBy = 'machine' */}
         {groupBy !== "machine" && (
           <select
             value={selectedMachineId ?? ""}
@@ -1225,7 +1253,7 @@ export default function ProductMappingPage() {
                 )}
                 {addIsUpdate && !addLoadingExisting && (
                   <p className="mt-1 text-xs text-amber-600">
-                    Existing splits loaded — editing will overwrite them.
+                    Existing splits loaded - editing will overwrite them.
                   </p>
                 )}
               </div>
@@ -1319,10 +1347,10 @@ export default function ProductMappingPage() {
                 }`}
               >
                 {Math.round(addTotal) === 100
-                  ? `${addTotal}% ✓`
+                  ? `${addTotal}% ok`
                   : addTotal < 100
-                    ? `${addTotal}% — ${100 - addTotal}% remaining`
-                    : `${addTotal}% — over by ${addTotal - 100}%`}
+                    ? `${addTotal}% - ${100 - addTotal}% remaining`
+                    : `${addTotal}% - over by ${addTotal - 100}%`}
               </div>
 
               <button

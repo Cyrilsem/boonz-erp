@@ -3503,3 +3503,27 @@ carries a hard-coded exclusion list of five specific suspect `refill_return_ack`
 credits/anomalies CS flagged) that need manual reversal, never acknowledgment. First run
 (`p_before=2026-09-17`): 4 rows / 7 units closed, 0 bypass-log pollution, the five excluded rows
 and all 7 quarantine rows confirmed untouched.
+
+## 2026-10-02 - Bug 02 Oct: product mapping editor duplicate-key crash and bogus totals
+
+`product_mapping` has a plain unique constraint on `(pod_product_id, boonz_product_id,
+machine_id)` covering every status, not just Active. The product mapping editor's "user changed
+an existing split's boonz product" path did a bare DELETE-then-INSERT with no upsert handling, so
+re-adding a product that already had an Inactive row for the same pod+machine hit the constraint
+directly: "duplicate key value violates unique constraint
+product_mapping_pod_product_id_boonz_product_id_machine_id_key". Reproduced live with a real row
+(USH-1008-0000-W1 / Soft Drinks Mix / Pepsi - Regular, sitting Inactive).
+
+New canonical writer `set_product_mapping_splits`: a true upsert by the same unique key, so
+reactivating an Inactive row never collides; any row dropped from the new split set is archived
+(status Inactive, split_pct and mix_weight zeroed), never hard-deleted; refuses server-side unless
+the Active splits for that pod+machine sum to exactly 100. The product mapping page now calls this
+RPC exclusively for every write (save, bulk apply, new mapping), closing a years-old TODO for a
+canonical mapping writer. The page also separates the "By product" view's percentage total and
+editable list so they only ever reflect Active rows for the one selected machine, and adds a
+read-only fleet-default hint for Active global rows, kept out of the machine total entirely.
+
+Verified live: USH-1008-0000-W1 / Soft Drinks Mix reads 7Up - Regular 50% / 7Up - Diet 50%, total
+100%, and a round-trip through the real editor (swapping a split to the previously Inactive Pepsi
+
+- Regular and back) succeeded with no error and the correct Active/Inactive flips each time.
