@@ -3527,3 +3527,27 @@ Verified live: USH-1008-0000-W1 / Soft Drinks Mix reads 7Up - Regular 50% / 7Up 
 100%, and a round-trip through the real editor (swapping a split to the previously Inactive Pepsi
 
 - Regular and back) succeeded with no error and the correct Active/Inactive flips each time.
+
+## 2026-10-02 - new feature: DAMAGE write-off (Simran request)
+
+Damage is a disposal reason, not a status. New `warehouse_damage_writeoff` RPC splits a damaged
+quantity off a batch into its own Inactive sibling row (same product, batch_id, expiry), never by
+flipping the source row's own status. Decrements the source batch by the damaged quantity only;
+partial quantity is the point, the function never zeroes the whole batch on purpose, though a
+decrement that happens to land on zero still correctly triggers the existing manager
+propose-then-confirm flow on its own. The free-stock check reuses the same pinned-quantity
+definition the dispatch overcommit check already uses, so a damage report can never undercut a
+pack that already relies on the batch.
+
+`warehouse_inventory_disposal_reason_check` gains Damaged; new nullable `damage_source` column
+(supplier, handling, transit). Backfilled the 3 real damage lines from earlier today that were
+decremented by hand via `adjust_warehouse_stock` before this RPC existed, inserting only the
+matching Inactive sibling rows without touching the source rows again (confirmed unchanged: Coke
+Zero 294 and 3 units on two batches, Al Ain Zero 96 units). New `v_damage_log` reporting view
+(date, product, qty, source, supplier, value at cost), reading only `warehouse_inventory`, kept
+fully separate from the existing expiry-waste KPI so damage can never leak into it.
+
+Live-tested dry run only against the fleet's TEST - Product fixture; the real apply there is
+blocked by a pre-existing guard that refuses any new warehouse row for a test-flagged product,
+unrelated to this migration. Full real-apply verification (decrement plus sibling insert) still
+needs a disposable non-test fixture, see STATE.md.

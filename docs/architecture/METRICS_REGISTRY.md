@@ -1415,3 +1415,16 @@ rows per machine+slot. Any new consumer joining it for a "current" value must `D
 shelf (see `live_shelf_product` inside `get_machine_orphan_expiry`) or risk multiplying unit/batch
 counts across every historical snapshot row, exactly as a first draft of this migration did (37x
 inflation on one real fixture before the fix).
+
+## 2026-10-02 - damage write-off value
+
+| Metric                                                                                       | Canonical object             | Status            | Known illegal copies to retire                     |
+| -------------------------------------------------------------------------------------------- | ---------------------------- | ----------------- | -------------------------------------------------- |
+| **Damage value at cost** (units written off as Damaged, valued at `boonz_products.avg_cost`) | `v_damage_log` (`value_aed`) | LIVE (2026-10-02) | none, this is the first definition of this metric. |
+
+`v_damage_log` reads only `warehouse_inventory` rows with `disposal_reason = 'Damaged'`, joins
+`boonz_products` for name and `avg_cost`, and best-effort matches a supplier via
+`batch_id LIKE purchase_orders.po_id || '-%'`. It is intentionally separate from
+`v_waste_by_sku_90d` (the expiry-waste KPI, sourced from `disposition_events.state='waste'`) -
+damage and expiry waste are different business events and must not be summed together. Excludes
+the `TEST - Product` fixture by name.
