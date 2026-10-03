@@ -3551,3 +3551,46 @@ Live-tested dry run only against the fleet's TEST - Product fixture; the real ap
 blocked by a pre-existing guard that refuses any new warehouse row for a test-flagged product,
 unrelated to this migration. Full real-apply verification (decrement plus sibling insert) still
 needs a disposable non-test fixture, see STATE.md.
+
+## 2026-10-03 night - ONE-SHOT FIX BATCH: slot guard override, G8 venue_team warehouses, G10/V8 deadlock
+
+Three scoped fixes to the plan-validation pipeline, none field-app or warehouse-confirmation
+functions, so none were window-gated. Full narrative: `docs/loops/2026-10-03-night/STATE.md`.
+
+**FIX 3 (Articles 1, 4, 6, 8, 12, 16, Cody approved).** `assert_weimi_slot_match`'s slot guard mode
+used to resolve once, globally, from `refill_policy_params.weimi_slot_guard` -- the only way to
+unblock one machine whose WEIMI still showed a stale layout was flipping the whole fleet to
+`'warn'`. New nullable `machines.weimi_slot_guard_override` (CHECK `off`/`warn`/`block`/`check`,
+same vocabulary the function already validates) lets the mode resolve per machine, per row, inside
+the loop: `COALESCE(p_mode, machine override, global default, 'warn')`. New
+`set_machine_weimi_slot_guard_override` RPC is the sole writer, role-gated to `operator_admin`,
+writing a `monitoring_alerts` row on every change (who/when/reason). Verified live against two real
+machines (MOE, AMZ-1038) with a synthetic mismatch product: MOE's own `'warn'` override passes
+while the global stays `'block'`; AMZ-1038, with no override, still blocks on the identical
+mismatch.
+
+**FIX 4 (Articles 1, 12, Cody approved; Article 16 flagged as pre-existing debt).** G8's `avail` CTE
+in `validate_refill_plan` hardcoded the venue_team supplying-warehouse array to WH_MCC + WH_MM. A
+machine onboarded to a different VOX venue had no way to pass G8 without a sentinel stock row
+minted specifically in WH_MCC (999 units of three SKUs, 2026-10-03, flagged for cleanup -- see FIX 4
+follow-up below). Fix: for venue_team lines only, the array now also includes the line's own
+machine's `primary_warehouse_id`/`secondary_warehouse_id`, additive to the existing hardcoded pair,
+not a replacement. Boonz-sourced (WH_CENTRAL) lines untouched. Verified in a rolled-back
+transaction against real MOE/Aqua Panna data, isolating the scenario from the pre-existing WH_MCC
+999-unit sentinel: a 10-unit WH_MOE-only sentinel passes a qty=5 Add New (free=10 >= need=5) and
+still correctly blocks qty=50 (need=50, free=10) -- confirms the gate still blocks, not just always
+passes.
+
+**FIX 5 (Articles 1, 12, Cody approved; Article 16 flagged as pre-existing debt, same note as FIX
+4).** G10 blocks a Refill/Add New of a different pod on a lane unless that lane also carries a
+Remove line; a separate writer-side guard (V8, left untouched here) rejects any Remove above
+WEIMI's reported current stock. A lane WEIMI already shows at zero stock deadlocked the two rules
+together -- no Remove possible, no Add New without one. Fix: `weimi_now` now also carries
+`current_stock` (already returned by `weimi_shelf_now`, just not previously selected), and G10
+gains `AND wn.current_stock > 0` -- an already-empty lane no longer needs a Remove to relabel; a
+lane still holding stock is unaffected. Verified live on two real MOE shelves: A02 (WEIMI
+current_stock = 0) passes G10 with no Remove; A06 (current_stock = 11) still correctly blocks
+without one.
+
+Migrations: `20261003172747_fix3_weimi_slot_guard_per_machine.sql`,
+`20261003180518_fix4_g8_venue_team_warehouse.sql`, `20261003183304_fix5_g10_empty_lane_relabel.sql`.
