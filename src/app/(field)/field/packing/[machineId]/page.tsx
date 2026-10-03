@@ -435,6 +435,17 @@ export default function PackingDetailPage() {
     new Map(),
   );
 
+  // FIX 1 (ONE-SHOT FIX BATCH): units of a batch already consumed by an
+  // EARLIER unpacked sibling line on this SAME machine's screen (same
+  // boonz_product_id, stable shelf_code order) — keyed
+  // `${dispatch_id}|||wh:${wh_inventory_id}`. Separate from committedByBatch
+  // (which only ever holds OTHER machines' commitments), merged in by
+  // committedForBatch below so every "In Stock" display stays correct for
+  // sibling lanes without touching the cross-machine computation.
+  const [siblingCommittedByBatch, setSiblingCommittedByBatch] = useState<
+    Map<string, number>
+  >(new Map());
+
   /** PRD-118 item I: committed units attributed to ONE physical batch.
    *  Pinned commitments (PRD-053 breakdown, else the FEFO pin) are keyed
    *  `wh:<wh_inventory_id>`; only unpinned lines fall back to the old
@@ -447,9 +458,15 @@ export default function PackingDetailPage() {
     whInventoryId: string,
     boonzProductId: string,
     expiry: string | null,
+    dispatchId?: string,
   ): number =>
     (committedByBatch.get(`wh:${whInventoryId}`) ?? 0) +
-    (committedByBatch.get(`${boonzProductId}|||${expiry ?? "null"}`) ?? 0);
+    (committedByBatch.get(`${boonzProductId}|||${expiry ?? "null"}`) ?? 0) +
+    // FIX 1: earlier unpacked siblings on this same machine's screen.
+    (dispatchId
+      ? (siblingCommittedByBatch.get(`${dispatchId}|||wh:${whInventoryId}`) ??
+        0)
+      : 0);
 
   // PRD-036 Phase A: canonical pickable-stock truth per dispatch line from
   // v_dispatch_pickable. Used to render the stranded-stock note so a 0 is
@@ -875,13 +892,37 @@ export default function PackingDetailPage() {
     }
 
     // ── Step 4: FIFO allocation (single-variant, non-REMOVE lines only) ──────
-    const sortedForAlloc = [...dispatchLines].sort((a, b) =>
-      a.dispatch_id.localeCompare(b.dispatch_id),
-    );
+    // FIX 1 (ONE-SHOT FIX BATCH): sibling lines on this same machine's screen
+    // sharing a boonz_product_id must net against each other in a STABLE
+    // order (shelf_code, then dispatch_id as tiebreaker) so an earlier shelf
+    // consumes the earliest batch first and a later shelf is suggested what's
+    // actually left — previously this sorted by dispatch_id (an arbitrary
+    // UUID), and `fillBatches` below re-read each batch's un-decremented
+    // stock per line regardless, so every sibling line suggested the SAME
+    // earliest batch. Already-packed lines are skipped here (not just left
+    // unallocated): their real pick already decremented the warehouse_stock
+    // this fetch just read via v_wh_pickable, so re-subtracting their
+    // recommended_qty from batchPool here would double-count.
+    const sortedForAlloc = [...dispatchLines].sort((a, b) => {
+      const shelfA =
+        (a.shelf_configurations as unknown as { shelf_code?: string } | null)
+          ?.shelf_code ?? "";
+      const shelfB =
+        (b.shelf_configurations as unknown as { shelf_code?: string } | null)
+          ?.shelf_code ?? "";
+      if (shelfA !== shelfB) return shelfA.localeCompare(shelfB);
+      return a.dispatch_id.localeCompare(b.dispatch_id);
+    });
     const fifoMap: Record<
       string,
       { allocations: BatchAllocation[]; primary_expiry: string | null }
     > = {};
+    // siblingCommittedByBatch: `${dispatch_id}|||wh:${wh_inventory_id}` → units
+    // already consumed by EARLIER sibling lines (stable order above) before
+    // this line's own turn. Used only to correct the displayed "In Stock"
+    // figure (via committedForBatch) — the Pick Qty default itself already
+    // comes straight from this same line's own `allocations` below.
+    const siblingCommittedByBatch = new Map<string, number>();
 
     for (const line of sortedForAlloc) {
       // A line is only mix if the pod has >1 variant AND this line has no
@@ -892,8 +933,9 @@ export default function PackingDetailPage() {
         !!line.pod_product_id &&
         mixPodIdSet.has(line.pod_product_id);
       const isRemoveLine = (line.quantity ?? 0) === 0;
+      const isAlreadyPacked = !!line.packed;
 
-      if (isMixLine || isRemoveLine) {
+      if (isMixLine || isRemoveLine || isAlreadyPacked) {
         fifoMap[line.dispatch_id] = { allocations: [], primary_expiry: null };
         continue;
       }
@@ -904,7 +946,12 @@ export default function PackingDetailPage() {
       const allocations: BatchAllocation[] = [];
 
       for (const batch of batches) {
-        if (remaining <= 0) break;
+        const originalStock = whIdToStock.get(batch.wh_inventory_id) ?? 0;
+        siblingCommittedByBatch.set(
+          `${line.dispatch_id}|||wh:${batch.wh_inventory_id}`,
+          Math.max(0, originalStock - batch.available),
+        );
+        if (remaining <= 0) continue;
         if (batch.available <= 0) continue;
         const take = Math.min(batch.available, remaining);
         allocations.push({
@@ -921,6 +968,7 @@ export default function PackingDetailPage() {
         primary_expiry: allocations[0]?.expiry_date ?? null,
       };
     }
+    setSiblingCommittedByBatch(siblingCommittedByBatch);
 
     // ── Step 5: Map lines ─────────────────────────────────────────────────────
     const mapped: PackLine[] = dispatchLines.map((line) => {
@@ -1275,8 +1323,40 @@ export default function PackingDetailPage() {
             continue;
           }
         }
-        // Unpacked or no matching batch — fall back to FIFO
-        fillBatches(line.dispatch_id, line.singleBatches, line.recommended_qty);
+        // Unpacked or no matching batch — fall back to FIFO.
+        // FIX 1 (ONE-SHOT FIX BATCH): use this line's own `allocations`
+        // directly rather than re-running fillBatches against the raw,
+        // un-decremented singleBatches — `allocations` already came out of
+        // the sibling-netted FIFO pass above (stable shelf_code order,
+        // already-packed siblings excluded), so it's the correct per-batch
+        // split for this exact line. Exception: a venue-sourced line's
+        // singleBatches is a synthetic "take at site" row (wh_inventory_id
+        // `venue-<dispatch_id>`) that never appears in batchPool/allocations
+        // by design (W5) — it must keep using the old direct fill.
+        const isVenueSynthetic =
+          line.singleBatches.length === 1 &&
+          line.singleBatches[0].wh_inventory_id === `venue-${line.dispatch_id}`;
+        if (isVenueSynthetic) {
+          fillBatches(
+            line.dispatch_id,
+            line.singleBatches,
+            line.recommended_qty,
+          );
+        } else {
+          if (!initBatchPickQtys[line.dispatch_id])
+            initBatchPickQtys[line.dispatch_id] = {};
+          const allocByWh = new Map<string, number>();
+          for (const a of line.allocations) {
+            allocByWh.set(
+              a.wh_inventory_id,
+              (allocByWh.get(a.wh_inventory_id) ?? 0) + a.qty,
+            );
+          }
+          for (const b of line.singleBatches) {
+            initBatchPickQtys[line.dispatch_id][b.wh_inventory_id] =
+              allocByWh.get(b.wh_inventory_id) ?? 0;
+          }
+        }
       }
     }
     // Fetch committed claims for other machines today. Commitment = unpacked AND
@@ -1397,9 +1477,18 @@ export default function PackingDetailPage() {
         const info = whBatchInfoMap.get(b.wh_inventory_id);
         if (!info) continue;
         const bk = `${info.boonz_product_id}|||${info.expiry ?? "null"}`;
+        // FIX 1 (ONE-SHOT FIX BATCH): also respect what an earlier unpacked
+        // sibling on this machine's screen already took from this exact
+        // batch — otherwise this top-up pass would silently re-add stock
+        // the sibling-netted allocation above correctly left out.
+        const siblingCommitted =
+          siblingCommittedByBatch.get(
+            `${dispatchId}|||wh:${b.wh_inventory_id}`,
+          ) ?? 0;
         const committed =
           (committedBatchMap.get(`wh:${b.wh_inventory_id}`) ?? 0) +
-          (committedBatchMap.get(bk) ?? 0);
+          (committedBatchMap.get(bk) ?? 0) +
+          siblingCommitted;
         const rawStock = whIdToStock.get(b.wh_inventory_id) ?? 0;
         const available = Math.max(0, rawStock - committed);
         const alreadyPicked = current[b.wh_inventory_id] ?? 0;
@@ -3124,6 +3213,7 @@ export default function PackingDetailPage() {
                             b.wh_inventory_id,
                             addLine.boonz_product_id,
                             b.expiry,
+                            addLine.dispatch_id,
                           );
                           return sum + Math.max(0, b.stock - bc);
                         }, 0)
@@ -3323,6 +3413,7 @@ export default function PackingDetailPage() {
                                                 b.wh_inventory_id,
                                                 v.boonzProductId,
                                                 b.expiry,
+                                                addLine.dispatch_id,
                                               );
                                             const batchAvailable = Math.max(
                                               0,
@@ -3480,6 +3571,7 @@ export default function PackingDetailPage() {
                                 b.wh_inventory_id,
                                 addLine.boonz_product_id,
                                 b.expiry,
+                                addLine.dispatch_id,
                               );
                               const batchAvailable = Math.max(
                                 0,
@@ -3950,6 +4042,7 @@ export default function PackingDetailPage() {
                             b.wh_inventory_id,
                             line.boonz_product_id,
                             b.expiry,
+                            line.dispatch_id,
                           );
                           return sum + Math.max(0, b.stock - bc);
                         }, 0)
@@ -4231,6 +4324,7 @@ export default function PackingDetailPage() {
                                               b.wh_inventory_id,
                                               v.boonzProductId,
                                               b.expiry,
+                                              line.dispatch_id,
                                             );
                                           const batchAvailable = Math.max(
                                             0,
@@ -4401,6 +4495,7 @@ export default function PackingDetailPage() {
                                                 b.wh_inventory_id,
                                                 v.boonzProductId,
                                                 b.expiry,
+                                                line.dispatch_id,
                                               ),
                                             0,
                                           );
@@ -4414,6 +4509,7 @@ export default function PackingDetailPage() {
                                                     b.wh_inventory_id,
                                                     v.boonzProductId,
                                                     b.expiry,
+                                                    line.dispatch_id,
                                                   ),
                                               ),
                                             0,
@@ -4568,6 +4664,7 @@ export default function PackingDetailPage() {
                                   b.wh_inventory_id,
                                   line.boonz_product_id,
                                   b.expiry,
+                                  line.dispatch_id,
                                 );
                                 const batchAvailable = Math.max(
                                   0,
