@@ -1,9 +1,20 @@
 -- ONE-SHOT FIX BATCH, FIX 2: Split by expiry on warehouse returns review.
--- Rollback: supabase/migrations/<this_timestamp>_fix2_wm_confirm_line_split_by_expiry_rollback.sql
+-- Rollback: supabase/migrations/20261005103522_fix2_wm_confirm_line_split_by_expiry_rollback.sql
 --
--- Classification: wm_confirm_line is SECURITY DEFINER, warehouse-confirmation function --
--- subject to the 22:00-06:00 Dubai window. Applying now (inside the window). Cody review
--- required (SECURITY DEFINER change).
+-- CS OVERRIDE 2026-10-05 14:34 Dubai: applied outside the 22:00-06:00 window. Reason: all of
+-- today's refills are completed and no field activity is in progress. See CHANGELOG.md.
+--
+-- Classification: wm_confirm_line is SECURITY DEFINER, warehouse-confirmation function. Cody
+-- review: Approve (Articles 1, 4, 6, 8, 12).
+--
+-- LIVE-APPLY CORRECTION: `CREATE OR REPLACE FUNCTION` with an added trailing parameter does
+-- NOT replace a function in Postgres when the resulting argument list differs from every
+-- existing overload -- it creates a SECOND, ambiguous overload alongside the original 9-arg
+-- signature (caught live by check_ambiguous_function_overloads() immediately after applying).
+-- This migration therefore explicitly DROPs the stale 9-arg signature first, so only the
+-- single 10-arg function (p_batch_breakdown DEFAULT NULL) exists afterward -- every existing
+-- 9-arg caller keeps working identically, now resolving to the one function instead of an
+-- ambiguous pair.
 --
 -- Problem: a return line takes exactly one qty + one expiry. Real returns mix batches (e.g.
 -- 2026-10-03 Sunbites Olive & Oregano from HUAWEI-2003-0000-B1 B15: 1 x 2027-01-16, 1 x
@@ -30,6 +41,8 @@
 -- single-row path already uses. The original line-closing step (refill_dispatching
 -- wh_approved_at/wh_approved_by for dispatch_return sources, or disposition_events
 -- superseded_by_event for other sources) runs exactly once after the loop, same as before.
+
+DROP FUNCTION IF EXISTS public.wm_confirm_line(uuid, numeric, date, text, uuid, text, text, uuid, boolean);
 
 CREATE OR REPLACE FUNCTION public.wm_confirm_line(
   p_line_id uuid,

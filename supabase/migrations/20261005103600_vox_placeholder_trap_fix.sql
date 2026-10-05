@@ -1,5 +1,5 @@
 -- VOX placeholder trap fix (reported 2026-10-05). Two bugs plus a new canonical RPC.
--- Rollback: supabase/migrations/<this_timestamp>_vox_placeholder_trap_fix_rollback.sql
+-- Rollback: supabase/migrations/20261005103600_vox_placeholder_trap_fix_rollback.sql
 --
 -- Classification: all three pieces touch warehouse_inventory / refill_dispatching writes --
 -- warehouse-confirmation adjacent. Apply only 22:00-06:00 Dubai, per the reporting user's

@@ -1,4 +1,4 @@
--- Rollback for DRAFT_vox_placeholder_trap_fix.sql: restore the original constraint vocabulary,
+-- Rollback for 20261005103600_vox_placeholder_trap_fix.sql: restore the original constraint vocabulary,
 -- the original enforce_warehouse_expiry_sanity body (no sentinel exemption), and drop
 -- ensure_vox_placeholder.
 

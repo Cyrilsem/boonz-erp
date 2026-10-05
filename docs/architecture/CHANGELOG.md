@@ -3594,3 +3594,65 @@ without one.
 
 Migrations: `20261003172747_fix3_weimi_slot_guard_per_machine.sql`,
 `20261003180518_fix4_g8_venue_team_warehouse.sql`, `20261003183304_fix5_g10_empty_lane_relabel.sql`.
+
+## 2026-10-05 - FIX 2, VOX placeholder trap fix, return-split-by-expiry -- CS WINDOW OVERRIDE
+
+**CS override, 14:34 Dubai:** applied outside the standing 22:00-06:00 Dubai migration window.
+Reason given: all of today's refills are completed and no field activity is in progress.
+Everything below shipped in one pass as a result.
+
+**FIX 2 (Articles 1, 4, 6, 8, 12, Cody approved).** `wm_confirm_line` extended with an optional
+`p_batch_breakdown jsonb` (array of `{qty, expiration_date}`), so a return line that's really
+several batches (e.g. 2026-10-03 Sunbites: 1 x 2027-01-16, 1 x 2027-02-06) no longer forces the
+warehouse manager to collapse it onto one wrong expiry. **Live-apply incident:** a plain
+`CREATE OR REPLACE FUNCTION` with an added parameter does not replace a function whose argument
+list it doesn't exactly match -- it silently creates a second, ambiguous overload. Caught
+immediately by `check_ambiguous_function_overloads()` right after the first apply (a 9-arg and a
+10-arg `wm_confirm_line` briefly coexisted in prod). Fixed within minutes by explicitly dropping
+the stale 9-arg signature; the committed migration file now includes that `DROP FUNCTION` so a
+fresh apply can't reintroduce the gap. No caller was affected in the interval -- the ambiguity was
+caught and closed before anything exercised it.
+
+**VOX placeholder trap fix (Articles 1, 4, 6, 8, 12, Cody approved).** Two bugs plus a new RPC,
+reported same day: (1) `refill_dispatching_bind_fail_reason_check` was missing
+`'no_venue_placeholder'`, which `pack_dispatch_line`'s existing VOX guard already tried to write,
+throwing 23514 instead of a friendly message. (2) `enforce_warehouse_expiry_sanity` blocked the
+2099-12-31 VOX sentinel expiry outright, which also silently broke anything trying to move
+sentinel stock (`transfer_warehouse_stock`'s destination insert hit the identical error) -- fixed
+with an early exemption for rows matching the existing `_is_sentinel_wh_row_v3` helper, every
+other row's window unchanged. New canonical `ensure_vox_placeholder` RPC (role-gated
+operator_admin/superadmin/warehouse) replaces the ad hoc "disable the trigger and hand-INSERT"
+process CS had been using. Used live to create 3 new WH_MOE sentinels (Aqua Panna, Red Bull
+Regular, Red Bull Diet) additively -- the matching 3 WH_MCC sentinels stay exactly as they were,
+still pinned to today's MOE lines and deliberately untouched -- and to fill 7 WH_MCC product gaps
+(Coca Cola Zero/Regular, VOX Popcorn x3, VOX Cotton Candy, Fade Fit Coconut) that turned out to
+each have a legacy quarantined phantom row rather than genuinely nothing. Those 9 legacy phantoms
+(2 Red Bull + the 7 just found, all `batch_id` NULL, created 2026-08-13) were then retired via
+`adjust_warehouse_stock` (stock to 0, status explicitly `'Inactive'`, each only after its
+`VOXSOURCE` replacement existed) -- retiring them also needed a `VOXSOURCE-`-prefixed batch_id in
+the same call, since a NULL batch_id never matched the sentinel exemption and
+`adjust_warehouse_stock`'s UPDATE always re-asserts `expiration_date`, re-triggering the sanity
+check. Verified live: 0 Active-row duplicates remain for any product+warehouse pair at
+2099-12-31.
+
+**Return-split-by-expiry (no Cody required -- no SECURITY DEFINER function touched).** Root
+cause, same day, HUAWEI-2003 B05: the driver app's Remove card has one qty input and one expiry
+input per line; 13 Coca Cola Zero found across 5 real expiries got logged as 11 units, one
+expiry, null. Investigation found the backend already had everything needed
+(`driver_confirm_remove`'s `p_batch_breakdown`, `receive_dispatch_line`'s Remove-branch breakdown
+loop) -- the gap was purely that the FE never gave the driver more than one row, and
+`v_wm_confirmations` never surfaced the column once populated. Fix: the Remove card's single
+inputs became a repeatable `{qty, expiry}[]` list (sum must equal actual qty, over-plan allowed
+and flagged, 2099-12-31 rejected client-side); `v_wm_confirmations` gained an additive
+`driver_breakdown` column (plain view); Warehouse Confirmations gained a "Split by expiry" toggle
+pre-filled from the driver's own split, wired to FIX 2's new param. Per-row outcome (mixed
+restock/waste in one confirm) was explicitly descoped by CS -- outcome stays one value per
+confirm, matching FIX 2's existing shape. Tested by replaying the corrected HUAWEI case (13 units,
+5 batches, all restock) in a rolled-back transaction: 4 new rows + 1 correctly merged into a real
+pre-existing PO batch, summing to 13. The real line (`ac853ae7`) was read-only touched throughout
+and, independently of this work, was approved by warehouse staff through the existing live UI at
+14:38 Dubai during this session -- not by anything in this change.
+
+Migrations: `20261005103522_fix2_wm_confirm_line_split_by_expiry.sql`,
+`20261005103600_vox_placeholder_trap_fix.sql`,
+`20261005104118_return_split_wm_confirmations_breakdown.sql`.

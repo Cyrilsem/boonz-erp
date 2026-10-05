@@ -1,4 +1,4 @@
--- Rollback for DRAFT_return_split_wm_confirmations_breakdown.sql: restore v_wm_confirmations
+-- Rollback for 20261005104118_return_split_wm_confirmations_breakdown.sql: restore v_wm_confirmations
 -- to its exact prior definition (no driver_breakdown column).
 
 CREATE OR REPLACE VIEW public.v_wm_confirmations AS

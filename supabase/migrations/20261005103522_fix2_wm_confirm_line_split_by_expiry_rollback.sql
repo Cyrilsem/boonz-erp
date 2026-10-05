@@ -1,5 +1,5 @@
--- Rollback for DRAFT_fix2_wm_confirm_line_split_by_expiry.sql: restore wm_confirm_line's exact
--- prior signature and body (no p_batch_breakdown parameter).
+-- Rollback for 20261005103522_fix2_wm_confirm_line_split_by_expiry.sql: restore
+-- wm_confirm_line's exact prior signature and body (no p_batch_breakdown parameter).
 --
 -- NOTE: dropping the DEFAULT-valued trailing parameter requires DROP + CREATE (a plain
 -- CREATE OR REPLACE cannot remove a parameter), so this rollback drops the 10-arg signature
