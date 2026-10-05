@@ -50,6 +50,16 @@ interface QueueLine {
   proposed_target_machine_name: string | null;
   proposed_waste_by: string | null;
   age_hours: number;
+  // Return-split-by-expiry feature: the driver's own {qty, expiry} split for this
+  // Remove line, if they entered more than the default single row. Null for every
+  // source other than dispatch_return, and often a single-row array (one batch, or
+  // a line the driver never split) even for dispatch_return.
+  driver_breakdown: { qty: number; expiry: string | null }[] | null;
+}
+
+interface ExpirySplitRow {
+  qty: number;
+  expiry: string;
 }
 
 interface VariantOption {
@@ -107,6 +117,85 @@ export default function WarehouseConfirmationsPanel() {
   const [splitEntries, setSplitEntries] = useState<
     Record<string, SplitEntry[]>
   >({});
+
+  // Return-split-by-expiry feature (FIX 2 + extension): a second, independent split
+  // toggle alongside "Split by variant" — same product, multiple batches/expiries,
+  // wired to wm_confirm_line's p_batch_breakdown rather than wm_confirm_line_split.
+  // Only one split mode can be open per line at a time (toggling one closes the other).
+  const [expirySplitMode, setExpirySplitMode] = useState<
+    Record<string, boolean>
+  >({});
+  const [expirySplitEntries, setExpirySplitEntries] = useState<
+    Record<string, ExpirySplitRow[]>
+  >({});
+
+  function getExpirySplitEntries(row: QueueLine): ExpirySplitRow[] {
+    if (expirySplitEntries[row.line_id]) {
+      return expirySplitEntries[row.line_id];
+    }
+    // Pre-fill from the driver's own split when they entered more than the
+    // default single row — this is the "Simran can correct rather than
+    // re-enter" requirement. A line the driver never split (or an
+    // ack-only/other-source line with no breakdown at all) falls back to one
+    // row seeded from the line's own qty/expiry, same default the plain
+    // single-expiry input already uses.
+    if (row.driver_breakdown && row.driver_breakdown.length > 0) {
+      return row.driver_breakdown.map((r) => ({
+        qty: r.qty,
+        expiry: r.expiry ?? "",
+      }));
+    }
+    return [
+      { qty: qtyEdit[row.line_id] ?? row.qty, expiry: row.expiry_date ?? "" },
+    ];
+  }
+
+  function toggleExpirySplitMode(row: QueueLine) {
+    const willOpen = !expirySplitMode[row.line_id];
+    if (willOpen) {
+      setExpirySplitEntries((prev) => ({
+        ...prev,
+        [row.line_id]: prev[row.line_id] ?? getExpirySplitEntries(row),
+      }));
+      // Mutually exclusive with "Split by variant".
+      setSplitMode((prev) => ({ ...prev, [row.line_id]: false }));
+    }
+    setExpirySplitMode((prev) => ({ ...prev, [row.line_id]: willOpen }));
+  }
+
+  function addExpirySplitRow(row: QueueLine) {
+    setExpirySplitEntries((prev) => ({
+      ...prev,
+      [row.line_id]: [
+        ...(prev[row.line_id] ?? getExpirySplitEntries(row)),
+        { qty: 0, expiry: "" },
+      ],
+    }));
+  }
+
+  function updateExpirySplitRow(
+    row: QueueLine,
+    idx: number,
+    patch: Partial<ExpirySplitRow>,
+  ) {
+    setExpirySplitEntries((prev) => {
+      const current = prev[row.line_id] ?? getExpirySplitEntries(row);
+      return {
+        ...prev,
+        [row.line_id]: current.map((r, i) =>
+          i === idx ? { ...r, ...patch } : r,
+        ),
+      };
+    });
+  }
+
+  function removeExpirySplitRow(row: QueueLine, idx: number) {
+    setExpirySplitEntries((prev) => {
+      const current = prev[row.line_id] ?? getExpirySplitEntries(row);
+      if (current.length <= 1) return prev;
+      return { ...prev, [row.line_id]: current.filter((_, i) => i !== idx) };
+    });
+  }
 
   const fetchRows = useCallback(async () => {
     const supabase = createClient();
@@ -201,11 +290,52 @@ export default function WarehouseConfirmationsPanel() {
       : (outcomeEdit[row.line_id] ?? "waste");
     const qty = qtyEdit[row.line_id] ?? row.qty;
     const expiry = expiryEdit[row.line_id] || null;
+    const isExpirySplit = !ackOnly && !!expirySplitMode[row.line_id];
+
+    let batchBreakdown: { qty: number; expiration_date: string }[] | null =
+      null;
+    if (isExpirySplit) {
+      const entries = getExpirySplitEntries(row).filter((e) => e.qty > 0);
+      if (entries.length === 0) {
+        setActing(null);
+        setRowErrors((prev) => ({
+          ...prev,
+          [row.line_id]:
+            "Add at least one batch with qty > 0, or close split mode.",
+        }));
+        return;
+      }
+      const sum = entries.reduce((s, e) => s + e.qty, 0);
+      if (sum !== qty) {
+        setActing(null);
+        setRowErrors((prev) => ({
+          ...prev,
+          [row.line_id]: `Expiry split sums to ${sum}, but qty is ${qty}. Adjust so they total ${qty}.`,
+        }));
+        return;
+      }
+      const badRow = entries.find(
+        (e) => !e.expiry || e.expiry === "2099-12-31",
+      );
+      if (badRow) {
+        setActing(null);
+        setRowErrors((prev) => ({
+          ...prev,
+          [row.line_id]:
+            "Every batch row needs a real expiry date (not 2099-12-31).",
+        }));
+        return;
+      }
+      batchBreakdown = entries.map((e) => ({
+        qty: e.qty,
+        expiration_date: e.expiry,
+      }));
+    }
 
     if (
       !ackOnly &&
       outcome === "redeploy_pending" &&
-      (!targetEdit[row.line_id] || !expiry)
+      (!targetEdit[row.line_id] || (!isExpirySplit && !expiry))
     ) {
       setActing(null);
       setRowErrors((prev) => ({
@@ -230,7 +360,7 @@ export default function WarehouseConfirmationsPanel() {
     const { error: rpcErr } = await supabase.rpc("wm_confirm_line", {
       p_line_id: row.line_id,
       p_qty: qty,
-      p_expiry: expiry,
+      p_expiry: isExpirySplit ? null : expiry,
       p_outcome: outcome,
       p_target_machine_id:
         !ackOnly && outcome === "redeploy_pending"
@@ -241,6 +371,7 @@ export default function WarehouseConfirmationsPanel() {
       p_reason: `WM confirmed via Warehouse Confirmations queue (${row.source})`,
       p_caller: user?.id ?? null,
       p_dry_run: false,
+      p_batch_breakdown: batchBreakdown,
     });
 
     if (rpcErr) {
@@ -249,6 +380,16 @@ export default function WarehouseConfirmationsPanel() {
       return;
     }
     setActing(null);
+    setExpirySplitMode((prev) => {
+      const next = { ...prev };
+      delete next[row.line_id];
+      return next;
+    });
+    setExpirySplitEntries((prev) => {
+      const next = { ...prev };
+      delete next[row.line_id];
+      return next;
+    });
     await fetchRows();
   }
 
@@ -314,7 +455,11 @@ export default function WarehouseConfirmationsPanel() {
 
   function toggleSplitMode(row: QueueLine) {
     const willOpen = !splitMode[row.line_id];
-    if (willOpen) void loadVariantsForRow(row);
+    if (willOpen) {
+      void loadVariantsForRow(row);
+      // Mutually exclusive with "Split by expiry".
+      setExpirySplitMode((prev) => ({ ...prev, [row.line_id]: false }));
+    }
     setSplitMode((prev) => ({ ...prev, [row.line_id]: willOpen }));
   }
 
@@ -442,6 +587,15 @@ export default function WarehouseConfirmationsPanel() {
           const splitSum = splits.reduce((s, e) => s + (e.qty || 0), 0);
           const splitTarget = qtyEdit[row.line_id] ?? row.qty;
           const vOpts = variantOptions[row.line_id] ?? [];
+          const isExpirySplit =
+            !isAckOnly(row) && !!expirySplitMode[row.line_id];
+          const expiryRows = isExpirySplit ? getExpirySplitEntries(row) : [];
+          const expirySplitSum = expiryRows.reduce(
+            (s, e) => s + (e.qty || 0),
+            0,
+          );
+          const expirySplitTarget = qtyEdit[row.line_id] ?? row.qty;
+          const today = new Date().toISOString().slice(0, 10);
 
           return (
             <li
@@ -499,7 +653,7 @@ export default function WarehouseConfirmationsPanel() {
                     className="w-16 rounded border border-neutral-300 px-2 py-1 text-center dark:border-neutral-600 dark:bg-neutral-900"
                   />
                 </label>
-                {!isSplit && (
+                {!isSplit && !isExpirySplit && (
                   <label className="flex items-center gap-2 text-neutral-500">
                     Batch expiry:
                     <input
@@ -517,6 +671,98 @@ export default function WarehouseConfirmationsPanel() {
                   </label>
                 )}
               </div>
+
+              {!isAckOnly(row) && (
+                <div className="mb-3">
+                  <button
+                    type="button"
+                    disabled={isBusy}
+                    onClick={() => toggleExpirySplitMode(row)}
+                    className="text-xs font-medium text-amber-700 underline hover:text-amber-900 dark:text-amber-300"
+                  >
+                    {isExpirySplit
+                      ? "← Cancel expiry split, confirm as one batch"
+                      : row.driver_breakdown && row.driver_breakdown.length > 1
+                        ? "↳ Driver found this across multiple batches — review the split"
+                        : "↳ Split by expiry (this return covers multiple batches)"}
+                  </button>
+                  {isExpirySplit && (
+                    <div className="mt-2 rounded border border-amber-200 bg-amber-50/50 p-2 dark:border-amber-900 dark:bg-amber-950/30">
+                      <p className="mb-2 text-[11px] text-amber-800 dark:text-amber-300">
+                        Enter qty + expiry per batch. Total must equal{" "}
+                        <strong>{expirySplitTarget}</strong>.
+                      </p>
+                      <ul className="space-y-2">
+                        {expiryRows.map((entry, idx) => {
+                          const expired =
+                            !!entry.expiry && entry.expiry <= today;
+                          return (
+                            <li
+                              key={idx}
+                              className="flex flex-wrap items-center gap-2 text-xs"
+                            >
+                              <input
+                                type="number"
+                                min={0}
+                                value={entry.qty}
+                                onChange={(e) =>
+                                  updateExpirySplitRow(row, idx, {
+                                    qty: parseFloat(e.target.value) || 0,
+                                  })
+                                }
+                                className="w-14 rounded border border-neutral-300 px-2 py-1 text-center dark:border-neutral-600 dark:bg-neutral-900"
+                              />
+                              <input
+                                type="date"
+                                value={entry.expiry}
+                                onChange={(e) =>
+                                  updateExpirySplitRow(row, idx, {
+                                    expiry: e.target.value,
+                                  })
+                                }
+                                className="rounded border border-neutral-300 px-2 py-1 dark:border-neutral-600 dark:bg-neutral-900"
+                              />
+                              {expired && (
+                                <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-rose-700 dark:bg-rose-950/40 dark:text-rose-400">
+                                  ⚠ expired — consider waste
+                                </span>
+                              )}
+                              {expiryRows.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeExpirySplitRow(row, idx)}
+                                  aria-label="Remove this batch row"
+                                  className="rounded border border-neutral-300 px-2 py-1 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <button
+                          type="button"
+                          onClick={() => addExpirySplitRow(row)}
+                          className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                        >
+                          + Add batch
+                        </button>
+                        <span
+                          className={
+                            expirySplitSum === expirySplitTarget
+                              ? "font-semibold text-green-700 dark:text-green-400"
+                              : "font-semibold text-rose-700 dark:text-rose-400"
+                          }
+                        >
+                          Sum: {expirySplitSum} / {expirySplitTarget}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {row.pod_product_id && !isAckOnly(row) && (
                 <div className="mb-3">
@@ -737,14 +983,20 @@ export default function WarehouseConfirmationsPanel() {
 
               <button
                 onClick={() => (isSplit ? confirmSplit(row) : confirm(row))}
-                disabled={isBusy || (isSplit && splitSum !== splitTarget)}
+                disabled={
+                  isBusy ||
+                  (isSplit && splitSum !== splitTarget) ||
+                  (isExpirySplit && expirySplitSum !== expirySplitTarget)
+                }
                 className="w-full rounded-lg bg-green-600 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
               >
                 {isBusy
                   ? "Confirming…"
                   : isSplit
                     ? `✓ Confirm ${splitSum} units across ${splits.filter((e) => e.qty > 0).length} variants`
-                    : "✓ Confirm"}
+                    : isExpirySplit
+                      ? `✓ Confirm ${expirySplitSum} units across ${expiryRows.filter((e) => e.qty > 0).length} batches`
+                      : "✓ Confirm"}
               </button>
             </li>
           );
