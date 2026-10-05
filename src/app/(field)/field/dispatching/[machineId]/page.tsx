@@ -153,11 +153,78 @@ export default function DispatchingDetailPage() {
   } | null>(null);
   const [addingToShelf, setAddingToShelf] = useState<string | null>(null);
 
-  // A7: driver-entered expiry read off the pack for a Remove line, keyed by dispatch_id.
-  // Prefilled from the line's bound expiry_date but always editable and always sent —
-  // driver_confirm_remove requires a per-variant qty+expiry breakdown once the bound
-  // expiry is missing or within 7 days, so this can never be left out of the RPC call.
-  const [removeExpiry, setRemoveExpiry] = useState<Record<string, string>>({});
+  // Return-split-by-expiry feature: a Remove line's actual find can span several
+  // expiries (e.g. 13 units across 5 different batches) — this replaces the old
+  // single removeExpiry[dispatchId] string with a repeatable {qty, expiry}[] per
+  // line, keyed by dispatch_id. Undefined until the driver touches a line's
+  // breakdown; getRemoveBreakdown() below lazily defaults it to one row (the
+  // line's current filled_qty + its bound expiry_date), same default the old
+  // single-expiry input used, so an untouched line behaves exactly as before.
+  const [removeBreakdown, setRemoveBreakdown] = useState<
+    Record<string, { qty: number; expiry: string }[]>
+  >({});
+
+  function getRemoveBreakdown(
+    line: DispatchLine,
+  ): { qty: number; expiry: string }[] {
+    return (
+      removeBreakdown[line.dispatch_id] ?? [
+        { qty: line.filled_qty, expiry: line.expiry_date ?? "" },
+      ]
+    );
+  }
+
+  function addRemoveBreakdownRow(line: DispatchLine) {
+    setRemoveBreakdown((prev) => ({
+      ...prev,
+      [line.dispatch_id]: [
+        ...(prev[line.dispatch_id] ?? getRemoveBreakdown(line)),
+        { qty: 0, expiry: "" },
+      ],
+    }));
+  }
+
+  function updateRemoveBreakdownRow(
+    line: DispatchLine,
+    index: number,
+    patch: Partial<{ qty: number; expiry: string }>,
+  ) {
+    setRemoveBreakdown((prev) => {
+      const current = prev[line.dispatch_id] ?? getRemoveBreakdown(line);
+      return {
+        ...prev,
+        [line.dispatch_id]: current.map((row, i) =>
+          i === index ? { ...row, ...patch } : row,
+        ),
+      };
+    });
+  }
+
+  function removeRemoveBreakdownRow(line: DispatchLine, index: number) {
+    setRemoveBreakdown((prev) => {
+      const current = prev[line.dispatch_id] ?? getRemoveBreakdown(line);
+      if (current.length <= 1) return prev;
+      return {
+        ...prev,
+        [line.dispatch_id]: current.filter((_, i) => i !== index),
+      };
+    });
+  }
+
+  // Reactive gate for Save, same pattern as missingReturnReason: a Remove line
+  // marked "added" (removed from machine) must have its breakdown rows sum to
+  // exactly filled_qty, every row needs a non-empty expiry, and the 2099-12-31
+  // sentinel is never accepted here (that date means "no real expiry", not a
+  // genuine returned batch).
+  const removeBreakdownIssues = lines.filter((l) => {
+    if (l.dispatch_action !== "Remove" || l.action !== "added") return false;
+    if (l.is_internal_move) return false;
+    const rows = getRemoveBreakdown(l);
+    const total = rows.reduce((sum, r) => sum + (r.qty || 0), 0);
+    if (total !== l.filled_qty) return true;
+    if (rows.some((r) => !r.expiry || r.expiry === "2099-12-31")) return true;
+    return false;
+  });
 
   // BUG-010 #3: Driver can add extra Remove rows when planned line collapses
   // multi-variant returns (e.g. YoPro Vanilla 6u plan but actual is 2 Van + 2 Choco + 2 Straw).
@@ -662,6 +729,13 @@ export default function DispatchingDetailPage() {
       return;
     }
 
+    if (removeBreakdownIssues.length > 0) {
+      setReturnNotice(
+        `Fix the expiry split on ${removeBreakdownIssues[0].shelf_code ?? "?"}${removeBreakdownIssues.length > 1 ? ` (+${removeBreakdownIssues.length - 1} more)` : ""} — rows must sum to the filled quantity and every row needs a real expiry.`,
+      );
+      return;
+    }
+
     setSaving(true);
     const supabase = createClient();
     let totalReturnDelta = 0;
@@ -673,13 +747,12 @@ export default function DispatchingDetailPage() {
         // which stamps driver_confirmed_qty WITHOUT yet crediting warehouse_stock
         // or archiving pod_inventory. WH manager approves later in Inventory tab.
         const isRemove = line.dispatch_action === "Remove";
-        // A7: always send a per-variant qty+expiry breakdown for Remove lines — the RPC
-        // requires one whenever the line's bound expiry is missing or within 7 days, and
-        // sending it unconditionally (rather than only when the guard would otherwise fire)
-        // means the driver's actual read-off-the-pack expiry is recorded every time, not
-        // just when the RPC would otherwise 400.
-        const removeExpiryValue =
-          removeExpiry[line.dispatch_id]?.trim() || null;
+        // A7 / return-split-by-expiry: always send a per-batch qty+expiry breakdown for
+        // Remove lines — the RPC requires one whenever the line's bound expiry is missing
+        // or within 7 days, and sending it unconditionally (rather than only when the guard
+        // would otherwise fire) means the driver's actual read-off-the-pack expiries are
+        // recorded every time. A line the driver never touched still sends exactly the one
+        // default row (filled_qty + bound expiry) it always sent before this feature.
         const rpcName = isRemove
           ? "driver_confirm_remove"
           : "receive_dispatch_line";
@@ -687,9 +760,10 @@ export default function DispatchingDetailPage() {
           ? {
               p_dispatch_id: line.dispatch_id,
               p_qty_removed: line.filled_qty,
-              p_batch_breakdown: [
-                { qty: line.filled_qty, expiry: removeExpiryValue },
-              ],
+              p_batch_breakdown: getRemoveBreakdown(line).map((r) => ({
+                qty: r.qty,
+                expiry: r.expiry?.trim() || null,
+              })),
               p_driver_id: null,
               p_notes: line.comment.trim() || null,
             }
@@ -1385,34 +1459,95 @@ export default function DispatchingDetailPage() {
                       />
                     </div>
 
-                    {/* A7: Remove lines always collect the expiry actually read off the pack,
-                        prefilled from the bound lot but editable — driver_confirm_remove needs
-                        this whenever the bound expiry is missing or within 7 days, and we now
-                        send it every time rather than only when the RPC would otherwise 400. */}
+                    {/* Return-split-by-expiry: a Remove line's actual find can span several
+                        expiries — one row per batch, prefilled with the planned qty + bound
+                        lot, all editable. driver_confirm_remove needs at least one expiry
+                        whenever the bound expiry is missing or within 7 days; we send the
+                        full split every time. Sum must equal Filled before Save is enabled
+                        (see removeBreakdownIssues). */}
                     {line.dispatch_action === "Remove" &&
-                      !line.is_internal_move && (
-                        <div className="mb-2 flex items-center gap-2">
-                          <label className="text-xs text-neutral-500">
-                            Expiry on pack:
-                          </label>
-                          <input
-                            type="date"
-                            value={
-                              removeExpiry[line.dispatch_id] ??
-                              line.expiry_date ??
-                              ""
-                            }
-                            onChange={(e) =>
-                              setRemoveExpiry((prev) => ({
-                                ...prev,
-                                [line.dispatch_id]: e.target.value,
-                              }))
-                            }
-                            disabled={isReadOnly}
-                            className="rounded border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
-                          />
-                        </div>
-                      )}
+                      !line.is_internal_move &&
+                      (() => {
+                        const rows = getRemoveBreakdown(line);
+                        const total = rows.reduce(
+                          (s, r) => s + (r.qty || 0),
+                          0,
+                        );
+                        const mismatched = total !== line.filled_qty;
+                        const overPlan = line.filled_qty > line.quantity;
+                        return (
+                          <div className="mb-2 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs text-neutral-500">
+                                Expiry split:
+                              </label>
+                              {overPlan && (
+                                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                                  +{line.filled_qty - line.quantity} over plan
+                                </span>
+                              )}
+                            </div>
+                            {rows.map((row, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={row.qty}
+                                  onChange={(e) =>
+                                    updateRemoveBreakdownRow(line, i, {
+                                      qty: parseFloat(e.target.value) || 0,
+                                    })
+                                  }
+                                  disabled={isReadOnly}
+                                  className="w-16 rounded border border-neutral-300 px-2 py-1 text-center text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                                />
+                                <input
+                                  type="date"
+                                  value={row.expiry}
+                                  onChange={(e) =>
+                                    updateRemoveBreakdownRow(line, i, {
+                                      expiry: e.target.value,
+                                    })
+                                  }
+                                  disabled={isReadOnly}
+                                  className="flex-1 rounded border border-neutral-300 px-2 py-1 text-sm disabled:opacity-50 dark:border-neutral-600 dark:bg-neutral-900"
+                                />
+                                {rows.length > 1 && !isReadOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeRemoveBreakdownRow(line, i)
+                                    }
+                                    aria-label="Remove this batch row"
+                                    className="rounded border border-neutral-300 px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-50 dark:border-neutral-600 dark:hover:bg-neutral-800"
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            {!isReadOnly && (
+                              <button
+                                type="button"
+                                onClick={() => addRemoveBreakdownRow(line)}
+                                className="text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                              >
+                                + Add expiry
+                              </button>
+                            )}
+                            <div
+                              className={`text-xs font-medium ${
+                                mismatched
+                                  ? "text-rose-600 dark:text-rose-400"
+                                  : "text-neutral-500"
+                              }`}
+                            >
+                              Total: {total} / {line.filled_qty}
+                              {mismatched && " — must match Filled"}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                     {/* Action badge — show planned action type so driver knows what's expected */}
                     <div className="mb-2 flex items-center gap-2 text-xs">
@@ -1756,17 +1891,20 @@ export default function DispatchingDetailPage() {
               disabled={
                 addedCount + returnedCount === 0 ||
                 saving ||
-                missingReturnReason.length > 0
+                missingReturnReason.length > 0 ||
+                removeBreakdownIssues.length > 0
               }
               className="w-full rounded-lg bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               {missingReturnReason.length > 0
                 ? `Pick a reason on ${missingReturnReason[0].shelf_code ?? "?"}`
-                : saving
-                  ? "Saving…"
-                  : allActioned
-                    ? `Save dispatch (${addedCount} added, ${returnedCount} returned)`
-                    : `Save ${addedCount + returnedCount} actioned line${addedCount + returnedCount === 1 ? "" : "s"} (${lines.filter((l) => l.action === null).length} untouched left for EOD release)`}
+                : removeBreakdownIssues.length > 0
+                  ? `Fix the expiry split on ${removeBreakdownIssues[0].shelf_code ?? "?"}`
+                  : saving
+                    ? "Saving…"
+                    : allActioned
+                      ? `Save dispatch (${addedCount} added, ${returnedCount} returned)`
+                      : `Save ${addedCount + returnedCount} actioned line${addedCount + returnedCount === 1 ? "" : "s"} (${lines.filter((l) => l.action === null).length} untouched left for EOD release)`}
             </button>
           </div>
         )}
