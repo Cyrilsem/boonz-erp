@@ -3608,10 +3608,10 @@ warehouse manager to collapse it onto one wrong expiry. **Live-apply incident:**
 `CREATE OR REPLACE FUNCTION` with an added parameter does not replace a function whose argument
 list it doesn't exactly match -- it silently creates a second, ambiguous overload. Caught
 immediately by `check_ambiguous_function_overloads()` right after the first apply (a 9-arg and a
-10-arg `wm_confirm_line` briefly coexisted in prod). Fixed within minutes by explicitly dropping
-the stale 9-arg signature; the committed migration file now includes that `DROP FUNCTION` so a
-fresh apply can't reintroduce the gap. No caller was affected in the interval -- the ambiguity was
-caught and closed before anything exercised it.
+10-arg `wm_confirm_line` briefly coexisted in prod). CS ran the `DROP FUNCTION` on the stale
+9-arg signature directly in the SQL editor; the committed migration file now includes that same
+`DROP FUNCTION` so a fresh apply can't reintroduce the gap. No caller was affected in the
+interval -- the ambiguity was caught and closed before anything exercised it.
 
 **VOX placeholder trap fix (Articles 1, 4, 6, 8, 12, Cody approved).** Two bugs plus a new RPC,
 reported same day: (1) `refill_dispatching_bind_fail_reason_check` was missing
@@ -3649,9 +3649,10 @@ pre-filled from the driver's own split, wired to FIX 2's new param. Per-row outc
 restock/waste in one confirm) was explicitly descoped by CS -- outcome stays one value per
 confirm, matching FIX 2's existing shape. Tested by replaying the corrected HUAWEI case (13 units,
 5 batches, all restock) in a rolled-back transaction: 4 new rows + 1 correctly merged into a real
-pre-existing PO batch, summing to 13. The real line (`ac853ae7`) was read-only touched throughout
-and, independently of this work, was approved by warehouse staff through the existing live UI at
-14:38 Dubai during this session -- not by anything in this change.
+pre-existing PO batch, summing to 13. The real line (`ac853ae7`) was read-only touched by this
+work; it was separately confirmed by Claude (Cowork) at 10:38 UTC, under CS's own user id, via
+`wm_confirm_line` with a 5-way split -- not by anything in this change, and not by warehouse
+staff as an earlier draft of this entry incorrectly stated.
 
 Migrations: `20261005103522_fix2_wm_confirm_line_split_by_expiry.sql`,
 `20261005103600_vox_placeholder_trap_fix.sql`,
