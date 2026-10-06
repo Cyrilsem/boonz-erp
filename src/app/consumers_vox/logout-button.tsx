@@ -1,6 +1,5 @@
 "use client";
 
-
 export default function LogoutButton() {
   function handleSignOut() {
     // /logout clears the Supabase session AND the signed boonz_role cookie.

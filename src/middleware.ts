@@ -23,9 +23,11 @@ const FIELD_WAREHOUSE_ROLES = ["warehouse", ...FIELD_ADMIN_ROLES];
 const FIELD_ALL_ROLES = ["field_staff", ...FIELD_WAREHOUSE_ROLES];
 
 const FIELD_ROUTE_RULES: { prefix: string; roles: readonly string[] }[] = [
-  // Admins-only (checked first: most specific prefixes under /field/config)
-  { prefix: "/field/config/sims", roles: FIELD_ADMIN_ROLES },
-  { prefix: "/field/config/suppliers", roles: FIELD_ADMIN_ROLES },
+  // Admins-only (checked first: most specific prefixes under /field/config).
+  // Mirrors the page-level role lists: product-naming is the only config page
+  // that excludes warehouse. sims + suppliers allow warehouse on the page and
+  // were wrongly admins-only here (warehouse tapping SIM Cards bounced home).
+  { prefix: "/field/config/product-naming", roles: FIELD_ADMIN_ROLES },
   // warehouse + admins
   { prefix: "/field/packing", roles: FIELD_WAREHOUSE_ROLES },
   { prefix: "/field/shelf-view", roles: FIELD_WAREHOUSE_ROLES },

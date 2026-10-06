@@ -287,7 +287,9 @@ export default function SidebarNav({
           style={{ color: "rgba(255,255,255,0.7)" }}
         >
           <span className="w-5 text-center shrink-0">⏻</span>
-          <span className={collapsed ? "hidden max-md:hidden" : "max-md:hidden"}>
+          <span
+            className={collapsed ? "hidden max-md:hidden" : "max-md:hidden"}
+          >
             Sign out
           </span>
         </Link>
