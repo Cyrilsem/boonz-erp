@@ -91,6 +91,9 @@ function formatDMY(iso: string | null): string {
 
 export default function WarehouseConfirmationsPanel() {
   const [rows, setRows] = useState<QueueLine[]>([]);
+  // PRD-139b Item 10: paginate 20 at a time so the batch list below the queue
+  // stays reachable.
+  const [visibleCount, setVisibleCount] = useState(20);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -578,8 +581,10 @@ export default function WarehouseConfirmationsPanel() {
       )}
 
       <ul className="space-y-2">
-        {rows.map((row) => {
+        {rows.slice(0, visibleCount).map((row) => {
+          // PRD-139b Item 10: amber over 48h, red over 7 days (168h).
           const isOld = row.age_hours > 48;
+          const isVeryOld = row.age_hours > 168;
           const outcome = outcomeEdit[row.line_id] ?? "waste";
           const isBusy = acting === row.line_id;
           const isSplit = !!splitMode[row.line_id];
@@ -601,9 +606,11 @@ export default function WarehouseConfirmationsPanel() {
             <li
               key={row.line_id}
               className={`rounded-lg border p-3 dark:bg-neutral-950 ${
-                isOld
+                isVeryOld
                   ? "border-red-300 bg-red-50 dark:border-red-900"
-                  : "border-amber-200 bg-white dark:border-amber-900"
+                  : isOld
+                    ? "border-amber-300 bg-amber-50 dark:border-amber-900"
+                    : "border-neutral-200 bg-white dark:border-neutral-800"
               }`}
             >
               <div className="mb-2 flex items-start justify-between gap-2">
@@ -624,9 +631,17 @@ export default function WarehouseConfirmationsPanel() {
                   </p>
                 </div>
                 <span
-                  className={`shrink-0 text-xs ${isOld ? "font-semibold text-red-600 dark:text-red-400" : "text-neutral-400"}`}
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    isVeryOld
+                      ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300"
+                      : isOld
+                        ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                        : "text-neutral-400"
+                  }`}
                 >
-                  {Math.round(row.age_hours)}h ago
+                  {row.age_hours > 48
+                    ? `${Math.round(row.age_hours / 24)}d ago`
+                    : `${Math.round(row.age_hours)}h ago`}
                 </span>
               </div>
 
@@ -1002,6 +1017,14 @@ export default function WarehouseConfirmationsPanel() {
           );
         })}
       </ul>
+      {rows.length > visibleCount && (
+        <button
+          onClick={() => setVisibleCount((n) => n + 20)}
+          className="mt-3 w-full rounded-lg border border-neutral-200 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-900"
+        >
+          Show more ({rows.length - visibleCount} remaining)
+        </button>
+      )}
     </div>
   );
 }

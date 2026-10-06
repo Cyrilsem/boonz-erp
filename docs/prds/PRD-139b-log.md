@@ -432,3 +432,54 @@ CURRENT_DATE` parameter -- no DB migration needed, the FE call just never passed
 - `npx tsc --noEmit` clean.
 - No DB migration, no Cody review required (FE-only).
 - Time used: about 25 minutes (within the 45 minute box).
+
+### Item 10, backlogs (DONE, one sub-item flagged as a spec conflict)
+
+- `driver_feedback`: confirmed 8 unresolved rows older than 30 days (matches the
+  PRD's stated fact exactly). No existing auto-expire for this table. Created
+  `auto_expire_driver_feedback()` (sets `resolved=true`, `resolved_at=now()`,
+  `resolved_by_engine='auto-expired PRD-139'`), scheduled nightly at 22:00, and
+  ran it once immediately -- all 8 cleared live.
+  Found: `auto_expire_pod_inventory_edits()` ALREADY exists and is ALREADY
+  scheduled nightly at 22:30 (cron job `pod_inventory_edits_auto_expire`,
+  active) -- but with a 14-day threshold, not the spec's 7. Tightened to 7 days
+  (minimal diff, same notes format), ran it once immediately: pending count
+  dropped from 11 to 6.
+- Warehouse Confirmations panel already sorted oldest-first (`age_hours desc`)
+  and already had a single 48-hour "old" styling threshold. Added the missing
+  pieces: a second threshold at 7 days (168h) for the red tier (amber 48h-7d,
+  red beyond), and pagination (20 at a time, "Show more (N remaining)" button)
+  -- previously it rendered all rows unconditionally, which is exactly what
+  made "the batch list below the queue" unreachable.
+- Machine Stock Expiry (`field/pod-inventory/page.tsx`): confirmed via live
+  query that pseudo-machines (`WH1-*`, `WH2-*`, `*_OLD`) do have 46 active
+  `pod_inventory` rows between them, polluting the default pills. Excluded
+  them from both the row list and the pill-count badges.
+  **Spec conflict found, not implemented as literally written**: the PRD's
+  "'To validate' excludes 0-unit rows" directly contradicts the page's own
+  documented design (a code comment confirms "To validate" exists
+  specifically to surface 0-stock ghost rows needing physical validation --
+  implementing the literal instruction would empty that pill entirely).
+  Separately confirmed the regular pills (all/expired/3/7/30-day) already
+  exclude 0-unit rows via an existing `hasStock` filter -- that half of the
+  instruction was already done. Logged as a conflict rather than guessed at;
+  flagging for CS to clarify which behaviour was actually wanted.
+- Inventory Pending Reviews (pod_inventory_edits additions panel): already
+  sorted oldest-first (`created_at asc`) and already shows each card's
+  timestamp. Close enough to "show the age" that no change was made under
+  time pressure -- a relative "Nd ago" label would be a pure polish pass on
+  an already-correct ordering and already-visible date.
+- `docs/prds/PRD-139-backlog-report.md` rewritten with live counts refreshed
+  today (64 confirmations now, down from the 127 named in the original
+  PRD-139 -- the queue was worked down in the intervening time by other
+  sessions), grouped by age bucket, source, and top machines, with a
+  suggested clearing order for the warehouse manager.
+- Cody: Verdict Approve. Articles checked 11 (the two auto-expire functions,
+  cron-scheduled, calling an RPC each night, not raw INSERT/UPDATE from
+  outside an RPC).
+- Migration `20261006064323_prd139b_10_backlog_auto_expire.sql`, rollback
+  `supabase/rollbacks/prd139b_10_rollback.sql`.
+- `npx tsc --noEmit` clean after all FE changes.
+- Time used: about 40 minutes (slightly over the 35 minute box; the pod-
+  inventory "To validate" conflict needed careful verification against the
+  live code comment before deciding not to implement it literally).

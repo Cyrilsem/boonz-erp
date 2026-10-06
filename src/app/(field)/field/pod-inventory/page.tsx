@@ -512,7 +512,16 @@ function PodInventoryPageInner() {
 
   // Step 1: apply search + expiry filter
   const filtered = useMemo(() => {
-    let result = rows;
+    // PRD-139b Item 10: pseudo-machines (warehouse staging rows, not real field
+    // machines) don't belong on this page's default lists.
+    let result = rows.filter((r) => {
+      const name = r.machines?.official_name ?? "";
+      return (
+        !name.startsWith("WH1-") &&
+        !name.startsWith("WH2-") &&
+        !name.endsWith("_OLD")
+      );
+    });
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -585,7 +594,17 @@ function PodInventoryPageInner() {
   // Filter counts (computed from all rows, ignoring current filter).
   // Stock-bearing rows feed the expiry pills; ghost rows (stock<=0) feed `to_validate`.
   const filterCounts = useMemo(() => {
-    const real = rows.filter((r) => r.current_stock > 0);
+    // PRD-139b Item 10: same pseudo-machine exclusion as `filtered`, so pill
+    // counts match what the list actually shows.
+    const nonPseudo = rows.filter((r) => {
+      const name = r.machines?.official_name ?? "";
+      return (
+        !name.startsWith("WH1-") &&
+        !name.startsWith("WH2-") &&
+        !name.endsWith("_OLD")
+      );
+    });
+    const real = nonPseudo.filter((r) => r.current_stock > 0);
     return {
       all: real.length,
       expired: real.filter((r) => {
@@ -604,7 +623,7 @@ function PodInventoryPageInner() {
         const d = daysUntilExpiry(r.expiration_date);
         return d !== null && d <= 30;
       }).length,
-      to_validate: rows.filter((r) => {
+      to_validate: nonPseudo.filter((r) => {
         const d = daysUntilExpiry(r.expiration_date);
         return r.current_stock <= 0 && d !== null && d <= 0;
       }).length,
