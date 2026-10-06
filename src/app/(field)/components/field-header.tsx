@@ -13,6 +13,12 @@ interface FieldHeaderProps {
    * pathname-derived default stays the rule.
    */
   backHref?: string;
+  /**
+   * PRD-139c Item 4: called before the Back link navigates. Return false to
+   * cancel the navigation (e.g. the pack screen confirming an unsaved-changes
+   * prompt). Omit everywhere a page has nothing to guard.
+   */
+  onBackAttempt?: () => boolean;
 }
 
 function getBackPath(pathname: string): string | null {
@@ -51,6 +57,7 @@ export function FieldHeader({
   title,
   rightAction,
   backHref,
+  onBackAttempt,
 }: FieldHeaderProps) {
   const pathname = usePathname();
   const computed = getBackPath(pathname);
@@ -63,6 +70,11 @@ export function FieldHeader({
         {backPath && (
           <Link
             href={backPath}
+            onClick={(e) => {
+              if (onBackAttempt && !onBackAttempt()) {
+                e.preventDefault();
+              }
+            }}
             className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
           >
             ← Back

@@ -1576,7 +1576,7 @@ export default function PackingDetailPage() {
   // immediate-write-per-tap (matching how Not filled and Skip already write) was
   // too large a change for this item's time box, so this is the PRD's own
   // documented fallback: warn before an unsaved pack is lost to a reload or
-  // closed tab. (In-app Back-button guard deferred, logged in PRD-139b-log.md.)
+  // closed tab.
   useEffect(() => {
     const unsavedCount = lines.filter((l) => l.action !== null).length;
     if (saved || unsavedCount === 0) return;
@@ -1587,6 +1587,17 @@ export default function PackingDetailPage() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [lines, saved]);
+
+  // PRD-139c Item 4: the beforeunload warning above only catches a reload or
+  // closed tab, not the in-app Back link (a Next.js client-side navigation
+  // never fires beforeunload). Guard that path the same way.
+  function handleBackAttempt(): boolean {
+    const unsavedCount = lines.filter((l) => l.action !== null).length;
+    if (saved || unsavedCount === 0) return true;
+    return window.confirm(
+      `You have ${unsavedCount} unsaved packs. Leave anyway?`,
+    );
+  }
 
   // ── Line helpers ────────────────────────────────────────────────────────────
 
@@ -2638,6 +2649,7 @@ export default function PackingDetailPage() {
       <FieldHeader
         title="Machine Detail"
         backHref={`/field/packing${dateQuery}`}
+        onBackAttempt={handleBackAttempt}
         rightAction={
           <Link
             href={`/field/shelf-view/${machineId}`}

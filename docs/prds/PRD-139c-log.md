@@ -107,3 +107,35 @@ change.
 No DB migration, no Cody review, no rollback file for this item (pure FE
 read-path change, not DDL/DEFINER/RLS, and the spec's Cody+rollback
 requirement names only items 1 and 2).
+
+### Item 4: pack screen in-app Back guard - DONE
+
+The PRD-139b Item 9 beforeunload warning only fires on a reload or closed
+tab, not on a Next.js client-side navigation, so the pack detail screen's
+own "Back" link (rendered by the shared FieldHeader component) could
+silently discard unsaved pack decisions. Added an optional onBackAttempt
+prop to FieldHeader: if provided, it runs on click of the Back link, and
+returning false cancels the navigation via e.preventDefault(). Left every
+other FieldHeader call site unchanged (prop is optional, default
+no-op).
+
+In the pack detail page, added handleBackAttempt(), the same unsaved-count
+check already used by the beforeunload effect (lines with action !== null,
+skipped entirely once saved is true), showing window.confirm with the
+exact message "You have N unsaved packs. Leave anyway?" and wired it to
+the loaded-state FieldHeader via onBackAttempt. The loading-state
+FieldHeader (lines are always empty while loading) is left without the
+guard since there is nothing to lose yet.
+
+Browser/OS-level back (history popstate) is out of scope here, matching
+the PRD's own wording ("in-app Back guard") and the existing PRD-139b-log
+note it resolves ("In-app Back-button guard deferred") - both refer to the
+app's own Back link, not browser chrome.
+
+npx tsc --noEmit clean. npx eslint on both modified files: zero new
+problems (one pre-existing, unrelated lint error on an unrelated
+fetchData() effect at line 1571 of the pack detail page, confirmed via
+git diff to be outside this change).
+
+No DB migration, no Cody review, no rollback file (pure FE change, not
+named in the spec's Cody+rollback requirement).
