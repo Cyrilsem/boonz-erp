@@ -71,3 +71,39 @@ supabase/rollbacks/prd139c_2_rollback.sql.
 
 Verified post-apply: anon_select, authenticated_select, and
 authenticated_insert all false on all 7 tables.
+
+### Item 3: Home KPI cards read v_machine_pack_status - DONE
+
+src/app/(field)/field/page.tsx's local machineStageCounts() re-derivation
+(fillable-basis + dispatch-dominance logic over raw refill_dispatching
+rows) is removed entirely for both the warehouse/admin branch and the
+driver branch. Both now query v_machine_pack_status directly for
+dispatch_date = today (machine_id, total_included, is_pack_complete,
+is_pickup_complete, is_dispatch_complete), filter to rows with
+total_included > 0 (machines with at least one included, non-cancelled
+line, matching the old include=true filter), and count is_pack_complete /
+is_pickup_complete / is_dispatch_complete directly. This is the same view
+and the same three booleans Packing, Pickup, and Dispatching already read
+(confirmed by reading those three pages' own queries before writing
+anything, not assumed).
+
+Daily Refills "Machines packed/picked up/dispatched" and the admin Field
+Operations "Ready to collect" / "To dispatch" cards all derive from this
+same shared result, so they move together automatically.
+
+Checked live against today's data: v_machine_pack_status gives 8 machines
+with total_included > 0, 8 packed, 8 picked up, 3 dispatched for today's
+dispatch_date. Cross-checked independently: a plain count of distinct
+machine_id in refill_dispatching with include=true and cancelled=false for
+today's date is also 8, matching total_included > 0's machine count
+exactly.
+
+npx tsc --noEmit clean. npx eslint on this file: zero problems. Full repo
+npm run lint has 151 pre-existing problems in unrelated files
+(PendingRemoveApprovalsPanel.tsx, WarehouseConfirmationsPanel.tsx,
+supabase/functions/evaluate-lifecycle/index.ts), none introduced by this
+change.
+
+No DB migration, no Cody review, no rollback file for this item (pure FE
+read-path change, not DDL/DEFINER/RLS, and the spec's Cody+rollback
+requirement names only items 1 and 2).

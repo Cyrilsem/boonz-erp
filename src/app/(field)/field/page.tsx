@@ -63,73 +63,24 @@ interface PodExpiryKpis {
   toValidate: number; // Active rows with current_stock <= 0 — driver needs to physically check
 }
 
-// Per-machine stats used by both warehouse and driver branches
-interface MachineStats {
-  total: number;
-  fillable: number;
-  packed: number;
-  pickedUp: number;
-  dispatched: number;
-}
-
-// PRD-087 / PRD-086 semantics for the Daily Refills counters:
-// · fillable = lines that can physically move (excludes not_filled, skipped,
-//   cancelled) — they never reach packed/dispatched, so they must not hold
-//   a machine below 100% (the 0/7-forever bug).
-// · stage monotonicity — a machine whose fillable lines are all DISPATCHED
-//   counts as packed and picked-up too, even if packing was only partially
-//   ticked (CS rule: dispatched wins).
-type DispatchKpiRow = {
+// PRD-139c Item 3: the Daily Refills / Ready to collect / To dispatch counts
+// read v_machine_pack_status directly (same object Packing, Pickup, and
+// Dispatching read from) instead of re-deriving stage completion locally.
+// total_included already excludes excluded/cancelled lines per machine.
+type PackStatusRow = {
   machine_id: string;
-  packed: boolean;
-  picked_up: boolean;
-  dispatched: boolean;
-  skipped: boolean | null;
-  cancelled: boolean | null;
-  pack_outcome: string | null;
-  not_filled_reason: string | null;
+  total_included: number;
+  is_pack_complete: boolean;
+  is_pickup_complete: boolean;
+  is_dispatch_complete: boolean;
 };
 
-function machineStageCounts(rows: DispatchKpiRow[]) {
-  const machineMap = new Map<string, MachineStats>();
-  for (const row of rows) {
-    if (row.cancelled) continue;
-    const m = machineMap.get(row.machine_id) ?? {
-      total: 0,
-      fillable: 0,
-      packed: 0,
-      pickedUp: 0,
-      dispatched: 0,
-    };
-    m.total++;
-    const inert =
-      !!row.skipped ||
-      row.pack_outcome === "not_filled" ||
-      row.not_filled_reason != null;
-    if (!inert) m.fillable++;
-    if (row.packed) m.packed++;
-    if (row.picked_up) m.pickedUp++;
-    if (row.dispatched) m.dispatched++;
-    machineMap.set(row.machine_id, m);
-  }
-  const machines = Array.from(machineMap.values());
-  const isDispatched = (m: MachineStats) =>
-    m.total > 0 && m.dispatched >= m.fillable;
-  return {
-    totalMachines: machines.length,
-    dispatchedMachines: machines.filter(isDispatched).length,
-    // dispatched dominates: fully-dispatched machines count as packed/picked
-    packedMachines: machines.filter(
-      (m) => (m.total > 0 && m.packed >= m.fillable) || isDispatched(m),
-    ).length,
-    pickedUpMachines: machines.filter(
-      (m) => (m.total > 0 && m.pickedUp >= m.fillable) || isDispatched(m),
-    ).length,
-  };
-}
+const PACK_STATUS_SELECT =
+  "machine_id, total_included, is_pack_complete, is_pickup_complete, is_dispatch_complete";
 
-const DISPATCH_KPI_SELECT =
-  "machine_id, packed, picked_up, dispatched, skipped, cancelled, pack_outcome, not_filled_reason";
+function machinesWithLinesToday(rows: PackStatusRow[] | null) {
+  return (rows ?? []).filter((r) => (r.total_included ?? 0) > 0);
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1140,7 +1091,7 @@ export default function FieldPage() {
         const todayPlus30 = addDays(today, 30);
 
         const [
-          { data: dispatchData },
+          { data: packStatusData },
           { count: expiredCount },
           { count: expiring3Count },
           { count: expiring7Count },
@@ -1156,10 +1107,10 @@ export default function FieldPage() {
           { count: pendingAdditionsCount },
         ] = await Promise.all([
           supabase
-            .from("refill_dispatching")
-            .select(DISPATCH_KPI_SELECT)
+            .from("v_machine_pack_status")
+            .select(PACK_STATUS_SELECT)
             .eq("dispatch_date", today)
-            .eq("include", true),
+            .limit(10000),
           supabase
             .from("warehouse_inventory")
             .select("wh_inventory_id", { count: "exact", head: true })
@@ -1225,13 +1176,19 @@ export default function FieldPage() {
             .eq("status", "pending_receive"),
         ]);
 
-        // Group by machine — PRD-086 fillable basis + dispatch dominance
-        const {
-          totalMachines,
-          packedMachines,
-          pickedUpMachines,
-          dispatchedMachines,
-        } = machineStageCounts((dispatchData ?? []) as DispatchKpiRow[]);
+        const packStatusRows = machinesWithLinesToday(
+          packStatusData as PackStatusRow[] | null,
+        );
+        const totalMachines = packStatusRows.length;
+        const packedMachines = packStatusRows.filter(
+          (r) => r.is_pack_complete,
+        ).length;
+        const pickedUpMachines = packStatusRows.filter(
+          (r) => r.is_pickup_complete,
+        ).length;
+        const dispatchedMachines = packStatusRows.filter(
+          (r) => r.is_dispatch_complete,
+        ).length;
 
         let lastControlDays: number | null = null;
         if (
@@ -1352,23 +1309,30 @@ export default function FieldPage() {
         }
       } else {
         // Driver KPIs
-        const [{ data: dispatchData }, { data: openTasksData }] =
+        const [{ data: packStatusData }, { data: openTasksData }] =
           await Promise.all([
             supabase
-              .from("refill_dispatching")
-              .select(DISPATCH_KPI_SELECT)
+              .from("v_machine_pack_status")
+              .select(PACK_STATUS_SELECT)
               .eq("dispatch_date", today)
-              .eq("include", true),
+              .limit(10000),
             supabase
               .from("driver_tasks")
               .select("task_id")
               .in("status", ["pending", "acknowledged"]),
           ]);
 
-        // Same machine-level counting as warehouse (PRD-086 fillable basis
-        // + dispatch dominance)
-        const { totalMachines, pickedUpMachines, dispatchedMachines } =
-          machineStageCounts((dispatchData ?? []) as DispatchKpiRow[]);
+        // PRD-139c Item 3: same canonical object as warehouse/admin branch.
+        const packStatusRows = machinesWithLinesToday(
+          packStatusData as PackStatusRow[] | null,
+        );
+        const totalMachines = packStatusRows.length;
+        const pickedUpMachines = packStatusRows.filter(
+          (r) => r.is_pickup_complete,
+        ).length;
+        const dispatchedMachines = packStatusRows.filter(
+          (r) => r.is_dispatch_complete,
+        ).length;
 
         setDriverKpis({
           stopsToday: totalMachines,
