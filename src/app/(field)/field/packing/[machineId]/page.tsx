@@ -1571,6 +1571,23 @@ export default function PackingDetailPage() {
     fetchData();
   }, [fetchData]);
 
+  // PRD-139b Item 9: pack decisions (Packed/Not filled/Skip/Partial/Mark all)
+  // only exist in local state until handleConfirmPacking writes them. A full
+  // immediate-write-per-tap (matching how Not filled and Skip already write) was
+  // too large a change for this item's time box, so this is the PRD's own
+  // documented fallback: warn before an unsaved pack is lost to a reload or
+  // closed tab. (In-app Back-button guard deferred, logged in PRD-139b-log.md.)
+  useEffect(() => {
+    const unsavedCount = lines.filter((l) => l.action !== null).length;
+    if (saved || unsavedCount === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [lines, saved]);
+
   // ── Line helpers ────────────────────────────────────────────────────────────
 
   function updateAction(dispatchId: string, action: LineAction) {
@@ -1668,6 +1685,13 @@ export default function PackingDetailPage() {
   function handleMarkAllPacked() {
     setLines((prev) =>
       prev.map((l) => {
+        // PRD-139b Item 9: only touch lines with no decided outcome yet. This
+        // previously mapped every line unconditionally, silently overwriting a
+        // line the packer had already marked Not filled / Skip / M2M-transferred
+        // / partial back to "packed".
+        if (l.action !== null) return l;
+        // M2M lines are born packed=true server-side; nothing to decide here.
+        if (l.is_m2m) return l;
         // ONE-LOOP-3 Job 1.5 (PRD-124 #11): a line whose pinned batch still
         // needs an expiry captured is left untouched by the bulk action --
         // it stays disabled until the packer saves a date on it directly.
@@ -1680,6 +1704,12 @@ export default function PackingDetailPage() {
         ) {
           return l;
         }
+        // "with picks available": a line with nothing allocated/in stock has
+        // nothing to mark packed.
+        const hasPicks = l.variantStocks
+          ? l.variantStocks.some((v) => v.stock > 0)
+          : l.allocations.length > 0 && l.recommended_qty > 0;
+        if (!hasPicks) return l;
         return {
           ...l,
           action: "packed" as LineAction,
@@ -2889,19 +2919,13 @@ export default function PackingDetailPage() {
               <span className="ml-3 text-neutral-500 dark:text-neutral-400">
                 {pk} packed
               </span>
-              {isPartial && skippedActive.length > 0 && (
-                <ul className="mt-2 space-y-0.5">
-                  {skippedActive.map((s) => (
-                    <li
-                      key={s.dispatch_id}
-                      className="text-xs text-amber-700 dark:text-amber-400"
-                    >
-                      {s.display_name}
-                      {s.skip_reason ? `: ${s.skip_reason}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {/* PRD-139b Item 9: this banner used to also list every skipped
+                  line inline, duplicating the dedicated "Skipped items" panel
+                  below (which shows the same lines with more detail and the
+                  Un-skip action) whenever both were visible at once -- the
+                  JET "Hunter Canister x4" duplicate report. That panel is now
+                  the single source for the skipped-line list; this banner
+                  only shows the summary count. */}
             </div>
           );
         })()}
