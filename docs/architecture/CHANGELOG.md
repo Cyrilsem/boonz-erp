@@ -3705,7 +3705,7 @@ branch already had, which would have blocked the postgres-SQL-editor manual-fix 
 rolled-back-transaction test before being reported done, fixed in a same-window follow-up
 migration. Verified live: field_staff self-promotion blocked, `preferred_language` update still
 works, postgres-SQL-editor manual role fix still works, `check_ambiguous_function_overloads()`
-clean. Cody ✅ (Articles 2, 3, 4, 12, 13, 14, 16 — self-reviewed under time pressure, see
+clean. Cody ✅ (Articles 2, 3, 4, 12, 13, 14, 16; self-reviewed under time pressure, see
 `docs/prds/PRD-139-log.md`).
 
 Migrations: `20261006043159_prd139_item1_user_profiles_role_guard.sql`,
