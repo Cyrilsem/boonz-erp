@@ -280,7 +280,9 @@ export default function SidebarNav({
         className="px-1 py-2"
         style={{ borderTop: "1px solid rgba(255,255,255,0.12)" }}
       >
-        <Link
+        {/* Plain <a>, not <Link>: Next prefetches <Link> hrefs on viewport
+            entry, which would GET /logout and sign the user out silently. */}
+        <a
           href="/logout"
           title="Sign out"
           className="flex items-center gap-3 px-3 py-2 mx-1 rounded text-sm transition-colors"
@@ -292,7 +294,7 @@ export default function SidebarNav({
           >
             Sign out
           </span>
-        </Link>
+        </a>
       </div>
     </aside>
   );

@@ -13,6 +13,20 @@ import { ROLE_COOKIE_NAME } from "@/lib/auth/role-cookie";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  // Never sign out on a prefetch. Next.js <Link> and browsers speculatively
+  // fetch hrefs in the viewport; treating those as a real logout wiped every
+  // user's session as soon as a Sign out control rendered (06 Oct 2026).
+  const h = request.headers;
+  if (
+    h.get("next-router-prefetch") === "1" ||
+    h.get("purpose") === "prefetch" ||
+    h.get("sec-purpose")?.includes("prefetch") ||
+    h.get("x-middleware-prefetch") === "1" ||
+    h.get("rsc") === "1"
+  ) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   try {
     const supabase = await createClient();
     await supabase.auth.signOut();

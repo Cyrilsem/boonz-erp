@@ -533,12 +533,12 @@ function WarehouseHome({
               {user.role.replace("_", " ")}
             </span>
           </div>
-          <Link
+          <a
             href="/logout"
             className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
           >
             Sign out
-          </Link>
+          </a>
         </div>
       </SectionCard>
 
@@ -1004,12 +1004,12 @@ function OperatorAdminHome({
               {user.role.replace("_", " ")}
             </span>
           </div>
-          <Link
+          <a
             href="/logout"
             className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
           >
             Sign out
-          </Link>
+          </a>
         </div>
       </SectionCard>
 
