@@ -109,3 +109,61 @@ server-side, UTC not Dubai.
   Full click-through app smoke test deferred to the Phase 5 gates section, where all
   roles are walked together.
 - Time used: about 35 minutes (within the 45 minute box).
+
+### Item 2B, fail-closed role checks on 15 named writers (DONE)
+
+- Fetched `pg_get_functiondef` for all 15 live before writing anything. Found three bug
+  classes, not the same bug everywhere:
+  - No role check at all: `pack_dispatch_line`, `return_dispatch_line`,
+    `driver_confirm_remove`, `repurpose_machine`.
+  - A role check that fails open when `auth.uid()` is NULL (wrapped in
+    `IF <uid> IS NOT NULL THEN ... END IF`, or a bare `role NOT IN (...)` where
+    `NULL NOT IN (...)` evaluates NULL, treated as false by PL/pgSQL's IF):
+    `repack_machine`, `skip_dispatch_line`, `confirm_machine_packed`,
+    `edit_dispatch_qty`, `record_actual_refill` (only when both `auth.uid()` and
+    `p_actor` are NULL), `wm_confirm_line`, `cancel_po_line`.
+  - A role check that trusts a client-supplied caller id over the session identity:
+    `set_product_mapping_splits` (looked up role by `p_caller_id` only, never checked
+    `auth.uid()` at all), `set_machine_status` and `wm_confirm_line` (both did
+    `COALESCE(p_caller, auth.uid())`, client value preferred first).
+  - `mark_picked_up` was already correct (explicit NULL check, correct role list
+    including field_staff). No change made to it.
+- Role-list deviations from the PRD's literal grouping, decided by checking the FE
+  first (same instruction the PRD gives for `set_product_mapping_splits`):
+  - `mark_picked_up` kept field_staff: confirmed via grep that `/field/pickup/page.tsx`
+    is the only caller, and that route is field_staff+warehouse+admin per this PRD's
+    own Item 3 route map.
+  - `skip_dispatch_line` had field_staff removed: confirmed via grep that
+    `/field/packing/[machineId]/page.tsx` is the only caller, a warehouse+admin-only
+    route per Item 3.
+- Cody: Verdict Approve. Articles checked 1, 4, 6, 8, 12.
+- Migrations `20261006053603_prd139b_2b_role_checks_part1.sql` (pack_dispatch_line,
+  repack_machine, skip_dispatch_line, confirm_machine_packed, edit_dispatch_qty,
+  receive_dispatch_line, return_dispatch_line, driver_confirm_remove) and
+  `20261006053835_prd139b_2b_role_checks_part2.sql` (record_actual_refill,
+  wm_confirm_line, cancel_po_line, set_product_mapping_splits, set_machine_status,
+  repurpose_machine). All `CREATE OR REPLACE` with unchanged signatures.
+- For `receive_dispatch_line` and `return_dispatch_line` the role check was inserted
+  as the very first statements inside `BEGIN`; the 2026-10-05/06 double-credit undo
+  guard and the `item_added=true` refusal guard are byte-for-byte unchanged below it,
+  verified by applying the new body in a rolled-back test transaction immediately
+  after writing it and reading it back.
+- Rollback files: `supabase/rollbacks/prd139b_2b_rollback_part1.sql`,
+  `..._part1b.sql`, `..._part2.sql` -- the exact pre-change body of every one of the
+  15 functions (not hand-reconstructed; copied from the `pg_get_functiondef` output
+  fetched before any edit).
+- Verified live after apply: `check_ambiguous_function_overloads()` returned
+  `ambiguous_overload_count: 0`.
+- Tested live (rolled-back transactions, impersonating real accounts):
+  - field_staff (Anthony) denied on `pack_dispatch_line` and `repurpose_machine`
+    (error contains "forbidden").
+  - warehouse (Simran) passes the role gate on `pack_dispatch_line` (error changes to
+    a downstream business error on the fake dispatch id, not "forbidden").
+  - field_staff passes the role gate on `receive_dispatch_line` (same downstream
+    pattern, confirming field_staff access was preserved there).
+  - Spoofing attempt: field_staff session calling `wm_confirm_line` with
+    `p_caller = <an operator_admin's uuid>` is still denied ("forbidden"), confirming
+    the caller-id-spoofing fix actually closes that hole and not just in theory.
+- Time used: about 75 minutes (over the 60 minute box; the investigation surfaced
+  three distinct bug classes across 15 functions rather than one uniform fix, which
+  took longer to verify correctly than a single find-and-replace would have).
