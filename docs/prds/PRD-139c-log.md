@@ -139,3 +139,36 @@ git diff to be outside this change).
 
 No DB migration, no Cody review, no rollback file (pure FE change, not
 named in the spec's Cody+rollback requirement).
+
+### Item 5: Machine Stock Expiry To validate toggle - DONE
+
+Confirmed before editing (not assumed) that the existing `to_validate`
+filter case is defined entirely over 0-unit rows (current_stock <= 0 AND
+past expiry - the ghost-row definition). Literally hiding 0-unit rows in
+that view by default would empty it completely, which is the exact
+conflict flagged in PRD-139b-log.md. The user's own resolution in this
+PRD-139c spec is the toggle, implemented as given, not re-litigated.
+
+Added a showZeroUnitRows state (default false). The to_validate filter
+branch now returns no rows unless the toggle is on; every other filter is
+untouched. A "Show 0-unit rows" checkbox renders only when the To
+validate pill is active, directly under the filter pills. The pill's own
+badge count (filterCounts.to_validate) is unaffected by the toggle, so the
+count is always visible even while the list itself defaults to hidden.
+
+The generic empty-state ("No items in this category / All clear for this
+range") would have been misleading here (rows exist, they are just
+hidden, not actually clear), so this exact case gets its own message:
+"N rows hidden / Check Show 0-unit rows above to validate them".
+
+npx tsc --noEmit clean. npx eslint on this file: zero problems.
+
+No DB migration, no Cody review, no rollback file (pure FE change, not
+named in the spec's Cody+rollback requirement).
+
+## PRD-139c item work complete
+
+All 5 items done. Phase 5-equivalent gates (accept criteria) run next:
+anon definer count after a real cron cycle, anon SELECT denied on all 7
+Item 2 tables, Home-vs-Pickup/Dispatching count parity for today, and the
+operator_admin/warehouse/field_staff smoke test.

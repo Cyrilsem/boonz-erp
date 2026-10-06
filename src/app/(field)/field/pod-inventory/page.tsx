@@ -288,6 +288,11 @@ function PodInventoryPageInner() {
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("expiry");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // PRD-139c Item 5: "To validate" rows are all 0-unit ghost rows by
+  // definition (see the `to_validate` case below), so hiding them by
+  // default would empty the whole pill. This toggle reveals them on
+  // demand instead of excluding them outright.
+  const [showZeroUnitRows, setShowZeroUnitRows] = useState(false);
 
   // Pending edits
   const [pendingEditIds, setPendingEditIds] = useState<Set<string>>(new Set());
@@ -550,6 +555,9 @@ function PodInventoryPageInner() {
           // ghost rows: status=Active, stock zeroed AND past expiry —
           // driver must verify. Empty slots with future/no expiry are
           // normal "awaiting refill" state and excluded.
+          // PRD-139c Item 5: hidden by default (every to_validate row is a
+          // 0-unit row), revealed via the "Show 0-unit rows" toggle.
+          if (!showZeroUnitRows) return false;
           return !hasStock && days !== null && days <= 0;
         case "all":
           // exclude ghosts from "all" — they're a separate concern (the pill)
@@ -589,7 +597,7 @@ function PodInventoryPageInner() {
         b.machines?.official_name ?? "—",
       );
     });
-  }, [rows, filter, search, sortField, sortDir]);
+  }, [rows, filter, search, sortField, sortDir, showZeroUnitRows]);
 
   // Filter counts (computed from all rows, ignoring current filter).
   // Stock-bearing rows feed the expiry pills; ghost rows (stock<=0) feed `to_validate`.
@@ -791,6 +799,20 @@ function PodInventoryPageInner() {
           })}
         </div>
 
+        {/* PRD-139c Item 5: To validate rows are all 0-unit ghost rows,
+            hidden by default. */}
+        {filter === "to_validate" && (
+          <label className="mb-3 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <input
+              type="checkbox"
+              checked={showZeroUnitRows}
+              onChange={(e) => setShowZeroUnitRows(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Show 0-unit rows
+          </label>
+        )}
+
         {/* Sort controls */}
         <div className="mb-3 flex items-center gap-1.5">
           <span className="shrink-0 text-xs text-neutral-400">Sort:</span>
@@ -861,14 +883,28 @@ function PodInventoryPageInner() {
         {/* Results */}
         {machineFiltered.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-8 text-center">
-            <p className="mb-3 text-4xl">✓</p>
+            <p className="mb-3 text-4xl">
+              {filter === "to_validate" &&
+              !showZeroUnitRows &&
+              filterCounts.to_validate > 0
+                ? "👁"
+                : "✓"}
+            </p>
             <p className="text-base font-medium text-neutral-600 dark:text-neutral-400">
-              No items in this category
+              {filter === "to_validate" &&
+              !showZeroUnitRows &&
+              filterCounts.to_validate > 0
+                ? `${filterCounts.to_validate} row${filterCounts.to_validate === 1 ? "" : "s"} hidden`
+                : "No items in this category"}
             </p>
             <p className="mt-1 text-sm text-neutral-500">
-              {search
-                ? "Try a different search term"
-                : "All clear for this range"}
+              {filter === "to_validate" &&
+              !showZeroUnitRows &&
+              filterCounts.to_validate > 0
+                ? "Check Show 0-unit rows above to validate them"
+                : search
+                  ? "Try a different search term"
+                  : "All clear for this range"}
             </p>
             {!search && filter !== "all" && rows.length > 0 && (
               <button
