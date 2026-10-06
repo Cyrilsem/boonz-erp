@@ -3675,7 +3675,7 @@ by the shared `occurred_at` timestamp within that one prior call), debits them b
 `returned`/`return_reason`, and only then runs the normal receive. Refuses with a clear message
 (no silent double-count) if the credited stock is no longer available in the warehouse.
 `return_dispatch_line` already had the requested defense-in-depth guard (refuses when
-`item_added = true`) — confirmed live, no change needed there. Cody ✅ (Articles 1, 4, 6, 8, 12).
+`item_added = true`), confirmed live, no change needed there. Cody ✅ (Articles 1, 4, 6, 8, 12).
 Finding flagged (non-blocking, pre-existing, relevant to PRD-139 Item 2): `receive_dispatch_line`
 has no caller-role validation anywhere. Tested by replaying the real sequence (pack, return "Not
 added to machine", receive 4 minutes later) in a rolled-back transaction: warehouse stock net 0,
@@ -3686,7 +3686,7 @@ file matches the live function exactly.
 
 Migration: `supabase/migrations/20261005162816_receive_dispatch_line_undo_return.sql` (+ rollback).
 
-**PRD-139 Item 1 — `user_profiles` role self-promotion fix.** Verified live (not assumed) that
+**PRD-139 Item 1, `user_profiles` role self-promotion fix.** Verified live (not assumed) that
 `authenticated` held full table-wide UPDATE/INSERT on `user_profiles` with zero column
 restriction and no guard trigger, so any authenticated session could run
 `update user_profiles set role='superadmin' where id=auth.uid()` and succeed. Fix: new
