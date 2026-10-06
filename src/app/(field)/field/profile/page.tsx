@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { FieldHeader } from "../../components/field-header";
 
@@ -11,7 +10,6 @@ interface Profile {
 }
 
 export default function ProfilePage() {
-  const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingOut, setSigningOut] = useState(false);
@@ -43,11 +41,10 @@ export default function ProfilePage() {
     load();
   }, []);
 
-  async function handleSignOut() {
+  function handleSignOut() {
     setSigningOut(true);
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
+    // /logout clears the Supabase session AND the signed boonz_role cookie.
+    window.location.assign("/logout");
   }
 
   if (loading) {

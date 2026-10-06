@@ -1,15 +1,10 @@
 "use client";
 
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
 
 export default function LogoutButton() {
-  const router = useRouter();
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
+  function handleSignOut() {
+    // /logout clears the Supabase session AND the signed boonz_role cookie.
+    window.location.assign("/logout");
   }
 
   return (

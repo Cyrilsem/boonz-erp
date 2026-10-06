@@ -114,6 +114,7 @@ export async function middleware(request: NextRequest) {
   // ── Public pass-through (cheap check FIRST, before any network call) ─────────
   const isPublic =
     path.startsWith("/login") ||
+    path === "/logout" ||
     path.startsWith("/reset-password") ||
     path.startsWith("/auth") ||
     path.startsWith("/_next") ||

@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getDubaiDate } from "@/lib/utils/date";
 import {
@@ -572,6 +571,26 @@ function WarehouseHome({
         </SectionCard>
       )}
 
+      {/* ── Profile / Sign out ── */}
+      <SectionCard title="Profile" linkTo="/field/profile" tourId="profile">
+        <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">
+              {user.full_name ?? "Warehouse"}
+            </p>
+            <span className="mt-0.5 inline-block rounded bg-neutral-200 px-1.5 py-0.5 text-xs capitalize text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+              {user.role.replace("_", " ")}
+            </span>
+          </div>
+          <Link
+            href="/logout"
+            className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+          >
+            Sign out
+          </Link>
+        </div>
+      </SectionCard>
+
       {/* Restart tour */}
       <div className="mt-2 pb-4 text-center">
         <button
@@ -598,12 +617,9 @@ function DriverHome({
   podKpis: PodExpiryKpis;
   onRestartTour: () => void;
 }) {
-  const router = useRouter();
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
+  function handleSignOut() {
+    // /logout clears the Supabase session AND the signed boonz_role cookie.
+    window.location.assign("/logout");
   }
 
   return (
@@ -1025,6 +1041,26 @@ function OperatorAdminHome({
           </div>
         </SectionCard>
       )}
+
+      {/* ── Profile / Sign out ── */}
+      <SectionCard title="Profile" linkTo="/field/profile" tourId="profile">
+        <div className="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">
+              {user.full_name ?? "Admin"}
+            </p>
+            <span className="mt-0.5 inline-block rounded bg-neutral-200 px-1.5 py-0.5 text-xs capitalize text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+              {user.role.replace("_", " ")}
+            </span>
+          </div>
+          <Link
+            href="/logout"
+            className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+          >
+            Sign out
+          </Link>
+        </div>
+      </SectionCard>
 
       {/* Restart tour */}
       <div className="mt-2 pb-4 text-center">

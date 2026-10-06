@@ -273,6 +273,25 @@ export default function SidebarNav({
           </div>
         ))}
       </nav>
+
+      {/* Sign out — one place, every admin role. /logout clears the Supabase
+          session and the signed boonz_role cookie, then lands on /login. */}
+      <div
+        className="px-1 py-2"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.12)" }}
+      >
+        <Link
+          href="/logout"
+          title="Sign out"
+          className="flex items-center gap-3 px-3 py-2 mx-1 rounded text-sm transition-colors"
+          style={{ color: "rgba(255,255,255,0.7)" }}
+        >
+          <span className="w-5 text-center shrink-0">⏻</span>
+          <span className={collapsed ? "hidden max-md:hidden" : "max-md:hidden"}>
+            Sign out
+          </span>
+        </Link>
+      </div>
     </aside>
   );
 }
